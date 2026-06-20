@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearch, useLocation, Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -23,7 +23,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil } from "lucide-react";
 
 const PROBLEM_TYPES: Record<string, string> = {
   p_median: "P-Median Facility Location",
@@ -100,6 +101,10 @@ export function Studio() {
   const [showScenarioDropdown, setShowScenarioDropdown] = useState(false);
   const [addingBand, setAddingBand] = useState(false);
   const [newBandValue, setNewBandValue] = useState("");
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newScenarioName, setNewScenarioName] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const debouncedConfig = useDebounce(localConfig, 700);
 
@@ -217,11 +222,16 @@ export function Studio() {
   };
 
   const handleCreateNew = () => {
-    if (!dataset) return;
+    setNewScenarioName(`Scenario ${(scenarios?.length ?? 0) + 1}`);
+    setShowCreateDialog(true);
+  };
+
+  const handleCreateConfirm = () => {
+    const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
     createScenario.mutate(
       {
         data: {
-          name: `Scenario ${(scenarios?.length ?? 0) + 1}`,
+          name,
           problemType: "p_median",
           pValue: 3,
           distanceBands: [200, 400, 800, 1600],
@@ -235,6 +245,7 @@ export function Studio() {
       },
       {
         onSuccess: (s) => {
+          setShowCreateDialog(false);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           navigate(`/?scenario=${s.id}`);
         },
@@ -378,7 +389,7 @@ export function Studio() {
             className={`h-8 text-xs ${hasErrors || isSolving ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-green-600 hover:bg-green-700 text-white"}`}
           >
             <PlayCircle className="w-3.5 h-3.5 mr-1" />
-            {isSolving ? "Solving..." : "Solve"}
+            {isSolving ? "Solving..." : (result && isDirty) ? "Re-solve" : "Solve"}
           </Button>
         </div>
       </header>
@@ -393,6 +404,32 @@ export function Studio() {
 
           {localConfig ? (
             <>
+              {/* Scenario name */}
+              <div className="px-3 py-3 border-b space-y-1">
+                <p className="text-xs font-semibold text-foreground">Scenario name</p>
+                {editingName ? (
+                  <Input
+                    ref={nameInputRef}
+                    value={localConfig.name}
+                    onChange={e => update("name", e.target.value)}
+                    onBlur={() => setEditingName(false)}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingName(false); }}
+                    className="h-7 text-xs"
+                    data-testid="input-scenario-name"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setEditingName(true); setTimeout(() => nameInputRef.current?.focus(), 0); }}
+                    className="w-full text-left text-xs px-2 py-1.5 rounded border border-border bg-muted/40 hover:bg-muted hover:border-primary/40 transition-colors flex items-center justify-between gap-1 group"
+                    data-testid="button-edit-name"
+                  >
+                    <span className="truncate text-foreground">{localConfig.name}</span>
+                    <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary flex-shrink-0" />
+                  </button>
+                )}
+              </div>
+
               {/* Problem type */}
               <div className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Problem type</p>
@@ -828,6 +865,45 @@ export function Studio() {
       {showScenarioDropdown && (
         <div className="fixed inset-0 z-40" onClick={() => setShowScenarioDropdown(false)} />
       )}
+
+      {/* Create scenario dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New scenario</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Scenario name</Label>
+              <Input
+                value={newScenarioName}
+                onChange={e => setNewScenarioName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateConfirm(); }}
+                placeholder="e.g. 5 Warehouses – West Coast"
+                className="text-sm"
+                autoFocus
+                data-testid="input-new-scenario-name"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Starts with P = 3, CBC solver, default settings. You can change everything in the configure panel.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreateConfirm}
+              disabled={createScenario.isPending}
+              data-testid="button-create-confirm"
+            >
+              {createScenario.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
