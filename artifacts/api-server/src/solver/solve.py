@@ -38,8 +38,8 @@ def solve(inp):
 
     prob = LpProblem("PMedian", LpMinimize)
 
-    assign_vars = LpVariable.dicts("A", [(w, c) for w in warehouses for c in customers_list], 0, 1)
-    facility_vars = LpVariable.dicts("Open", warehouses, 0, 1)
+    assign_vars = LpVariable.dicts("A", [(w, c) for w in warehouses for c in customers_list], 0, 1, cat='Binary')
+    facility_vars = LpVariable.dicts("Open", warehouses, 0, 1, cat='Binary')
 
     # Objective: minimize weighted distance
     prob += lpSum(CUSTOMERS[c]['demand'] * DISTANCE.get((w, c), 9999) * assign_vars[w, c]
