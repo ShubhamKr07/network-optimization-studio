@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, Marker, Pane } from "react-leaflet";
+import { useMemo, useState, useEffect } from "react";
+import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, Marker, Pane, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
@@ -48,6 +48,72 @@ const createTriangleIcon = (status: "potential" | "forced_open" | "inactive" | "
 const bandColors = ["#16A34A", "#84CC16", "#F59E0B", "#EF4444", "#DC2626"];
 const getBandColor = (band: number) => bandColors[Math.min(band, bandColors.length - 1)] ?? "#16A34A";
 
+function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
+  useMapEvents({ click: onDeselect });
+  return null;
+}
+
+interface PopupInfo {
+  lat: number;
+  lng: number;
+  customerCity: string;
+  customerState: string;
+  warehouseCity: string;
+  warehouseState: string;
+  distanceMi: number;
+  band: number;
+}
+
+function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const color = getBandColor(info.band);
+
+    const content = `
+      <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid #e2e8f0;padding-bottom:4px">
+          ${info.customerCity}, ${info.customerState}
+        </div>
+        <div style="margin-bottom:3px;color:#334155">
+          <span style="color:#64748b">Warehouse:</span>
+          <strong style="margin-left:4px">${info.warehouseCity}, ${info.warehouseState}</strong>
+        </div>
+        <div style="margin-bottom:3px;color:#334155">
+          <span style="color:#64748b">Distance:</span>
+          <strong style="margin-left:4px">${info.distanceMi.toLocaleString()} mi</strong>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;color:#334155">
+          <span style="color:#64748b">Band:</span>
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
+          <strong>Band ${info.band + 1}</strong>
+        </div>
+      </div>
+    `;
+
+    const popup = L.popup({
+      closeButton: true,
+      autoPan: false,
+      offset: [0, -4],
+    })
+      .setLatLng([info.lat, info.lng])
+      .setContent(content)
+      .openOn(map);
+
+    const handleClose = (e: L.PopupEvent) => {
+      if (e.popup === popup) onClose();
+    };
+    map.on("popupclose", handleClose);
+
+    return () => {
+      map.off("popupclose", handleClose);
+      map.closePopup(popup);
+    };
+  }, [info.customerCity, info.warehouseCity, info.distanceMi, info.band]);
+
+  return null;
+}
+
 interface NetworkMapProps {
   dataset: Dataset;
   warehouseStatuses: WarehouseStatusEntry[];
@@ -56,6 +122,8 @@ interface NetworkMapProps {
 }
 
 export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: NetworkMapProps) {
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+
   const { maxDemand, minDemand } = useMemo(() => {
     let max = 0;
     let min = Infinity;
@@ -77,6 +145,33 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
     return entry ? entry.status : "potential";
   };
 
+  const assignmentMap = useMemo(() => {
+    if (!result) return new Map<string, (typeof result.assignments)[number]>();
+    return new Map(result.assignments.map((a) => [a.customerId, a]));
+  }, [result]);
+
+  // Build popup info for the selected customer
+  const popupInfo = useMemo<PopupInfo | null>(() => {
+    if (!selectedCustomerId || !result) return null;
+    const assignment = assignmentMap.get(selectedCustomerId);
+    if (!assignment) return null;
+    const customer = dataset.customers.find((c) => c.id === selectedCustomerId);
+    const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+    if (!customer || !warehouse) return null;
+    return {
+      lat: customer.lat,
+      lng: customer.lng,
+      customerCity: customer.city,
+      customerState: customer.state,
+      warehouseCity: warehouse.city,
+      warehouseState: warehouse.state,
+      distanceMi: assignment.distanceMi,
+      band: assignment.band,
+    };
+  }, [selectedCustomerId, result, assignmentMap, dataset]);
+
+  const hasSelection = selectedCustomerId !== null && popupInfo !== null;
+
   return (
     <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
       <MapContainer
@@ -85,6 +180,15 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         className="w-full flex-1 z-0"
         zoomControl={false}
       >
+        <MapClickDeselect onDeselect={() => setSelectedCustomerId(null)} />
+
+        {popupInfo && (
+          <CustomerPopup
+            info={popupInfo}
+            onClose={() => setSelectedCustomerId(null)}
+          />
+        )}
+
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           attribution="CartoDB"
@@ -93,10 +197,13 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         {/* Route lines in a dedicated pane below customer circles (z-index 350) */}
         <Pane name="routePane" style={{ zIndex: 350 }}>
           {showRoutes &&
-            result?.assignments.map((assignment, i) => {
+            result?.assignments.map((assignment) => {
               const customer = dataset.customers.find((c) => c.id === assignment.customerId);
               const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
               if (!customer || !warehouse) return null;
+
+              const isSelected = assignment.customerId === selectedCustomerId;
+              const dimmed = hasSelection && !isSelected;
 
               return (
                 <Polyline
@@ -107,27 +214,39 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
                   ]}
                   pathOptions={{
                     color: getBandColor(assignment.band),
-                    weight: 2,
-                    opacity: 0.75,
+                    weight: isSelected ? 4 : 2,
+                    opacity: dimmed ? 0.12 : isSelected ? 1 : 0.75,
                   }}
                 />
               );
             })}
         </Pane>
 
-        {dataset.customers.map((c) => (
-          <CircleMarker
-            key={c.id}
-            center={[c.lat, c.lng]}
-            radius={scaleDemand(c.demand)}
-            pathOptions={{
-              fillColor: "#94A3B8",
-              fillOpacity: 0.7,
-              color: "#64748B",
-              weight: 1,
-            }}
-          />
-        ))}
+        {dataset.customers.map((c) => {
+          const assignment = assignmentMap.get(c.id);
+          const isSelected = c.id === selectedCustomerId;
+          const dimmed = hasSelection && !isSelected;
+
+          return (
+            <CircleMarker
+              key={c.id}
+              center={[c.lat, c.lng]}
+              radius={scaleDemand(c.demand)}
+              pathOptions={{
+                fillColor: isSelected ? getBandColor(assignment?.band ?? 0) : "#94A3B8",
+                fillOpacity: dimmed ? 0.2 : 0.8,
+                color: isSelected ? getBandColor(assignment?.band ?? 0) : "#64748B",
+                weight: isSelected ? 2.5 : 1,
+              }}
+              eventHandlers={{
+                click: (e) => {
+                  L.DomEvent.stopPropagation(e);
+                  setSelectedCustomerId((prev) => (prev === c.id ? null : c.id));
+                },
+              }}
+            />
+          );
+        })}
 
         {dataset.warehouses.map((w) => {
           const status = getStatus(w.id);
@@ -173,6 +292,11 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
                 <span className="text-[10px] text-muted-foreground">Band {i + 1}</span>
               </div>
             ))}
+          </div>
+        )}
+        {showRoutes && result && (
+          <div className="text-[10px] text-muted-foreground pt-0.5 italic">
+            Click a customer dot to inspect its route
           </div>
         )}
       </div>
