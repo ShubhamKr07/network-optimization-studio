@@ -304,7 +304,7 @@ export function Compare() {
                           
                           <div className={`p-3 border rounded-lg ${aUtil < bUtil ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50'}`}>
                             <h4 className={`font-semibold text-sm ${aUtil < bUtil ? 'text-amber-800' : 'text-slate-800'}`}>
-                              Avg utilization: {(bUtil*100).toFixed(1)}% → {(aUtil*100).toFixed(1)}%
+                              Avg utilization: {bUtil.toFixed(1)}% → {aUtil.toFixed(1)}%
                             </h4>
                           </div>
                         </>
