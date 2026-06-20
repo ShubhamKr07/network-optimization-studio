@@ -1,10 +1,10 @@
-import { useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, Marker } from "react-leaflet";
+import { useMemo } from "react";
+import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, Marker, Pane } from "react-leaflet";
 import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
-import type { Dataset, Assignment, WarehouseStatusEntry, SolveResult } from "@workspace/api-client-react";
+import type { Dataset, WarehouseStatusEntry, SolveResult } from "@workspace/api-client-react";
 
 delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -46,7 +46,7 @@ const createTriangleIcon = (status: "potential" | "forced_open" | "inactive" | "
 };
 
 const bandColors = ["#16A34A", "#84CC16", "#F59E0B", "#EF4444", "#DC2626"];
-const getBandColor = (band: number) => bandColors[Math.min(band, bandColors.length - 1)];
+const getBandColor = (band: number) => bandColors[Math.min(band, bandColors.length - 1)] ?? "#16A34A";
 
 interface NetworkMapProps {
   dataset: Dataset;
@@ -90,36 +90,42 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
           attribution="CartoDB"
         />
 
-        {showRoutes &&
-          result?.assignments.map((assignment, i) => {
-            const customer = dataset.customers.find((c) => c.id === assignment.customerId);
-            const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
-            if (!customer || !warehouse) return null;
+        {/* Route lines in a dedicated pane below customer circles (z-index 350) */}
+        <Pane name="routePane" style={{ zIndex: 350 }}>
+          {showRoutes &&
+            result?.assignments.map((assignment, i) => {
+              const customer = dataset.customers.find((c) => c.id === assignment.customerId);
+              const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+              if (!customer || !warehouse) return null;
 
-            return (
-              <Polyline
-                key={`route-${i}`}
-                positions={[
-                  [customer.lat, customer.lng],
-                  [warehouse.lat, warehouse.lng],
-                ]}
-                color={getBandColor(assignment.band)}
-                weight={1.5}
-                opacity={0.7}
-              />
-            );
-          })}
+              return (
+                <Polyline
+                  key={`route-${assignment.customerId}`}
+                  positions={[
+                    [customer.lat, customer.lng],
+                    [warehouse.lat, warehouse.lng],
+                  ]}
+                  pathOptions={{
+                    color: getBandColor(assignment.band),
+                    weight: 2,
+                    opacity: 0.75,
+                  }}
+                />
+              );
+            })}
+        </Pane>
 
         {dataset.customers.map((c) => (
           <CircleMarker
             key={c.id}
             center={[c.lat, c.lng]}
             radius={scaleDemand(c.demand)}
-            fillColor="#94A3B8"
-            fillOpacity={0.7}
-            stroke={true}
-            color="#64748B"
-            weight={1}
+            pathOptions={{
+              fillColor: "#94A3B8",
+              fillOpacity: 0.7,
+              color: "#64748B",
+              weight: 1,
+            }}
           />
         ))}
 
