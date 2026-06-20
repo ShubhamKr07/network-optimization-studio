@@ -348,8 +348,18 @@ export function Studio() {
           <Button
             variant="outline"
             size="sm"
+            onClick={handleCreateNew}
+            disabled={createScenario.isPending}
+            data-testid="button-create-scenario"
+            className="h-8 text-xs"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" /> New
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleClone}
-            disabled={!scenarioId}
+            disabled={!scenarioId || cloneScenario.isPending}
             data-testid="button-clone"
             className="h-8 text-xs"
           >
