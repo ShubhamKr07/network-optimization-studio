@@ -9,6 +9,7 @@ import {
   useSolveScenario,
   useCloneScenario,
   useCreateScenario,
+  useDeleteScenario,
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
 } from "@workspace/api-client-react";
@@ -24,7 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil } from "lucide-react";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2 } from "lucide-react";
 
 const PROBLEM_TYPES: Record<string, string> = {
   p_median: "P-Median Facility Location",
@@ -105,6 +106,9 @@ export function Studio() {
   const [newScenarioName, setNewScenarioName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const deleteScenario = useDeleteScenario();
 
   const debouncedConfig = useDebounce(localConfig, 700);
 
@@ -221,6 +225,26 @@ export function Studio() {
     );
   };
 
+  const handleDelete = (id: number) => {
+    deleteScenario.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: () => {
+          setConfirmDeleteId(null);
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          if (id === scenarioId) {
+            const remaining = (scenarios ?? []).filter(s => s.id !== id);
+            if (remaining.length > 0) {
+              navigate(`/?scenario=${remaining[0].id}`);
+            } else {
+              navigate("/");
+            }
+          }
+        },
+      }
+    );
+  };
+
   const handleCreateNew = () => {
     setNewScenarioName(`Scenario ${(scenarios?.length ?? 0) + 1}`);
     setShowCreateDialog(true);
@@ -326,18 +350,48 @@ export function Studio() {
           </button>
 
           {showScenarioDropdown && (
-            <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-border rounded-md shadow-lg z-50 py-1">
+            <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-border rounded-md shadow-lg z-50 py-1">
               {scenarios.map(s => (
-                <button
-                  key={s.id}
-                  data-testid={`button-scenario-${s.id}`}
-                  onClick={() => { navigate(`/?scenario=${s.id}`); setShowScenarioDropdown(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 ${s.id === scenarioId ? "text-primary font-medium" : "text-foreground"}`}
-                >
-                  {s.id === scenarioId && <Check className="w-3.5 h-3.5" />}
-                  <span className={s.id !== scenarioId ? "ml-5" : ""}>{s.name}</span>
-                  {s.result && <span className="ml-auto text-xs text-green-600">Solved</span>}
-                </button>
+                <div key={s.id} className="flex items-center group">
+                  {confirmDeleteId === s.id ? (
+                    <div className="flex-1 flex items-center gap-1 px-3 py-2 bg-red-50">
+                      <span className="text-xs text-red-700 flex-1">Delete "{s.name}"?</span>
+                      <button
+                        onClick={() => handleDelete(s.id)}
+                        disabled={deleteScenario.isPending}
+                        className="text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded"
+                      >
+                        {deleteScenario.isPending && confirmDeleteId === s.id ? "…" : "Delete"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="text-xs text-muted-foreground hover:text-foreground px-1 py-0.5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        data-testid={`button-scenario-${s.id}`}
+                        onClick={() => { navigate(`/?scenario=${s.id}`); setShowScenarioDropdown(false); setConfirmDeleteId(null); }}
+                        className={`flex-1 text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 min-w-0 ${s.id === scenarioId ? "text-primary font-medium" : "text-foreground"}`}
+                      >
+                        {s.id === scenarioId && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                        <span className={`truncate ${s.id !== scenarioId ? "ml-5" : ""}`}>{s.name}</span>
+                        {s.result && <span className="ml-auto text-xs text-green-600 flex-shrink-0">Solved</span>}
+                      </button>
+                      <button
+                        data-testid={`button-delete-scenario-${s.id}`}
+                        onClick={e => { e.stopPropagation(); setConfirmDeleteId(s.id); }}
+                        className="px-2 py-2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        title="Delete scenario"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               ))}
               <div className="border-t border-border mt-1 pt-1">
                 <button
