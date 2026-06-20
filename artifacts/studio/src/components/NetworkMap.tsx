@@ -13,7 +13,11 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const createTriangleIcon = (status: "potential" | "forced_open" | "inactive" | "open") => {
+const createTriangleIcon = (
+  status: "potential" | "forced_open" | "inactive" | "open",
+  highlighted = false,
+  dimmed = false,
+) => {
   let fill = "none";
   let stroke = "#64748B";
   let strokeWidth = "2";
@@ -21,8 +25,8 @@ const createTriangleIcon = (status: "potential" | "forced_open" | "inactive" | "
   let extraCircle = "";
 
   if (status === "open" || status === "forced_open") {
-    fill = "#16A34A";
-    stroke = "#16A34A";
+    fill = highlighted ? "#15803D" : "#16A34A";
+    stroke = highlighted ? "#15803D" : "#16A34A";
   } else if (status === "inactive") {
     stroke = "#DC2626";
     dash = 'stroke-dasharray="4"';
@@ -32,7 +36,16 @@ const createTriangleIcon = (status: "potential" | "forced_open" | "inactive" | "
     extraCircle = `<circle cx="12" cy="12" r="10" fill="none" stroke="#2D6CDF" stroke-width="1.5" stroke-dasharray="3" />`;
   }
 
-  const svg = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  const ringCircle = highlighted
+    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#FCD34D" stroke-width="2" />`
+    : "";
+
+  const opacity = dimmed ? 0.25 : 1;
+  const size = highlighted ? 32 : 24;
+  const anchor = highlighted ? 16 : 12;
+
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" opacity="${opacity}">
+    ${ringCircle}
     ${extraCircle}
     <polygon points="12,2 22,20 2,20" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} />
   </svg>`;
@@ -40,8 +53,8 @@ const createTriangleIcon = (status: "potential" | "forced_open" | "inactive" | "
   return L.divIcon({
     html: svg,
     className: "",
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    iconSize: [size, size],
+    iconAnchor: [anchor, anchor],
   });
 };
 
@@ -123,6 +136,7 @@ interface NetworkMapProps {
 
 export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: NetworkMapProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
 
   const { maxDemand, minDemand } = useMemo(() => {
     let max = 0;
@@ -150,6 +164,16 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
     return new Map(result.assignments.map((a) => [a.customerId, a]));
   }, [result]);
 
+  // Set of customer IDs assigned to the currently selected warehouse
+  const warehouseCustomerIds = useMemo(() => {
+    if (!selectedWarehouseId || !result) return null;
+    const ids = new Set<string>();
+    result.assignments.forEach((a) => {
+      if (a.warehouseId === selectedWarehouseId) ids.add(a.customerId);
+    });
+    return ids;
+  }, [selectedWarehouseId, result]);
+
   // Build popup info for the selected customer
   const popupInfo = useMemo<PopupInfo | null>(() => {
     if (!selectedCustomerId || !result) return null;
@@ -170,7 +194,36 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
     };
   }, [selectedCustomerId, result, assignmentMap, dataset]);
 
-  const hasSelection = selectedCustomerId !== null && popupInfo !== null;
+  const hasCustomerSelection = selectedCustomerId !== null && popupInfo !== null;
+  const hasWarehouseFilter = selectedWarehouseId !== null && warehouseCustomerIds !== null;
+
+  const handleDeselect = () => {
+    setSelectedCustomerId(null);
+    setSelectedWarehouseId(null);
+  };
+
+  const handleWarehouseClick = (whId: string, status: string, e: L.LeafletMouseEvent) => {
+    L.DomEvent.stopPropagation(e);
+    // Only filter by open/forced_open warehouses that have assignments
+    if (status !== "open" && status !== "forced_open") return;
+    setSelectedCustomerId(null);
+    setSelectedWarehouseId((prev) => (prev === whId ? null : whId));
+  };
+
+  // Determine if a customer is "in focus" based on the active selection mode
+  const isCustomerFocused = (customerId: string) => {
+    if (hasWarehouseFilter) return warehouseCustomerIds!.has(customerId);
+    if (hasCustomerSelection) return customerId === selectedCustomerId;
+    return true;
+  };
+
+  const anySelection = hasCustomerSelection || hasWarehouseFilter;
+
+  const hintText = (() => {
+    if (hasWarehouseFilter) return "Click warehouse again or map background to reset";
+    if (showRoutes && result) return "Click a warehouse ▲ to filter its customers · Click a customer dot to inspect its route";
+    return null;
+  })();
 
   return (
     <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
@@ -180,7 +233,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         className="w-full flex-1 z-0"
         zoomControl={false}
       >
-        <MapClickDeselect onDeselect={() => setSelectedCustomerId(null)} />
+        <MapClickDeselect onDeselect={handleDeselect} />
 
         {popupInfo && (
           <CustomerPopup
@@ -202,8 +255,8 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
               const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
               if (!customer || !warehouse) return null;
 
-              const isSelected = assignment.customerId === selectedCustomerId;
-              const dimmed = hasSelection && !isSelected;
+              const focused = isCustomerFocused(assignment.customerId);
+              const dimmed = anySelection && !focused;
 
               return (
                 <Polyline
@@ -214,8 +267,8 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
                   ]}
                   pathOptions={{
                     color: getBandColor(assignment.band),
-                    weight: isSelected ? 4 : 2,
-                    opacity: dimmed ? 0.12 : isSelected ? 1 : 0.75,
+                    weight: focused && hasCustomerSelection ? 4 : 2,
+                    opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
                   }}
                 />
               );
@@ -224,8 +277,16 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
 
         {dataset.customers.map((c) => {
           const assignment = assignmentMap.get(c.id);
-          const isSelected = c.id === selectedCustomerId;
-          const dimmed = hasSelection && !isSelected;
+          const focused = isCustomerFocused(c.id);
+          const dimmed = anySelection && !focused;
+          const isCustomerSelected = c.id === selectedCustomerId;
+          const isWarehouseHighlighted = hasWarehouseFilter && focused;
+
+          const fillColor = isCustomerSelected
+            ? getBandColor(assignment?.band ?? 0)
+            : isWarehouseHighlighted
+              ? getBandColor(assignment?.band ?? 0)
+              : "#94A3B8";
 
           return (
             <CircleMarker
@@ -233,14 +294,19 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
               center={[c.lat, c.lng]}
               radius={scaleDemand(c.demand)}
               pathOptions={{
-                fillColor: isSelected ? getBandColor(assignment?.band ?? 0) : "#94A3B8",
-                fillOpacity: dimmed ? 0.2 : 0.8,
-                color: isSelected ? getBandColor(assignment?.band ?? 0) : "#64748B",
-                weight: isSelected ? 2.5 : 1,
+                fillColor,
+                fillOpacity: dimmed ? 0.15 : 0.8,
+                color: isCustomerSelected
+                  ? getBandColor(assignment?.band ?? 0)
+                  : isWarehouseHighlighted
+                    ? getBandColor(assignment?.band ?? 0)
+                    : "#64748B",
+                weight: isCustomerSelected ? 2.5 : isWarehouseHighlighted ? 1.5 : 1,
               }}
               eventHandlers={{
                 click: (e) => {
                   L.DomEvent.stopPropagation(e);
+                  setSelectedWarehouseId(null);
                   setSelectedCustomerId((prev) => (prev === c.id ? null : c.id));
                 },
               }}
@@ -250,12 +316,28 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
 
         {dataset.warehouses.map((w) => {
           const status = getStatus(w.id);
+          const isOpen = status === "open" || status === "forced_open";
+          const isHighlighted = w.id === selectedWarehouseId;
+          const isDimmed = hasWarehouseFilter && !isHighlighted && isOpen;
+
           return (
-            <Marker key={w.id} position={[w.lat, w.lng]} icon={createTriangleIcon(status)}>
-              {status === "open" && (
+            <Marker
+              key={w.id}
+              position={[w.lat, w.lng]}
+              icon={createTriangleIcon(status, isHighlighted, isDimmed)}
+              eventHandlers={
+                isOpen
+                  ? {
+                      click: (e) => handleWarehouseClick(w.id, status, e),
+                    }
+                  : undefined
+              }
+            >
+              {isOpen && (
                 <Tooltip direction="top" offset={[0, -10]} opacity={1}>
                   <span className="font-semibold text-xs">
                     {w.city}, {w.state}
+                    {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.assignments.filter((a) => a.warehouseId === w.id).length)} customers` : ""}
                   </span>
                 </Tooltip>
               )}
@@ -294,9 +376,9 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
             ))}
           </div>
         )}
-        {showRoutes && result && (
+        {hintText && (
           <div className="text-[10px] text-muted-foreground pt-0.5 italic">
-            Click a customer dot to inspect its route
+            {hintText}
           </div>
         )}
       </div>
