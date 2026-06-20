@@ -145,6 +145,8 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     capacityMode: (scenario.capacityMode as "uniform" | "per_wh"),
     uniformCapacity: scenario.uniformCapacity ?? null,
     warehouseStatuses: scenario.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
+    gap: scenario.gap ?? 0,
+    timeLimitSec: scenario.timeLimitSec ?? 120,
   };
 
   const result = solve(input);
