@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OverlayMap } from "@/components/OverlayMap";
 import type { ScenarioMetrics, SolveResult, Scenario } from "@workspace/api-client-react";
 
@@ -50,10 +51,20 @@ export function Compare() {
   const bestObjective = Math.min(...metrics.map(m => m.objective));
   const bestUtilization = Math.max(...metrics.map(m => m.avgUtilization));
 
-  // Determine before and after scenarios for the overlay
-  // We'll pick the first two sorted by P value if available
-  const beforeScenarioMeta = solvedScenarios.length >= 2 ? solvedScenarios[0] : null;
-  const afterScenarioMeta = solvedScenarios.length >= 2 ? solvedScenarios[1] : null;
+  // Overlay scenario selection — default to first two by P value
+  const [beforeId, setBeforeId] = useState<number | null>(null);
+  const [afterId, setAfterId] = useState<number | null>(null);
+
+  // Set defaults once solved scenarios load
+  useEffect(() => {
+    if (solvedScenarios.length >= 2) {
+      setBeforeId(prev => prev ?? solvedScenarios[0].id);
+      setAfterId(prev => prev ?? solvedScenarios[1].id);
+    }
+  }, [solvedScenarios]);
+
+  const beforeScenarioMeta = solvedScenarios.find(s => s.id === beforeId) ?? (solvedScenarios[0] ?? null);
+  const afterScenarioMeta = solvedScenarios.find(s => s.id === afterId) ?? (solvedScenarios[1] ?? null);
 
   const formatDelta = (val: number, isImprovement: boolean) => {
     const sign = val > 0 ? "+" : "";
@@ -212,30 +223,72 @@ export function Compare() {
           <div className="p-8 text-center"><Skeleton className="w-full h-64" /></div>
         )}
 
-        {beforeScenarioMeta && afterScenarioMeta && beforeScenarioMeta.result && afterScenarioMeta.result && dataset && (
+        {solvedScenarios.length >= 2 && dataset && (
           <div className="mb-12">
-            <div className="mb-6">
+            <div className="mb-5">
               <h2 className="text-xl font-bold text-slate-900">Before / After Overlay</h2>
-              <p className="text-sm text-muted-foreground mt-1">Step 4 extra · how the network reshapes going from {beforeScenarioMeta.pValue} to {afterScenarioMeta.pValue} warehouses</p>
+              <p className="text-sm text-muted-foreground mt-1">Compare any two solved scenarios side by side</p>
             </div>
-            
+
+            {/* Scenario pickers */}
+            <div className="flex items-center gap-3 mb-5 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Before</span>
+                <Select
+                  value={String(beforeScenarioMeta?.id ?? "")}
+                  onValueChange={v => setBeforeId(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-xs w-52">
+                    <SelectValue placeholder="Select scenario" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {solvedScenarios.map(s => (
+                      <SelectItem key={s.id} value={String(s.id)} className="text-xs" disabled={s.id === afterScenarioMeta?.id}>
+                        {s.name} (P={s.pValue})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="text-muted-foreground text-sm">→</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">After</span>
+                <Select
+                  value={String(afterScenarioMeta?.id ?? "")}
+                  onValueChange={v => setAfterId(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-xs w-52">
+                    <SelectValue placeholder="Select scenario" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {solvedScenarios.map(s => (
+                      <SelectItem key={s.id} value={String(s.id)} className="text-xs" disabled={s.id === beforeScenarioMeta?.id}>
+                        {s.name} (P={s.pValue})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {beforeScenarioMeta?.result && afterScenarioMeta?.result && (
             <div className="grid grid-cols-3 gap-6">
               <div className="col-span-2 bg-white border rounded-xl shadow-sm flex flex-col h-[500px] overflow-hidden">
                 <div className="p-3 border-b flex justify-center bg-slate-50/50">
                   <div className="flex bg-slate-200/50 p-1 rounded-lg">
-                    <button 
+                    <button
                       className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all ${overlayMode === "before" ? "bg-white shadow-sm text-slate-900" : "text-slate-600 hover:text-slate-900"}`}
                       onClick={() => setOverlayMode("before")}
                     >
-                      Before ({beforeScenarioMeta.pValue} WH)
+                      Before
                     </button>
-                    <button 
+                    <button
                       className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all ${overlayMode === "after" ? "bg-white shadow-sm text-slate-900" : "text-slate-600 hover:text-slate-900"}`}
                       onClick={() => setOverlayMode("after")}
                     >
-                      After ({afterScenarioMeta.pValue} WH)
+                      After
                     </button>
-                    <button 
+                    <button
                       className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all ${overlayMode === "overlay" ? "bg-white shadow-sm text-slate-900" : "text-slate-600 hover:text-slate-900"}`}
                       onClick={() => setOverlayMode("overlay")}
                     >
@@ -314,6 +367,7 @@ export function Compare() {
                 </div>
               </div>
             </div>
+            )}
           </div>
         )}
       </div>
