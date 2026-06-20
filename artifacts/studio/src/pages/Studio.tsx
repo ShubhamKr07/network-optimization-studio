@@ -15,7 +15,6 @@ import {
 } from "@workspace/api-client-react";
 import type { WarehouseStatusEntry, Scenario } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
-import { useDebounce } from "@/hooks/use-debounce";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -25,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save } from "lucide-react";
 
 const PROBLEM_TYPES: Record<string, string> = {
   p_median: "P-Median Facility Location",
@@ -110,8 +109,6 @@ export function Studio() {
 
   const deleteScenario = useDeleteScenario();
 
-  const debouncedConfig = useDebounce(localConfig, 700);
-
   useEffect(() => {
     if (!scenarioId && scenarios && scenarios.length > 0) {
       navigate(`/?scenario=${scenarios[0].id}`, { replace: true });
@@ -131,20 +128,19 @@ export function Studio() {
     ? JSON.stringify(localConfig) !== JSON.stringify(savedConfig)
     : false;
 
-  useEffect(() => {
-    if (!debouncedConfig || !scenarioId || !savedConfig) return;
-    if (JSON.stringify(debouncedConfig) === JSON.stringify(savedConfig)) return;
+  const handleSave = useCallback(() => {
+    if (!localConfig || !scenarioId || !isDirty) return;
     updateScenario.mutate(
-      { scenarioId, data: debouncedConfig },
+      { scenarioId, data: localConfig },
       {
         onSuccess: () => {
-          setSavedConfig(debouncedConfig);
+          setSavedConfig(localConfig);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
         },
       }
     );
-  }, [debouncedConfig]);
+  }, [localConfig, scenarioId, isDirty, updateScenario, queryClient]);
 
   const update = useCallback(<K extends keyof LocalConfig>(key: K, value: LocalConfig[K]) => {
     setLocalConfig(prev => prev ? { ...prev, [key]: value } : prev);
@@ -327,7 +323,7 @@ export function Studio() {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* HEADER */}
-      <header className="h-14 border-b bg-white flex items-center px-4 gap-3 flex-shrink-0 z-20">
+      <header className="h-14 border-b bg-white flex items-center px-4 gap-3 flex-shrink-0 z-50 relative">
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-white font-bold text-sm flex-shrink-0">N</div>
           <div>
@@ -384,7 +380,7 @@ export function Studio() {
                       <button
                         data-testid={`button-delete-scenario-${s.id}`}
                         onClick={e => { e.stopPropagation(); setConfirmDeleteId(s.id); }}
-                        className="px-2 py-2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        className="px-2 py-2 text-muted-foreground hover:text-destructive opacity-40 hover:opacity-100 transition-opacity flex-shrink-0"
                         title="Delete scenario"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -429,6 +425,17 @@ export function Studio() {
             className="h-8 text-xs"
           >
             <Copy className="w-3.5 h-3.5 mr-1" /> Clone
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSave}
+            disabled={!isDirty || updateScenario.isPending}
+            data-testid="button-save"
+            className={`h-8 text-xs ${isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}`}
+          >
+            <Save className="w-3.5 h-3.5 mr-1" />
+            {updateScenario.isPending ? "Saving…" : "Save"}
           </Button>
           <Link href={`/compare?scenario=${scenarioId}`}>
             <Button variant="outline" size="sm" className="h-8 text-xs" data-testid="button-compare">
