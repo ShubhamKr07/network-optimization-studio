@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Network Optimization Studio"
+version = "1.0.0"
+id = "artifacts/studio"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18425
+
+[services.development]
+run = "pnpm --filter @workspace/studio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/studio", "run", "build" ]
+publicDir = "artifacts/studio/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18425"
+BASE_PATH = "/"

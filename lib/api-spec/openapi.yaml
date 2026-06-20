@@ -3,13 +3,18 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Network Optimization Studio API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dataset
+    description: Fixed dataset of warehouses and customers
+  - name: scenarios
+    description: Scenario management and optimization
+
 paths:
   /healthz:
     get:
@@ -24,6 +29,175 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dataset:
+    get:
+      operationId: getDataset
+      tags: [dataset]
+      summary: Get the fixed dataset
+      description: Returns all 26 warehouse candidates and 200 customers
+      responses:
+        "200":
+          description: Dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dataset"
+
+  /scenarios:
+    get:
+      operationId: listScenarios
+      tags: [scenarios]
+      summary: List all scenarios
+      responses:
+        "200":
+          description: List of scenarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scenario"
+    post:
+      operationId: createScenario
+      tags: [scenarios]
+      summary: Create a new scenario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScenarioInput"
+      responses:
+        "201":
+          description: Created scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+
+  /scenarios/{scenarioId}:
+    get:
+      operationId: getScenario
+      tags: [scenarios]
+      summary: Get a scenario by ID
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateScenario
+      tags: [scenarios]
+      summary: Update a scenario
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScenarioUpdate"
+      responses:
+        "200":
+          description: Updated scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteScenario
+      tags: [scenarios]
+      summary: Delete a scenario
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /scenarios/{scenarioId}/solve:
+    post:
+      operationId: solveScenario
+      tags: [scenarios]
+      summary: Run the optimization solver for a scenario
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Scenario with solve result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "404":
+          description: Not found
+        "422":
+          description: Validation errors prevent solving
+
+  /scenarios/{scenarioId}/clone:
+    post:
+      operationId: cloneScenario
+      tags: [scenarios]
+      summary: Clone a scenario (without result)
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Cloned scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "404":
+          description: Not found
+
+  /scenarios/compare:
+    post:
+      operationId: compareScenarios
+      tags: [scenarios]
+      summary: Compare multiple solved scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompareInput"
+      responses:
+        "200":
+          description: Comparison metrics for each scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompareResult"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +208,335 @@ components:
       required:
         - status
 
+    WarehouseCandidate:
+      type: object
+      properties:
+        id:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+      required: [id, city, state, lat, lng]
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        demand:
+          type: number
+      required: [id, lat, lng, demand]
+
+    Dataset:
+      type: object
+      properties:
+        warehouses:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseCandidate"
+        customers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+      required: [warehouses, customers]
+
+    WarehouseStatusEntry:
+      type: object
+      properties:
+        warehouseId:
+          type: string
+        status:
+          type: string
+          enum: [potential, forced_open, inactive]
+      required: [warehouseId, status]
+
+    BandCoverage:
+      type: object
+      properties:
+        band:
+          type: integer
+        percent:
+          type: number
+      required: [band, percent]
+
+    WarehouseUtilization:
+      type: object
+      properties:
+        warehouseId:
+          type: string
+        city:
+          type: string
+        utilization:
+          type: number
+      required: [warehouseId, city, utilization]
+
+    Assignment:
+      type: object
+      properties:
+        customerId:
+          type: string
+        warehouseId:
+          type: string
+        distanceMi:
+          type: number
+        band:
+          type: integer
+      required: [customerId, warehouseId, distanceMi, band]
+
+    SolveResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [optimal, infeasible, solving, error]
+        openWarehouseIds:
+          type: array
+          items:
+            type: string
+        assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Assignment"
+        objective:
+          type: number
+        weightedAvgDistanceMi:
+          type: number
+        bandCoverage:
+          type: array
+          items:
+            $ref: "#/components/schemas/BandCoverage"
+        utilization:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseUtilization"
+        runTimeSec:
+          type: number
+        solverUsed:
+          type: string
+        infeasibilityReason:
+          type: ["string", "null"]
+      required:
+        - status
+        - openWarehouseIds
+        - assignments
+        - objective
+        - weightedAvgDistanceMi
+        - bandCoverage
+        - utilization
+        - runTimeSec
+        - solverUsed
+        - infeasibilityReason
+
+    Scenario:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        problemType:
+          type: string
+          enum:
+            - p_median
+            - capacitated_flp
+            - max_coverage
+            - p_center
+            - set_cover
+        pValue:
+          type: integer
+        distanceBands:
+          type: array
+          items:
+            type: integer
+        solver:
+          type: string
+          enum: [cbc, highs, glpk, gurobi, scip]
+        gap:
+          type: number
+        timeLimitSec:
+          type: integer
+        capacityMode:
+          type: string
+          enum: [uniform, per_wh]
+        uniformCapacity:
+          type: ["integer", "null"]
+        warehouseStatuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseStatusEntry"
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/SolveResult"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - problemType
+        - pValue
+        - distanceBands
+        - solver
+        - gap
+        - timeLimitSec
+        - capacityMode
+        - uniformCapacity
+        - warehouseStatuses
+        - result
+        - createdAt
+        - updatedAt
+
+    ScenarioInput:
+      type: object
+      properties:
+        name:
+          type: string
+        problemType:
+          type: string
+          enum:
+            - p_median
+            - capacitated_flp
+            - max_coverage
+            - p_center
+            - set_cover
+        pValue:
+          type: integer
+          minimum: 1
+          maximum: 50
+        distanceBands:
+          type: array
+          items:
+            type: integer
+          minItems: 1
+        solver:
+          type: string
+          enum: [cbc, highs, glpk, gurobi, scip]
+        gap:
+          type: number
+          minimum: 0
+        timeLimitSec:
+          type: integer
+          minimum: 1
+        capacityMode:
+          type: string
+          enum: [uniform, per_wh]
+        uniformCapacity:
+          type: ["integer", "null"]
+        warehouseStatuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseStatusEntry"
+      required:
+        - name
+        - problemType
+        - pValue
+        - distanceBands
+        - solver
+        - gap
+        - timeLimitSec
+        - capacityMode
+        - uniformCapacity
+        - warehouseStatuses
+
+    ScenarioUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        problemType:
+          type: string
+          enum:
+            - p_median
+            - capacitated_flp
+            - max_coverage
+            - p_center
+            - set_cover
+        pValue:
+          type: integer
+          minimum: 1
+          maximum: 50
+        distanceBands:
+          type: array
+          items:
+            type: integer
+        solver:
+          type: string
+          enum: [cbc, highs, glpk, gurobi, scip]
+        gap:
+          type: number
+        timeLimitSec:
+          type: integer
+        capacityMode:
+          type: string
+          enum: [uniform, per_wh]
+        uniformCapacity:
+          type: ["integer", "null"]
+        warehouseStatuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseStatusEntry"
+
+    CompareInput:
+      type: object
+      properties:
+        scenarioIds:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+      required: [scenarioIds]
+
+    ScenarioMetrics:
+      type: object
+      properties:
+        scenarioId:
+          type: integer
+        name:
+          type: string
+        openSites:
+          type: array
+          items:
+            type: string
+        weightedAvgDistanceMi:
+          type: number
+        objective:
+          type: number
+        bandDemandPercent:
+          type: array
+          items:
+            $ref: "#/components/schemas/BandCoverage"
+        avgUtilization:
+          type: number
+        solverStatus:
+          type: string
+      required:
+        - scenarioId
+        - name
+        - openSites
+        - weightedAvgDistanceMi
+        - objective
+        - bandDemandPercent
+        - avgUtilization
+        - solverStatus
+
+    CompareResult:
+      type: object
+      properties:
+        scenarios:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScenarioMetrics"
+      required: [scenarios]

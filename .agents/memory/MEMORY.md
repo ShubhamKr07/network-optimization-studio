@@ -1,0 +1,2 @@
+- [Network Studio solver](solver-utilization.md) — utilization relative to avgDemandPerWH (TOTAL_DEMAND/P), not raw uniformCapacity, so non-binding constraints still show meaningful %.
+- [Network Studio stack](studio-stack.md) — key architecture decisions: TS solver, seeded scenarios, design tokens, generated hooks.
