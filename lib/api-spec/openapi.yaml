@@ -14,6 +14,8 @@ tags:
     description: Fixed dataset of warehouses and customers
   - name: scenarios
     description: Scenario management and optimization
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
 
 paths:
   /healthz:
@@ -198,8 +200,194 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompareResult"
 
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to the returnTo path on success or /api/login on failure.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogout
+      summary: Clear session and redirect to OIDC end-session
+      responses:
+        '302':
+          description: Redirect to OIDC end-session endpoint.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC auth code for a session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Token exchange successful.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
 components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — Bearer <sid>.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
   schemas:
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
     HealthStatus:
       type: object
       properties:
@@ -258,6 +446,21 @@ components:
           type: string
           enum: [potential, forced_open, inactive]
       required: [warehouseId, status]
+
+    TransportAssignment:
+      type: object
+      properties:
+        mineId:
+          type: string
+        stationId:
+          type: string
+        flowTons:
+          type: number
+        flowFraction:
+          type: number
+        distanceMi:
+          type: number
+      required: [mineId, stationId, flowTons, flowFraction, distanceMi]
 
     BandCoverage:
       type: object
@@ -326,12 +529,8 @@ components:
           type: ["string", "null"]
       required:
         - status
-        - openWarehouseIds
         - assignments
-        - objective
         - weightedAvgDistanceMi
-        - bandCoverage
-        - utilization
         - runTimeSec
         - solverUsed
         - infeasibilityReason
@@ -351,6 +550,7 @@ components:
             - max_coverage
             - p_center
             - set_cover
+            - transport
         pValue:
           type: integer
         distanceBands:
@@ -373,6 +573,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WarehouseStatusEntry"
+        capacityFactor:
+          type: number
+          default: 1.0
+        singleSource:
+          type: boolean
+          default: false
+        capacityInactive:
+          type: boolean
+          default: false
         result:
           oneOf:
             - $ref: "#/components/schemas/SolveResult"
@@ -412,6 +621,7 @@ components:
             - max_coverage
             - p_center
             - set_cover
+            - transport
         pValue:
           type: integer
           minimum: 1
@@ -464,6 +674,7 @@ components:
             - max_coverage
             - p_center
             - set_cover
+            - transport
         pValue:
           type: integer
           minimum: 1

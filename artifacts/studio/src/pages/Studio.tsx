@@ -29,6 +29,7 @@ import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Co
 
 const PROBLEM_TYPES: Record<string, string> = {
   p_median: "P-Median Facility Location",
+  transport: "Transportation LP (Chapter 5)",
   capacitated_flp: "Capacitated FLP",
   max_coverage: "Max Coverage",
   p_center: "P-Center",
@@ -36,6 +37,7 @@ const PROBLEM_TYPES: Record<string, string> = {
 };
 
 const CONSTRAINTS: Record<string, string[]> = {
+  transport: ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
   p_median: ["C1 Serve every customer", "C2 Open exactly P facilities", "C3 Respect capacity", "C4 Honor warehouse status", "C5 Route only to open facility"],
   capacitated_flp: ["C1 Serve every customer", "C2 Capacity constraint per facility", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimize fixed + transport cost"],
   max_coverage: ["C1 Open exactly P facilities", "C2 Coverage distance threshold", "C3 Honor warehouse status", "C4 Maximize demand within threshold", "C5 Binary assignment"],
@@ -57,6 +59,9 @@ interface LocalConfig {
   capacityMode: ScenarioUpdateCapacityMode;
   uniformCapacity: number | null;
   warehouseStatuses: WarehouseStatusEntry[];
+  capacityFactor: number;
+  singleSource: boolean;
+  capacityInactive: boolean;
 }
 
 function configFromScenario(s: Scenario): LocalConfig {
@@ -71,6 +76,9 @@ function configFromScenario(s: Scenario): LocalConfig {
     capacityMode: s.capacityMode,
     uniformCapacity: s.uniformCapacity ?? null,
     warehouseStatuses: [...s.warehouseStatuses],
+    capacityFactor: s.capacityFactor ?? 1.0,
+    singleSource: s.singleSource ?? false,
+    capacityInactive: s.capacityInactive ?? false,
   };
 }
 
@@ -339,7 +347,7 @@ export function Studio() {
           </div>
           <div>
             <div className="font-semibold text-sm leading-tight text-foreground" style={{ fontFamily: "var(--arc-display)" }}>Al's Athletics · Model Lab</div>
-            <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>Ch 3 · p-median · facility location</div>
+            <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>{currentScenario?.problemType === "transport" ? "Ch 5 · transport LP · coal mines → power stations" : "Ch 3 · p-median · facility location"}</div>
           </div>
         </div>
 
@@ -690,7 +698,49 @@ export function Studio() {
                 <p className="text-[10px] text-muted-foreground italic">Defined by the selected problem type.</p>
               </div>
 
-              {/* Warehouse status */}
+
+
+              {/* Transport LP controls — only for transport problem type */}
+              {localConfig.problemType === "transport" && (
+                <>
+                  <div className="px-3 py-3 border-b space-y-2">
+                    <p className="text-xs font-semibold text-foreground">Mine capacity factor</p>
+                    <div className="flex items-center gap-2">
+                      <Slider
+                        min={0.5} max={2.0} step={0.05}
+                        value={[localConfig.capacityFactor]}
+                        onValueChange={([v]) => update("capacityFactor", v)}
+                        className="flex-1"
+                      />
+                      <span className="text-xs font-mono w-10 text-right">{localConfig.capacityFactor.toFixed(2)}×</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">1.0 = base capacity. 1.1 = +10% slack allows cheaper routing.</p>
+                  </div>
+                  <div className="px-3 py-3 border-b space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-foreground">Single-source</p>
+                      <Switch
+                        checked={localConfig.singleSource}
+                        onCheckedChange={v => update("singleSource", v)}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Forces each station to receive coal from exactly one mine (integer program). Raises avg distance.</p>
+                  </div>
+                  <div className="px-3 py-3 border-b space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-foreground">Ignore capacity</p>
+                      <Switch
+                        checked={localConfig.capacityInactive}
+                        onCheckedChange={v => update("capacityInactive", v)}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Removes mine capacity constraints — lowest possible cost (best-case routing).</p>
+                  </div>
+                </>
+              )}
+
+              {/* Warehouse status — P-Median only */}
+              {localConfig.problemType !== "transport" && (
               <div className="px-3 py-3 space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse status</p>
                 {dataset?.warehouses.map(wh => {
@@ -718,6 +768,7 @@ export function Studio() {
                   );
                 })}
               </div>
+              )}
             </>
           ) : (
             <div className="p-3 space-y-2">
@@ -732,7 +783,9 @@ export function Studio() {
             <div className="px-3 py-2 border-b flex items-center justify-between flex-shrink-0">
               <div>
                 <p className="text-sm font-semibold text-foreground">{activeTab === "output" && result ? "Optimized network" : "Input network"}</p>
-                <p className="text-xs text-muted-foreground">{activeTab === "output" && result ? `${result.openWarehouseIds.length} open sites · ${result.assignments.length} customers` : `26 warehouse candidates · ${dataset?.customers.length ?? 0} customers`}</p>
+                <p className="text-xs text-muted-foreground">{currentScenario?.problemType === "transport"
+                  ? (activeTab === "output" && result ? `${result.assignments.length} active flows` : "4 mines · 15 power stations")
+                  : (activeTab === "output" && result ? `${(result as any).openWarehouseIds?.length ?? 0} open sites · ${result.assignments.length} customers` : `26 warehouse candidates · ${dataset?.customers.length ?? 0} customers`)}</p>
               </div>
               <div className="flex items-center gap-3">
                 {result && (
@@ -819,10 +872,29 @@ export function Studio() {
                     </p>
                   </div>
 
-                  {/* Band coverage */}
+                  {/* Transport flow table — shown when transport LP */}
+                  {currentScenario?.problemType === "transport" ? (
+                    <div className="px-3 py-3 space-y-2">
+                      <p className="text-xs font-semibold text-foreground">Flow assignments (mine → station)</p>
+                      <div className="space-y-1 max-h-64 overflow-y-auto">
+                        {result.assignments.map((a: any) => (
+                          <div key={`${a.warehouseId}-${a.customerId}`} className="flex items-center justify-between text-[10px] py-0.5 border-b border-border/40">
+                            <span className="text-muted-foreground font-mono">{a.warehouseId} → {a.customerId}</span>
+                            <div className="flex gap-2 text-right">
+                              <span className="text-foreground">{(a.flowTons / 1_000_000).toFixed(1)}Mt</span>
+                              <span className="text-primary font-semibold">{(a.flowFraction * 100).toFixed(0)}%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">Mt = million tons. % = fraction of mine output.</p>
+                    </div>
+                  ) : (
+                  <>
+                  {/* Band coverage — P-Median only */}
                   <div className="px-3 py-3 border-b space-y-2">
                     <p className="text-xs font-semibold text-foreground">Demand served within band</p>
-                    {result.bandCoverage.map((bc, i) => (
+                    {(result as any).bandCoverage?.map((bc: any, i: number) => (
                       <div key={bc.band} className="space-y-0.5" data-testid={`result-band-${bc.band}`}>
                         <div className="flex justify-between">
                           <span className="text-[10px] text-muted-foreground">&lt; {bc.band.toLocaleString()} mi</span>
@@ -835,13 +907,13 @@ export function Studio() {
                     ))}
                   </div>
 
-                  {/* Utilization */}
+                  {/* Utilization — P-Median only */}
                   <div className="px-3 py-3 space-y-2">
                     <div className="flex items-center gap-1">
                       <p className="text-xs font-semibold text-foreground">Open warehouses · utilization</p>
                       <Badge variant="outline" className="text-[9px] border-[#7C3AED]/30 bg-[#7C3AED]/5 text-[#7C3AED] px-1 py-0">violet</Badge>
                     </div>
-                    {result.utilization.map(u => (
+                    {(result as any).utilization?.map((u: any) => (
                       <div key={u.warehouseId} className="space-y-0.5" data-testid={`result-util-${u.warehouseId}`}>
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-1">
@@ -856,6 +928,8 @@ export function Studio() {
                       </div>
                     ))}
                   </div>
+                  </>
+                  )}
                 </>
               )}
             </>

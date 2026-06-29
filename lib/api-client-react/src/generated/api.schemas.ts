@@ -5,6 +5,48 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+export interface AuthUser {
+  id: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  /** @nullable */
+  profileImageUrl: string | null;
+}
+
+export interface AuthUserEnvelope {
+  user: AuthUser | null;
+}
+
+export interface MobileTokenExchangeRequest {
+  /** @minLength 1 */
+  code: string;
+  /** @minLength 1 */
+  code_verifier: string;
+  /** @minLength 1 */
+  redirect_uri: string;
+  /** @minLength 1 */
+  state: string;
+  /** @minLength 1 */
+  nonce?: string;
+}
+
+export interface MobileTokenExchangeSuccess {
+  token: string;
+}
+
+export const LogoutSuccessValue = {
+  success: true,
+} as const;
+export type LogoutSuccess = typeof LogoutSuccessValue;
+
+export interface ErrorEnvelope {
+  error: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -43,6 +85,14 @@ export interface WarehouseStatusEntry {
   status: WarehouseStatusEntryStatus;
 }
 
+export interface TransportAssignment {
+  mineId: string;
+  stationId: string;
+  flowTons: number;
+  flowFraction: number;
+  distanceMi: number;
+}
+
 export interface BandCoverage {
   band: number;
   percent: number;
@@ -73,12 +123,12 @@ export const SolveResultStatus = {
 
 export interface SolveResult {
   status: SolveResultStatus;
-  openWarehouseIds: string[];
+  openWarehouseIds?: string[];
   assignments: Assignment[];
-  objective: number;
+  objective?: number;
   weightedAvgDistanceMi: number;
-  bandCoverage: BandCoverage[];
-  utilization: WarehouseUtilization[];
+  bandCoverage?: BandCoverage[];
+  utilization?: WarehouseUtilization[];
   runTimeSec: number;
   solverUsed: string;
   /** @nullable */
@@ -94,6 +144,7 @@ export const ScenarioProblemType = {
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
+  transport: 'transport',
 } as const;
 
 export type ScenarioSolver = typeof ScenarioSolver[keyof typeof ScenarioSolver];
@@ -128,6 +179,9 @@ export interface Scenario {
   /** @nullable */
   uniformCapacity: number | null;
   warehouseStatuses: WarehouseStatusEntry[];
+  capacityFactor?: number;
+  singleSource?: boolean;
+  capacityInactive?: boolean;
   result: SolveResult | null;
   createdAt: string;
   updatedAt: string;
@@ -142,6 +196,7 @@ export const ScenarioInputProblemType = {
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
+  transport: 'transport',
 } as const;
 
 export type ScenarioInputSolver = typeof ScenarioInputSolver[keyof typeof ScenarioInputSolver];
@@ -193,6 +248,7 @@ export const ScenarioUpdateProblemType = {
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
+  transport: 'transport',
 } as const;
 
 export type ScenarioUpdateSolver = typeof ScenarioUpdateSolver[keyof typeof ScenarioUpdateSolver];
@@ -251,4 +307,19 @@ export interface ScenarioMetrics {
 export interface CompareResult {
   scenarios: ScenarioMetrics[];
 }
+
+/**
+ * Opaque session token — Bearer <sid>.
+ */
+export type AuthorizationSessionHeaderParameter = string;
+
+export type BeginBrowserLoginParams = {
+returnTo?: string;
+};
+
+export type HandleBrowserLoginCallbackParams = {
+code?: string;
+state?: string;
+iss?: string;
+};
 
