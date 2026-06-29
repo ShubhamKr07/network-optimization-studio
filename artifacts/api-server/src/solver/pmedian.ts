@@ -14,6 +14,31 @@ export interface SolveInput {
   warehouseStatuses: Array<{ warehouseId: string; status: string }>;
   gap?: number;
   timeLimitSec?: number;
+  solver?: string;
+  // Chapter 5 transport LP fields
+  modelType?: "p_median" | "transport";
+  capacityFactor?: number;
+  singleSource?: boolean;
+  capacityInactive?: boolean;
+}
+
+export interface SolverInfo {
+  id: string;
+  name: string;
+  available: boolean;
+}
+
+export function listSolvers(): SolverInfo[] {
+  const result = spawnSync("python3", [SOLVER_PY, "--list-solvers"], {
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  if (result.error || result.status !== 0) return [];
+  try {
+    return JSON.parse(result.stdout) as SolverInfo[];
+  } catch {
+    return [];
+  }
 }
 
 export interface Assignment {
@@ -56,6 +81,11 @@ export function solve(input: SolveInput): SolveOutput {
     warehouseStatuses: input.warehouseStatuses,
     gap: input.gap ?? 0,
     timeLimitSec: input.timeLimitSec ?? 120,
+    solver: input.solver ?? "cbc",
+    modelType: input.modelType ?? "p_median",
+    capacityFactor: input.capacityFactor ?? 1.0,
+    singleSource: input.singleSource ?? false,
+    capacityInactive: input.capacityInactive ?? false,
   });
 
   const result = spawnSync("python3", [SOLVER_PY], {

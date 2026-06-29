@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, real, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, boolean, jsonb, timestamp } from "drizzle-orm/pg-core";
 
 export const scenariosTable = pgTable("scenarios", {
   id: serial("id").primaryKey(),
@@ -12,6 +12,10 @@ export const scenariosTable = pgTable("scenarios", {
   capacityMode: text("capacity_mode").notNull().default("uniform"),
   uniformCapacity: integer("uniform_capacity"),
   warehouseStatuses: jsonb("warehouse_statuses").notNull().default([]).$type<Array<{ warehouseId: string; status: string }>>(),
+  // Chapter 5 transport LP fields
+  capacityFactor: real("capacity_factor").notNull().default(1.0),
+  singleSource: boolean("single_source").notNull().default(false),
+  capacityInactive: boolean("capacity_inactive").notNull().default(false),
   result: jsonb("result").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

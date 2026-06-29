@@ -20,6 +20,9 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
     capacityMode: row.capacityMode,
     uniformCapacity: row.uniformCapacity ?? null,
     warehouseStatuses: row.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
+    capacityFactor: row.capacityFactor ?? 1.0,
+    singleSource: row.singleSource ?? false,
+    capacityInactive: row.capacityInactive ?? false,
     result: row.result ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -44,6 +47,9 @@ router.post("/scenarios", async (req, res) => {
     capacityMode: body.capacityMode ?? "uniform",
     uniformCapacity: body.uniformCapacity ?? null,
     warehouseStatuses: body.warehouseStatuses ?? [],
+    capacityFactor: body.capacityFactor ?? 1.0,
+    singleSource: body.singleSource ?? false,
+    capacityInactive: body.capacityInactive ?? false,
     result: null,
   }).returning();
   res.status(201).json(toApiScenario(row));
@@ -118,6 +124,9 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   if (body.capacityMode !== undefined) updateObj.capacityMode = body.capacityMode;
   if ("uniformCapacity" in body) updateObj.uniformCapacity = body.uniformCapacity;
   if (body.warehouseStatuses !== undefined) updateObj.warehouseStatuses = body.warehouseStatuses;
+  if (body.capacityFactor !== undefined) updateObj.capacityFactor = body.capacityFactor;
+  if (body.singleSource !== undefined) updateObj.singleSource = body.singleSource;
+  if (body.capacityInactive !== undefined) updateObj.capacityInactive = body.capacityInactive;
   if (body.result !== undefined) updateObj.result = body.result;
 
   const [row] = await db.update(scenariosTable)
@@ -147,6 +156,11 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     warehouseStatuses: scenario.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
     gap: scenario.gap ?? 0,
     timeLimitSec: scenario.timeLimitSec ?? 120,
+    solver: scenario.solver,
+    modelType: scenario.problemType as "p_median" | "transport",
+    capacityFactor: scenario.capacityFactor ?? 1.0,
+    singleSource: scenario.singleSource ?? false,
+    capacityInactive: scenario.capacityInactive ?? false,
   };
 
   const result = solve(input);
@@ -175,6 +189,9 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
     capacityMode: scenario.capacityMode,
     uniformCapacity: scenario.uniformCapacity,
     warehouseStatuses: scenario.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
+    capacityFactor: scenario.capacityFactor ?? 1.0,
+    singleSource: scenario.singleSource ?? false,
+    capacityInactive: scenario.capacityInactive ?? false,
     result: null,
   }).returning();
 

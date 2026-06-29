@@ -15,5 +15,8 @@
   },
   "dependencies": {
     "@replit/connectors-sdk": "^0.4.1"
+  },
+  "optionalDependencies": {
+    "@esbuild/darwin-arm64": "0.27.3"
   }
 }
