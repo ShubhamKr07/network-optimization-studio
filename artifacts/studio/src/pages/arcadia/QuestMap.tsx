@@ -1,4 +1,5 @@
 import { useLocation } from "wouter";
+import { useListScenarios } from "@workspace/api-client-react";
 import { useGamification } from "@/context/GamificationContext";
 
 interface QuestNode {
@@ -9,6 +10,7 @@ interface QuestNode {
   status: "done" | "open" | "locked";
   stars?: number;
   scenarioId?: number;
+  problemType?: string;
   icon: string;
   prerequisite?: string;
   prerequisiteMinStars?: number;
@@ -38,7 +40,7 @@ const TRACKS: Track[] = [
     trackNum: "Track 01",
     nodes: [
       { id: "fl1", title: "Center of Gravity", sub: "CH 3 · warm-up", xp: 300, status: "done", stars: 3, icon: STAR_ICON },
-      { id: "fl2", title: "Al's Athletics", sub: "CH 3 · p-median", xp: 450, status: "open", stars: 0, icon: LAB_ICON, scenarioId: 1, prerequisite: "fl1" },
+      { id: "fl2", title: "Al's Athletics", sub: "CH 3 · p-median", xp: 450, status: "open", stars: 0, icon: LAB_ICON, scenarioId: 1, problemType: "p_median", prerequisite: "fl1" },
     ],
   },
   {
@@ -47,7 +49,7 @@ const TRACKS: Track[] = [
     trackNum: "Track 02",
     prerequisiteTrack: "facility_location",
     nodes: [
-      { id: "fc1", title: "Coal Transport LP", sub: "CH 5 · transport", xp: 450, status: "locked", icon: FLOW_ICON, scenarioId: 2, prerequisite: "fl2", prerequisiteMinStars: 2 },
+      { id: "fc1", title: "Coal Transport LP", sub: "CH 5 · transport", xp: 450, status: "locked", icon: FLOW_ICON, scenarioId: 2, problemType: "transport", prerequisite: "fl2", prerequisiteMinStars: 2 },
       { id: "fc2", title: "Brazil Capacity", sub: "CH 5 · capacitated", xp: 500, status: "locked", icon: CAP_ICON, prerequisite: "fc1" },
     ],
   },
@@ -127,6 +129,7 @@ function QuestNodeCard({ node, onOpen }: { node: QuestNode; onOpen: () => void }
 export function QuestMap() {
   const { setView, setActiveQuest, state } = useGamification();
   const [, navigate] = useLocation();
+  const { data: scenarios } = useListScenarios();
 
   const solvedNodeIds = new Set<string>();
   const solvedScenarioIds = new Set(Object.keys(state.solvedScenarios).map(Number));
@@ -184,9 +187,12 @@ export function QuestMap() {
     if (node.scenarioId) {
       setActiveQuest(node.scenarioId);
     }
-    // Navigate to the Lab root — Studio auto-selects the first available scenario
-    navigate("/");
     setView("lab");
+    // Find the first scenario matching this quest's problem type and navigate to it
+    const match = node.problemType
+      ? scenarios?.find(s => s.problemType === node.problemType)
+      : scenarios?.[0];
+    navigate(match ? `/?scenario=${match.id}` : "/");
   };
 
   return (
