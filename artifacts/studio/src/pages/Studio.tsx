@@ -121,17 +121,21 @@ export function Studio() {
 
   useEffect(() => {
     if (!scenarios || scenarios.length === 0) return;
-    // No scenario selected → pick the first one
+    // Pick the first scenario whose problemType matches the active quest.
+    // Quest ID 2 = transport, everything else = p_median.
+    // This ensures "Lab" nav, Dashboard buttons, and QuestMap fallbacks all
+    // land on the right model type even when no ?scenario= param is present.
+    const questType = activeQuestId === 2 ? "transport" : "p_median";
+    const preferred = scenarios.find(s => s.problemType === questType) ?? scenarios[0];
     if (!scenarioId) {
-      navigate(`/?scenario=${scenarios[0].id}`, { replace: true });
+      navigate(`/?scenario=${preferred.id}`, { replace: true });
       return;
     }
-    // Scenario ID in URL doesn't exist in the list → fall back to first
     const exists = scenarios.some(s => s.id === scenarioId);
     if (!exists) {
-      navigate(`/?scenario=${scenarios[0].id}`, { replace: true });
+      navigate(`/?scenario=${preferred.id}`, { replace: true });
     }
-  }, [scenarios, scenarioId, navigate]);
+  }, [scenarios, scenarioId, navigate, activeQuestId]);
 
   useEffect(() => {
     if (scenarioFromApi) {
@@ -337,7 +341,8 @@ export function Studio() {
   }
 
   const currentScenario = scenarioFromApi ?? scenarios.find(s => s.id === scenarioId) ?? scenarios[0];
-  const { setActiveQuest } = useGamification();
+  const { setActiveQuest, state: gamState } = useGamification();
+  const activeQuestId = gamState.activeQuestId;
   useEffect(() => {
     const pt = currentScenario?.problemType;
     setActiveQuest(pt === "transport" ? 2 : 1);
