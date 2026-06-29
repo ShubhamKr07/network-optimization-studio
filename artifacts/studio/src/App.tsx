@@ -5,6 +5,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Studio } from "@/pages/Studio";
 import { Compare } from "@/pages/Compare";
+import { GamificationProvider } from "@/context/GamificationContext";
+import { ArcadiaShell } from "@/components/ArcadiaShell";
 
 const queryClient = new QueryClient();
 
@@ -22,10 +24,14 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
+        <GamificationProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <ArcadiaShell>
+              <Router />
+            </ArcadiaShell>
+          </WouterRouter>
+          <Toaster />
+        </GamificationProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
