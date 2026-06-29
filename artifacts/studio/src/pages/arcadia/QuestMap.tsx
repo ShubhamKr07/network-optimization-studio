@@ -55,6 +55,9 @@ const TRACKS: Track[] = [
   },
 ];
 
+// Flat node lookup used for prerequisite resolution
+const ALL_NODES = TRACKS.flatMap(t => t.nodes);
+
 function StarDisplay({ count, max = 3 }: { count: number; max?: number }) {
   return (
     <div style={{ fontSize: "11px", letterSpacing: "1px", color: "var(--arc-amber)", marginTop: "4px", height: "14px" }}>
@@ -67,7 +70,6 @@ function QuestNodeCard({ node, onOpen }: { node: QuestNode; onOpen: () => void }
   const isDone = node.status === "done";
   const isOpen = node.status === "open";
   const isLocked = node.status === "locked";
-  // Model nodes (with a scenarioId) are always launchable
   const isLaunchable = isOpen || (isLocked && !!node.scenarioId);
 
   const dotStyle: React.CSSProperties = {
@@ -131,67 +133,81 @@ export function QuestMap() {
   const [, navigate] = useLocation();
   const { data: scenarios } = useListScenarios();
 
-  const solvedNodeIds = new Set<string>();
-  const solvedScenarioIds = new Set(Object.keys(state.solvedScenarios).map(Number));
+  // FIX 1: Build problemType → best stars map using real DB IDs from solvedScenarios
+  // This avoids the ID mismatch where quest slot IDs (1,2) never matched DB IDs (5,7,8...)
+  const solvedStarsByType: Record<string, number> = {};
+  if (scenarios) {
+    for (const [dbIdStr, solved] of Object.entries(state.solvedScenarios)) {
+      const sc = scenarios.find(s => s.id === Number(dbIdStr));
+      if (sc?.problemType) {
+        solvedStarsByType[sc.problemType] = Math.max(
+          solvedStarsByType[sc.problemType] ?? 0,
+          solved.stars
+        );
+      }
+    }
+  }
 
-  const getPrerequisiteStars = (nodeId: string): number => {
-    const allNodes = TRACKS.flatMap(t => t.nodes);
-    const node = allNodes.find(n => n.id === nodeId);
-    if (!node?.scenarioId) return node?.stars ?? 0;
-    return state.solvedScenarios[node.scenarioId]?.stars ?? (node.status === "done" ? 3 : 0);
-  };
-
+  // FIX 2: Status resolution keyed on problemType, not scenarioId slot numbers
   const resolveNodeStatuses = (): Map<string, "done" | "open" | "locked"> => {
     const statusMap = new Map<string, "done" | "open" | "locked">();
 
     for (const track of TRACKS) {
       for (const node of track.nodes) {
-        const isSolvedByScenario = node.scenarioId ? solvedScenarioIds.has(node.scenarioId) : false;
-        const baseStatus = node.status;
+        const isDoneByType = node.problemType
+          ? node.problemType in solvedStarsByType
+          : false;
 
-        if (baseStatus === "done" || isSolvedByScenario) {
+        if (node.status === "done" || isDoneByType) {
           statusMap.set(node.id, "done");
-          solvedNodeIds.add(node.id);
-        } else if (baseStatus === "open") {
-          const prereqMet = !node.prerequisite || solvedNodeIds.has(node.prerequisite) || statusMap.get(node.prerequisite ?? "") === "done";
+        } else if (node.status === "open") {
+          const prereqMet = !node.prerequisite || statusMap.get(node.prerequisite) === "done";
           statusMap.set(node.id, prereqMet ? "open" : "locked");
         } else {
-          const prereqDone = node.prerequisite
-            ? (solvedNodeIds.has(node.prerequisite) || statusMap.get(node.prerequisite) === "done")
-            : false;
-          const starsMet = node.prerequisite && node.prerequisiteMinStars
-            ? getPrerequisiteStars(node.prerequisite) >= node.prerequisiteMinStars
-            : true;
-          if (prereqDone && starsMet) {
-            statusMap.set(node.id, "open");
-          } else {
-            statusMap.set(node.id, "locked");
+          // locked base — unlock when prerequisite done AND stars met
+          const prereqDone = !node.prerequisite || statusMap.get(node.prerequisite) === "done";
+
+          // FIX 3: Get prerequisite stars via its problemType, not its scenarioId slot
+          let prereqStars = 0;
+          if (node.prerequisite) {
+            const prereqNode = ALL_NODES.find(n => n.id === node.prerequisite);
+            if (prereqNode?.problemType) {
+              prereqStars = solvedStarsByType[prereqNode.problemType] ?? 0;
+            } else {
+              prereqStars = prereqNode?.stars ?? 0;
+            }
           }
+          const starsMet = node.prerequisiteMinStars ? prereqStars >= node.prerequisiteMinStars : true;
+
+          statusMap.set(node.id, prereqDone && starsMet ? "open" : "locked");
         }
       }
     }
-
     return statusMap;
   };
 
   const nodeStatuses = resolveNodeStatuses();
 
   const getNodeStars = (node: QuestNode): number | undefined => {
-    if (node.scenarioId && state.solvedScenarios[node.scenarioId]) {
-      return state.solvedScenarios[node.scenarioId].stars;
+    if (node.problemType && node.problemType in solvedStarsByType) {
+      return solvedStarsByType[node.problemType];
     }
     return node.stars;
   };
 
+  // FIX 4: Navigate to first scenario matching problemType; guard against unloaded scenarios
   const handleNodeOpen = (node: QuestNode) => {
     if (node.scenarioId) {
       setActiveQuest(node.scenarioId);
     }
     setView("lab");
-    // Find the first scenario matching this quest's problem type and navigate to it
+    if (!scenarios?.length) {
+      navigate("/");
+      return;
+    }
     const match = node.problemType
-      ? scenarios?.find(s => s.problemType === node.problemType)
-      : scenarios?.[0];
+      ? scenarios.find(s => s.problemType === node.problemType)
+      : scenarios[0];
     navigate(match ? `/?scenario=${match.id}` : "/");
   };
 
