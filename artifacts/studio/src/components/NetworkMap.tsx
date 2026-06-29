@@ -4,9 +4,9 @@ import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
-import type { Dataset, WarehouseStatusEntry, SolveResult } from "@workspace/api-client-react";
+import type { Dataset, WarehouseStatusEntry, SolveResult, Assignment } from "@workspace/api-client-react";
 
-delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconUrl: markerIcon,
   iconRetinaUrl: markerIcon2x,
@@ -160,7 +160,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
   };
 
   const assignmentMap = useMemo(() => {
-    if (!result) return new Map<string, (typeof result.assignments)[number]>();
+    if (!result) return new Map<string, Assignment>();
     return new Map(result.assignments.map((a) => [a.customerId, a]));
   }, [result]);
 
@@ -185,8 +185,8 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
     return {
       lat: customer.lat,
       lng: customer.lng,
-      customerCity: customer.city,
-      customerState: customer.state,
+      customerCity: (customer as unknown as { city?: string }).city ?? "",
+      customerState: (customer as unknown as { state?: string }).state ?? "",
       warehouseCity: warehouse.city,
       warehouseState: warehouse.state,
       distanceMi: assignment.distanceMi,
