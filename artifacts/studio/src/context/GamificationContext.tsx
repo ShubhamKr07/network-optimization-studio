@@ -61,6 +61,7 @@ function reducer(state: GamificationState, action: Action): GamificationState {
     case "SET_VIEW":
       return { ...state, activeView: action.view };
     case "SET_QUEST":
+      if (state.activeQuestId === action.questId) return state;
       return { ...state, activeQuestId: action.questId };
     case "AWARD_XP": {
       const today = new Date().toISOString().slice(0, 10);

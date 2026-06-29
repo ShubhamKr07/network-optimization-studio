@@ -341,7 +341,9 @@ export function Studio() {
   useEffect(() => {
     const pt = currentScenario?.problemType;
     setActiveQuest(pt === "transport" ? 2 : 1);
-  }, [currentScenario?.problemType, setActiveQuest]);
+  // setActiveQuest is not memoized; only re-run when problemType changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentScenario?.problemType]);
 
   return (
     <div className="arcadia-lab flex flex-col h-full overflow-hidden bg-background">
