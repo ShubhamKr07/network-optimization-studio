@@ -39,6 +39,14 @@ const baseInput = {
   timeLimitSec: 120,
 };
 
+const transportInput = {
+  ...baseInput,
+  modelType: "transport" as const,
+  capacityFactor: 1.1,
+  singleSource: true,
+  capacityInactive: false,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -166,5 +174,114 @@ describe("solve()", () => {
     for (const key of requiredKeys) {
       expect(result).toHaveProperty(key);
     }
+  });
+
+  it("defaults modelType to p_median when not provided", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve(baseInput);
+
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.modelType).toBe("p_median");
+  });
+
+  it("defaults capacityFactor to 1.0, singleSource to false, capacityInactive to false", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve(baseInput);
+
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.capacityFactor).toBe(1.0);
+    expect(payload.singleSource).toBe(false);
+    expect(payload.capacityInactive).toBe(false);
+  });
+});
+
+describe("solve() — transport LP", () => {
+  const transportOutput = {
+    status: "optimal",
+    openWarehouseIds: [],
+    assignments: [
+      { customerId: "STN1", warehouseId: "MINE1", distanceMi: 450, band: 0, flowTons: 7000000, flowFraction: 1.0 },
+      { customerId: "STN2", warehouseId: "MINE2", distanceMi: 800, band: 1, flowTons: 4000000, flowFraction: 0.5 },
+    ],
+    objective: 50840650000,
+    weightedAvgDistanceMi: 696.4,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 0.3,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("passes modelType=transport and all transport fields to Python stdin", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(transportOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve(transportInput);
+
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.modelType).toBe("transport");
+    expect(payload.capacityFactor).toBe(1.1);
+    expect(payload.singleSource).toBe(true);
+    expect(payload.capacityInactive).toBe(false);
+  });
+
+  it("returns transport solver output with flow assignments intact", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(transportOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve(transportInput);
+    expect(result.status).toBe("optimal");
+    expect(result.objective).toBe(50840650000);
+    expect(result.weightedAvgDistanceMi).toBe(696.4);
+    expect(result.assignments).toHaveLength(2);
+  });
+
+  it("transport assignment entries carry flowTons and flowFraction", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(transportOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve(transportInput);
+    const first = result.assignments[0] as Record<string, unknown>;
+    expect(first.flowTons).toBe(7000000);
+    expect(first.flowFraction).toBe(1.0);
+    expect(first.warehouseId).toBe("MINE1");
+    expect(first.customerId).toBe("STN1");
+  });
+
+  it("returns error output when transport solver fails", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "transport model infeasible",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve(transportInput);
+    expect(result.status).toBe("error");
+    expect(result.infeasibilityReason).toContain("transport model infeasible");
   });
 });

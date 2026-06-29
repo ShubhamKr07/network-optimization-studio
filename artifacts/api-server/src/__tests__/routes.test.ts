@@ -24,6 +24,9 @@ vi.mock("@workspace/db", () => ({
     capacityMode: "capacity_mode",
     uniformCapacity: "uniform_capacity",
     warehouseStatuses: "warehouse_statuses",
+    capacityFactor: "capacity_factor",
+    singleSource: "single_source",
+    capacityInactive: "capacity_inactive",
     result: "result",
     createdAt: "created_at",
     updatedAt: "updated_at",
@@ -65,9 +68,22 @@ const baseRow = {
   capacityMode: "uniform",
   uniformCapacity: null,
   warehouseStatuses: [],
+  capacityFactor: 1.0,
+  singleSource: false,
+  capacityInactive: false,
   result: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z"),
+};
+
+const transportRow = {
+  ...baseRow,
+  id: 8,
+  name: "Coal Base Case",
+  problemType: "transport",
+  capacityFactor: 1.0,
+  singleSource: false,
+  capacityInactive: false,
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -292,5 +308,110 @@ describe("POST /api/scenarios/compare", () => {
     expect(res.body.scenarios[0].openSites).toContain("Los Angeles");
     expect(res.body.scenarios[0].avgUtilization).toBe(91);
     expect(res.body.scenarios[1].avgUtilization).toBe(74); // round((72+85+64)/3)
+  });
+});
+
+// ── Transport LP fields ───────────────────────────────────────────────────────
+
+describe("transport scenario — field serialization", () => {
+  it("GET /api/scenarios returns capacityFactor, singleSource, capacityInactive for transport row", async () => {
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).get("/api/scenarios");
+    expect(res.status).toBe(200);
+    const s = res.body[0];
+    expect(s.problemType).toBe("transport");
+    expect(s.capacityFactor).toBe(1.0);
+    expect(s.singleSource).toBe(false);
+    expect(s.capacityInactive).toBe(false);
+  });
+
+  it("GET /api/scenarios/:id returns transport fields", async () => {
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).get("/api/scenarios/8");
+    expect(res.status).toBe(200);
+    expect(res.body.capacityFactor).toBe(1.0);
+    expect(res.body.singleSource).toBe(false);
+    expect(res.body.capacityInactive).toBe(false);
+  });
+
+  it("POST /api/scenarios stores transport fields from body", async () => {
+    const created = { ...transportRow, id: 9, capacityFactor: 1.1, singleSource: true };
+    mockDb.insert.mockReturnValue(makeChain([created]));
+    const res = await request(app).post("/api/scenarios").send({
+      name: "Coal +10%",
+      problemType: "transport",
+      pValue: 1,
+      distanceBands: [500, 1000, 2000],
+      solver: "cbc",
+      gap: 0,
+      timeLimitSec: 120,
+      capacityMode: "uniform",
+      uniformCapacity: null,
+      warehouseStatuses: [],
+      capacityFactor: 1.1,
+      singleSource: true,
+      capacityInactive: false,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.capacityFactor).toBe(1.1);
+    expect(res.body.singleSource).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id updates capacityFactor and singleSource", async () => {
+    const updated = { ...transportRow, capacityFactor: 1.1, singleSource: true };
+    mockDb.update.mockReturnValue(makeChain([updated]));
+    const res = await request(app).patch("/api/scenarios/8").send({
+      capacityFactor: 1.1,
+      singleSource: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.capacityFactor).toBe(1.1);
+    expect(res.body.singleSource).toBe(true);
+  });
+});
+
+describe("POST /api/scenarios/:id/solve — transport", () => {
+  const transportSolverResult = {
+    status: "optimal",
+    openWarehouseIds: [],
+    assignments: [
+      { customerId: "STN1", warehouseId: "MINE1", distanceMi: 450, band: 0, flowTons: 7000000, flowFraction: 1.0 },
+    ],
+    objective: 50840650000,
+    weightedAvgDistanceMi: 696.4,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 0.3,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("passes transport fields to the solver", async () => {
+    const row = { ...transportRow, capacityFactor: 1.1, singleSource: true, capacityInactive: false };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    mockDb.update.mockReturnValue(makeChain([{ ...row, result: transportSolverResult }]));
+    mockSolveFn.mockReturnValue(transportSolverResult);
+
+    const res = await request(app).post("/api/scenarios/8/solve");
+    expect(res.status).toBe(200);
+
+    const solveCall = mockSolveFn.mock.calls[0][0] as Record<string, unknown>;
+    expect(solveCall.modelType).toBe("transport");
+    expect(solveCall.capacityFactor).toBe(1.1);
+    expect(solveCall.singleSource).toBe(true);
+    expect(solveCall.capacityInactive).toBe(false);
+  });
+
+  it("returns transport flow assignments in result", async () => {
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    mockDb.update.mockReturnValue(makeChain([{ ...transportRow, result: transportSolverResult }]));
+    mockSolveFn.mockReturnValue(transportSolverResult);
+
+    const res = await request(app).post("/api/scenarios/8/solve");
+    expect(res.status).toBe(200);
+    expect(res.body.result.status).toBe("optimal");
+    expect(res.body.result.objective).toBe(50840650000);
+    expect(res.body.result.assignments).toHaveLength(1);
+    expect(res.body.result.assignments[0].flowTons).toBe(7000000);
   });
 });
