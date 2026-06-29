@@ -13,8 +13,9 @@ import {
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
 } from "@workspace/api-client-react";
-import type { WarehouseStatusEntry, Scenario } from "@workspace/api-client-react";
+import type { WarehouseStatusEntry, Scenario, ScenarioUpdateProblemType, ScenarioUpdateSolver, ScenarioUpdateCapacityMode } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
+import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -47,13 +48,13 @@ const getBandColor = (i: number) => BAND_COLORS[Math.min(i, BAND_COLORS.length -
 
 interface LocalConfig {
   name: string;
-  problemType: string;
+  problemType: ScenarioUpdateProblemType;
   pValue: number;
   distanceBands: number[];
-  solver: string;
+  solver: ScenarioUpdateSolver;
   gap: number;
   timeLimitSec: number;
-  capacityMode: string;
+  capacityMode: ScenarioUpdateCapacityMode;
   uniformCapacity: number | null;
   warehouseStatuses: WarehouseStatusEntry[];
 }
@@ -110,7 +111,15 @@ export function Studio() {
   const deleteScenario = useDeleteScenario();
 
   useEffect(() => {
-    if (!scenarioId && scenarios && scenarios.length > 0) {
+    if (!scenarios || scenarios.length === 0) return;
+    // No scenario selected → pick the first one
+    if (!scenarioId) {
+      navigate(`/?scenario=${scenarios[0].id}`, { replace: true });
+      return;
+    }
+    // Scenario ID in URL doesn't exist in the list → fall back to first
+    const exists = scenarios.some(s => s.id === scenarioId);
+    if (!exists) {
       navigate(`/?scenario=${scenarios[0].id}`, { replace: true });
     }
   }, [scenarios, scenarioId, navigate]);
@@ -321,14 +330,16 @@ export function Studio() {
   const currentScenario = scenarioFromApi ?? scenarios.find(s => s.id === scenarioId) ?? scenarios[0];
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
+    <div className="arcadia-lab flex flex-col h-full overflow-hidden bg-background">
       {/* HEADER */}
       <header className="h-14 border-b bg-white flex items-center px-4 gap-3 flex-shrink-0 z-50 relative">
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-white font-bold text-sm flex-shrink-0">N</div>
+          <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0" style={{ background: "rgba(87,208,201,.15)", color: "var(--arc-cyan)", border: "1px solid rgba(87,208,201,.3)" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M8 3h8M7 15h10"/></svg>
+          </div>
           <div>
-            <div className="font-semibold text-sm leading-tight text-foreground">Network Optimization Studio</div>
-            <div className="text-xs text-muted-foreground leading-tight">Configure &amp; validate before solving</div>
+            <div className="font-semibold text-sm leading-tight text-foreground" style={{ fontFamily: "var(--arc-display)" }}>Al's Athletics · Model Lab</div>
+            <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>Ch 3 · p-median · facility location</div>
           </div>
         </div>
 
@@ -455,6 +466,9 @@ export function Studio() {
         </div>
       </header>
 
+      {/* OBJECTIVE BAR */}
+      <ObjectiveBar pValue={pValue} result={result} scenarioId={scenarioId} />
+
       {/* THREE PANELS */}
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT PANEL — CONFIGURE */}
@@ -494,7 +508,7 @@ export function Studio() {
               {/* Problem type */}
               <div className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Problem type</p>
-                <Select value={localConfig.problemType} onValueChange={v => update("problemType", v)}>
+                <Select value={localConfig.problemType} onValueChange={v => update("problemType", v as ScenarioUpdateProblemType)}>
                   <SelectTrigger className="h-8 text-xs" data-testid="select-problem-type">
                     <SelectValue />
                   </SelectTrigger>
@@ -596,7 +610,7 @@ export function Studio() {
               {/* Solver */}
               <div className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Solver</p>
-                <Select value={localConfig.solver} onValueChange={v => update("solver", v)}>
+                <Select value={localConfig.solver} onValueChange={v => update("solver", v as ScenarioUpdateSolver)}>
                   <SelectTrigger className="h-8 text-xs" data-testid="select-solver">
                     <SelectValue />
                   </SelectTrigger>
