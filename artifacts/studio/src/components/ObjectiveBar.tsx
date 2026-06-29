@@ -7,6 +7,7 @@ interface ObjectiveBarProps {
   pValue: number;
   result: SolveResult | null;
   scenarioId: number | undefined;
+  problemType?: string;
 }
 
 interface QuestGoal {
@@ -50,13 +51,14 @@ function computeStars(result: SolveResult, pValue: number, goal: QuestGoal): num
   return 2;
 }
 
-export function ObjectiveBar({ pValue, result, scenarioId }: ObjectiveBarProps) {
+export function ObjectiveBar({ pValue, result, scenarioId, problemType }: ObjectiveBarProps) {
   const { awardXP, state } = useGamification();
   const { toast } = useToast();
   const [xpBurst, setXpBurst] = useState<{ amount: number; key: number } | null>(null);
   const lastAwardedKey = useRef<string | null>(null);
 
-  const goal = (scenarioId && QUEST_GOALS[scenarioId]) ? QUEST_GOALS[scenarioId] : QUEST_GOALS[1];
+  const questId = problemType === "transport" ? 2 : 1;
+  const goal = QUEST_GOALS[questId] ?? QUEST_GOALS[1];
 
   const warehousesOk = pValue <= goal.maxWarehouses;
   const distanceOk = result ? result.weightedAvgDistanceMi < goal.maxAvgDistance : false;

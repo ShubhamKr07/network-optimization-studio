@@ -16,6 +16,7 @@ import {
 import type { WarehouseStatusEntry, Scenario, ScenarioUpdateProblemType, ScenarioUpdateSolver, ScenarioUpdateCapacityMode } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
+import { useGamification } from "@/context/GamificationContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -336,6 +337,11 @@ export function Studio() {
   }
 
   const currentScenario = scenarioFromApi ?? scenarios.find(s => s.id === scenarioId) ?? scenarios[0];
+  const { setActiveQuest } = useGamification();
+  useEffect(() => {
+    const pt = currentScenario?.problemType;
+    setActiveQuest(pt === "transport" ? 2 : 1);
+  }, [currentScenario?.problemType, setActiveQuest]);
 
   return (
     <div className="arcadia-lab flex flex-col h-full overflow-hidden bg-background">
@@ -475,7 +481,7 @@ export function Studio() {
       </header>
 
       {/* OBJECTIVE BAR */}
-      <ObjectiveBar pValue={pValue} result={result} scenarioId={scenarioId} />
+      <ObjectiveBar pValue={pValue} result={result} scenarioId={scenarioId} problemType={currentScenario?.problemType} />
 
       {/* THREE PANELS */}
       <div className="flex flex-1 overflow-hidden">
