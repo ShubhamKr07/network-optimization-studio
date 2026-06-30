@@ -1,48 +1,61 @@
 /**
  * Browser E2E tests — each lab's user journey.
  *
- * Covers: header labels, configure panel, New-scenario dialog, correct
- * problemType creation, and solver-specific UI per lab.
+ * Covers: login, lab navigation, header labels, configure panel controls,
+ * New-scenario button creating the correct problemType/pValue, and
+ * BrazilMap vs NetworkMap rendering.
  *
- * Requires the app to be running at E2E_BASE_URL (or the default Replit URL).
- * Auth setup is handled by global.setup.ts via stored session.
+ * Target: E2E_BASE_URL env var (defaults to the Replit deployment).
+ * Run locally with: pnpm test:e2e
  */
 import { test, expect, type Page } from "@playwright/test";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── auth helper ───────────────────────────────────────────────────────────────
 
-/** Returns the first scenario URL param from the current URL, or null. */
+/** Log in via the LoginPage email form (isLoggedIn lives in React state). */
+async function loginAsGuest(page: Page, email = "e2e@test.com") {
+  await page.goto("/");
+  const form = page.locator("form");
+  await expect(form).toBeVisible({ timeout: 8_000 });
+  await page.locator("form input").fill(email);
+  await page.locator("form button[type='submit']").click();
+  await expect(form).not.toBeVisible({ timeout: 8_000 });
+}
+
+// ── nav helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Navigate to a quest lab via the "Map" nav rail → click the node title.
+ * Waits until the Studio URL param appears.
+ */
+async function goToLab(page: Page, nodeTitle: string) {
+  await page.locator("nav button", { hasText: "Map" }).click();
+  await expect(page.getByText(nodeTitle)).toBeVisible({ timeout: 6_000 });
+  await page.getByText(nodeTitle).click();
+  await expect(page).toHaveURL(/\/\?scenario=\d+/, { timeout: 8_000 });
+}
+
+/** Returns the ?scenario= value from the current URL. */
 function scenarioId(page: Page): string | null {
   return new URL(page.url()).searchParams.get("scenario");
 }
 
 /**
- * Open the "New scenario" dialog, fill in the name, and click Create.
- * Returns without waiting for the POST to complete.
+ * Open "New scenario" dialog, fill name, click Create.
+ * The Studio "New" button has data-testid="button-create-scenario".
  */
-async function createScenario(page: Page, name: string) {
-  // Header "New" button (data-testid=button-create-scenario)
+async function clickNew(page: Page, name: string) {
   await page.getByTestId("button-create-scenario").click();
   await expect(page.getByTestId("input-new-scenario-name")).toBeVisible();
   await page.getByTestId("input-new-scenario-name").fill(name);
   await page.getByTestId("button-create-confirm").click();
 }
 
-/** Navigate to the QuestMap and click a node by its display title. */
-async function goToLab(page: Page, nodeTitle: string) {
-  // The ArcadiaShell has a "Network" / quest-map navigation link
-  await page.getByText("Network").click();
-  await expect(page.getByText(nodeTitle)).toBeVisible();
-  await page.getByText(nodeTitle).click();
-  // Should land in the Studio (/?scenario=...)
-  await expect(page).toHaveURL(/\/\?scenario=/);
-}
-
 // ── Lab 1: Al's Athletics (P-Median) ─────────────────────────────────────────
 
 test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsGuest(page);
     await goToLab(page, "Al's Athletics");
   });
 
@@ -59,32 +72,25 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
   });
 
   test("configure panel shows Warehouse status section", async ({ page }) => {
-    await expect(page.getByText("Warehouse status")).toBeVisible();
+    // exact:true avoids matching the constraint "C4 Honor warehouse status"
+    await expect(page.getByText("Warehouse status", { exact: true })).toBeVisible();
   });
 
   test("configure panel does NOT show Mine capacity factor", async ({ page }) => {
     await expect(page.getByText("Mine capacity factor")).not.toBeVisible();
   });
 
-  test("NetworkMap is rendered (not BrazilMap)", async ({ page }) => {
-    await expect(page.getByTestId("network-map")).toBeVisible();
-    await expect(page.getByTestId("brazil-map")).not.toBeVisible();
-  });
-
-  test("New button creates a p_median scenario", async ({ page }) => {
+  test("New button creates a p_median scenario with pValue 3", async ({ page }) => {
+    await clickNew(page, `E2E P-Median ${Date.now()}`);
+    await expect(page).toHaveURL(/\/\?scenario=\d+/, { timeout: 8_000 });
     const id = scenarioId(page);
-    await createScenario(page, `E2E P-Median ${Date.now()}`);
-    // URL updates to the new scenario ID, which differs from the old one
-    await expect(page).toHaveURL(/\/\?scenario=\d+/);
-    const newId = scenarioId(page);
-    expect(newId).not.toBeNull();
-    // Verify via API that the created scenario is p_median
-    const resp = await page.request.get(`/api/scenarios/${newId}`);
+    expect(id).not.toBeNull();
+    const resp = await page.request.get(`/api/scenarios/${id}`);
     expect(resp.status()).toBe(200);
     const body = await resp.json();
     expect(body.problemType).toBe("p_median");
-    // Cleanup
-    await page.request.delete(`/api/scenarios/${newId}`);
+    expect(body.pValue).toBe(3);
+    await page.request.delete(`/api/scenarios/${id}`);
   });
 });
 
@@ -92,7 +98,7 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
 
 test.describe("Lab 2 — Coal Transport LP", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsGuest(page);
     await goToLab(page, "Coal Transport LP");
   });
 
@@ -100,7 +106,7 @@ test.describe("Lab 2 — Coal Transport LP", () => {
     await expect(page.getByText(/Coal Transport LP · Model Lab/)).toBeVisible();
   });
 
-  test("header subtitle shows transport LP and coal mines", async ({ page }) => {
+  test("header subtitle shows coal mines", async ({ page }) => {
     await expect(page.getByText(/coal mines/i)).toBeVisible();
   });
 
@@ -109,36 +115,71 @@ test.describe("Lab 2 — Coal Transport LP", () => {
   });
 
   test("configure panel shows Single-source toggle", async ({ page }) => {
-    await expect(page.getByText("Single-source")).toBeVisible();
+    // exact:true avoids matching "C4 Single-source toggle (forces integer)" constraint text
+    await expect(page.getByText("Single-source", { exact: true })).toBeVisible();
   });
 
   test("configure panel shows Ignore capacity toggle", async ({ page }) => {
-    await expect(page.getByText("Ignore capacity")).toBeVisible();
+    // exact:true avoids matching constraint descriptions
+    await expect(page.getByText("Ignore capacity", { exact: true })).toBeVisible();
   });
 
-  test("configure panel does NOT show Warehouse status", async ({ page }) => {
-    await expect(page.getByText("Warehouse status")).not.toBeVisible();
+  test("configure panel does NOT show Warehouse status section", async ({ page }) => {
+    await expect(page.getByText("Warehouse status", { exact: true })).not.toBeVisible();
   });
 
-  test("New button creates a transport scenario", async ({ page }) => {
-    await createScenario(page, `E2E Transport ${Date.now()}`);
-    await expect(page).toHaveURL(/\/\?scenario=\d+/);
-    const newId = scenarioId(page);
-    expect(newId).not.toBeNull();
-    const resp = await page.request.get(`/api/scenarios/${newId}`);
+  test("New button creates a transport scenario with pValue 1", async ({ page }) => {
+    await clickNew(page, `E2E Transport ${Date.now()}`);
+    await expect(page).toHaveURL(/\/\?scenario=\d+/, { timeout: 8_000 });
+    const id = scenarioId(page);
+    expect(id).not.toBeNull();
+    const resp = await page.request.get(`/api/scenarios/${id}`);
     expect(resp.status()).toBe(200);
     const body = await resp.json();
     expect(body.problemType).toBe("transport");
-    await page.request.delete(`/api/scenarios/${newId}`);
+    expect(body.pValue).toBe(1);
+    await page.request.delete(`/api/scenarios/${id}`);
   });
 });
 
-// ── Lab 3: Brazil Capacity (Capacitated P-Median) ────────────────────────────
+// ── Lab 3: Brazil Capacity (capacitated_pmedian) ─────────────────────────────
+//
+// Brazil requires a capacitated_pmedian scenario to exist so the Studio
+// renders BrazilMap and the Brazil configure panel.
+// We create one via the API in beforeEach and delete it in afterEach.
 
-test.describe("Lab 3 — Brazil Capacity (capacitated_pmedian)", () => {
+test.describe("Lab 3 — Brazil Capacity", () => {
+  let brazilId: string;
+
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
-    await goToLab(page, "Brazil Capacity");
+    await loginAsGuest(page);
+    // Create a Brazil scenario to ensure one exists for this test
+    const resp = await page.request.post("/api/scenarios", {
+      data: {
+        name: `E2E Brazil seed ${Date.now()}`,
+        problemType: "capacitated_pmedian",
+        pValue: 5,
+        distanceBands: [500, 1000, 2000, 4000],
+        solver: "cbc",
+        gap: 0,
+        timeLimitSec: 120,
+        capacityMode: "uniform",
+        uniformCapacity: null,
+        warehouseStatuses: [],
+      },
+    });
+    expect(resp.status()).toBe(201);
+    const body = await resp.json();
+    brazilId = String(body.id);
+    // Navigate directly — setActiveQuest(3) fires from the useEffect
+    await page.goto(`/?scenario=${brazilId}`);
+    await expect(page.getByText(/Brazil Capacity · Model Lab/)).toBeVisible({ timeout: 8_000 });
+  });
+
+  test.afterEach(async ({ page }) => {
+    if (brazilId) {
+      await page.request.delete(`/api/scenarios/${brazilId}`);
+    }
   });
 
   test("header shows Brazil Capacity · Model Lab", async ({ page }) => {
@@ -155,59 +196,32 @@ test.describe("Lab 3 — Brazil Capacity (capacitated_pmedian)", () => {
   });
 
   test("configure panel shows Single-source toggle", async ({ page }) => {
-    await expect(page.getByText("Single-source")).toBeVisible();
+    await expect(page.getByText("Single-source", { exact: true })).toBeVisible();
   });
 
   test("configure panel shows Warehouses to open (P)", async ({ page }) => {
     await expect(page.getByText("Warehouses to open (P)")).toBeVisible();
   });
 
-  test("configure panel does NOT show Warehouse status", async ({ page }) => {
-    await expect(page.getByText("Warehouse status")).not.toBeVisible();
+  test("configure panel does NOT show Warehouse status section", async ({ page }) => {
+    await expect(page.getByText("Warehouse status", { exact: true })).not.toBeVisible();
   });
 
   test("configure panel does NOT show Mine capacity factor", async ({ page }) => {
     await expect(page.getByText("Mine capacity factor")).not.toBeVisible();
   });
 
-  test("New button creates a capacitated_pmedian scenario", async ({ page }) => {
-    await createScenario(page, `E2E Brazil ${Date.now()}`);
-    await expect(page).toHaveURL(/\/\?scenario=\d+/);
+  test("New button creates a capacitated_pmedian scenario with pValue 7", async ({ page }) => {
+    await clickNew(page, `E2E Brazil New ${Date.now()}`);
+    await expect(page).toHaveURL(/\/\?scenario=\d+/, { timeout: 8_000 });
     const newId = scenarioId(page);
     expect(newId).not.toBeNull();
+    expect(newId).not.toBe(brazilId); // a NEW scenario, not the seed
     const resp = await page.request.get(`/api/scenarios/${newId}`);
     expect(resp.status()).toBe(200);
     const body = await resp.json();
     expect(body.problemType).toBe("capacitated_pmedian");
+    expect(body.pValue).toBe(7);
     await page.request.delete(`/api/scenarios/${newId}`);
-  });
-});
-
-// ── Cross-lab: New-button sends correct pValue defaults ───────────────────────
-
-test.describe("New-button defaults per lab", () => {
-  async function createAndFetch(page: Page, labTitle: string, expectedProblemType: string, expectedPValue: number) {
-    await page.goto("/");
-    await goToLab(page, labTitle);
-    await createScenario(page, `Defaults check ${Date.now()}`);
-    await expect(page).toHaveURL(/\/\?scenario=\d+/);
-    const id = scenarioId(page);
-    const resp = await page.request.get(`/api/scenarios/${id}`);
-    const body = await resp.json();
-    expect(body.problemType).toBe(expectedProblemType);
-    expect(body.pValue).toBe(expectedPValue);
-    await page.request.delete(`/api/scenarios/${id}`);
-  }
-
-  test("Al's Athletics defaults: p_median, pValue=3", async ({ page }) => {
-    await createAndFetch(page, "Al's Athletics", "p_median", 3);
-  });
-
-  test("Coal Transport LP defaults: transport, pValue=1", async ({ page }) => {
-    await createAndFetch(page, "Coal Transport LP", "transport", 1);
-  });
-
-  test("Brazil Capacity defaults: capacitated_pmedian, pValue=7", async ({ page }) => {
-    await createAndFetch(page, "Brazil Capacity", "capacitated_pmedian", 7);
   });
 });

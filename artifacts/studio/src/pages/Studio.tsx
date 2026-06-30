@@ -281,7 +281,7 @@ export function Studio() {
 
   const handleCreateConfirm = () => {
     const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
-    const activeProblemType = currentScenario?.problemType ?? "p_median";
+    const activeProblemType = currentScenario?.problemType ?? questType;
     const typeDefaults =
       activeProblemType === "transport"
         ? { problemType: "transport" as const, pValue: 1, distanceBands: [500, 1000, 1500, 2000], uniformCapacity: null }

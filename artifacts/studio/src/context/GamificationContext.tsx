@@ -175,6 +175,21 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, DEFAULT_STATE);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Restore session from cookie on page load (so reloads don't show the login page)
+  useEffect(() => {
+    fetch("/api/auth/user", { credentials: "include" })
+      .then(r => (r.ok ? r.json() : null))
+      .then(async (data: { userId: string } | null) => {
+        if (data?.userId) {
+          dispatch({ type: "LOGIN", userId: data.userId });
+          const progress = await fetchProgress();
+          if (progress) dispatch({ type: "LOAD", state: progress });
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Debounced sync to API whenever synced state changes
   useEffect(() => {
     if (!state._synced || !state.isLoggedIn) return;
