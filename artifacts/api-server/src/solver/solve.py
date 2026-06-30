@@ -50,63 +50,63 @@ POWER_STATIONS = {
 
 # ---------------------------------------------------------------------------
 # Dataset: Brazil Facility Location (Chapter 5 Capacitated P-Median)
-# 26 candidate warehouse cities, 25 demand regions (states)
+# Source: Watson et al. "Supply Chain Network Design" Ch.5 Exercise 6 notebook
+# 25 candidate warehouse cities, 25 demand regions (states)
 # ---------------------------------------------------------------------------
 BRAZIL_WAREHOUSES = {
-    "ANP": {"id": "ANP", "city": "Anápolis",       "state": "GO", "lat": -16.33, "lng": -48.95},
-    "BEL": {"id": "BEL", "city": "Belém",           "state": "PA", "lat":  -1.46, "lng": -48.50},
-    "BHZ": {"id": "BHZ", "city": "Belo Horizonte",  "state": "MG", "lat": -19.92, "lng": -43.94},
-    "BSB": {"id": "BSB", "city": "Brasília",         "state": "DF", "lat": -15.78, "lng": -47.93},
-    "CPN": {"id": "CPN", "city": "Campinas",         "state": "SP", "lat": -22.91, "lng": -47.06},
-    "CGR": {"id": "CGR", "city": "Campo Grande",    "state": "MS", "lat": -20.46, "lng": -54.62},
-    "CGB": {"id": "CGB", "city": "Cuiabá",           "state": "MT", "lat": -15.60, "lng": -56.10},
-    "CWB": {"id": "CWB", "city": "Curitiba",         "state": "PR", "lat": -25.43, "lng": -49.27},
-    "FOR": {"id": "FOR", "city": "Fortaleza",        "state": "CE", "lat":  -3.72, "lng": -38.54},
-    "GYN": {"id": "GYN", "city": "Goiânia",          "state": "GO", "lat": -16.69, "lng": -49.25},
-    "JPA": {"id": "JPA", "city": "João Pessoa",      "state": "PB", "lat":  -7.12, "lng": -34.86},
-    "LDB": {"id": "LDB", "city": "Londrina",         "state": "PR", "lat": -23.30, "lng": -51.17},
-    "MAO": {"id": "MAO", "city": "Manaus",           "state": "AM", "lat":  -3.10, "lng": -60.02},
-    "MCZ": {"id": "MCZ", "city": "Maceió",           "state": "AL", "lat":  -9.67, "lng": -35.74},
-    "NAT": {"id": "NAT", "city": "Natal",            "state": "RN", "lat":  -5.79, "lng": -35.21},
-    "POA": {"id": "POA", "city": "Porto Alegre",     "state": "RS", "lat": -30.03, "lng": -51.23},
-    "PVH": {"id": "PVH", "city": "Porto Velho",      "state": "RO", "lat":  -8.76, "lng": -63.90},
-    "REC": {"id": "REC", "city": "Recife",           "state": "PE", "lat":  -8.05, "lng": -34.88},
-    "RAO": {"id": "RAO", "city": "Ribeirão Preto",   "state": "SP", "lat": -21.18, "lng": -47.81},
-    "GIG": {"id": "GIG", "city": "Rio de Janeiro",   "state": "RJ", "lat": -22.91, "lng": -43.17},
-    "SSA": {"id": "SSA", "city": "Salvador",         "state": "BA", "lat": -12.97, "lng": -38.50},
-    "STS": {"id": "STS", "city": "Santos",           "state": "SP", "lat": -23.96, "lng": -46.33},
-    "SLZ": {"id": "SLZ", "city": "São Luís",         "state": "MA", "lat":  -2.53, "lng": -44.30},
-    "GRU": {"id": "GRU", "city": "São Paulo",        "state": "SP", "lat": -23.55, "lng": -46.63},
-    "THE": {"id": "THE", "city": "Teresina",         "state": "PI", "lat":  -5.09, "lng": -42.80},
-    "UDI": {"id": "UDI", "city": "Uberlândia",       "state": "MG", "lat": -18.91, "lng": -48.28},
+    "ANP": {"id": "ANP", "city": "Anápolis",              "state": "GO", "lat": -16.32, "lng": -48.96},
+    "BEL": {"id": "BEL", "city": "Belém",                  "state": "PA", "lat":  -1.44, "lng": -48.50},
+    "BET": {"id": "BET", "city": "Betim",                  "state": "MG", "lat": -19.97, "lng": -44.19},
+    "CPG": {"id": "CPG", "city": "Campina Grande",         "state": "PB", "lat":  -7.23, "lng": -35.88},
+    "CGR": {"id": "CGR", "city": "Campo Grande",           "state": "MS", "lat": -20.45, "lng": -54.63},
+    "CAC": {"id": "CAC", "city": "Cariacica",              "state": "ES", "lat": -20.23, "lng": -40.37},
+    "CAS": {"id": "CAS", "city": "Cascavel",               "state": "PR", "lat": -24.96, "lng": -53.46},
+    "CXS": {"id": "CXS", "city": "Caxias do Sul",         "state": "RS", "lat": -29.18, "lng": -51.17},
+    "CGB": {"id": "CGB", "city": "Cuiabá",                 "state": "MT", "lat": -15.61, "lng": -56.09},
+    "JDF": {"id": "JDF", "city": "Juiz de Fora",           "state": "MG", "lat": -21.75, "lng": -43.36},
+    "MCZ": {"id": "MCZ", "city": "Maceió",                 "state": "AL", "lat":  -9.65, "lng": -35.75},
+    "MAO": {"id": "MAO", "city": "Manaus",                 "state": "AM", "lat":  -3.12, "lng": -60.02},
+    "MCL": {"id": "MCL", "city": "Montes Claros",          "state": "MG", "lat": -16.72, "lng": -43.86},
+    "NAT": {"id": "NAT", "city": "Natal",                  "state": "RN", "lat":  -5.80, "lng": -35.22},
+    "PLM": {"id": "PLM", "city": "Palmas",                 "state": "TO", "lat": -10.27, "lng": -48.31},
+    "PIR": {"id": "PIR", "city": "Piracicaba",             "state": "SP", "lat": -22.71, "lng": -47.64},
+    "PGR": {"id": "PGR", "city": "Ponta Grossa",           "state": "PR", "lat": -25.09, "lng": -50.16},
+    "PVH": {"id": "PVH", "city": "Porto Velho",            "state": "RO", "lat":  -8.76, "lng": -63.91},
+    "REC": {"id": "REC", "city": "Recife",                 "state": "PE", "lat":  -8.08, "lng": -34.92},
+    "SSA": {"id": "SSA", "city": "Salvador",               "state": "BA", "lat": -12.97, "lng": -38.50},
+    "SMA": {"id": "SMA", "city": "Santa Maria",            "state": "RS", "lat": -29.69, "lng": -53.83},
+    "STS": {"id": "STS", "city": "Santos",                 "state": "SP", "lat": -23.95, "lng": -46.33},
+    "SJP": {"id": "SJP", "city": "São José do Rio Preto", "state": "SP", "lat": -20.80, "lng": -49.39},
+    "THE": {"id": "THE", "city": "Teresina",               "state": "PI", "lat":  -5.10, "lng": -42.80},
+    "UDI": {"id": "UDI", "city": "Uberlândia",             "state": "MG", "lat": -18.90, "lng": -48.28},
 }
 
 BRAZIL_REGIONS = {
-    "AC":  {"id": "AC",  "name": "Acre",                   "lat":  -9.02, "lng": -70.81, "demand":    850_000},
-    "AL":  {"id": "AL",  "name": "Alagoas",                 "lat":  -9.67, "lng": -36.50, "demand":  1_100_000},
-    "AP":  {"id": "AP",  "name": "Amapá",                   "lat":   1.41, "lng": -51.77, "demand":    650_000},
-    "AM":  {"id": "AM",  "name": "Amazonas",                "lat":  -3.47, "lng": -65.10, "demand":  2_200_000},
-    "BA":  {"id": "BA",  "name": "Bahia",                   "lat": -12.97, "lng": -41.90, "demand":  5_500_000},
-    "CE":  {"id": "CE",  "name": "Ceará",                   "lat":  -5.20, "lng": -39.35, "demand":  3_800_000},
-    "ES":  {"id": "ES",  "name": "Espírito Santo",          "lat": -19.19, "lng": -40.34, "demand":  1_800_000},
-    "GO":  {"id": "GO",  "name": "Goiás",                   "lat": -15.83, "lng": -49.61, "demand":  2_900_000},
-    "MA":  {"id": "MA",  "name": "Maranhão",                "lat":  -5.42, "lng": -45.44, "demand":  2_800_000},
-    "MT":  {"id": "MT",  "name": "Mato Grosso",             "lat": -12.64, "lng": -55.42, "demand":  1_650_000},
-    "MS":  {"id": "MS",  "name": "Mato Grosso do Sul",      "lat": -20.51, "lng": -54.54, "demand":  1_300_000},
-    "MG":  {"id": "MG",  "name": "Minas Gerais",            "lat": -18.51, "lng": -44.55, "demand":  8_500_000},
-    "PA":  {"id": "PA",  "name": "Pará",                    "lat":  -3.41, "lng": -52.49, "demand":  3_400_000},
-    "PB":  {"id": "PB",  "name": "Paraíba",                 "lat":  -7.12, "lng": -36.72, "demand":  1_600_000},
-    "PR":  {"id": "PR",  "name": "Paraná",                  "lat": -24.89, "lng": -51.55, "demand":  5_000_000},
-    "PE":  {"id": "PE",  "name": "Pernambuco",              "lat":  -8.38, "lng": -37.86, "demand":  3_900_000},
-    "PI":  {"id": "PI",  "name": "Piauí",                   "lat":  -7.72, "lng": -42.73, "demand":  1_400_000},
-    "RJ":  {"id": "RJ",  "name": "Rio de Janeiro",          "lat": -22.26, "lng": -42.61, "demand":  7_000_000},
-    "RN":  {"id": "RN",  "name": "Rio Grande do Norte",     "lat":  -5.81, "lng": -36.59, "demand":  1_500_000},
-    "RS":  {"id": "RS",  "name": "Rio Grande do Sul",       "lat": -30.03, "lng": -53.18, "demand":  4_700_000},
-    "RO":  {"id": "RO",  "name": "Rondônia",                "lat": -11.50, "lng": -62.80, "demand":    800_000},
-    "RR":  {"id": "RR",  "name": "Roraima",                 "lat":   2.09, "lng": -61.66, "demand":    450_000},
-    "SC":  {"id": "SC",  "name": "Santa Catarina",          "lat": -27.45, "lng": -50.95, "demand":  3_000_000},
-    "SP":  {"id": "SP",  "name": "São Paulo Region",        "lat": -22.25, "lng": -48.60, "demand": 29_029_226},
-    "TO":  {"id": "TO",  "name": "Tocantins",               "lat":  -9.46, "lng": -48.26, "demand":    750_000},
+    "SP":  {"id": "SP",  "name": "São Paulo Region",        "lat": -23.53, "lng": -46.63, "demand": 29_029_226},
+    "RJ":  {"id": "RJ",  "name": "Rio de Janeiro Region",   "lat": -22.91, "lng": -43.20, "demand": 13_370_786},
+    "MG":  {"id": "MG",  "name": "Minas Gerais Region",     "lat": -19.92, "lng": -43.94, "demand":  8_663_076},
+    "BA":  {"id": "BA",  "name": "Bahia Region",            "lat": -12.97, "lng": -38.50, "demand":  5_899_854},
+    "PR":  {"id": "PR",  "name": "Paraná Region",           "lat": -25.42, "lng": -49.29, "demand":  4_947_330},
+    "RS":  {"id": "RS",  "name": "Rio Grande do Sul Region","lat": -30.04, "lng": -51.22, "demand":  4_912_164},
+    "PE":  {"id": "PE",  "name": "Pernambuco Region",       "lat":  -8.08, "lng": -34.92, "demand":  3_921_090},
+    "CE":  {"id": "CE",  "name": "Ceará Region",            "lat":  -3.78, "lng": -38.59, "demand":  3_579_449},
+    "SC":  {"id": "SC",  "name": "Santa Catarina Region",   "lat": -26.32, "lng": -48.84, "demand":  2_657_192},
+    "PA":  {"id": "PA",  "name": "Pará Region",             "lat":  -1.44, "lng": -48.50, "demand":  2_597_519},
+    "GO":  {"id": "GO",  "name": "Goiás Region",            "lat": -16.72, "lng": -49.26, "demand":  2_559_855},
+    "DF":  {"id": "DF",  "name": "Distrito Federal Region", "lat": -15.78, "lng": -47.91, "demand":  2_551_909},
+    "ES":  {"id": "ES",  "name": "Espírito Santo Region",   "lat": -20.13, "lng": -40.32, "demand":  1_896_478},
+    "AM":  {"id": "AM",  "name": "Amazonas Region",         "lat":  -3.12, "lng": -60.02, "demand":  1_865_277},
+    "MA":  {"id": "MA",  "name": "Maranhão Region",         "lat":  -2.50, "lng": -44.30, "demand":  1_383_837},
+    "AL":  {"id": "AL",  "name": "Alagoas Region",          "lat":  -9.65, "lng": -35.75, "demand":  1_330_514},
+    "RN":  {"id": "RN",  "name": "Rio Grande do Norte Region","lat": -5.80, "lng": -35.22, "demand":  1_239_777},
+    "PB":  {"id": "PB",  "name": "Paraíba Region",          "lat":  -7.12, "lng": -34.86, "demand":  1_230_034},
+    "MT":  {"id": "MT",  "name": "Mato Grosso Region",      "lat": -15.61, "lng": -56.09, "demand":  1_184_391},
+    "MS":  {"id": "MS",  "name": "Mato Grosso do Sul Region","lat":-20.45, "lng": -54.63, "demand":  1_010_989},
+    "PI":  {"id": "PI",  "name": "Piauí Region",            "lat":  -5.10, "lng": -42.80, "demand":    980_832},
+    "SE":  {"id": "SE",  "name": "Sergipe Region",          "lat": -10.91, "lng": -37.07, "demand":    735_616},
+    "AP":  {"id": "AP",  "name": "Amapá Region",            "lat":   0.04, "lng": -51.05, "demand":    440_064},
+    "RO":  {"id": "RO",  "name": "Rondônia Region",         "lat":  -8.76, "lng": -63.91, "demand":    340_522},
+    "AC":  {"id": "AC",  "name": "Acre Region",             "lat":  -9.98, "lng": -67.82, "demand":    338_812},
 }
 
 BRAZIL_TOTAL_DEMAND = sum(r["demand"] for r in BRAZIL_REGIONS.values())
@@ -390,8 +390,8 @@ def solve_transport(inp):
 
 # ---------------------------------------------------------------------------
 # Capacitated P-Median solver — Brazil Facility Location (Chapter 5)
-# 26 warehouse candidates, 25 demand regions
-# singleSource=True  → binary assign (pedagogically infeasible with 20M cap + SP 29M)
+# 25 warehouse candidates, 25 demand regions
+# singleSource=True  → binary assign (infeasible with 20M cap: SP demands 29M)
 # singleSource=False → continuous assign (LP relaxation, always feasible)
 # ---------------------------------------------------------------------------
 def solve_capacitated_pmedian(inp):
