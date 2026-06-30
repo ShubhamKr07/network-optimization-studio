@@ -270,20 +270,24 @@ export function Studio() {
 
   const handleCreateConfirm = () => {
     const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
+    const activeProblemType = currentScenario?.problemType ?? "p_median";
+    const typeDefaults =
+      activeProblemType === "transport"
+        ? { problemType: "transport" as const, pValue: 1, distanceBands: [500, 1000, 1500, 2000], uniformCapacity: null }
+        : activeProblemType === "capacitated_pmedian"
+        ? { problemType: "capacitated_pmedian" as const, pValue: 7, distanceBands: [500, 1000, 2000, 4000], uniformCapacity: null }
+        : { problemType: "p_median" as const, pValue: 3, distanceBands: [200, 400, 800, 1600], uniformCapacity: null };
     createScenario.mutate(
       {
         data: {
           name,
-          problemType: "p_median",
-          pValue: 3,
-          distanceBands: [200, 400, 800, 1600],
+          ...typeDefaults,
           solver: "cbc",
           gap: 0,
           timeLimitSec: 120,
           capacityMode: "uniform",
-          uniformCapacity: 50000000,
           warehouseStatuses: [],
-        },
+        } as Parameters<typeof createScenario.mutate>[0]["data"],
       },
       {
         onSuccess: (s) => {
