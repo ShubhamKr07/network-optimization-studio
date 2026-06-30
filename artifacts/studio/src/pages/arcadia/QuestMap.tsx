@@ -50,7 +50,7 @@ const TRACKS: Track[] = [
     prerequisiteTrack: "facility_location",
     nodes: [
       { id: "fc1", title: "Coal Transport LP", sub: "CH 5 · transport", xp: 450, status: "locked", icon: FLOW_ICON, scenarioId: 2, problemType: "transport", prerequisite: "fl2", prerequisiteMinStars: 2 },
-      { id: "fc2", title: "Brazil Capacity", sub: "CH 5 · capacitated", xp: 500, status: "locked", icon: CAP_ICON, prerequisite: "fc1" },
+      { id: "fc2", title: "Brazil Capacity", sub: "CH 5 · capacitated", xp: 500, status: "locked", icon: CAP_ICON, scenarioId: 3, problemType: "capacitated_pmedian", prerequisite: "fc1", prerequisiteMinStars: 1 },
     ],
   },
 ];
@@ -70,7 +70,7 @@ function QuestNodeCard({ node, onOpen }: { node: QuestNode; onOpen: () => void }
   const isDone = node.status === "done";
   const isOpen = node.status === "open";
   const isLocked = node.status === "locked";
-  const isLaunchable = isOpen || (isLocked && !!node.scenarioId);
+  const isLaunchable = isDone || isOpen || (isLocked && !!node.scenarioId);
 
   const dotStyle: React.CSSProperties = {
     width: "60px", height: "60px", margin: "0 auto 10px", borderRadius: "18px",

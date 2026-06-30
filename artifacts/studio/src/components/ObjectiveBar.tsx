@@ -39,6 +39,15 @@ const QUEST_GOALS: Record<number, QuestGoal> = {
     maxAvgDistance: 500,
     targetDistance: 430,
   },
+  3: {
+    questId: 3,
+    chapter: "Chapter 5 · Brazil Capacity · Quest",
+    title: "Beat 350 mi using ≤ 5 DCs",
+    tagline: "try relax single-sourcing to split demand across DCs.",
+    maxWarehouses: 5,
+    maxAvgDistance: 350,
+    targetDistance: 300,
+  },
 };
 
 const XP_MAP: Record<number, number> = { 1: 150, 2: 300, 3: 450 };
@@ -57,7 +66,7 @@ export function ObjectiveBar({ pValue, result, scenarioId, problemType }: Object
   const [xpBurst, setXpBurst] = useState<{ amount: number; key: number } | null>(null);
   const lastAwardedKey = useRef<string | null>(null);
 
-  const questId = problemType === "transport" ? 2 : 1;
+  const questId = problemType === "transport" ? 2 : problemType === "capacitated_pmedian" ? 3 : 1;
   const goal = QUEST_GOALS[questId] ?? QUEST_GOALS[1];
 
   const warehousesOk = pValue <= goal.maxWarehouses;

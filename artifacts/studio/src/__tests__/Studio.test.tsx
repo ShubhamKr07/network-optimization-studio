@@ -67,11 +67,11 @@ const dataset = {
 };
 
 // ── Mock API client hooks ─────────────────────────────────────────────────────
-const mockUpdateScenario = { mutateAsync: vi.fn() };
-const mockSolveScenario = { mutateAsync: vi.fn(), isPending: false };
-const mockCloneScenario = { mutateAsync: vi.fn() };
-const mockCreateScenario = { mutateAsync: vi.fn() };
-const mockDeleteScenario = { mutateAsync: vi.fn() };
+const mockUpdateScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
+const mockSolveScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
+const mockCloneScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
+const mockCreateScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
+const mockDeleteScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(),
@@ -538,5 +538,63 @@ describe("Studio — Brazil quest auto-redirect (activeQuestId=3)", () => {
     } as ReturnType<typeof useListScenarios>);
     renderStudio();
     expect(screen.getByText(/No Brazil Capacity scenarios yet/i)).toBeInTheDocument();
+  });
+});
+
+// ── New button sends correct problemType per lab ───────────────────────────────
+describe("Studio — New button sends correct problemType", () => {
+  async function clickNew() {
+    // "New" button in the header toolbar
+    await userEvent.click(screen.getByTestId("button-create-scenario"));
+    // fill the name in the dialog
+    const input = screen.getByTestId("input-new-scenario-name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "My New Scenario");
+    // click the Create confirm button
+    await userEvent.click(screen.getByTestId("button-create-confirm"));
+  }
+
+  it("sends problemType p_median when active scenario is p_median (quest 1)", async () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 1 }));
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await clickNew();
+    expect(mockCreateScenario.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ problemType: "p_median", pValue: 3 }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("sends problemType transport when active scenario is transport (quest 2)", async () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await clickNew();
+    expect(mockCreateScenario.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ problemType: "transport", pValue: 1 }),
+      }),
+      expect.anything()
+    );
+  });
+
+  it("sends problemType capacitated_pmedian when active scenario is Brazil (quest 3)", async () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseSearch.mockReturnValue("?scenario=10");
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await clickNew();
+    expect(mockCreateScenario.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ problemType: "capacitated_pmedian", pValue: 7 }),
+      }),
+      expect.anything()
+    );
   });
 });

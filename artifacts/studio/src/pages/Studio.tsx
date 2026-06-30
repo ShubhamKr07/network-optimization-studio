@@ -15,6 +15,7 @@ import {
 } from "@workspace/api-client-react";
 import type { WarehouseStatusEntry, Scenario, ScenarioUpdateProblemType, ScenarioUpdateSolver, ScenarioUpdateCapacityMode } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
+import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { useGamification } from "@/context/GamificationContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -103,6 +104,14 @@ export function Studio() {
   const cloneScenario = useCloneScenario();
   const createScenario = useCreateScenario();
 
+  // Must be called unconditionally before any early returns
+  const { setActiveQuest, state: gamState } = useGamification();
+  const activeQuestId = gamState.activeQuestId;
+  const questType = activeQuestId === 3 ? "capacitated_pmedian" : activeQuestId === 2 ? "transport" : "p_median";
+
+  // Derive currentScenario here so effects can reference it before early returns
+  const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioId) ?? scenarios?.[0];
+
   const [localConfig, setLocalConfig] = useState<LocalConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<LocalConfig | null>(null);
   const [isSolving, setIsSolving] = useState(false);
@@ -121,21 +130,16 @@ export function Studio() {
 
   useEffect(() => {
     if (!scenarios || scenarios.length === 0) return;
-    // Pick the first scenario whose problemType matches the active quest.
-    // Quest ID 2 = transport, everything else = p_median.
-    // This ensures "Lab" nav, Dashboard buttons, and QuestMap fallbacks all
-    // land on the right model type even when no ?scenario= param is present.
-    const questType = activeQuestId === 2 ? "transport" : "p_median";
-    const preferred = scenarios.find(s => s.problemType === questType) ?? scenarios[0];
+    const preferred = scenarios.find(s => s.problemType === questType);
     if (!scenarioId) {
-      navigate(`/?scenario=${preferred.id}`, { replace: true });
+      if (preferred) navigate(`/?scenario=${preferred.id}`, { replace: true });
       return;
     }
     const exists = scenarios.some(s => s.id === scenarioId);
-    if (!exists) {
+    if (!exists && preferred) {
       navigate(`/?scenario=${preferred.id}`, { replace: true });
     }
-  }, [scenarios, scenarioId, navigate, activeQuestId]);
+  }, [scenarios, scenarioId, navigate, questType]);
 
   useEffect(() => {
     if (scenarioFromApi) {
@@ -145,6 +149,13 @@ export function Studio() {
       if (scenarioFromApi.result) setActiveTab("output");
     }
   }, [scenarioFromApi?.id]);
+
+  useEffect(() => {
+    const pt = currentScenario?.problemType;
+    setActiveQuest(pt === "transport" ? 2 : pt === "capacitated_pmedian" ? 3 : 1);
+  // setActiveQuest is not memoized; only re-run when problemType changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentScenario?.problemType]);
 
   const isDirty = localConfig && savedConfig
     ? JSON.stringify(localConfig) !== JSON.stringify(savedConfig)
@@ -344,15 +355,16 @@ export function Studio() {
     );
   }
 
-  const currentScenario = scenarioFromApi ?? scenarios.find(s => s.id === scenarioId) ?? scenarios[0];
-  const { setActiveQuest, state: gamState } = useGamification();
-  const activeQuestId = gamState.activeQuestId;
-  useEffect(() => {
-    const pt = currentScenario?.problemType;
-    setActiveQuest(pt === "transport" ? 2 : 1);
-  // setActiveQuest is not memoized; only re-run when problemType changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentScenario?.problemType]);
+  if (activeQuestId === 3 && !scenarios.some(s => s.problemType === "capacitated_pmedian")) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen gap-4">
+        <p className="text-muted-foreground">No Brazil Capacity scenarios yet.</p>
+        <Button onClick={handleCreateNew} data-testid="button-create-scenario">
+          <Plus className="w-4 h-4 mr-2" /> Create first scenario
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="arcadia-lab flex flex-col h-full overflow-hidden bg-background">
@@ -363,8 +375,16 @@ export function Studio() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M8 3h8M7 15h10"/></svg>
           </div>
           <div>
-            <div className="font-semibold text-sm leading-tight text-foreground" style={{ fontFamily: "var(--arc-display)" }}>Al's Athletics · Model Lab</div>
-            <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>{currentScenario?.problemType === "transport" ? "Ch 5 · transport LP · coal mines → power stations" : "Ch 3 · p-median · facility location"}</div>
+            <div className="font-semibold text-sm leading-tight text-foreground" style={{ fontFamily: "var(--arc-display)" }}>
+              {activeQuestId === 3 ? "Brazil Capacity · Model Lab" : activeQuestId === 2 ? "Coal Transport LP · Model Lab" : "Al's Athletics · Model Lab"}
+            </div>
+            <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>
+              {currentScenario?.problemType === "transport"
+                ? "Ch 5 · transport LP · coal mines → power stations"
+                : currentScenario?.problemType === "capacitated_pmedian"
+                ? "Ch 5 · capacitated p-median · Brazil"
+                : "Ch 3 · p-median · facility location"}
+            </div>
           </div>
         </div>
 
@@ -756,8 +776,29 @@ export function Studio() {
                 </>
               )}
 
-              {/* Warehouse status — P-Median only */}
-              {localConfig.problemType !== "transport" && (
+              {/* Brazil (capacitated_pmedian) controls */}
+              {localConfig.problemType === "capacitated_pmedian" && (
+                <>
+                  <div className="px-3 py-3 border-b space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-foreground">Single-source</p>
+                      <Switch
+                        checked={localConfig.singleSource}
+                        onCheckedChange={v => update("singleSource", v)}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Forces each demand region to receive supply from exactly one DC.</p>
+                    {localConfig.singleSource && (
+                      <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        São Paulo demand (29M) may exceed single-warehouse capacity — turn off single-source if infeasible.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Warehouse status — P-Median only (not transport, not Brazil) */}
+              {localConfig.problemType !== "transport" && localConfig.problemType !== "capacitated_pmedian" && (
               <div className="px-3 py-3 space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse status</p>
                 {dataset?.warehouses.map(wh => {
@@ -834,7 +875,12 @@ export function Studio() {
             </div>
 
             <div className="flex-1 min-h-0 relative">
-              {dataset ? (
+              {currentScenario?.problemType === "capacitated_pmedian" ? (
+                <BrazilMap
+                  result={activeTab === "output" ? result : null}
+                  showRoutes={activeTab === "output" && showRoutes}
+                />
+              ) : dataset ? (
                 <NetworkMap
                   dataset={dataset}
                   warehouseStatuses={localConfig?.warehouseStatuses ?? []}
