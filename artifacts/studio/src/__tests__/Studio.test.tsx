@@ -29,6 +29,9 @@ vi.mock("@/components/NetworkMap", () => ({
 vi.mock("@/components/ObjectiveBar", () => ({
   ObjectiveBar: () => <div data-testid="objective-bar" />,
 }));
+vi.mock("@/components/BrazilMap", () => ({
+  BrazilMap: () => <div data-testid="brazil-map" />,
+}));
 
 // ── Shared scenario fixtures ──────────────────────────────────────────────────
 const pmedianScenario = {
@@ -359,5 +362,181 @@ describe("Studio — Quest-based scenario redirect", () => {
     mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
     renderStudio();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+// ── Brazil scenario fixture ────────────────────────────────────────────────
+const brazilScenario = {
+  id: 10,
+  name: "Brazil Base — 20M cap",
+  problemType: "capacitated_pmedian",
+  pValue: 5,
+  warehouseCapacity: 20000000,
+  singleSource: true,
+  distanceBands: [500, 1000, 2000, 4000],
+  solver: "cbc",
+  gap: 0,
+  timeLimitSec: 120,
+  capacityMode: "uniform",
+  uniformCapacity: null,
+  warehouseStatuses: [],
+  capacityFactor: 1.0,
+  capacityInactive: false,
+  result: null,
+  createdAt: "2026-01-03T00:00:00Z",
+  updatedAt: "2026-01-03T00:00:00Z",
+};
+
+// ── Brazil Studio — configure rendering ───────────────────────────────────
+describe("Studio — Brazil Capacity scenario (configure tab, activeQuestId=3)", () => {
+  beforeEach(() => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseSearch.mockReturnValue("?scenario=10");
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("shows Brazil Capacity · Model Lab header when activeQuestId is 3", () => {
+    renderStudio();
+    expect(screen.getByText(/Brazil Capacity · Model Lab/)).toBeInTheDocument();
+  });
+
+  it("shows Brazil subtitle in header (Ch 5 · capacitated p-median)", () => {
+    renderStudio();
+    expect(screen.getByText(/Ch 5.*capacitated p-median.*Brazil/i)).toBeInTheDocument();
+  });
+
+  it("renders BrazilMap component instead of NetworkMap for Brazil scenario", () => {
+    renderStudio();
+    expect(screen.getByTestId("brazil-map")).toBeInTheDocument();
+    expect(screen.queryByTestId("network-map")).not.toBeInTheDocument();
+  });
+
+  it("shows Single-source toggle in configure panel for Brazil", () => {
+    renderStudio();
+    expect(screen.getByText("Single-source")).toBeInTheDocument();
+  });
+
+  it("shows São Paulo capacity hint in configure panel when singleSource=true", () => {
+    renderStudio();
+    expect(screen.getByText(/São Paulo/i)).toBeInTheDocument();
+  });
+
+  it("shows Warehouses to open (P) control", () => {
+    renderStudio();
+    expect(screen.getByText("Warehouses to open (P)")).toBeInTheDocument();
+  });
+
+  it("does NOT show Warehouse status section for Brazil", () => {
+    renderStudio();
+    expect(screen.queryByText("Warehouse status")).not.toBeInTheDocument();
+  });
+
+  it("does NOT show Mine capacity factor for Brazil", () => {
+    renderStudio();
+    expect(screen.queryByText("Mine capacity factor")).not.toBeInTheDocument();
+  });
+
+  it("does NOT show Ignore capacity toggle for Brazil", () => {
+    renderStudio();
+    expect(screen.queryByText("Ignore capacity")).not.toBeInTheDocument();
+  });
+});
+
+// ── Brazil Studio — header lab name ───────────────────────────────────────
+describe("Studio — Header lab name by active quest (all three quests)", () => {
+  it("shows Brazil Capacity · Model Lab when activeQuestId is 3", () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseSearch.mockReturnValue("?scenario=10");
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getByText(/Brazil Capacity · Model Lab/)).toBeInTheDocument();
+  });
+});
+
+// ── Brazil Studio — infeasibility output ──────────────────────────────────
+describe("Studio — Brazil infeasibility output banner", () => {
+  const brazilInfeasibleScenario = {
+    ...brazilScenario,
+    result: {
+      status: "infeasible",
+      openWarehouseIds: [],
+      assignments: [],
+      objective: 0,
+      weightedAvgDistanceMi: 0,
+      bandCoverage: [],
+      utilization: [],
+      runTimeSec: 0.1,
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason:
+        "Demand region São Paulo (29,029,226) exceeds single-warehouse capacity (20,000,000). Relax single-sourcing to split demand across warehouses.",
+    },
+  };
+
+  beforeEach(() => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseSearch.mockReturnValue("?scenario=10");
+    mockUseListScenarios.mockReturnValue({ data: [brazilInfeasibleScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilInfeasibleScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("shows Infeasible status badge on output tab", async () => {
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByText("Infeasible")).toBeInTheDocument();
+  });
+
+  it("shows infeasibility reason mentioning São Paulo on output tab", async () => {
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getAllByText(/São Paulo/).length).toBeGreaterThan(0);
+  });
+
+  it("shows Relax single-sourcing hint in infeasibility reason", async () => {
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByText(/Relax single-sourcing/i)).toBeInTheDocument();
+  });
+});
+
+// ── Brazil Studio — auto-redirect ─────────────────────────────────────────
+describe("Studio — Brazil quest auto-redirect (activeQuestId=3)", () => {
+  const pmedianWith5 = { ...pmedianScenario, id: 5 };
+  const brazilWith10 = { ...brazilScenario, id: 10 };
+
+  beforeEach(() => {
+    mockUseSearch.mockReturnValue("");
+    mockUseGetScenario.mockReturnValue({ data: undefined } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("redirects to first Brazil scenario when activeQuestId=3 and no URL param", () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseListScenarios.mockReturnValue({
+      data: [pmedianWith5, brazilWith10],
+      isLoading: false,
+    } as ReturnType<typeof useListScenarios>);
+    renderStudio();
+    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=10", { replace: true });
+  });
+
+  it("does NOT redirect to p_median scenario when activeQuestId=3", () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseListScenarios.mockReturnValue({
+      data: [pmedianWith5, brazilWith10],
+      isLoading: false,
+    } as ReturnType<typeof useListScenarios>);
+    renderStudio();
+    expect(mockNavigate).not.toHaveBeenCalledWith("/?scenario=5", expect.anything());
+  });
+
+  it("shows Brazil Capacity empty state when no Brazil scenarios exist for quest 3", () => {
+    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+    mockUseListScenarios.mockReturnValue({
+      data: [pmedianWith5],
+      isLoading: false,
+    } as ReturnType<typeof useListScenarios>);
+    renderStudio();
+    expect(screen.getByText(/No Brazil Capacity scenarios yet/i)).toBeInTheDocument();
   });
 });

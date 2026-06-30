@@ -210,3 +210,112 @@ describe("ObjectiveBar — XP awarding", () => {
     expect(mockAwardXP).toHaveBeenCalledWith(450, 8, 3, 340);
   });
 });
+
+// ── Brazil Capacity quest goals ────────────────────────────────────────────
+describe("ObjectiveBar — Brazil Capacity quest goals", () => {
+  it("shows Brazil chapter header for capacitated_pmedian", () => {
+    render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/Brazil Capacity/)).toBeInTheDocument();
+  });
+
+  it("shows Chapter 5 in Brazil banner", () => {
+    render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/Chapter 5/)).toBeInTheDocument();
+  });
+
+  it("shows Beat 350 mi goal title for Brazil", () => {
+    render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/Beat 350 mi/)).toBeInTheDocument();
+  });
+
+  it("shows avg < 350 mi placeholder when result is null (Brazil)", () => {
+    render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/avg < 350 mi/)).toBeInTheDocument();
+  });
+
+  it("shows ≤ 5 nodes ✓ pill when pValue=5 (Brazil limit)", () => {
+    render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/≤ 5 nodes ✓/)).toBeInTheDocument();
+  });
+
+  it("shows P=6 pill when pValue exceeds Brazil limit of 5", () => {
+    render(<ObjectiveBar pValue={6} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/P=6/)).toBeInTheDocument();
+  });
+
+  it("shows tagline about relaxing single-sourcing", () => {
+    render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(screen.getByText(/relax single-sourcing/i)).toBeInTheDocument();
+  });
+});
+
+// ── Brazil XP thresholds ──────────────────────────────────────────────────
+describe("ObjectiveBar — Brazil XP awarding", () => {
+  const brazilOptimal: SolveResult = {
+    status: "optimal",
+    openWarehouseIds: ["SAO", "RIO", "CUR", "REC", "MAN"],
+    assignments: [],
+    objective: 8500000000,
+    weightedAvgDistanceMi: 287.3,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 1.2,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("awards 3★ (450 XP) when distance < 300 AND pValue ≤ 5 (Brazil targetDistance=300)", () => {
+    render(<ObjectiveBar pValue={5} result={brazilOptimal} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(mockAwardXP).toHaveBeenCalledWith(450, 10, 3, 287.3);
+  });
+
+  it("awards 2★ (300 XP) when 300 ≤ distance < 350 AND pValue ≤ 5 (Brazil)", () => {
+    const midResult: SolveResult = { ...brazilOptimal, weightedAvgDistanceMi: 325 };
+    render(<ObjectiveBar pValue={5} result={midResult} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(mockAwardXP).toHaveBeenCalledWith(300, 10, 2, 325);
+  });
+
+  it("awards 1★ (150 XP) when pValue exceeds 5 (Brazil maxWarehouses=5)", () => {
+    render(<ObjectiveBar pValue={6} result={brazilOptimal} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(mockAwardXP).toHaveBeenCalledWith(150, 10, 1, 287.3);
+  });
+
+  it("awards 1★ (150 XP) when distance ≥ 350 (Brazil maxAvgDistance=350)", () => {
+    const badResult: SolveResult = { ...brazilOptimal, weightedAvgDistanceMi: 360 };
+    render(<ObjectiveBar pValue={5} result={badResult} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(mockAwardXP).toHaveBeenCalledWith(150, 10, 1, 360);
+  });
+
+  it("does NOT award XP when result status is infeasible (Brazil)", () => {
+    const infeasibleResult: SolveResult = {
+      ...brazilOptimal,
+      status: "infeasible",
+      weightedAvgDistanceMi: 0,
+      infeasibilityReason: "Demand region São Paulo exceeds capacity",
+    };
+    render(<ObjectiveBar pValue={5} result={infeasibleResult} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(mockAwardXP).not.toHaveBeenCalled();
+  });
+
+  it("does NOT re-award XP when Brazil scenario already has equal or better stars", () => {
+    mockUseGamification.mockReturnValue({
+      state: {
+        activeQuestId: 3,
+        solvedScenarios: {
+          10: { scenarioId: 10, stars: 3, avgDistance: 287.3, solvedAt: "2026-01-01T00:00:00Z" },
+        },
+        xp: 450, level: 1, streakDays: 0, lastSolveDate: null,
+        earnedBadges: [], activeView: "lab" as const,
+        isLoggedIn: false, userId: null, _synced: false,
+      },
+      awardXP: mockAwardXP,
+      setActiveQuest: vi.fn(),
+      setView: vi.fn(),
+      login: vi.fn(),
+      logout: vi.fn(),
+      xpToNextLevel: () => ({ current: 450, next: 500, pct: 90 }),
+    });
+    render(<ObjectiveBar pValue={5} result={brazilOptimal} scenarioId={10} problemType="capacitated_pmedian" />);
+    expect(mockAwardXP).not.toHaveBeenCalled();
+  });
+});

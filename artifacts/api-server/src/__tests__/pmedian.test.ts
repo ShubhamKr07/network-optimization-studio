@@ -285,3 +285,131 @@ describe("solve() — transport LP", () => {
     expect(result.infeasibilityReason).toContain("transport model infeasible");
   });
 });
+
+// ── Brazil capacitated p-median solver ────────────────────────────────────
+describe("solve() — Brazil capacitated p-median", () => {
+  const brazilInput = {
+    modelType: "capacitated_pmedian" as const,
+    numberOfWhs: 5,
+    warehouseCapacity: 20000000,
+    singleSource: true,
+    pValue: 5,
+    distanceBands: [500, 1000, 2000, 4000],
+    capacityMode: "uniform" as const,
+    uniformCapacity: null,
+    warehouseStatuses: [],
+    gap: 0,
+    timeLimitSec: 120,
+  };
+
+  const brazilInfeasibleOutput = {
+    status: "infeasible",
+    openWarehouseIds: [],
+    assignments: [],
+    objective: 0,
+    weightedAvgDistanceMi: 0,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 0.1,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason:
+      "Demand region São Paulo (29,029,226) exceeds single-warehouse capacity (20,000,000). Relax single-sourcing.",
+  };
+
+  const brazilOptimalOutput = {
+    status: "optimal",
+    openWarehouseIds: ["SAO", "RIO", "CUR", "REC", "MAN"],
+    assignments: [
+      { customerId: "SP", warehouseId: "SAO", distanceMi: 12, flowFraction: 0.69 },
+      { customerId: "SP", warehouseId: "CUR", distanceMi: 234, flowFraction: 0.31 },
+    ],
+    objective: 8500000000,
+    weightedAvgDistanceMi: 287.3,
+    bandCoverage: [{ band: 500, percent: 12 }],
+    utilization: [{ warehouseId: "SAO", city: "São Paulo", utilization: 100 }],
+    runTimeSec: 1.2,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("passes modelType=capacitated_pmedian, warehouseCapacity, numberOfWhs, singleSource to Python", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(brazilInfeasibleOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve(brazilInput);
+
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.modelType).toBe("capacitated_pmedian");
+    expect(payload.warehouseCapacity).toBe(20000000);
+    expect(payload.pValue).toBe(5);
+    expect(payload.singleSource).toBe(true);
+  });
+
+  it("returns infeasible status when singleSource=true and large region exceeds cap", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(brazilInfeasibleOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve(brazilInput);
+    expect(result.status).toBe("infeasible");
+    expect(result.infeasibilityReason).toMatch(/São Paulo/);
+    expect(result.objective).toBe(0);
+    expect(result.assignments).toHaveLength(0);
+  });
+
+  it("returns optimal result with flowFraction when singleSource=false", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(brazilOptimalOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve({ ...brazilInput, singleSource: false });
+    expect(result.status).toBe("optimal");
+    expect(result.weightedAvgDistanceMi).toBe(287.3);
+    expect(result.openWarehouseIds).toHaveLength(5);
+    expect(result.assignments).toHaveLength(2);
+    const first = result.assignments[0] as Record<string, unknown>;
+    expect(first.flowFraction).toBeCloseTo(0.69, 2);
+  });
+
+  it("returns error when Python exits non-zero for Brazil model", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 1,
+      stdout: "",
+      stderr: "brazil model crashed",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve(brazilInput);
+    expect(result.status).toBe("error");
+    expect(result.infeasibilityReason).toContain("brazil model crashed");
+  });
+
+  it("all SolveOutput fields present for Brazil infeasible result", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(brazilInfeasibleOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    const result = solve(brazilInput);
+    const requiredKeys = [
+      "status", "openWarehouseIds", "assignments", "objective",
+      "weightedAvgDistanceMi", "bandCoverage", "utilization",
+      "runTimeSec", "solverUsed", "infeasibilityReason",
+    ];
+    for (const key of requiredKeys) {
+      expect(result).toHaveProperty(key);
+    }
+  });
+});

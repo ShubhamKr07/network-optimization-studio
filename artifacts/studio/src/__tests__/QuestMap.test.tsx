@@ -189,3 +189,84 @@ describe("QuestMap — progress tracking via problemType", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/?scenario=8");
   });
 });
+
+// ── Brazil Capacity node ───────────────────────────────────────────────────
+describe("QuestMap — Brazil Capacity node", () => {
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({
+      data: [
+        { id: 5, name: "2 Warehouses", problemType: "p_median" },
+        { id: 7, name: "4 Warehouses", problemType: "p_median" },
+        { id: 8, name: "Coal Base Case", problemType: "transport" },
+        { id: 10, name: "Brazil Base", problemType: "capacitated_pmedian" },
+      ],
+      isLoading: false,
+    } as ReturnType<typeof useListScenarios>);
+  });
+
+  it("renders Brazil Capacity node title", () => {
+    render(<QuestMap />);
+    expect(screen.getByText("Brazil Capacity")).toBeInTheDocument();
+  });
+
+  it("shows +500 XP badge on Brazil node", () => {
+    render(<QuestMap />);
+    expect(screen.getByText("+500")).toBeInTheDocument();
+  });
+
+  it("clicking Brazil Capacity calls setActiveQuest(3)", () => {
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Brazil Capacity"));
+    expect(mockSetActiveQuest).toHaveBeenCalledWith(3);
+  });
+
+  it("clicking Brazil Capacity navigates to Brazil scenario by problemType", () => {
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Brazil Capacity"));
+    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=10");
+  });
+
+  it("clicking Brazil Capacity calls setView('lab')", () => {
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Brazil Capacity"));
+    expect(mockSetView).toHaveBeenCalledWith("lab");
+  });
+
+  it("Brazil node is clickable even when locked (has scenarioId — always launchable)", () => {
+    // No solved scenarios → Brazil node is locked but scenarioId=3 → still clickable
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Brazil Capacity"));
+    expect(mockSetView).toHaveBeenCalledWith("lab");
+    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=10");
+  });
+
+  it("Brazil node unlocks (opens) when Coal Transport LP solved with ≥1 star", () => {
+    // prerequisiteMinStars=1 for fc2, prerequisite=fc1 (transport)
+    // scenario id 8 is transport → solving it with 1 star should unlock Brazil
+    mockUseGamification.mockReturnValue(makeGamContext({
+      8: { scenarioId: 8, stars: 1, avgDistance: 490, solvedAt: "2026-01-01T00:00:00Z" },
+    }));
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Brazil Capacity"));
+    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=10");
+    expect(mockSetActiveQuest).toHaveBeenCalledWith(3);
+  });
+
+  it("done p_median node (Al's Athletics) is still launchable for practice", () => {
+    // When p_median is solved → fl2 status = 'done' → but scenarioId present → launchable
+    mockUseGamification.mockReturnValue(makeGamContext({
+      5: { scenarioId: 5, stars: 3, avgDistance: 340, solvedAt: "2026-01-01T00:00:00Z" },
+    }));
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Al's Athletics"));
+    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=5");
+    expect(mockSetActiveQuest).toHaveBeenCalledWith(1);
+  });
+
+  it("navigates to '/' for Brazil when scenarios not loaded", () => {
+    mockUseListScenarios.mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useListScenarios>);
+    render(<QuestMap />);
+    fireEvent.click(screen.getByText("Brazil Capacity"));
+    expect(mockNavigate).toHaveBeenCalledWith("/");
+  });
+});
