@@ -21,30 +21,31 @@ WH_STRING_TO_NUM = {v['id']: int(k) for k, v in _WH_DATA.items()}
 
 # ---------------------------------------------------------------------------
 # Dataset: Coal Mines → Power Stations (Chapter 5 Transportation LP)
+# Source: Watson et al. "Supply Chain Network Design" Ch.5 Exercise 5 notebook
 # ---------------------------------------------------------------------------
 COAL_MINES = {
-    "PRB": {"id": "PRB", "name": "Powder River Basin", "city": "Gillette",  "state": "WY", "lat": 44.291,  "lng": -105.502, "capacity": 30_000_000},
-    "APP": {"id": "APP", "name": "Central Appalachian","city": "Logan",     "state": "WV", "lat": 37.848,  "lng":  -81.990, "capacity": 18_000_000},
-    "ILB": {"id": "ILB", "name": "Illinois Basin",     "city": "Marion",    "state": "IL", "lat": 37.730,  "lng":  -88.932, "capacity": 14_000_000},
-    "UNT": {"id": "UNT", "name": "Uinta Basin",        "city": "Craig",     "state": "CO", "lat": 40.515,  "lng": -107.546, "capacity": 11_000_000},
+    "KY":  {"id": "KY",  "name": "KY Mine", "city": "Pikeville",    "state": "KY", "lat": 37.54,  "lng":  -82.75,  "capacity": 25_000_000},
+    "WY":  {"id": "WY",  "name": "WY Mine", "city": "Rock Springs", "state": "WY", "lat": 41.56,  "lng": -110.27,  "capacity": 17_000_000},
+    "PA":  {"id": "PA",  "name": "PA Mine", "city": "Clarion",      "state": "PA", "lat": 41.24,  "lng":  -79.58,  "capacity": 15_000_000},
+    "IA":  {"id": "IA",  "name": "IA Mine", "city": "Council Bluffs","state": "IA", "lat": 40.88,  "lng":  -94.04,  "capacity": 13_000_000},
 }
 
 POWER_STATIONS = {
-    "CHI": {"id": "CHI", "city": "Chicago",      "state": "IL", "lat": 41.883, "lng": -87.625,  "demand": 7_000_000},
-    "DET": {"id": "DET", "city": "Detroit",      "state": "MI", "lat": 42.331, "lng": -83.046,  "demand": 5_500_000},
-    "PIT": {"id": "PIT", "city": "Pittsburgh",   "state": "PA", "lat": 40.440, "lng": -79.996,  "demand": 5_000_000},
-    "CLE": {"id": "CLE", "city": "Cleveland",    "state": "OH", "lat": 41.500, "lng": -81.695,  "demand": 4_500_000},
-    "NYC": {"id": "NYC", "city": "New York",     "state": "NY", "lat": 40.713, "lng": -74.006,  "demand": 8_000_000},
-    "ATL": {"id": "ATL", "city": "Atlanta",      "state": "GA", "lat": 33.749, "lng": -84.388,  "demand": 4_000_000},
-    "DAL": {"id": "DAL", "city": "Dallas",       "state": "TX", "lat": 32.777, "lng": -96.797,  "demand": 5_000_000},
-    "HOU": {"id": "HOU", "city": "Houston",      "state": "TX", "lat": 29.760, "lng": -95.370,  "demand": 6_000_000},
-    "PHX": {"id": "PHX", "city": "Phoenix",      "state": "AZ", "lat": 33.448, "lng": -112.074, "demand": 4_000_000},
-    "LAX": {"id": "LAX", "city": "Los Angeles",  "state": "CA", "lat": 34.052, "lng": -118.244, "demand": 4_000_000},
-    "DEN": {"id": "DEN", "city": "Denver",       "state": "CO", "lat": 39.739, "lng": -104.984, "demand": 3_500_000},
-    "MSP": {"id": "MSP", "city": "Minneapolis",  "state": "MN", "lat": 44.978, "lng":  -93.265, "demand": 4_000_000},
-    "MCI": {"id": "MCI", "city": "Kansas City",  "state": "MO", "lat": 39.100, "lng":  -94.578, "demand": 3_500_000},
-    "CMH": {"id": "CMH", "city": "Columbus",     "state": "OH", "lat": 39.961, "lng":  -82.999, "demand": 4_500_000},
-    "IND": {"id": "IND", "city": "Indianapolis", "state": "IN", "lat": 39.768, "lng":  -86.158, "demand": 4_500_000},
+    "LAX": {"id": "LAX", "city": "Los Angeles",   "state": "CA", "lat": 33.974044, "lng": -118.248849, "demand": 8_000_000},
+    "NYC": {"id": "NYC", "city": "New York City",  "state": "NY", "lat": 40.750120, "lng":  -73.997846, "demand": 8_000_000},
+    "CHI": {"id": "CHI", "city": "Chicago",        "state": "IL", "lat": 41.883310, "lng":  -87.624713, "demand": 6_000_000},
+    "HOU": {"id": "HOU", "city": "Houston",        "state": "TX", "lat": 29.757317, "lng":  -95.365005, "demand": 4_000_000},
+    "ATL": {"id": "ATL", "city": "Atlanta",        "state": "GA", "lat": 33.753693, "lng":  -84.389544, "demand": 6_000_000},
+    "DAL": {"id": "DAL", "city": "Dallas",         "state": "TX", "lat": 32.787642, "lng":  -96.799525, "demand": 6_000_000},
+    "PHX": {"id": "PHX", "city": "Phoenix",        "state": "AZ", "lat": 33.451015, "lng": -112.068554, "demand": 4_000_000},
+    "NYN": {"id": "NYN", "city": "New York (N)",   "state": "NY", "lat": 42.526891, "lng":  -73.609283, "demand": 6_000_000},
+    "STL": {"id": "STL", "city": "St. Louis",      "state": "MO", "lat": 38.631358, "lng":  -90.192246, "demand": 4_000_000},
+    "BAL": {"id": "BAL", "city": "Baltimore",      "state": "MD", "lat": 39.294398, "lng":  -76.622747, "demand": 2_000_000},
+    "PIT": {"id": "PIT", "city": "Pittsburgh",     "state": "PA", "lat": 40.474802, "lng":  -79.954490, "demand": 4_000_000},
+    "SEA": {"id": "SEA", "city": "Seattle",        "state": "WA", "lat": 47.611601, "lng": -122.333038, "demand": 2_000_000},
+    "DEN": {"id": "DEN", "city": "Denver",         "state": "CO", "lat": 39.750710, "lng": -104.996225, "demand": 4_000_000},
+    "MCI": {"id": "MCI", "city": "Kansas City",    "state": "MO", "lat": 39.103883, "lng":  -94.600613, "demand": 2_000_000},
+    "SFO": {"id": "SFO", "city": "San Francisco",  "state": "CA", "lat": 37.779887, "lng": -122.418066, "demand": 4_000_000},
 }
 
 # ---------------------------------------------------------------------------
