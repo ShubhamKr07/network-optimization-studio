@@ -50,6 +50,27 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
 7. **Don't touch** `attached_assets/` (textbook source material) or Replit deploy files (`.replit`, `replit.md`, `push-to-github.mjs`) unless a plan task explicitly says so.
 8. When the plan conflicts with the repo's actual state, trust the repo, make the smallest correct fix, and note the deviation in the commit body. If a genuinely ambiguous product decision arises, stop and ask — don't guess.
 
+## v2 implementation progress
+
+Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization-studio-v2.md`. Update this section as each task lands (one line per task, most recent phase at top).
+
+**Phase 1 — Auth, ownership, de-gamification**
+- [x] A1.1 — OpenAPI: real auth endpoints (`register`/`login`/`logout`/`user`, `User.role` enum). Removed legacy `/login` (userId-body), `/callback`, `/mobile-auth/*`. Codegen regenerated (also caught up pre-existing drift: `transport` problemType enum value was in spec but not yet regenerated — unrelated to this task, included in the same regen commit per plan's "regen churn" note).
+- [ ] A1.2 — Schema: extend `users` table (`passwordHash`, `role`)
+- [ ] A1.3 — Auth routes implementation (argon2/bcryptjs, `requireAuth`, cookie rename to `nos_session`)
+- [ ] A2.1 — Scenario ownership schema + migration (`seed@local`)
+- [ ] A2.2 — Ownership enforcement in routes (404 not 403)
+- [ ] A3.1 — Remove gamification (backend)
+- [ ] A3.2 — Remove gamification (frontend) + new auth pages
+- [ ] B1.1 — Chapter landing + routes
+- [ ] B2.1 — problemType locked server-side (Phase 1 exit)
+
+**Phase 2 — Data layer** (C1, C2, X3) — not started
+**Phase 3 — Inputs epic** (D1–D6, X1) — not started
+**Phase 4 — Results & map UX** (E1–E5) — not started
+**Phase 5 — Compare v2** (F1, F2) — not started
+**Phase 6 — Async solve + solve history** (P1, optional) — not started
+
 ## Gotchas
 
 - `spawnSync` in `pmedian.ts` blocks the Node event loop for the entire solve (up to time limit + 15s grace). Do not add long-running sync work elsewhere; async solve is planned as Phase 6 (X2).

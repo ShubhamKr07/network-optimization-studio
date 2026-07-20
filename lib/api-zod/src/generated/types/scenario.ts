@@ -24,6 +24,9 @@ export interface Scenario {
   /** @nullable */
   uniformCapacity: number | null;
   warehouseStatuses: WarehouseStatusEntry[];
+  capacityFactor?: number;
+  singleSource?: boolean;
+  capacityInactive?: boolean;
   result: SolveResult | null;
   createdAt: Date;
   updatedAt: Date;

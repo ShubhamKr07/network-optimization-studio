@@ -7,12 +7,19 @@
  */
 
 export * from './assignment';
+export * from './authUser';
+export * from './authUserEnvelope';
+export * from './authUserRole';
 export * from './bandCoverage';
 export * from './compareInput';
 export * from './compareResult';
 export * from './customer';
 export * from './dataset';
+export * from './errorEnvelope';
 export * from './healthStatus';
+export * from './loginRequest';
+export * from './logoutSuccess';
+export * from './registerRequest';
 export * from './scenario';
 export * from './scenarioCapacityMode';
 export * from './scenarioInput';
@@ -28,6 +35,7 @@ export * from './scenarioUpdateProblemType';
 export * from './scenarioUpdateSolver';
 export * from './solveResult';
 export * from './solveResultStatus';
+export * from './transportAssignment';
 export * from './warehouseCandidate';
 export * from './warehouseStatusEntry';
 export * from './warehouseStatusEntryStatus';

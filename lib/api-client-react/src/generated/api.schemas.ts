@@ -5,37 +5,34 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+export type AuthUserRole = typeof AuthUserRole[keyof typeof AuthUserRole];
+
+
+export const AuthUserRole = {
+  student: 'student',
+  instructor: 'instructor',
+} as const;
+
 export interface AuthUser {
   id: string;
-  /** @nullable */
-  email: string | null;
-  /** @nullable */
-  firstName: string | null;
-  /** @nullable */
-  lastName: string | null;
-  /** @nullable */
-  profileImageUrl: string | null;
+  email: string;
+  role: AuthUserRole;
 }
 
 export interface AuthUserEnvelope {
   user: AuthUser | null;
 }
 
-export interface MobileTokenExchangeRequest {
-  /** @minLength 1 */
-  code: string;
-  /** @minLength 1 */
-  code_verifier: string;
-  /** @minLength 1 */
-  redirect_uri: string;
-  /** @minLength 1 */
-  state: string;
-  /** @minLength 1 */
-  nonce?: string;
+export interface RegisterRequest {
+  email: string;
+  /** @minLength 8 */
+  password: string;
 }
 
-export interface MobileTokenExchangeSuccess {
-  token: string;
+export interface LoginRequest {
+  email: string;
+  /** @minLength 1 */
+  password: string;
 }
 
 export const LogoutSuccessValue = {
@@ -307,19 +304,4 @@ export interface ScenarioMetrics {
 export interface CompareResult {
   scenarios: ScenarioMetrics[];
 }
-
-/**
- * Opaque session token — Bearer <sid>.
- */
-export type AuthorizationSessionHeaderParameter = string;
-
-export type BeginBrowserLoginParams = {
-returnTo?: string;
-};
-
-export type HandleBrowserLoginCallbackParams = {
-code?: string;
-state?: string;
-iss?: string;
-};
 

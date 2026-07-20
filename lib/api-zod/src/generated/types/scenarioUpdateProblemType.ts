@@ -15,4 +15,5 @@ export const ScenarioUpdateProblemType = {
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
+  transport: 'transport',
 } as const;

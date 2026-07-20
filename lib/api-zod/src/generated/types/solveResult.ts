@@ -12,12 +12,12 @@ import type { WarehouseUtilization } from './warehouseUtilization';
 
 export interface SolveResult {
   status: SolveResultStatus;
-  openWarehouseIds: string[];
+  openWarehouseIds?: string[];
   assignments: Assignment[];
-  objective: number;
+  objective?: number;
   weightedAvgDistanceMi: number;
-  bandCoverage: BandCoverage[];
-  utilization: WarehouseUtilization[];
+  bandCoverage?: BandCoverage[];
+  utilization?: WarehouseUtilization[];
   runTimeSec: number;
   solverUsed: string;
   /** @nullable */

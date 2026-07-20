@@ -41,10 +41,14 @@ export const GetDatasetResponse = zod.object({
 /**
  * @summary List all scenarios
  */
+export const listScenariosResponseCapacityFactorDefault = 1;
+export const listScenariosResponseSingleSourceDefault = false;
+export const listScenariosResponseCapacityInactiveDefault = false;
+
 export const ListScenariosResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover']),
+  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -56,26 +60,29 @@ export const ListScenariosResponseItem = zod.object({
   "warehouseId": zod.string(),
   "status": zod.enum(['potential', 'forced_open', 'inactive'])
 })),
+  "capacityFactor": zod.number().default(listScenariosResponseCapacityFactorDefault),
+  "singleSource": zod.boolean().default(listScenariosResponseSingleSourceDefault),
+  "capacityInactive": zod.boolean().default(listScenariosResponseCapacityInactiveDefault),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()),
+  "openWarehouseIds": zod.array(zod.string()).optional(),
   "assignments": zod.array(zod.object({
   "customerId": zod.string(),
   "warehouseId": zod.string(),
   "distanceMi": zod.number(),
   "band": zod.number()
 })),
-  "objective": zod.number(),
+  "objective": zod.number().optional(),
   "weightedAvgDistanceMi": zod.number(),
   "bandCoverage": zod.array(zod.object({
   "band": zod.number(),
   "percent": zod.number()
-})),
+})).optional(),
   "utilization": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
-})),
+})).optional(),
   "runTimeSec": zod.number(),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
@@ -99,7 +106,7 @@ export const createScenarioBodyGapMin = 0;
 
 export const CreateScenarioBody = zod.object({
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover']),
+  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number().min(1).max(createScenarioBodyPValueMax),
   "distanceBands": zod.array(zod.number()).min(1),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -121,10 +128,14 @@ export const GetScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
+export const getScenarioResponseCapacityFactorDefault = 1;
+export const getScenarioResponseSingleSourceDefault = false;
+export const getScenarioResponseCapacityInactiveDefault = false;
+
 export const GetScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover']),
+  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -136,26 +147,29 @@ export const GetScenarioResponse = zod.object({
   "warehouseId": zod.string(),
   "status": zod.enum(['potential', 'forced_open', 'inactive'])
 })),
+  "capacityFactor": zod.number().default(getScenarioResponseCapacityFactorDefault),
+  "singleSource": zod.boolean().default(getScenarioResponseSingleSourceDefault),
+  "capacityInactive": zod.boolean().default(getScenarioResponseCapacityInactiveDefault),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()),
+  "openWarehouseIds": zod.array(zod.string()).optional(),
   "assignments": zod.array(zod.object({
   "customerId": zod.string(),
   "warehouseId": zod.string(),
   "distanceMi": zod.number(),
   "band": zod.number()
 })),
-  "objective": zod.number(),
+  "objective": zod.number().optional(),
   "weightedAvgDistanceMi": zod.number(),
   "bandCoverage": zod.array(zod.object({
   "band": zod.number(),
   "percent": zod.number()
-})),
+})).optional(),
   "utilization": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
-})),
+})).optional(),
   "runTimeSec": zod.number(),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
@@ -178,7 +192,7 @@ export const updateScenarioBodyPValueMax = 50;
 
 export const UpdateScenarioBody = zod.object({
   "name": zod.string().optional(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover']).optional(),
+  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']).optional(),
   "pValue": zod.number().min(1).max(updateScenarioBodyPValueMax).optional(),
   "distanceBands": zod.array(zod.number()).optional(),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']).optional(),
@@ -192,10 +206,14 @@ export const UpdateScenarioBody = zod.object({
 })).optional()
 })
 
+export const updateScenarioResponseCapacityFactorDefault = 1;
+export const updateScenarioResponseSingleSourceDefault = false;
+export const updateScenarioResponseCapacityInactiveDefault = false;
+
 export const UpdateScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover']),
+  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -207,26 +225,29 @@ export const UpdateScenarioResponse = zod.object({
   "warehouseId": zod.string(),
   "status": zod.enum(['potential', 'forced_open', 'inactive'])
 })),
+  "capacityFactor": zod.number().default(updateScenarioResponseCapacityFactorDefault),
+  "singleSource": zod.boolean().default(updateScenarioResponseSingleSourceDefault),
+  "capacityInactive": zod.boolean().default(updateScenarioResponseCapacityInactiveDefault),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()),
+  "openWarehouseIds": zod.array(zod.string()).optional(),
   "assignments": zod.array(zod.object({
   "customerId": zod.string(),
   "warehouseId": zod.string(),
   "distanceMi": zod.number(),
   "band": zod.number()
 })),
-  "objective": zod.number(),
+  "objective": zod.number().optional(),
   "weightedAvgDistanceMi": zod.number(),
   "bandCoverage": zod.array(zod.object({
   "band": zod.number(),
   "percent": zod.number()
-})),
+})).optional(),
   "utilization": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
-})),
+})).optional(),
   "runTimeSec": zod.number(),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
@@ -251,10 +272,14 @@ export const SolveScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
+export const solveScenarioResponseCapacityFactorDefault = 1;
+export const solveScenarioResponseSingleSourceDefault = false;
+export const solveScenarioResponseCapacityInactiveDefault = false;
+
 export const SolveScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover']),
+  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -266,26 +291,29 @@ export const SolveScenarioResponse = zod.object({
   "warehouseId": zod.string(),
   "status": zod.enum(['potential', 'forced_open', 'inactive'])
 })),
+  "capacityFactor": zod.number().default(solveScenarioResponseCapacityFactorDefault),
+  "singleSource": zod.boolean().default(solveScenarioResponseSingleSourceDefault),
+  "capacityInactive": zod.boolean().default(solveScenarioResponseCapacityInactiveDefault),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()),
+  "openWarehouseIds": zod.array(zod.string()).optional(),
   "assignments": zod.array(zod.object({
   "customerId": zod.string(),
   "warehouseId": zod.string(),
   "distanceMi": zod.number(),
   "band": zod.number()
 })),
-  "objective": zod.number(),
+  "objective": zod.number().optional(),
   "weightedAvgDistanceMi": zod.number(),
   "bandCoverage": zod.array(zod.object({
   "band": zod.number(),
   "percent": zod.number()
-})),
+})).optional(),
   "utilization": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
-})),
+})).optional(),
   "runTimeSec": zod.number(),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
@@ -328,6 +356,59 @@ export const CompareScenariosResponse = zod.object({
   "avgUtilization": zod.number(),
   "solverStatus": zod.string()
 }))
+})
+
+
+/**
+ * @summary Register a new student/instructor account
+ */
+export const registerUserBodyPasswordMin = 8;
+
+
+
+export const RegisterUserBody = zod.object({
+  "email": zod.string().email(),
+  "password": zod.string().min(registerUserBodyPasswordMin)
+})
+
+
+/**
+ * @summary Log in with email and password
+ */
+
+
+
+export const LoginUserBody = zod.object({
+  "email": zod.string().email(),
+  "password": zod.string().min(1)
+})
+
+export const LoginUserResponse = zod.object({
+  "user": zod.union([zod.object({
+  "id": zod.string(),
+  "email": zod.string().email(),
+  "role": zod.enum(['student', 'instructor'])
+}),zod.null()])
+})
+
+
+/**
+ * @summary Clear the current session
+ */
+export const LogoutUserResponse = zod.object({
+  "success": zod.boolean()
+})
+
+
+/**
+ * @summary Get the currently authenticated user
+ */
+export const GetCurrentAuthUserResponse = zod.object({
+  "user": zod.union([zod.object({
+  "id": zod.string(),
+  "email": zod.string().email(),
+  "role": zod.enum(['student', 'instructor'])
+}),zod.null()])
 })
 
 
