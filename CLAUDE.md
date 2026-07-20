@@ -54,22 +54,29 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
 
 Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization-studio-v2.md`. Update this section as each task lands (one line per task, most recent phase at top).
 
+**Plan revision note:** `IMPLEMENTATION_PLAN.md` was revised to v0.2 upstream (pulled 2026-07-20) after Phase 1 work below had already started. Phase 1 (A1.1–B2.1) is byte-identical to v0.1 — unaffected. Phases 2–3 change shape: no typed per-model `scenarios` columns at all (`pValue`, `capacityMode`, `warehouseStatuses`, etc. never get built, not even temporarily) — Phase 3's D0.2 goes straight to a generic `scenarios.inputs jsonb` + `model_id` text field, validated per-model by Zod/JSON-Schema. Phase 2's dataset extraction targets per-model packages (`solvers/<model-id>/{manifest.json,dataset/*.json,solver.py,tests/}`) instead of a flat `lib/datasets/` folder. A new **Phase 3.5** (model registry + standardized result envelope `{status,objective,edges,metrics,details}` + async `solve_jobs` queue, replacing `spawnSync`) is inserted before Phase 4. See the plan's §0.5a for full rationale. None of the Phase 1 work below needs rework because of this.
+
 **Phase 1 — Auth, ownership, de-gamification**
-- [x] A1.1 — OpenAPI: real auth endpoints (`register`/`login`/`logout`/`user`, `User.role` enum). Removed legacy `/login` (userId-body), `/callback`, `/mobile-auth/*`. Codegen regenerated (also caught up pre-existing drift: `transport` problemType enum value was in spec but not yet regenerated — unrelated to this task, included in the same regen commit per plan's "regen churn" note).
-- [ ] A1.2 — Schema: extend `users` table (`passwordHash`, `role`)
-- [ ] A1.3 — Auth routes implementation (argon2/bcryptjs, `requireAuth`, cookie rename to `nos_session`)
-- [ ] A2.1 — Scenario ownership schema + migration (`seed@local`)
-- [ ] A2.2 — Ownership enforcement in routes (404 not 403)
+- [x] A1.1 — OpenAPI: real auth endpoints (`register`/`login`/`logout`/`user`, `User.role` enum). Removed legacy `/login` (userId-body), `/callback`, `/mobile-auth/*`. Codegen regenerated (also caught up pre-existing drift: `transport` problemType enum value was in spec but not yet regenerated — unrelated to this task, included in the same regen commit per plan's "regen churn" note). Commit `db7b9db`.
+- [x] A1.2 — Schema: extend `users` table (`passwordHash`, `role`; dropped unreferenced `profileImageUrl`). Commit `444438b`.
+- [ ] A1.3 — Auth routes implementation (argon2/bcryptjs, `requireAuth`, cookie rename to `nos_session`) — **next up**.
+- [x] A2.1 — Scenario ownership schema + migration (`user_id` FK+index, NOT NULL via two-step protocol, `seed@local` backfill). Commit `d204860`. Routes don't enforce ownership yet (that's A2.2) — `scenarios.ts` has a `getSeedUserId()` stopgap on create, and clone inherits the source scenario's `userId`; both marked `TODO(A2.2)` for replacement with `req.userId` once A1.3's `requireAuth` exists.
+- [ ] A2.2 — Ownership enforcement in routes (404 not 403) — blocked on A1.3.
 - [ ] A3.1 — Remove gamification (backend)
 - [ ] A3.2 — Remove gamification (frontend) + new auth pages
 - [ ] B1.1 — Chapter landing + routes
 - [ ] B2.1 — problemType locked server-side (Phase 1 exit)
 
-**Phase 2 — Data layer** (C1, C2, X3) — not started
-**Phase 3 — Inputs epic** (D1–D6, X1) — not started
-**Phase 4 — Results & map UX** (E1–E5) — not started
-**Phase 5 — Compare v2** (F1, F2) — not started
-**Phase 6 — Async solve + solve history** (P1, optional) — not started
+**Also fixed along the way** (pre-existing bugs found while restoring a green verification gate, unrelated to any single task — see commit `6869029`): Brazil-lab scenarios were silently solving as plain uncapacitated p-median in production — `problemType` enum (`capacitated_flp`) never matched `solve.py`'s dispatch string (`capacitated_pmedian`), and even after that's fixed, the route never sent `warehouseCapacity` (a field distinct from `uniformCapacity`) that `solve_capacitated_pmedian()` actually reads. Both fixed; verified against `e2e_accuracy.py` (102/102, unmodified). `routes.test.ts` was also rewritten — it mocked a three-table architecture (`pmedianScenariosTable`/`transportScenariosTable`/`brazilScenariosTable`) that was never actually implemented; real schema has always been one `scenariosTable`.
+
+**Local dev DB:** no `DATABASE_URL` in the environment by default; a local Postgres 18 is running with a `nos_dev` database already matching the schema. Pass `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"` inline per command (shell env doesn't persist across tool calls in this session).
+
+**Phase 2 — Data layer extraction into model packages** (C1, C2, X3) — not started. Target: `solvers/<model-id>/dataset/*.json` (v0.2 shape, see above), not `lib/datasets/`.
+**Phase 3 — Inputs epic** (D0–D6, X1) — not started. D0.2 replaces all typed scenario columns with generic `inputs jsonb` + `model_id`.
+**Phase 3.5 — Model registry, result envelope, async job queue** (new in v0.2) — not started.
+**Phase 4 — Results & map UX** (E1–E5) — not started.
+**Phase 5 — Compare v2** (F1, F2) — not started.
+**Phase 6 — Solve worker-pool scaling** (P1, optional) — not started.
 
 ## Gotchas
 
@@ -81,3 +88,5 @@ Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization
 - Cached `result` JSONB can drift from edited inputs until the staleness guard (X1) lands — don't trust `result` on a scenario whose inputs changed after solving.
 - `problemType` is hidden from the UI but must NOT be removed from DB/API — solver dispatch and Compare validation depend on it.
 - Tests live per package: API in `artifacts/api-server` (vitest/supertest), frontend in `artifacts/studio` (vitest/RTL + Playwright), solver in `artifacts/api-server/src/solver/tests/` (pytest).
+- `uniformCapacity` (DB/API/TS field name) and `warehouseCapacity` (the key `solve.py`'s `solve_capacitated_pmedian()` actually reads off stdin) are the same value under two different names at two different layers — the route/`solve()` boundary translates between them. Don't rename one without the other, and don't assume a grep for one name finds every reference.
+- `e2e_accuracy.py` and `e2e_journey.py` under `artifacts/api-server/src/solver/tests/` are standalone scripts (`python3 e2e_accuracy.py`), not pytest-discovered (`test_*.py` naming) — `python3 -m pytest tests/ -x` does NOT run them. Run them directly when solver-affecting changes land, despite CLAUDE.md's rule 2 calling `e2e_accuracy.py` sacred — the pytest-only gate command will not catch a regression there.
