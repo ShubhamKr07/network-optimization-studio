@@ -1,8 +1,10 @@
-import { pgTable, serial, text, integer, real, boolean, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, boolean, jsonb, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import { usersTable } from "./auth.js";
 
 export const scenariosTable = pgTable("scenarios", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  userId: varchar("user_id").notNull().references(() => usersTable.id),
   problemType: text("problem_type").notNull().default("p_median"),
   pValue: integer("p_value").notNull().default(3),
   distanceBands: jsonb("distance_bands").notNull().default([200, 400, 800, 1600]).$type<number[]>(),
@@ -19,7 +21,7 @@ export const scenariosTable = pgTable("scenarios", {
   result: jsonb("result").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [index("IDX_scenarios_user_id").on(table.userId)]);
 
 export type Scenario = typeof scenariosTable.$inferSelect;
 export type InsertScenario = typeof scenariosTable.$inferInsert;

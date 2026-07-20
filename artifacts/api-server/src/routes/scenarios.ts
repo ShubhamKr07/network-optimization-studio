@@ -1,11 +1,20 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
-import { db, scenariosTable } from "@workspace/db";
+import { db, scenariosTable, usersTable } from "@workspace/db";
 import { solve } from "../solver/pmedian.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { WAREHOUSES } from "../data/dataset.js";
 
 const router = Router();
+
+// TODO(A2.2): replace with req.userId once requireAuth (A1.3) lands. Until then,
+// every scenario created through the (still cookie-only) API is attributed to the
+// same seed account that legacy pre-ownership scenarios were migrated to (A2.1).
+async function getSeedUserId(): Promise<string> {
+  const [seedUser] = await db.select().from(usersTable).where(eq(usersTable.email, "seed@local"));
+  if (!seedUser) throw new Error("seed@local user not found — run migrate-scenario-owners");
+  return seedUser.id;
+}
 
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
@@ -38,6 +47,7 @@ router.post("/scenarios", async (req, res) => {
   const body = req.body;
   const [row] = await db.insert(scenariosTable).values({
     name: body.name,
+    userId: await getSeedUserId(),
     problemType: body.problemType ?? "p_median",
     pValue: body.pValue ?? 3,
     distanceBands: body.distanceBands ?? [200, 400, 800, 1600],
@@ -181,6 +191,7 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
 
   const [clone] = await db.insert(scenariosTable).values({
     name: `${scenario.name} (copy)`,
+    userId: scenario.userId,
     problemType: scenario.problemType,
     pValue: scenario.pValue,
     distanceBands: scenario.distanceBands as number[],
