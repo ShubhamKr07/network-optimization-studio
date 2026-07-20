@@ -157,10 +157,11 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     gap: scenario.gap ?? 0,
     timeLimitSec: scenario.timeLimitSec ?? 120,
     solver: scenario.solver,
-    modelType: scenario.problemType as "p_median" | "transport",
+    modelType: scenario.problemType as SolveInput["modelType"],
     capacityFactor: scenario.capacityFactor ?? 1.0,
     singleSource: scenario.singleSource ?? false,
     capacityInactive: scenario.capacityInactive ?? false,
+    warehouseCapacity: scenario.uniformCapacity ?? undefined,
   };
 
   const result = solve(input);

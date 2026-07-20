@@ -48,7 +48,7 @@ export const listScenariosResponseCapacityInactiveDefault = false;
 export const ListScenariosResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -106,7 +106,7 @@ export const createScenarioBodyGapMin = 0;
 
 export const CreateScenarioBody = zod.object({
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number().min(1).max(createScenarioBodyPValueMax),
   "distanceBands": zod.array(zod.number()).min(1),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -135,7 +135,7 @@ export const getScenarioResponseCapacityInactiveDefault = false;
 export const GetScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -192,7 +192,7 @@ export const updateScenarioBodyPValueMax = 50;
 
 export const UpdateScenarioBody = zod.object({
   "name": zod.string().optional(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']).optional(),
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']).optional(),
   "pValue": zod.number().min(1).max(updateScenarioBodyPValueMax).optional(),
   "distanceBands": zod.array(zod.number()).optional(),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']).optional(),
@@ -213,7 +213,7 @@ export const updateScenarioResponseCapacityInactiveDefault = false;
 export const UpdateScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
@@ -279,7 +279,7 @@ export const solveScenarioResponseCapacityInactiveDefault = false;
 export const SolveScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_flp', 'max_coverage', 'p_center', 'set_cover', 'transport']),
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
   "pValue": zod.number(),
   "distanceBands": zod.array(zod.number()),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),

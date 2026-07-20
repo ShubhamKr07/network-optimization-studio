@@ -265,7 +265,7 @@ describe("solve() — transport LP", () => {
     } as unknown as SpawnSyncReturns<string>);
 
     const result = solve(transportInput);
-    const first = result.assignments[0] as Record<string, unknown>;
+    const first = result.assignments[0] as unknown as Record<string, unknown>;
     expect(first.flowTons).toBe(7000000);
     expect(first.flowFraction).toBe(1.0);
     expect(first.warehouseId).toBe("MINE1");
@@ -377,7 +377,7 @@ describe("solve() — Brazil capacitated p-median", () => {
     expect(result.weightedAvgDistanceMi).toBe(287.3);
     expect(result.openWarehouseIds).toHaveLength(5);
     expect(result.assignments).toHaveLength(2);
-    const first = result.assignments[0] as Record<string, unknown>;
+    const first = result.assignments[0] as unknown as Record<string, unknown>;
     expect(first.flowFraction).toBeCloseTo(0.69, 2);
   });
 

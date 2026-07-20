@@ -32,7 +32,7 @@ import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Co
 const PROBLEM_TYPES: Record<string, string> = {
   p_median: "P-Median Facility Location",
   transport: "Transportation LP (Chapter 5)",
-  capacitated_flp: "Capacitated FLP",
+  capacitated_pmedian: "Capacitated FLP",
   max_coverage: "Max Coverage",
   p_center: "P-Center",
   set_cover: "Set Cover",
@@ -41,7 +41,7 @@ const PROBLEM_TYPES: Record<string, string> = {
 const CONSTRAINTS: Record<string, string[]> = {
   transport: ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
   p_median: ["C1 Serve every customer", "C2 Open exactly P facilities", "C3 Respect capacity", "C4 Honor warehouse status", "C5 Route only to open facility"],
-  capacitated_flp: ["C1 Serve every customer", "C2 Capacity constraint per facility", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimize fixed + transport cost"],
+  capacitated_pmedian: ["C1 Serve every customer", "C2 Capacity constraint per facility", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimize fixed + transport cost"],
   max_coverage: ["C1 Open exactly P facilities", "C2 Coverage distance threshold", "C3 Honor warehouse status", "C4 Maximize demand within threshold", "C5 Binary assignment"],
   p_center: ["C1 Open exactly P facilities", "C2 Minimize maximum distance", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimax objective"],
   set_cover: ["C1 Cover all demand nodes", "C2 Coverage radius defined", "C3 Minimize number of facilities", "C4 Honor warehouse status", "C5 Binary covering"],
@@ -931,7 +931,7 @@ export function Studio() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">Weighted-average distance</p>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Objective {result.objective.toExponential(2)} · Run {result.runTimeSec.toFixed(2)}s · {result.solverUsed}
+                      Objective {(result.objective ?? 0).toExponential(2)} · Run {result.runTimeSec.toFixed(2)}s · {result.solverUsed}
                     </p>
                   </div>
 

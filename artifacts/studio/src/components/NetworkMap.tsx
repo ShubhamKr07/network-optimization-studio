@@ -155,7 +155,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
 
   const getStatus = (whId: string) => {
     const entry = warehouseStatuses.find((w) => w.warehouseId === whId);
-    if (result && result.openWarehouseIds.includes(whId)) return "open";
+    if (result && result.openWarehouseIds?.includes(whId)) return "open";
     return entry ? entry.status : "potential";
   };
 
@@ -368,7 +368,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         </div>
         {result && showRoutes && (
           <div className="flex items-center gap-2 pt-1 border-t border-border">
-            {bandColors.slice(0, result.bandCoverage.length).map((color, i) => (
+            {bandColors.slice(0, result.bandCoverage?.length ?? 0).map((color, i) => (
               <div key={i} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
                 <span className="text-[10px] text-muted-foreground">Band {i + 1}</span>

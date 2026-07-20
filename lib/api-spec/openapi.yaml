@@ -486,7 +486,7 @@ components:
           type: string
           enum:
             - p_median
-            - capacitated_flp
+            - capacitated_pmedian
             - max_coverage
             - p_center
             - set_cover
@@ -557,7 +557,7 @@ components:
           type: string
           enum:
             - p_median
-            - capacitated_flp
+            - capacitated_pmedian
             - max_coverage
             - p_center
             - set_cover
@@ -610,7 +610,7 @@ components:
           type: string
           enum:
             - p_median
-            - capacitated_flp
+            - capacitated_pmedian
             - max_coverage
             - p_center
             - set_cover

@@ -314,8 +314,8 @@ export function Compare() {
                   <div className="space-y-4">
                     {/* Just some static calculation logic for demo based on differences */}
                     {(() => {
-                      const bSet = new Set(beforeScenarioMeta.result!.openWarehouseIds);
-                      const newWHs = afterScenarioMeta.result!.openWarehouseIds.filter(id => !bSet.has(id));
+                      const bSet = new Set(beforeScenarioMeta.result!.openWarehouseIds ?? []);
+                      const newWHs = (afterScenarioMeta.result!.openWarehouseIds ?? []).filter(id => !bSet.has(id));
                       const newWHCities = newWHs.map(id => dataset.warehouses.find(w => w.id === id)?.city).join(", ");
                       
                       const bAvg = beforeScenarioMeta.result!.weightedAvgDistanceMi;
@@ -329,8 +329,10 @@ export function Compare() {
                         return bAss?.warehouseId !== aAss?.warehouseId;
                       }).length;
 
-                      const bUtil = beforeScenarioMeta.result!.utilization.reduce((sum, u) => sum + u.utilization, 0) / beforeScenarioMeta.result!.utilization.length;
-                      const aUtil = afterScenarioMeta.result!.utilization.reduce((sum, u) => sum + u.utilization, 0) / afterScenarioMeta.result!.utilization.length;
+                      const bUtilization = beforeScenarioMeta.result!.utilization ?? [];
+                      const aUtilization = afterScenarioMeta.result!.utilization ?? [];
+                      const bUtil = bUtilization.reduce((sum, u) => sum + u.utilization, 0) / bUtilization.length;
+                      const aUtil = aUtilization.reduce((sum, u) => sum + u.utilization, 0) / aUtilization.length;
 
                       return (
                         <>

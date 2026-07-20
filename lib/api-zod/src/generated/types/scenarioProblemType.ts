@@ -11,7 +11,7 @@ export type ScenarioProblemType = typeof ScenarioProblemType[keyof typeof Scenar
 
 export const ScenarioProblemType = {
   p_median: 'p_median',
-  capacitated_flp: 'capacitated_flp',
+  capacitated_pmedian: 'capacitated_pmedian',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',

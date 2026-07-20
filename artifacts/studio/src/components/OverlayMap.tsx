@@ -144,9 +144,9 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
         {dataset.warehouses.map((w) => {
           let isOpen = false;
           if (mode === "overlay") {
-             isOpen = afterResult.openWarehouseIds.includes(w.id) || beforeResult.openWarehouseIds.includes(w.id);
+             isOpen = !!afterResult.openWarehouseIds?.includes(w.id) || !!beforeResult.openWarehouseIds?.includes(w.id);
           } else {
-             isOpen = currentResult.openWarehouseIds.includes(w.id);
+             isOpen = !!currentResult.openWarehouseIds?.includes(w.id);
           }
           
           return (

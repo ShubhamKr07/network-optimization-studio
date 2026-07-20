@@ -16,10 +16,13 @@ export interface SolveInput {
   timeLimitSec?: number;
   solver?: string;
   // Chapter 5 transport LP fields
-  modelType?: "p_median" | "transport";
+  modelType?: "p_median" | "transport" | "capacitated_pmedian";
   capacityFactor?: number;
   singleSource?: boolean;
   capacityInactive?: boolean;
+  // Chapter 5 Brazil capacitated p-median: solve.py reads this key directly,
+  // distinct from uniformCapacity above (see routes/scenarios.ts solve handler).
+  warehouseCapacity?: number;
 }
 
 export interface SolverInfo {
@@ -46,6 +49,9 @@ export interface Assignment {
   warehouseId: string;
   distanceMi: number;
   band: number;
+  // Chapter 5 transport LP / capacitated models
+  flowTons?: number;
+  flowFraction?: number;
 }
 
 export interface WarehouseUtilization {
@@ -86,6 +92,7 @@ export function solve(input: SolveInput): SolveOutput {
     capacityFactor: input.capacityFactor ?? 1.0,
     singleSource: input.singleSource ?? false,
     capacityInactive: input.capacityInactive ?? false,
+    warehouseCapacity: input.warehouseCapacity,
   });
 
   const result = spawnSync("python3", [SOLVER_PY], {
