@@ -237,6 +237,15 @@ describe("GET /api/scenarios", () => {
     expect(types).toContain("transport");
     expect(types).toContain("capacitated_pmedian");
   });
+
+  it("accepts ?problemType= to scope the list to one chapter's model", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).get("/api/scenarios?problemType=transport").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].problemType).toBe("transport");
+  });
 });
 
 // ── Create scenario ────────────────────────────────────────────────────────

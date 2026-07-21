@@ -26,6 +26,7 @@ import type {
   Dataset,
   ErrorEnvelope,
   HealthStatus,
+  ListScenariosParams,
   LoginRequest,
   LogoutSuccess,
   RegisterRequest,
@@ -202,20 +203,27 @@ export function useGetDataset<TData = Awaited<ReturnType<typeof getDataset>>, TE
 
 
 
-export const getListScenariosUrl = () => {
+export const getListScenariosUrl = (params?: ListScenariosParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/scenarios`
+  return stringifiedParams.length > 0 ? `/api/scenarios?${stringifiedParams}` : `/api/scenarios`
 }
 
 /**
  * @summary List all scenarios
  */
-export const listScenarios = async ( options?: RequestInit): Promise<Scenario[]> => {
+export const listScenarios = async (params?: ListScenariosParams, options?: RequestInit): Promise<Scenario[]> => {
 
-  return customFetch<Scenario[]>(getListScenariosUrl(),
+  return customFetch<Scenario[]>(getListScenariosUrl(params),
   {
     ...options,
     method: 'GET'
@@ -228,23 +236,23 @@ export const listScenarios = async ( options?: RequestInit): Promise<Scenario[]>
 
 
 
-export const getListScenariosQueryKey = () => {
+export const getListScenariosQueryKey = (params?: ListScenariosParams,) => {
     return [
-    `/api/scenarios`
+    `/api/scenarios`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListScenariosQueryOptions = <TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListScenariosQueryOptions = <TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<void>>(params?: ListScenariosParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListScenariosQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListScenariosQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listScenarios>>> = ({ signal }) => listScenarios({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listScenarios>>> = ({ signal }) => listScenarios(params, { signal, ...requestOptions });
 
 
 
@@ -262,11 +270,11 @@ export type ListScenariosQueryError = ErrorType<void>
  */
 
 export function useListScenarios<TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<void>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListScenariosParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListScenariosQueryOptions(options)
+  const queryOptions = getListScenariosQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

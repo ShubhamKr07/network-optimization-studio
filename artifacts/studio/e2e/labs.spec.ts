@@ -15,10 +15,10 @@ const HEADER_TIMEOUT = 10_000;
 // ── auth helper ───────────────────────────────────────────────────────────────
 
 /**
- * Register a fresh account (unique email per call) and land on Studio.
- * Uses a direct API call rather than the login form so per-lab setup stays
- * fast and focused on Studio behavior — the Login page itself gets its own
- * dedicated UI-driven test below.
+ * Register a fresh account (unique email per call) and land on the Landing
+ * page. Uses a direct API call rather than the login form so per-lab setup
+ * stays fast and focused on Studio behavior — the Login page itself gets its
+ * own dedicated UI-driven test below.
  */
 async function registerAndGoHome(page: Page): Promise<string> {
   const email = `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
@@ -39,20 +39,20 @@ function scenarioId(page: Page): string | null {
 }
 
 /**
- * Create a scenario of the given shape via the API (fast, avoids depending on
- * UI that doesn't exist yet — chapter-based lab switching lands in B1.1) and
- * navigate straight to it via the URL, which is how Studio has always read
- * the active scenario.
+ * Create a scenario of the given shape via the API (fast — no need to click
+ * through the UI to create it) and navigate straight to it on its chapter
+ * route (B1.1), which is how Studio now determines which model is active.
  */
 async function createAndGoToScenario(
   page: Page,
+  chapterPath: string,
   body: Record<string, unknown>,
   expectedHeader: RegExp,
 ): Promise<string> {
   const resp = await page.request.post("/api/scenarios", { data: body });
   expect(resp.status()).toBe(201);
   const id = String((await resp.json()).id);
-  await page.goto(`/?scenario=${id}`);
+  await page.goto(`${chapterPath}?scenario=${id}`);
   await expect(page.getByText(expectedHeader)).toBeVisible({ timeout: HEADER_TIMEOUT });
   return id;
 }
@@ -74,7 +74,7 @@ async function clickNewAndWait(page: Page, name: string) {
 // ── Login page ──────────────────────────────────────────────────────────────
 
 test.describe("Login", () => {
-  test("registering via the UI form lands on Studio", async ({ page }) => {
+  test("registering via the UI form lands on the Landing page", async ({ page }) => {
     const email = `e2e-ui-${Date.now()}@test.com`;
     await page.goto("/register");
     await page.getByTestId("input-email").fill(email);
@@ -89,6 +89,20 @@ test.describe("Login", () => {
   });
 });
 
+// ── Landing page ────────────────────────────────────────────────────────────
+
+test.describe("Landing", () => {
+  test("lists all three chapter labs and navigates to each", async ({ page }) => {
+    await registerAndGoHome(page);
+    await expect(page.getByText(/Al's Athletics/)).toBeVisible();
+    await expect(page.getByText(/Coal Transport LP/)).toBeVisible();
+    await expect(page.getByText(/Brazil Capacity/)).toBeVisible();
+
+    await page.getByTestId("link-/chapter-3").click();
+    await expect(page).toHaveURL(/\/chapter-3$/, { timeout: 8_000 });
+  });
+});
+
 // ── Lab 1: Al's Athletics (P-Median) ─────────────────────────────────────────
 
 test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
@@ -96,6 +110,7 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
     await registerAndGoHome(page);
     await createAndGoToScenario(
       page,
+      "/chapter-3",
       {
         name: `E2E P-Median ${Date.now()}`,
         problemType: "p_median",
@@ -152,6 +167,7 @@ test.describe("Lab 2 — Coal Transport LP", () => {
     await registerAndGoHome(page);
     await createAndGoToScenario(
       page,
+      "/chapter-5/transport",
       {
         name: `E2E Transport ${Date.now()}`,
         problemType: "transport",
@@ -214,6 +230,7 @@ test.describe("Lab 3 — Brazil Capacity", () => {
     await registerAndGoHome(page);
     brazilId = await createAndGoToScenario(
       page,
+      "/chapter-5/brazil",
       {
         name: `E2E Brazil seed ${Date.now()}`,
         problemType: "capacitated_pmedian",

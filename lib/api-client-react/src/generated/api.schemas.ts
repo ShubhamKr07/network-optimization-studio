@@ -305,3 +305,22 @@ export interface CompareResult {
   scenarios: ScenarioMetrics[];
 }
 
+export type ListScenariosParams = {
+/**
+ * Restrict the list to scenarios of this model (chapter pages scope by this).
+ */
+problemType?: ListScenariosProblemType;
+};
+
+export type ListScenariosProblemType = typeof ListScenariosProblemType[keyof typeof ListScenariosProblemType];
+
+
+export const ListScenariosProblemType = {
+  p_median: 'p_median',
+  capacitated_pmedian: 'capacitated_pmedian',
+  max_coverage: 'max_coverage',
+  p_center: 'p_center',
+  set_cover: 'set_cover',
+  transport: 'transport',
+} as const;
+

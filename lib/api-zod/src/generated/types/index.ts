@@ -17,6 +17,8 @@ export * from './customer';
 export * from './dataset';
 export * from './errorEnvelope';
 export * from './healthStatus';
+export * from './listScenariosParams';
+export * from './listScenariosProblemType';
 export * from './loginRequest';
 export * from './logoutSuccess';
 export * from './registerRequest';

@@ -17,6 +17,7 @@ import type { WarehouseStatusEntry, Scenario, ScenarioUpdateProblemType, Scenari
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
+import type { StudioModelType } from "@/lib/chapters";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -27,15 +28,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save } from "lucide-react";
-
-const PROBLEM_TYPES: Record<string, string> = {
-  p_median: "P-Median Facility Location",
-  transport: "Transportation LP (Chapter 5)",
-  capacitated_pmedian: "Capacitated FLP",
-  max_coverage: "Max Coverage",
-  p_center: "P-Center",
-  set_cover: "Set Cover",
-};
 
 const CONSTRAINTS: Record<string, string[]> = {
   transport: ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
@@ -83,16 +75,20 @@ function configFromScenario(s: Scenario): LocalConfig {
   };
 }
 
-export function Studio() {
+interface StudioProps {
+  problemType: StudioModelType;
+}
+
+export function Studio({ problemType }: StudioProps) {
   const search = useSearch();
-  const [, navigate] = useLocation();
+  const [chapterPath, navigate] = useLocation();
   const queryClient = useQueryClient();
 
   const params = new URLSearchParams(search);
   const scenarioIdStr = params.get("scenario");
   const scenarioId = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
 
-  const { data: scenarios, isLoading: scenariosLoading } = useListScenarios();
+  const { data: scenarios, isLoading: scenariosLoading } = useListScenarios({ problemType });
   const { data: dataset, isLoading: datasetLoading } = useGetDataset();
   const { data: scenarioFromApi } = useGetScenario(scenarioId!, {
     query: { enabled: !!scenarioId, queryKey: getGetScenarioQueryKey(scenarioId!) },
@@ -103,10 +99,10 @@ export function Studio() {
   const cloneScenario = useCloneScenario();
   const createScenario = useCreateScenario();
 
-  // Which model/lab is active. Local for now — B1.1 replaces this with a
-  // value derived from the chapter route instead of in-page state.
-  const [activeModelIndex, setActiveModelIndex] = useState(1);
-  const activeModelType = activeModelIndex === 3 ? "capacitated_pmedian" : activeModelIndex === 2 ? "transport" : "p_median";
+  // Which lab is active — driven by the chapter route (App.tsx), not user
+  // selection or in-page state.
+  const activeModelType = problemType;
+  const activeModelIndex = problemType === "capacitated_pmedian" ? 3 : problemType === "transport" ? 2 : 1;
 
   // Derive currentScenario here so effects can reference it before early returns
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioId) ?? scenarios?.[0];
@@ -131,12 +127,12 @@ export function Studio() {
     if (!scenarios || scenarios.length === 0) return;
     const preferred = scenarios.find(s => s.problemType === activeModelType);
     if (!scenarioId) {
-      if (preferred) navigate(`/?scenario=${preferred.id}`, { replace: true });
+      if (preferred) navigate(`${chapterPath}?scenario=${preferred.id}`, { replace: true });
       return;
     }
     const exists = scenarios.some(s => s.id === scenarioId);
     if (!exists && preferred) {
-      navigate(`/?scenario=${preferred.id}`, { replace: true });
+      navigate(`${chapterPath}?scenario=${preferred.id}`, { replace: true });
     }
   }, [scenarios, scenarioId, navigate, activeModelType]);
 
@@ -148,13 +144,6 @@ export function Studio() {
       if (scenarioFromApi.result) setActiveTab("output");
     }
   }, [scenarioFromApi?.id]);
-
-  useEffect(() => {
-    const pt = currentScenario?.problemType;
-    setActiveModelIndex(pt === "transport" ? 2 : pt === "capacitated_pmedian" ? 3 : 1);
-  // setActiveModelIndex is not memoized; only re-run when problemType changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentScenario?.problemType]);
 
   const isDirty = localConfig && savedConfig
     ? JSON.stringify(localConfig) !== JSON.stringify(savedConfig)
@@ -247,7 +236,7 @@ export function Studio() {
       {
         onSuccess: (cloned) => {
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          navigate(`/?scenario=${cloned.id}`);
+          navigate(`${chapterPath}?scenario=${cloned.id}`);
         },
       }
     );
@@ -263,9 +252,9 @@ export function Studio() {
           if (id === scenarioId) {
             const remaining = (scenarios ?? []).filter(s => s.id !== id);
             if (remaining.length > 0) {
-              navigate(`/?scenario=${remaining[0].id}`);
+              navigate(`${chapterPath}?scenario=${remaining[0].id}`);
             } else {
-              navigate("/");
+              navigate(chapterPath);
             }
           }
         },
@@ -280,11 +269,10 @@ export function Studio() {
 
   const handleCreateConfirm = () => {
     const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
-    const activeProblemType = currentScenario?.problemType ?? activeModelType;
     const typeDefaults =
-      activeProblemType === "transport"
+      problemType === "transport"
         ? { problemType: "transport" as const, pValue: 1, distanceBands: [500, 1000, 1500, 2000], uniformCapacity: null }
-        : activeProblemType === "capacitated_pmedian"
+        : problemType === "capacitated_pmedian"
         ? { problemType: "capacitated_pmedian" as const, pValue: 7, distanceBands: [500, 1000, 2000, 4000], uniformCapacity: null }
         : { problemType: "p_median" as const, pValue: 3, distanceBands: [200, 400, 800, 1600], uniformCapacity: null };
     createScenario.mutate(
@@ -303,7 +291,7 @@ export function Studio() {
         onSuccess: (s) => {
           setShowCreateDialog(false);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          navigate(`/?scenario=${s.id}`);
+          navigate(`${chapterPath}?scenario=${s.id}`);
         },
       }
     );
@@ -425,7 +413,7 @@ export function Studio() {
                     <>
                       <button
                         data-testid={`button-scenario-${s.id}`}
-                        onClick={() => { navigate(`/?scenario=${s.id}`); setShowScenarioDropdown(false); setConfirmDeleteId(null); }}
+                        onClick={() => { navigate(`${chapterPath}?scenario=${s.id}`); setShowScenarioDropdown(false); setConfirmDeleteId(null); }}
                         className={`flex-1 text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center gap-2 min-w-0 ${s.id === scenarioId ? "text-primary font-medium" : "text-foreground"}`}
                       >
                         {s.id === scenarioId && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
@@ -547,22 +535,6 @@ export function Studio() {
                     <Pencil className="w-3 h-3 text-muted-foreground group-hover:text-primary flex-shrink-0" />
                   </button>
                 )}
-              </div>
-
-              {/* Problem type */}
-              <div className="px-3 py-3 border-b space-y-2">
-                <p className="text-xs font-semibold text-foreground">Problem type</p>
-                <Select value={localConfig.problemType} onValueChange={v => update("problemType", v as ScenarioUpdateProblemType)}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-problem-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PROBLEM_TYPES).map(([k, v]) => (
-                      <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground italic">Also: Capacitated FLP · Max Coverage · P-Center · Set Cover</p>
               </div>
 
               {/* P value */}

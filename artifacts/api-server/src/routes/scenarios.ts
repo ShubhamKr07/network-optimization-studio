@@ -33,8 +33,12 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
 }
 
 router.get("/scenarios", async (req, res) => {
+  const problemType = req.query.problemType as string | undefined;
+  const where = problemType
+    ? and(eq(scenariosTable.userId, req.userId!), eq(scenariosTable.problemType, problemType))
+    : eq(scenariosTable.userId, req.userId!);
   const rows = await db.select().from(scenariosTable)
-    .where(eq(scenariosTable.userId, req.userId!))
+    .where(where)
     .orderBy(scenariosTable.createdAt);
   res.json(rows.map(toApiScenario));
 });

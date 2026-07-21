@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OverlayMap } from "@/components/OverlayMap";
+import { chapterPathForProblemType } from "@/lib/chapters";
 import type { ScenarioMetrics, SolveResult, Scenario } from "@workspace/api-client-react";
 
 export function Compare() {
@@ -21,6 +22,10 @@ export function Compare() {
   const currentScenarioId = params.get("scenario") ? parseInt(params.get("scenario")!, 10) : undefined;
 
   const { data: scenarios, isLoading: isScenariosLoading } = useListScenarios();
+  const currentScenario = scenarios?.find(s => s.id === currentScenarioId);
+  const backHref = currentScenarioId && currentScenario
+    ? `${chapterPathForProblemType(currentScenario.problemType) ?? "/"}?scenario=${currentScenarioId}`
+    : "/";
   const { data: dataset, isLoading: isDatasetLoading } = useGetDataset();
   
   const compareMutation = useCompareScenarios();
@@ -86,7 +91,7 @@ export function Compare() {
   if (solvedScenarios.length < 2) {
     return (
       <div className="studio-lab p-8">
-        <Link href={currentScenarioId ? `/?scenario=${currentScenarioId}` : "/"} className="inline-flex items-center text-sm font-medium text-primary hover:underline mb-6">
+        <Link href={backHref} className="inline-flex items-center text-sm font-medium text-primary hover:underline mb-6">
           <ArrowLeft className="w-4 h-4 mr-1" /> Back
         </Link>
         <div className="bg-slate-50 border rounded-lg p-8 text-center">
@@ -101,7 +106,7 @@ export function Compare() {
     <div className="studio-lab min-h-screen bg-slate-50 overflow-y-auto">
       <div className="max-w-7xl mx-auto p-6">
         <header className="mb-8" style={{ background: "transparent", border: "none" }}>
-          <Link href={currentScenarioId ? `/?scenario=${currentScenarioId}` : "/"} className="inline-flex items-center text-sm font-medium text-primary hover:underline mb-4">
+          <Link href={backHref} className="inline-flex items-center text-sm font-medium text-primary hover:underline mb-4">
             <ArrowLeft className="w-4 h-4 mr-1" /> Back
           </Link>
           <div className="flex items-end justify-between">

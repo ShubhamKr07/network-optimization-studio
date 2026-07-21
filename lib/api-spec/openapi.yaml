@@ -51,6 +51,20 @@ paths:
       operationId: listScenarios
       tags: [scenarios]
       summary: List all scenarios
+      parameters:
+        - name: problemType
+          in: query
+          required: false
+          description: Restrict the list to scenarios of this model (chapter pages scope by this).
+          schema:
+            type: string
+            enum:
+              - p_median
+              - capacitated_pmedian
+              - max_coverage
+              - p_center
+              - set_cover
+              - transport
       responses:
         "200":
           description: List of scenarios

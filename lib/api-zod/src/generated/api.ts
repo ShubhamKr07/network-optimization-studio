@@ -41,6 +41,10 @@ export const GetDatasetResponse = zod.object({
 /**
  * @summary List all scenarios
  */
+export const ListScenariosQueryParams = zod.object({
+  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
+})
+
 export const listScenariosResponseCapacityFactorDefault = 1;
 export const listScenariosResponseSingleSourceDefault = false;
 export const listScenariosResponseCapacityInactiveDefault = false;
