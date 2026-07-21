@@ -80,12 +80,12 @@ export function Compare() {
   const bands = getBands();
 
   if (isScenariosLoading || isDatasetLoading) {
-    return <div className="arcadia-lab p-8"><Skeleton className="w-full h-14 mb-4" /><Skeleton className="w-full h-96" /></div>;
+    return <div className="studio-lab p-8"><Skeleton className="w-full h-14 mb-4" /><Skeleton className="w-full h-96" /></div>;
   }
 
   if (solvedScenarios.length < 2) {
     return (
-      <div className="arcadia-lab p-8">
+      <div className="studio-lab p-8">
         <Link href={currentScenarioId ? `/?scenario=${currentScenarioId}` : "/"} className="inline-flex items-center text-sm font-medium text-primary hover:underline mb-6">
           <ArrowLeft className="w-4 h-4 mr-1" /> Back
         </Link>
@@ -98,7 +98,7 @@ export function Compare() {
   }
 
   return (
-    <div className="arcadia-lab min-h-screen bg-slate-50 overflow-y-auto">
+    <div className="studio-lab min-h-screen bg-slate-50 overflow-y-auto">
       <div className="max-w-7xl mx-auto p-6">
         <header className="mb-8" style={{ background: "transparent", border: "none" }}>
           <Link href={currentScenarioId ? `/?scenario=${currentScenarioId}` : "/"} className="inline-flex items-center text-sm font-medium text-primary hover:underline mb-4">

@@ -1,6 +1,3 @@
-import { useGamification } from "@/context/GamificationContext";
-import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect, useRef } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 
 interface ObjectiveBarProps {
@@ -10,96 +7,44 @@ interface ObjectiveBarProps {
   problemType?: string;
 }
 
-interface QuestGoal {
-  questId: number;
+interface ModelTarget {
   chapter: string;
   title: string;
   tagline: string;
   maxWarehouses: number;
   maxAvgDistance: number;
-  targetDistance: number;
 }
 
-const QUEST_GOALS: Record<number, QuestGoal> = {
+const MODEL_TARGETS: Record<number, ModelTarget> = {
   1: {
-    questId: 1,
-    chapter: "Chapter 3 · Al's Athletics · Quest",
+    chapter: "Chapter 3 · Al's Athletics",
     title: "Beat 390 mi using ≤ 3 warehouses",
     tagline: "serve all 200 customers.",
     maxWarehouses: 3,
     maxAvgDistance: 390,
-    targetDistance: 360,
   },
   2: {
-    questId: 2,
-    chapter: "Chapter 5 · Coal Transport LP · Quest",
+    chapter: "Chapter 5 · Coal Transport LP",
     title: "Beat 500 mi using ≤ 5 supply nodes",
     tagline: "minimise haul distance across all demand points.",
     maxWarehouses: 5,
     maxAvgDistance: 500,
-    targetDistance: 430,
   },
   3: {
-    questId: 3,
-    chapter: "Chapter 5 · Brazil Capacity · Quest",
+    chapter: "Chapter 5 · Brazil Capacity",
     title: "Beat 350 mi using ≤ 5 DCs",
     tagline: "try relax single-sourcing to split demand across DCs.",
     maxWarehouses: 5,
     maxAvgDistance: 350,
-    targetDistance: 300,
   },
 };
 
-const XP_MAP: Record<number, number> = { 1: 150, 2: 300, 3: 450 };
+export function ObjectiveBar({ pValue, result, problemType }: ObjectiveBarProps) {
+  const modelIndex = problemType === "transport" ? 2 : problemType === "capacitated_pmedian" ? 3 : 1;
+  const target = MODEL_TARGETS[modelIndex] ?? MODEL_TARGETS[1];
 
-function computeStars(result: SolveResult, pValue: number, goal: QuestGoal): number {
-  const warehousesOk = pValue <= goal.maxWarehouses;
-  const distanceOk = result.weightedAvgDistanceMi < goal.maxAvgDistance;
-  if (!warehousesOk || !distanceOk) return 1;
-  if (result.weightedAvgDistanceMi < goal.targetDistance) return 3;
-  return 2;
-}
-
-export function ObjectiveBar({ pValue, result, scenarioId, problemType }: ObjectiveBarProps) {
-  const { awardXP, state } = useGamification();
-  const { toast } = useToast();
-  const [xpBurst, setXpBurst] = useState<{ amount: number; key: number } | null>(null);
-  const lastAwardedKey = useRef<string | null>(null);
-
-  const questId = problemType === "transport" ? 2 : problemType === "capacitated_pmedian" ? 3 : 1;
-  const goal = QUEST_GOALS[questId] ?? QUEST_GOALS[1];
-
-  const warehousesOk = pValue <= goal.maxWarehouses;
-  const distanceOk = result ? result.weightedAvgDistanceMi < goal.maxAvgDistance : false;
-
-  useEffect(() => {
-    if (!result || !scenarioId || result.status !== "optimal") return;
-    const stars = computeStars(result, pValue, goal);
-    const xpAmount = XP_MAP[stars] ?? 150;
-
-    const awardKey = `${scenarioId}-${stars}-${result.weightedAvgDistanceMi.toFixed(1)}`;
-    if (lastAwardedKey.current === awardKey) return;
-
-    const existingSolve = state.solvedScenarios[scenarioId];
-    const alreadySolvedBetter = existingSolve && existingSolve.stars >= stars;
-    if (alreadySolvedBetter) return;
-
-    lastAwardedKey.current = awardKey;
-    awardXP(xpAmount, scenarioId, stars, result.weightedAvgDistanceMi);
-    setXpBurst({ amount: xpAmount, key: Date.now() });
-
-    const starStr = "★".repeat(stars) + "☆".repeat(3 - stars);
-    const context = stars >= 2
-      ? `${starStr}  Avg distance: ${result.weightedAvgDistanceMi.toFixed(1)} mi`
-      : `${starStr}  ${pValue > goal.maxWarehouses ? `Used ${pValue} nodes (target ≤ ${goal.maxWarehouses})` : `Avg ${result.weightedAvgDistanceMi.toFixed(1)} mi (target < ${goal.maxAvgDistance})`}`;
-
-    toast({
-      title: `+${xpAmount} XP${stars >= 2 ? " · scenario cleared 🎉" : " · keep going!"}`,
-      description: context,
-    });
-    setTimeout(() => setXpBurst(null), 3000);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result?.status, result?.weightedAvgDistanceMi, scenarioId, pValue]);
+  const warehousesOk = pValue <= target.maxWarehouses;
+  const distanceOk = result ? result.weightedAvgDistanceMi < target.maxAvgDistance : false;
 
   return (
     <div style={{
@@ -125,34 +70,23 @@ export function ObjectiveBar({ pValue, result, scenarioId, problemType }: Object
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "var(--arc-mono)", fontSize: "9.5px", letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--arc-cyan)", marginBottom: "1px" }}>
-          {goal.chapter}
+          {target.chapter}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
           <b style={{ fontFamily: "var(--arc-display)", fontSize: "13px", fontWeight: 600, color: "var(--arc-paper)" }}>
-            {goal.title}
+            {target.title}
           </b>
-          <span style={{ color: "var(--arc-muted)", fontSize: "12px" }}>— {goal.tagline}</span>
+          <span style={{ color: "var(--arc-muted)", fontSize: "12px" }}>— {target.tagline}</span>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: "7px", flexShrink: 0 }}>
-        <GoalPill label={`≤ ${goal.maxWarehouses} nodes${warehousesOk ? " ✓" : ` (P=${pValue})`}`} hit={warehousesOk} />
+        <GoalPill label={`≤ ${target.maxWarehouses} nodes${warehousesOk ? " ✓" : ` (P=${pValue})`}`} hit={warehousesOk} />
         <GoalPill
-          label={result ? `avg ${result.weightedAvgDistanceMi.toFixed(0)} mi${distanceOk ? " ✓" : ""}` : `avg < ${goal.maxAvgDistance} mi`}
+          label={result ? `avg ${result.weightedAvgDistanceMi.toFixed(0)} mi${distanceOk ? " ✓" : ""}` : `avg < ${target.maxAvgDistance} mi`}
           hit={distanceOk}
         />
       </div>
-
-      {xpBurst && (
-        <div key={xpBurst.key} style={{
-          position: "absolute", right: "20px", top: "50%", transform: "translateY(-50%)",
-          fontFamily: "var(--arc-mono)", fontSize: "13px", color: "var(--arc-amber)",
-          animation: "arc-xp-burst 2.5s ease-out forwards",
-          pointerEvents: "none",
-        }}>
-          +{xpBurst.amount} XP 🎉
-        </div>
-      )}
     </div>
   );
 }

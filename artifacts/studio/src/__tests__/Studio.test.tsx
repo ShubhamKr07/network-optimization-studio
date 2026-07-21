@@ -17,11 +17,6 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
 }));
 
-// ── Mock GamificationContext ──────────────────────────────────────────────────
-vi.mock("@/context/GamificationContext", () => ({
-  useGamification: vi.fn(),
-}));
-
 // ── Mock NetworkMap & ObjectiveBar (heavy deps) ───────────────────────────────
 vi.mock("@/components/NetworkMap", () => ({
   NetworkMap: () => <div data-testid="network-map" />,
@@ -88,41 +83,12 @@ vi.mock("@workspace/api-client-react", () => ({
 
 import { useSearch } from "wouter";
 import { useListScenarios, useGetDataset, useGetScenario } from "@workspace/api-client-react";
-import { useGamification } from "@/context/GamificationContext";
 import { Studio } from "@/pages/Studio";
-import type { GamificationState } from "@/context/GamificationContext";
 
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUseGetDataset = vi.mocked(useGetDataset);
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseSearch = vi.mocked(useSearch);
-const mockUseGamification = vi.mocked(useGamification);
-
-const defaultGamState: GamificationState = {
-  activeQuestId: 1,
-  xp: 0,
-  level: 1,
-  streakDays: 0,
-  lastSolveDate: null,
-  solvedScenarios: {},
-  earnedBadges: [],
-  activeView: "lab",
-  isLoggedIn: false,
-  userId: null,
-  _synced: false,
-};
-
-function makeGamContext(overrides: Partial<GamificationState> = {}) {
-  return {
-    state: { ...defaultGamState, ...overrides },
-    setActiveQuest: vi.fn(),
-    setView: vi.fn(),
-    login: vi.fn(),
-    logout: vi.fn(),
-    awardXP: vi.fn(),
-    xpToNextLevel: () => ({ current: 0, next: 500, pct: 0 }),
-  };
-}
 
 function renderStudio() {
   return render(<Studio />);
@@ -133,15 +99,13 @@ beforeEach(() => {
   mockNavigate.mockReset();
   mockUseGetDataset.mockReturnValue({ data: dataset, isLoading: false } as ReturnType<typeof useGetDataset>);
   mockUseSearch.mockReturnValue("?scenario=1");
-  mockUseGamification.mockReturnValue(makeGamContext());
 });
 
 // ── P-Median rendering ────────────────────────────────────────────────────────
 
 describe("Studio — P-Median scenario", () => {
   beforeEach(() => {
-    // activeQuestId=1 → questType=p_median → labScenarios filtered to p_median
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 1 }));
+    // activeModelIndex=1 → activeModelType=p_median → labScenarios filtered to p_median
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
   });
@@ -187,9 +151,8 @@ describe("Studio — P-Median scenario", () => {
 
 describe("Studio — Transport scenario (configure)", () => {
   beforeEach(() => {
-    // activeQuestId=2 → questType=transport → labScenarios filtered to transport
+    // activeModelIndex=2 → activeModelType=transport → labScenarios filtered to transport
     // useSearch returns "?scenario=8" to match the transport scenario ID directly
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
@@ -261,7 +224,6 @@ describe("Studio — Transport scenario (output tab)", () => {
   };
 
   beforeEach(() => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportSolvedScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportSolvedScenario } as ReturnType<typeof useGetScenario>);
@@ -300,19 +262,17 @@ describe("Studio — Transport scenario (output tab)", () => {
   });
 });
 
-// ── Studio header labels by quest ─────────────────────────────────────────────
+// ── Studio header labels by active lab ─────────────────────────────────────────
 
-describe("Studio — Header lab name by active quest", () => {
-  it("shows Al's Athletics · Model Lab when activeQuestId is 1 (p_median)", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 1 }));
+describe("Studio — Header lab name by active lab", () => {
+  it("shows Al's Athletics · Model Lab when active lab is 1 (p_median)", () => {
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
     expect(screen.getByText(/Al's Athletics · Model Lab/)).toBeInTheDocument();
   });
 
-  it("shows Coal Transport LP · Model Lab when activeQuestId is 2 (transport)", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
+  it("shows Coal Transport LP · Model Lab when active lab is 2 (transport)", () => {
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
@@ -321,9 +281,9 @@ describe("Studio — Header lab name by active quest", () => {
   });
 });
 
-// ── Quest-based auto-redirect ─────────────────────────────────────────────────
+// ── Lab-based auto-redirect ─────────────────────────────────────────────────
 
-describe("Studio — Quest-based scenario redirect", () => {
+describe("Studio — Lab-based scenario redirect", () => {
   const pmedianWith5 = { ...pmedianScenario, id: 5 };
   const transportWith8 = { ...transportScenario, id: 8 };
   const multiScenarios = [pmedianWith5, transportWith8];
@@ -333,31 +293,20 @@ describe("Studio — Quest-based scenario redirect", () => {
     mockUseGetScenario.mockReturnValue({ data: undefined } as ReturnType<typeof useGetScenario>);
   });
 
-  it("redirects to first p-median scenario when activeQuestId is 1 and URL has no scenario", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 1 }));
+  // "Redirect to the transport/Brazil scenario when that lab is active" and
+  // "don't redirect when the active lab has no matching scenario" required an
+  // external lab-selection signal (previously GamificationContext) that A3.2
+  // removes. Studio now defaults to p_median absent any other signal; B1.1's
+  // chapter routing restores an explicit "which lab" signal and this coverage
+  // returns then.
+  it("redirects to first p-median scenario when no external lab signal and URL has no scenario", () => {
     mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
     renderStudio();
     expect(mockNavigate).toHaveBeenCalledWith("/?scenario=5", { replace: true });
   });
 
-  it("redirects to first transport scenario when activeQuestId is 2 and URL has no scenario", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
-    mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
-    renderStudio();
-    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=8", { replace: true });
-  });
-
-  it("does NOT redirect when no scenario matches the quest type (stays at current URL)", () => {
-    // Only p_median available, but quest is transport → no matching scenario → no navigate
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
-    mockUseListScenarios.mockReturnValue({ data: [pmedianWith5], isLoading: false } as ReturnType<typeof useListScenarios>);
-    renderStudio();
-    expect(mockNavigate).not.toHaveBeenCalledWith(expect.stringContaining("/?scenario="), expect.anything());
-  });
-
-  it("does NOT redirect when a valid ?scenario= matching the quest type is already in the URL", () => {
+  it("does NOT redirect when a valid ?scenario= matching the active lab is already in the URL", () => {
     mockUseSearch.mockReturnValue("?scenario=5");
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 1 }));
     mockUseGetScenario.mockReturnValue({ data: pmedianWith5 } as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
     renderStudio();
@@ -388,15 +337,14 @@ const brazilScenario = {
 };
 
 // ── Brazil Studio — configure rendering ───────────────────────────────────
-describe("Studio — Brazil Capacity scenario (configure tab, activeQuestId=3)", () => {
+describe("Studio — Brazil Capacity scenario (configure tab, active lab=3)", () => {
   beforeEach(() => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
     mockUseSearch.mockReturnValue("?scenario=10");
     mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
   });
 
-  it("shows Brazil Capacity · Model Lab header when activeQuestId is 3", () => {
+  it("shows Brazil Capacity · Model Lab header when active lab is 3", () => {
     renderStudio();
     expect(screen.getByText(/Brazil Capacity · Model Lab/)).toBeInTheDocument();
   });
@@ -444,9 +392,8 @@ describe("Studio — Brazil Capacity scenario (configure tab, activeQuestId=3)",
 });
 
 // ── Brazil Studio — header lab name ───────────────────────────────────────
-describe("Studio — Header lab name by active quest (all three quests)", () => {
-  it("shows Brazil Capacity · Model Lab when activeQuestId is 3", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+describe("Studio — Header lab name by active lab (all three labs)", () => {
+  it("shows Brazil Capacity · Model Lab when active lab is 3", () => {
     mockUseSearch.mockReturnValue("?scenario=10");
     mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
@@ -475,7 +422,6 @@ describe("Studio — Brazil infeasibility output banner", () => {
   };
 
   beforeEach(() => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
     mockUseSearch.mockReturnValue("?scenario=10");
     mockUseListScenarios.mockReturnValue({ data: [brazilInfeasibleScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: brazilInfeasibleScenario } as ReturnType<typeof useGetScenario>);
@@ -500,46 +446,12 @@ describe("Studio — Brazil infeasibility output banner", () => {
   });
 });
 
-// ── Brazil Studio — auto-redirect ─────────────────────────────────────────
-describe("Studio — Brazil quest auto-redirect (activeQuestId=3)", () => {
-  const pmedianWith5 = { ...pmedianScenario, id: 5 };
-  const brazilWith10 = { ...brazilScenario, id: 10 };
-
-  beforeEach(() => {
-    mockUseSearch.mockReturnValue("");
-    mockUseGetScenario.mockReturnValue({ data: undefined } as ReturnType<typeof useGetScenario>);
-  });
-
-  it("redirects to first Brazil scenario when activeQuestId=3 and no URL param", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
-    mockUseListScenarios.mockReturnValue({
-      data: [pmedianWith5, brazilWith10],
-      isLoading: false,
-    } as ReturnType<typeof useListScenarios>);
-    renderStudio();
-    expect(mockNavigate).toHaveBeenCalledWith("/?scenario=10", { replace: true });
-  });
-
-  it("does NOT redirect to p_median scenario when activeQuestId=3", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
-    mockUseListScenarios.mockReturnValue({
-      data: [pmedianWith5, brazilWith10],
-      isLoading: false,
-    } as ReturnType<typeof useListScenarios>);
-    renderStudio();
-    expect(mockNavigate).not.toHaveBeenCalledWith("/?scenario=5", expect.anything());
-  });
-
-  it("shows Brazil Capacity empty state when no Brazil scenarios exist for quest 3", () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
-    mockUseListScenarios.mockReturnValue({
-      data: [pmedianWith5],
-      isLoading: false,
-    } as ReturnType<typeof useListScenarios>);
-    renderStudio();
-    expect(screen.getByText(/No Brazil Capacity scenarios yet/i)).toBeInTheDocument();
-  });
-});
+// Brazil-lab auto-redirect coverage ("redirect to Brazil scenario when that
+// lab is active", "empty state when no Brazil scenarios exist for the active
+// lab") required an external lab-selection signal (previously
+// GamificationContext) that A3.2 removes — see the note above the p_median/
+// transport redirect tests. This coverage returns once B1.1's chapter routing
+// supplies an explicit "which lab" signal again.
 
 // ── New button sends correct problemType per lab ───────────────────────────────
 describe("Studio — New button sends correct problemType", () => {
@@ -554,8 +466,7 @@ describe("Studio — New button sends correct problemType", () => {
     await userEvent.click(screen.getByTestId("button-create-confirm"));
   }
 
-  it("sends problemType p_median when active scenario is p_median (quest 1)", async () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 1 }));
+  it("sends problemType p_median when active scenario is p_median (lab 1)", async () => {
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
@@ -568,8 +479,7 @@ describe("Studio — New button sends correct problemType", () => {
     );
   });
 
-  it("sends problemType transport when active scenario is transport (quest 2)", async () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 2 }));
+  it("sends problemType transport when active scenario is transport (lab 2)", async () => {
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
@@ -583,8 +493,7 @@ describe("Studio — New button sends correct problemType", () => {
     );
   });
 
-  it("sends problemType capacitated_pmedian when active scenario is Brazil (quest 3)", async () => {
-    mockUseGamification.mockReturnValue(makeGamContext({ activeQuestId: 3 }));
+  it("sends problemType capacitated_pmedian when active scenario is Brazil (lab 3)", async () => {
     mockUseSearch.mockReturnValue("?scenario=10");
     mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);

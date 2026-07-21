@@ -17,7 +17,6 @@ import type { WarehouseStatusEntry, Scenario, ScenarioUpdateProblemType, Scenari
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
-import { useGamification } from "@/context/GamificationContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -104,10 +103,10 @@ export function Studio() {
   const cloneScenario = useCloneScenario();
   const createScenario = useCreateScenario();
 
-  // Must be called unconditionally before any early returns
-  const { setActiveQuest, state: gamState } = useGamification();
-  const activeQuestId = gamState.activeQuestId;
-  const questType = activeQuestId === 3 ? "capacitated_pmedian" : activeQuestId === 2 ? "transport" : "p_median";
+  // Which model/lab is active. Local for now — B1.1 replaces this with a
+  // value derived from the chapter route instead of in-page state.
+  const [activeModelIndex, setActiveModelIndex] = useState(1);
+  const activeModelType = activeModelIndex === 3 ? "capacitated_pmedian" : activeModelIndex === 2 ? "transport" : "p_median";
 
   // Derive currentScenario here so effects can reference it before early returns
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioId) ?? scenarios?.[0];
@@ -130,7 +129,7 @@ export function Studio() {
 
   useEffect(() => {
     if (!scenarios || scenarios.length === 0) return;
-    const preferred = scenarios.find(s => s.problemType === questType);
+    const preferred = scenarios.find(s => s.problemType === activeModelType);
     if (!scenarioId) {
       if (preferred) navigate(`/?scenario=${preferred.id}`, { replace: true });
       return;
@@ -139,7 +138,7 @@ export function Studio() {
     if (!exists && preferred) {
       navigate(`/?scenario=${preferred.id}`, { replace: true });
     }
-  }, [scenarios, scenarioId, navigate, questType]);
+  }, [scenarios, scenarioId, navigate, activeModelType]);
 
   useEffect(() => {
     if (scenarioFromApi) {
@@ -152,8 +151,8 @@ export function Studio() {
 
   useEffect(() => {
     const pt = currentScenario?.problemType;
-    setActiveQuest(pt === "transport" ? 2 : pt === "capacitated_pmedian" ? 3 : 1);
-  // setActiveQuest is not memoized; only re-run when problemType changes
+    setActiveModelIndex(pt === "transport" ? 2 : pt === "capacitated_pmedian" ? 3 : 1);
+  // setActiveModelIndex is not memoized; only re-run when problemType changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScenario?.problemType]);
 
@@ -281,7 +280,7 @@ export function Studio() {
 
   const handleCreateConfirm = () => {
     const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
-    const activeProblemType = currentScenario?.problemType ?? questType;
+    const activeProblemType = currentScenario?.problemType ?? activeModelType;
     const typeDefaults =
       activeProblemType === "transport"
         ? { problemType: "transport" as const, pValue: 1, distanceBands: [500, 1000, 1500, 2000], uniformCapacity: null }
@@ -355,7 +354,7 @@ export function Studio() {
     );
   }
 
-  if (activeQuestId === 3 && !scenarios.some(s => s.problemType === "capacitated_pmedian")) {
+  if (activeModelIndex === 3 && !scenarios.some(s => s.problemType === "capacitated_pmedian")) {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4">
         <p className="text-muted-foreground">No Brazil Capacity scenarios yet.</p>
@@ -367,7 +366,7 @@ export function Studio() {
   }
 
   return (
-    <div className="arcadia-lab flex flex-col h-full overflow-hidden bg-background">
+    <div className="studio-lab flex flex-col h-full overflow-hidden bg-background">
       {/* HEADER */}
       <header className="h-14 border-b bg-white flex items-center px-4 gap-3 flex-shrink-0 z-50 relative">
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -376,7 +375,7 @@ export function Studio() {
           </div>
           <div>
             <div className="font-semibold text-sm leading-tight text-foreground" style={{ fontFamily: "var(--arc-display)" }}>
-              {activeQuestId === 3 ? "Brazil Capacity · Model Lab" : activeQuestId === 2 ? "Coal Transport LP · Model Lab" : "Al's Athletics · Model Lab"}
+              {activeModelIndex === 3 ? "Brazil Capacity · Model Lab" : activeModelIndex === 2 ? "Coal Transport LP · Model Lab" : "Al's Athletics · Model Lab"}
             </div>
             <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>
               {currentScenario?.problemType === "transport"

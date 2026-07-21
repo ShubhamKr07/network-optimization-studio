@@ -1,7 +1,7 @@
 /**
  * Browser E2E tests — each lab's user journey.
  *
- * Covers: login, lab navigation, header labels, configure panel controls,
+ * Covers: registration/login, header labels, configure panel controls,
  * New-scenario button creating the correct problemType/pValue, and
  * BrazilMap vs NetworkMap rendering.
  *
@@ -10,44 +10,51 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 
-// Generous timeout for header text that depends on setActiveQuest firing after
-// the scenario fetch completes (especially when Replit is under load).
 const HEADER_TIMEOUT = 10_000;
 
 // ── auth helper ───────────────────────────────────────────────────────────────
 
-/** Log in via the LoginPage email form (isLoggedIn lives in React state). */
-async function loginAsGuest(page: Page, email = "e2e@test.com") {
+/**
+ * Register a fresh account (unique email per call) and land on Studio.
+ * Uses a direct API call rather than the login form so per-lab setup stays
+ * fast and focused on Studio behavior — the Login page itself gets its own
+ * dedicated UI-driven test below.
+ */
+async function registerAndGoHome(page: Page): Promise<string> {
+  const email = `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+  const resp = await page.request.post("/api/auth/register", {
+    data: { email, password: "correcthorse1" },
+  });
+  expect(resp.status()).toBe(201);
   await page.goto("/");
-  const form = page.locator("form");
-  await expect(form).toBeVisible({ timeout: 8_000 });
-  await page.locator("form input").fill(email);
-  await page.locator("form button[type='submit']").click();
-  await expect(form).not.toBeVisible({ timeout: 8_000 });
+  await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
+  return email;
 }
 
 // ── nav helpers ───────────────────────────────────────────────────────────────
 
-/**
- * Navigate to a quest lab via the "Map" nav rail → click the node title.
- * Waits until the Studio URL param appears AND the expected header label
- * is visible (so setActiveQuest has fired by the time beforeEach returns).
- */
-async function goToLab(page: Page, nodeTitle: string, expectedHeader: RegExp) {
-  // Wait for the scenarios list to refresh before clicking the node
-  const scenariosFetch = page.waitForResponse(/\/api\/scenarios(?!\/)/, { timeout: 8_000 });
-  await page.locator("nav button", { hasText: "Map" }).click();
-  await scenariosFetch.catch(() => {}); // don't fail if already cached
-  await expect(page.getByText(nodeTitle)).toBeVisible({ timeout: 6_000 });
-  await page.getByText(nodeTitle).click();
-  await expect(page).toHaveURL(/\/\?scenario=\d+/, { timeout: 8_000 });
-  // Wait for the header so callers know the gamification state is ready
-  await expect(page.getByText(expectedHeader)).toBeVisible({ timeout: HEADER_TIMEOUT });
-}
-
 /** Returns the ?scenario= query param from the current URL. */
 function scenarioId(page: Page): string | null {
   return new URL(page.url()).searchParams.get("scenario");
+}
+
+/**
+ * Create a scenario of the given shape via the API (fast, avoids depending on
+ * UI that doesn't exist yet — chapter-based lab switching lands in B1.1) and
+ * navigate straight to it via the URL, which is how Studio has always read
+ * the active scenario.
+ */
+async function createAndGoToScenario(
+  page: Page,
+  body: Record<string, unknown>,
+  expectedHeader: RegExp,
+): Promise<string> {
+  const resp = await page.request.post("/api/scenarios", { data: body });
+  expect(resp.status()).toBe(201);
+  const id = String((await resp.json()).id);
+  await page.goto(`/?scenario=${id}`);
+  await expect(page.getByText(expectedHeader)).toBeVisible({ timeout: HEADER_TIMEOUT });
+  return id;
 }
 
 /**
@@ -64,12 +71,45 @@ async function clickNewAndWait(page: Page, name: string) {
   await page.waitForURL(url => url.searchParams.get("scenario") !== oldId, { timeout: 8_000 });
 }
 
+// ── Login page ──────────────────────────────────────────────────────────────
+
+test.describe("Login", () => {
+  test("registering via the UI form lands on Studio", async ({ page }) => {
+    const email = `e2e-ui-${Date.now()}@test.com`;
+    await page.goto("/register");
+    await page.getByTestId("input-email").fill(email);
+    await page.getByTestId("input-password").fill("correcthorse1");
+    await page.getByTestId("button-register").click();
+    await expect(page.getByTestId("text-user-email")).toHaveText(email, { timeout: 8_000 });
+  });
+
+  test("unauthenticated visit redirects to /login", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login$/, { timeout: 8_000 });
+  });
+});
+
 // ── Lab 1: Al's Athletics (P-Median) ─────────────────────────────────────────
 
 test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
   test.beforeEach(async ({ page }) => {
-    await loginAsGuest(page);
-    await goToLab(page, "Al's Athletics", /Al's Athletics · Model Lab/);
+    await registerAndGoHome(page);
+    await createAndGoToScenario(
+      page,
+      {
+        name: `E2E P-Median ${Date.now()}`,
+        problemType: "p_median",
+        pValue: 3,
+        distanceBands: [200, 400, 800, 1600],
+        solver: "cbc",
+        gap: 0,
+        timeLimitSec: 120,
+        capacityMode: "uniform",
+        uniformCapacity: null,
+        warehouseStatuses: [],
+      },
+      /Al's Athletics · Model Lab/,
+    );
   });
 
   test("header shows Al's Athletics · Model Lab", async ({ page }) => {
@@ -77,7 +117,6 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
   });
 
   test("header subtitle shows p-median", async ({ page }) => {
-    // "Ch 3 · p-median" only appears in the header subtitle, not in the problem-type select
     await expect(page.getByText(/Ch 3 · p-median/)).toBeVisible({ timeout: HEADER_TIMEOUT });
   });
 
@@ -86,7 +125,6 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
   });
 
   test("configure panel shows Warehouse status section", async ({ page }) => {
-    // exact:true avoids matching the constraint "C4 Honor warehouse status"
     await expect(page.getByText("Warehouse status", { exact: true })).toBeVisible();
   });
 
@@ -95,7 +133,7 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
   });
 
   test("New button creates a p_median scenario with pValue 3", async ({ page }) => {
-    await clickNewAndWait(page, `E2E P-Median ${Date.now()}`);
+    await clickNewAndWait(page, `E2E P-Median New ${Date.now()}`);
     const id = scenarioId(page);
     expect(id).not.toBeNull();
     const resp = await page.request.get(`/api/scenarios/${id}`);
@@ -111,8 +149,23 @@ test.describe("Lab 1 — Al's Athletics (P-Median)", () => {
 
 test.describe("Lab 2 — Coal Transport LP", () => {
   test.beforeEach(async ({ page }) => {
-    await loginAsGuest(page);
-    await goToLab(page, "Coal Transport LP", /Coal Transport LP · Model Lab/);
+    await registerAndGoHome(page);
+    await createAndGoToScenario(
+      page,
+      {
+        name: `E2E Transport ${Date.now()}`,
+        problemType: "transport",
+        pValue: 1,
+        distanceBands: [500, 1000, 1500, 2000],
+        solver: "cbc",
+        gap: 0,
+        timeLimitSec: 120,
+        capacityFactor: 1.0,
+        singleSource: false,
+        capacityInactive: false,
+      },
+      /Coal Transport LP · Model Lab/,
+    );
   });
 
   test("header shows Coal Transport LP · Model Lab", async ({ page }) => {
@@ -128,7 +181,6 @@ test.describe("Lab 2 — Coal Transport LP", () => {
   });
 
   test("configure panel shows Single-source toggle", async ({ page }) => {
-    // exact:true avoids matching "C4 Single-source toggle (forces integer)" constraint text
     await expect(page.getByText("Single-source", { exact: true })).toBeVisible();
   });
 
@@ -141,7 +193,7 @@ test.describe("Lab 2 — Coal Transport LP", () => {
   });
 
   test("New button creates a transport scenario with pValue 1", async ({ page }) => {
-    await clickNewAndWait(page, `E2E Transport ${Date.now()}`);
+    await clickNewAndWait(page, `E2E Transport New ${Date.now()}`);
     const id = scenarioId(page);
     expect(id).not.toBeNull();
     const resp = await page.request.get(`/api/scenarios/${id}`);
@@ -154,21 +206,15 @@ test.describe("Lab 2 — Coal Transport LP", () => {
 });
 
 // ── Lab 3: Brazil Capacity (capacitated_pmedian) ─────────────────────────────
-//
-// Brazil requires a capacitated_pmedian scenario to exist so the Studio
-// renders BrazilMap and the Brazil configure panel.
-// Strategy: create one via API, then navigate via QuestMap (which triggers
-// a fresh useListScenarios fetch so the new scenario is available).
 
 test.describe("Lab 3 — Brazil Capacity", () => {
   let brazilId: string;
 
   test.beforeEach(async ({ page }) => {
-    await loginAsGuest(page);
-
-    // Create a Brazil scenario while logged-in (session cookie is set)
-    const resp = await page.request.post("/api/scenarios", {
-      data: {
+    await registerAndGoHome(page);
+    brazilId = await createAndGoToScenario(
+      page,
+      {
         name: `E2E Brazil seed ${Date.now()}`,
         problemType: "capacitated_pmedian",
         pValue: 5,
@@ -180,21 +226,8 @@ test.describe("Lab 3 — Brazil Capacity", () => {
         uniformCapacity: null,
         warehouseStatuses: [],
       },
-    });
-    expect(resp.status()).toBe(201);
-    brazilId = String((await resp.json()).id);
-
-    // Navigate to QuestMap and wait for the scenarios list to refetch
-    // (so it includes our freshly created Brazil scenario)
-    const scenariosFetch = page.waitForResponse(/\/api\/scenarios(?!\/)/, { timeout: 8_000 });
-    await page.locator("nav button", { hasText: "Map" }).click();
-    await scenariosFetch.catch(() => {});
-
-    // Click "Brazil Capacity" — QuestMap finds our new capacitated_pmedian scenario
-    await expect(page.getByText("Brazil Capacity")).toBeVisible({ timeout: 6_000 });
-    await page.getByText("Brazil Capacity").click();
-    await expect(page).toHaveURL(/\/\?scenario=\d+/, { timeout: 8_000 });
-    await expect(page.getByText(/Brazil Capacity · Model Lab/)).toBeVisible({ timeout: HEADER_TIMEOUT });
+      /Brazil Capacity · Model Lab/,
+    );
   });
 
   test.afterEach(async ({ page }) => {

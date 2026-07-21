@@ -1,41 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { SolveResult } from "@workspace/api-client-react";
-
-// ── Hoist stable mocks ────────────────────────────────────────────────────────
-const { mockAwardXP, mockToast } = vi.hoisted(() => ({
-  mockAwardXP: vi.fn(),
-  mockToast: vi.fn(),
-}));
-
-// ── Mock GamificationContext ──────────────────────────────────────────────────
-vi.mock("@/context/GamificationContext", () => ({
-  useGamification: vi.fn(() => ({
-    state: {
-      activeQuestId: 1,
-      solvedScenarios: {},
-      xp: 0, level: 1, streakDays: 0, lastSolveDate: null,
-      earnedBadges: [], activeView: "lab" as const,
-      isLoggedIn: false, userId: null, _synced: false,
-    },
-    awardXP: mockAwardXP,
-    setActiveQuest: vi.fn(),
-    setView: vi.fn(),
-    login: vi.fn(),
-    logout: vi.fn(),
-    xpToNextLevel: () => ({ current: 0, next: 500, pct: 0 }),
-  })),
-}));
-
-// ── Mock useToast ─────────────────────────────────────────────────────────────
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: mockToast }),
-}));
-
 import { ObjectiveBar } from "@/components/ObjectiveBar";
-import { useGamification } from "@/context/GamificationContext";
-
-const mockUseGamification = vi.mocked(useGamification);
 
 const optimalResult: SolveResult = {
   status: "optimal",
@@ -50,28 +16,9 @@ const optimalResult: SolveResult = {
   infeasibilityReason: null,
 };
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockUseGamification.mockReturnValue({
-    state: {
-      activeQuestId: 1,
-      solvedScenarios: {},
-      xp: 0, level: 1, streakDays: 0, lastSolveDate: null,
-      earnedBadges: [], activeView: "lab" as const,
-      isLoggedIn: false, userId: null, _synced: false,
-    },
-    awardXP: mockAwardXP,
-    setActiveQuest: vi.fn(),
-    setView: vi.fn(),
-    login: vi.fn(),
-    logout: vi.fn(),
-    xpToNextLevel: () => ({ current: 0, next: 500, pct: 0 }),
-  });
-});
+// ── Chapter header by problemType ─────────────────────────────────────────────
 
-// ── Quest banner by problemType ───────────────────────────────────────────────
-
-describe("ObjectiveBar — quest banner selection", () => {
+describe("ObjectiveBar — chapter header selection", () => {
   it("shows Al's Athletics chapter header for p_median", () => {
     render(<ObjectiveBar pValue={2} result={null} scenarioId={5} problemType="p_median" />);
     expect(screen.getByText(/Al's Athletics/)).toBeInTheDocument();
@@ -147,72 +94,8 @@ describe("ObjectiveBar — goal pills", () => {
   });
 });
 
-// ── XP awarding ──────────────────────────────────────────────────────────────
-
-describe("ObjectiveBar — XP awarding", () => {
-  it("calls awardXP with 3 stars when distance < targetDistance and pValue ok (p_median)", () => {
-    // p_median targetDistance=360, maxAvgDistance=390, maxWarehouses=3
-    // result.weightedAvgDistanceMi=340 < 360 AND pValue=2 ≤ 3 → 3 stars → 450 XP
-    render(<ObjectiveBar pValue={2} result={optimalResult} scenarioId={5} problemType="p_median" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(450, 5, 3, 340);
-  });
-
-  it("calls awardXP with 2 stars when distance between target and max", () => {
-    // weightedAvgDistanceMi=370 → between 360 (target) and 390 (max) → 2 stars → 300 XP
-    const midResult: SolveResult = { ...optimalResult, weightedAvgDistanceMi: 370 };
-    render(<ObjectiveBar pValue={2} result={midResult} scenarioId={5} problemType="p_median" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(300, 5, 2, 370);
-  });
-
-  it("calls awardXP with 1 star when pValue exceeds maxWarehouses", () => {
-    // pValue=5 > maxWarehouses=3 → 1 star → 150 XP
-    render(<ObjectiveBar pValue={5} result={optimalResult} scenarioId={5} problemType="p_median" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(150, 5, 1, 340);
-  });
-
-  it("does NOT call awardXP when result is null", () => {
-    render(<ObjectiveBar pValue={2} result={null} scenarioId={5} problemType="p_median" />);
-    expect(mockAwardXP).not.toHaveBeenCalled();
-  });
-
-  it("does NOT call awardXP when result status is not optimal", () => {
-    const infeasibleResult: SolveResult = { ...optimalResult, status: "infeasible" };
-    render(<ObjectiveBar pValue={2} result={infeasibleResult} scenarioId={5} problemType="p_median" />);
-    expect(mockAwardXP).not.toHaveBeenCalled();
-  });
-
-  it("does NOT award XP again when same scenario already has equal or better stars", () => {
-    mockUseGamification.mockReturnValue({
-      state: {
-        activeQuestId: 1,
-        solvedScenarios: {
-          5: { scenarioId: 5, stars: 3, avgDistance: 340, solvedAt: "2026-01-01T00:00:00Z" },
-        },
-        xp: 450, level: 1, streakDays: 0, lastSolveDate: null,
-        earnedBadges: [], activeView: "lab" as const,
-        isLoggedIn: false, userId: null, _synced: false,
-      },
-      awardXP: mockAwardXP,
-      setActiveQuest: vi.fn(),
-      setView: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      xpToNextLevel: () => ({ current: 450, next: 500, pct: 90 }),
-    });
-    render(<ObjectiveBar pValue={2} result={optimalResult} scenarioId={5} problemType="p_median" />);
-    expect(mockAwardXP).not.toHaveBeenCalled();
-  });
-
-  it("awards XP for transport quest using transport goal thresholds", () => {
-    // transport targetDistance=430, maxAvgDistance=500, maxWarehouses=5
-    // weightedAvgDistanceMi=340 < 430 AND pValue=3 ≤ 5 → 3 stars → 450 XP
-    render(<ObjectiveBar pValue={3} result={optimalResult} scenarioId={8} problemType="transport" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(450, 8, 3, 340);
-  });
-});
-
-// ── Brazil Capacity quest goals ────────────────────────────────────────────
-describe("ObjectiveBar — Brazil Capacity quest goals", () => {
+// ── Brazil Capacity goals ──────────────────────────────────────────────────
+describe("ObjectiveBar — Brazil Capacity goals", () => {
   it("shows Brazil chapter header for capacitated_pmedian", () => {
     render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
     expect(screen.getByText(/Brazil Capacity/)).toBeInTheDocument();
@@ -246,76 +129,5 @@ describe("ObjectiveBar — Brazil Capacity quest goals", () => {
   it("shows tagline about relaxing single-sourcing", () => {
     render(<ObjectiveBar pValue={5} result={null} scenarioId={10} problemType="capacitated_pmedian" />);
     expect(screen.getByText(/relax single-sourcing/i)).toBeInTheDocument();
-  });
-});
-
-// ── Brazil XP thresholds ──────────────────────────────────────────────────
-describe("ObjectiveBar — Brazil XP awarding", () => {
-  const brazilOptimal: SolveResult = {
-    status: "optimal",
-    openWarehouseIds: ["SAO", "RIO", "CUR", "REC", "MAN"],
-    assignments: [],
-    objective: 8500000000,
-    weightedAvgDistanceMi: 287.3,
-    bandCoverage: [],
-    utilization: [],
-    runTimeSec: 1.2,
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason: null,
-  };
-
-  it("awards 3★ (450 XP) when distance < 300 AND pValue ≤ 5 (Brazil targetDistance=300)", () => {
-    render(<ObjectiveBar pValue={5} result={brazilOptimal} scenarioId={10} problemType="capacitated_pmedian" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(450, 10, 3, 287.3);
-  });
-
-  it("awards 2★ (300 XP) when 300 ≤ distance < 350 AND pValue ≤ 5 (Brazil)", () => {
-    const midResult: SolveResult = { ...brazilOptimal, weightedAvgDistanceMi: 325 };
-    render(<ObjectiveBar pValue={5} result={midResult} scenarioId={10} problemType="capacitated_pmedian" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(300, 10, 2, 325);
-  });
-
-  it("awards 1★ (150 XP) when pValue exceeds 5 (Brazil maxWarehouses=5)", () => {
-    render(<ObjectiveBar pValue={6} result={brazilOptimal} scenarioId={10} problemType="capacitated_pmedian" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(150, 10, 1, 287.3);
-  });
-
-  it("awards 1★ (150 XP) when distance ≥ 350 (Brazil maxAvgDistance=350)", () => {
-    const badResult: SolveResult = { ...brazilOptimal, weightedAvgDistanceMi: 360 };
-    render(<ObjectiveBar pValue={5} result={badResult} scenarioId={10} problemType="capacitated_pmedian" />);
-    expect(mockAwardXP).toHaveBeenCalledWith(150, 10, 1, 360);
-  });
-
-  it("does NOT award XP when result status is infeasible (Brazil)", () => {
-    const infeasibleResult: SolveResult = {
-      ...brazilOptimal,
-      status: "infeasible",
-      weightedAvgDistanceMi: 0,
-      infeasibilityReason: "Demand region São Paulo exceeds capacity",
-    };
-    render(<ObjectiveBar pValue={5} result={infeasibleResult} scenarioId={10} problemType="capacitated_pmedian" />);
-    expect(mockAwardXP).not.toHaveBeenCalled();
-  });
-
-  it("does NOT re-award XP when Brazil scenario already has equal or better stars", () => {
-    mockUseGamification.mockReturnValue({
-      state: {
-        activeQuestId: 3,
-        solvedScenarios: {
-          10: { scenarioId: 10, stars: 3, avgDistance: 287.3, solvedAt: "2026-01-01T00:00:00Z" },
-        },
-        xp: 450, level: 1, streakDays: 0, lastSolveDate: null,
-        earnedBadges: [], activeView: "lab" as const,
-        isLoggedIn: false, userId: null, _synced: false,
-      },
-      awardXP: mockAwardXP,
-      setActiveQuest: vi.fn(),
-      setView: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      xpToNextLevel: () => ({ current: 450, next: 500, pct: 90 }),
-    });
-    render(<ObjectiveBar pValue={5} result={brazilOptimal} scenarioId={10} problemType="capacitated_pmedian" />);
-    expect(mockAwardXP).not.toHaveBeenCalled();
   });
 });
