@@ -6,13 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ScenarioUpdateCapacityMode } from './scenarioUpdateCapacityMode';
-import type { ScenarioUpdateProblemType } from './scenarioUpdateProblemType';
 import type { ScenarioUpdateSolver } from './scenarioUpdateSolver';
 import type { WarehouseStatusEntry } from './warehouseStatusEntry';
 
 export interface ScenarioUpdate {
   name?: string;
-  problemType?: ScenarioUpdateProblemType;
   /**
      * @minimum 1
      * @maximum 50

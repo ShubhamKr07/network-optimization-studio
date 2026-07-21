@@ -95,6 +95,8 @@ paths:
                 $ref: "#/components/schemas/Scenario"
         "401":
           description: Not authenticated
+        "422":
+          description: Missing or invalid problemType
 
   /scenarios/{scenarioId}:
     get:
@@ -145,6 +147,8 @@ paths:
           description: Not authenticated
         "404":
           description: Not found
+        "422":
+          description: problemType is not editable after creation
     delete:
       operationId: deleteScenario
       tags: [scenarios]
@@ -636,15 +640,6 @@ components:
       properties:
         name:
           type: string
-        problemType:
-          type: string
-          enum:
-            - p_median
-            - capacitated_pmedian
-            - max_coverage
-            - p_center
-            - set_cover
-            - transport
         pValue:
           type: integer
           minimum: 1

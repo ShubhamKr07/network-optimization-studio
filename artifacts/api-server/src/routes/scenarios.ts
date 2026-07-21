@@ -10,6 +10,15 @@ const router = Router();
 
 router.use(requireAuth);
 
+const VALID_PROBLEM_TYPES = new Set([
+  "p_median",
+  "capacitated_pmedian",
+  "max_coverage",
+  "p_center",
+  "set_cover",
+  "transport",
+]);
+
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
     id: row.id,
@@ -45,10 +54,14 @@ router.get("/scenarios", async (req, res) => {
 
 router.post("/scenarios", async (req, res) => {
   const body = req.body;
+  if (!VALID_PROBLEM_TYPES.has(body.problemType)) {
+    res.status(422).json({ error: "problemType is required and must be a valid model" });
+    return;
+  }
   const [row] = await db.insert(scenariosTable).values({
     name: body.name,
     userId: req.userId!,
-    problemType: body.problemType ?? "p_median",
+    problemType: body.problemType,
     pValue: body.pValue ?? 3,
     distanceBands: body.distanceBands ?? [200, 400, 800, 1600],
     solver: body.solver ?? "cbc",
@@ -112,22 +125,13 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const body = req.body;
 
-  const fields: Partial<Record<string, unknown>> = { updated_at: new Date() };
-  if (body.name !== undefined) fields.name = body.name;
-  if (body.problemType !== undefined) fields.problem_type = body.problemType;
-  if (body.pValue !== undefined) fields.p_value = body.pValue;
-  if (body.distanceBands !== undefined) fields.distance_bands = body.distanceBands;
-  if (body.solver !== undefined) fields.solver = body.solver;
-  if (body.gap !== undefined) fields.gap = body.gap;
-  if (body.timeLimitSec !== undefined) fields.time_limit_sec = body.timeLimitSec;
-  if (body.capacityMode !== undefined) fields.capacity_mode = body.capacityMode;
-  if ("uniformCapacity" in body) fields.uniform_capacity = body.uniformCapacity;
-  if (body.warehouseStatuses !== undefined) fields.warehouse_statuses = body.warehouseStatuses;
-  if (body.result !== undefined) fields.result = body.result;
+  if ("problemType" in body) {
+    res.status(422).json({ error: "problemType is fixed at creation and cannot be changed" });
+    return;
+  }
 
   const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
   if (body.name !== undefined) updateObj.name = body.name;
-  if (body.problemType !== undefined) updateObj.problemType = body.problemType;
   if (body.pValue !== undefined) updateObj.pValue = body.pValue;
   if (body.distanceBands !== undefined) updateObj.distanceBands = body.distanceBands;
   if (body.solver !== undefined) updateObj.solver = body.solver;

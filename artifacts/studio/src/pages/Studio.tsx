@@ -13,7 +13,7 @@ import {
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
 } from "@workspace/api-client-react";
-import type { WarehouseStatusEntry, Scenario, ScenarioUpdateProblemType, ScenarioUpdateSolver, ScenarioUpdateCapacityMode } from "@workspace/api-client-react";
+import type { WarehouseStatusEntry, Scenario, ScenarioUpdateSolver, ScenarioUpdateCapacityMode } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
@@ -43,7 +43,10 @@ const getBandColor = (i: number) => BAND_COLORS[Math.min(i, BAND_COLORS.length -
 
 interface LocalConfig {
   name: string;
-  problemType: ScenarioUpdateProblemType;
+  // Read-only display/branching only — problemType is fixed at creation by
+  // the chapter route (B1.1) and rejected by PATCH (B2.1), so it never goes
+  // out in the update payload; see handleSave below.
+  problemType: Scenario["problemType"];
   pValue: number;
   distanceBands: number[];
   solver: ScenarioUpdateSolver;
@@ -151,8 +154,10 @@ export function Studio({ problemType }: StudioProps) {
 
   const handleSave = useCallback(() => {
     if (!localConfig || !scenarioId || !isDirty) return;
+    // problemType is read-only after creation (B2.1) — PATCH rejects it with 422.
+    const { problemType: _problemType, ...updatePayload } = localConfig;
     updateScenario.mutate(
-      { scenarioId, data: localConfig },
+      { scenarioId, data: updatePayload },
       {
         onSuccess: () => {
           setSavedConfig(localConfig);

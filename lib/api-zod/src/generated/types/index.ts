@@ -33,7 +33,6 @@ export * from './scenarioProblemType';
 export * from './scenarioSolver';
 export * from './scenarioUpdate';
 export * from './scenarioUpdateCapacityMode';
-export * from './scenarioUpdateProblemType';
 export * from './scenarioUpdateSolver';
 export * from './solveResult';
 export * from './solveResultStatus';

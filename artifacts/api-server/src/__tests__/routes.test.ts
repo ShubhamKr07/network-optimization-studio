@@ -253,7 +253,7 @@ describe("POST /api/scenarios", () => {
   it("returns 201 with created p_median scenario and defaults applied", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.insert.mockReturnValue(makeChain([{ ...pmedianRow, name: "New" }]));
-    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New" });
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New", problemType: "p_median" });
     expect(res.status).toBe(201);
     expect(res.body.name).toBe("New");
     expect(res.body.problemType).toBe("p_median");
@@ -265,7 +265,7 @@ describe("POST /api/scenarios", () => {
     const cookie = await loginAs(OWNER);
     const chain = makeChain([{ ...pmedianRow, name: "New" }]);
     mockDb.insert.mockReturnValue(chain);
-    await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New" });
+    await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New", problemType: "p_median" });
     expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ userId: OWNER }));
   });
 
@@ -294,6 +294,19 @@ describe("POST /api/scenarios", () => {
     expect(res.body.problemType).toBe("capacitated_pmedian");
     expect(res.body.uniformCapacity).toBe(20000000);
     expect(res.body.singleSource).toBe(false);
+  });
+
+  it("returns 422 when problemType is missing (B2.1)", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "No type" });
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 422 when problemType is not a recognized model (B2.1)", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Bad type", problemType: "not_a_real_model" });
+    expect(res.status).toBe(422);
   });
 });
 
@@ -382,6 +395,13 @@ describe("PATCH /api/scenarios/:id", () => {
     mockDb.update.mockReturnValue(makeChain([]));
     const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ pValue: 5 });
     expect(res.status).toBe(404);
+  });
+
+  it("returns 422 when the body includes problemType (B2.1: fixed at creation)", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
+      .send({ pValue: 5, problemType: "transport" });
+    expect(res.status).toBe(422);
   });
 });
 

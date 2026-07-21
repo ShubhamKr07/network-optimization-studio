@@ -236,18 +236,6 @@ export interface ScenarioInput {
   warehouseStatuses: WarehouseStatusEntry[];
 }
 
-export type ScenarioUpdateProblemType = typeof ScenarioUpdateProblemType[keyof typeof ScenarioUpdateProblemType];
-
-
-export const ScenarioUpdateProblemType = {
-  p_median: 'p_median',
-  capacitated_pmedian: 'capacitated_pmedian',
-  max_coverage: 'max_coverage',
-  p_center: 'p_center',
-  set_cover: 'set_cover',
-  transport: 'transport',
-} as const;
-
 export type ScenarioUpdateSolver = typeof ScenarioUpdateSolver[keyof typeof ScenarioUpdateSolver];
 
 
@@ -269,7 +257,6 @@ export const ScenarioUpdateCapacityMode = {
 
 export interface ScenarioUpdate {
   name?: string;
-  problemType?: ScenarioUpdateProblemType;
   /**
      * @minimum 1
      * @maximum 50

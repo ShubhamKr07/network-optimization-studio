@@ -196,7 +196,6 @@ export const updateScenarioBodyPValueMax = 50;
 
 export const UpdateScenarioBody = zod.object({
   "name": zod.string().optional(),
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']).optional(),
   "pValue": zod.number().min(1).max(updateScenarioBodyPValueMax).optional(),
   "distanceBands": zod.array(zod.number()).optional(),
   "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']).optional(),
