@@ -59,10 +59,10 @@ Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization
 **Phase 1 — Auth, ownership, de-gamification**
 - [x] A1.1 — OpenAPI: real auth endpoints (`register`/`login`/`logout`/`user`, `User.role` enum). Removed legacy `/login` (userId-body), `/callback`, `/mobile-auth/*`. Codegen regenerated (also caught up pre-existing drift: `transport` problemType enum value was in spec but not yet regenerated — unrelated to this task, included in the same regen commit per plan's "regen churn" note). Commit `db7b9db`.
 - [x] A1.2 — Schema: extend `users` table (`passwordHash`, `role`; dropped unreferenced `profileImageUrl`). Commit `444438b`.
-- [ ] A1.3 — Auth routes implementation (argon2/bcryptjs, `requireAuth`, cookie rename to `nos_session`) — **next up**.
-- [x] A2.1 — Scenario ownership schema + migration (`user_id` FK+index, NOT NULL via two-step protocol, `seed@local` backfill). Commit `d204860`. Routes don't enforce ownership yet (that's A2.2) — `scenarios.ts` has a `getSeedUserId()` stopgap on create, and clone inherits the source scenario's `userId`; both marked `TODO(A2.2)` for replacement with `req.userId` once A1.3's `requireAuth` exists.
-- [ ] A2.2 — Ownership enforcement in routes (404 not 403) — blocked on A1.3.
-- [ ] A3.1 — Remove gamification (backend)
+- [x] A1.3 — Auth routes implementation (argon2, `requireAuth` in `middlewares/auth.ts`, cookie renamed to `nos_session`). Removed dead `openid-client` dep. Commit `a0b6ed0`.
+- [x] A2.1 — Scenario ownership schema + migration (`user_id` FK+index, NOT NULL via two-step protocol, `seed@local` backfill). Commit `d204860`.
+- [x] A2.2 — Ownership enforcement in routes (404 not 403). `requireAuth` applied to whole scenarios router; every query filters by `user_id`; the A2.1 `getSeedUserId()` stopgap is gone, replaced by `req.userId`. Commit `51f8ace`. Manually verified cross-user isolation against the real local DB (two real registered users, cross-user GET 404, cross-user DELETE 204-no-op verified by refetch, anonymous 401).
+- [ ] A3.1 — Remove gamification (backend) — **next up**.
 - [ ] A3.2 — Remove gamification (frontend) + new auth pages
 - [ ] B1.1 — Chapter landing + routes
 - [ ] B2.1 — problemType locked server-side (Phase 1 exit)
@@ -90,3 +90,4 @@ Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization
 - Tests live per package: API in `artifacts/api-server` (vitest/supertest), frontend in `artifacts/studio` (vitest/RTL + Playwright), solver in `artifacts/api-server/src/solver/tests/` (pytest).
 - `uniformCapacity` (DB/API/TS field name) and `warehouseCapacity` (the key `solve.py`'s `solve_capacitated_pmedian()` actually reads off stdin) are the same value under two different names at two different layers — the route/`solve()` boundary translates between them. Don't rename one without the other, and don't assume a grep for one name finds every reference.
 - `e2e_accuracy.py` and `e2e_journey.py` under `artifacts/api-server/src/solver/tests/` are standalone scripts (`python3 e2e_accuracy.py`), not pytest-discovered (`test_*.py` naming) — `python3 -m pytest tests/ -x` does NOT run them. Run them directly when solver-affecting changes land, despite CLAUDE.md's rule 2 calling `e2e_accuracy.py` sacred — the pytest-only gate command will not catch a regression there.
+- The login rate limiter (`routes/auth.ts`, 10 attempts/min/IP, in-memory `Map`) never resets on its own between test runs within one process. Any test file that logs in more than ~10 times (e.g. `routes.test.ts`'s per-test `loginAs()` helper) must call the test-only `resetLoginRateLimiterForTests()` export in `beforeEach`, or later logins in the same file silently start 429ing.
