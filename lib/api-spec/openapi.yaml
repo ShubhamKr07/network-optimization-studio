@@ -60,6 +60,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
     post:
       operationId: createScenario
       tags: [scenarios]
@@ -77,6 +79,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
 
   /scenarios/{scenarioId}:
     get:
@@ -96,6 +100,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
         "404":
           description: Not found
     patch:
@@ -121,6 +127,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
         "404":
           description: Not found
     delete:
@@ -136,6 +144,8 @@ paths:
       responses:
         "204":
           description: Deleted
+        "401":
+          description: Not authenticated
 
   /scenarios/{scenarioId}/solve:
     post:
@@ -155,6 +165,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
         "404":
           description: Not found
         "422":
@@ -178,6 +190,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
         "404":
           description: Not found
 
@@ -199,6 +213,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompareResult"
+        "401":
+          description: Not authenticated
 
   /auth/register:
     post:

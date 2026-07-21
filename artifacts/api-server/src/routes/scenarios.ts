@@ -1,20 +1,14 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
-import { db, scenariosTable, usersTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { db, scenariosTable } from "@workspace/db";
 import { solve } from "../solver/pmedian.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { WAREHOUSES } from "../data/dataset.js";
+import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();
 
-// TODO(A2.2): replace with req.userId once requireAuth (A1.3) lands. Until then,
-// every scenario created through the (still cookie-only) API is attributed to the
-// same seed account that legacy pre-ownership scenarios were migrated to (A2.1).
-async function getSeedUserId(): Promise<string> {
-  const [seedUser] = await db.select().from(usersTable).where(eq(usersTable.email, "seed@local"));
-  if (!seedUser) throw new Error("seed@local user not found — run migrate-scenario-owners");
-  return seedUser.id;
-}
+router.use(requireAuth);
 
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
@@ -38,8 +32,10 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   };
 }
 
-router.get("/scenarios", async (_req, res) => {
-  const rows = await db.select().from(scenariosTable).orderBy(scenariosTable.createdAt);
+router.get("/scenarios", async (req, res) => {
+  const rows = await db.select().from(scenariosTable)
+    .where(eq(scenariosTable.userId, req.userId!))
+    .orderBy(scenariosTable.createdAt);
   res.json(rows.map(toApiScenario));
 });
 
@@ -47,7 +43,7 @@ router.post("/scenarios", async (req, res) => {
   const body = req.body;
   const [row] = await db.insert(scenariosTable).values({
     name: body.name,
-    userId: await getSeedUserId(),
+    userId: req.userId!,
     problemType: body.problemType ?? "p_median",
     pValue: body.pValue ?? 3,
     distanceBands: body.distanceBands ?? [200, 400, 800, 1600],
@@ -73,7 +69,8 @@ router.post("/scenarios/compare", async (req, res) => {
   }
   const allRows: Array<typeof scenariosTable.$inferSelect> = [];
   for (const id of ids) {
-    const [r] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, id));
+    const [r] = await db.select().from(scenariosTable)
+      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
     if (r) allRows.push(r);
   }
   const scenarios = allRows.map(row => {
@@ -101,7 +98,8 @@ router.post("/scenarios/compare", async (req, res) => {
 
 router.get("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  const [row] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, id));
+  const [row] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   res.json(toApiScenario(row));
 });
@@ -141,7 +139,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
 
   const [row] = await db.update(scenariosTable)
     .set({ ...updateObj, updatedAt: new Date() })
-    .where(eq(scenariosTable.id, id))
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   res.json(toApiScenario(row));
@@ -149,13 +147,15 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
 
 router.delete("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  await db.delete(scenariosTable).where(eq(scenariosTable.id, id));
+  await db.delete(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   res.status(204).send();
 });
 
 router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  const [scenario] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, id));
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   const input: SolveInput = {
@@ -178,7 +178,7 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
 
   const [updated] = await db.update(scenariosTable)
     .set({ result: result as unknown as Record<string, unknown>, updatedAt: new Date() })
-    .where(eq(scenariosTable.id, id))
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
 
   res.json(toApiScenario(updated));
@@ -186,12 +186,13 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
 
 router.post("/scenarios/:scenarioId/clone", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  const [scenario] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, id));
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   const [clone] = await db.insert(scenariosTable).values({
     name: `${scenario.name} (copy)`,
-    userId: scenario.userId,
+    userId: req.userId!,
     problemType: scenario.problemType,
     pValue: scenario.pValue,
     distanceBands: scenario.distanceBands as number[],

@@ -235,7 +235,7 @@ export const getListScenariosQueryKey = () => {
     }
 
 
-export const getListScenariosQueryOptions = <TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListScenariosQueryOptions = <TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -254,14 +254,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ListScenariosQueryResult = NonNullable<Awaited<ReturnType<typeof listScenarios>>>
-export type ListScenariosQueryError = ErrorType<unknown>
+export type ListScenariosQueryError = ErrorType<void>
 
 
 /**
  * @summary List all scenarios
  */
 
-export function useListScenarios<TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<unknown>>(
+export function useListScenarios<TData = Awaited<ReturnType<typeof listScenarios>>, TError = ErrorType<void>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listScenarios>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -305,7 +305,7 @@ export const createScenario = async (scenarioInput: ScenarioInput, options?: Req
 
 
 
-export const getCreateScenarioMutationOptions = <TError = ErrorType<unknown>,
+export const getCreateScenarioMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createScenario>>, TError,{data: BodyType<ScenarioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createScenario>>, TError,{data: BodyType<ScenarioInput>}, TContext> => {
 
@@ -334,12 +334,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateScenarioMutationResult = NonNullable<Awaited<ReturnType<typeof createScenario>>>
     export type CreateScenarioMutationBody = BodyType<ScenarioInput>
-    export type CreateScenarioMutationError = ErrorType<unknown>
+    export type CreateScenarioMutationError = ErrorType<void>
 
     /**
  * @summary Create a new scenario
  */
-export const useCreateScenario = <TError = ErrorType<unknown>,
+export const useCreateScenario = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createScenario>>, TError,{data: BodyType<ScenarioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createScenario>>,
@@ -524,7 +524,7 @@ export const deleteScenario = async (scenarioId: number, options?: RequestInit):
 
 
 
-export const getDeleteScenarioMutationOptions = <TError = ErrorType<unknown>,
+export const getDeleteScenarioMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteScenario>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteScenario>>, TError,{scenarioId: number}, TContext> => {
 
@@ -553,12 +553,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type DeleteScenarioMutationResult = NonNullable<Awaited<ReturnType<typeof deleteScenario>>>
 
-    export type DeleteScenarioMutationError = ErrorType<unknown>
+    export type DeleteScenarioMutationError = ErrorType<void>
 
     /**
  * @summary Delete a scenario
  */
-export const useDeleteScenario = <TError = ErrorType<unknown>,
+export const useDeleteScenario = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteScenario>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteScenario>>,
@@ -735,7 +735,7 @@ export const compareScenarios = async (compareInput: CompareInput, options?: Req
 
 
 
-export const getCompareScenariosMutationOptions = <TError = ErrorType<unknown>,
+export const getCompareScenariosMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext> => {
 
@@ -764,12 +764,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CompareScenariosMutationResult = NonNullable<Awaited<ReturnType<typeof compareScenarios>>>
     export type CompareScenariosMutationBody = BodyType<CompareInput>
-    export type CompareScenariosMutationError = ErrorType<unknown>
+    export type CompareScenariosMutationError = ErrorType<void>
 
     /**
  * @summary Compare multiple solved scenarios
  */
-export const useCompareScenarios = <TError = ErrorType<unknown>,
+export const useCompareScenarios = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof compareScenarios>>,

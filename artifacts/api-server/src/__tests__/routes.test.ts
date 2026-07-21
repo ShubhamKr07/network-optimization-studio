@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import request from "supertest";
+import argon2 from "argon2";
 
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
@@ -12,14 +13,13 @@ const mockSolveFn = vi.hoisted(() => vi.fn());
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
-  scenariosTable: { id: "id", name: "name", createdAt: "created_at", updatedAt: "updated_at" },
+  scenariosTable: { id: "id", name: "name", userId: "user_id", createdAt: "created_at", updatedAt: "updated_at" },
   usersTable: { id: "id", email: "email" },
 }));
 
-const seedUserRow = { id: "seed-user-id", email: "seed@local" };
-
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ col: _col, val })),
+  and: vi.fn((...conds: unknown[]) => ({ and: conds })),
 }));
 
 vi.mock("../solver/pmedian.js", () => ({
@@ -28,6 +28,7 @@ vi.mock("../solver/pmedian.js", () => ({
 
 import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 
 // ---------------------------------------------------------------------------
 // Chainable drizzle mock
@@ -44,13 +45,36 @@ function makeChain(returnValue: unknown) {
 }
 
 // ---------------------------------------------------------------------------
+// Auth helper — logs in as a given user via the real /auth/login route (so the
+// session cookie is genuinely signed by the app's own cookie-parser secret)
+// and returns the Cookie header value to attach to subsequent requests.
+// ---------------------------------------------------------------------------
+let testPasswordHash: string;
+beforeAll(async () => {
+  testPasswordHash = await argon2.hash("test-password");
+});
+
+async function loginAs(userId: string): Promise<string> {
+  mockDb.select.mockReturnValueOnce(
+    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash }]),
+  );
+  const res = await request(app)
+    .post("/api/auth/login")
+    .send({ email: `${userId}@example.com`, password: "test-password" });
+  const setCookie = res.headers["set-cookie"] as unknown as string[];
+  return setCookie[0].split(";")[0];
+}
+
+// ---------------------------------------------------------------------------
 // Base row shapes — one wide scenariosTable row per problem type.
 // ---------------------------------------------------------------------------
+const OWNER = "seed-user-id";
+
 const pmedianRow = {
   id: 1,
   name: "Base",
   problemType: "p_median",
-  userId: "seed-user-id",
+  userId: OWNER,
   pValue: 3,
   distanceBands: [200, 400, 800, 1600],
   solver: "cbc",
@@ -71,7 +95,7 @@ const transportRow = {
   id: 8,
   name: "Coal Base Case",
   problemType: "transport",
-  userId: "seed-user-id",
+  userId: OWNER,
   pValue: 3,
   distanceBands: [500, 1000, 1500, 2000],
   solver: "cbc",
@@ -92,7 +116,7 @@ const brazilRow = {
   id: 10,
   name: "Brazil Base — 20M cap",
   problemType: "capacitated_pmedian",
-  userId: "seed-user-id",
+  userId: OWNER,
   pValue: 5,
   distanceBands: [500, 1000, 2000, 4000],
   solver: "cbc",
@@ -111,6 +135,7 @@ const brazilRow = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetLoginRateLimiterForTests();
   // Defaults: not found / no-op. clearAllMocks() only resets call history, not
   // configured return values, so every mock needs an explicit per-test-file default
   // or a later test can silently inherit an earlier test's mockReturnValue.
@@ -152,12 +177,42 @@ describe("GET /api/dataset", () => {
   });
 });
 
+// ── Anonymous access ───────────────────────────────────────────────────────
+// A2.2: every scenario endpoint requires a session; none reachable anonymously.
+describe("scenario endpoints require authentication", () => {
+  it("GET /api/scenarios returns 401 without a session", async () => {
+    expect((await request(app).get("/api/scenarios")).status).toBe(401);
+  });
+  it("POST /api/scenarios returns 401 without a session", async () => {
+    expect((await request(app).post("/api/scenarios").send({ name: "x" })).status).toBe(401);
+  });
+  it("GET /api/scenarios/:id returns 401 without a session", async () => {
+    expect((await request(app).get("/api/scenarios/1")).status).toBe(401);
+  });
+  it("PATCH /api/scenarios/:id returns 401 without a session", async () => {
+    expect((await request(app).patch("/api/scenarios/1").send({ pValue: 5 })).status).toBe(401);
+  });
+  it("DELETE /api/scenarios/:id returns 401 without a session", async () => {
+    expect((await request(app).delete("/api/scenarios/1")).status).toBe(401);
+  });
+  it("POST /api/scenarios/:id/solve returns 401 without a session", async () => {
+    expect((await request(app).post("/api/scenarios/1/solve")).status).toBe(401);
+  });
+  it("POST /api/scenarios/:id/clone returns 401 without a session", async () => {
+    expect((await request(app).post("/api/scenarios/1/clone")).status).toBe(401);
+  });
+  it("POST /api/scenarios/compare returns 401 without a session", async () => {
+    expect((await request(app).post("/api/scenarios/compare").send({ scenarioIds: [1, 2] })).status).toBe(401);
+  });
+});
+
 // ── List scenarios ─────────────────────────────────────────────────────────
 // GET /api/scenarios issues a single query against the one scenariosTable.
 describe("GET /api/scenarios", () => {
-  it("returns 200 with array of scenarios", async () => {
+  it("returns 200 with array of the caller's own scenarios", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const res = await request(app).get("/api/scenarios");
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body[0].id).toBe(1);
@@ -165,14 +220,16 @@ describe("GET /api/scenarios", () => {
   });
 
   it("maps dates to ISO strings", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const res = await request(app).get("/api/scenarios");
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
     expect(res.body[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("returns rows for every problem type in one query", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow, transportRow, brazilRow]));
-    const res = await request(app).get("/api/scenarios");
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(3);
     const types = res.body.map((s: { problemType: string }) => s.problemType);
@@ -185,9 +242,9 @@ describe("GET /api/scenarios", () => {
 // ── Create scenario ────────────────────────────────────────────────────────
 describe("POST /api/scenarios", () => {
   it("returns 201 with created p_median scenario and defaults applied", async () => {
-    mockDb.select.mockReturnValue(makeChain([seedUserRow]));
+    const cookie = await loginAs(OWNER);
     mockDb.insert.mockReturnValue(makeChain([{ ...pmedianRow, name: "New" }]));
-    const res = await request(app).post("/api/scenarios").send({ name: "New" });
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New" });
     expect(res.status).toBe(201);
     expect(res.body.name).toBe("New");
     expect(res.body.problemType).toBe("p_median");
@@ -195,20 +252,29 @@ describe("POST /api/scenarios", () => {
     expect(res.body.result).toBeNull();
   });
 
+  it("stamps the created scenario with the caller's own userId", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([{ ...pmedianRow, name: "New" }]);
+    mockDb.insert.mockReturnValue(chain);
+    await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New" });
+    expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ userId: OWNER }));
+  });
+
   it("returns 201 with transport scenario when problemType=transport", async () => {
-    mockDb.select.mockReturnValue(makeChain([seedUserRow]));
+    const cookie = await loginAs(OWNER);
     mockDb.insert.mockReturnValue(makeChain([{ ...transportRow, name: "New Transport" }]));
     const res = await request(app)
       .post("/api/scenarios")
+      .set("Cookie", cookie)
       .send({ name: "New Transport", problemType: "transport" });
     expect(res.status).toBe(201);
     expect(res.body.problemType).toBe("transport");
   });
 
   it("returns 201 with Brazil scenario when problemType=capacitated_pmedian", async () => {
-    mockDb.select.mockReturnValue(makeChain([seedUserRow]));
+    const cookie = await loginAs(OWNER);
     mockDb.insert.mockReturnValue(makeChain([{ ...brazilRow, id: 11, name: "Brazil Relaxed", singleSource: false }]));
-    const res = await request(app).post("/api/scenarios").send({
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
       name: "Brazil Relaxed",
       problemType: "capacitated_pmedian",
       pValue: 5,
@@ -225,16 +291,18 @@ describe("POST /api/scenarios", () => {
 // ── Get scenario ───────────────────────────────────────────────────────────
 describe("GET /api/scenarios/:id", () => {
   it("returns 200 with the matching scenario", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const res = await request(app).get("/api/scenarios/1");
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(1);
     expect(res.body.problemType).toBe("p_median");
   });
 
   it("returns 200 with Brazil fields when scenario is capacitated_pmedian", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([brazilRow]));
-    const res = await request(app).get("/api/scenarios/10");
+    const res = await request(app).get("/api/scenarios/10").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.problemType).toBe("capacitated_pmedian");
     expect(res.body.pValue).toBe(5);
@@ -243,27 +311,36 @@ describe("GET /api/scenarios/:id", () => {
   });
 
   it("returns 404 when not found", async () => {
+    const cookie = await loginAs(OWNER);
     // Default beforeEach: select returns []
-    const res = await request(app).get("/api/scenarios/999");
+    const res = await request(app).get("/api/scenarios/999").set("Cookie", cookie);
     expect(res.status).toBe(404);
     expect(res.body).toMatchObject({ error: "Not found" });
+  });
+
+  it("returns 404 (not 403) for a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    // The AND-filtered query finds nothing for this caller, same as truly not found.
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(res.status).toBe(404);
   });
 });
 
 // ── Update scenario ────────────────────────────────────────────────────────
 describe("PATCH /api/scenarios/:id", () => {
   it("returns 200 with updated pmedian scenario", async () => {
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const cookie = await loginAs(OWNER);
     mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, pValue: 5 }]));
-    const res = await request(app).patch("/api/scenarios/1").send({ pValue: 5 });
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ pValue: 5 });
     expect(res.status).toBe(200);
     expect(res.body.pValue).toBe(5);
   });
 
   it("updates transport capacityFactor and singleSource", async () => {
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const cookie = await loginAs(OWNER);
     mockDb.update.mockReturnValue(makeChain([{ ...transportRow, capacityFactor: 1.1, singleSource: true }]));
-    const res = await request(app).patch("/api/scenarios/8").send({
+    const res = await request(app).patch("/api/scenarios/8").set("Cookie", cookie).send({
       capacityFactor: 1.1,
       singleSource: true,
     });
@@ -273,9 +350,9 @@ describe("PATCH /api/scenarios/:id", () => {
   });
 
   it("updates Brazil uniformCapacity and singleSource", async () => {
-    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const cookie = await loginAs(OWNER);
     mockDb.update.mockReturnValue(makeChain([{ ...brazilRow, uniformCapacity: 30000000, singleSource: false }]));
-    const res = await request(app).patch("/api/scenarios/10").send({
+    const res = await request(app).patch("/api/scenarios/10").set("Cookie", cookie).send({
       uniformCapacity: 30000000,
       singleSource: false,
     });
@@ -285,8 +362,16 @@ describe("PATCH /api/scenarios/:id", () => {
   });
 
   it("returns 404 when not found", async () => {
-    // Default: select returns [] → 404
-    const res = await request(app).patch("/api/scenarios/999").send({ pValue: 5 });
+    const cookie = await loginAs(OWNER);
+    // Default: update returns [] → 404
+    const res = await request(app).patch("/api/scenarios/999").set("Cookie", cookie).send({ pValue: 5 });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) when patching a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.update.mockReturnValue(makeChain([]));
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ pValue: 5 });
     expect(res.status).toBe(404);
   });
 });
@@ -294,14 +379,23 @@ describe("PATCH /api/scenarios/:id", () => {
 // ── Delete scenario ────────────────────────────────────────────────────────
 describe("DELETE /api/scenarios/:id", () => {
   it("returns 204 on successful delete", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.delete.mockReturnValue(makeChain(undefined));
-    const res = await request(app).delete("/api/scenarios/1");
+    const res = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(204);
   });
 
   it("returns 204 even when not found (idempotent)", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.delete.mockReturnValue(makeChain(undefined));
-    const res = await request(app).delete("/api/scenarios/999");
+    const res = await request(app).delete("/api/scenarios/999").set("Cookie", cookie);
+    expect(res.status).toBe(204);
+  });
+
+  it("returns 204 (never leaks existence) when deleting a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.delete.mockReturnValue(makeChain(undefined));
+    const res = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(204);
   });
 });
@@ -309,18 +403,20 @@ describe("DELETE /api/scenarios/:id", () => {
 // ── Clone scenario ─────────────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/clone", () => {
   it("returns 201 with name '<original> (copy)' and null result", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, name: "My Scenario" }]));
     mockDb.insert.mockReturnValue(makeChain([{ ...pmedianRow, id: 2, name: "My Scenario (copy)" }]));
-    const res = await request(app).post("/api/scenarios/1/clone");
+    const res = await request(app).post("/api/scenarios/1/clone").set("Cookie", cookie);
     expect(res.status).toBe(201);
     expect(res.body.name).toBe("My Scenario (copy)");
     expect(res.body.result).toBeNull();
   });
 
   it("clones a Brazil scenario with null result", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([{ ...brazilRow, name: "Brazil Base" }]));
     mockDb.insert.mockReturnValue(makeChain([{ ...brazilRow, id: 11, name: "Brazil Base (copy)" }]));
-    const res = await request(app).post("/api/scenarios/10/clone");
+    const res = await request(app).post("/api/scenarios/10/clone").set("Cookie", cookie);
     expect(res.status).toBe(201);
     expect(res.body.name).toBe("Brazil Base (copy)");
     expect(res.body.problemType).toBe("capacitated_pmedian");
@@ -328,8 +424,16 @@ describe("POST /api/scenarios/:id/clone", () => {
   });
 
   it("returns 404 when original not found", async () => {
+    const cookie = await loginAs(OWNER);
     // Default: select returns [] → 404
-    const res = await request(app).post("/api/scenarios/999/clone");
+    const res = await request(app).post("/api/scenarios/999/clone").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) when cloning a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).post("/api/scenarios/1/clone").set("Cookie", cookie);
     expect(res.status).toBe(404);
   });
 });
@@ -350,19 +454,28 @@ describe("POST /api/scenarios/:id/solve", () => {
   };
 
   it("returns 200 with result populated from solver", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, result: solverResult }]));
     mockSolveFn.mockReturnValue(solverResult);
 
-    const res = await request(app).post("/api/scenarios/1/solve");
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.result.status).toBe("optimal");
     expect(res.body.result.openWarehouseIds).toContain("CHI");
   });
 
   it("returns 404 when scenario not found", async () => {
+    const cookie = await loginAs(OWNER);
     // Default: select returns [] → 404
-    const res = await request(app).post("/api/scenarios/999/solve");
+    const res = await request(app).post("/api/scenarios/999/solve").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) when solving a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(404);
   });
 });
@@ -370,21 +483,26 @@ describe("POST /api/scenarios/:id/solve", () => {
 // ── Compare scenarios ──────────────────────────────────────────────────────
 describe("POST /api/scenarios/compare", () => {
   it("returns 400 when fewer than 2 IDs provided", async () => {
+    const cookie = await loginAs(OWNER);
     const res = await request(app)
       .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
       .send({ scenarioIds: [1] });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("2");
   });
 
   it("returns 400 when scenarioIds is empty", async () => {
+    const cookie = await loginAs(OWNER);
     const res = await request(app)
       .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
       .send({ scenarioIds: [] });
     expect(res.status).toBe(400);
   });
 
   it("returns 200 with comparison metrics for 2 valid scenarios", async () => {
+    const cookie = await loginAs(OWNER);
     const row1 = {
       ...pmedianRow, id: 1, name: "2 WH",
       result: {
@@ -422,6 +540,7 @@ describe("POST /api/scenarios/compare", () => {
 
     const res = await request(app)
       .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
       .send({ scenarioIds: [1, 2] });
 
     expect(res.status).toBe(200);
@@ -437,8 +556,9 @@ describe("POST /api/scenarios/compare", () => {
 // ── Transport LP field serialization ───────────────────────────────────────
 describe("transport scenario — field serialization", () => {
   it("GET /api/scenarios returns transport fields", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([transportRow]));
-    const res = await request(app).get("/api/scenarios");
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     const s = res.body[0];
@@ -449,8 +569,9 @@ describe("transport scenario — field serialization", () => {
   });
 
   it("GET /api/scenarios/:id returns transport fields", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([transportRow]));
-    const res = await request(app).get("/api/scenarios/8");
+    const res = await request(app).get("/api/scenarios/8").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.problemType).toBe("transport");
     expect(res.body.capacityFactor).toBe(1.0);
@@ -459,10 +580,10 @@ describe("transport scenario — field serialization", () => {
   });
 
   it("POST /api/scenarios stores transport fields from body", async () => {
+    const cookie = await loginAs(OWNER);
     const created = { ...transportRow, id: 9, capacityFactor: 1.1, singleSource: true };
-    mockDb.select.mockReturnValue(makeChain([seedUserRow]));
     mockDb.insert.mockReturnValue(makeChain([created]));
-    const res = await request(app).post("/api/scenarios").send({
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
       name: "Coal +10%",
       problemType: "transport",
       capacityFactor: 1.1,
@@ -494,12 +615,13 @@ describe("POST /api/scenarios/:id/solve — transport", () => {
   };
 
   it("passes transport fields to the solver and returns result", async () => {
+    const cookie = await loginAs(OWNER);
     const row = { ...transportRow, capacityFactor: 1.1, singleSource: true };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: transportSolverResult }]));
     mockSolveFn.mockReturnValue(transportSolverResult);
 
-    const res = await request(app).post("/api/scenarios/8/solve");
+    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
     expect(res.status).toBe(200);
 
     const solveCall = mockSolveFn.mock.calls[0][0] as Record<string, unknown>;
@@ -510,11 +632,12 @@ describe("POST /api/scenarios/:id/solve — transport", () => {
   });
 
   it("returns transport flow assignments in result", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     mockDb.update.mockReturnValue(makeChain([{ ...transportRow, result: transportSolverResult }]));
     mockSolveFn.mockReturnValue(transportSolverResult);
 
-    const res = await request(app).post("/api/scenarios/8/solve");
+    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.result.status).toBe("optimal");
     expect(res.body.result.objective).toBe(50840650000);
@@ -556,21 +679,23 @@ describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => 
   };
 
   it("returns infeasible status when singleSource=true and São Paulo exceeds capacity", async () => {
+    const cookie = await loginAs(OWNER);
     const row = { ...brazilRow, singleSource: true };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilInfeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilInfeasibleResult);
-    const res = await request(app).post("/api/scenarios/10/solve");
+    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.result.status).toBe("infeasible");
     expect(res.body.result.infeasibilityReason).toMatch(/São Paulo/);
   });
 
   it("passes capacitated_pmedian modelType, warehouseCapacity, singleSource, pValue to solver", async () => {
+    const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([brazilRow]));
     mockDb.update.mockReturnValue(makeChain([{ ...brazilRow, result: brazilInfeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilInfeasibleResult);
-    await request(app).post("/api/scenarios/10/solve");
+    await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
     const call = mockSolveFn.mock.calls[0][0] as Record<string, unknown>;
     expect(call.modelType).toBe("capacitated_pmedian");
     expect(call.warehouseCapacity).toBe(20000000);
@@ -579,11 +704,12 @@ describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => 
   });
 
   it("returns optimal when singleSource=false (relaxed — São Paulo demand splits)", async () => {
+    const cookie = await loginAs(OWNER);
     const row = { ...brazilRow, singleSource: false };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilFeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilFeasibleResult);
-    const res = await request(app).post("/api/scenarios/10/solve");
+    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.result.status).toBe("optimal");
     expect(res.body.result.weightedAvgDistanceMi).toBe(287.3);
@@ -591,18 +717,20 @@ describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => 
   });
 
   it("returns flow assignments with flowFraction for Brazil optimal result", async () => {
+    const cookie = await loginAs(OWNER);
     const row = { ...brazilRow, singleSource: false };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilFeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilFeasibleResult);
-    const res = await request(app).post("/api/scenarios/10/solve");
+    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
     expect(res.body.result.assignments).toHaveLength(2);
     expect(res.body.result.assignments[0].flowFraction).toBeCloseTo(0.69, 2);
   });
 
   it("returns 404 when Brazil scenario not found", async () => {
+    const cookie = await loginAs(OWNER);
     // Default: select returns [] → 404
-    const res = await request(app).post("/api/scenarios/99/solve");
+    const res = await request(app).post("/api/scenarios/99/solve").set("Cookie", cookie);
     expect(res.status).toBe(404);
   });
 });

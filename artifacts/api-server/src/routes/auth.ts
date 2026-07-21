@@ -31,6 +31,14 @@ function isRateLimited(ip: string): boolean {
   return entry.count > LOGIN_RATE_LIMIT;
 }
 
+// Test-only escape hatch: the counter above is module-level and otherwise
+// persists for the lifetime of the process, which a test suite calling login
+// dozens of times (from a single loopback IP) would trip. Not used by any
+// production code path.
+export function resetLoginRateLimiterForTests(): void {
+  loginAttempts.clear();
+}
+
 function setSessionCookie(res: Response, userId: string) {
   res.cookie(SESSION_COOKIE, userId, {
     httpOnly: true,
