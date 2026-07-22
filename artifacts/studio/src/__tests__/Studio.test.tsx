@@ -133,9 +133,10 @@ describe("Studio — P-Median scenario", () => {
     expect(subtitles.length).toBeGreaterThan(0);
   });
 
-  it("shows Warehouse status section in configure panel", () => {
+  it("shows Overrides section with Warehouses/Customers buttons in configure panel", () => {
     renderStudio();
-    expect(screen.getByText("Warehouse status")).toBeInTheDocument();
+    expect(screen.getByTestId("button-open-warehouse-table")).toBeInTheDocument();
+    expect(screen.getByTestId("button-open-customer-table")).toBeInTheDocument();
   });
 
   it("does NOT show Mine capacity factor for p-median-us", () => {
@@ -194,9 +195,9 @@ describe("Studio — Transport scenario (configure)", () => {
     expect(screen.getByText("Ignore capacity")).toBeInTheDocument();
   });
 
-  it("does NOT show Warehouse status section for transport", () => {
+  it("does NOT show Overrides section for transport", () => {
     renderStudio("transport-coal");
-    expect(screen.queryByText("Warehouse status")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-open-warehouse-table")).not.toBeInTheDocument();
   });
 
   it("does NOT show Number of warehouses (P-value) for transport", () => {
@@ -395,9 +396,9 @@ describe("Studio — Brazil Capacity scenario (configure tab, active lab=3)", ()
     expect(screen.getByText("Warehouses to open (P)")).toBeInTheDocument();
   });
 
-  it("does NOT show Warehouse status section for Brazil", () => {
+  it("does NOT show Overrides section for Brazil", () => {
     renderStudio("p-median-brazil");
-    expect(screen.queryByText("Warehouse status")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-open-warehouse-table")).not.toBeInTheDocument();
   });
 
   it("does NOT show Mine capacity factor for Brazil", () => {

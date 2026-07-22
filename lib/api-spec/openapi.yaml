@@ -390,13 +390,17 @@ components:
       properties:
         id:
           type: string
+        city:
+          type: string
+        state:
+          type: string
         lat:
           type: number
         lng:
           type: number
         demand:
           type: number
-      required: [id, lat, lng, demand]
+      required: [id, city, state, lat, lng, demand]
 
     Dataset:
       type: object

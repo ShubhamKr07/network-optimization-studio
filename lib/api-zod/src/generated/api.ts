@@ -31,6 +31,8 @@ export const GetDatasetResponse = zod.object({
 })),
   "customers": zod.array(zod.object({
   "id": zod.string(),
+  "city": zod.string(),
+  "state": zod.string(),
   "lat": zod.number(),
   "lng": zod.number(),
   "demand": zod.number()

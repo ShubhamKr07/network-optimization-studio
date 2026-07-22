@@ -8,6 +8,8 @@
 
 export interface Customer {
   id: string;
+  city: string;
+  state: string;
   lat: number;
   lng: number;
   demand: number;

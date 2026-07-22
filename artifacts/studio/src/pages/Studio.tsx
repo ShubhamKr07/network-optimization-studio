@@ -17,6 +17,8 @@ import type { Scenario } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
+import { WarehouseTable } from "@/components/tables/WarehouseTable";
+import { CustomerTable } from "@/components/tables/CustomerTable";
 import type { StudioModelType } from "@/lib/chapters";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -71,14 +73,9 @@ interface LocalConfig {
   distanceBands: number[];
   gap: number;
   timeLimitSec: number;
-  // "none" (capacityMode=uniform with uniformCapacity=null) collapses to the
-  // same "Uniform" button state as a real uniform cap — there's no third
-  // button in this UI slice, see buildInputsForSave.
-  capacityMode: "uniform" | "per_wh";
+  capacityMode: "none" | "uniform" | "per_wh";
   uniformCapacity: number | null;
-  warehouseStatuses: Array<{ warehouseId: string; status: "potential" | "forced_open" | "inactive" }>;
-  // Not editable by this UI slice yet (D1.2/D2) — carried through unchanged
-  // so saving from this panel doesn't silently drop them.
+  warehouseOverrides: WarehouseOverride[];
   customerOverrides: CustomerOverride[];
   capacityFactor: number;
   singleSource: boolean;
@@ -96,7 +93,7 @@ function configFromScenario(s: Scenario): LocalConfig {
       timeLimitSec: i.timeLimitSec,
       capacityMode: "uniform",
       uniformCapacity: null,
-      warehouseStatuses: [],
+      warehouseOverrides: [],
       customerOverrides: [],
       capacityFactor: i.capacityFactor,
       singleSource: i.singleSource,
@@ -110,11 +107,9 @@ function configFromScenario(s: Scenario): LocalConfig {
     distanceBands: [...i.distanceBands],
     gap: i.gap,
     timeLimitSec: i.timeLimitSec,
-    capacityMode: i.capacityMode === "per_wh" ? "per_wh" : "uniform",
+    capacityMode: i.capacityMode,
     uniformCapacity: i.uniformCapacity ?? null,
-    warehouseStatuses: i.warehouseOverrides
-      .filter(o => o.status !== "active")
-      .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" })),
+    warehouseOverrides: i.warehouseOverrides.map(o => ({ ...o })),
     customerOverrides: [...i.customerOverrides],
     capacityFactor: 1.0,
     singleSource: i.singleSource ?? false,
@@ -135,16 +130,12 @@ function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, u
       capacityInactive: cfg.capacityInactive,
     };
   }
-  const warehouseOverrides: WarehouseOverride[] = cfg.warehouseStatuses.map(s => ({
-    id: s.warehouseId,
-    status: s.status === "potential" ? "active" : s.status,
-  }));
   return {
     p: cfg.pValue,
     distanceBands: cfg.distanceBands,
-    capacityMode: cfg.capacityMode === "uniform" && cfg.uniformCapacity == null ? "none" : cfg.capacityMode,
+    capacityMode: cfg.capacityMode,
     uniformCapacity: cfg.uniformCapacity,
-    warehouseOverrides,
+    warehouseOverrides: cfg.warehouseOverrides,
     customerOverrides: cfg.customerOverrides,
     gap: cfg.gap,
     timeLimitSec: cfg.timeLimitSec,
@@ -197,6 +188,8 @@ export function Studio({ modelId }: StudioProps) {
   const [editingName, setEditingName] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [showWarehouseTable, setShowWarehouseTable] = useState(false);
+  const [showCustomerTable, setShowCustomerTable] = useState(false);
 
   const deleteScenario = useDeleteScenario();
 
@@ -245,23 +238,8 @@ export function Studio({ modelId }: StudioProps) {
     setLocalConfig(prev => prev ? { ...prev, [key]: value } : prev);
   }, []);
 
-  const getWarehouseStatus = (whId: string): "potential" | "forced_open" | "inactive" => {
-    if (!localConfig) return "potential";
-    const e = localConfig.warehouseStatuses.find(s => s.warehouseId === whId);
-    return (e?.status as "potential" | "forced_open" | "inactive") ?? "potential";
-  };
-
-  const setWarehouseStatus = (whId: string, status: "potential" | "forced_open" | "inactive") => {
-    setLocalConfig(prev => {
-      if (!prev) return prev;
-      const filtered = prev.warehouseStatuses.filter(e => e.warehouseId !== whId);
-      const next = status === "potential" ? filtered : [...filtered, { warehouseId: whId, status }];
-      return { ...prev, warehouseStatuses: next };
-    });
-  };
-
-  const forcedOpenCount = localConfig?.warehouseStatuses.filter(e => e.status === "forced_open").length ?? 0;
-  const inactiveCount = localConfig?.warehouseStatuses.filter(e => e.status === "inactive").length ?? 0;
+  const forcedOpenCount = localConfig?.warehouseOverrides.filter(o => o.status === "forced_open").length ?? 0;
+  const inactiveCount = localConfig?.warehouseOverrides.filter(o => o.status === "inactive").length ?? 0;
   const pValue = localConfig?.pValue ?? 3;
   const maxBand = localConfig?.distanceBands.length ? Math.max(...localConfig.distanceBands) : 1600;
 
@@ -696,7 +674,7 @@ export function Studio({ modelId }: StudioProps) {
                 <p className="text-xs font-semibold text-foreground">Solve settings</p>
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <Label className="text-[10px] text-muted-foreground">Gap</Label>
+                    <Label className="text-[10px] text-muted-foreground">Optimization gap</Label>
                     <Input
                       type="number"
                       value={localConfig.gap}
@@ -707,7 +685,7 @@ export function Studio({ modelId }: StudioProps) {
                     />
                   </div>
                   <div className="flex-1">
-                    <Label className="text-[10px] text-muted-foreground">Time (s)</Label>
+                    <Label className="text-[10px] text-muted-foreground">Max time (seconds)</Label>
                     <Input
                       type="number"
                       value={localConfig.timeLimitSec}
@@ -723,15 +701,22 @@ export function Studio({ modelId }: StudioProps) {
               {/* Warehouse capacity */}
               <div className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse capacity</p>
-                <Input
-                  type="number"
-                  value={localConfig.uniformCapacity ?? ""}
-                  onChange={e => update("uniformCapacity", parseInt(e.target.value, 10) || null)}
-                  className="h-7 text-xs"
-                  placeholder="50,000,000"
-                  data-testid="input-capacity"
-                />
+                {localConfig.capacityMode === "uniform" && (
+                  <Input
+                    type="number"
+                    value={localConfig.uniformCapacity ?? ""}
+                    onChange={e => update("uniformCapacity", parseInt(e.target.value, 10) || null)}
+                    className="h-7 text-xs"
+                    placeholder="50,000,000"
+                    data-testid="input-capacity"
+                  />
+                )}
                 <div className="flex rounded border border-border overflow-hidden text-xs">
+                  <button
+                    data-testid="button-capacity-none"
+                    onClick={() => update("capacityMode", "none")}
+                    className={`flex-1 py-1 text-center transition-colors ${localConfig.capacityMode === "none" ? "bg-primary text-white" : "bg-white text-foreground hover:bg-muted"}`}
+                  >None</button>
                   <button
                     data-testid="button-capacity-uniform"
                     onClick={() => update("capacityMode", "uniform")}
@@ -743,6 +728,9 @@ export function Studio({ modelId }: StudioProps) {
                     className={`flex-1 py-1 text-center transition-colors ${localConfig.capacityMode === "per_wh" ? "bg-primary text-white" : "bg-white text-foreground hover:bg-muted"}`}
                   >Per-WH</button>
                 </div>
+                {localConfig.capacityMode === "per_wh" && (
+                  <p className="text-[10px] text-muted-foreground">Set each warehouse's capacity in the Warehouses table below.</p>
+                )}
               </div>
 
               {/* Constraints */}
@@ -824,34 +812,31 @@ export function Studio({ modelId }: StudioProps) {
                 </>
               )}
 
-              {/* Warehouse status — P-Median only (not transport, not Brazil) */}
+              {/* Warehouse & customer overrides — P-Median only (not transport, not Brazil:
+                  Brazil uses a different dataset/id namespace with no table UI yet) */}
               {modelId === "p-median-us" && (
               <div className="px-3 py-3 space-y-2">
-                <p className="text-xs font-semibold text-foreground">Warehouse status</p>
-                {dataset?.warehouses.map(wh => {
-                  const status = getWarehouseStatus(wh.id);
-                  return (
-                    <div key={wh.id} className="flex items-center justify-between gap-1">
-                      <span className="text-[10px] text-foreground truncate max-w-[70px]" title={`${wh.city}, ${wh.state}`}>{wh.city}</span>
-                      <div className="flex rounded border border-border overflow-hidden text-[9px] flex-shrink-0">
-                        {(["potential", "forced_open", "inactive"] as const).map(s => (
-                          <button
-                            key={s}
-                            data-testid={`button-wh-${wh.id}-${s}`}
-                            onClick={() => setWarehouseStatus(wh.id, s)}
-                            className={`px-1.5 py-0.5 transition-colors whitespace-nowrap ${
-                              status === s
-                                ? s === "forced_open" ? "bg-primary text-white" : s === "inactive" ? "bg-destructive text-white" : "bg-slate-200 text-foreground"
-                                : "bg-white text-muted-foreground hover:bg-muted"
-                            }`}
-                          >
-                            {s === "potential" ? "Pot" : s === "forced_open" ? "Open" : "Off"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                <p className="text-xs font-semibold text-foreground">Overrides</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowWarehouseTable(true)}
+                  data-testid="button-open-warehouse-table"
+                  className="w-full h-7 text-xs justify-between"
+                >
+                  Warehouses
+                  <span className="text-muted-foreground">{forcedOpenCount + inactiveCount > 0 ? `${forcedOpenCount + inactiveCount} overridden` : "26"}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCustomerTable(true)}
+                  data-testid="button-open-customer-table"
+                  className="w-full h-7 text-xs justify-between"
+                >
+                  Customers
+                  <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
+                </Button>
               </div>
               )}
             </>
@@ -910,7 +895,9 @@ export function Studio({ modelId }: StudioProps) {
               ) : dataset ? (
                 <NetworkMap
                   dataset={dataset}
-                  warehouseStatuses={localConfig?.warehouseStatuses ?? []}
+                  warehouseStatuses={(localConfig?.warehouseOverrides ?? [])
+                    .filter(o => o.status !== "active")
+                    .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }))}
                   result={activeTab === "output" ? result : null}
                   showRoutes={activeTab === "output" && showRoutes}
                 />
@@ -1141,6 +1128,39 @@ export function Studio({ modelId }: StudioProps) {
               {createScenario.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Warehouse overrides table (D2.1) */}
+      <Dialog open={showWarehouseTable} onOpenChange={setShowWarehouseTable}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Warehouses</DialogTitle>
+          </DialogHeader>
+          {localConfig && dataset && (
+            <WarehouseTable
+              warehouses={dataset.warehouses}
+              overrides={localConfig.warehouseOverrides}
+              capacityMode={localConfig.capacityMode}
+              onChange={next => update("warehouseOverrides", next)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Customer overrides table (D3.1) */}
+      <Dialog open={showCustomerTable} onOpenChange={setShowCustomerTable}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Customers</DialogTitle>
+          </DialogHeader>
+          {localConfig && dataset && (
+            <CustomerTable
+              customers={dataset.customers}
+              overrides={localConfig.customerOverrides}
+              onChange={next => update("customerOverrides", next)}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
