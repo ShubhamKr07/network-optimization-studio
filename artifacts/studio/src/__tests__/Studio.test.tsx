@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // ── Hoist stable mocks before vi.mock hoisting ────────────────────────────────
@@ -29,31 +29,44 @@ vi.mock("@/components/BrazilMap", () => ({
 }));
 
 // ── Shared scenario fixtures ──────────────────────────────────────────────────
+const pmedianInputs = {
+  p: 3,
+  distanceBands: [200, 400, 800, 1600],
+  capacityMode: "none",
+  uniformCapacity: null,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+};
+
 const pmedianScenario = {
   id: 1,
   name: "3 Warehouses",
-  problemType: "p_median",
-  pValue: 3,
-  distanceBands: [200, 400, 800, 1600],
-  solver: "cbc",
-  gap: 0,
-  timeLimitSec: 120,
-  capacityMode: "uniform",
-  uniformCapacity: null,
-  warehouseStatuses: [],
-  capacityFactor: 1.0,
-  singleSource: false,
-  capacityInactive: false,
+  modelId: "p-median-us",
+  inputs: pmedianInputs,
   result: null,
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
 };
 
+const transportInputs = {
+  distanceBands: [500, 1000, 1500, 2000],
+  gap: 0,
+  timeLimitSec: 120,
+  capacityFactor: 1.0,
+  singleSource: false,
+  capacityInactive: false,
+};
+
 const transportScenario = {
-  ...pmedianScenario,
   id: 8,
   name: "Coal Base Case",
-  problemType: "transport",
+  modelId: "transport-coal",
+  inputs: transportInputs,
+  result: null,
+  createdAt: "2026-01-02T00:00:00Z",
+  updatedAt: "2026-01-02T00:00:00Z",
 };
 
 const dataset = {
@@ -90,8 +103,8 @@ const mockUseGetDataset = vi.mocked(useGetDataset);
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseSearch = vi.mocked(useSearch);
 
-function renderStudio(problemType: "p_median" | "transport" | "capacitated_pmedian" = "p_median") {
-  return render(<Studio problemType={problemType} />);
+function renderStudio(modelId: "p-median-us" | "transport-coal" | "p-median-brazil" = "p-median-us") {
+  return render(<Studio modelId={modelId} />);
 }
 
 beforeEach(() => {
@@ -105,7 +118,6 @@ beforeEach(() => {
 
 describe("Studio — P-Median scenario", () => {
   beforeEach(() => {
-    // activeModelIndex=1 → activeModelType=p_median → labScenarios filtered to p_median
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
   });
@@ -126,12 +138,12 @@ describe("Studio — P-Median scenario", () => {
     expect(screen.getByText("Warehouse status")).toBeInTheDocument();
   });
 
-  it("does NOT show Mine capacity factor for p_median", () => {
+  it("does NOT show Mine capacity factor for p-median-us", () => {
     renderStudio();
     expect(screen.queryByText("Mine capacity factor")).not.toBeInTheDocument();
   });
 
-  it("does NOT show Single-source toggle for p_median", () => {
+  it("does NOT show Single-source toggle for p-median-us", () => {
     renderStudio();
     expect(screen.queryByText("Single-source")).not.toBeInTheDocument();
   });
@@ -151,51 +163,49 @@ describe("Studio — P-Median scenario", () => {
 
 describe("Studio — Transport scenario (configure)", () => {
   beforeEach(() => {
-    // activeModelIndex=2 → activeModelType=transport → labScenarios filtered to transport
-    // useSearch returns "?scenario=8" to match the transport scenario ID directly
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
   });
 
   it("renders the transport scenario name", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getAllByText("Coal Base Case").length).toBeGreaterThan(0);
   });
 
   it("shows transport header subtitle", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getByText(/Ch 5/i)).toBeInTheDocument();
     expect(screen.getByText(/coal mines/i)).toBeInTheDocument();
   });
 
   it("shows Mine capacity factor slider", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getByText("Mine capacity factor")).toBeInTheDocument();
   });
 
   it("shows Single-source toggle", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getByText("Single-source")).toBeInTheDocument();
   });
 
   it("shows Ignore capacity toggle", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getByText("Ignore capacity")).toBeInTheDocument();
   });
 
   it("does NOT show Warehouse status section for transport", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.queryByText("Warehouse status")).not.toBeInTheDocument();
   });
 
   it("does NOT show Number of warehouses (P-value) for transport", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.queryByText(/Number of warehouses/i)).not.toBeInTheDocument();
   });
 
   it("shows transport constraints in constraints panel", () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getByText(/C1 Meet all station demand/)).toBeInTheDocument();
     expect(screen.getByText(/C2 Mine capacity limits/)).toBeInTheDocument();
   });
@@ -230,19 +240,19 @@ describe("Studio — Transport scenario (output tab)", () => {
   });
 
   it("shows flow table header on output tab", async () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.getByText(/Flow assignments/i)).toBeInTheDocument();
   });
 
   it("renders mine → station flow rows", async () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.getByText(/PRB.*STN1/)).toBeInTheDocument();
   });
 
   it("shows weighted avg distance in summary", async () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     await userEvent.click(screen.getByText("Output"));
     const distanceEl = screen.getByTestId("result-weighted-avg-distance");
     expect(distanceEl).toHaveTextContent("696.4");
@@ -250,13 +260,13 @@ describe("Studio — Transport scenario (output tab)", () => {
   });
 
   it("does NOT show warehouse utilization bars for transport", async () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.queryByText("Open warehouses · utilization")).not.toBeInTheDocument();
   });
 
   it("does NOT show band coverage for transport", async () => {
-    renderStudio("transport");
+    renderStudio("transport-coal");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.queryByText("Demand served within band")).not.toBeInTheDocument();
   });
@@ -265,26 +275,25 @@ describe("Studio — Transport scenario (output tab)", () => {
 // ── Studio header labels by active lab ─────────────────────────────────────────
 
 describe("Studio — Header lab name by active lab", () => {
-  it("shows Al's Athletics · Model Lab when active lab is 1 (p_median)", () => {
+  it("shows Al's Athletics · Model Lab when active lab is 1 (p-median-us)", () => {
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
     expect(screen.getByText(/Al's Athletics · Model Lab/)).toBeInTheDocument();
   });
 
-  it("shows Coal Transport LP · Model Lab when active lab is 2 (transport)", () => {
+  it("shows Coal Transport LP · Model Lab when active lab is 2 (transport-coal)", () => {
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(screen.getByText(/Coal Transport LP · Model Lab/)).toBeInTheDocument();
   });
 });
 
 // ── Lab-based auto-redirect ─────────────────────────────────────────────────
-// The chapter route (App.tsx) now supplies problemType as a real prop, so
-// these can test "redirect to the scenario matching the active lab" properly
-// again — restored now that B1.1 gives Studio an explicit "which lab" signal.
+// The chapter route (App.tsx) now supplies modelId as a real prop, so
+// these can test "redirect to the scenario matching the active lab" properly.
 
 describe("Studio — Lab-based scenario redirect", () => {
   const pmedianWith5 = { ...pmedianScenario, id: 5 };
@@ -296,22 +305,22 @@ describe("Studio — Lab-based scenario redirect", () => {
     mockUseGetScenario.mockReturnValue({ data: undefined } as ReturnType<typeof useGetScenario>);
   });
 
-  it("redirects to first p-median scenario when lab is p_median and URL has no scenario", () => {
+  it("redirects to first p-median scenario when lab is p-median-us and URL has no scenario", () => {
     mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
-    renderStudio("p_median");
+    renderStudio("p-median-us");
     expect(mockNavigate).toHaveBeenCalledWith("/?scenario=5", { replace: true });
   });
 
-  it("redirects to first transport scenario when lab is transport and URL has no scenario", () => {
+  it("redirects to first transport scenario when lab is transport-coal and URL has no scenario", () => {
     mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(mockNavigate).toHaveBeenCalledWith("/?scenario=8", { replace: true });
   });
 
   it("does NOT redirect when no scenario matches the active lab (stays at current URL)", () => {
-    // Only p_median available, but the active lab is transport → no matching scenario → no navigate
+    // Only p-median-us available, but the active lab is transport-coal → no matching scenario → no navigate
     mockUseListScenarios.mockReturnValue({ data: [pmedianWith5], isLoading: false } as ReturnType<typeof useListScenarios>);
-    renderStudio("transport");
+    renderStudio("transport-coal");
     expect(mockNavigate).not.toHaveBeenCalledWith(expect.stringContaining("/?scenario="), expect.anything());
   });
 
@@ -319,28 +328,29 @@ describe("Studio — Lab-based scenario redirect", () => {
     mockUseSearch.mockReturnValue("?scenario=5");
     mockUseGetScenario.mockReturnValue({ data: pmedianWith5 } as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: multiScenarios, isLoading: false } as ReturnType<typeof useListScenarios>);
-    renderStudio("p_median");
+    renderStudio("p-median-us");
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });
 
 // ── Brazil scenario fixture ────────────────────────────────────────────────
+const brazilInputs = {
+  p: 5,
+  distanceBands: [500, 1000, 2000, 4000],
+  capacityMode: "uniform",
+  uniformCapacity: 20000000,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+  singleSource: true,
+};
+
 const brazilScenario = {
   id: 10,
   name: "Brazil Base — 20M cap",
-  problemType: "capacitated_pmedian",
-  pValue: 5,
-  warehouseCapacity: 20000000,
-  singleSource: true,
-  distanceBands: [500, 1000, 2000, 4000],
-  solver: "cbc",
-  gap: 0,
-  timeLimitSec: 120,
-  capacityMode: "uniform",
-  uniformCapacity: null,
-  warehouseStatuses: [],
-  capacityFactor: 1.0,
-  capacityInactive: false,
+  modelId: "p-median-brazil",
+  inputs: brazilInputs,
   result: null,
   createdAt: "2026-01-03T00:00:00Z",
   updatedAt: "2026-01-03T00:00:00Z",
@@ -355,48 +365,48 @@ describe("Studio — Brazil Capacity scenario (configure tab, active lab=3)", ()
   });
 
   it("shows Brazil Capacity · Model Lab header when active lab is 3", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByText(/Brazil Capacity · Model Lab/)).toBeInTheDocument();
   });
 
   it("shows Brazil subtitle in header (Ch 5 · capacitated p-median)", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByText(/Ch 5.*capacitated p-median.*Brazil/i)).toBeInTheDocument();
   });
 
   it("renders BrazilMap component instead of NetworkMap for Brazil scenario", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByTestId("brazil-map")).toBeInTheDocument();
     expect(screen.queryByTestId("network-map")).not.toBeInTheDocument();
   });
 
   it("shows Single-source toggle in configure panel for Brazil", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByText("Single-source")).toBeInTheDocument();
   });
 
   it("shows São Paulo capacity hint in configure panel when singleSource=true", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByText(/São Paulo/i)).toBeInTheDocument();
   });
 
   it("shows Warehouses to open (P) control", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByText("Warehouses to open (P)")).toBeInTheDocument();
   });
 
   it("does NOT show Warehouse status section for Brazil", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.queryByText("Warehouse status")).not.toBeInTheDocument();
   });
 
   it("does NOT show Mine capacity factor for Brazil", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.queryByText("Mine capacity factor")).not.toBeInTheDocument();
   });
 
   it("does NOT show Ignore capacity toggle for Brazil", () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.queryByText("Ignore capacity")).not.toBeInTheDocument();
   });
 });
@@ -407,7 +417,7 @@ describe("Studio — Header lab name by active lab (all three labs)", () => {
     mockUseSearch.mockReturnValue("?scenario=10");
     mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     expect(screen.getByText(/Brazil Capacity · Model Lab/)).toBeInTheDocument();
   });
 });
@@ -438,33 +448,26 @@ describe("Studio — Brazil infeasibility output banner", () => {
   });
 
   it("shows Infeasible status badge on output tab", async () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.getByText("Infeasible")).toBeInTheDocument();
   });
 
   it("shows infeasibility reason mentioning São Paulo on output tab", async () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.getAllByText(/São Paulo/).length).toBeGreaterThan(0);
   });
 
   it("shows Relax single-sourcing hint in infeasibility reason", async () => {
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     await userEvent.click(screen.getByText("Output"));
     expect(screen.getByText(/Relax single-sourcing/i)).toBeInTheDocument();
   });
 });
 
-// Brazil-lab auto-redirect coverage ("redirect to Brazil scenario when that
-// lab is active", "empty state when no Brazil scenarios exist for the active
-// lab") required an external lab-selection signal (previously
-// GamificationContext) that A3.2 removes — see the note above the p_median/
-// transport redirect tests. This coverage returns once B1.1's chapter routing
-// supplies an explicit "which lab" signal again.
-
-// ── New button sends correct problemType per lab ───────────────────────────────
-describe("Studio — New button sends correct problemType", () => {
+// ── New button sends correct modelId + inputs per lab ──────────────────────
+describe("Studio — New button sends correct modelId", () => {
   async function clickNew() {
     // "New" button in the header toolbar
     await userEvent.click(screen.getByTestId("button-create-scenario"));
@@ -476,42 +479,42 @@ describe("Studio — New button sends correct problemType", () => {
     await userEvent.click(screen.getByTestId("button-create-confirm"));
   }
 
-  it("sends problemType p_median when active scenario is p_median (lab 1)", async () => {
+  it("sends modelId p-median-us when active scenario is p-median-us (lab 1)", async () => {
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
     await clickNew();
     expect(mockCreateScenario.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ problemType: "p_median", pValue: 3 }),
+        data: expect.objectContaining({ modelId: "p-median-us", inputs: expect.objectContaining({ p: 3 }) }),
       }),
       expect.anything()
     );
   });
 
-  it("sends problemType transport when active scenario is transport (lab 2)", async () => {
+  it("sends modelId transport-coal when active scenario is transport-coal (lab 2)", async () => {
     mockUseSearch.mockReturnValue("?scenario=8");
     mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport");
+    renderStudio("transport-coal");
     await clickNew();
     expect(mockCreateScenario.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ problemType: "transport", pValue: 1 }),
+        data: expect.objectContaining({ modelId: "transport-coal" }),
       }),
       expect.anything()
     );
   });
 
-  it("sends problemType capacitated_pmedian when active scenario is Brazil (lab 3)", async () => {
+  it("sends modelId p-median-brazil when active scenario is Brazil (lab 3)", async () => {
     mockUseSearch.mockReturnValue("?scenario=10");
     mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio("capacitated_pmedian");
+    renderStudio("p-median-brazil");
     await clickNew();
     expect(mockCreateScenario.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ problemType: "capacitated_pmedian", pValue: 7 }),
+        data: expect.objectContaining({ modelId: "p-median-brazil", inputs: expect.objectContaining({ p: 7 }) }),
       }),
       expect.anything()
     );

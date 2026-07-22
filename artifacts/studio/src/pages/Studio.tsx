@@ -13,12 +13,11 @@ import {
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
 } from "@workspace/api-client-react";
-import type { WarehouseStatusEntry, Scenario, ScenarioUpdateSolver, ScenarioUpdateCapacityMode } from "@workspace/api-client-react";
+import type { Scenario } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
 import type { StudioModelType } from "@/lib/chapters";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,59 +29,134 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save } from "lucide-react";
 
 const CONSTRAINTS: Record<string, string[]> = {
-  transport: ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
-  p_median: ["C1 Serve every customer", "C2 Open exactly P facilities", "C3 Respect capacity", "C4 Honor warehouse status", "C5 Route only to open facility"],
-  capacitated_pmedian: ["C1 Serve every customer", "C2 Capacity constraint per facility", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimize fixed + transport cost"],
+  "transport-coal": ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
+  "p-median-us": ["C1 Serve every customer", "C2 Open exactly P facilities", "C3 Respect capacity", "C4 Honor warehouse status", "C5 Route only to open facility"],
+  "p-median-brazil": ["C1 Serve every customer", "C2 Capacity constraint per facility", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimize fixed + transport cost"],
   max_coverage: ["C1 Open exactly P facilities", "C2 Coverage distance threshold", "C3 Honor warehouse status", "C4 Maximize demand within threshold", "C5 Binary assignment"],
   p_center: ["C1 Open exactly P facilities", "C2 Minimize maximum distance", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimax objective"],
   set_cover: ["C1 Cover all demand nodes", "C2 Coverage radius defined", "C3 Minimize number of facilities", "C4 Honor warehouse status", "C5 Binary covering"],
 };
+
+// Local mirrors of the per-model inputs shapes (D0.1/D0.3) — Scenario.inputs
+// is an opaque object at the API-contract level, so studio can't import the
+// api-server's Zod-derived types across the package boundary.
+interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
+interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
+interface PMedianInputsShape {
+  p: number;
+  capacityMode: "none" | "uniform" | "per_wh";
+  uniformCapacity?: number | null;
+  warehouseOverrides: WarehouseOverride[];
+  customerOverrides: CustomerOverride[];
+  distanceBands: number[];
+  gap: number;
+  timeLimitSec: number;
+  singleSource?: boolean;
+}
+interface TransportLpInputsShape {
+  capacityFactor: number;
+  singleSource: boolean;
+  capacityInactive: boolean;
+  distanceBands: number[];
+  gap: number;
+  timeLimitSec: number;
+}
 
 const BAND_COLORS = ["#16A34A", "#84CC16", "#F59E0B", "#EF4444"];
 const getBandColor = (i: number) => BAND_COLORS[Math.min(i, BAND_COLORS.length - 1)];
 
 interface LocalConfig {
   name: string;
-  // Read-only display/branching only — problemType is fixed at creation by
-  // the chapter route (B1.1) and rejected by PATCH (B2.1), so it never goes
-  // out in the update payload; see handleSave below.
-  problemType: Scenario["problemType"];
   pValue: number;
   distanceBands: number[];
-  solver: ScenarioUpdateSolver;
   gap: number;
   timeLimitSec: number;
-  capacityMode: ScenarioUpdateCapacityMode;
+  // "none" (capacityMode=uniform with uniformCapacity=null) collapses to the
+  // same "Uniform" button state as a real uniform cap — there's no third
+  // button in this UI slice, see buildInputsForSave.
+  capacityMode: "uniform" | "per_wh";
   uniformCapacity: number | null;
-  warehouseStatuses: WarehouseStatusEntry[];
+  warehouseStatuses: Array<{ warehouseId: string; status: "potential" | "forced_open" | "inactive" }>;
+  // Not editable by this UI slice yet (D1.2/D2) — carried through unchanged
+  // so saving from this panel doesn't silently drop them.
+  customerOverrides: CustomerOverride[];
   capacityFactor: number;
   singleSource: boolean;
   capacityInactive: boolean;
 }
 
 function configFromScenario(s: Scenario): LocalConfig {
+  if (s.modelId === "transport-coal") {
+    const i = s.inputs as unknown as TransportLpInputsShape;
+    return {
+      name: s.name,
+      pValue: 3,
+      distanceBands: [...i.distanceBands],
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
+      capacityMode: "uniform",
+      uniformCapacity: null,
+      warehouseStatuses: [],
+      customerOverrides: [],
+      capacityFactor: i.capacityFactor,
+      singleSource: i.singleSource,
+      capacityInactive: i.capacityInactive,
+    };
+  }
+  const i = s.inputs as unknown as PMedianInputsShape;
   return {
     name: s.name,
-    problemType: s.problemType,
-    pValue: s.pValue,
-    distanceBands: [...s.distanceBands],
-    solver: s.solver,
-    gap: s.gap,
-    timeLimitSec: s.timeLimitSec,
-    capacityMode: s.capacityMode,
-    uniformCapacity: s.uniformCapacity ?? null,
-    warehouseStatuses: [...s.warehouseStatuses],
-    capacityFactor: s.capacityFactor ?? 1.0,
-    singleSource: s.singleSource ?? false,
-    capacityInactive: s.capacityInactive ?? false,
+    pValue: i.p,
+    distanceBands: [...i.distanceBands],
+    gap: i.gap,
+    timeLimitSec: i.timeLimitSec,
+    capacityMode: i.capacityMode === "per_wh" ? "per_wh" : "uniform",
+    uniformCapacity: i.uniformCapacity ?? null,
+    warehouseStatuses: i.warehouseOverrides
+      .filter(o => o.status !== "active")
+      .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" })),
+    customerOverrides: [...i.customerOverrides],
+    capacityFactor: 1.0,
+    singleSource: i.singleSource ?? false,
+    capacityInactive: false,
+  };
+}
+
+// Translates the editor's flat LocalConfig back into the model's `inputs`
+// shape for PATCH — a full replacement of the inputs blob, not a merge.
+function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, unknown> {
+  if (modelId === "transport-coal") {
+    return {
+      distanceBands: cfg.distanceBands,
+      gap: cfg.gap,
+      timeLimitSec: cfg.timeLimitSec,
+      capacityFactor: cfg.capacityFactor,
+      singleSource: cfg.singleSource,
+      capacityInactive: cfg.capacityInactive,
+    };
+  }
+  const warehouseOverrides: WarehouseOverride[] = cfg.warehouseStatuses.map(s => ({
+    id: s.warehouseId,
+    status: s.status === "potential" ? "active" : s.status,
+  }));
+  return {
+    p: cfg.pValue,
+    distanceBands: cfg.distanceBands,
+    capacityMode: cfg.capacityMode === "uniform" && cfg.uniformCapacity == null ? "none" : cfg.capacityMode,
+    uniformCapacity: cfg.uniformCapacity,
+    warehouseOverrides,
+    customerOverrides: cfg.customerOverrides,
+    gap: cfg.gap,
+    timeLimitSec: cfg.timeLimitSec,
+    ...(modelId === "p-median-brazil" ? { singleSource: cfg.singleSource } : {}),
   };
 }
 
 interface StudioProps {
-  problemType: StudioModelType;
+  modelId: StudioModelType;
 }
 
-export function Studio({ problemType }: StudioProps) {
+export function Studio({ modelId }: StudioProps) {
   const search = useSearch();
   const [chapterPath, navigate] = useLocation();
   const queryClient = useQueryClient();
@@ -91,7 +165,7 @@ export function Studio({ problemType }: StudioProps) {
   const scenarioIdStr = params.get("scenario");
   const scenarioId = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
 
-  const { data: scenarios, isLoading: scenariosLoading } = useListScenarios({ problemType });
+  const { data: scenarios, isLoading: scenariosLoading } = useListScenarios({ modelId });
   const { data: dataset, isLoading: datasetLoading } = useGetDataset();
   const { data: scenarioFromApi } = useGetScenario(scenarioId!, {
     query: { enabled: !!scenarioId, queryKey: getGetScenarioQueryKey(scenarioId!) },
@@ -104,8 +178,8 @@ export function Studio({ problemType }: StudioProps) {
 
   // Which lab is active — driven by the chapter route (App.tsx), not user
   // selection or in-page state.
-  const activeModelType = problemType;
-  const activeModelIndex = problemType === "capacitated_pmedian" ? 3 : problemType === "transport" ? 2 : 1;
+  const activeModelId = modelId;
+  const activeModelIndex = modelId === "p-median-brazil" ? 3 : modelId === "transport-coal" ? 2 : 1;
 
   // Derive currentScenario here so effects can reference it before early returns
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioId) ?? scenarios?.[0];
@@ -128,7 +202,7 @@ export function Studio({ problemType }: StudioProps) {
 
   useEffect(() => {
     if (!scenarios || scenarios.length === 0) return;
-    const preferred = scenarios.find(s => s.problemType === activeModelType);
+    const preferred = scenarios.find(s => s.modelId === activeModelId);
     if (!scenarioId) {
       if (preferred) navigate(`${chapterPath}?scenario=${preferred.id}`, { replace: true });
       return;
@@ -137,7 +211,7 @@ export function Studio({ problemType }: StudioProps) {
     if (!exists && preferred) {
       navigate(`${chapterPath}?scenario=${preferred.id}`, { replace: true });
     }
-  }, [scenarios, scenarioId, navigate, activeModelType]);
+  }, [scenarios, scenarioId, navigate, activeModelId]);
 
   useEffect(() => {
     if (scenarioFromApi) {
@@ -154,10 +228,9 @@ export function Studio({ problemType }: StudioProps) {
 
   const handleSave = useCallback(() => {
     if (!localConfig || !scenarioId || !isDirty) return;
-    // problemType is read-only after creation (B2.1) — PATCH rejects it with 422.
-    const { problemType: _problemType, ...updatePayload } = localConfig;
+    const inputs = buildInputsForSave(localConfig, activeModelId);
     updateScenario.mutate(
-      { scenarioId, data: updatePayload },
+      { scenarioId, data: { name: localConfig.name, inputs } },
       {
         onSuccess: () => {
           setSavedConfig(localConfig);
@@ -166,7 +239,7 @@ export function Studio({ problemType }: StudioProps) {
         },
       }
     );
-  }, [localConfig, scenarioId, isDirty, updateScenario, queryClient]);
+  }, [localConfig, scenarioId, isDirty, updateScenario, queryClient, activeModelId]);
 
   const update = useCallback(<K extends keyof LocalConfig>(key: K, value: LocalConfig[K]) => {
     setLocalConfig(prev => prev ? { ...prev, [key]: value } : prev);
@@ -274,24 +347,14 @@ export function Studio({ problemType }: StudioProps) {
 
   const handleCreateConfirm = () => {
     const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
-    const typeDefaults =
-      problemType === "transport"
-        ? { problemType: "transport" as const, pValue: 1, distanceBands: [500, 1000, 1500, 2000], uniformCapacity: null }
-        : problemType === "capacitated_pmedian"
-        ? { problemType: "capacitated_pmedian" as const, pValue: 7, distanceBands: [500, 1000, 2000, 4000], uniformCapacity: null }
-        : { problemType: "p_median" as const, pValue: 3, distanceBands: [200, 400, 800, 1600], uniformCapacity: null };
+    const inputs: Record<string, unknown> =
+      activeModelId === "transport-coal"
+        ? { distanceBands: [500, 1000, 1500, 2000], gap: 0, timeLimitSec: 120, capacityFactor: 1.0, singleSource: false, capacityInactive: false }
+        : activeModelId === "p-median-brazil"
+        ? { p: 7, distanceBands: [500, 1000, 2000, 4000], capacityMode: "uniform", uniformCapacity: 20000000, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120, singleSource: true }
+        : { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
     createScenario.mutate(
-      {
-        data: {
-          name,
-          ...typeDefaults,
-          solver: "cbc",
-          gap: 0,
-          timeLimitSec: 120,
-          capacityMode: "uniform",
-          warehouseStatuses: [],
-        } as Parameters<typeof createScenario.mutate>[0]["data"],
-      },
+      { data: { name, modelId: activeModelId, inputs } },
       {
         onSuccess: (s) => {
           setShowCreateDialog(false);
@@ -347,7 +410,7 @@ export function Studio({ problemType }: StudioProps) {
     );
   }
 
-  if (activeModelIndex === 3 && !scenarios.some(s => s.problemType === "capacitated_pmedian")) {
+  if (activeModelIndex === 3 && !scenarios.some(s => s.modelId === "p-median-brazil")) {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4">
         <p className="text-muted-foreground">No Brazil Capacity scenarios yet.</p>
@@ -371,9 +434,9 @@ export function Studio({ problemType }: StudioProps) {
               {activeModelIndex === 3 ? "Brazil Capacity · Model Lab" : activeModelIndex === 2 ? "Coal Transport LP · Model Lab" : "Al's Athletics · Model Lab"}
             </div>
             <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>
-              {currentScenario?.problemType === "transport"
+              {currentScenario?.modelId === "transport-coal"
                 ? "Ch 5 · transport LP · coal mines → power stations"
-                : currentScenario?.problemType === "capacitated_pmedian"
+                : currentScenario?.modelId === "p-median-brazil"
                 ? "Ch 5 · capacitated p-median · Brazil"
                 : "Ch 3 · p-median · facility location"}
             </div>
@@ -504,7 +567,7 @@ export function Studio({ problemType }: StudioProps) {
       </header>
 
       {/* OBJECTIVE BAR */}
-      <ObjectiveBar pValue={pValue} result={result} scenarioId={scenarioId} problemType={currentScenario?.problemType} />
+      <ObjectiveBar pValue={pValue} result={result} scenarioId={scenarioId} modelId={currentScenario?.modelId} />
 
       {/* THREE PANELS */}
       <div className="flex flex-1 overflow-hidden">
@@ -628,21 +691,9 @@ export function Studio({ problemType }: StudioProps) {
                 )}
               </div>
 
-              {/* Solver */}
+              {/* Solve settings */}
               <div className="px-3 py-3 border-b space-y-2">
-                <p className="text-xs font-semibold text-foreground">Solver</p>
-                <Select value={localConfig.solver} onValueChange={v => update("solver", v as ScenarioUpdateSolver)}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-solver">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cbc" className="text-xs">CBC (PuLP)</SelectItem>
-                    <SelectItem value="highs" disabled className="text-xs text-muted-foreground">HiGHS (not available)</SelectItem>
-                    <SelectItem value="glpk" disabled className="text-xs text-muted-foreground">GLPK (not available)</SelectItem>
-                    <SelectItem value="gurobi" disabled className="text-xs text-muted-foreground">Gurobi (not available)</SelectItem>
-                    <SelectItem value="scip" disabled className="text-xs text-muted-foreground">SCIP (not available)</SelectItem>
-                  </SelectContent>
-                </Select>
+                <p className="text-xs font-semibold text-foreground">Solve settings</p>
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <Label className="text-[10px] text-muted-foreground">Gap</Label>
@@ -666,7 +717,7 @@ export function Studio({ problemType }: StudioProps) {
                     />
                   </div>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Also: HiGHS · GLPK · Gurobi · SCIP</p>
+                <p className="text-[10px] text-muted-foreground">CBC (PuLP) — the only solver this build runs.</p>
               </div>
 
               {/* Warehouse capacity */}
@@ -701,7 +752,7 @@ export function Studio({ problemType }: StudioProps) {
                   <Badge variant="outline" className="text-[9px] text-primary border-primary/30 bg-primary/5 px-1 py-0">· read-only</Badge>
                 </div>
                 <ul className="space-y-1">
-                  {(CONSTRAINTS[localConfig.problemType] ?? CONSTRAINTS.p_median).map(c => (
+                  {(CONSTRAINTS[modelId] ?? CONSTRAINTS["p-median-us"]).map(c => (
                     <li key={c} className="text-[10px] text-muted-foreground flex items-start gap-1">
                       <ChevronRight className="w-2.5 h-2.5 mt-0.5 flex-shrink-0 text-border" />
                       {c}
@@ -714,7 +765,7 @@ export function Studio({ problemType }: StudioProps) {
 
 
               {/* Transport LP controls — only for transport problem type */}
-              {localConfig.problemType === "transport" && (
+              {modelId === "transport-coal" && (
                 <>
                   <div className="px-3 py-3 border-b space-y-2">
                     <p className="text-xs font-semibold text-foreground">Mine capacity factor</p>
@@ -753,7 +804,7 @@ export function Studio({ problemType }: StudioProps) {
               )}
 
               {/* Brazil (capacitated_pmedian) controls */}
-              {localConfig.problemType === "capacitated_pmedian" && (
+              {modelId === "p-median-brazil" && (
                 <>
                   <div className="px-3 py-3 border-b space-y-2">
                     <div className="flex items-center justify-between">
@@ -774,7 +825,7 @@ export function Studio({ problemType }: StudioProps) {
               )}
 
               {/* Warehouse status — P-Median only (not transport, not Brazil) */}
-              {localConfig.problemType !== "transport" && localConfig.problemType !== "capacitated_pmedian" && (
+              {modelId === "p-median-us" && (
               <div className="px-3 py-3 space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse status</p>
                 {dataset?.warehouses.map(wh => {
@@ -817,7 +868,7 @@ export function Studio({ problemType }: StudioProps) {
             <div className="px-3 py-2 border-b flex items-center justify-between flex-shrink-0">
               <div>
                 <p className="text-sm font-semibold text-foreground">{activeTab === "output" && result ? "Optimized network" : "Input network"}</p>
-                <p className="text-xs text-muted-foreground">{currentScenario?.problemType === "transport"
+                <p className="text-xs text-muted-foreground">{currentScenario?.modelId === "transport-coal"
                   ? (activeTab === "output" && result ? `${result.assignments.length} active flows` : "4 mines · 15 power stations")
                   : (activeTab === "output" && result ? `${(result as any).openWarehouseIds?.length ?? 0} open sites · ${result.assignments.length} customers` : `26 warehouse candidates · ${dataset?.customers.length ?? 0} customers`)}</p>
               </div>
@@ -851,7 +902,7 @@ export function Studio({ problemType }: StudioProps) {
             </div>
 
             <div className="flex-1 min-h-0 relative">
-              {currentScenario?.problemType === "capacitated_pmedian" ? (
+              {currentScenario?.modelId === "p-median-brazil" ? (
                 <BrazilMap
                   result={activeTab === "output" ? result : null}
                   showRoutes={activeTab === "output" && showRoutes}
@@ -912,7 +963,7 @@ export function Studio({ problemType }: StudioProps) {
                   </div>
 
                   {/* Transport flow table — shown when transport LP */}
-                  {currentScenario?.problemType === "transport" ? (
+                  {currentScenario?.modelId === "transport-coal" ? (
                     <div className="px-3 py-3 space-y-2">
                       <p className="text-xs font-semibold text-foreground">Flow assignments (mine → station)</p>
                       <div className="space-y-1 max-h-64 overflow-y-auto">

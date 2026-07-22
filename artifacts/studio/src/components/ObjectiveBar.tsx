@@ -4,7 +4,7 @@ interface ObjectiveBarProps {
   pValue: number;
   result: SolveResult | null;
   scenarioId: number | undefined;
-  problemType?: string;
+  modelId?: string;
 }
 
 interface ModelTarget {
@@ -39,8 +39,8 @@ const MODEL_TARGETS: Record<number, ModelTarget> = {
   },
 };
 
-export function ObjectiveBar({ pValue, result, problemType }: ObjectiveBarProps) {
-  const modelIndex = problemType === "transport" ? 2 : problemType === "capacitated_pmedian" ? 3 : 1;
+export function ObjectiveBar({ pValue, result, modelId }: ObjectiveBarProps) {
+  const modelIndex = modelId === "transport-coal" ? 2 : modelId === "p-median-brazil" ? 3 : 1;
   const target = MODEL_TARGETS[modelIndex] ?? MODEL_TARGETS[1];
 
   const warehousesOk = pValue <= target.maxWarehouses;

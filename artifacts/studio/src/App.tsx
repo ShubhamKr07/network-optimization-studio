@@ -20,7 +20,7 @@ function AuthedRouter() {
       <Route path="/" component={Landing} />
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>
-          <Studio problemType={c.problemType} />
+          <Studio modelId={c.modelId} />
         </Route>
       ))}
       <Route path="/compare" component={Compare} />

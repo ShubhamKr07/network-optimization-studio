@@ -13,8 +13,16 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OverlayMap } from "@/components/OverlayMap";
-import { chapterPathForProblemType } from "@/lib/chapters";
+import { chapterPathForModelId } from "@/lib/chapters";
 import type { ScenarioMetrics, SolveResult, Scenario } from "@workspace/api-client-react";
+
+// p-median models keep their p-value under inputs.p; transport has no p
+// concept at all — this powers the existing sort/display, unchanged for
+// p-median scenarios, degrading gracefully (0) for transport ones.
+function getPValue(s: Scenario): number {
+  const p = (s.inputs as Record<string, unknown>).p;
+  return typeof p === "number" ? p : 0;
+}
 
 export function Compare() {
   const search = useSearch();
@@ -24,7 +32,7 @@ export function Compare() {
   const { data: scenarios, isLoading: isScenariosLoading } = useListScenarios();
   const currentScenario = scenarios?.find(s => s.id === currentScenarioId);
   const backHref = currentScenarioId && currentScenario
-    ? `${chapterPathForProblemType(currentScenario.problemType) ?? "/"}?scenario=${currentScenarioId}`
+    ? `${chapterPathForModelId(currentScenario.modelId) ?? "/"}?scenario=${currentScenarioId}`
     : "/";
   const { data: dataset, isLoading: isDatasetLoading } = useGetDataset();
   
@@ -37,7 +45,7 @@ export function Compare() {
   const [overlayMode, setOverlayMode] = useState<"before" | "after" | "overlay">("overlay");
 
   const solvedScenarios = useMemo(() => {
-    return (scenarios || []).filter(s => s.result !== null).sort((a, b) => a.pValue - b.pValue);
+    return (scenarios || []).filter(s => s.result !== null).sort((a, b) => getPValue(a) - getPValue(b));
   }, [scenarios]);
 
   useEffect(() => {
@@ -249,7 +257,7 @@ export function Compare() {
                   <SelectContent>
                     {solvedScenarios.map(s => (
                       <SelectItem key={s.id} value={String(s.id)} className="text-xs" disabled={s.id === afterScenarioMeta?.id}>
-                        {s.name} (P={s.pValue})
+                        {s.name} (P={getPValue(s)})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -268,7 +276,7 @@ export function Compare() {
                   <SelectContent>
                     {solvedScenarios.map(s => (
                       <SelectItem key={s.id} value={String(s.id)} className="text-xs" disabled={s.id === beforeScenarioMeta?.id}>
-                        {s.name} (P={s.pValue})
+                        {s.name} (P={getPValue(s)})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -314,7 +322,7 @@ export function Compare() {
               <div className="col-span-1 flex flex-col gap-4">
                 <div className="bg-white border rounded-xl shadow-sm p-5">
                   <h3 className="font-bold text-base mb-1">What changed</h3>
-                  <p className="text-xs text-muted-foreground mb-4">{beforeScenarioMeta.pValue} → {afterScenarioMeta.pValue} warehouses</p>
+                  <p className="text-xs text-muted-foreground mb-4">{getPValue(beforeScenarioMeta)} → {getPValue(afterScenarioMeta)} warehouses</p>
                   
                   <div className="space-y-4">
                     {/* Just some static calculation logic for demo based on differences */}
