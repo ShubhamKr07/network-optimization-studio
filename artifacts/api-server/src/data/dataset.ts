@@ -1,10 +1,34 @@
+import { existsSync, readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// __dirname's depth relative to the repo root differs depending on how this
+// module is loaded: unbundled (vitest, tsx) it's the true source location
+// (artifacts/api-server/src/data), but esbuild's bundle (build.mjs, bundle:
+// true) collapses import.meta.url for every merged module to the single
+// output file's location (artifacts/api-server/dist/index.mjs) — one level
+// shallower. Walk up to the workspace root marker instead of hardcoding a
+// parent count, so both contexts resolve correctly.
+function findRepoRoot(from: string): string {
+  let dir = from;
+  while (!existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error("Could not locate repo root (pnpm-workspace.yaml) from " + from);
+    dir = parent;
+  }
+  return dir;
+}
+
+const DATASET_DIR = path.join(findRepoRoot(__dirname), "solvers", "p-median-us", "dataset");
+
 export interface WarehouseCandidate {
   id: string;
   city: string;
   state: string;
   lat: number;
   lng: number;
-  notebookId: number;
 }
 
 export interface Customer {
@@ -16,236 +40,16 @@ export interface Customer {
   demand: number;
 }
 
-export const WAREHOUSES: WarehouseCandidate[] = [
-  { id: "ALN", city: "Allentown", state: "PA", lat: 40.602812, lng: -75.470433, notebookId: 1 },
-  { id: "ATL", city: "Atlanta", state: "GA", lat: 33.753693, lng: -84.389544, notebookId: 2 },
-  { id: "BAL", city: "Baltimore", state: "MD", lat: 39.294398, lng: -76.622747, notebookId: 3 },
-  { id: "BOS", city: "Boston", state: "MA", lat: 42.36097, lng: -71.05344, notebookId: 4 },
-  { id: "CHI", city: "Chicago", state: "IL", lat: 41.88331, lng: -87.624713, notebookId: 5 },
-  { id: "CIN", city: "Cincinnati", state: "OH", lat: 39.10663, lng: -84.49974, notebookId: 6 },
-  { id: "CMH", city: "Columbus", state: "OH", lat: 39.991395, lng: -83.001036, notebookId: 7 },
-  { id: "DAL", city: "Dallas", state: "TX", lat: 32.787642, lng: -96.799525, notebookId: 8 },
-  { id: "DEN", city: "Denver", state: "CO", lat: 39.75071, lng: -104.996225, notebookId: 9 },
-  { id: "IND", city: "Indianapolis", state: "IN", lat: 39.77422, lng: -86.109309, notebookId: 10 },
-  { id: "JAX", city: "Jacksonville", state: "FL", lat: 30.32769, lng: -81.64815, notebookId: 11 },
-  { id: "KC", city: "Kansas City", state: "MO", lat: 39.103883, lng: -94.600613, notebookId: 12 },
-  { id: "LV", city: "Las Vegas", state: "NV", lat: 36.17269, lng: -115.121117, notebookId: 13 },
-  { id: "LA", city: "Los Angeles", state: "CA", lat: 33.974044, lng: -118.248849, notebookId: 14 },
-  { id: "MEM", city: "Memphis", state: "TN", lat: 35.033731, lng: -89.934319, notebookId: 15 },
-  { id: "MSP", city: "Minneapolis", state: "MN", lat: 44.985775, lng: -93.270165, notebookId: 16 },
-  { id: "NSH", city: "Nashville", state: "TN", lat: 36.164003, lng: -86.7745, notebookId: 17 },
-  { id: "MSY", city: "New Orleans", state: "LA", lat: 29.956664, lng: -90.077506, notebookId: 18 },
-  { id: "PHX", city: "Phoenix", state: "AZ", lat: 33.451015, lng: -112.068554, notebookId: 19 },
-  { id: "PIT", city: "Pittsburgh", state: "PA", lat: 40.474802, lng: -79.95449, notebookId: 20 },
-  { id: "RDU", city: "Raleigh", state: "NC", lat: 35.773856, lng: -78.634051, notebookId: 21 },
-  { id: "RNO", city: "Reno", state: "NV", lat: 39.526866, lng: -119.811392, notebookId: 22 },
-  { id: "SFO", city: "San Francisco", state: "CA", lat: 37.779887, lng: -122.418066, notebookId: 23 },
-  { id: "SEA", city: "Seattle", state: "WA", lat: 47.611601, lng: -122.333038, notebookId: 24 },
-  { id: "STL", city: "St. Louis", state: "MO", lat: 38.631358, lng: -90.192246, notebookId: 25 },
-  { id: "LBB", city: "Lubbock - Current WH", state: "TX", lat: 33.584601, lng: -101.846676, notebookId: 26 },
-];
+function loadJson(filename: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path.join(DATASET_DIR, filename), "utf8"));
+}
 
-export const CUSTOMERS: Customer[] = [
-  { id: "C1", city: "Akron", state: "OH", lat: 41.08, lng: -81.52, demand: 205375 },
-  { id: "C2", city: "Albuquerque", state: "NM", lat: 35.12, lng: -106.62, demand: 535923 },
-  { id: "C3", city: "Alexandria", state: "VA", lat: 38.82, lng: -77.09, demand: 147786 },
-  { id: "C4", city: "Amarillo", state: "TX", lat: 35.2, lng: -101.82, demand: 190449 },
-  { id: "C5", city: "Anaheim", state: "CA", lat: 33.84, lng: -117.87, demand: 342336 },
-  { id: "C6", city: "Brownfield", state: "TX", lat: 33.18101, lng: -102.27066, demand: 283690 },
-  { id: "C7", city: "Arlington", state: "TX", lat: 32.69, lng: -97.13, demand: 385024 },
-  { id: "C8", city: "Arlington", state: "VA", lat: 38.88, lng: -77.1, demand: 214890 },
-  { id: "C9", city: "Atlanta", state: "GA", lat: 33.76, lng: -84.42, demand: 571861 },
-  { id: "C10", city: "Augusta-Richmond", state: "GA", lat: 33.46, lng: -81.99, demand: 199489 },
-  { id: "C11", city: "Aurora", state: "CO", lat: 39.71, lng: -104.73, demand: 334924 },
-  { id: "C12", city: "Aurora", state: "IL", lat: 41.77, lng: -88.29, demand: 176710 },
-  { id: "C13", city: "Austin", state: "TX", lat: 30.31, lng: -97.75, demand: 792778 },
-  { id: "C14", city: "Bakersfield", state: "CA", lat: 35.36, lng: -119, demand: 336429 },
-  { id: "C15", city: "Baltimore", state: "MD", lat: 39.3, lng: -76.61, demand: 632410 },
-  { id: "C16", city: "Baton Rouge", state: "LA", lat: 30.45, lng: -91.13, demand: 221091 },
-  { id: "C17", city: "Bellevue", state: "WA", lat: 47.6, lng: -122.16, demand: 128225 },
-  { id: "C18", city: "Birmingham", state: "AL", lat: 33.53, lng: -86.8, demand: 226152 },
-  { id: "C19", city: "Boise City", state: "ID", lat: 43.61, lng: -116.23, demand: 210099 },
-  { id: "C20", city: "Boston", state: "MA", lat: 42.34, lng: -71.02, demand: 610407 },
-  { id: "C21", city: "Bridgeport", state: "CT", lat: 41.19, lng: -73.2, demand: 136604 },
-  { id: "C22", city: "Brownsville", state: "TX", lat: 25.93, lng: -97.48, demand: 183598 },
-  { id: "C23", city: "Buffalo", state: "NY", lat: 42.89, lng: -78.86, demand: 267037 },
-  { id: "C24", city: "Cape Coral", state: "FL", lat: 26.64, lng: -82, demand: 161428 },
-  { id: "C25", city: "Carrollton", state: "TX", lat: 32.99, lng: -96.9, demand: 130013 },
-  { id: "C26", city: "Cary", state: "NC", lat: 35.78, lng: -78.8, demand: 145939 },
-  { id: "C27", city: "Cedar Rapids", state: "IA", lat: 41.97, lng: -91.67, demand: 130349 },
-  { id: "C28", city: "Chandler", state: "AZ", lat: 33.3, lng: -111.87, demand: 258122 },
-  { id: "C29", city: "Charlotte", state: "NC", lat: 35.2, lng: -80.83, demand: 723514 },
-  { id: "C30", city: "Chattanooga", state: "TN", lat: 35.07, lng: -85.26, demand: 173001 },
-  { id: "C31", city: "Chesapeake", state: "VA", lat: 36.68, lng: -76.31, demand: 223315 },
-  { id: "C32", city: "Chicago", state: "IL", lat: 41.84, lng: -87.68, demand: 2878948 },
-  { id: "C33", city: "Chula Vista", state: "CA", lat: 32.63, lng: -117.04, demand: 226606 },
-  { id: "C34", city: "Cincinnati", state: "OH", lat: 39.14, lng: -84.51, demand: 332807 },
-  { id: "C35", city: "Cleveland", state: "OH", lat: 41.48, lng: -81.68, demand: 424526 },
-  { id: "C36", city: "Colorado Springs", state: "CO", lat: 38.86, lng: -104.76, demand: 388306 },
-  { id: "C37", city: "Columbia", state: "SC", lat: 34.04, lng: -80.89, demand: 130246 },
-  { id: "C38", city: "Columbus", state: "OH", lat: 39.99, lng: -82.99, demand: 768662 },
-  { id: "C39", city: "Columbus", state: "GA", lat: 32.51, lng: -84.87, demand: 193007 },
-  { id: "C40", city: "Corona", state: "CA", lat: 33.87, lng: -117.57, demand: 152977 },
-  { id: "C41", city: "Corpus Christi", state: "TX", lat: 27.71, lng: -97.29, demand: 296937 },
-  { id: "C42", city: "Dallas", state: "TX", lat: 32.79, lng: -96.77, demand: 1304930 },
-  { id: "C43", city: "Dayton", state: "OH", lat: 39.78, lng: -84.2, demand: 151594 },
-  { id: "C44", city: "Denton", state: "TX", lat: 33.21, lng: -97.13, demand: 127364 },
-  { id: "C45", city: "Denver", state: "CO", lat: 39.77, lng: -104.87, demand: 609651 },
-  { id: "C46", city: "Des Moines", state: "IA", lat: 41.58, lng: -93.62, demand: 200202 },
-  { id: "C47", city: "Detroit", state: "MI", lat: 42.38, lng: -83.1, demand: 901160 },
-  { id: "C48", city: "Durham", state: "NC", lat: 35.98, lng: -78.91, demand: 235337 },
-  { id: "C49", city: "East Los Angeles", state: "CA", lat: 34.03, lng: -118.17, demand: 135682 },
-  { id: "C50", city: "Elk Grove", state: "CA", lat: 38.4, lng: -121.37, demand: 141026 },
-  { id: "C51", city: "El Paso", state: "TX", lat: 31.85, lng: -106.44, demand: 631862 },
-  { id: "C52", city: "Escondido", state: "CA", lat: 33.14, lng: -117.07, demand: 139583 },
-  { id: "C53", city: "Eugene", state: "OR", lat: 44.05, lng: -123.11, demand: 152842 },
-  { id: "C54", city: "Fayetteville", state: "NC", lat: 35.07, lng: -78.9, demand: 177632 },
-  { id: "C55", city: "Fontana", state: "CA", lat: 34.1, lng: -117.46, demand: 191526 },
-  { id: "C56", city: "Fort Collins", state: "CO", lat: 40.56, lng: -105.07, demand: 141921 },
-  { id: "C57", city: "Fort Lauderdale", state: "FL", lat: 26.14, lng: -80.14, demand: 184625 },
-  { id: "C58", city: "Fort Wayne", state: "IN", lat: 41.07, lng: -85.14, demand: 253250 },
-  { id: "C59", city: "Fort Worth", state: "TX", lat: 32.75, lng: -97.34, demand: 751149 },
-  { id: "C60", city: "Fremont", state: "CA", lat: 37.53, lng: -122, demand: 207431 },
-  { id: "C61", city: "Fresno", state: "CA", lat: 36.78, lng: -119.79, demand: 490930 },
-  { id: "C62", city: "Fullerton", state: "CA", lat: 33.88, lng: -117.93, demand: 133165 },
-  { id: "C63", city: "Garden Grove", state: "CA", lat: 33.78, lng: -117.96, demand: 167800 },
-  { id: "C64", city: "Garland", state: "TX", lat: 32.91, lng: -96.63, demand: 220597 },
-  { id: "C65", city: "Gilbert", state: "AZ", lat: 33.33, lng: -111.76, demand: 243090 },
-  { id: "C66", city: "Glendale", state: "AZ", lat: 33.58, lng: -112.2, demand: 255662 },
-  { id: "C67", city: "Glendale", state: "CA", lat: 34.18, lng: -118.25, demand: 199608 },
-  { id: "C68", city: "Grand Prairie", state: "TX", lat: 32.69, lng: -97.02, demand: 167767 },
-  { id: "C69", city: "Grand Rapids", state: "MI", lat: 42.96, lng: -85.66, demand: 193337 },
-  { id: "C70", city: "Greensboro", state: "NC", lat: 36.08, lng: -79.83, demand: 259523 },
-  { id: "C71", city: "Hampton", state: "VA", lat: 37.05, lng: -76.29, demand: 147560 },
-  { id: "C72", city: "Hayward", state: "CA", lat: 37.63, lng: -122.1, demand: 145517 },
-  { id: "C73", city: "Henderson", state: "NV", lat: 36.03, lng: -115, demand: 265681 },
-  { id: "C74", city: "Hialeah", state: "FL", lat: 25.86, lng: -80.3, demand: 209524 },
-  { id: "C75", city: "Highlands Ranch", state: "CO", lat: 39.55, lng: -104.97, demand: 129817 },
-  { id: "C76", city: "Hollywood", state: "FL", lat: 26.03, lng: -80.16, demand: 142105 },
-  { id: "C77", city: "Concord", state: "NH", lat: 43.2347496666667, lng: -71.5435606666667, demand: 375134 },
-  { id: "C78", city: "Houston", state: "TX", lat: 29.77, lng: -95.39, demand: 2307883 },
-  { id: "C79", city: "Huntington Beach", state: "CA", lat: 33.69, lng: -118.01, demand: 194227 },
-  { id: "C80", city: "Huntsville", state: "AL", lat: 34.71, lng: -86.63, demand: 185501 },
-  { id: "C81", city: "Indianapolis", state: "IN", lat: 39.78, lng: -86.15, demand: 803930 },
-  { id: "C82", city: "Irvine", state: "CA", lat: 33.66, lng: -117.8, demand: 223785 },
-  { id: "C83", city: "Irving", state: "TX", lat: 32.86, lng: -96.97, demand: 206798 },
-  { id: "C84", city: "Jackson", state: "MS", lat: 32.32, lng: -90.21, demand: 171210 },
-  { id: "C85", city: "Jacksonville", state: "FL", lat: 30.33, lng: -81.66, demand: 822401 },
-  { id: "C86", city: "Jersey City", state: "NJ", lat: 40.71, lng: -74.06, demand: 242594 },
-  { id: "C87", city: "Joliet", state: "IL", lat: 41.53, lng: -88.12, demand: 153577 },
-  { id: "C88", city: "Kansas City", state: "MO", lat: 39.12, lng: -94.55, demand: 454520 },
-  { id: "C89", city: "Kansas City", state: "KS", lat: 39.12, lng: -94.73, demand: 144431 },
-  { id: "C90", city: "Knoxville", state: "TN", lat: 35.97, lng: -83.95, demand: 187071 },
-  { id: "C91", city: "Lakewood", state: "CO", lat: 39.7, lng: -105.11, demand: 142294 },
-  { id: "C92", city: "Lancaster", state: "CA", lat: 34.69, lng: -118.18, demand: 151452 },
-  { id: "C93", city: "Laredo", state: "TX", lat: 27.53, lng: -99.49, demand: 232298 },
-  { id: "C94", city: "Las Vegas", state: "NV", lat: 36.21, lng: -115.22, demand: 570083 },
-  { id: "C95", city: "Lexington", state: "KY", lat: 38.04, lng: -84.46, demand: 279146 },
-  { id: "C96", city: "Lincoln", state: "NE", lat: 40.82, lng: -96.69, demand: 257612 },
-  { id: "C97", city: "Little Rock", state: "AR", lat: 34.72, lng: -92.35, demand: 192247 },
-  { id: "C98", city: "Long Beach", state: "CA", lat: 33.79, lng: -118.16, demand: 464505 },
-  { id: "C99", city: "Los Angeles", state: "CA", lat: 34.11, lng: -118.41, demand: 3878715 },
-  { id: "C100", city: "Louisville", state: "KY", lat: 38.22, lng: -85.74, demand: 556482 },
-  { id: "C101", city: "Lubbock", state: "TX", lat: 33.58, lng: -101.88, demand: 226180 },
-  { id: "C102", city: "MacAllen", state: "TX", lat: 26.22, lng: -98.24, demand: 136555 },
-  { id: "C103", city: "MacKinney", state: "TX", lat: 33.2, lng: -96.65, demand: 135935 },
-  { id: "C104", city: "Madison", state: "WI", lat: 43.08, lng: -89.39, demand: 237838 },
-  { id: "C105", city: "Memphis", state: "TN", lat: 35.11, lng: -90.01, demand: 662989 },
-  { id: "C106", city: "Mesa", state: "AZ", lat: 33.42, lng: -111.74, demand: 474115 },
-  { id: "C107", city: "Mesquite", state: "TX", lat: 32.77, lng: -96.6, demand: 134509 },
-  { id: "C108", city: "Metairie", state: "LA", lat: 30, lng: -90.18, demand: 141919 },
-  { id: "C109", city: "Miami", state: "FL", lat: 25.78, lng: -80.21, demand: 425242 },
-  { id: "C110", city: "Milwaukee", state: "WI", lat: 43.06, lng: -87.97, demand: 606508 },
-  { id: "C111", city: "Minneapolis", state: "MN", lat: 44.96, lng: -93.27, demand: 386751 },
-  { id: "C112", city: "Mobile", state: "AL", lat: 30.68, lng: -88.09, demand: 190007 },
-  { id: "C113", city: "Modesto", state: "CA", lat: 37.66, lng: -120.99, demand: 203882 },
-  { id: "C114", city: "Montgomery", state: "AL", lat: 32.35, lng: -86.28, demand: 200848 },
-  { id: "C115", city: "Moreno Valley", state: "CA", lat: 33.93, lng: -117.21, demand: 199353 },
-  { id: "C116", city: "Naperville", state: "IL", lat: 41.76, lng: -88.15, demand: 146177 },
-  { id: "C117", city: "Nashville", state: "TN", lat: 36.17, lng: -86.78, demand: 605197 },
-  { id: "C118", city: "Newark", state: "NJ", lat: 40.72, lng: -74.17, demand: 279278 },
-  { id: "C119", city: "New Orleans", state: "LA", lat: 30.07, lng: -89.93, demand: 206720 },
-  { id: "C120", city: "Newport News", state: "VA", lat: 37.08, lng: -76.51, demand: 182057 },
-  { id: "C121", city: "New York", state: "NY", lat: 40.67, lng: -73.94, demand: 8459026 },
-  { id: "C122", city: "Norfolk", state: "VA", lat: 36.92, lng: -76.24, demand: 234477 },
-  { id: "C123", city: "North Las Vegas", state: "NV", lat: 36.27, lng: -115.14, demand: 236574 },
-  { id: "C124", city: "Oakland", state: "CA", lat: 37.77, lng: -122.22, demand: 412612 },
-  { id: "C125", city: "Oceanside", state: "CA", lat: 33.23, lng: -117.31, demand: 172679 },
-  { id: "C126", city: "Oklahoma City", state: "OK", lat: 35.47, lng: -97.51, demand: 564147 },
-  { id: "C127", city: "Omaha", state: "NE", lat: 41.26, lng: -96.01, demand: 449283 },
-  { id: "C128", city: "Ontario", state: "CA", lat: 34.05, lng: -117.61, demand: 174731 },
-  { id: "C129", city: "Orange", state: "CA", lat: 33.81, lng: -117.82, demand: 141351 },
-  { id: "C130", city: "Orlando", state: "FL", lat: 28.5, lng: -81.37, demand: 235745 },
-  { id: "C131", city: "Overland Park", state: "KS", lat: 38.91, lng: -94.68, demand: 176161 },
-  { id: "C132", city: "Oxnard", state: "CA", lat: 34.2, lng: -119.21, demand: 189413 },
-  { id: "C133", city: "Palmdale", state: "CA", lat: 34.61, lng: -118.09, demand: 150264 },
-  { id: "C134", city: "Paradise", state: "NV", lat: 36.08, lng: -115.13, demand: 261122 },
-  { id: "C135", city: "Pasadena", state: "TX", lat: 29.66, lng: -95.15, demand: 148101 },
-  { id: "C136", city: "Pasadena", state: "CA", lat: 34.16, lng: -118.14, demand: 144485 },
-  { id: "C137", city: "Paterson", state: "NJ", lat: 40.91, lng: -74.16, demand: 145162 },
-  { id: "C138", city: "Pembroke Pines", state: "FL", lat: 26.01, lng: -80.34, demand: 146408 },
-  { id: "C139", city: "San Angelo", state: "TX", lat: 31.44322, lng: -100.46333, demand: 168424 },
-  { id: "C140", city: "Philadelphia", state: "PA", lat: 40.01, lng: -75.13, demand: 1445993 },
-  { id: "C141", city: "Phoenix", state: "AZ", lat: 33.54, lng: -112.07, demand: 1635783 },
-  { id: "C142", city: "Pittsburgh", state: "PA", lat: 40.44, lng: -79.98, demand: 305708 },
-  { id: "C143", city: "Plano", state: "TX", lat: 33.05, lng: -96.75, demand: 282016 },
-  { id: "C144", city: "Pomona", state: "CA", lat: 34.06, lng: -117.76, demand: 154638 },
-  { id: "C145", city: "Portland", state: "OR", lat: 45.54, lng: -122.66, demand: 573530 },
-  { id: "C146", city: "Port Saint Lucie", state: "FL", lat: 27.28, lng: -80.35, demand: 163859 },
-  { id: "C147", city: "Providence", state: "RI", lat: 41.82, lng: -71.42, demand: 170868 },
-  { id: "C148", city: "Raleigh", state: "NC", lat: 35.82, lng: -78.66, demand: 421938 },
-  { id: "C149", city: "Del Rio", state: "TX", lat: 29.36041, lng: -100.89904, demand: 176424 },
-  { id: "C150", city: "Reno", state: "NV", lat: 39.54, lng: -119.82, demand: 221051 },
-  { id: "C151", city: "Richmond", state: "VA", lat: 37.53, lng: -77.47, demand: 198179 },
-  { id: "C152", city: "Riverside", state: "CA", lat: 33.94, lng: -117.4, demand: 302653 },
-  { id: "C153", city: "Rochester", state: "NY", lat: 43.17, lng: -77.62, demand: 205236 },
-  { id: "C154", city: "Rockford", state: "IL", lat: 42.27, lng: -89.06, demand: 159109 },
-  { id: "C155", city: "Sacramento", state: "CA", lat: 38.57, lng: -121.47, demand: 475452 },
-  { id: "C156", city: "Saint Louis", state: "MO", lat: 38.64, lng: -90.24, demand: 349763 },
-  { id: "C157", city: "Saint Paul", state: "MN", lat: 44.95, lng: -93.1, demand: 281501 },
-  { id: "C158", city: "Saint Petersburg", state: "FL", lat: 27.76, lng: -82.64, demand: 243829 },
-  { id: "C159", city: "Salem", state: "OR", lat: 44.92, lng: -123.02, demand: 157890 },
-  { id: "C160", city: "Salinas", state: "CA", lat: 36.68, lng: -121.64, demand: 145628 },
-  { id: "C161", city: "Salt Lake City", state: "UT", lat: 40.78, lng: -111.93, demand: 184856 },
-  { id: "C162", city: "San Antonio", state: "TX", lat: 29.46, lng: -98.51, demand: 1402013 },
-  { id: "C163", city: "San Bernardino", state: "CA", lat: 34.14, lng: -117.29, demand: 199314 },
-  { id: "C164", city: "San Diego", state: "CA", lat: 32.81, lng: -117.14, demand: 1309749 },
-  { id: "C165", city: "San Francisco", state: "CA", lat: 37.77, lng: -122.45, demand: 817411 },
-  { id: "C166", city: "San Jose", state: "CA", lat: 37.3, lng: -121.85, demand: 977893 },
-  { id: "C167", city: "Santa Ana", state: "CA", lat: 33.74, lng: -117.88, demand: 341991 },
-  { id: "C168", city: "Santa Clarita", state: "CA", lat: 34.41, lng: -118.51, demand: 171722 },
-  { id: "C169", city: "Santa Rosa", state: "CA", lat: 38.45, lng: -122.7, demand: 159730 },
-  { id: "C170", city: "Savannah", state: "GA", lat: 32.02, lng: -81.13, demand: 133244 },
-  { id: "C171", city: "Scottsdale", state: "AZ", lat: 33.69, lng: -111.87, demand: 241464 },
-  { id: "C172", city: "Seattle", state: "WA", lat: 47.62, lng: -122.35, demand: 614214 },
-  { id: "C173", city: "Shreveport", state: "LA", lat: 32.47, lng: -93.8, demand: 204311 },
-  { id: "C174", city: "Sioux Falls", state: "SD", lat: 43.54, lng: -96.73, demand: 160938 },
-  { id: "C175", city: "Spokane", state: "WA", lat: 47.67, lng: -117.41, demand: 204424 },
-  { id: "C176", city: "Springfield", state: "MO", lat: 37.2, lng: -93.29, demand: 158605 },
-  { id: "C177", city: "Springfield", state: "MA", lat: 42.12, lng: -72.54, demand: 149926 },
-  { id: "C178", city: "Spring Valley", state: "NV", lat: 36.11, lng: -115.24, demand: 212144 },
-  { id: "C179", city: "Stockton", state: "CA", lat: 37.97, lng: -121.31, demand: 291422 },
-  { id: "C180", city: "Sunnyvale", state: "CA", lat: 37.39, lng: -122.03, demand: 135564 },
-  { id: "C181", city: "Sunrise Manor", state: "NV", lat: 36.19, lng: -115.05, demand: 219092 },
-  { id: "C182", city: "Syracuse", state: "NY", lat: 43.04, lng: -76.14, demand: 136410 },
-  { id: "C183", city: "Tacoma", state: "WA", lat: 47.25, lng: -122.46, demand: 200855 },
-  { id: "C184", city: "Tallahassee", state: "FL", lat: 30.46, lng: -84.28, demand: 175438 },
-  { id: "C185", city: "Tampa", state: "FL", lat: 27.96, lng: -82.48, demand: 351091 },
-  { id: "C186", city: "Tempe", state: "AZ", lat: 33.39, lng: -111.93, demand: 181658 },
-  { id: "C187", city: "Toledo", state: "OH", lat: 41.66, lng: -83.58, demand: 288207 },
-  { id: "C188", city: "Toms River", state: "NJ", lat: 39.94, lng: -74.17, demand: 131619 },
-  { id: "C189", city: "Torrance", state: "CA", lat: 33.83, lng: -118.34, demand: 141478 },
-  { id: "C190", city: "Tucson", state: "AZ", lat: 32.2, lng: -110.89, demand: 551067 },
-  { id: "C191", city: "Tulsa", state: "OK", lat: 36.13, lng: -95.92, demand: 387683 },
-  { id: "C192", city: "Vancouver", state: "WA", lat: 45.63, lng: -122.64, demand: 169603 },
-  { id: "C193", city: "Virginia Beach", state: "VA", lat: 36.74, lng: -76.04, demand: 439564 },
-  { id: "C194", city: "Visalia", state: "CA", lat: 36.33, lng: -119.32, demand: 127444 },
-  { id: "C195", city: "Warren", state: "MI", lat: 42.49, lng: -83.03, demand: 133470 },
-  { id: "C196", city: "Washington", state: "DC", lat: 38.91, lng: -77.02, demand: 597885 },
-  { id: "C197", city: "Wichita", state: "KS", lat: 37.69, lng: -97.34, demand: 374803 },
-  { id: "C198", city: "Winston-Salem", state: "NC", lat: 36.1, lng: -80.26, demand: 223127 },
-  { id: "C199", city: "Worcester", state: "MA", lat: 42.27, lng: -71.81, demand: 174854 },
-  { id: "C200", city: "Yonkers", state: "NY", lat: 40.95, lng: -73.87, demand: 206441 },
-];
+function byIndex(record: Record<string, unknown>): unknown[] {
+  return Object.keys(record)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((k) => record[k]);
+}
 
-export const TOTAL_DEMAND = 78026333;
+export const WAREHOUSES = byIndex(loadJson("warehouses.json")) as WarehouseCandidate[];
+export const CUSTOMERS = byIndex(loadJson("customers.json")) as Customer[];
+export const TOTAL_DEMAND = CUSTOMERS.reduce((sum, c) => sum + c.demand, 0);

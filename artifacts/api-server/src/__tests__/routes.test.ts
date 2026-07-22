@@ -175,6 +175,14 @@ describe("GET /api/dataset", () => {
     const res = await request(app).get("/api/dataset");
     expect(typeof res.body.customers[0].demand).toBe("number");
   });
+
+  it("serves the C2.1-corrected warehouse labels (single source of truth with solve.py)", async () => {
+    const res = await request(app).get("/api/dataset");
+    const byId = (id: string) => res.body.warehouses.find((w: { id: string }) => w.id === id);
+    expect(byId("SFO")).toMatchObject({ city: "San Francisco", state: "CA" });
+    expect(byId("STL")).toMatchObject({ city: "St. Louis", state: "MO" });
+    expect(byId("LBB")).toMatchObject({ city: "Lubbock - Current WH", state: "TX" });
+  });
 });
 
 // ── Anonymous access ───────────────────────────────────────────────────────
