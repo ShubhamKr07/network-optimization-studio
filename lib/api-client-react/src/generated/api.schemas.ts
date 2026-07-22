@@ -195,6 +195,80 @@ export interface CompareResult {
   scenarios: ScenarioMetrics[];
 }
 
+export type ImportRequestEntity = typeof ImportRequestEntity[keyof typeof ImportRequestEntity];
+
+
+export const ImportRequestEntity = {
+  warehouses: 'warehouses',
+  customers: 'customers',
+} as const;
+
+export interface ImportRequest {
+  entity: ImportRequestEntity;
+  csvText: string;
+}
+
+export type ImportErrorErrorClass = typeof ImportErrorErrorClass[keyof typeof ImportErrorErrorClass];
+
+
+export const ImportErrorErrorClass = {
+  format: 'format',
+  syntax: 'syntax',
+  logic: 'logic',
+} as const;
+
+export interface ImportError {
+  errorClass: ImportErrorErrorClass;
+  /** @nullable */
+  line: number | null;
+  message: string;
+}
+
+export type ImportRowChangeBefore = { [key: string]: unknown };
+
+export type ImportRowChangeAfter = { [key: string]: unknown };
+
+export interface ImportRowChange {
+  id: string;
+  line: number;
+  before: ImportRowChangeBefore;
+  after: ImportRowChangeAfter;
+}
+
+export interface ImportPreview {
+  errors: ImportError[];
+  changes: ImportRowChange[];
+  warnings: string[];
+}
+
+export type ImportApplyRequestEntity = typeof ImportApplyRequestEntity[keyof typeof ImportApplyRequestEntity];
+
+
+export const ImportApplyRequestEntity = {
+  warehouses: 'warehouses',
+  customers: 'customers',
+} as const;
+
+export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
+
+
+export const ImportApplyRequestMode = {
+  all_or_nothing: 'all_or_nothing',
+  partial: 'partial',
+} as const;
+
+export interface ImportApplyRequest {
+  entity: ImportApplyRequestEntity;
+  csvText: string;
+  mode?: ImportApplyRequestMode;
+}
+
+export interface ImportApplyResult {
+  scenario?: Scenario;
+  applied: number;
+  errors: ImportError[];
+}
+
 export type ExportEnvelopeEntity = typeof ExportEnvelopeEntity[keyof typeof ExportEnvelopeEntity];
 
 

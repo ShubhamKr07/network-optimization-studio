@@ -13,6 +13,8 @@ import {
   warehouseRowsToCsv,
   customerRowsToCsv,
 } from "../services/templates.js";
+import { parseAndValidateImport } from "../services/import.js";
+import type { ImportRowChange } from "../services/import.js";
 
 const router = Router();
 
@@ -217,6 +219,97 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   }
 
   res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+});
+
+// Applies validated row changes onto a scenario's existing sparse overrides
+// array — same "active/null is the no-op default, omit the entry" rule
+// applied everywhere else this shape is edited (Studio's tables, D1.1's
+// solve.py translation).
+function mergeChangesIntoOverrides(
+  entity: "warehouses" | "customers",
+  currentOverrides: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>,
+  changes: ImportRowChange[],
+): Array<Record<string, unknown>> {
+  const valueField = entity === "warehouses" ? "capacity" : "demand";
+  const rest = currentOverrides.filter(o => !changes.some(c => c.id === o.id));
+  const applied = changes
+    .map(c => ({ id: c.id, status: c.after.status, [valueField]: c.after.value }))
+    .filter(o => !(o.status === "active" && o[valueField] == null));
+  return [...rest, ...applied];
+}
+
+router.post("/scenarios/:scenarioId/import", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+  const { entity, csvText } = req.body as { entity?: string; csvText?: string };
+
+  if (entity !== "warehouses" && entity !== "customers") {
+    res.status(422).json({ error: "entity must be 'warehouses' or 'customers'" });
+    return;
+  }
+  if (typeof csvText !== "string") {
+    res.status(422).json({ error: "csvText is required" });
+    return;
+  }
+
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (scenario.modelId !== "p-median-us") {
+    res.status(422).json({ error: "Import is only supported for p-median-us scenarios" });
+    return;
+  }
+
+  const inputs = scenario.inputs as { p: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
+  const preview = parseAndValidateImport(entity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p);
+  res.json(preview);
+});
+
+router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+  const { entity, csvText, mode } = req.body as { entity?: string; csvText?: string; mode?: string };
+
+  if (entity !== "warehouses" && entity !== "customers") {
+    res.status(422).json({ error: "entity must be 'warehouses' or 'customers'" });
+    return;
+  }
+  if (typeof csvText !== "string") {
+    res.status(422).json({ error: "csvText is required" });
+    return;
+  }
+  const applyMode = mode === "partial" ? "partial" : "all_or_nothing";
+
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (scenario.modelId !== "p-median-us") {
+    res.status(422).json({ error: "Import is only supported for p-median-us scenarios" });
+    return;
+  }
+
+  // Always re-validate against the live scenario state — never trust a
+  // client-held preview, which may be stale by the time apply is called.
+  const inputs = scenario.inputs as { p: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
+  const preview = parseAndValidateImport(entity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p);
+
+  if (applyMode === "all_or_nothing" && preview.errors.length > 0) {
+    res.status(422).json({ error: "Import has errors; nothing was applied (all-or-nothing mode)", preview });
+    return;
+  }
+
+  const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
+  const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
+  const nextOverrides = mergeChangesIntoOverrides(entity, currentOverrides, preview.changes);
+
+  const [updated] = await db.update(scenariosTable)
+    .set({
+      inputs: { ...inputs, [overrideKey]: nextOverrides },
+      inputsUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+    .returning();
+
+  res.json({ scenario: toApiScenario(updated), applied: preview.changes.length, errors: preview.errors });
 });
 
 router.post("/scenarios/:scenarioId/clone", async (req, res) => {

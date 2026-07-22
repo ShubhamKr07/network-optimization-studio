@@ -28,6 +28,10 @@ import type {
   ExportEnvelope,
   ExportScenarioParams,
   HealthStatus,
+  ImportApplyRequest,
+  ImportApplyResult,
+  ImportPreview,
+  ImportRequest,
   ListScenariosParams,
   LoginRequest,
   LogoutSuccess,
@@ -647,6 +651,150 @@ export const useSolveScenario = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getSolveScenarioMutationOptions(options));
+    }
+
+export const getPreviewScenarioImportUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/import`
+}
+
+/**
+ * @summary Parse and validate a CSV import against the scenario's current state, without applying it
+ */
+export const previewScenarioImport = async (scenarioId: number,
+    importRequest: ImportRequest, options?: RequestInit): Promise<ImportPreview> => {
+
+  return customFetch<ImportPreview>(getPreviewScenarioImportUrl(scenarioId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      importRequest,)
+  }
+);}
+
+
+
+
+export const getPreviewScenarioImportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportRequest>}, TContext> => {
+
+const mutationKey = ['previewScenarioImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewScenarioImport>>, {scenarioId: number;data: BodyType<ImportRequest>}> = (props) => {
+          const {scenarioId,data} = props ?? {};
+
+          return  previewScenarioImport(scenarioId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewScenarioImportMutationResult = NonNullable<Awaited<ReturnType<typeof previewScenarioImport>>>
+    export type PreviewScenarioImportMutationBody = BodyType<ImportRequest>
+    export type PreviewScenarioImportMutationError = ErrorType<void>
+
+    /**
+ * @summary Parse and validate a CSV import against the scenario's current state, without applying it
+ */
+export const usePreviewScenarioImport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewScenarioImport>>,
+        TError,
+        {scenarioId: number;data: BodyType<ImportRequest>},
+        TContext
+      > => {
+      return useMutation(getPreviewScenarioImportMutationOptions(options));
+    }
+
+export const getApplyScenarioImportUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/import/apply`
+}
+
+/**
+ * @summary Re-validate and apply a CSV import onto the scenario's overrides
+ */
+export const applyScenarioImport = async (scenarioId: number,
+    importApplyRequest: ImportApplyRequest, options?: RequestInit): Promise<ImportApplyResult> => {
+
+  return customFetch<ImportApplyResult>(getApplyScenarioImportUrl(scenarioId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      importApplyRequest,)
+  }
+);}
+
+
+
+
+export const getApplyScenarioImportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportApplyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof applyScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportApplyRequest>}, TContext> => {
+
+const mutationKey = ['applyScenarioImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof applyScenarioImport>>, {scenarioId: number;data: BodyType<ImportApplyRequest>}> = (props) => {
+          const {scenarioId,data} = props ?? {};
+
+          return  applyScenarioImport(scenarioId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApplyScenarioImportMutationResult = NonNullable<Awaited<ReturnType<typeof applyScenarioImport>>>
+    export type ApplyScenarioImportMutationBody = BodyType<ImportApplyRequest>
+    export type ApplyScenarioImportMutationError = ErrorType<void>
+
+    /**
+ * @summary Re-validate and apply a CSV import onto the scenario's overrides
+ */
+export const useApplyScenarioImport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyScenarioImport>>, TError,{scenarioId: number;data: BodyType<ImportApplyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof applyScenarioImport>>,
+        TError,
+        {scenarioId: number;data: BodyType<ImportApplyRequest>},
+        TContext
+      > => {
+      return useMutation(getApplyScenarioImportMutationOptions(options));
     }
 
 export const getCloneScenarioUrl = (scenarioId: number,) => {

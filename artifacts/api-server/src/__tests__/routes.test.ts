@@ -535,6 +535,86 @@ describe("GET /api/scenarios/:id/export", () => {
   });
 });
 
+// ── Import preview + apply ─────────────────────────────────────────────────
+describe("POST /api/scenarios/:id/import", () => {
+  const cleanCsv = "template_version,id,city,state,capacity,status\n1,ATL,Atlanta,GA,500000,forced_open\n";
+  const badCsv = "template_version,id,city,state,capacity,status\n1,ZZZ,Nowhere,XX,,active\n";
+
+  it("returns 401 without a session", async () => {
+    const res = await request(app).post("/api/scenarios/1/import").send({ entity: "warehouses", csvText: cleanCsv });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 (not 403) for a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 422 for a non-p-median-us scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
+    expect(res.status).toBe(422);
+  });
+
+  it("returns a preview with no errors and one change for a clean CSV, without mutating the scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("returns a preview with a logic error for an unknown id", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: badCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toHaveLength(1);
+    expect(res.body.errors[0].errorClass).toBe("logic");
+  });
+});
+
+describe("POST /api/scenarios/:id/import/apply", () => {
+  const cleanCsv = "template_version,id,city,state,capacity,status\n1,ATL,Atlanta,GA,500000,forced_open\n";
+  const badCsv = "template_version,id,city,state,capacity,status\n1,ZZZ,Nowhere,XX,,active\n";
+
+  it("all_or_nothing mode: an import with errors applies nothing (no DB write) and returns 422", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: badCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(422);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("all_or_nothing mode: a clean import applies and persists the change via a single update", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const updatedRow = { ...pmedianRow, inputs: { ...pmedianInputs, warehouseOverrides: [{ id: "ATL", status: "forced_open", capacity: 500000 }] } };
+    mockDb.update.mockReturnValue(makeChain([updatedRow]));
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: cleanCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 404 (not 403) when applying to a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: cleanCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(404);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+});
+
 // ── Clone scenario ─────────────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/clone", () => {
   it("returns 201 with name '<original> (copy)' and null result", async () => {

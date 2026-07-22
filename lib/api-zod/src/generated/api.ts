@@ -241,6 +241,95 @@ export const SolveScenarioResponse = zod.object({
 
 
 /**
+ * @summary Parse and validate a CSV import against the scenario's current state, without applying it
+ */
+export const PreviewScenarioImportParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const PreviewScenarioImportBody = zod.object({
+  "entity": zod.enum(['warehouses', 'customers']),
+  "csvText": zod.string()
+})
+
+export const PreviewScenarioImportResponse = zod.object({
+  "errors": zod.array(zod.object({
+  "errorClass": zod.enum(['format', 'syntax', 'logic']),
+  "line": zod.number().nullable(),
+  "message": zod.string()
+})),
+  "changes": zod.array(zod.object({
+  "id": zod.string(),
+  "line": zod.number(),
+  "before": zod.object({
+
+}).passthrough(),
+  "after": zod.object({
+
+}).passthrough()
+})),
+  "warnings": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Re-validate and apply a CSV import onto the scenario's overrides
+ */
+export const ApplyScenarioImportParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const ApplyScenarioImportBody = zod.object({
+  "entity": zod.enum(['warehouses', 'customers']),
+  "csvText": zod.string(),
+  "mode": zod.enum(['all_or_nothing', 'partial']).optional()
+})
+
+export const ApplyScenarioImportResponse = zod.object({
+  "scenario": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
+  "result": zod.union([zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
+  "openWarehouseIds": zod.array(zod.string()).optional(),
+  "assignments": zod.array(zod.object({
+  "customerId": zod.string(),
+  "warehouseId": zod.string(),
+  "distanceMi": zod.number(),
+  "band": zod.number()
+})),
+  "objective": zod.number().optional(),
+  "weightedAvgDistanceMi": zod.number(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "utilization": zod.array(zod.object({
+  "warehouseId": zod.string(),
+  "city": zod.string(),
+  "utilization": zod.number()
+})).optional(),
+  "runTimeSec": zod.number(),
+  "solverUsed": zod.string(),
+  "infeasibilityReason": zod.string().nullable()
+}),zod.null()]),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).optional(),
+  "applied": zod.number(),
+  "errors": zod.array(zod.object({
+  "errorClass": zod.enum(['format', 'syntax', 'logic']),
+  "line": zod.number().nullable(),
+  "message": zod.string()
+}))
+})
+
+
+/**
  * @summary Clone a scenario (without result)
  */
 export const CloneScenarioParams = zod.object({

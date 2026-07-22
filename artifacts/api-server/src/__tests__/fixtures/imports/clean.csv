@@ -1,0 +1,3 @@
+template_version,id,city,state,capacity,status
+1,ALN,Allentown,PA,,active
+1,ATL,Atlanta,GA,500000,forced_open

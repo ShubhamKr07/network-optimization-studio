@@ -190,6 +190,68 @@ paths:
         "422":
           description: Validation errors prevent solving
 
+  /scenarios/{scenarioId}/import:
+    post:
+      operationId: previewScenarioImport
+      tags: [scenarios]
+      summary: Parse and validate a CSV import against the scenario's current state, without applying it
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: Preview of errors, changes, and warnings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportPreview"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found
+        "422":
+          description: Invalid entity, or this scenario's model doesn't support import
+
+  /scenarios/{scenarioId}/import/apply:
+    post:
+      operationId: applyScenarioImport
+      tags: [scenarios]
+      summary: Re-validate and apply a CSV import onto the scenario's overrides
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportApplyRequest"
+      responses:
+        "200":
+          description: Updated scenario, count of applied changes, and any non-blocking errors (partial mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportApplyResult"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found
+        "422":
+          description: Invalid entity, model unsupported, or (all_or_nothing mode) the import had errors and nothing was applied
+
   /scenarios/{scenarioId}/clone:
     post:
       operationId: cloneScenario
@@ -661,6 +723,84 @@ components:
           items:
             $ref: "#/components/schemas/ScenarioMetrics"
       required: [scenarios]
+
+    ImportRequest:
+      type: object
+      properties:
+        entity:
+          type: string
+          enum: [warehouses, customers]
+        csvText:
+          type: string
+      required: [entity, csvText]
+
+    ImportError:
+      type: object
+      properties:
+        errorClass:
+          type: string
+          enum: [format, syntax, logic]
+        line:
+          type: ["integer", "null"]
+        message:
+          type: string
+      required: [errorClass, line, message]
+
+    ImportRowChange:
+      type: object
+      properties:
+        id:
+          type: string
+        line:
+          type: integer
+        before:
+          type: object
+        after:
+          type: object
+      required: [id, line, before, after]
+
+    ImportPreview:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportError"
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportRowChange"
+        warnings:
+          type: array
+          items:
+            type: string
+      required: [errors, changes, warnings]
+
+    ImportApplyRequest:
+      type: object
+      properties:
+        entity:
+          type: string
+          enum: [warehouses, customers]
+        csvText:
+          type: string
+        mode:
+          type: string
+          enum: [all_or_nothing, partial]
+      required: [entity, csvText]
+
+    ImportApplyResult:
+      type: object
+      properties:
+        scenario:
+          $ref: "#/components/schemas/Scenario"
+        applied:
+          type: integer
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportError"
+      required: [applied, errors]
 
     ExportEnvelope:
       type: object
