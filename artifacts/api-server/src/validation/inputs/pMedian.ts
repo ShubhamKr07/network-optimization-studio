@@ -21,6 +21,10 @@ export const pMedianInputsSchema = z.object({
   distanceBands: z.array(z.number().int().positive()).min(1),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1),
+  // p-median-brazil only (solve_capacitated_pmedian reads this; plain
+  // p-median's dispatch ignores it). Kept on the shared schema per D0.3
+  // rather than forking a second validator for one extra field.
+  singleSource: z.boolean().optional(),
 });
 
 export type PMedianInputs = z.infer<typeof pMedianInputsSchema>;

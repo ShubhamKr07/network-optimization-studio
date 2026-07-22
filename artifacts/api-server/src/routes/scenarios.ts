@@ -5,36 +5,27 @@ import { solve } from "../solver/pmedian.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { WAREHOUSES } from "../data/dataset.js";
 import { requireAuth } from "../middlewares/auth.js";
+import { validateInputsForModel } from "../validation/inputs/index.js";
 
 const router = Router();
 
 router.use(requireAuth);
 
-const VALID_PROBLEM_TYPES = new Set([
-  "p_median",
-  "capacitated_pmedian",
+const VALID_MODEL_IDS = new Set([
+  "p-median-us",
+  "transport-coal",
+  "p-median-brazil",
   "max_coverage",
   "p_center",
   "set_cover",
-  "transport",
 ]);
 
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
     id: row.id,
     name: row.name,
-    problemType: row.problemType,
-    pValue: row.pValue,
-    distanceBands: row.distanceBands as number[],
-    solver: row.solver,
-    gap: row.gap,
-    timeLimitSec: row.timeLimitSec,
-    capacityMode: row.capacityMode,
-    uniformCapacity: row.uniformCapacity ?? null,
-    warehouseStatuses: row.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
-    capacityFactor: row.capacityFactor ?? 1.0,
-    singleSource: row.singleSource ?? false,
-    capacityInactive: row.capacityInactive ?? false,
+    modelId: row.modelId,
+    inputs: row.inputs,
     result: row.result ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -42,9 +33,9 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
 }
 
 router.get("/scenarios", async (req, res) => {
-  const problemType = req.query.problemType as string | undefined;
-  const where = problemType
-    ? and(eq(scenariosTable.userId, req.userId!), eq(scenariosTable.problemType, problemType))
+  const modelId = req.query.modelId as string | undefined;
+  const where = modelId
+    ? and(eq(scenariosTable.userId, req.userId!), eq(scenariosTable.modelId, modelId))
     : eq(scenariosTable.userId, req.userId!);
   const rows = await db.select().from(scenariosTable)
     .where(where)
@@ -54,25 +45,20 @@ router.get("/scenarios", async (req, res) => {
 
 router.post("/scenarios", async (req, res) => {
   const body = req.body;
-  if (!VALID_PROBLEM_TYPES.has(body.problemType)) {
-    res.status(422).json({ error: "problemType is required and must be a valid model" });
+  if (!VALID_MODEL_IDS.has(body.modelId)) {
+    res.status(422).json({ error: "modelId is required and must be a valid model" });
+    return;
+  }
+  const validation = validateInputsForModel(body.modelId, body.inputs);
+  if (!validation.success) {
+    res.status(422).json({ error: validation.error });
     return;
   }
   const [row] = await db.insert(scenariosTable).values({
     name: body.name,
     userId: req.userId!,
-    problemType: body.problemType,
-    pValue: body.pValue ?? 3,
-    distanceBands: body.distanceBands ?? [200, 400, 800, 1600],
-    solver: body.solver ?? "cbc",
-    gap: body.gap ?? 0,
-    timeLimitSec: body.timeLimitSec ?? 120,
-    capacityMode: body.capacityMode ?? "uniform",
-    uniformCapacity: body.uniformCapacity ?? null,
-    warehouseStatuses: body.warehouseStatuses ?? [],
-    capacityFactor: body.capacityFactor ?? 1.0,
-    singleSource: body.singleSource ?? false,
-    capacityInactive: body.capacityInactive ?? false,
+    modelId: body.modelId,
+    inputs: validation.data,
     result: null,
   }).returning();
   res.status(201).json(toApiScenario(row));
@@ -125,24 +111,25 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const body = req.body;
 
-  if ("problemType" in body) {
-    res.status(422).json({ error: "problemType is fixed at creation and cannot be changed" });
+  if ("modelId" in body) {
+    res.status(422).json({ error: "modelId is fixed at creation and cannot be changed" });
     return;
   }
 
   const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
   if (body.name !== undefined) updateObj.name = body.name;
-  if (body.pValue !== undefined) updateObj.pValue = body.pValue;
-  if (body.distanceBands !== undefined) updateObj.distanceBands = body.distanceBands;
-  if (body.solver !== undefined) updateObj.solver = body.solver;
-  if (body.gap !== undefined) updateObj.gap = body.gap;
-  if (body.timeLimitSec !== undefined) updateObj.timeLimitSec = body.timeLimitSec;
-  if (body.capacityMode !== undefined) updateObj.capacityMode = body.capacityMode;
-  if ("uniformCapacity" in body) updateObj.uniformCapacity = body.uniformCapacity;
-  if (body.warehouseStatuses !== undefined) updateObj.warehouseStatuses = body.warehouseStatuses;
-  if (body.capacityFactor !== undefined) updateObj.capacityFactor = body.capacityFactor;
-  if (body.singleSource !== undefined) updateObj.singleSource = body.singleSource;
-  if (body.capacityInactive !== undefined) updateObj.capacityInactive = body.capacityInactive;
+  if (body.inputs !== undefined) {
+    const [existing] = await db.select().from(scenariosTable)
+      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+    if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+    const validation = validateInputsForModel(existing.modelId, body.inputs);
+    if (!validation.success) {
+      res.status(422).json({ error: validation.error });
+      return;
+    }
+    updateObj.inputs = validation.data;
+    updateObj.inputsUpdatedAt = new Date();
+  }
   if (body.result !== undefined) updateObj.result = body.result;
 
   const [row] = await db.update(scenariosTable)
@@ -166,26 +153,16 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
-  const input: SolveInput = {
-    pValue: scenario.pValue,
-    distanceBands: scenario.distanceBands as number[],
-    capacityMode: (scenario.capacityMode as "uniform" | "per_wh"),
-    uniformCapacity: scenario.uniformCapacity ?? null,
-    warehouseStatuses: scenario.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
-    gap: scenario.gap ?? 0,
-    timeLimitSec: scenario.timeLimitSec ?? 120,
-    solver: scenario.solver,
-    modelType: scenario.problemType as SolveInput["modelType"],
-    capacityFactor: scenario.capacityFactor ?? 1.0,
-    singleSource: scenario.singleSource ?? false,
-    capacityInactive: scenario.capacityInactive ?? false,
-    warehouseCapacity: scenario.uniformCapacity ?? undefined,
-  };
+  const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
+  if (!validation.success) {
+    res.status(422).json({ error: validation.error });
+    return;
+  }
 
-  const result = solve(input);
+  const result = solve({ modelId: scenario.modelId, inputs: validation.data } as SolveInput);
 
   const [updated] = await db.update(scenariosTable)
-    .set({ result: result as unknown as Record<string, unknown>, updatedAt: new Date() })
+    .set({ result: result as unknown as Record<string, unknown>, solvedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
 
@@ -201,18 +178,8 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
   const [clone] = await db.insert(scenariosTable).values({
     name: `${scenario.name} (copy)`,
     userId: req.userId!,
-    problemType: scenario.problemType,
-    pValue: scenario.pValue,
-    distanceBands: scenario.distanceBands as number[],
-    solver: scenario.solver,
-    gap: scenario.gap,
-    timeLimitSec: scenario.timeLimitSec,
-    capacityMode: scenario.capacityMode,
-    uniformCapacity: scenario.uniformCapacity,
-    warehouseStatuses: scenario.warehouseStatuses as Array<{ warehouseId: string; status: string }>,
-    capacityFactor: scenario.capacityFactor ?? 1.0,
-    singleSource: scenario.singleSource ?? false,
-    capacityInactive: scenario.capacityInactive ?? false,
+    modelId: scenario.modelId,
+    inputs: scenario.inputs,
     result: null,
   }).returning();
 

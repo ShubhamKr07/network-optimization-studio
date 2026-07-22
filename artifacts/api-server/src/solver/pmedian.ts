@@ -1,28 +1,55 @@
 import { spawnSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
+import type { PMedianInputs } from "../validation/inputs/pMedian.js";
+import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SOLVER_PY = path.resolve(__dirname, "..", "src", "solver", "solve.py");
 
-export interface SolveInput {
-  pValue: number;
-  distanceBands: number[];
-  capacityMode: "uniform" | "per_wh";
-  uniformCapacity: number | null;
-  warehouseStatuses: Array<{ warehouseId: string; status: string }>;
-  gap?: number;
-  timeLimitSec?: number;
-  solver?: string;
-  // Chapter 5 transport LP fields
-  modelType?: "p_median" | "transport" | "capacitated_pmedian";
-  capacityFactor?: number;
-  singleSource?: boolean;
-  capacityInactive?: boolean;
-  // Chapter 5 Brazil capacitated p-median: solve.py reads this key directly,
-  // distinct from uniformCapacity above (see routes/scenarios.ts solve handler).
-  warehouseCapacity?: number;
+export type SolveInput =
+  | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
+  | { modelId: "transport-coal"; inputs: TransportLpInputs };
+
+// Translates the model's validated `inputs` (DB/contract shape) into the
+// flat dict solve.py's dispatcher and per-model solve_* functions read
+// (an internal wire format, not part of the public API contract).
+function buildPayload(input: SolveInput): Record<string, unknown> {
+  if (input.modelId === "transport-coal") {
+    const i = input.inputs;
+    return {
+      modelType: "transport",
+      distanceBands: i.distanceBands,
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
+      capacityFactor: i.capacityFactor,
+      singleSource: i.singleSource,
+      capacityInactive: i.capacityInactive,
+    };
+  }
+
+  const i = input.inputs;
+  const effectiveCapacity = i.capacityMode === "none" ? null : (i.uniformCapacity ?? null);
+  const warehouseStatuses = i.warehouseOverrides
+    .filter((o) => o.status !== "active")
+    .map((o) => ({ warehouseId: o.id, status: o.status }));
+  const excludedCustomerIds = i.customerOverrides
+    .filter((o) => o.status === "excluded")
+    .map((o) => o.id);
+
+  return {
+    modelType: input.modelId === "p-median-brazil" ? "capacitated_pmedian" : "p_median",
+    pValue: i.p,
+    distanceBands: i.distanceBands,
+    uniformCapacity: effectiveCapacity,
+    warehouseCapacity: effectiveCapacity ?? undefined,
+    warehouseStatuses,
+    excludedCustomerIds,
+    gap: i.gap,
+    timeLimitSec: i.timeLimitSec,
+    singleSource: i.singleSource,
+  };
 }
 
 export interface SolverInfo {
@@ -79,26 +106,12 @@ export interface SolveOutput {
 }
 
 export function solve(input: SolveInput): SolveOutput {
-  const payload = JSON.stringify({
-    pValue: input.pValue,
-    distanceBands: input.distanceBands,
-    capacityMode: input.capacityMode,
-    uniformCapacity: input.uniformCapacity ?? null,
-    warehouseStatuses: input.warehouseStatuses,
-    gap: input.gap ?? 0,
-    timeLimitSec: input.timeLimitSec ?? 120,
-    solver: input.solver ?? "cbc",
-    modelType: input.modelType ?? "p_median",
-    capacityFactor: input.capacityFactor ?? 1.0,
-    singleSource: input.singleSource ?? false,
-    capacityInactive: input.capacityInactive ?? false,
-    warehouseCapacity: input.warehouseCapacity,
-  });
+  const payload = JSON.stringify(buildPayload(input));
 
   const result = spawnSync("python3", [SOLVER_PY], {
     input: payload,
     encoding: "utf8",
-    timeout: (input.timeLimitSec ?? 120) * 1000 + 15000,
+    timeout: input.inputs.timeLimitSec * 1000 + 15000,
   });
 
   if (result.error || result.status !== 0) {

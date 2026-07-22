@@ -7,6 +7,7 @@ vi.mock("child_process", () => ({
 
 import { spawnSync } from "child_process";
 import { solve } from "../solver/pmedian.js";
+import type { SolveInput } from "../solver/pmedian.js";
 
 const mockSpawnSync = vi.mocked(spawnSync);
 
@@ -29,22 +30,30 @@ const validOutput = {
   infeasibilityReason: null,
 };
 
-const baseInput = {
-  pValue: 3,
-  distanceBands: [200, 400, 800, 1600],
-  capacityMode: "uniform" as const,
-  uniformCapacity: null,
-  warehouseStatuses: [],
-  gap: 0,
-  timeLimitSec: 120,
+const baseInput: SolveInput = {
+  modelId: "p-median-us",
+  inputs: {
+    p: 3,
+    distanceBands: [200, 400, 800, 1600],
+    capacityMode: "none",
+    uniformCapacity: null,
+    warehouseOverrides: [],
+    customerOverrides: [],
+    gap: 0,
+    timeLimitSec: 120,
+  },
 };
 
-const transportInput = {
-  ...baseInput,
-  modelType: "transport" as const,
-  capacityFactor: 1.1,
-  singleSource: true,
-  capacityInactive: false,
+const transportInput: SolveInput = {
+  modelId: "transport-coal",
+  inputs: {
+    distanceBands: [200, 400, 800, 1600],
+    gap: 0,
+    timeLimitSec: 120,
+    capacityFactor: 1.1,
+    singleSource: true,
+    capacityInactive: false,
+  },
 };
 
 beforeEach(() => {
@@ -112,7 +121,7 @@ describe("solve()", () => {
     expect(result.infeasibilityReason).toContain("Failed to parse solver output");
   });
 
-  it("passes input fields as JSON on stdin to Python", () => {
+  it("translates p-median inputs (pValue, capacity, warehouseOverrides) onto Python stdin", () => {
     mockSpawnSync.mockReturnValue({
       status: 0,
       stdout: JSON.stringify(validOutput),
@@ -120,27 +129,88 @@ describe("solve()", () => {
       error: undefined,
     } as unknown as SpawnSyncReturns<string>);
 
-    const input = {
-      pValue: 5,
-      distanceBands: [100, 500, 1000],
-      capacityMode: "per_wh" as const,
-      uniformCapacity: 50000000,
-      warehouseStatuses: [{ warehouseId: "CHI", status: "forced_open" }],
-      gap: 0.01,
-      timeLimitSec: 60,
+    const input: SolveInput = {
+      modelId: "p-median-us",
+      inputs: {
+        p: 5,
+        distanceBands: [100, 500, 1000],
+        capacityMode: "uniform",
+        uniformCapacity: 50000000,
+        warehouseOverrides: [{ id: "CHI", status: "forced_open" }],
+        customerOverrides: [],
+        gap: 0.01,
+        timeLimitSec: 60,
+      },
     };
 
     solve(input);
 
     const call = mockSpawnSync.mock.calls[0];
     const stdinPayload = JSON.parse(call[2]?.input as string);
+    expect(stdinPayload.modelType).toBe("p_median");
     expect(stdinPayload.pValue).toBe(5);
     expect(stdinPayload.distanceBands).toEqual([100, 500, 1000]);
-    expect(stdinPayload.capacityMode).toBe("per_wh");
     expect(stdinPayload.uniformCapacity).toBe(50000000);
     expect(stdinPayload.warehouseStatuses).toEqual([{ warehouseId: "CHI", status: "forced_open" }]);
     expect(stdinPayload.gap).toBe(0.01);
     expect(stdinPayload.timeLimitSec).toBe(60);
+  });
+
+  it("capacityMode 'none' sends null capacity regardless of a stale uniformCapacity value", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve(baseInput);
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.uniformCapacity).toBeNull();
+  });
+
+  it("excludes only non-active warehouseOverrides from warehouseStatuses", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve({
+      modelId: "p-median-us",
+      inputs: {
+        ...baseInput.inputs,
+        warehouseOverrides: [
+          { id: "CHI", status: "active" },
+          { id: "LA", status: "inactive" },
+        ],
+      },
+    });
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.warehouseStatuses).toEqual([{ warehouseId: "LA", status: "inactive" }]);
+  });
+
+  it("translates excluded customerOverrides into excludedCustomerIds", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve({
+      modelId: "p-median-us",
+      inputs: {
+        ...baseInput.inputs,
+        customerOverrides: [
+          { id: "C1", status: "excluded" },
+          { id: "C2", status: "active" },
+        ],
+      },
+    });
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.excludedCustomerIds).toEqual(["C1"]);
   });
 
   it("sets spawnSync timeout to timeLimitSec * 1000 + 15000", () => {
@@ -151,7 +221,7 @@ describe("solve()", () => {
       error: undefined,
     } as unknown as SpawnSyncReturns<string>);
 
-    solve({ ...baseInput, timeLimitSec: 90 });
+    solve({ ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 90 } });
 
     const call = mockSpawnSync.mock.calls[0];
     expect(call[2]?.timeout).toBe(90 * 1000 + 15000);
@@ -176,7 +246,7 @@ describe("solve()", () => {
     }
   });
 
-  it("defaults modelType to p_median when not provided", () => {
+  it("sends modelType=p_median for modelId p-median-us", () => {
     mockSpawnSync.mockReturnValue({
       status: 0,
       stdout: JSON.stringify(validOutput),
@@ -188,22 +258,6 @@ describe("solve()", () => {
 
     const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
     expect(payload.modelType).toBe("p_median");
-  });
-
-  it("defaults capacityFactor to 1.0, singleSource to false, capacityInactive to false", () => {
-    mockSpawnSync.mockReturnValue({
-      status: 0,
-      stdout: JSON.stringify(validOutput),
-      stderr: "",
-      error: undefined,
-    } as unknown as SpawnSyncReturns<string>);
-
-    solve(baseInput);
-
-    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
-    expect(payload.capacityFactor).toBe(1.0);
-    expect(payload.singleSource).toBe(false);
-    expect(payload.capacityInactive).toBe(false);
   });
 });
 
@@ -288,18 +342,19 @@ describe("solve() — transport LP", () => {
 
 // ── Brazil capacitated p-median solver ────────────────────────────────────
 describe("solve() — Brazil capacitated p-median", () => {
-  const brazilInput = {
-    modelType: "capacitated_pmedian" as const,
-    numberOfWhs: 5,
-    warehouseCapacity: 20000000,
-    singleSource: true,
-    pValue: 5,
-    distanceBands: [500, 1000, 2000, 4000],
-    capacityMode: "uniform" as const,
-    uniformCapacity: null,
-    warehouseStatuses: [],
-    gap: 0,
-    timeLimitSec: 120,
+  const brazilInput: SolveInput = {
+    modelId: "p-median-brazil",
+    inputs: {
+      p: 5,
+      distanceBands: [500, 1000, 2000, 4000],
+      capacityMode: "uniform",
+      uniformCapacity: 20000000,
+      warehouseOverrides: [],
+      customerOverrides: [],
+      gap: 0,
+      timeLimitSec: 120,
+      singleSource: true,
+    },
   };
 
   const brazilInfeasibleOutput = {
@@ -332,7 +387,7 @@ describe("solve() — Brazil capacitated p-median", () => {
     infeasibilityReason: null,
   };
 
-  it("passes modelType=capacitated_pmedian, warehouseCapacity, numberOfWhs, singleSource to Python", () => {
+  it("passes modelType=capacitated_pmedian, warehouseCapacity, pValue, singleSource to Python", () => {
     mockSpawnSync.mockReturnValue({
       status: 0,
       stdout: JSON.stringify(brazilInfeasibleOutput),
@@ -372,7 +427,7 @@ describe("solve() — Brazil capacitated p-median", () => {
       error: undefined,
     } as unknown as SpawnSyncReturns<string>);
 
-    const result = solve({ ...brazilInput, singleSource: false });
+    const result = solve({ ...brazilInput, inputs: { ...brazilInput.inputs, singleSource: false } });
     expect(result.status).toBe("optimal");
     expect(result.weightedAvgDistanceMi).toBe(287.3);
     expect(result.openWarehouseIds).toHaveLength(5);

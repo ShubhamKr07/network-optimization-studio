@@ -13,7 +13,7 @@ const mockSolveFn = vi.hoisted(() => vi.fn());
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
-  scenariosTable: { id: "id", name: "name", userId: "user_id", createdAt: "created_at", updatedAt: "updated_at" },
+  scenariosTable: { id: "id", name: "name", userId: "user_id", modelId: "model_id", createdAt: "created_at", updatedAt: "updated_at" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -66,69 +66,74 @@ async function loginAs(userId: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Base row shapes — one wide scenariosTable row per problem type.
+// Base row shapes — one wide scenariosTable row per model.
 // ---------------------------------------------------------------------------
 const OWNER = "seed-user-id";
+
+const pmedianInputs = {
+  p: 3,
+  distanceBands: [200, 400, 800, 1600],
+  capacityMode: "none",
+  uniformCapacity: null,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+};
 
 const pmedianRow = {
   id: 1,
   name: "Base",
-  problemType: "p_median",
+  modelId: "p-median-us",
   userId: OWNER,
-  pValue: 3,
-  distanceBands: [200, 400, 800, 1600],
-  solver: "cbc",
+  inputs: pmedianInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-01T00:00:00Z"),
+  updatedAt: new Date("2026-01-01T00:00:00Z"),
+};
+
+const transportInputs = {
+  distanceBands: [500, 1000, 1500, 2000],
   gap: 0,
   timeLimitSec: 120,
-  capacityMode: "uniform",
-  uniformCapacity: null,
-  warehouseStatuses: [],
   capacityFactor: 1.0,
   singleSource: false,
   capacityInactive: false,
-  result: null,
-  createdAt: new Date("2026-01-01T00:00:00Z"),
-  updatedAt: new Date("2026-01-01T00:00:00Z"),
 };
 
 const transportRow = {
   id: 8,
   name: "Coal Base Case",
-  problemType: "transport",
+  modelId: "transport-coal",
   userId: OWNER,
-  pValue: 3,
-  distanceBands: [500, 1000, 1500, 2000],
-  solver: "cbc",
-  gap: 0,
-  timeLimitSec: 120,
-  capacityMode: "uniform",
-  uniformCapacity: null,
-  warehouseStatuses: [],
-  capacityFactor: 1.0,
-  singleSource: false,
-  capacityInactive: false,
+  inputs: transportInputs,
   result: null,
+  solvedAt: null,
   createdAt: new Date("2026-01-02T00:00:00Z"),
   updatedAt: new Date("2026-01-02T00:00:00Z"),
+};
+
+const brazilInputs = {
+  p: 5,
+  distanceBands: [500, 1000, 2000, 4000],
+  capacityMode: "uniform",
+  uniformCapacity: 20000000,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+  singleSource: true,
 };
 
 const brazilRow = {
   id: 10,
   name: "Brazil Base — 20M cap",
-  problemType: "capacitated_pmedian",
+  modelId: "p-median-brazil",
   userId: OWNER,
-  pValue: 5,
-  distanceBands: [500, 1000, 2000, 4000],
-  solver: "cbc",
-  gap: 0,
-  timeLimitSec: 120,
-  capacityMode: "uniform",
-  uniformCapacity: 20000000,
-  warehouseStatuses: [],
-  capacityFactor: 1.0,
-  singleSource: true,
-  capacityInactive: false,
+  inputs: brazilInputs,
   result: null,
+  solvedAt: null,
   createdAt: new Date("2026-01-03T00:00:00Z"),
   updatedAt: new Date("2026-01-03T00:00:00Z"),
 };
@@ -198,7 +203,7 @@ describe("scenario endpoints require authentication", () => {
     expect((await request(app).get("/api/scenarios/1")).status).toBe(401);
   });
   it("PATCH /api/scenarios/:id returns 401 without a session", async () => {
-    expect((await request(app).patch("/api/scenarios/1").send({ pValue: 5 })).status).toBe(401);
+    expect((await request(app).patch("/api/scenarios/1").send({ inputs: { p: 5 } })).status).toBe(401);
   });
   it("DELETE /api/scenarios/:id returns 401 without a session", async () => {
     expect((await request(app).delete("/api/scenarios/1")).status).toBe(401);
@@ -224,7 +229,7 @@ describe("GET /api/scenarios", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body[0].id).toBe(1);
-    expect(res.body[0].problemType).toBe("p_median");
+    expect(res.body[0].modelId).toBe("p-median-us");
   });
 
   it("maps dates to ISO strings", async () => {
@@ -234,38 +239,38 @@ describe("GET /api/scenarios", () => {
     expect(res.body[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it("returns rows for every problem type in one query", async () => {
+  it("returns rows for every model in one query", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow, transportRow, brazilRow]));
     const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(3);
-    const types = res.body.map((s: { problemType: string }) => s.problemType);
-    expect(types).toContain("p_median");
-    expect(types).toContain("transport");
-    expect(types).toContain("capacitated_pmedian");
+    const ids = res.body.map((s: { modelId: string }) => s.modelId);
+    expect(ids).toContain("p-median-us");
+    expect(ids).toContain("transport-coal");
+    expect(ids).toContain("p-median-brazil");
   });
 
-  it("accepts ?problemType= to scope the list to one chapter's model", async () => {
+  it("accepts ?modelId= to scope the list to one chapter's model", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([transportRow]));
-    const res = await request(app).get("/api/scenarios?problemType=transport").set("Cookie", cookie);
+    const res = await request(app).get("/api/scenarios?modelId=transport-coal").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
-    expect(res.body[0].problemType).toBe("transport");
+    expect(res.body[0].modelId).toBe("transport-coal");
   });
 });
 
 // ── Create scenario ────────────────────────────────────────────────────────
 describe("POST /api/scenarios", () => {
-  it("returns 201 with created p_median scenario and defaults applied", async () => {
+  it("returns 201 with created p-median-us scenario", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.insert.mockReturnValue(makeChain([{ ...pmedianRow, name: "New" }]));
-    const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New", problemType: "p_median" });
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New", modelId: "p-median-us", inputs: pmedianInputs });
     expect(res.status).toBe(201);
     expect(res.body.name).toBe("New");
-    expect(res.body.problemType).toBe("p_median");
-    expect(res.body.solver).toBe("cbc");
+    expect(res.body.modelId).toBe("p-median-us");
     expect(res.body.result).toBeNull();
   });
 
@@ -273,47 +278,53 @@ describe("POST /api/scenarios", () => {
     const cookie = await loginAs(OWNER);
     const chain = makeChain([{ ...pmedianRow, name: "New" }]);
     mockDb.insert.mockReturnValue(chain);
-    await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "New", problemType: "p_median" });
+    await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New", modelId: "p-median-us", inputs: pmedianInputs });
     expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ userId: OWNER }));
   });
 
-  it("returns 201 with transport scenario when problemType=transport", async () => {
+  it("returns 201 with transport scenario when modelId=transport-coal", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.insert.mockReturnValue(makeChain([{ ...transportRow, name: "New Transport" }]));
     const res = await request(app)
       .post("/api/scenarios")
       .set("Cookie", cookie)
-      .send({ name: "New Transport", problemType: "transport" });
+      .send({ name: "New Transport", modelId: "transport-coal", inputs: transportInputs });
     expect(res.status).toBe(201);
-    expect(res.body.problemType).toBe("transport");
+    expect(res.body.modelId).toBe("transport-coal");
   });
 
-  it("returns 201 with Brazil scenario when problemType=capacitated_pmedian", async () => {
+  it("returns 201 with Brazil scenario when modelId=p-median-brazil", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.insert.mockReturnValue(makeChain([{ ...brazilRow, id: 11, name: "Brazil Relaxed", singleSource: false }]));
+    mockDb.insert.mockReturnValue(makeChain([{ ...brazilRow, id: 11, name: "Brazil Relaxed", inputs: { ...brazilInputs, singleSource: false } }]));
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
       name: "Brazil Relaxed",
-      problemType: "capacitated_pmedian",
-      pValue: 5,
-      uniformCapacity: 20000000,
-      singleSource: false,
+      modelId: "p-median-brazil",
+      inputs: { ...brazilInputs, singleSource: false },
     });
     expect(res.status).toBe(201);
-    expect(res.body.problemType).toBe("capacitated_pmedian");
-    expect(res.body.uniformCapacity).toBe(20000000);
-    expect(res.body.singleSource).toBe(false);
+    expect(res.body.modelId).toBe("p-median-brazil");
+    expect(res.body.inputs.uniformCapacity).toBe(20000000);
+    expect(res.body.inputs.singleSource).toBe(false);
   });
 
-  it("returns 422 when problemType is missing (B2.1)", async () => {
+  it("returns 422 when modelId is missing", async () => {
     const cookie = await loginAs(OWNER);
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({ name: "No type" });
     expect(res.status).toBe(422);
   });
 
-  it("returns 422 when problemType is not a recognized model (B2.1)", async () => {
+  it("returns 422 when modelId is not a recognized model", async () => {
     const cookie = await loginAs(OWNER);
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Bad type", problemType: "not_a_real_model" });
+      .send({ name: "Bad type", modelId: "not_a_real_model", inputs: pmedianInputs });
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 422 when inputs fails model-specific validation", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Bad inputs", modelId: "p-median-us", inputs: { ...pmedianInputs, capacityMode: "bogus" } });
     expect(res.status).toBe(422);
   });
 });
@@ -326,18 +337,18 @@ describe("GET /api/scenarios/:id", () => {
     const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(1);
-    expect(res.body.problemType).toBe("p_median");
+    expect(res.body.modelId).toBe("p-median-us");
   });
 
-  it("returns 200 with Brazil fields when scenario is capacitated_pmedian", async () => {
+  it("returns 200 with Brazil fields when scenario is p-median-brazil", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([brazilRow]));
     const res = await request(app).get("/api/scenarios/10").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.problemType).toBe("capacitated_pmedian");
-    expect(res.body.pValue).toBe(5);
-    expect(res.body.uniformCapacity).toBe(20000000);
-    expect(res.body.singleSource).toBe(true);
+    expect(res.body.modelId).toBe("p-median-brazil");
+    expect(res.body.inputs.p).toBe(5);
+    expect(res.body.inputs.uniformCapacity).toBe(20000000);
+    expect(res.body.inputs.singleSource).toBe(true);
   });
 
   it("returns 404 when not found", async () => {
@@ -361,54 +372,67 @@ describe("GET /api/scenarios/:id", () => {
 describe("PATCH /api/scenarios/:id", () => {
   it("returns 200 with updated pmedian scenario", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, pValue: 5 }]));
-    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ pValue: 5 });
+    const newInputs = { ...pmedianInputs, p: 5 };
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, inputs: newInputs }]));
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: newInputs });
     expect(res.status).toBe(200);
-    expect(res.body.pValue).toBe(5);
+    expect(res.body.inputs.p).toBe(5);
   });
 
   it("updates transport capacityFactor and singleSource", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.update.mockReturnValue(makeChain([{ ...transportRow, capacityFactor: 1.1, singleSource: true }]));
+    const newInputs = { ...transportInputs, capacityFactor: 1.1, singleSource: true };
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    mockDb.update.mockReturnValue(makeChain([{ ...transportRow, inputs: newInputs }]));
     const res = await request(app).patch("/api/scenarios/8").set("Cookie", cookie).send({
-      capacityFactor: 1.1,
-      singleSource: true,
+      inputs: newInputs,
     });
     expect(res.status).toBe(200);
-    expect(res.body.capacityFactor).toBe(1.1);
-    expect(res.body.singleSource).toBe(true);
+    expect(res.body.inputs.capacityFactor).toBe(1.1);
+    expect(res.body.inputs.singleSource).toBe(true);
   });
 
   it("updates Brazil uniformCapacity and singleSource", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.update.mockReturnValue(makeChain([{ ...brazilRow, uniformCapacity: 30000000, singleSource: false }]));
+    const newInputs = { ...brazilInputs, uniformCapacity: 30000000, singleSource: false };
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    mockDb.update.mockReturnValue(makeChain([{ ...brazilRow, inputs: newInputs }]));
     const res = await request(app).patch("/api/scenarios/10").set("Cookie", cookie).send({
-      uniformCapacity: 30000000,
-      singleSource: false,
+      inputs: newInputs,
     });
     expect(res.status).toBe(200);
-    expect(res.body.uniformCapacity).toBe(30000000);
-    expect(res.body.singleSource).toBe(false);
+    expect(res.body.inputs.uniformCapacity).toBe(30000000);
+    expect(res.body.inputs.singleSource).toBe(false);
   });
 
   it("returns 404 when not found", async () => {
     const cookie = await loginAs(OWNER);
-    // Default: update returns [] → 404
-    const res = await request(app).patch("/api/scenarios/999").set("Cookie", cookie).send({ pValue: 5 });
+    // Default: select returns [] → 404
+    const res = await request(app).patch("/api/scenarios/999").set("Cookie", cookie).send({ inputs: pmedianInputs });
     expect(res.status).toBe(404);
   });
 
   it("returns 404 (not 403) when patching a scenario owned by a different user", async () => {
     const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
     mockDb.update.mockReturnValue(makeChain([]));
-    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ pValue: 5 });
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: pmedianInputs });
     expect(res.status).toBe(404);
   });
 
-  it("returns 422 when the body includes problemType (B2.1: fixed at creation)", async () => {
+  it("returns 422 when the body includes modelId (fixed at creation)", async () => {
     const cookie = await loginAs(OWNER);
     const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
-      .send({ pValue: 5, problemType: "transport" });
+      .send({ inputs: pmedianInputs, modelId: "transport-coal" });
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 422 when inputs fails model-specific validation", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
+      .send({ inputs: { ...pmedianInputs, capacityMode: "bogus" } });
     expect(res.status).toBe(422);
   });
 });
@@ -456,7 +480,7 @@ describe("POST /api/scenarios/:id/clone", () => {
     const res = await request(app).post("/api/scenarios/10/clone").set("Cookie", cookie);
     expect(res.status).toBe(201);
     expect(res.body.name).toBe("Brazil Base (copy)");
-    expect(res.body.problemType).toBe("capacitated_pmedian");
+    expect(res.body.modelId).toBe("p-median-brazil");
     expect(res.body.result).toBeNull();
   });
 
@@ -599,10 +623,10 @@ describe("transport scenario — field serialization", () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     const s = res.body[0];
-    expect(s.problemType).toBe("transport");
-    expect(s.capacityFactor).toBe(1.0);
-    expect(s.singleSource).toBe(false);
-    expect(s.capacityInactive).toBe(false);
+    expect(s.modelId).toBe("transport-coal");
+    expect(s.inputs.capacityFactor).toBe(1.0);
+    expect(s.inputs.singleSource).toBe(false);
+    expect(s.inputs.capacityInactive).toBe(false);
   });
 
   it("GET /api/scenarios/:id returns transport fields", async () => {
@@ -610,27 +634,26 @@ describe("transport scenario — field serialization", () => {
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const res = await request(app).get("/api/scenarios/8").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.problemType).toBe("transport");
-    expect(res.body.capacityFactor).toBe(1.0);
-    expect(res.body.singleSource).toBe(false);
-    expect(res.body.capacityInactive).toBe(false);
+    expect(res.body.modelId).toBe("transport-coal");
+    expect(res.body.inputs.capacityFactor).toBe(1.0);
+    expect(res.body.inputs.singleSource).toBe(false);
+    expect(res.body.inputs.capacityInactive).toBe(false);
   });
 
   it("POST /api/scenarios stores transport fields from body", async () => {
     const cookie = await loginAs(OWNER);
-    const created = { ...transportRow, id: 9, capacityFactor: 1.1, singleSource: true };
+    const newInputs = { ...transportInputs, capacityFactor: 1.1, singleSource: true };
+    const created = { ...transportRow, id: 9, inputs: newInputs };
     mockDb.insert.mockReturnValue(makeChain([created]));
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie).send({
       name: "Coal +10%",
-      problemType: "transport",
-      capacityFactor: 1.1,
-      singleSource: true,
-      capacityInactive: false,
+      modelId: "transport-coal",
+      inputs: newInputs,
     });
     expect(res.status).toBe(201);
-    expect(res.body.problemType).toBe("transport");
-    expect(res.body.capacityFactor).toBe(1.1);
-    expect(res.body.singleSource).toBe(true);
+    expect(res.body.modelId).toBe("transport-coal");
+    expect(res.body.inputs.capacityFactor).toBe(1.1);
+    expect(res.body.inputs.singleSource).toBe(true);
   });
 });
 
@@ -653,7 +676,7 @@ describe("POST /api/scenarios/:id/solve — transport", () => {
 
   it("passes transport fields to the solver and returns result", async () => {
     const cookie = await loginAs(OWNER);
-    const row = { ...transportRow, capacityFactor: 1.1, singleSource: true };
+    const row = { ...transportRow, inputs: { ...transportInputs, capacityFactor: 1.1, singleSource: true } };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: transportSolverResult }]));
     mockSolveFn.mockReturnValue(transportSolverResult);
@@ -661,11 +684,11 @@ describe("POST /api/scenarios/:id/solve — transport", () => {
     const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
     expect(res.status).toBe(200);
 
-    const solveCall = mockSolveFn.mock.calls[0][0] as Record<string, unknown>;
-    expect(solveCall.modelType).toBe("transport");
-    expect(solveCall.capacityFactor).toBe(1.1);
-    expect(solveCall.singleSource).toBe(true);
-    expect(solveCall.capacityInactive).toBe(false);
+    const solveCall = mockSolveFn.mock.calls[0][0] as { modelId: string; inputs: Record<string, unknown> };
+    expect(solveCall.modelId).toBe("transport-coal");
+    expect(solveCall.inputs.capacityFactor).toBe(1.1);
+    expect(solveCall.inputs.singleSource).toBe(true);
+    expect(solveCall.inputs.capacityInactive).toBe(false);
   });
 
   it("returns transport flow assignments in result", async () => {
@@ -717,7 +740,7 @@ describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => 
 
   it("returns infeasible status when singleSource=true and São Paulo exceeds capacity", async () => {
     const cookie = await loginAs(OWNER);
-    const row = { ...brazilRow, singleSource: true };
+    const row = { ...brazilRow, inputs: { ...brazilInputs, singleSource: true } };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilInfeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilInfeasibleResult);
@@ -727,22 +750,22 @@ describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => 
     expect(res.body.result.infeasibilityReason).toMatch(/São Paulo/);
   });
 
-  it("passes capacitated_pmedian modelType, warehouseCapacity, singleSource, pValue to solver", async () => {
+  it("passes p-median-brazil modelId, warehouseCapacity, singleSource, pValue to solver", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([brazilRow]));
     mockDb.update.mockReturnValue(makeChain([{ ...brazilRow, result: brazilInfeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilInfeasibleResult);
     await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    const call = mockSolveFn.mock.calls[0][0] as Record<string, unknown>;
-    expect(call.modelType).toBe("capacitated_pmedian");
-    expect(call.warehouseCapacity).toBe(20000000);
-    expect(call.singleSource).toBe(true);
-    expect(call.pValue).toBe(5);
+    const call = mockSolveFn.mock.calls[0][0] as { modelId: string; inputs: Record<string, unknown> };
+    expect(call.modelId).toBe("p-median-brazil");
+    expect(call.inputs.uniformCapacity).toBe(20000000);
+    expect(call.inputs.singleSource).toBe(true);
+    expect(call.inputs.p).toBe(5);
   });
 
   it("returns optimal when singleSource=false (relaxed — São Paulo demand splits)", async () => {
     const cookie = await loginAs(OWNER);
-    const row = { ...brazilRow, singleSource: false };
+    const row = { ...brazilRow, inputs: { ...brazilInputs, singleSource: false } };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilFeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilFeasibleResult);
@@ -755,7 +778,7 @@ describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => 
 
   it("returns flow assignments with flowFraction for Brazil optimal result", async () => {
     const cookie = await loginAs(OWNER);
-    const row = { ...brazilRow, singleSource: false };
+    const row = { ...brazilRow, inputs: { ...brazilInputs, singleSource: false } };
     mockDb.select.mockReturnValue(makeChain([row]));
     mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilFeasibleResult }]));
     mockSolveFn.mockReturnValue(brazilFeasibleResult);
