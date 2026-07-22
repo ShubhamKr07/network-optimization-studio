@@ -37,6 +37,15 @@ function buildPayload(input: SolveInput): Record<string, unknown> {
   const excludedCustomerIds = i.customerOverrides
     .filter((o) => o.status === "excluded")
     .map((o) => o.id);
+  // D1.1: sparse per-entity overrides — only entities with a real capacity/
+  // demand value produce an entry. solve_pmedian (p-median-us) applies these
+  // in the LP; solve_capacitated_pmedian (Brazil) ignores unknown keys.
+  const warehouseCapacities = Object.fromEntries(
+    i.warehouseOverrides.filter((o) => o.capacity != null).map((o) => [o.id, o.capacity as number]),
+  );
+  const customerDemands = Object.fromEntries(
+    i.customerOverrides.filter((o) => o.demand != null).map((o) => [o.id, o.demand as number]),
+  );
 
   return {
     modelType: input.modelId === "p-median-brazil" ? "capacitated_pmedian" : "p_median",
@@ -44,6 +53,8 @@ function buildPayload(input: SolveInput): Record<string, unknown> {
     distanceBands: i.distanceBands,
     uniformCapacity: effectiveCapacity,
     warehouseCapacity: effectiveCapacity ?? undefined,
+    warehouseCapacities,
+    customerDemands,
     warehouseStatuses,
     excludedCustomerIds,
     gap: i.gap,

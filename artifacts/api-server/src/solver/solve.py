@@ -72,7 +72,12 @@ def _brazil_distances():
 def solve_pmedian(inp):
     p = inp['pValue']
     distance_bands = sorted(inp['distanceBands'])
-    capacity = inp.get('uniformCapacity')
+    uniform_capacity = inp.get('uniformCapacity')
+    # D1.1: sparse per-entity overrides, keyed by the same string ids used in
+    # warehouseStatuses/excludedCustomerIds — entries only exist for
+    # warehouses/customers that actually override the base value.
+    warehouse_capacities = inp.get('warehouseCapacities', {})
+    customer_demands = inp.get('customerDemands', {})
     gap = inp.get('gap', 0.0)
     time_limit = inp.get('timeLimitSec', 120)
     wh_statuses = {ws['warehouseId']: ws['status'] for ws in inp.get('warehouseStatuses', [])}
@@ -88,6 +93,16 @@ def solve_pmedian(inp):
         if s == 'inactive':    return (0, 0)
         return (0, 1)
 
+    def get_capacity(wid):
+        sid = WAREHOUSES[wid]['id']
+        if sid in warehouse_capacities:
+            return warehouse_capacities[sid]
+        return uniform_capacity
+
+    def get_demand(c):
+        cid = CUSTOMERS[c]['id']
+        return customer_demands.get(cid, CUSTOMERS[c]['demand'])
+
     start = time.time()
 
     prob = LpProblem("PMedian", LpMinimize)
@@ -95,7 +110,7 @@ def solve_pmedian(inp):
     assign_vars   = LpVariable.dicts("A",    [(w, c) for w in warehouses for c in customers_list], 0, 1, cat='Binary')
     facility_vars = LpVariable.dicts("Open", warehouses, 0, 1, cat='Binary')
 
-    prob += lpSum(CUSTOMERS[c]['demand'] * DISTANCE.get((w, c), 9999) * assign_vars[w, c]
+    prob += lpSum(get_demand(c) * DISTANCE.get((w, c), 9999) * assign_vars[w, c]
                   for w in warehouses for c in customers_list)
 
     for c in customers_list:
@@ -105,10 +120,11 @@ def solve_pmedian(inp):
     prob += LpConstraint(lpSum(facility_vars[w] for w in warehouses),
                          LpConstraintEQ, "FacilityCount", p)
 
-    if capacity is not None:
-        for w in warehouses:
+    for w in warehouses:
+        cap = get_capacity(w)
+        if cap is not None:
             prob += LpConstraint(
-                lpSum(CUSTOMERS[c]['demand'] * assign_vars[w, c] for c in customers_list) - capacity * facility_vars[w],
+                lpSum(get_demand(c) * assign_vars[w, c] for c in customers_list) - cap * facility_vars[w],
                 LpConstraintLE, f"cap_{w}", 0)
 
     for w in warehouses:
@@ -130,12 +146,14 @@ def solve_pmedian(inp):
     if status_str == "Infeasible":
         forced_open = sum(1 for w in warehouses if get_bounds(w) == (1,1))
         reason = "Model is infeasible."
-        active_demand_count = sum(CUSTOMERS[c]['demand'] for c in customers_list)
+        active_demand_count = sum(get_demand(c) for c in customers_list)
+        capacities_in_play = [get_capacity(w) for w in warehouses if get_capacity(w) is not None]
         if forced_open > p:
             reason = f"Forced-open warehouses ({forced_open}) exceed p={p}. Increase P or unforce some warehouses."
-        elif capacity is not None:
-            reason = (f"Capacity={capacity} is too tight. With p={p} warehouses the total capacity "
-                      f"({p * capacity:,}) is less than active demand ({active_demand_count:,}). "
+        elif capacities_in_play:
+            total_capacity = sum(sorted(capacities_in_play, reverse=True)[:p])
+            reason = (f"Capacity is too tight. The {p} highest-capacity warehouses provide "
+                      f"{total_capacity:,} total capacity, less than active demand ({active_demand_count:,}). "
                       "Increase P, raise capacity, or remove the capacity constraint.")
         return {"status": "infeasible", "openWarehouseIds": [], "assignments": [],
                 "objective": 0, "weightedAvgDistanceMi": 0, "bandCoverage": [],
@@ -160,7 +178,7 @@ def solve_pmedian(inp):
             assigned_w = min(open_wh_nums, key=lambda w: DISTANCE.get((w, c), 9999))
 
         dist   = DISTANCE.get((assigned_w, c), 0)
-        demand = CUSTOMERS[c]['demand']
+        demand = get_demand(c)
         wh_demand[assigned_w] += demand
         total_demand_assigned += demand
         band_idx = next((i for i, b in enumerate(distance_bands) if dist <= b), len(distance_bands) - 1)
@@ -175,9 +193,12 @@ def solve_pmedian(inp):
     wt_avg    = obj_val / active_demand
     band_coverage = [{"band": b, "percent": round(band_demand[b] * 100 / active_demand)} for b in distance_bands]
     avg_demand_per_wh = active_demand / len(open_wh_nums) if open_wh_nums else 1
-    cap_for_util = capacity if (capacity and capacity < active_demand) else avg_demand_per_wh
-    utilization = [{"warehouseId": WAREHOUSES[w]['id'], "city": WAREHOUSES[w]['city'],
-                    "utilization": min(100, round(wh_demand[w] * 100 / cap_for_util))} for w in open_wh_nums]
+    utilization = []
+    for w in open_wh_nums:
+        cap = get_capacity(w)
+        cap_for_util = cap if (cap and cap < active_demand) else avg_demand_per_wh
+        utilization.append({"warehouseId": WAREHOUSES[w]['id'], "city": WAREHOUSES[w]['city'],
+                             "utilization": min(100, round(wh_demand[w] * 100 / cap_for_util))})
 
     return {"status": "optimal", "openWarehouseIds": open_wh_ids, "assignments": assignments,
             "objective": round(obj_val), "weightedAvgDistanceMi": round(wt_avg, 1),

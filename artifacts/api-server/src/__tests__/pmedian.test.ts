@@ -213,6 +213,50 @@ describe("solve()", () => {
     expect(payload.excludedCustomerIds).toEqual(["C1"]);
   });
 
+  it("translates per-warehouse capacity overrides into warehouseCapacities, omitting entries with no capacity", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve({
+      modelId: "p-median-us",
+      inputs: {
+        ...baseInput.inputs,
+        warehouseOverrides: [
+          { id: "CHI", status: "active", capacity: 500000 },
+          { id: "LA", status: "forced_open" },
+        ],
+      },
+    });
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.warehouseCapacities).toEqual({ CHI: 500000 });
+  });
+
+  it("translates per-customer demand overrides into customerDemands, omitting entries with no demand", () => {
+    mockSpawnSync.mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(validOutput),
+      stderr: "",
+      error: undefined,
+    } as unknown as SpawnSyncReturns<string>);
+
+    solve({
+      modelId: "p-median-us",
+      inputs: {
+        ...baseInput.inputs,
+        customerOverrides: [
+          { id: "C1", status: "active", demand: 42 },
+          { id: "C2", status: "excluded" },
+        ],
+      },
+    });
+    const payload = JSON.parse(mockSpawnSync.mock.calls[0][2]?.input as string);
+    expect(payload.customerDemands).toEqual({ C1: 42 });
+  });
+
   it("sets spawnSync timeout to timeLimitSec * 1000 + 15000", () => {
     mockSpawnSync.mockReturnValue({
       status: 0,
