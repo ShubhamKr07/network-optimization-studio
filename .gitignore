@@ -48,3 +48,8 @@ Thumbs.db
 .cache/
 .local/
 __pycache__/
+
+# Playwright
+/artifacts/studio/e2e/.auth/
+/artifacts/studio/e2e/report/
+/artifacts/studio/test-results/

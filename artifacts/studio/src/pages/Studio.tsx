@@ -10,6 +10,7 @@ import {
   useCloneScenario,
   useCreateScenario,
   useDeleteScenario,
+  exportScenario,
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
 } from "@workspace/api-client-react";
@@ -19,6 +20,8 @@ import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { WarehouseTable } from "@/components/tables/WarehouseTable";
 import { CustomerTable } from "@/components/tables/CustomerTable";
+import { ImportDialog } from "@/components/ImportDialog";
+import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -28,7 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save } from "lucide-react";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save, Download, Upload } from "lucide-react";
 
 const CONSTRAINTS: Record<string, string[]> = {
   "transport-coal": ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
@@ -190,6 +193,7 @@ export function Studio({ modelId }: StudioProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [showWarehouseTable, setShowWarehouseTable] = useState(false);
   const [showCustomerTable, setShowCustomerTable] = useState(false);
+  const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | null>(null);
 
   const deleteScenario = useDeleteScenario();
 
@@ -341,6 +345,35 @@ export function Studio({ modelId }: StudioProps) {
         },
       }
     );
+  };
+
+  const handleExport = async (entity: "warehouses" | "customers", format: "csv" | "json") => {
+    if (!scenarioId) return;
+    try {
+      const data = await exportScenario(scenarioId, { entity, format });
+      const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      const blob = new Blob([text], { type: format === "csv" ? "text/csv" : "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${entity}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast({
+        title: "Export failed",
+        description: err instanceof Error ? err.message : "Could not export.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleImportApplied = (updated: Scenario) => {
+    const cfg = configFromScenario(updated);
+    setLocalConfig(cfg);
+    setSavedConfig(cfg);
+    queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
   };
 
   const addBand = () => {
@@ -827,6 +860,39 @@ export function Studio({ modelId }: StudioProps) {
                   Warehouses
                   <span className="text-muted-foreground">{forcedOpenCount + inactiveCount > 0 ? `${forcedOpenCount + inactiveCount} overridden` : "26"}</span>
                 </Button>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("warehouses", "csv")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-warehouses-csv"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("warehouses", "json")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-warehouses-json"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> JSON
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setImportEntity("warehouses")}
+                    disabled={!scenarioId}
+                    data-testid="button-import-warehouses"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Upload className="w-3 h-3 mr-1" /> Import
+                  </Button>
+                </div>
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -837,6 +903,38 @@ export function Studio({ modelId }: StudioProps) {
                   Customers
                   <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
                 </Button>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("customers", "csv")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-customers-csv"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("customers", "json")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-customers-json"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> JSON
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setImportEntity("customers")}
+                    disabled={!scenarioId}
+                    data-testid="button-import-customers"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Upload className="w-3 h-3 mr-1" /> Import
+                  </Button>
+                </div>
               </div>
               )}
             </>
@@ -1163,6 +1261,17 @@ export function Studio({ modelId }: StudioProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Import dialog (D5.2) */}
+      {importEntity && scenarioId && (
+        <ImportDialog
+          open={!!importEntity}
+          onOpenChange={open => { if (!open) setImportEntity(null); }}
+          scenarioId={scenarioId}
+          entity={importEntity}
+          onApplied={handleImportApplied}
+        />
+      )}
     </div>
   );
 }

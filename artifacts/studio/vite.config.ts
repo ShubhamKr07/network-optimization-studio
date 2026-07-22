@@ -66,6 +66,15 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Local dev only: makes the browser see one origin (this dev server)
+    // instead of two separate ports, so auth cookies work without CORS
+    // gymnastics. Unused in production — the built app is served by
+    // whatever hosts the static files there. Opt-in via API_PROXY_TARGET
+    // so this has no effect unless a developer explicitly wants it (e.g.
+    // for running Playwright against localhost).
+    ...(process.env.API_PROXY_TARGET
+      ? { proxy: { "/api": { target: process.env.API_PROXY_TARGET, changeOrigin: true } } }
+      : {}),
   },
   preview: {
     port,

@@ -11,6 +11,8 @@
   "private": true,
   "devDependencies": {
     "@rollup/rollup-darwin-arm64": "^4.62.2",
+    "@tailwindcss/oxide-darwin-arm64": "4.3.0",
+    "lightningcss-darwin-arm64": "^1.33.0",
     "prettier": "^3.8.3",
     "typescript": "~5.9.3"
   },
