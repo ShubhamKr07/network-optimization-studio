@@ -80,6 +80,7 @@ const mockSolveScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: fa
 const mockCloneScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
 const mockCreateScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
+const mockResetToBaseline = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(),
@@ -90,6 +91,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
+  useResetScenarioToBaseline: vi.fn(() => mockResetToBaseline),
+  exportScenario: vi.fn(),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
 }));
@@ -517,6 +520,57 @@ describe("Studio — New button sends correct modelId", () => {
       expect.objectContaining({
         data: expect.objectContaining({ modelId: "p-median-brazil", inputs: expect.objectContaining({ p: 7 }) }),
       }),
+      expect.anything()
+    );
+  });
+});
+
+// ── Reset to baseline (D6.1) ────────────────────────────────────────────────
+describe("Studio — Reset to baseline", () => {
+  const dirtyScenario = {
+    ...pmedianScenario,
+    inputs: {
+      ...pmedianInputs,
+      warehouseOverrides: [{ id: "CHI", status: "forced_open" }],
+      customerOverrides: [{ id: "C1", status: "excluded" }],
+    },
+  };
+
+  it("is disabled when there are no overrides", () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getByTestId("button-reset-baseline")).toBeDisabled();
+  });
+
+  it("is enabled and opens a confirm dialog when overrides exist", async () => {
+    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getByTestId("button-reset-baseline")).not.toBeDisabled();
+    await userEvent.click(screen.getByTestId("button-reset-baseline"));
+    expect(screen.getByText("Reset to baseline?")).toBeInTheDocument();
+    expect(mockResetToBaseline.mutate).not.toHaveBeenCalled();
+  });
+
+  it("cancel closes the dialog without calling the mutation", async () => {
+    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByTestId("button-reset-baseline"));
+    await userEvent.click(screen.getByTestId("button-reset-cancel"));
+    expect(mockResetToBaseline.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByText("Reset to baseline?")).not.toBeInTheDocument();
+  });
+
+  it("confirm calls the reset mutation with the current scenario id", async () => {
+    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByTestId("button-reset-baseline"));
+    await userEvent.click(screen.getByTestId("button-reset-confirm"));
+    expect(mockResetToBaseline.mutate).toHaveBeenCalledWith(
+      { scenarioId: dirtyScenario.id },
       expect.anything()
     );
   });

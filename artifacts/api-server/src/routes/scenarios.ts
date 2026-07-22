@@ -312,6 +312,29 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   res.json({ scenario: toApiScenario(updated), applied: preview.changes.length, errors: preview.errors });
 });
 
+router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (scenario.modelId !== "p-median-us") {
+    res.status(422).json({ error: "Reset to baseline is only supported for p-median-us scenarios" });
+    return;
+  }
+
+  const inputs = scenario.inputs as Record<string, unknown>;
+  const [updated] = await db.update(scenariosTable)
+    .set({
+      inputs: { ...inputs, warehouseOverrides: [], customerOverrides: [] },
+      inputsUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+    .returning();
+
+  res.json(toApiScenario(updated));
+});
+
 router.post("/scenarios/:scenarioId/clone", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const [scenario] = await db.select().from(scenariosTable)

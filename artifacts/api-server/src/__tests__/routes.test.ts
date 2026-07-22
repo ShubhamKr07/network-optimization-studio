@@ -615,6 +615,59 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   });
 });
 
+// ── Reset to baseline ───────────────────────────────────────────────────────
+describe("POST /api/scenarios/:id/reset-to-baseline", () => {
+  it("returns 401 without a session", async () => {
+    const res = await request(app).post("/api/scenarios/1/reset-to-baseline");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 (not 403) for a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).post("/api/scenarios/1/reset-to-baseline").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for a non-p-median-us scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).post("/api/scenarios/8/reset-to-baseline").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("clears warehouseOverrides and customerOverrides, leaving other inputs untouched", async () => {
+    const cookie = await loginAs(OWNER);
+    const dirtyRow = {
+      ...pmedianRow,
+      inputs: {
+        ...pmedianInputs,
+        warehouseOverrides: [{ id: "ATL", status: "forced_open", capacity: 500000 }],
+        customerOverrides: [{ id: "C1", status: "excluded" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([dirtyRow]));
+    const clearedRow = { ...dirtyRow, inputs: { ...pmedianInputs, warehouseOverrides: [], customerOverrides: [] } };
+    mockDb.update.mockReturnValue(makeChain([clearedRow]));
+
+    const res = await request(app).post("/api/scenarios/1/reset-to-baseline").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.inputs.warehouseOverrides).toEqual([]);
+    expect(res.body.inputs.customerOverrides).toEqual([]);
+    expect(res.body.inputs.p).toBe(pmedianInputs.p);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 404 when the scenario does not exist", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).post("/api/scenarios/999/reset-to-baseline").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+});
+
 // ── Clone scenario ─────────────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/clone", () => {
   it("returns 201 with name '<original> (copy)' and null result", async () => {

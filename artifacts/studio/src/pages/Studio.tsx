@@ -10,6 +10,7 @@ import {
   useCloneScenario,
   useCreateScenario,
   useDeleteScenario,
+  useResetScenarioToBaseline,
   exportScenario,
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
@@ -31,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save, Download, Upload } from "lucide-react";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save, Download, Upload, RotateCcw } from "lucide-react";
 
 const CONSTRAINTS: Record<string, string[]> = {
   "transport-coal": ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
@@ -194,8 +195,10 @@ export function Studio({ modelId }: StudioProps) {
   const [showWarehouseTable, setShowWarehouseTable] = useState(false);
   const [showCustomerTable, setShowCustomerTable] = useState(false);
   const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const deleteScenario = useDeleteScenario();
+  const resetToBaseline = useResetScenarioToBaseline();
 
   useEffect(() => {
     if (!scenarios || scenarios.length === 0) return;
@@ -374,6 +377,20 @@ export function Studio({ modelId }: StudioProps) {
     setSavedConfig(cfg);
     queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
+  };
+
+  const handleResetToBaseline = () => {
+    if (!scenarioId) return;
+    resetToBaseline.mutate(
+      { scenarioId },
+      {
+        onSuccess: (updated) => {
+          handleImportApplied(updated);
+          setShowResetConfirm(false);
+          toast({ title: "Reset to baseline", description: "Warehouse and customer overrides cleared." });
+        },
+      }
+    );
   };
 
   const addBand = () => {
@@ -935,6 +952,17 @@ export function Studio({ modelId }: StudioProps) {
                     <Upload className="w-3 h-3 mr-1" /> Import
                   </Button>
                 </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowResetConfirm(true)}
+                  disabled={!scenarioId || (forcedOpenCount + inactiveCount === 0 && localConfig.customerOverrides.length === 0)}
+                  data-testid="button-reset-baseline"
+                  className="w-full h-7 text-xs justify-center text-muted-foreground"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" /> Reset to baseline
+                </Button>
               </div>
               )}
             </>
@@ -1259,6 +1287,32 @@ export function Studio({ modelId }: StudioProps) {
               onChange={next => update("customerOverrides", next)}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset to baseline confirm dialog (D6.1) */}
+      <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reset to baseline?</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground py-2">
+            This clears every warehouse and customer override on this scenario, restoring the canonical textbook dataset. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowResetConfirm(false)} data-testid="button-reset-cancel">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={handleResetToBaseline}
+              disabled={resetToBaseline.isPending}
+              data-testid="button-reset-confirm"
+            >
+              {resetToBaseline.isPending ? "Resetting…" : "Reset"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

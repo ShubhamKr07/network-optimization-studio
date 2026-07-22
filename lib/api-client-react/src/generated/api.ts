@@ -797,6 +797,76 @@ export const useApplyScenarioImport = <TError = ErrorType<void>,
       return useMutation(getApplyScenarioImportMutationOptions(options));
     }
 
+export const getResetScenarioToBaselineUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/reset-to-baseline`
+}
+
+/**
+ * @summary Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
+ */
+export const resetScenarioToBaseline = async (scenarioId: number, options?: RequestInit): Promise<Scenario> => {
+
+  return customFetch<Scenario>(getResetScenarioToBaselineUrl(scenarioId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResetScenarioToBaselineMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetScenarioToBaseline>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetScenarioToBaseline>>, TError,{scenarioId: number}, TContext> => {
+
+const mutationKey = ['resetScenarioToBaseline'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetScenarioToBaseline>>, {scenarioId: number}> = (props) => {
+          const {scenarioId} = props ?? {};
+
+          return  resetScenarioToBaseline(scenarioId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetScenarioToBaselineMutationResult = NonNullable<Awaited<ReturnType<typeof resetScenarioToBaseline>>>
+
+    export type ResetScenarioToBaselineMutationError = ErrorType<void>
+
+    /**
+ * @summary Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
+ */
+export const useResetScenarioToBaseline = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetScenarioToBaseline>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resetScenarioToBaseline>>,
+        TError,
+        {scenarioId: number},
+        TContext
+      > => {
+      return useMutation(getResetScenarioToBaselineMutationOptions(options));
+    }
+
 export const getCloneScenarioUrl = (scenarioId: number,) => {
 
 

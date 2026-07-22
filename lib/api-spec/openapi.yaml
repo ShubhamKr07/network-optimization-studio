@@ -252,6 +252,31 @@ paths:
         "422":
           description: Invalid entity, model unsupported, or (all_or_nothing mode) the import had errors and nothing was applied
 
+  /scenarios/{scenarioId}/reset-to-baseline:
+    post:
+      operationId: resetScenarioToBaseline
+      tags: [scenarios]
+      summary: Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Scenario with overrides cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found
+        "422":
+          description: This scenario's model doesn't support reset-to-baseline
+
   /scenarios/{scenarioId}/clone:
     post:
       operationId: cloneScenario
