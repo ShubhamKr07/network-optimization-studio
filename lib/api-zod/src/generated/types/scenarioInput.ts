@@ -5,28 +5,11 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ScenarioInputCapacityMode } from './scenarioInputCapacityMode';
-import type { ScenarioInputProblemType } from './scenarioInputProblemType';
-import type { ScenarioInputSolver } from './scenarioInputSolver';
-import type { WarehouseStatusEntry } from './warehouseStatusEntry';
+import type { ScenarioInputInputs } from './scenarioInputInputs';
+import type { ScenarioInputModelId } from './scenarioInputModelId';
 
 export interface ScenarioInput {
   name: string;
-  problemType: ScenarioInputProblemType;
-  /**
-     * @minimum 1
-     * @maximum 50
-     */
-  pValue: number;
-  /** @minItems 1 */
-  distanceBands: number[];
-  solver: ScenarioInputSolver;
-  /** @minimum 0 */
-  gap: number;
-  /** @minimum 1 */
-  timeLimitSec: number;
-  capacityMode: ScenarioInputCapacityMode;
-  /** @nullable */
-  uniformCapacity: number | null;
-  warehouseStatuses: WarehouseStatusEntry[];
+  modelId: ScenarioInputModelId;
+  inputs: ScenarioInputInputs;
 }

@@ -1,24 +1,16 @@
-import { pgTable, serial, text, integer, real, boolean, jsonb, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, jsonb, timestamp, varchar, index } from "drizzle-orm/pg-core";
 import { usersTable } from "./auth.js";
 
 export const scenariosTable = pgTable("scenarios", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   userId: varchar("user_id").notNull().references(() => usersTable.id),
-  problemType: text("problem_type").notNull().default("p_median"),
-  pValue: integer("p_value").notNull().default(3),
-  distanceBands: jsonb("distance_bands").notNull().default([200, 400, 800, 1600]).$type<number[]>(),
-  solver: text("solver").notNull().default("cbc"),
-  gap: real("gap").notNull().default(0.0),
-  timeLimitSec: integer("time_limit_sec").notNull().default(120),
-  capacityMode: text("capacity_mode").notNull().default("uniform"),
-  uniformCapacity: integer("uniform_capacity"),
-  warehouseStatuses: jsonb("warehouse_statuses").notNull().default([]).$type<Array<{ warehouseId: string; status: string }>>(),
-  // Chapter 5 transport LP fields
-  capacityFactor: real("capacity_factor").notNull().default(1.0),
-  singleSource: boolean("single_source").notNull().default(false),
-  capacityInactive: boolean("capacity_inactive").notNull().default(false),
+  modelId: text("model_id").notNull(),
+  inputs: jsonb("inputs").notNull().default({}).$type<Record<string, unknown>>(),
+  inputsVersion: integer("inputs_version").notNull().default(1),
   result: jsonb("result").$type<Record<string, unknown> | null>(),
+  solvedAt: timestamp("solved_at"),
+  inputsUpdatedAt: timestamp("inputs_updated_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [index("IDX_scenarios_user_id").on(table.userId)]);

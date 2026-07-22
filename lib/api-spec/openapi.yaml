@@ -52,19 +52,19 @@ paths:
       tags: [scenarios]
       summary: List all scenarios
       parameters:
-        - name: problemType
+        - name: modelId
           in: query
           required: false
           description: Restrict the list to scenarios of this model (chapter pages scope by this).
           schema:
             type: string
             enum:
-              - p_median
-              - capacitated_pmedian
+              - p-median-us
+              - transport-coal
+              - p-median-brazil
               - max_coverage
               - p_center
               - set_cover
-              - transport
       responses:
         "200":
           description: List of scenarios
@@ -96,7 +96,7 @@ paths:
         "401":
           description: Not authenticated
         "422":
-          description: Missing or invalid problemType
+          description: Missing or invalid modelId, or inputs fails model-specific validation
 
   /scenarios/{scenarioId}:
     get:
@@ -148,7 +148,7 @@ paths:
         "404":
           description: Not found
         "422":
-          description: problemType is not editable after creation
+          description: inputs fails model-specific validation
     delete:
       operationId: deleteScenario
       tags: [scenarios]
@@ -411,16 +411,6 @@ components:
             $ref: "#/components/schemas/Customer"
       required: [warehouses, customers]
 
-    WarehouseStatusEntry:
-      type: object
-      properties:
-        warehouseId:
-          type: string
-        status:
-          type: string
-          enum: [potential, forced_open, inactive]
-      required: [warehouseId, status]
-
     TransportAssignment:
       type: object
       properties:
@@ -516,46 +506,18 @@ components:
           type: integer
         name:
           type: string
-        problemType:
+        modelId:
           type: string
           enum:
-            - p_median
-            - capacitated_pmedian
+            - p-median-us
+            - transport-coal
+            - p-median-brazil
             - max_coverage
             - p_center
             - set_cover
-            - transport
-        pValue:
-          type: integer
-        distanceBands:
-          type: array
-          items:
-            type: integer
-        solver:
-          type: string
-          enum: [cbc, highs, glpk, gurobi, scip]
-        gap:
-          type: number
-        timeLimitSec:
-          type: integer
-        capacityMode:
-          type: string
-          enum: [uniform, per_wh]
-        uniformCapacity:
-          type: ["integer", "null"]
-        warehouseStatuses:
-          type: array
-          items:
-            $ref: "#/components/schemas/WarehouseStatusEntry"
-        capacityFactor:
-          type: number
-          default: 1.0
-        singleSource:
-          type: boolean
-          default: false
-        capacityInactive:
-          type: boolean
-          default: false
+        inputs:
+          type: object
+          description: Opaque, model-specific input payload. Shape enforced per-model by artifacts/api-server/src/validation/inputs/, documented in docs/scenario-inputs-schema.md — not by this contract (Phase 3.5's model registry replaces this validation lookup with manifest-driven schemas without changing this field's shape).
         result:
           oneOf:
             - $ref: "#/components/schemas/SolveResult"
@@ -569,15 +531,8 @@ components:
       required:
         - id
         - name
-        - problemType
-        - pValue
-        - distanceBands
-        - solver
-        - gap
-        - timeLimitSec
-        - capacityMode
-        - uniformCapacity
-        - warehouseStatuses
+        - modelId
+        - inputs
         - result
         - createdAt
         - updatedAt
@@ -587,83 +542,29 @@ components:
       properties:
         name:
           type: string
-        problemType:
+        modelId:
           type: string
           enum:
-            - p_median
-            - capacitated_pmedian
+            - p-median-us
+            - transport-coal
+            - p-median-brazil
             - max_coverage
             - p_center
             - set_cover
-            - transport
-        pValue:
-          type: integer
-          minimum: 1
-          maximum: 50
-        distanceBands:
-          type: array
-          items:
-            type: integer
-          minItems: 1
-        solver:
-          type: string
-          enum: [cbc, highs, glpk, gurobi, scip]
-        gap:
-          type: number
-          minimum: 0
-        timeLimitSec:
-          type: integer
-          minimum: 1
-        capacityMode:
-          type: string
-          enum: [uniform, per_wh]
-        uniformCapacity:
-          type: ["integer", "null"]
-        warehouseStatuses:
-          type: array
-          items:
-            $ref: "#/components/schemas/WarehouseStatusEntry"
+        inputs:
+          type: object
       required:
         - name
-        - problemType
-        - pValue
-        - distanceBands
-        - solver
-        - gap
-        - timeLimitSec
-        - capacityMode
-        - uniformCapacity
-        - warehouseStatuses
+        - modelId
+        - inputs
 
     ScenarioUpdate:
       type: object
       properties:
         name:
           type: string
-        pValue:
-          type: integer
-          minimum: 1
-          maximum: 50
-        distanceBands:
-          type: array
-          items:
-            type: integer
-        solver:
-          type: string
-          enum: [cbc, highs, glpk, gurobi, scip]
-        gap:
-          type: number
-        timeLimitSec:
-          type: integer
-        capacityMode:
-          type: string
-          enum: [uniform, per_wh]
-        uniformCapacity:
-          type: ["integer", "null"]
-        warehouseStatuses:
-          type: array
-          items:
-            $ref: "#/components/schemas/WarehouseStatusEntry"
+        inputs:
+          type: object
 
     CompareInput:
       type: object

@@ -6,14 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ScenarioProblemType = typeof ScenarioProblemType[keyof typeof ScenarioProblemType];
+export type ScenarioModelId = typeof ScenarioModelId[keyof typeof ScenarioModelId];
 
 
-export const ScenarioProblemType = {
-  p_median: 'p_median',
-  capacitated_pmedian: 'capacitated_pmedian',
+export const ScenarioModelId = {
+  'p-median-us': 'p-median-us',
+  'transport-coal': 'transport-coal',
+  'p-median-brazil': 'p-median-brazil',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
-  transport: 'transport',
 } as const;

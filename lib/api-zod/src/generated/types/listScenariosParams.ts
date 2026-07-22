@@ -5,11 +5,11 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ListScenariosProblemType } from './listScenariosProblemType';
+import type { ListScenariosModelId } from './listScenariosModelId';
 
 export type ListScenariosParams = {
 /**
  * Restrict the list to scenarios of this model (chapter pages scope by this).
  */
-problemType?: ListScenariosProblemType;
+modelId?: ListScenariosModelId;
 };

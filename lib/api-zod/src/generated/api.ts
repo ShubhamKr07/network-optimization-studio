@@ -42,31 +42,16 @@ export const GetDatasetResponse = zod.object({
  * @summary List all scenarios
  */
 export const ListScenariosQueryParams = zod.object({
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
 })
-
-export const listScenariosResponseCapacityFactorDefault = 1;
-export const listScenariosResponseSingleSourceDefault = false;
-export const listScenariosResponseCapacityInactiveDefault = false;
 
 export const ListScenariosResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
-  "pValue": zod.number(),
-  "distanceBands": zod.array(zod.number()),
-  "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
-  "gap": zod.number(),
-  "timeLimitSec": zod.number(),
-  "capacityMode": zod.enum(['uniform', 'per_wh']),
-  "uniformCapacity": zod.number().nullable(),
-  "warehouseStatuses": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "status": zod.enum(['potential', 'forced_open', 'inactive'])
-})),
-  "capacityFactor": zod.number().default(listScenariosResponseCapacityFactorDefault),
-  "singleSource": zod.boolean().default(listScenariosResponseSingleSourceDefault),
-  "capacityInactive": zod.boolean().default(listScenariosResponseCapacityInactiveDefault),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
   "openWarehouseIds": zod.array(zod.string()).optional(),
@@ -100,28 +85,12 @@ export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
 /**
  * @summary Create a new scenario
  */
-export const createScenarioBodyPValueMax = 50;
-
-
-export const createScenarioBodyGapMin = 0;
-
-
-
-
 export const CreateScenarioBody = zod.object({
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
-  "pValue": zod.number().min(1).max(createScenarioBodyPValueMax),
-  "distanceBands": zod.array(zod.number()).min(1),
-  "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
-  "gap": zod.number().min(createScenarioBodyGapMin),
-  "timeLimitSec": zod.number().min(1),
-  "capacityMode": zod.enum(['uniform', 'per_wh']),
-  "uniformCapacity": zod.number().nullable(),
-  "warehouseStatuses": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "status": zod.enum(['potential', 'forced_open', 'inactive'])
-}))
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough()
 })
 
 
@@ -132,28 +101,13 @@ export const GetScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
-export const getScenarioResponseCapacityFactorDefault = 1;
-export const getScenarioResponseSingleSourceDefault = false;
-export const getScenarioResponseCapacityInactiveDefault = false;
-
 export const GetScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
-  "pValue": zod.number(),
-  "distanceBands": zod.array(zod.number()),
-  "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
-  "gap": zod.number(),
-  "timeLimitSec": zod.number(),
-  "capacityMode": zod.enum(['uniform', 'per_wh']),
-  "uniformCapacity": zod.number().nullable(),
-  "warehouseStatuses": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "status": zod.enum(['potential', 'forced_open', 'inactive'])
-})),
-  "capacityFactor": zod.number().default(getScenarioResponseCapacityFactorDefault),
-  "singleSource": zod.boolean().default(getScenarioResponseSingleSourceDefault),
-  "capacityInactive": zod.boolean().default(getScenarioResponseCapacityInactiveDefault),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
   "openWarehouseIds": zod.array(zod.string()).optional(),
@@ -190,47 +144,20 @@ export const UpdateScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
-export const updateScenarioBodyPValueMax = 50;
-
-
-
 export const UpdateScenarioBody = zod.object({
   "name": zod.string().optional(),
-  "pValue": zod.number().min(1).max(updateScenarioBodyPValueMax).optional(),
-  "distanceBands": zod.array(zod.number()).optional(),
-  "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']).optional(),
-  "gap": zod.number().optional(),
-  "timeLimitSec": zod.number().optional(),
-  "capacityMode": zod.enum(['uniform', 'per_wh']).optional(),
-  "uniformCapacity": zod.number().nullish(),
-  "warehouseStatuses": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "status": zod.enum(['potential', 'forced_open', 'inactive'])
-})).optional()
-})
+  "inputs": zod.object({
 
-export const updateScenarioResponseCapacityFactorDefault = 1;
-export const updateScenarioResponseSingleSourceDefault = false;
-export const updateScenarioResponseCapacityInactiveDefault = false;
+}).passthrough().optional()
+})
 
 export const UpdateScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
-  "pValue": zod.number(),
-  "distanceBands": zod.array(zod.number()),
-  "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
-  "gap": zod.number(),
-  "timeLimitSec": zod.number(),
-  "capacityMode": zod.enum(['uniform', 'per_wh']),
-  "uniformCapacity": zod.number().nullable(),
-  "warehouseStatuses": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "status": zod.enum(['potential', 'forced_open', 'inactive'])
-})),
-  "capacityFactor": zod.number().default(updateScenarioResponseCapacityFactorDefault),
-  "singleSource": zod.boolean().default(updateScenarioResponseSingleSourceDefault),
-  "capacityInactive": zod.boolean().default(updateScenarioResponseCapacityInactiveDefault),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
   "openWarehouseIds": zod.array(zod.string()).optional(),
@@ -275,28 +202,13 @@ export const SolveScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
-export const solveScenarioResponseCapacityFactorDefault = 1;
-export const solveScenarioResponseSingleSourceDefault = false;
-export const solveScenarioResponseCapacityInactiveDefault = false;
-
 export const SolveScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "problemType": zod.enum(['p_median', 'capacitated_pmedian', 'max_coverage', 'p_center', 'set_cover', 'transport']),
-  "pValue": zod.number(),
-  "distanceBands": zod.array(zod.number()),
-  "solver": zod.enum(['cbc', 'highs', 'glpk', 'gurobi', 'scip']),
-  "gap": zod.number(),
-  "timeLimitSec": zod.number(),
-  "capacityMode": zod.enum(['uniform', 'per_wh']),
-  "uniformCapacity": zod.number().nullable(),
-  "warehouseStatuses": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "status": zod.enum(['potential', 'forced_open', 'inactive'])
-})),
-  "capacityFactor": zod.number().default(solveScenarioResponseCapacityFactorDefault),
-  "singleSource": zod.boolean().default(solveScenarioResponseSingleSourceDefault),
-  "capacityInactive": zod.boolean().default(solveScenarioResponseCapacityInactiveDefault),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
   "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
   "openWarehouseIds": zod.array(zod.string()).optional(),

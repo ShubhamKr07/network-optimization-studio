@@ -5,23 +5,9 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ScenarioUpdateCapacityMode } from './scenarioUpdateCapacityMode';
-import type { ScenarioUpdateSolver } from './scenarioUpdateSolver';
-import type { WarehouseStatusEntry } from './warehouseStatusEntry';
+import type { ScenarioUpdateInputs } from './scenarioUpdateInputs';
 
 export interface ScenarioUpdate {
   name?: string;
-  /**
-     * @minimum 1
-     * @maximum 50
-     */
-  pValue?: number;
-  distanceBands?: number[];
-  solver?: ScenarioUpdateSolver;
-  gap?: number;
-  timeLimitSec?: number;
-  capacityMode?: ScenarioUpdateCapacityMode;
-  /** @nullable */
-  uniformCapacity?: number | null;
-  warehouseStatuses?: WarehouseStatusEntry[];
+  inputs?: ScenarioUpdateInputs;
 }

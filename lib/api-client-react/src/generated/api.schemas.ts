@@ -68,20 +68,6 @@ export interface Dataset {
   customers: Customer[];
 }
 
-export type WarehouseStatusEntryStatus = typeof WarehouseStatusEntryStatus[keyof typeof WarehouseStatusEntryStatus];
-
-
-export const WarehouseStatusEntryStatus = {
-  potential: 'potential',
-  forced_open: 'forced_open',
-  inactive: 'inactive',
-} as const;
-
-export interface WarehouseStatusEntry {
-  warehouseId: string;
-  status: WarehouseStatusEntryStatus;
-}
-
 export interface TransportAssignment {
   mineId: string;
   stationId: string;
@@ -132,144 +118,59 @@ export interface SolveResult {
   infeasibilityReason: string | null;
 }
 
-export type ScenarioProblemType = typeof ScenarioProblemType[keyof typeof ScenarioProblemType];
+export type ScenarioModelId = typeof ScenarioModelId[keyof typeof ScenarioModelId];
 
 
-export const ScenarioProblemType = {
-  p_median: 'p_median',
-  capacitated_pmedian: 'capacitated_pmedian',
+export const ScenarioModelId = {
+  'p-median-us': 'p-median-us',
+  'transport-coal': 'transport-coal',
+  'p-median-brazil': 'p-median-brazil',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
-  transport: 'transport',
 } as const;
 
-export type ScenarioSolver = typeof ScenarioSolver[keyof typeof ScenarioSolver];
-
-
-export const ScenarioSolver = {
-  cbc: 'cbc',
-  highs: 'highs',
-  glpk: 'glpk',
-  gurobi: 'gurobi',
-  scip: 'scip',
-} as const;
-
-export type ScenarioCapacityMode = typeof ScenarioCapacityMode[keyof typeof ScenarioCapacityMode];
-
-
-export const ScenarioCapacityMode = {
-  uniform: 'uniform',
-  per_wh: 'per_wh',
-} as const;
+/**
+ * Opaque, model-specific input payload. Shape enforced per-model by artifacts/api-server/src/validation/inputs/, documented in docs/scenario-inputs-schema.md — not by this contract (Phase 3.5's model registry replaces this validation lookup with manifest-driven schemas without changing this field's shape).
+ */
+export type ScenarioInputs = { [key: string]: unknown };
 
 export interface Scenario {
   id: number;
   name: string;
-  problemType: ScenarioProblemType;
-  pValue: number;
-  distanceBands: number[];
-  solver: ScenarioSolver;
-  gap: number;
-  timeLimitSec: number;
-  capacityMode: ScenarioCapacityMode;
-  /** @nullable */
-  uniformCapacity: number | null;
-  warehouseStatuses: WarehouseStatusEntry[];
-  capacityFactor?: number;
-  singleSource?: boolean;
-  capacityInactive?: boolean;
+  modelId: ScenarioModelId;
+  /** Opaque, model-specific input payload. Shape enforced per-model by artifacts/api-server/src/validation/inputs/, documented in docs/scenario-inputs-schema.md — not by this contract (Phase 3.5's model registry replaces this validation lookup with manifest-driven schemas without changing this field's shape). */
+  inputs: ScenarioInputs;
   result: SolveResult | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type ScenarioInputProblemType = typeof ScenarioInputProblemType[keyof typeof ScenarioInputProblemType];
+export type ScenarioInputModelId = typeof ScenarioInputModelId[keyof typeof ScenarioInputModelId];
 
 
-export const ScenarioInputProblemType = {
-  p_median: 'p_median',
-  capacitated_pmedian: 'capacitated_pmedian',
+export const ScenarioInputModelId = {
+  'p-median-us': 'p-median-us',
+  'transport-coal': 'transport-coal',
+  'p-median-brazil': 'p-median-brazil',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
-  transport: 'transport',
 } as const;
 
-export type ScenarioInputSolver = typeof ScenarioInputSolver[keyof typeof ScenarioInputSolver];
-
-
-export const ScenarioInputSolver = {
-  cbc: 'cbc',
-  highs: 'highs',
-  glpk: 'glpk',
-  gurobi: 'gurobi',
-  scip: 'scip',
-} as const;
-
-export type ScenarioInputCapacityMode = typeof ScenarioInputCapacityMode[keyof typeof ScenarioInputCapacityMode];
-
-
-export const ScenarioInputCapacityMode = {
-  uniform: 'uniform',
-  per_wh: 'per_wh',
-} as const;
+export type ScenarioInputInputs = { [key: string]: unknown };
 
 export interface ScenarioInput {
   name: string;
-  problemType: ScenarioInputProblemType;
-  /**
-     * @minimum 1
-     * @maximum 50
-     */
-  pValue: number;
-  /** @minItems 1 */
-  distanceBands: number[];
-  solver: ScenarioInputSolver;
-  /** @minimum 0 */
-  gap: number;
-  /** @minimum 1 */
-  timeLimitSec: number;
-  capacityMode: ScenarioInputCapacityMode;
-  /** @nullable */
-  uniformCapacity: number | null;
-  warehouseStatuses: WarehouseStatusEntry[];
+  modelId: ScenarioInputModelId;
+  inputs: ScenarioInputInputs;
 }
 
-export type ScenarioUpdateSolver = typeof ScenarioUpdateSolver[keyof typeof ScenarioUpdateSolver];
-
-
-export const ScenarioUpdateSolver = {
-  cbc: 'cbc',
-  highs: 'highs',
-  glpk: 'glpk',
-  gurobi: 'gurobi',
-  scip: 'scip',
-} as const;
-
-export type ScenarioUpdateCapacityMode = typeof ScenarioUpdateCapacityMode[keyof typeof ScenarioUpdateCapacityMode];
-
-
-export const ScenarioUpdateCapacityMode = {
-  uniform: 'uniform',
-  per_wh: 'per_wh',
-} as const;
+export type ScenarioUpdateInputs = { [key: string]: unknown };
 
 export interface ScenarioUpdate {
   name?: string;
-  /**
-     * @minimum 1
-     * @maximum 50
-     */
-  pValue?: number;
-  distanceBands?: number[];
-  solver?: ScenarioUpdateSolver;
-  gap?: number;
-  timeLimitSec?: number;
-  capacityMode?: ScenarioUpdateCapacityMode;
-  /** @nullable */
-  uniformCapacity?: number | null;
-  warehouseStatuses?: WarehouseStatusEntry[];
+  inputs?: ScenarioUpdateInputs;
 }
 
 export interface CompareInput {
@@ -296,18 +197,18 @@ export type ListScenariosParams = {
 /**
  * Restrict the list to scenarios of this model (chapter pages scope by this).
  */
-problemType?: ListScenariosProblemType;
+modelId?: ListScenariosModelId;
 };
 
-export type ListScenariosProblemType = typeof ListScenariosProblemType[keyof typeof ListScenariosProblemType];
+export type ListScenariosModelId = typeof ListScenariosModelId[keyof typeof ListScenariosModelId];
 
 
-export const ListScenariosProblemType = {
-  p_median: 'p_median',
-  capacitated_pmedian: 'capacitated_pmedian',
+export const ListScenariosModelId = {
+  'p-median-us': 'p-median-us',
+  'transport-coal': 'transport-coal',
+  'p-median-brazil': 'p-median-brazil',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
-  transport: 'transport',
 } as const;
 

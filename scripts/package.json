@@ -6,6 +6,7 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "migrate-scenario-owners": "tsx ./src/migrate-scenario-owners.ts",
+    "migrate-scenario-inputs": "tsx ./src/migrate-scenario-inputs.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

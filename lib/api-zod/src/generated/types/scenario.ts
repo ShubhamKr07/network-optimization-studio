@@ -5,28 +5,16 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ScenarioCapacityMode } from './scenarioCapacityMode';
-import type { ScenarioProblemType } from './scenarioProblemType';
-import type { ScenarioSolver } from './scenarioSolver';
+import type { ScenarioInputs } from './scenarioInputs';
+import type { ScenarioModelId } from './scenarioModelId';
 import type { SolveResult } from './solveResult';
-import type { WarehouseStatusEntry } from './warehouseStatusEntry';
 
 export interface Scenario {
   id: number;
   name: string;
-  problemType: ScenarioProblemType;
-  pValue: number;
-  distanceBands: number[];
-  solver: ScenarioSolver;
-  gap: number;
-  timeLimitSec: number;
-  capacityMode: ScenarioCapacityMode;
-  /** @nullable */
-  uniformCapacity: number | null;
-  warehouseStatuses: WarehouseStatusEntry[];
-  capacityFactor?: number;
-  singleSource?: boolean;
-  capacityInactive?: boolean;
+  modelId: ScenarioModelId;
+  /** Opaque, model-specific input payload. Shape enforced per-model by artifacts/api-server/src/validation/inputs/, documented in docs/scenario-inputs-schema.md — not by this contract (Phase 3.5's model registry replaces this validation lookup with manifest-driven schemas without changing this field's shape). */
+  inputs: ScenarioInputs;
   result: SolveResult | null;
   createdAt: Date;
   updatedAt: Date;
