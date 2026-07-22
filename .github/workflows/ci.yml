@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nos_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nos_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (whole workspace)
+        run: pnpm run typecheck
+
+      - name: API tests
+        run: pnpm --filter api-server run test
+
+      - name: Studio tests
+        run: pnpm --filter studio run test
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install solver dependencies
+        run: pip install pulp pytest
+
+      - name: Solver test suite
+        run: cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x
+
+      - name: Solver accuracy suite (X3 — sacred, must pass unmodified)
+        run: cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py
