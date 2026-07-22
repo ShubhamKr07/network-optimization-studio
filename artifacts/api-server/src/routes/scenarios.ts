@@ -6,6 +6,13 @@ import type { SolveInput } from "../solver/pmedian.js";
 import { WAREHOUSES } from "../data/dataset.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
+import {
+  TEMPLATE_VERSION,
+  applyWarehouseOverrides,
+  applyCustomerOverrides,
+  warehouseRowsToCsv,
+  customerRowsToCsv,
+} from "../services/templates.js";
 
 const router = Router();
 
@@ -167,6 +174,49 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     .returning();
 
   res.json(toApiScenario(updated));
+});
+
+router.get("/scenarios/:scenarioId/export", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+  const entity = req.query.entity as string | undefined;
+  const format = req.query.format as string | undefined;
+
+  if (entity !== "warehouses" && entity !== "customers") {
+    res.status(422).json({ error: "entity must be 'warehouses' or 'customers'" });
+    return;
+  }
+  if (format !== "csv" && format !== "json") {
+    res.status(422).json({ error: "format must be 'csv' or 'json'" });
+    return;
+  }
+
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+
+  // Export reads solvers/p-median-us's own warehouse/customer dataset directly
+  // (via services/templates.ts) — Brazil uses a different dataset/id
+  // namespace entirely and transport has no warehouse/customer overrides
+  // concept at all, same boundary D1.1/D2/D3 already drew.
+  if (scenario.modelId !== "p-median-us") {
+    res.status(422).json({ error: "Export is only supported for p-median-us scenarios" });
+    return;
+  }
+
+  const inputs = scenario.inputs as { warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
+  const rows = entity === "warehouses"
+    ? applyWarehouseOverrides((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0])
+    : applyCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyCustomerOverrides>[0]);
+
+  if (format === "csv") {
+    const csv = entity === "warehouses"
+      ? warehouseRowsToCsv(rows as Parameters<typeof warehouseRowsToCsv>[0])
+      : customerRowsToCsv(rows as Parameters<typeof customerRowsToCsv>[0]);
+    res.type("text/csv").send(csv);
+    return;
+  }
+
+  res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
 });
 
 router.post("/scenarios/:scenarioId/clone", async (req, res) => {

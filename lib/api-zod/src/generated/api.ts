@@ -249,6 +249,27 @@ export const CloneScenarioParams = zod.object({
 
 
 /**
+ * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
+ */
+export const ExportScenarioParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const ExportScenarioQueryParams = zod.object({
+  "entity": zod.enum(['warehouses', 'customers']),
+  "format": zod.enum(['csv', 'json'])
+})
+
+export const ExportScenarioResponse = zod.object({
+  "templateVersion": zod.number(),
+  "entity": zod.enum(['warehouses', 'customers']),
+  "rows": zod.array(zod.object({
+
+}).passthrough())
+})
+
+
+/**
  * @summary Compare multiple solved scenarios
  */
 export const compareScenariosBodyScenarioIdsMin = 2;

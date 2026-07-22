@@ -461,6 +461,80 @@ describe("DELETE /api/scenarios/:id", () => {
   });
 });
 
+// ── Export scenario ────────────────────────────────────────────────────────
+describe("GET /api/scenarios/:id/export", () => {
+  it("returns 401 without a session", async () => {
+    expect((await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json")).status).toBe(401);
+  });
+
+  it("returns 422 for an invalid entity", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=bogus&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 422 for an invalid format", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=bogus").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("returns 404 when not found", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).get("/api/scenarios/999/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) when exporting a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 422 for a non-p-median-us scenario (transport)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("returns JSON with templateVersion/entity/rows reflecting scenario overrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...pmedianRow, inputs: { ...pmedianInputs, warehouseOverrides: [{ id: "ALN", status: "forced_open" }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("warehouses");
+    expect(typeof res.body.templateVersion).toBe("number");
+    expect(res.body.rows).toHaveLength(26);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "ALN").status).toBe("forced_open");
+  });
+
+  it("returns CSV with a header row and one line per warehouse", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("template_version,id,city,state,capacity,status");
+    expect(lines.length).toBe(27); // header + 26 warehouses
+  });
+
+  it("customer export reflects a demand override", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...pmedianRow, inputs: { ...pmedianInputs, customerOverrides: [{ id: "C1", status: "active", demand: 999 }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=customers&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(200);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "C1").demand).toBe(999);
+  });
+});
+
 // ── Clone scenario ─────────────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/clone", () => {
   it("returns 201 with name '<original> (copy)' and null result", async () => {

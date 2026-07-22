@@ -195,6 +195,22 @@ export interface CompareResult {
   scenarios: ScenarioMetrics[];
 }
 
+export type ExportEnvelopeEntity = typeof ExportEnvelopeEntity[keyof typeof ExportEnvelopeEntity];
+
+
+export const ExportEnvelopeEntity = {
+  warehouses: 'warehouses',
+  customers: 'customers',
+} as const;
+
+export type ExportEnvelopeRowsItem = { [key: string]: unknown };
+
+export interface ExportEnvelope {
+  templateVersion: number;
+  entity: ExportEnvelopeEntity;
+  rows: ExportEnvelopeRowsItem[];
+}
+
 export type ListScenariosParams = {
 /**
  * Restrict the list to scenarios of this model (chapter pages scope by this).
@@ -212,5 +228,26 @@ export const ListScenariosModelId = {
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
+} as const;
+
+export type ExportScenarioParams = {
+entity: ExportScenarioEntity;
+format: ExportScenarioFormat;
+};
+
+export type ExportScenarioEntity = typeof ExportScenarioEntity[keyof typeof ExportScenarioEntity];
+
+
+export const ExportScenarioEntity = {
+  warehouses: 'warehouses',
+  customers: 'customers',
+} as const;
+
+export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];
+
+
+export const ExportScenarioFormat = {
+  csv: 'csv',
+  json: 'json',
 } as const;
 

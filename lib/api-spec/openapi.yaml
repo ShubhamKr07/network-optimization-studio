@@ -213,6 +213,46 @@ paths:
         "404":
           description: Not found
 
+  /scenarios/{scenarioId}/export:
+    get:
+      operationId: exportScenario
+      tags: [scenarios]
+      summary: Export a scenario's warehouse or customer data, overrides merged over baseline
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: entity
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [warehouses, customers]
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [csv, json]
+      responses:
+        "200":
+          description: Export data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportEnvelope"
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found
+        "422":
+          description: Invalid entity/format, or this scenario's model doesn't support export
+
   /scenarios/compare:
     post:
       operationId: compareScenarios
@@ -621,3 +661,17 @@ components:
           items:
             $ref: "#/components/schemas/ScenarioMetrics"
       required: [scenarios]
+
+    ExportEnvelope:
+      type: object
+      properties:
+        templateVersion:
+          type: integer
+        entity:
+          type: string
+          enum: [warehouses, customers]
+        rows:
+          type: array
+          items:
+            type: object
+      required: [templateVersion, entity, rows]

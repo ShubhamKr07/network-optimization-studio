@@ -25,6 +25,8 @@ import type {
   CompareResult,
   Dataset,
   ErrorEnvelope,
+  ExportEnvelope,
+  ExportScenarioParams,
   HealthStatus,
   ListScenariosParams,
   LoginRequest,
@@ -716,6 +718,95 @@ export const useCloneScenario = <TError = ErrorType<void>,
       > => {
       return useMutation(getCloneScenarioMutationOptions(options));
     }
+
+export const getExportScenarioUrl = (scenarioId: number,
+    params: ExportScenarioParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/scenarios/${scenarioId}/export?${stringifiedParams}` : `/api/scenarios/${scenarioId}/export`
+}
+
+/**
+ * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
+ */
+export const exportScenario = async (scenarioId: number,
+    params: ExportScenarioParams, options?: RequestInit): Promise<ExportEnvelope | string> => {
+
+  return customFetch<ExportEnvelope | string>(getExportScenarioUrl(scenarioId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportScenarioQueryKey = (scenarioId: number,
+    params?: ExportScenarioParams,) => {
+    return [
+    `/api/scenarios/${scenarioId}/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportScenarioQueryOptions = <TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<void>>(scenarioId: number,
+    params: ExportScenarioParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportScenarioQueryKey(scenarioId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportScenario>>> = ({ signal }) => exportScenario(scenarioId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(scenarioId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportScenarioQueryResult = NonNullable<Awaited<ReturnType<typeof exportScenario>>>
+export type ExportScenarioQueryError = ErrorType<void>
+
+
+/**
+ * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
+ */
+
+export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<void>>(
+ scenarioId: number,
+    params: ExportScenarioParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportScenarioQueryOptions(scenarioId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getCompareScenariosUrl = () => {
 
