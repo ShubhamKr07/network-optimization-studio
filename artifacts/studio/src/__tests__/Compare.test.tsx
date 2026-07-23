@@ -28,9 +28,11 @@ vi.mock("@workspace/api-client-react", () => ({
 import { useListScenarios, useGetSolveJob } from "@workspace/api-client-react";
 import type { Scenario, SolveResult } from "@workspace/api-client-react";
 import { Compare } from "@/pages/Compare";
+import { toast } from "@/hooks/use-toast";
 
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
+const mockToast = vi.mocked(toast);
 
 const baseInputs = {
   p: 4,
@@ -123,6 +125,7 @@ beforeEach(() => {
   mockSolveScenario.mutate.mockReset();
   mockCompareScenarios.mutate.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as ReturnType<typeof useGetSolveJob>);
+  mockToast.mockReset();
 });
 
 describe("Compare — picker filtering (same model_id only)", () => {
@@ -205,5 +208,70 @@ describe("Compare — p 4→5 diff (PRD acceptance)", () => {
     const pCellB = screen.getByTestId("input-diff-p-5");
     expect(pCellA).toHaveClass("text-muted-foreground");
     expect(pCellB).toHaveClass("text-muted-foreground");
+  });
+});
+
+describe("Compare — compare-endpoint 422/race handling", () => {
+  it("demotes a scenario to needs-solving state when the compare mutation 422s with offendingIds naming it", async () => {
+    // Both scenarios look solved+fresh locally, but the server disagrees for
+    // scenario 2 (e.g. it went stale between selection and this call) —
+    // exactly the race case F1's 422-with-offendingIds shape exists for.
+    mockCompareScenarios.mutate.mockImplementation(
+      (
+        _vars: { data: { scenarioIds: number[] } },
+        opts: { onError: (err: { data: { error: string; offendingIds?: number[] } }) => void },
+      ) => {
+        opts.onError({ data: { error: "All scenarios must be solved and not stale to compare", offendingIds: [2] } });
+      },
+    );
+
+    setScenarios([scenarioP4, scenarioP5]);
+    render(<Compare />);
+
+    expect(mockCompareScenarios.mutate).toHaveBeenCalledWith(
+      { data: { scenarioIds: [1, 2] } },
+      expect.anything(),
+    );
+
+    // Scenario 2 is demoted: no output numbers, a Solve action appears in
+    // its column instead, and the student is told why via a toast.
+    expect(within(screen.getByTestId("output-objective-2")).getByText("—")).toBeInTheDocument();
+    expect(screen.getByTestId("button-solve-2")).toBeInTheDocument();
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Selection changed",
+        variant: "destructive",
+      }),
+    );
+
+    // Scenario 1 (not named in offendingIds) is unaffected and still shows numbers.
+    expect(screen.getByTestId("output-objective-1")).toHaveTextContent("200000");
+  });
+
+  it("shows a fallback error toast without crashing when the compare mutation errors with no offendingIds", () => {
+    mockCompareScenarios.mutate.mockImplementation(
+      (
+        _vars: { data: { scenarioIds: number[] } },
+        opts: { onError: (err: { data: { error: string } }) => void },
+      ) => {
+        opts.onError({ data: { error: "Scenarios must share the same model to compare (found: p-median-us, p-median-brazil)" } });
+      },
+    );
+
+    setScenarios([scenarioP4, scenarioP5]);
+    render(<Compare />);
+
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Comparison failed",
+        description: "Scenarios must share the same model to compare (found: p-median-us, p-median-brazil)",
+        variant: "destructive",
+      }),
+    );
+
+    // No crash: both columns still render their real (locally-known) numbers —
+    // this generic-error path doesn't touch raceIneligibleIds at all.
+    expect(screen.getByTestId("output-objective-1")).toHaveTextContent("200000");
+    expect(screen.getByTestId("output-objective-2")).toHaveTextContent("150000");
   });
 });
