@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
+import { ResultEnvelopeSchema, type ResultEnvelope } from "./resultEnvelope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -116,6 +117,43 @@ export interface SolveOutput {
   infeasibilityReason: string | null;
 }
 
+function errorOutput(reason: string): SolveOutput {
+  return {
+    status: "error",
+    openWarehouseIds: [],
+    assignments: [],
+    objective: 0,
+    weightedAvgDistanceMi: 0,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 0,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: reason,
+  };
+}
+
+// Phase 3.5 (G2.1): solve.py now emits a standardized envelope
+// ({status, objective, edges, metrics, details, ...}), validated here
+// against the shared Zod schema before anything trusts it. This translates
+// it back to the pre-envelope flat SolveOutput shape so routes.ts and the
+// frontend are unaffected by the wire-shape refactor — Phase 4/5 will read
+// the envelope directly and this shim goes away.
+function envelopeToLegacy(env: ResultEnvelope): SolveOutput {
+  const details = env.details as { openWarehouseIds?: string[]; assignments?: Assignment[] };
+  return {
+    status: env.status,
+    openWarehouseIds: details.openWarehouseIds ?? [],
+    assignments: details.assignments ?? [],
+    objective: env.objective,
+    weightedAvgDistanceMi: env.metrics.weightedAvgDistance ?? 0,
+    bandCoverage: env.metrics.bandCoverage ?? [],
+    utilization: env.metrics.utilizationByNode ?? [],
+    runTimeSec: env.runTimeSec,
+    solverUsed: env.solverUsed,
+    infeasibilityReason: env.infeasibilityReason,
+  };
+}
+
 export function solve(input: SolveInput): SolveOutput {
   const payload = JSON.stringify(buildPayload(input));
 
@@ -127,34 +165,20 @@ export function solve(input: SolveInput): SolveOutput {
 
   if (result.error || result.status !== 0) {
     const msg = result.stderr || result.error?.message || "python3 process failed";
-    return {
-      status: "error",
-      openWarehouseIds: [],
-      assignments: [],
-      objective: 0,
-      weightedAvgDistanceMi: 0,
-      bandCoverage: [],
-      utilization: [],
-      runTimeSec: 0,
-      solverUsed: "CBC (PuLP)",
-      infeasibilityReason: msg.slice(0, 500),
-    };
+    return errorOutput(msg.slice(0, 500));
   }
 
+  let raw: unknown;
   try {
-    return JSON.parse(result.stdout) as SolveOutput;
+    raw = JSON.parse(result.stdout);
   } catch {
-    return {
-      status: "error",
-      openWarehouseIds: [],
-      assignments: [],
-      objective: 0,
-      weightedAvgDistanceMi: 0,
-      bandCoverage: [],
-      utilization: [],
-      runTimeSec: 0,
-      solverUsed: "CBC (PuLP)",
-      infeasibilityReason: "Failed to parse solver output: " + result.stdout.slice(0, 200),
-    };
+    return errorOutput("Failed to parse solver output: " + result.stdout.slice(0, 200));
   }
+
+  const parsed = ResultEnvelopeSchema.safeParse(raw);
+  if (!parsed.success) {
+    return errorOutput("Solver output failed envelope validation: " + parsed.error.message.slice(0, 300));
+  }
+
+  return envelopeToLegacy(parsed.data);
 }

@@ -5,6 +5,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _envelope_compat import flatten_envelope  # noqa: E402
+
 SOLVER_PY = Path(__file__).parent.parent / "solve.py"
 
 ATHLETICS_WH_IDS = {"CHI", "LA", "ATL", "BOS", "DAL", "DEN", "IND", "KC", "MSP"}
@@ -33,7 +36,7 @@ def run_solver(payload: dict) -> dict:
         timeout=60,
     )
     assert result.returncode == 0, f"Solver exited {result.returncode}: {result.stderr}"
-    return json.loads(result.stdout)
+    return flatten_envelope(json.loads(result.stdout))
 
 
 # ── Output schema ──────────────────────────────────────────────────────────────

@@ -11,21 +11,31 @@ import type { SolveInput } from "../solver/pmedian.js";
 
 const mockSpawnSync = vi.mocked(spawnSync);
 
+// G2.1: solve.py's stdout is the standardized envelope shape now — these
+// fixtures mock stdout directly, so they need to match. envelopeToLegacy()
+// (pmedian.ts) translates this back to the flat SolveOutput shape the
+// assertions below still check.
 const validOutput = {
   status: "optimal",
-  openWarehouseIds: ["CHI", "LA"],
-  assignments: [{ customerId: "C1", warehouseId: "CHI", distanceMi: 120, band: 0 }],
   objective: 94500000,
-  weightedAvgDistanceMi: 412.6,
-  bandCoverage: [
-    { band: 200, percent: 38 },
-    { band: 400, percent: 67 },
-  ],
-  utilization: [
-    { warehouseId: "CHI", city: "Chicago", utilization: 85 },
-    { warehouseId: "LA", city: "Los Angeles", utilization: 72 },
-  ],
   runTimeSec: 0.4,
+  quality: "Optimal",
+  edges: [{ fromId: "CHI", toId: "C1", flow: 205375, distance: 120, band: 0 }],
+  metrics: {
+    utilizationByNode: [
+      { warehouseId: "CHI", city: "Chicago", utilization: 85 },
+      { warehouseId: "LA", city: "Los Angeles", utilization: 72 },
+    ],
+    bandCoverage: [
+      { band: 200, percent: 38 },
+      { band: 400, percent: 67 },
+    ],
+    weightedAvgDistance: 412.6,
+  },
+  details: {
+    openWarehouseIds: ["CHI", "LA"],
+    assignments: [{ customerId: "C1", warehouseId: "CHI", distanceMi: 120, band: 0 }],
+  },
   solverUsed: "CBC (PuLP)",
   infeasibilityReason: null,
 };
@@ -308,16 +318,21 @@ describe("solve()", () => {
 describe("solve() — transport LP", () => {
   const transportOutput = {
     status: "optimal",
-    openWarehouseIds: [],
-    assignments: [
-      { customerId: "STN1", warehouseId: "MINE1", distanceMi: 450, band: 0, flowTons: 7000000, flowFraction: 1.0 },
-      { customerId: "STN2", warehouseId: "MINE2", distanceMi: 800, band: 1, flowTons: 4000000, flowFraction: 0.5 },
-    ],
     objective: 50840650000,
-    weightedAvgDistanceMi: 696.4,
-    bandCoverage: [],
-    utilization: [],
     runTimeSec: 0.3,
+    quality: "Optimal",
+    edges: [
+      { fromId: "MINE1", toId: "STN1", flow: 7000000, distance: 450, band: 0 },
+      { fromId: "MINE2", toId: "STN2", flow: 4000000, distance: 800, band: 1 },
+    ],
+    metrics: { utilizationByNode: [], bandCoverage: [], weightedAvgDistance: 696.4 },
+    details: {
+      openWarehouseIds: [],
+      assignments: [
+        { customerId: "STN1", warehouseId: "MINE1", distanceMi: 450, band: 0, flowTons: 7000000, flowFraction: 1.0 },
+        { customerId: "STN2", warehouseId: "MINE2", distanceMi: 800, band: 1, flowTons: 4000000, flowFraction: 0.5 },
+      ],
+    },
     solverUsed: "CBC (PuLP)",
     infeasibilityReason: null,
   };
@@ -403,13 +418,12 @@ describe("solve() — Brazil capacitated p-median", () => {
 
   const brazilInfeasibleOutput = {
     status: "infeasible",
-    openWarehouseIds: [],
-    assignments: [],
     objective: 0,
-    weightedAvgDistanceMi: 0,
-    bandCoverage: [],
-    utilization: [],
     runTimeSec: 0.1,
+    quality: "Infeasible",
+    edges: [],
+    metrics: { utilizationByNode: [], bandCoverage: [], weightedAvgDistance: 0 },
+    details: { openWarehouseIds: [], assignments: [] },
     solverUsed: "CBC (PuLP)",
     infeasibilityReason:
       "Demand region São Paulo (29,029,226) exceeds single-warehouse capacity (20,000,000). Relax single-sourcing.",
@@ -417,16 +431,25 @@ describe("solve() — Brazil capacitated p-median", () => {
 
   const brazilOptimalOutput = {
     status: "optimal",
-    openWarehouseIds: ["SAO", "RIO", "CUR", "REC", "MAN"],
-    assignments: [
-      { customerId: "SP", warehouseId: "SAO", distanceMi: 12, flowFraction: 0.69 },
-      { customerId: "SP", warehouseId: "CUR", distanceMi: 234, flowFraction: 0.31 },
-    ],
     objective: 8500000000,
-    weightedAvgDistanceMi: 287.3,
-    bandCoverage: [{ band: 500, percent: 12 }],
-    utilization: [{ warehouseId: "SAO", city: "São Paulo", utilization: 100 }],
     runTimeSec: 1.2,
+    quality: "Optimal",
+    edges: [
+      { fromId: "SAO", toId: "SP", flow: 20030026, distance: 12, band: 0 },
+      { fromId: "CUR", toId: "SP", flow: 8999200, distance: 234, band: 1 },
+    ],
+    metrics: {
+      utilizationByNode: [{ warehouseId: "SAO", city: "São Paulo", utilization: 100 }],
+      bandCoverage: [{ band: 500, percent: 12 }],
+      weightedAvgDistance: 287.3,
+    },
+    details: {
+      openWarehouseIds: ["SAO", "RIO", "CUR", "REC", "MAN"],
+      assignments: [
+        { customerId: "SP", warehouseId: "SAO", distanceMi: 12, flowFraction: 0.69 },
+        { customerId: "SP", warehouseId: "CUR", distanceMi: 234, flowFraction: 0.31 },
+      ],
+    },
     solverUsed: "CBC (PuLP)",
     infeasibilityReason: null,
   };

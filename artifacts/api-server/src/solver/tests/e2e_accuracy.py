@@ -20,6 +20,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _envelope_compat import flatten_envelope  # noqa: E402
+
 SOLVER_PY = Path(__file__).parent.parent / "solve.py"
 
 # ── Counters ──────────────────────────────────────────────────────────────────
@@ -73,7 +76,7 @@ def run(payload: dict, timeout: int = 180) -> dict:
     if r.returncode != 0:
         return {"status": "error", "_err": r.stderr[:300], "_t": elapsed}
     try:
-        out = json.loads(r.stdout)
+        out = flatten_envelope(json.loads(r.stdout))
     except Exception:
         return {"status": "parse_error", "_t": elapsed}
     out["_t"] = elapsed

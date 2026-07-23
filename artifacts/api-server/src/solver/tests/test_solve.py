@@ -4,11 +4,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _envelope_compat import flatten_envelope  # noqa: E402
+
 SOLVER_PY = Path(__file__).parent.parent / "solve.py"
 
 
 def run_solver(payload: dict) -> dict:
-    """Call solve.py via subprocess, return parsed JSON output."""
+    """Call solve.py via subprocess, return parsed JSON output (flattened
+    back to the pre-G2.1 shape — see _envelope_compat.py)."""
     result = subprocess.run(
         [sys.executable, str(SOLVER_PY)],
         input=json.dumps(payload),
@@ -17,7 +21,7 @@ def run_solver(payload: dict) -> dict:
         timeout=60,
     )
     assert result.returncode == 0, f"Solver exited {result.returncode}: {result.stderr}"
-    return json.loads(result.stdout)
+    return flatten_envelope(json.loads(result.stdout))
 
 
 BASE_INPUT = {

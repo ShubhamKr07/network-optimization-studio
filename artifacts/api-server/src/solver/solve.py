@@ -67,6 +67,26 @@ def _brazil_distances():
     return {tuple(k.split(',')): v for k, v in _BRAZIL_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
+# Standardized result envelope (Phase 3.5, G2.1). `details` deliberately
+# retains the pre-envelope `assignments`/`openWarehouseIds` shape verbatim
+# (not just the new generic `edges` view) — a pure refactor of where each
+# already-computed value lives, not a re-derivation, so no numeric value
+# changes. `edges` is the new model-agnostic view Phase 4/5 render from.
+# ---------------------------------------------------------------------------
+def _envelope(status, quality, objective, run_time, edges, metrics, details, infeasibility_reason=None):
+    return {
+        "status": status,
+        "objective": objective,
+        "runTimeSec": round(run_time, 2),
+        "quality": quality,
+        "edges": edges,
+        "metrics": metrics,
+        "details": details,
+        "solverUsed": "CBC (PuLP)",
+        "infeasibilityReason": infeasibility_reason,
+    }
+
+# ---------------------------------------------------------------------------
 # P-Median solver (Chapter 3)
 # ---------------------------------------------------------------------------
 def solve_pmedian(inp):
@@ -155,15 +175,15 @@ def solve_pmedian(inp):
             reason = (f"Capacity is too tight. The {p} highest-capacity warehouses provide "
                       f"{total_capacity:,} total capacity, less than active demand ({active_demand_count:,}). "
                       "Increase P, raise capacity, or remove the capacity constraint.")
-        return {"status": "infeasible", "openWarehouseIds": [], "assignments": [],
-                "objective": 0, "weightedAvgDistanceMi": 0, "bandCoverage": [],
-                "utilization": [], "runTimeSec": round(run_time, 2),
-                "solverUsed": "CBC (PuLP)", "infeasibilityReason": reason}
+        return _envelope("infeasible", status_str, 0, run_time, [],
+                          {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
+                          {"openWarehouseIds": [], "assignments": []}, reason)
 
     open_wh_nums = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
     open_wh_ids  = [WAREHOUSES[w]['id'] for w in open_wh_nums]
 
     assignments = []
+    edges = []
     wh_demand = {w: 0.0 for w in open_wh_nums}
     band_demand = {b: 0.0 for b in distance_bands}
     total_demand_assigned = 0.0
@@ -182,8 +202,10 @@ def solve_pmedian(inp):
         wh_demand[assigned_w] += demand
         total_demand_assigned += demand
         band_idx = next((i for i, b in enumerate(distance_bands) if dist <= b), len(distance_bands) - 1)
-        assignments.append({"customerId": f"C{c}", "warehouseId": WAREHOUSES[assigned_w]['id'],
+        wh_id, c_id = WAREHOUSES[assigned_w]['id'], f"C{c}"
+        assignments.append({"customerId": c_id, "warehouseId": wh_id,
                              "distanceMi": dist, "band": band_idx})
+        edges.append({"fromId": wh_id, "toId": c_id, "flow": round(demand), "distance": dist, "band": band_idx})
         for b in distance_bands:
             if dist <= b:
                 band_demand[b] += demand
@@ -200,10 +222,9 @@ def solve_pmedian(inp):
         utilization.append({"warehouseId": WAREHOUSES[w]['id'], "city": WAREHOUSES[w]['city'],
                              "utilization": min(100, round(wh_demand[w] * 100 / cap_for_util))})
 
-    return {"status": "optimal", "openWarehouseIds": open_wh_ids, "assignments": assignments,
-            "objective": round(obj_val), "weightedAvgDistanceMi": round(wt_avg, 1),
-            "bandCoverage": band_coverage, "utilization": utilization,
-            "runTimeSec": round(run_time, 2), "solverUsed": "CBC (PuLP)", "infeasibilityReason": None}
+    return _envelope("optimal", status_str, round(obj_val), run_time, edges,
+                      {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(wt_avg, 1)},
+                      {"openWarehouseIds": open_wh_ids, "assignments": assignments})
 
 # ---------------------------------------------------------------------------
 # Transportation LP solver (Chapter 5)
@@ -275,15 +296,15 @@ def solve_transport(inp):
                 f"is less than total station demand ({total_demand:,} tons). "
                 "Increase capacityFactor or set capacityInactive=true."
             )
-        return {"status": "infeasible", "openWarehouseIds": list(COAL_MINES.keys()),
-                "assignments": [], "objective": 0, "weightedAvgDistanceMi": 0,
-                "bandCoverage": [], "utilization": [], "runTimeSec": round(run_time, 2),
-                "solverUsed": "CBC (PuLP)", "infeasibilityReason": reason}
+        return _envelope("infeasible", status_str, 0, run_time, [],
+                          {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
+                          {"openWarehouseIds": list(COAL_MINES.keys()), "assignments": []}, reason)
 
     obj_val = value(prob.objective) or 0
     avg_dist = obj_val / total_demand if total_demand > 0 else 0
 
     assignments = []
+    edges = []
     mine_outflow = {m: 0.0 for m in mines}
     band_demand  = {b: 0.0 for b in distance_bands}
 
@@ -295,14 +316,16 @@ def solve_transport(inp):
             d = dist[m, s]
             mine_outflow[m] += flow_val
             band_idx = next((i for i, b in enumerate(distance_bands) if d <= b), len(distance_bands) - 1)
+            flow_tons = round(flow_val)
             assignments.append({
                 "customerId": s,
                 "warehouseId": m,
                 "distanceMi": d,
                 "band": band_idx,
-                "flowTons": round(flow_val),
+                "flowTons": flow_tons,
                 "flowFraction": round(flow_val / POWER_STATIONS[s]['demand'], 4)
             })
+            edges.append({"fromId": m, "toId": s, "flow": flow_tons, "distance": d, "band": band_idx})
             for b in distance_bands:
                 if d <= b:
                     band_demand[b] += flow_val
@@ -316,18 +339,9 @@ def solve_transport(inp):
         if not capacity_inactive else round(mine_outflow[m] * 100 / COAL_MINES[m]['capacity'])
     } for m in mines]
 
-    return {
-        "status": "optimal",
-        "openWarehouseIds": mines,
-        "assignments": assignments,
-        "objective": round(obj_val),
-        "weightedAvgDistanceMi": round(avg_dist, 1),
-        "bandCoverage": band_coverage,
-        "utilization": utilization,
-        "runTimeSec": round(run_time, 2),
-        "solverUsed": "CBC (PuLP)",
-        "infeasibilityReason": None,
-    }
+    return _envelope("optimal", status_str, round(obj_val), run_time, edges,
+                      {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(avg_dist, 1)},
+                      {"openWarehouseIds": mines, "assignments": assignments})
 
 # ---------------------------------------------------------------------------
 # Capacitated P-Median solver — Brazil Facility Location (Chapter 5)
@@ -355,23 +369,17 @@ def solve_capacitated_pmedian(inp):
         if over_cap:
             names = ", ".join(f"{n} ({d/1e6:.0f}M)" for _, n, d in over_cap[:3])
             plural = "regions" if len(over_cap) > 1 else "region"
-            return {
-                "status": "infeasible",
-                "openWarehouseIds": [],
-                "assignments": [],
-                "objective": 0,
-                "weightedAvgDistanceMi": 0,
-                "bandCoverage": [],
-                "utilization": [],
-                "runTimeSec": 0.0,
-                "solverUsed": "CBC (PuLP)",
-                "infeasibilityReason": (
+            return _envelope(
+                "infeasible", "Infeasible", 0, 0.0, [],
+                {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
+                {"openWarehouseIds": [], "assignments": []},
+                (
                     f"Demand {plural} {names} exceed the single-warehouse capacity "
                     f"({wh_cap/1e6:.0f}M). Under single-sourcing each region must be served by "
                     "exactly one warehouse, but no warehouse can absorb this much demand. "
                     "Solution: toggle Single-source OFF to allow demand to split across warehouses."
                 ),
-            }
+            )
 
     start = time.time()
     prob  = LpProblem("CapPMedian", LpMinimize)
@@ -424,22 +432,14 @@ def solve_capacitated_pmedian(inp):
             f"total demand = {BRAZIL_TOTAL_DEMAND:,}. "
             "Try increasing P, raising warehouse capacity, or disabling single-sourcing."
         )
-        return {
-            "status": "infeasible",
-            "openWarehouseIds": [],
-            "assignments": [],
-            "objective": 0,
-            "weightedAvgDistanceMi": 0,
-            "bandCoverage": [],
-            "utilization": [],
-            "runTimeSec": round(run_time, 2),
-            "solverUsed": "CBC (PuLP)",
-            "infeasibilityReason": reason,
-        }
+        return _envelope("infeasible", status_str, 0, run_time, [],
+                          {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
+                          {"openWarehouseIds": [], "assignments": []}, reason)
 
     open_wh_ids = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
 
     assignments = []
+    edges = []
     wh_demand   = {w: 0.0 for w in open_wh_ids}
     band_demand  = {b: 0.0 for b in distance_bands}
     obj_val      = value(prob.objective) or 0
@@ -460,6 +460,7 @@ def solve_capacitated_pmedian(inp):
                 "band": band_idx,
                 "flowFraction": round(frac, 4),
             })
+            edges.append({"fromId": w, "toId": r, "flow": round(rd * frac), "distance": d, "band": band_idx})
             for b in distance_bands:
                 if d <= b:
                     band_demand[b] += rd * frac
@@ -478,18 +479,9 @@ def solve_capacitated_pmedian(inp):
         for w in open_wh_ids
     ]
 
-    return {
-        "status": "optimal",
-        "openWarehouseIds": open_wh_ids,
-        "assignments": assignments,
-        "objective": round(obj_val),
-        "weightedAvgDistanceMi": round(wt_avg, 1),
-        "bandCoverage": band_coverage,
-        "utilization": utilization,
-        "runTimeSec": round(run_time, 2),
-        "solverUsed": "CBC (PuLP)",
-        "infeasibilityReason": None,
-    }
+    return _envelope("optimal", status_str, round(obj_val), run_time, edges,
+                      {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(wt_avg, 1)},
+                      {"openWarehouseIds": open_wh_ids, "assignments": assignments})
 
 # ---------------------------------------------------------------------------
 # Dispatcher
@@ -507,8 +499,7 @@ if __name__ == "__main__":
     try:
         result = solve(inp)
     except Exception as e:
-        result = {"status": "error", "openWarehouseIds": [], "assignments": [],
-                  "objective": 0, "weightedAvgDistanceMi": 0, "bandCoverage": [],
-                  "utilization": [], "runTimeSec": 0, "solverUsed": "CBC (PuLP)",
-                  "infeasibilityReason": str(e)}
+        result = _envelope("error", "error", 0, 0, [],
+                            {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
+                            {"openWarehouseIds": [], "assignments": []}, str(e))
     print(json.dumps(result))
