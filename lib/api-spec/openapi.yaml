@@ -61,6 +61,30 @@ paths:
                 items:
                   $ref: "#/components/schemas/ModelInfo"
 
+  /solve-history:
+    get:
+      operationId: getSolveHistory
+      tags: [scenarios]
+      summary: List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: Recent solve jobs, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SolveHistoryEntry"
+        "401":
+          description: Not authenticated
+
   /scenarios:
     get:
       operationId: listScenarios
@@ -790,6 +814,33 @@ components:
           type: ["string", "null"]
           format: date-time
       required: [id, status, error, resultSummary, queuedAt, startedAt, finishedAt]
+
+    SolveHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        scenarioId:
+          type: integer
+        scenarioName:
+          type: string
+        modelId:
+          type: string
+        status:
+          $ref: "#/components/schemas/SolveJobStatus"
+        objective:
+          type: ["number", "null"]
+        weightedAvgDistanceMi:
+          type: ["number", "null"]
+        runTimeSec:
+          type: ["number", "null"]
+        queuedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: ["string", "null"]
+          format: date-time
+      required: [id, scenarioId, scenarioName, modelId, status, objective, weightedAvgDistanceMi, runTimeSec, queuedAt, finishedAt]
 
     ScenarioInput:
       type: object

@@ -72,6 +72,30 @@ export const ListModelsResponse = zod.array(ListModelsResponseItem)
 
 
 /**
+ * @summary List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+ */
+export const getSolveHistoryQueryLimitDefault = 5;
+
+export const GetSolveHistoryQueryParams = zod.object({
+  "limit": zod.coerce.number().default(getSolveHistoryQueryLimitDefault)
+})
+
+export const GetSolveHistoryResponseItem = zod.object({
+  "id": zod.number(),
+  "scenarioId": zod.number(),
+  "scenarioName": zod.string(),
+  "modelId": zod.string(),
+  "status": zod.enum(['queued', 'running', 'succeeded', 'failed']),
+  "objective": zod.number().nullable(),
+  "weightedAvgDistanceMi": zod.number().nullable(),
+  "runTimeSec": zod.number().nullable(),
+  "queuedAt": zod.coerce.date(),
+  "finishedAt": zod.coerce.date().nullable()
+})
+export const GetSolveHistoryResponse = zod.array(GetSolveHistoryResponseItem)
+
+
+/**
  * @summary List all scenarios
  */
 export const ListScenariosQueryParams = zod.object({

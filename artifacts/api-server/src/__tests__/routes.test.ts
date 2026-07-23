@@ -21,6 +21,7 @@ vi.mock("@workspace/db", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ col: _col, val })),
   and: vi.fn((...conds: unknown[]) => ({ and: conds })),
+  desc: vi.fn((_col: unknown) => ({ desc: _col })),
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({
@@ -37,7 +38,7 @@ import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
   ["select","from","where","orderBy","insert","values",
-   "returning","update","set","delete"].forEach(m => {
+   "returning","update","set","delete","innerJoin","limit"].forEach(m => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
@@ -872,6 +873,65 @@ describe("GET /api/scenarios/:id/solve-jobs/:jobId", () => {
     mockDb.select.mockReturnValue(makeChain([]));
     const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
     expect(res.status).toBe(404);
+  });
+});
+
+// ── Solve history (G3.2) ─────────────────────────────────────────────────────
+describe("GET /api/solve-history", () => {
+  const historyRow1 = {
+    id: 10, scenarioId: 1, status: "succeeded",
+    resultSummary: { status: "optimal", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4 },
+    queuedAt: new Date("2026-01-02T00:00:00Z"),
+    finishedAt: new Date("2026-01-02T00:00:01Z"),
+    scenarioName: "3 Warehouses", modelId: "p-median-us",
+  };
+  const historyRow2 = {
+    id: 9, scenarioId: 8, status: "failed",
+    resultSummary: null,
+    queuedAt: new Date("2026-01-01T00:00:00Z"),
+    finishedAt: new Date("2026-01-01T00:00:05Z"),
+    scenarioName: "Coal Base Case", modelId: "transport-coal",
+  };
+
+  it("returns 401 without a session", async () => {
+    const res = await request(app).get("/api/solve-history");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the caller's jobs newest first, joined to scenario name/modelId", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([historyRow1, historyRow2]));
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0]).toMatchObject({
+      id: 10, scenarioId: 1, scenarioName: "3 Warehouses", modelId: "p-median-us",
+      status: "succeeded", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4,
+    });
+  });
+
+  it("defaults resultSummary fields to null for a failed job with no summary", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([historyRow2]));
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({ status: "failed", objective: null, weightedAvgDistanceMi: null, runTimeSec: null });
+  });
+
+  it("defaults limit to 5 and caps an oversized limit at 50", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([]);
+    mockDb.select.mockReturnValue(chain);
+    await request(app).get("/api/solve-history?limit=9999").set("Cookie", cookie);
+    expect(chain.limit).toHaveBeenCalledWith(50);
+  });
+
+  it("returns an empty array when the caller has never solved anything", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 });
 

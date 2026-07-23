@@ -27,6 +27,7 @@ import type {
   ErrorEnvelope,
   ExportEnvelope,
   ExportScenarioParams,
+  GetSolveHistoryParams,
   HealthStatus,
   ImportApplyRequest,
   ImportApplyResult,
@@ -40,6 +41,7 @@ import type {
   Scenario,
   ScenarioInput,
   ScenarioUpdate,
+  SolveHistoryEntry,
   SolveJob,
   SolveJobQueued
 } from './api.schemas';
@@ -277,6 +279,90 @@ export function useListModels<TData = Awaited<ReturnType<typeof listModels>>, TE
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListModelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetSolveHistoryUrl = (params?: GetSolveHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/solve-history?${stringifiedParams}` : `/api/solve-history`
+}
+
+/**
+ * @summary List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+ */
+export const getSolveHistory = async (params?: GetSolveHistoryParams, options?: RequestInit): Promise<SolveHistoryEntry[]> => {
+
+  return customFetch<SolveHistoryEntry[]>(getGetSolveHistoryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSolveHistoryQueryKey = (params?: GetSolveHistoryParams,) => {
+    return [
+    `/api/solve-history`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetSolveHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getSolveHistory>>, TError = ErrorType<void>>(params?: GetSolveHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSolveHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSolveHistoryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSolveHistory>>> = ({ signal }) => getSolveHistory(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSolveHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSolveHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getSolveHistory>>>
+export type GetSolveHistoryQueryError = ErrorType<void>
+
+
+/**
+ * @summary List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+ */
+
+export function useGetSolveHistory<TData = Awaited<ReturnType<typeof getSolveHistory>>, TError = ErrorType<void>>(
+ params?: GetSolveHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSolveHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSolveHistoryQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

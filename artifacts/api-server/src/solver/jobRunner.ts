@@ -132,7 +132,7 @@ async function markSucceeded(jobId: number, scenarioId: number, output: SolveOut
   await db.update(solveJobsTable)
     .set({
       status: "succeeded",
-      resultSummary: { status: output.status, objective: output.objective, weightedAvgDistanceMi: output.weightedAvgDistanceMi },
+      resultSummary: { status: output.status, objective: output.objective, weightedAvgDistanceMi: output.weightedAvgDistanceMi, runTimeSec: output.runTimeSec },
       finishedAt: new Date(),
     })
     .where(eq(solveJobsTable.id, jobId));

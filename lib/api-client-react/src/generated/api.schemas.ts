@@ -220,6 +220,23 @@ export interface SolveJob {
   finishedAt: string | null;
 }
 
+export interface SolveHistoryEntry {
+  id: number;
+  scenarioId: number;
+  scenarioName: string;
+  modelId: string;
+  status: SolveJobStatus;
+  /** @nullable */
+  objective: number | null;
+  /** @nullable */
+  weightedAvgDistanceMi: number | null;
+  /** @nullable */
+  runTimeSec: number | null;
+  queuedAt: string;
+  /** @nullable */
+  finishedAt: string | null;
+}
+
 export type ScenarioInputModelId = typeof ScenarioInputModelId[keyof typeof ScenarioInputModelId];
 
 
@@ -356,6 +373,10 @@ export interface ExportEnvelope {
   entity: ExportEnvelopeEntity;
   rows: ExportEnvelopeRowsItem[];
 }
+
+export type GetSolveHistoryParams = {
+limit?: number;
+};
 
 export type ListScenariosParams = {
 /**
