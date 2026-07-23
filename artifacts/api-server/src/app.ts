@@ -9,6 +9,12 @@ const COOKIE_SECRET = process.env.SESSION_SECRET || "arcadia-dev-secret";
 
 const app: Express = express();
 
+// This is a stateful JSON API (auth, live scenario/solve-job data), not
+// cacheable content. Express's default weak ETags turn identical repeat GETs
+// (e.g. solve-job polling) into 304 Not Modified — which customFetch treats
+// as an error, not "reuse your cached data" — corrupting the poll loop.
+app.set("etag", false);
+
 app.use(
   pinoHttp({
     logger,

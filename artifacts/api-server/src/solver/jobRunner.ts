@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { existsSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
@@ -11,7 +12,27 @@ import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SOLVER_PY = path.resolve(__dirname, "solve.py");
+
+// __dirname's depth relative to the repo root differs depending on how this
+// module is loaded: unbundled (vitest, tsx) it's the true source location
+// (artifacts/api-server/src/solver), but esbuild's bundle (build.mjs,
+// bundle: true) collapses import.meta.url for every merged module to the
+// single output file's location (artifacts/api-server/dist/index.mjs) —
+// one level shallower. Walk up to the workspace root marker instead of
+// hardcoding a parent count, so both contexts resolve correctly (same
+// pattern as data/dataset.ts's findRepoRoot — confirmed against the real
+// built server, not just vitest, per that gotcha).
+function findRepoRoot(from: string): string {
+  let dir = from;
+  while (!existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error("Could not locate repo root (pnpm-workspace.yaml) from " + from);
+    dir = parent;
+  }
+  return dir;
+}
+
+const SOLVER_PY = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "solve.py");
 
 // Small in-process worker pool (Phase 3.5, G3.1) — replaces the old
 // blocking spawnSync call. Pilot cohort is assumed <=10 concurrent users
