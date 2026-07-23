@@ -319,8 +319,14 @@ export function Compare() {
       {
         onSuccess: () => setRaceIneligibleIds(new Set()),
         onError: (err) => {
-          const data = (err as { data?: ErrorEnvelope | CompareRejection | null })?.data;
-          const offendingIds = data && "offendingIds" in data ? data.offendingIds : undefined;
+          const data = (err as { data?: ErrorEnvelope | CompareRejection | string | null })?.data;
+          // `data` can be a plain string when the error body isn't JSON at
+          // all (customFetch's parseErrorBody falls back to raw text for an
+          // infra-level failure — a proxy error page, non-JSON 500, etc.) —
+          // guard the type before ever using `in`, or that throws.
+          const offendingIds =
+            data && typeof data === "object" && "offendingIds" in data ? data.offendingIds : undefined;
+          const errorMessage = data && typeof data === "object" ? data.error : undefined;
           if (offendingIds && offendingIds.length > 0) {
             setRaceIneligibleIds(new Set(offendingIds));
             toast({
@@ -331,7 +337,7 @@ export function Compare() {
           } else {
             toast({
               title: "Comparison failed",
-              description: data?.error ?? "Could not compare these scenarios.",
+              description: errorMessage ?? "Could not compare these scenarios.",
               variant: "destructive",
             });
           }

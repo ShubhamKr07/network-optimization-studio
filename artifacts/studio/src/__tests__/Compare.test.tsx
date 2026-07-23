@@ -274,4 +274,34 @@ describe("Compare — compare-endpoint 422/race handling", () => {
     expect(screen.getByTestId("output-objective-1")).toHaveTextContent("200000");
     expect(screen.getByTestId("output-objective-2")).toHaveTextContent("150000");
   });
+
+  it("does not throw and falls through to the generic error path when the error body is a non-JSON string", () => {
+    // customFetch's parseErrorBody falls back to a plain string for a
+    // non-JSON error body (an infra-level 500 HTML page, a proxy error,
+    // etc.) — `.data` is then a string, not a CompareRejection object.
+    // `"offendingIds" in data` throws TypeError if `data` isn't an object;
+    // this is the regression test for that guard.
+    mockCompareScenarios.mutate.mockImplementation(
+      (
+        _vars: { data: { scenarioIds: number[] } },
+        opts: { onError: (err: { data: string }) => void },
+      ) => {
+        opts.onError({ data: "<html>502 Bad Gateway</html>" });
+      },
+    );
+
+    setScenarios([scenarioP4, scenarioP5]);
+    expect(() => render(<Compare />)).not.toThrow();
+
+    // Falls through to the same generic fallback as the "no offendingIds" case.
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Comparison failed",
+        description: "Could not compare these scenarios.",
+        variant: "destructive",
+      }),
+    );
+    expect(screen.getByTestId("output-objective-1")).toHaveTextContent("200000");
+    expect(screen.getByTestId("output-objective-2")).toHaveTextContent("150000");
+  });
 });
