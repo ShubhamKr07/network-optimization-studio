@@ -25,6 +25,7 @@ import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { WarehouseTable } from "@/components/tables/WarehouseTable";
 import { CustomerTable } from "@/components/tables/CustomerTable";
 import { ImportDialog } from "@/components/ImportDialog";
+import { ConstraintChips } from "@/components/ConstraintChips";
 import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
@@ -253,6 +254,8 @@ export function Studio({ modelId }: StudioProps) {
 
   const forcedOpenCount = localConfig?.warehouseOverrides.filter(o => o.status === "forced_open").length ?? 0;
   const inactiveCount = localConfig?.warehouseOverrides.filter(o => o.status === "inactive").length ?? 0;
+  const excludedCount = localConfig?.customerOverrides.filter(o => o.status === "excluded").length ?? 0;
+  const demandEditedCount = localConfig?.customerOverrides.filter(o => o.demand != null).length ?? 0;
   const pValue = localConfig?.pValue ?? 3;
   const bands = localConfig?.distanceBands ?? [];
   const maxBand = bands.length ? Math.max(...bands) : 1600;
@@ -327,6 +330,11 @@ export function Studio({ modelId }: StudioProps) {
       });
     }
   }, [jobStatus, scenarioId, queryClient]);
+
+  // E2.1: constraint chips focus/open their source input on click.
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const handleClone = () => {
     if (!scenarioId) return;
@@ -673,7 +681,7 @@ export function Studio({ modelId }: StudioProps) {
               </div>
 
               {/* P value */}
-              <div className="px-3 py-3 border-b space-y-2">
+              <div id="section-p-value" className="px-3 py-3 border-b space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-foreground">Warehouses to open (P)</p>
                   <span className="text-sm font-bold text-primary" data-testid="text-p-value">{localConfig.pValue}</span>
@@ -730,7 +738,7 @@ export function Studio({ modelId }: StudioProps) {
               </div>
 
               {/* Warehouse capacity */}
-              <div className="px-3 py-3 border-b space-y-2">
+              <div id="section-capacity" className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse capacity</p>
                 {localConfig.capacityMode === "uniform" && (
                   <Input
@@ -992,6 +1000,23 @@ export function Studio({ modelId }: StudioProps) {
                 </div>
               </div>
             </div>
+
+            {modelId === "p-median-us" && localConfig && (
+              <ConstraintChips
+                pValue={pValue}
+                capacityMode={localConfig.capacityMode}
+                uniformCapacity={localConfig.uniformCapacity}
+                forcedOpenCount={forcedOpenCount}
+                inactiveCount={inactiveCount}
+                excludedCount={excludedCount}
+                demandEditedCount={demandEditedCount}
+                stale={isStale}
+                onFocusP={() => scrollToSection("section-p-value")}
+                onFocusCapacity={() => scrollToSection("section-capacity")}
+                onFocusWarehouses={() => setShowWarehouseTable(true)}
+                onFocusCustomers={() => setShowCustomerTable(true)}
+              />
+            )}
 
             <div className="flex-1 min-h-0 relative">
               {currentScenario?.modelId === "p-median-brazil" ? (

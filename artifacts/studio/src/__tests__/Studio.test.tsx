@@ -831,3 +831,53 @@ describe("Studio — Map bounds per model", () => {
     expect(screen.getByTestId("network-map")).toHaveAttribute("data-country-bounds", "");
   });
 });
+
+// ── Constraint chip bar (E2.1) ───────────────────────────────────────────────
+describe("Studio — Constraint chip bar", () => {
+  it("reflects p, capacity, and override counts from scenario state", () => {
+    const scenario = {
+      ...pmedianScenario,
+      inputs: {
+        ...pmedianInputs,
+        p: 5,
+        capacityMode: "uniform",
+        uniformCapacity: 10_000_000,
+        warehouseOverrides: [{ id: "CHI", status: "forced_open" }, { id: "LA", status: "inactive" }],
+        customerOverrides: [{ id: "C1", status: "excluded" }, { id: "C2", demand: 999, status: "active" }],
+      },
+    };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+
+    expect(screen.getByTestId("chip-p")).toHaveTextContent("p = 5");
+    expect(screen.getByTestId("chip-capacity")).toHaveTextContent("Capacity: uniform 10M");
+    expect(screen.getByTestId("chip-forced-open")).toHaveTextContent("1 forced open");
+    expect(screen.getByTestId("chip-inactive")).toHaveTextContent("1 inactive");
+    expect(screen.getByTestId("chip-excluded")).toHaveTextContent("1 customers excluded");
+    expect(screen.getByTestId("chip-demand-edited")).toHaveTextContent("demand edited (1)");
+  });
+
+  it("clicking the forced-open chip opens the Warehouses table dialog", async () => {
+    const scenario = {
+      ...pmedianScenario,
+      inputs: { ...pmedianInputs, warehouseOverrides: [{ id: "CHI", status: "forced_open" }] },
+    };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+
+    expect(screen.getAllByText("Warehouses")).toHaveLength(1);
+    await userEvent.click(screen.getByTestId("chip-forced-open"));
+    // The dialog's own "Warehouses" title is now present alongside the button.
+    expect(screen.getAllByText("Warehouses").length).toBeGreaterThan(1);
+  });
+
+  it("does not render the chip bar for transport-coal scenarios", () => {
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    expect(screen.queryByTestId("constraint-chips")).not.toBeInTheDocument();
+  });
+});
