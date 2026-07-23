@@ -6,6 +6,7 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
 import { assignBand } from "@/lib/bands";
+import { BAND_COLORS as bandColors, getBandColor } from "@/lib/bandPalette";
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -66,9 +67,6 @@ const createTriangleIcon = (
     iconAnchor: [anchor, anchor],
   });
 };
-
-const bandColors = ["#16A34A", "#84CC16", "#F59E0B", "#EF4444", "#DC2626"];
-const getBandColor = (band: number) => bandColors[Math.min(band, bandColors.length - 1)] ?? "#16A34A";
 
 function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
   useMapEvents({ click: onDeselect });

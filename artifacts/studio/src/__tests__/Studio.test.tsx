@@ -766,3 +766,37 @@ describe("Studio — Client-side distance bands", () => {
     fetchSpy.mockRestore();
   });
 });
+
+// ── Auto-show routes on solve success (E4.1) ────────────────────────────────
+describe("Studio — Auto-show routes", () => {
+  it("turns the Show routes switch on once a solve succeeds", async () => {
+    const solvedResult = {
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 50, distance: 150, band: 0 }],
+      metrics: { weightedAvgDistance: 100, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["CHI"], assignments: [] },
+      solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    // Scenario already carries a result — simulates the state after
+    // invalidateQueries refetches post-solve (mocked as a no-op here).
+    const scenario = { ...pmedianScenario, result: solvedResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderStudio();
+
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByTestId("switch-show-routes")).toHaveAttribute("data-state", "unchecked");
+
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    await vi.waitFor(() => expect(screen.getByTestId("switch-show-routes")).toHaveAttribute("data-state", "checked"));
+  });
+});

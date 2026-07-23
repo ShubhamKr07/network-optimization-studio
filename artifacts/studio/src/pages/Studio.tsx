@@ -28,6 +28,7 @@ import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
 import { computeBandCoverage } from "@/lib/bands";
+import { getBandColor } from "@/lib/bandPalette";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -71,9 +72,6 @@ interface TransportLpInputsShape {
   gap: number;
   timeLimitSec: number;
 }
-
-const BAND_COLORS = ["#16A34A", "#84CC16", "#F59E0B", "#EF4444"];
-const getBandColor = (i: number) => BAND_COLORS[Math.min(i, BAND_COLORS.length - 1)];
 
 interface LocalConfig {
   name: string;
@@ -313,6 +311,7 @@ export function Studio({ modelId }: StudioProps) {
       setIsSolving(false);
       setPollingJobId(null);
       setActiveTab("output");
+      setShowRoutes(true);
       queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
     } else if (jobStatus.status === "failed") {
