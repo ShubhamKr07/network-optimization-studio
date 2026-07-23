@@ -5,6 +5,7 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
+import { assignBand } from "@/lib/bands";
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -140,9 +141,14 @@ interface NetworkMapProps {
   warehouseStatuses: WarehouseStatusEntry[];
   result: SolveResult | null;
   showRoutes: boolean;
+  // E1.1: bands are presentation state — route/marker colors are
+  // recomputed from these client-side, not from each edge's stored
+  // `.band` (which reflects the bands at solve time and goes stale the
+  // moment a student edits them without re-solving).
+  bands: number[];
 }
 
-export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: NetworkMapProps) {
+export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, bands }: NetworkMapProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
 
@@ -201,9 +207,9 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
       warehouseCity: warehouse.city,
       warehouseState: warehouse.state,
       distanceMi: edge.distance,
-      band: edge.band ?? 0,
+      band: assignBand(edge.distance, bands),
     };
-  }, [selectedCustomerId, result, assignmentMap, dataset]);
+  }, [selectedCustomerId, result, assignmentMap, dataset, bands]);
 
   const hasCustomerSelection = selectedCustomerId !== null && popupInfo !== null;
   const hasWarehouseFilter = selectedWarehouseId !== null && warehouseCustomerIds !== null;
@@ -277,7 +283,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
                     [warehouse.lat, warehouse.lng],
                   ]}
                   pathOptions={{
-                    color: getBandColor(edge.band ?? 0),
+                    color: getBandColor(assignBand(edge.distance, bands)),
                     weight: focused && hasCustomerSelection ? 4 : 2,
                     opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
                   }}
@@ -288,15 +294,16 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
 
         {dataset.customers.map((c) => {
           const assignment = assignmentMap.get(c.id);
+          const assignmentBand = assignment ? assignBand(assignment.distance, bands) : 0;
           const focused = isCustomerFocused(c.id);
           const dimmed = anySelection && !focused;
           const isCustomerSelected = c.id === selectedCustomerId;
           const isWarehouseHighlighted = hasWarehouseFilter && focused;
 
           const fillColor = isCustomerSelected
-            ? getBandColor(assignment?.band ?? 0)
+            ? getBandColor(assignmentBand)
             : isWarehouseHighlighted
-              ? getBandColor(assignment?.band ?? 0)
+              ? getBandColor(assignmentBand)
               : "#94A3B8";
 
           return (
@@ -308,9 +315,9 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
                 fillColor,
                 fillOpacity: dimmed ? 0.15 : 0.8,
                 color: isCustomerSelected
-                  ? getBandColor(assignment?.band ?? 0)
+                  ? getBandColor(assignmentBand)
                   : isWarehouseHighlighted
-                    ? getBandColor(assignment?.band ?? 0)
+                    ? getBandColor(assignmentBand)
                     : "#64748B",
                 weight: isCustomerSelected ? 2.5 : isWarehouseHighlighted ? 1.5 : 1,
               }}
@@ -379,7 +386,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         </div>
         {result && showRoutes && (
           <div className="flex items-center gap-2 pt-1 border-t border-border">
-            {bandColors.slice(0, result.metrics.bandCoverage?.length ?? 0).map((color, i) => (
+            {bandColors.slice(0, bands.length).map((color, i) => (
               <div key={i} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
                 <span className="text-[10px] text-muted-foreground">Band {i + 1}</span>

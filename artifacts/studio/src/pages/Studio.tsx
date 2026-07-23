@@ -27,6 +27,7 @@ import { ImportDialog } from "@/components/ImportDialog";
 import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
+import { computeBandCoverage } from "@/lib/bands";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -252,7 +253,8 @@ export function Studio({ modelId }: StudioProps) {
   const forcedOpenCount = localConfig?.warehouseOverrides.filter(o => o.status === "forced_open").length ?? 0;
   const inactiveCount = localConfig?.warehouseOverrides.filter(o => o.status === "inactive").length ?? 0;
   const pValue = localConfig?.pValue ?? 3;
-  const maxBand = localConfig?.distanceBands.length ? Math.max(...localConfig.distanceBands) : 1600;
+  const bands = localConfig?.distanceBands ?? [];
+  const maxBand = bands.length ? Math.max(...bands) : 1600;
 
   const blockingErrors: Array<{ title: string; desc: string }> = [];
   if (forcedOpenCount > pValue) {
@@ -696,64 +698,6 @@ export function Studio({ modelId }: StudioProps) {
                 <p className="text-[10px] text-muted-foreground">Max 50 – capped at {26 - inactiveCount} available sites.</p>
               </div>
 
-              {/* Distance bands */}
-              <div className="px-3 py-3 border-b space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-foreground">Distance bands (miles)</p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      data-testid="button-bands-minus"
-                      onClick={() => {
-                        if (localConfig.distanceBands.length > 1) {
-                          update("distanceBands", localConfig.distanceBands.slice(0, -1));
-                        }
-                      }}
-                      className="w-5 h-5 rounded border border-border text-xs flex items-center justify-center hover:bg-muted"
-                    >−</button>
-                    <span className="text-xs w-4 text-center">{localConfig.distanceBands.length}</span>
-                    <button
-                      data-testid="button-bands-plus"
-                      onClick={() => setAddingBand(true)}
-                      className="w-5 h-5 rounded border border-border text-xs flex items-center justify-center hover:bg-muted"
-                    >+</button>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {localConfig.distanceBands.map(b => (
-                    <span key={b} className="inline-flex items-center gap-0.5 text-xs bg-muted border border-border rounded px-1.5 py-0.5">
-                      {b.toLocaleString()}
-                      <button
-                        data-testid={`button-remove-band-${b}`}
-                        onClick={() => removeBand(b)}
-                        className="text-muted-foreground hover:text-foreground ml-0.5"
-                      ><X className="w-2.5 h-2.5" /></button>
-                    </span>
-                  ))}
-                </div>
-                {addingBand && (
-                  <div className="flex gap-1">
-                    <Input
-                      type="number"
-                      value={newBandValue}
-                      onChange={e => setNewBandValue(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter") addBand(); if (e.key === "Escape") setAddingBand(false); }}
-                      placeholder="miles"
-                      className="h-7 text-xs"
-                      autoFocus
-                      data-testid="input-new-band"
-                    />
-                    <Button size="sm" onClick={addBand} className="h-7 px-2 text-xs" data-testid="button-add-band-confirm">Add</Button>
-                  </div>
-                )}
-                {!addingBand && (
-                  <button
-                    data-testid="button-add-band"
-                    onClick={() => setAddingBand(true)}
-                    className="text-xs text-primary hover:underline"
-                  >+ Add</button>
-                )}
-              </div>
-
               {/* Solve settings */}
               <div className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Solve settings</p>
@@ -1061,6 +1005,7 @@ export function Studio({ modelId }: StudioProps) {
                     .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }))}
                   result={activeTab === "output" ? result : null}
                   showRoutes={activeTab === "output" && showRoutes}
+                  bands={bands}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading map...</div>
@@ -1141,10 +1086,70 @@ export function Studio({ modelId }: StudioProps) {
                     </div>
                   ) : (
                   <>
-                  {/* Band coverage — P-Median only */}
+                  {/* Distance bands — E1.1: presentation state, edited here and
+                      recomputed client-side from result.edges. No /solve call. */}
+                  <div className="px-3 py-3 border-b space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-foreground">Distance bands (miles)</p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          data-testid="button-bands-minus"
+                          onClick={() => {
+                            if (bands.length > 1) {
+                              update("distanceBands", bands.slice(0, -1));
+                            }
+                          }}
+                          className="w-5 h-5 rounded border border-border text-xs flex items-center justify-center hover:bg-muted"
+                        >−</button>
+                        <span className="text-xs w-4 text-center">{bands.length}</span>
+                        <button
+                          data-testid="button-bands-plus"
+                          onClick={() => setAddingBand(true)}
+                          className="w-5 h-5 rounded border border-border text-xs flex items-center justify-center hover:bg-muted"
+                        >+</button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {bands.map(b => (
+                        <span key={b} className="inline-flex items-center gap-0.5 text-xs bg-muted border border-border rounded px-1.5 py-0.5">
+                          {b.toLocaleString()}
+                          <button
+                            data-testid={`button-remove-band-${b}`}
+                            onClick={() => removeBand(b)}
+                            className="text-muted-foreground hover:text-foreground ml-0.5"
+                          ><X className="w-2.5 h-2.5" /></button>
+                        </span>
+                      ))}
+                    </div>
+                    {addingBand && (
+                      <div className="flex gap-1">
+                        <Input
+                          type="number"
+                          value={newBandValue}
+                          onChange={e => setNewBandValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") addBand(); if (e.key === "Escape") setAddingBand(false); }}
+                          placeholder="miles"
+                          className="h-7 text-xs"
+                          autoFocus
+                          data-testid="input-new-band"
+                        />
+                        <Button size="sm" onClick={addBand} className="h-7 px-2 text-xs" data-testid="button-add-band-confirm">Add</Button>
+                      </div>
+                    )}
+                    {!addingBand && (
+                      <button
+                        data-testid="button-add-band"
+                        onClick={() => setAddingBand(true)}
+                        className="text-xs text-primary hover:underline"
+                      >+ Add</button>
+                    )}
+                    <p className="text-[10px] text-muted-foreground italic">Bands re-analyze the current solution; they do not re-optimize.</p>
+                  </div>
+
+                  {/* Band coverage — P-Median only, recomputed client-side */}
                   <div className="px-3 py-3 border-b space-y-2">
                     <p className="text-xs font-semibold text-foreground">Demand served within band</p>
-                    {result.metrics.bandCoverage?.map((bc, i) => (
+                    {computeBandCoverage(result.edges, bands).map((bc, i) => (
                       <div key={bc.band} className="space-y-0.5" data-testid={`result-band-${bc.band}`}>
                         <div className="flex justify-between">
                           <span className="text-[10px] text-muted-foreground">&lt; {bc.band.toLocaleString()} mi</span>

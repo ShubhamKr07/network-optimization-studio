@@ -711,3 +711,58 @@ describe("Studio — Quality statement", () => {
     expect(screen.getByTestId("text-quality-statement")).toHaveTextContent("Within configured gap 5%, limit reached");
   });
 });
+
+// ── Client-side distance bands (E1.1) ───────────────────────────────────────
+describe("Studio — Client-side distance bands", () => {
+  const solvedResult = {
+    status: "optimal",
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [
+      { fromId: "CHI", toId: "C1", flow: 50, distance: 150, band: 0 },
+      { fromId: "CHI", toId: "C2", flow: 50, distance: 900, band: 3 },
+    ],
+    metrics: { weightedAvgDistance: 100, bandCoverage: [{ band: 200, percent: 50 }, { band: 400, percent: 50 }, { band: 800, percent: 50 }, { band: 1600, percent: 100 }], utilizationByNode: [] },
+    details: { openWarehouseIds: ["CHI"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  beforeEach(() => {
+    const scenario = { ...pmedianScenario, result: solvedResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("moves the band editor to the results panel (output tab), not the left config panel", async () => {
+    renderStudio();
+    // A previously-solved scenario opens straight on the Output tab.
+    expect(screen.getByTestId("button-add-band")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Input"));
+    expect(screen.queryByTestId("button-add-band")).not.toBeInTheDocument();
+  });
+
+  it("adding a band recomputes coverage instantly with zero network calls", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+
+    // Baseline bands are [200,400,800,1600] (pmedianInputs); the 800mi band
+    // only covers the 150mi edge (50% of flow) since 900 > 800.
+    expect(screen.getByTestId("result-band-800")).toHaveTextContent("50%");
+
+    await userEvent.click(screen.getByTestId("button-add-band"));
+    await userEvent.type(screen.getByTestId("input-new-band"), "1000");
+    await userEvent.click(screen.getByTestId("button-add-band-confirm"));
+
+    // New band boundary (not present in the server's stale metrics.bandCoverage
+    // at all) shows up with correctly recomputed coverage — the 900mi edge is
+    // now included (900<=1000), proving this is live client-side computation.
+    expect(screen.getByTestId("result-band-1000")).toHaveTextContent("100%");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});
