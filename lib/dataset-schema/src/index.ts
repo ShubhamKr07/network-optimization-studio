@@ -120,3 +120,35 @@ export function readVersion(modelId: string): z.infer<typeof VersionFile> {
   const raw = JSON.parse(readFileSync(path.join(packageDir(modelId), "version.json"), "utf8"));
   return VersionFile.parse(raw);
 }
+
+// Phase 3.5 (G1.1) — model manifests. `inputsSchema` is a JSON Schema blob,
+// intentionally left opaque here (z.record(z.string(), z.unknown())): its
+// job is to describe the model's inputs shape to *other* consumers (e.g. a
+// future generic form renderer), not to be re-validated by this schema —
+// that would just be re-deriving D0.3's Zod validators a second time.
+export const ManifestSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  chapter: z.string(),
+  datasetDir: z.string(),
+  countryBounds: z.object({
+    sw: z.tuple([z.number(), z.number()]),
+    ne: z.tuple([z.number(), z.number()]),
+  }),
+  capabilities: z.object({
+    supportsP: z.boolean(),
+    capacityModes: z.array(z.string()),
+    demandEditable: z.boolean(),
+  }),
+  inputsSchema: z.record(z.string(), z.unknown()),
+});
+
+export type Manifest = z.infer<typeof ManifestSchema>;
+
+export const MODEL_IDS = ["p-median-us", "transport-coal", "p-median-brazil"] as const;
+
+/** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */
+export function readManifest(modelId: string): Manifest {
+  const raw = JSON.parse(readFileSync(path.join(SOLVERS_ROOT, modelId, "manifest.json"), "utf8"));
+  return ManifestSchema.parse(raw);
+}

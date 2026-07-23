@@ -1,0 +1,24 @@
+{
+  "id": "transport-coal",
+  "name": "Coal Transport LP",
+  "chapter": "Chapter 5",
+  "datasetDir": "solvers/transport-coal/dataset",
+  "countryBounds": { "sw": [29.76, -122.42], "ne": [47.61, -73.61] },
+  "capabilities": { "supportsP": false, "capacityModes": [], "demandEditable": false },
+  "inputsSchema": {
+    "type": "object",
+    "properties": {
+      "capacityFactor": { "type": "number", "exclusiveMinimum": 0 },
+      "singleSource": { "type": "boolean" },
+      "capacityInactive": { "type": "boolean" },
+      "distanceBands": {
+        "type": "array",
+        "items": { "type": "integer", "exclusiveMinimum": 0 },
+        "minItems": 1
+      },
+      "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 }
+    },
+    "required": ["capacityFactor", "singleSource", "capacityInactive", "distanceBands", "gap", "timeLimitSec"]
+  }
+}

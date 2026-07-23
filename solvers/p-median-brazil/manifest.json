@@ -1,0 +1,49 @@
+{
+  "id": "p-median-brazil",
+  "name": "Brazil Capacity — Capacitated P-Median",
+  "chapter": "Chapter 5",
+  "datasetDir": "solvers/p-median-brazil/dataset",
+  "countryBounds": { "sw": [-30.04, -67.82], "ne": [0.04, -34.86] },
+  "capabilities": { "supportsP": true, "capacityModes": ["uniform"], "demandEditable": false },
+  "inputsSchema": {
+    "type": "object",
+    "properties": {
+      "p": { "type": "integer", "minimum": 1, "maximum": 50 },
+      "capacityMode": { "type": "string", "enum": ["none", "uniform", "per_wh"] },
+      "uniformCapacity": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+      "warehouseOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "capacity": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "customerOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "demand": { "type": ["number", "null"], "minimum": 0 },
+            "status": { "type": "string", "enum": ["active", "excluded"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "distanceBands": {
+        "type": "array",
+        "items": { "type": "integer", "exclusiveMinimum": 0 },
+        "minItems": 1
+      },
+      "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 },
+      "singleSource": { "type": "boolean" }
+    },
+    "required": ["p", "capacityMode", "distanceBands", "gap", "timeLimitSec"]
+  }
+}
