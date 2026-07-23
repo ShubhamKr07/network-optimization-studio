@@ -5,20 +5,23 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { Assignment } from './assignment';
-import type { BandCoverage } from './bandCoverage';
+import type { Edge } from './edge';
+import type { SolveMetrics } from './solveMetrics';
+import type { SolveResultDetails } from './solveResultDetails';
 import type { SolveResultStatus } from './solveResultStatus';
-import type { WarehouseUtilization } from './warehouseUtilization';
 
+/**
+ * Standardized result envelope (Phase 3.5, G2.1/Phase 4) — solve.py's raw stdout shape, unwrapped by no TS-side shim as of Phase 4.
+ */
 export interface SolveResult {
   status: SolveResultStatus;
-  openWarehouseIds?: string[];
-  assignments: Assignment[];
-  objective?: number;
-  weightedAvgDistanceMi: number;
-  bandCoverage?: BandCoverage[];
-  utilization?: WarehouseUtilization[];
+  objective: number;
   runTimeSec: number;
+  quality: string;
+  edges: Edge[];
+  metrics: SolveMetrics;
+  /** Model-specific extras opaque to this contract — e.g. p-median's openWarehouseIds/assignments, transport's per-shipment flowFraction. */
+  details: SolveResultDetails;
   solverUsed: string;
   /** @nullable */
   infeasibilityReason: string | null;

@@ -133,25 +133,49 @@ export interface Assignment {
   band: number;
 }
 
+/**
+ * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.
+ */
+export interface Edge {
+  fromId: string;
+  toId: string;
+  flow: number;
+  distance: number;
+  band?: number;
+}
+
+export interface SolveMetrics {
+  utilizationByNode?: WarehouseUtilization[];
+  bandCoverage?: BandCoverage[];
+  weightedAvgDistance?: number;
+}
+
 export type SolveResultStatus = typeof SolveResultStatus[keyof typeof SolveResultStatus];
 
 
 export const SolveResultStatus = {
   optimal: 'optimal',
   infeasible: 'infeasible',
-  solving: 'solving',
   error: 'error',
 } as const;
 
+/**
+ * Model-specific extras opaque to this contract — e.g. p-median's openWarehouseIds/assignments, transport's per-shipment flowFraction.
+ */
+export type SolveResultDetails = { [key: string]: unknown };
+
+/**
+ * Standardized result envelope (Phase 3.5, G2.1/Phase 4) — solve.py's raw stdout shape, unwrapped by no TS-side shim as of Phase 4.
+ */
 export interface SolveResult {
   status: SolveResultStatus;
-  openWarehouseIds?: string[];
-  assignments: Assignment[];
-  objective?: number;
-  weightedAvgDistanceMi: number;
-  bandCoverage?: BandCoverage[];
-  utilization?: WarehouseUtilization[];
+  objective: number;
   runTimeSec: number;
+  quality: string;
+  edges: Edge[];
+  metrics: SolveMetrics;
+  /** Model-specific extras opaque to this contract — e.g. p-median's openWarehouseIds/assignments, transport's per-shipment flowFraction. */
+  details: SolveResultDetails;
   solverUsed: string;
   /** @nullable */
   infeasibilityReason: string | null;

@@ -6,8 +6,9 @@ import { eq } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
 import { ResultEnvelopeSchema } from "./resultEnvelope.js";
-import { buildPayload, envelopeToLegacy } from "./pmedian.js";
-import type { SolveInput, SolveOutput } from "./pmedian.js";
+import type { ResultEnvelope } from "./resultEnvelope.js";
+import { buildPayload } from "./pmedian.js";
+import type { SolveInput } from "./pmedian.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOLVER_PY = path.resolve(__dirname, "solve.py");
@@ -128,24 +129,28 @@ async function markFailed(jobId: number, error: string): Promise<void> {
     .where(eq(solveJobsTable.id, jobId));
 }
 
-async function markSucceeded(jobId: number, scenarioId: number, output: SolveOutput): Promise<void> {
+async function markSucceeded(jobId: number, scenarioId: number, envelope: ResultEnvelope): Promise<void> {
   await db.update(solveJobsTable)
     .set({
       status: "succeeded",
-      resultSummary: { status: output.status, objective: output.objective, weightedAvgDistanceMi: output.weightedAvgDistanceMi, runTimeSec: output.runTimeSec },
+      resultSummary: {
+        status: envelope.status,
+        objective: envelope.objective,
+        weightedAvgDistanceMi: envelope.metrics.weightedAvgDistance ?? 0,
+        runTimeSec: envelope.runTimeSec,
+      },
       finishedAt: new Date(),
     })
     .where(eq(solveJobsTable.id, jobId));
 
   await db.update(scenariosTable)
-    .set({ result: output as unknown as Record<string, unknown>, solvedAt: new Date(), updatedAt: new Date() })
+    .set({ result: envelope as unknown as Record<string, unknown>, solvedAt: new Date(), updatedAt: new Date() })
     .where(eq(scenariosTable.id, scenarioId));
 }
 
 // The solver wrapper never throws — crashes, timeouts, and unparseable
-// stdout all degrade to a "failed" job with a message (same never-throws
-// contract solve()/pmedian.ts always upheld, now expressed as a job status
-// instead of a synthesized {status:"error"} SolveOutput).
+// stdout all degrade to a "failed" job with a message (a job status, not a
+// synthesized error-shaped result).
 async function runJob(jobId: number, scenarioId: number, input: SolveInput): Promise<void> {
   await markRunning(jobId);
 
@@ -181,6 +186,5 @@ async function runJob(jobId: number, scenarioId: number, input: SolveInput): Pro
     return;
   }
 
-  const output = envelopeToLegacy(parsed.data);
-  await markSucceeded(jobId, scenarioId, output);
+  await markSucceeded(jobId, scenarioId, parsed.data);
 }

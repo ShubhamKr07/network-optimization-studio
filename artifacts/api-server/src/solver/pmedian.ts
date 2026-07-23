@@ -1,6 +1,5 @@
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
-import type { ResultEnvelope } from "./resultEnvelope.js";
 
 export type SolveInput =
   | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
@@ -58,58 +57,3 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
   };
 }
 
-export interface Assignment {
-  customerId: string;
-  warehouseId: string;
-  distanceMi: number;
-  band: number;
-  // Chapter 5 transport LP / capacitated models
-  flowTons?: number;
-  flowFraction?: number;
-}
-
-export interface WarehouseUtilization {
-  warehouseId: string;
-  city: string;
-  utilization: number;
-}
-
-export interface BandCoverage {
-  band: number;
-  percent: number;
-}
-
-export interface SolveOutput {
-  status: "optimal" | "infeasible" | "error";
-  openWarehouseIds: string[];
-  assignments: Assignment[];
-  objective: number;
-  weightedAvgDistanceMi: number;
-  bandCoverage: BandCoverage[];
-  utilization: WarehouseUtilization[];
-  runTimeSec: number;
-  solverUsed: string;
-  infeasibilityReason: string | null;
-}
-
-// Phase 3.5 (G2.1): solve.py emits a standardized envelope
-// ({status, objective, edges, metrics, details, ...}), validated by
-// jobRunner.ts against the shared Zod schema before anything trusts it.
-// This translates it back to the pre-envelope flat SolveOutput shape so
-// routes.ts and the frontend are unaffected by the wire-shape refactor —
-// Phase 4/5 will read the envelope directly and this shim goes away.
-export function envelopeToLegacy(env: ResultEnvelope): SolveOutput {
-  const details = env.details as { openWarehouseIds?: string[]; assignments?: Assignment[] };
-  return {
-    status: env.status,
-    openWarehouseIds: details.openWarehouseIds ?? [],
-    assignments: details.assignments ?? [],
-    objective: env.objective,
-    weightedAvgDistanceMi: env.metrics.weightedAvgDistance ?? 0,
-    bandCoverage: env.metrics.bandCoverage ?? [],
-    utilization: env.metrics.utilizationByNode ?? [],
-    runTimeSec: env.runTimeSec,
-    solverUsed: env.solverUsed,
-    infeasibilityReason: env.infeasibilityReason,
-  };
-}

@@ -12,6 +12,5 @@ export type SolveResultStatus = typeof SolveResultStatus[keyof typeof SolveResul
 export const SolveResultStatus = {
   optimal: 'optimal',
   infeasible: 'infeasible',
-  solving: 'solving',
   error: 'error',
 } as const;

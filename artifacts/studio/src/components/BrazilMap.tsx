@@ -1,15 +1,8 @@
 import { useEffect, useRef } from "react";
+import type { SolveResult } from "@workspace/api-client-react";
 
 interface BrazilMapProps {
-  result?: {
-    assignments: Array<{
-      customerId: string;
-      warehouseId: string;
-      distanceMi: number;
-      flowFraction?: number;
-    }>;
-    openWarehouseIds?: string[];
-  } | null;
+  result?: SolveResult | null;
   showRoutes?: boolean;
 }
 
@@ -21,6 +14,8 @@ export function BrazilMap({ result, showRoutes }: BrazilMapProps) {
     // configured for Brazil's bounding box (-35 to -73 lng, 5 to -35 lat)
   }, [result, showRoutes]);
 
+  const openWarehouseIds = (result?.details as { openWarehouseIds?: string[] } | undefined)?.openWarehouseIds;
+
   return (
     <div
       ref={canvasRef}
@@ -29,7 +24,7 @@ export function BrazilMap({ result, showRoutes }: BrazilMapProps) {
     >
       {result ? (
         <span className="text-xs font-mono">
-          {result.openWarehouseIds?.length ?? 0} DCs · {result.assignments.length} demand regions
+          {openWarehouseIds?.length ?? 0} DCs · {result.edges.length} demand regions
         </span>
       ) : (
         <span className="text-xs">Brazil · {27} demand regions · 27 DC candidates</span>

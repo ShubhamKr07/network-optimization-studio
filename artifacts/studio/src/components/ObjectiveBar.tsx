@@ -43,8 +43,9 @@ export function ObjectiveBar({ pValue, result, modelId }: ObjectiveBarProps) {
   const modelIndex = modelId === "transport-coal" ? 2 : modelId === "p-median-brazil" ? 3 : 1;
   const target = MODEL_TARGETS[modelIndex] ?? MODEL_TARGETS[1];
 
+  const avgDistance = result?.metrics.weightedAvgDistance;
   const warehousesOk = pValue <= target.maxWarehouses;
-  const distanceOk = result ? result.weightedAvgDistanceMi < target.maxAvgDistance : false;
+  const distanceOk = avgDistance != null ? avgDistance < target.maxAvgDistance : false;
 
   return (
     <div style={{
@@ -83,7 +84,7 @@ export function ObjectiveBar({ pValue, result, modelId }: ObjectiveBarProps) {
       <div style={{ display: "flex", gap: "7px", flexShrink: 0 }}>
         <GoalPill label={`≤ ${target.maxWarehouses} nodes${warehousesOk ? " ✓" : ` (P=${pValue})`}`} hit={warehousesOk} />
         <GoalPill
-          label={result ? `avg ${result.weightedAvgDistanceMi.toFixed(0)} mi${distanceOk ? " ✓" : ""}` : `avg < ${target.maxAvgDistance} mi`}
+          label={avgDistance != null ? `avg ${avgDistance.toFixed(0)} mi${distanceOk ? " ✓" : ""}` : `avg < ${target.maxAvgDistance} mi`}
           hit={distanceOk}
         />
       </div>

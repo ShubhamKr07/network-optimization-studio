@@ -4,7 +4,7 @@ import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
-import type { Dataset, SolveResult, Assignment } from "@workspace/api-client-react";
+import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -161,23 +161,26 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
     return 3 + ((demand - minDemand) / (maxDemand - minDemand)) * 5;
   };
 
+  const openWarehouseIds = (result?.details as { openWarehouseIds?: string[] } | undefined)?.openWarehouseIds;
+
   const getStatus = (whId: string) => {
     const entry = warehouseStatuses.find((w) => w.warehouseId === whId);
-    if (result && result.openWarehouseIds?.includes(whId)) return "open";
+    if (result && openWarehouseIds?.includes(whId)) return "open";
     return entry ? entry.status : "potential";
   };
 
+  // Edges: fromId=warehouseId, toId=customerId (Phase 3.5 G2.1 model-agnostic shape).
   const assignmentMap = useMemo(() => {
-    if (!result) return new Map<string, Assignment>();
-    return new Map(result.assignments.map((a) => [a.customerId, a]));
+    if (!result) return new Map<string, Edge>();
+    return new Map(result.edges.map((e) => [e.toId, e]));
   }, [result]);
 
   // Set of customer IDs assigned to the currently selected warehouse
   const warehouseCustomerIds = useMemo(() => {
     if (!selectedWarehouseId || !result) return null;
     const ids = new Set<string>();
-    result.assignments.forEach((a) => {
-      if (a.warehouseId === selectedWarehouseId) ids.add(a.customerId);
+    result.edges.forEach((e) => {
+      if (e.fromId === selectedWarehouseId) ids.add(e.toId);
     });
     return ids;
   }, [selectedWarehouseId, result]);
@@ -185,10 +188,10 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
   // Build popup info for the selected customer
   const popupInfo = useMemo<PopupInfo | null>(() => {
     if (!selectedCustomerId || !result) return null;
-    const assignment = assignmentMap.get(selectedCustomerId);
-    if (!assignment) return null;
+    const edge = assignmentMap.get(selectedCustomerId);
+    if (!edge) return null;
     const customer = dataset.customers.find((c) => c.id === selectedCustomerId);
-    const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+    const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
     if (!customer || !warehouse) return null;
     return {
       lat: customer.lat,
@@ -197,8 +200,8 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
       customerState: (customer as unknown as { state?: string }).state ?? "",
       warehouseCity: warehouse.city,
       warehouseState: warehouse.state,
-      distanceMi: assignment.distanceMi,
-      band: assignment.band,
+      distanceMi: edge.distance,
+      band: edge.band ?? 0,
     };
   }, [selectedCustomerId, result, assignmentMap, dataset]);
 
@@ -258,23 +261,23 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         {/* Route lines in a dedicated pane below customer circles (z-index 350) */}
         <Pane name="routePane" style={{ zIndex: 350 }}>
           {showRoutes &&
-            result?.assignments.map((assignment) => {
-              const customer = dataset.customers.find((c) => c.id === assignment.customerId);
-              const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+            result?.edges.map((edge) => {
+              const customer = dataset.customers.find((c) => c.id === edge.toId);
+              const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!customer || !warehouse) return null;
 
-              const focused = isCustomerFocused(assignment.customerId);
+              const focused = isCustomerFocused(edge.toId);
               const dimmed = anySelection && !focused;
 
               return (
                 <Polyline
-                  key={`route-${assignment.customerId}`}
+                  key={`route-${edge.toId}`}
                   positions={[
                     [customer.lat, customer.lng],
                     [warehouse.lat, warehouse.lng],
                   ]}
                   pathOptions={{
-                    color: getBandColor(assignment.band),
+                    color: getBandColor(edge.band ?? 0),
                     weight: focused && hasCustomerSelection ? 4 : 2,
                     opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
                   }}
@@ -345,7 +348,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
                 <Tooltip direction="top" offset={[0, -10]} opacity={1}>
                   <span className="font-semibold text-xs">
                     {w.city}, {w.state}
-                    {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.assignments.filter((a) => a.warehouseId === w.id).length)} customers` : ""}
+                    {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers` : ""}
                   </span>
                 </Tooltip>
               )}
@@ -376,7 +379,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes }: N
         </div>
         {result && showRoutes && (
           <div className="flex items-center gap-2 pt-1 border-t border-border">
-            {bandColors.slice(0, result.bandCoverage?.length ?? 0).map((color, i) => (
+            {bandColors.slice(0, result.metrics.bandCoverage?.length ?? 0).map((color, i) => (
               <div key={i} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
                 <span className="text-[10px] text-muted-foreground">Band {i + 1}</span>

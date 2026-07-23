@@ -1015,8 +1015,8 @@ export function Studio({ modelId }: StudioProps) {
               <div>
                 <p className="text-sm font-semibold text-foreground">{activeTab === "output" && result ? "Optimized network" : "Input network"}</p>
                 <p className="text-xs text-muted-foreground">{currentScenario?.modelId === "transport-coal"
-                  ? (activeTab === "output" && result ? `${result.assignments.length} active flows` : "4 mines · 15 power stations")
-                  : (activeTab === "output" && result ? `${(result as any).openWarehouseIds?.length ?? 0} open sites · ${result.assignments.length} customers` : `26 warehouse candidates · ${dataset?.customers.length ?? 0} customers`)}</p>
+                  ? (activeTab === "output" && result ? `${result.edges.length} active flows` : "4 mines · 15 power stations")
+                  : (activeTab === "output" && result ? `${(result.details as { openWarehouseIds?: string[] })?.openWarehouseIds?.length ?? 0} open sites · ${result.edges.length} customers` : `26 warehouse candidates · ${dataset?.customers.length ?? 0} customers`)}</p>
               </div>
               <div className="flex items-center gap-3">
                 {result && (
@@ -1106,7 +1106,7 @@ export function Studio({ modelId }: StudioProps) {
                   {/* Headline metric */}
                   <div className="px-3 py-4 border-b">
                     <div className="flex items-end gap-1" data-testid="result-weighted-avg-distance">
-                      <span className="text-3xl font-bold text-foreground">{result.weightedAvgDistanceMi.toFixed(1)}</span>
+                      <span className="text-3xl font-bold text-foreground">{(result.metrics.weightedAvgDistance ?? 0).toFixed(1)}</span>
                       <span className="text-base text-muted-foreground mb-0.5">miles</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">Weighted-average distance</p>
@@ -1127,7 +1127,7 @@ export function Studio({ modelId }: StudioProps) {
                     <div className="px-3 py-3 space-y-2">
                       <p className="text-xs font-semibold text-foreground">Flow assignments (mine → station)</p>
                       <div className="space-y-1 max-h-64 overflow-y-auto">
-                        {result.assignments.map((a: any) => (
+                        {((result.details as { assignments?: Array<{ warehouseId: string; customerId: string; flowTons: number; flowFraction: number }> })?.assignments ?? []).map((a) => (
                           <div key={`${a.warehouseId}-${a.customerId}`} className="flex items-center justify-between text-[10px] py-0.5 border-b border-border/40">
                             <span className="text-muted-foreground font-mono">{a.warehouseId} → {a.customerId}</span>
                             <div className="flex gap-2 text-right">
@@ -1144,7 +1144,7 @@ export function Studio({ modelId }: StudioProps) {
                   {/* Band coverage — P-Median only */}
                   <div className="px-3 py-3 border-b space-y-2">
                     <p className="text-xs font-semibold text-foreground">Demand served within band</p>
-                    {(result as any).bandCoverage?.map((bc: any, i: number) => (
+                    {result.metrics.bandCoverage?.map((bc, i) => (
                       <div key={bc.band} className="space-y-0.5" data-testid={`result-band-${bc.band}`}>
                         <div className="flex justify-between">
                           <span className="text-[10px] text-muted-foreground">&lt; {bc.band.toLocaleString()} mi</span>
@@ -1163,7 +1163,7 @@ export function Studio({ modelId }: StudioProps) {
                       <p className="text-xs font-semibold text-foreground">Open warehouses · utilization</p>
                       <Badge variant="outline" className="text-[9px] border-[#7C3AED]/30 bg-[#7C3AED]/5 text-[#7C3AED] px-1 py-0">violet</Badge>
                     </div>
-                    {(result as any).utilization?.map((u: any) => (
+                    {result.metrics.utilizationByNode?.map((u) => (
                       <div key={u.warehouseId} className="space-y-0.5" data-testid={`result-util-${u.warehouseId}`}>
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-1">

@@ -110,29 +110,35 @@ export const ListScenariosResponseItem = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()).optional(),
-  "assignments": zod.array(zod.object({
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distanceMi": zod.number(),
-  "band": zod.number()
-})),
-  "objective": zod.number().optional(),
-  "weightedAvgDistanceMi": zod.number(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "utilization": zod.array(zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional()
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
 })).optional(),
-  "runTimeSec": zod.number(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional()
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
-}),zod.null()]),
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
@@ -167,29 +173,35 @@ export const GetScenarioResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()).optional(),
-  "assignments": zod.array(zod.object({
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distanceMi": zod.number(),
-  "band": zod.number()
-})),
-  "objective": zod.number().optional(),
-  "weightedAvgDistanceMi": zod.number(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "utilization": zod.array(zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional()
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
 })).optional(),
-  "runTimeSec": zod.number(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional()
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
-}),zod.null()]),
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
@@ -218,29 +230,35 @@ export const UpdateScenarioResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()).optional(),
-  "assignments": zod.array(zod.object({
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distanceMi": zod.number(),
-  "band": zod.number()
-})),
-  "objective": zod.number().optional(),
-  "weightedAvgDistanceMi": zod.number(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "utilization": zod.array(zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional()
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
 })).optional(),
-  "runTimeSec": zod.number(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional()
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
-}),zod.null()]),
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
@@ -338,29 +356,35 @@ export const ApplyScenarioImportResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()).optional(),
-  "assignments": zod.array(zod.object({
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distanceMi": zod.number(),
-  "band": zod.number()
-})),
-  "objective": zod.number().optional(),
-  "weightedAvgDistanceMi": zod.number(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "utilization": zod.array(zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional()
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
 })).optional(),
-  "runTimeSec": zod.number(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional()
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
-}),zod.null()]),
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
@@ -389,29 +413,35 @@ export const ResetScenarioToBaselineResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()).optional(),
-  "assignments": zod.array(zod.object({
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distanceMi": zod.number(),
-  "band": zod.number()
-})),
-  "objective": zod.number().optional(),
-  "weightedAvgDistanceMi": zod.number(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "utilization": zod.array(zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional()
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
   "city": zod.string(),
   "utilization": zod.number()
 })).optional(),
-  "runTimeSec": zod.number(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional()
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
   "solverUsed": zod.string(),
   "infeasibilityReason": zod.string().nullable()
-}),zod.null()]),
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')

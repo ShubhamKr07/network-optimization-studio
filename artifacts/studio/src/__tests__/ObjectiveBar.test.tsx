@@ -5,13 +5,12 @@ import { ObjectiveBar } from "@/components/ObjectiveBar";
 
 const optimalResult: SolveResult = {
   status: "optimal",
-  openWarehouseIds: ["CHI", "LA"],
-  assignments: [],
   objective: 1_000_000,
-  weightedAvgDistanceMi: 340,
-  bandCoverage: [],
-  utilization: [],
   runTimeSec: 0.5,
+  quality: "Optimal",
+  edges: [],
+  metrics: { weightedAvgDistance: 340, bandCoverage: [], utilizationByNode: [] },
+  details: { openWarehouseIds: ["CHI", "LA"], assignments: [] },
   solverUsed: "CBC (PuLP)",
   infeasibilityReason: null,
 };
@@ -79,13 +78,13 @@ describe("ObjectiveBar — goal pills", () => {
   });
 
   it("shows actual distance and ✓ when result is within target", () => {
-    const goodResult: SolveResult = { ...optimalResult, weightedAvgDistanceMi: 340 };
+    const goodResult: SolveResult = { ...optimalResult, metrics: { ...optimalResult.metrics, weightedAvgDistance: 340 } };
     render(<ObjectiveBar pValue={2} result={goodResult} scenarioId={5} modelId="p-median-us" />);
     expect(screen.getByText(/340.*✓/)).toBeInTheDocument();
   });
 
   it("shows actual distance without ✓ when result exceeds target", () => {
-    const badResult: SolveResult = { ...optimalResult, weightedAvgDistanceMi: 400 };
+    const badResult: SolveResult = { ...optimalResult, metrics: { ...optimalResult.metrics, weightedAvgDistance: 400 } };
     render(<ObjectiveBar pValue={2} result={badResult} scenarioId={5} modelId="p-median-us" />);
     // 400 < 390 is false → no check mark on distance pill
     const distPill = screen.getByText(/avg 400 mi/);

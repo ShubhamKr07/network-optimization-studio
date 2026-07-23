@@ -700,43 +700,70 @@ components:
           type: integer
       required: [customerId, warehouseId, distanceMi, band]
 
-    SolveResult:
+    Edge:
+      type: object
+      description: Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.
+      properties:
+        fromId:
+          type: string
+        toId:
+          type: string
+        flow:
+          type: number
+        distance:
+          type: number
+        band:
+          type: integer
+      required: [fromId, toId, flow, distance]
+
+    SolveMetrics:
       type: object
       properties:
-        status:
-          type: string
-          enum: [optimal, infeasible, solving, error]
-        openWarehouseIds:
+        utilizationByNode:
           type: array
           items:
-            type: string
-        assignments:
-          type: array
-          items:
-            $ref: "#/components/schemas/Assignment"
-        objective:
-          type: number
-        weightedAvgDistanceMi:
-          type: number
+            $ref: "#/components/schemas/WarehouseUtilization"
         bandCoverage:
           type: array
           items:
             $ref: "#/components/schemas/BandCoverage"
-        utilization:
-          type: array
-          items:
-            $ref: "#/components/schemas/WarehouseUtilization"
+        weightedAvgDistance:
+          type: number
+
+    SolveResult:
+      type: object
+      description: Standardized result envelope (Phase 3.5, G2.1/Phase 4) — solve.py's raw stdout shape, unwrapped by no TS-side shim as of Phase 4.
+      properties:
+        status:
+          type: string
+          enum: [optimal, infeasible, error]
+        objective:
+          type: number
         runTimeSec:
           type: number
+        quality:
+          type: string
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Edge"
+        metrics:
+          $ref: "#/components/schemas/SolveMetrics"
+        details:
+          type: object
+          description: Model-specific extras opaque to this contract — e.g. p-median's openWarehouseIds/assignments, transport's per-shipment flowFraction.
         solverUsed:
           type: string
         infeasibilityReason:
           type: ["string", "null"]
       required:
         - status
-        - assignments
-        - weightedAvgDistanceMi
+        - objective
         - runTimeSec
+        - quality
+        - edges
+        - metrics
+        - details
         - solverUsed
         - infeasibilityReason
 

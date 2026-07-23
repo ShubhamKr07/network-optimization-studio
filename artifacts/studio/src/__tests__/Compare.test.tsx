@@ -44,12 +44,22 @@ const baseInputs = { p: 3, distanceBands: [200], capacityMode: "none", uniformCa
 
 const scenario1 = {
   id: 1, name: "2 Warehouses", modelId: "p-median-us", inputs: baseInputs,
-  result: { openWarehouseIds: ["CHI"], assignments: [], weightedAvgDistanceMi: 500 },
+  result: {
+    status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+    edges: [], metrics: { weightedAvgDistance: 500, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["CHI"], assignments: [] },
+    solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  },
   createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", stale: true,
 };
 const scenario2 = {
   id: 2, name: "3 Warehouses", modelId: "p-median-us", inputs: { ...baseInputs, p: 4 },
-  result: { openWarehouseIds: ["CHI", "ATL"], assignments: [], weightedAvgDistanceMi: 400 },
+  result: {
+    status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+    edges: [], metrics: { weightedAvgDistance: 400, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["CHI", "ATL"], assignments: [] },
+    solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  },
   createdAt: "2026-01-02T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z", stale: false,
 };
 

@@ -43,10 +43,12 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
   };
 
   const currentResult = mode === "before" ? beforeResult : afterResult;
-  
+
+  const openIds = (result: SolveResult) => (result.details as { openWarehouseIds?: string[] } | undefined)?.openWarehouseIds;
+
   // Overlay mode calculations
-  const beforeRoutes = new Set(beforeResult.assignments.map(a => `${a.customerId}-${a.warehouseId}`));
-  const afterRoutes = new Set(afterResult.assignments.map(a => `${a.customerId}-${a.warehouseId}`));
+  const beforeRoutes = new Set(beforeResult.edges.map(e => `${e.toId}-${e.fromId}`));
+  const afterRoutes = new Set(afterResult.edges.map(e => `${e.toId}-${e.fromId}`));
 
   return (
     <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
@@ -64,9 +66,9 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
         {mode === "overlay" ? (
           <>
             {/* Unchanged routes */}
-            {afterResult.assignments.filter(a => beforeRoutes.has(`${a.customerId}-${a.warehouseId}`)).map((assignment, i) => {
-              const customer = dataset.customers.find((c) => c.id === assignment.customerId);
-              const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+            {afterResult.edges.filter(e => beforeRoutes.has(`${e.toId}-${e.fromId}`)).map((edge, i) => {
+              const customer = dataset.customers.find((c) => c.id === edge.toId);
+              const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!customer || !warehouse) return null;
               return (
                 <Polyline
@@ -79,9 +81,9 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
               );
             })}
             {/* Removed routes */}
-            {beforeResult.assignments.filter(a => !afterRoutes.has(`${a.customerId}-${a.warehouseId}`)).map((assignment, i) => {
-              const customer = dataset.customers.find((c) => c.id === assignment.customerId);
-              const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+            {beforeResult.edges.filter(e => !afterRoutes.has(`${e.toId}-${e.fromId}`)).map((edge, i) => {
+              const customer = dataset.customers.find((c) => c.id === edge.toId);
+              const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!customer || !warehouse) return null;
               return (
                 <Polyline
@@ -95,9 +97,9 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
               );
             })}
             {/* New routes */}
-            {afterResult.assignments.filter(a => !beforeRoutes.has(`${a.customerId}-${a.warehouseId}`)).map((assignment, i) => {
-              const customer = dataset.customers.find((c) => c.id === assignment.customerId);
-              const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+            {afterResult.edges.filter(e => !beforeRoutes.has(`${e.toId}-${e.fromId}`)).map((edge, i) => {
+              const customer = dataset.customers.find((c) => c.id === edge.toId);
+              const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!customer || !warehouse) return null;
               return (
                 <Polyline
@@ -111,9 +113,9 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
             })}
           </>
         ) : (
-          currentResult.assignments.map((assignment, i) => {
-            const customer = dataset.customers.find((c) => c.id === assignment.customerId);
-            const warehouse = dataset.warehouses.find((w) => w.id === assignment.warehouseId);
+          currentResult.edges.map((edge, i) => {
+            const customer = dataset.customers.find((c) => c.id === edge.toId);
+            const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
             if (!customer || !warehouse) return null;
 
             return (
@@ -144,9 +146,9 @@ export function OverlayMap({ dataset, beforeResult, afterResult, mode }: Overlay
         {dataset.warehouses.map((w) => {
           let isOpen = false;
           if (mode === "overlay") {
-             isOpen = !!afterResult.openWarehouseIds?.includes(w.id) || !!beforeResult.openWarehouseIds?.includes(w.id);
+             isOpen = !!openIds(afterResult)?.includes(w.id) || !!openIds(beforeResult)?.includes(w.id);
           } else {
-             isOpen = !!currentResult.openWarehouseIds?.includes(w.id);
+             isOpen = !!openIds(currentResult)?.includes(w.id);
           }
           
           return (

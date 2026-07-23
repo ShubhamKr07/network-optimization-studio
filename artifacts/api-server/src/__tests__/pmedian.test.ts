@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { buildPayload, envelopeToLegacy } from "../solver/pmedian.js";
+import { buildPayload } from "../solver/pmedian.js";
 import type { SolveInput } from "../solver/pmedian.js";
-import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 
-// Phase 3.5 (G3.1): buildPayload/envelopeToLegacy are pure translation
-// functions now (the async spawn + job lifecycle lives in jobRunner.ts,
-// tested separately in jobRunner.test.ts) — no more child_process mocking
-// needed to test the translation logic itself.
+// Phase 3.5 (G3.1): buildPayload is a pure translation function now (the
+// async spawn + job lifecycle lives in jobRunner.ts, tested separately in
+// jobRunner.test.ts) — no more child_process mocking needed to test the
+// translation logic itself. Phase 4 retired envelopeToLegacy() entirely —
+// jobRunner now stores solve.py's envelope as-is; nothing translates it
+// back to a flat shape anymore (see resultEnvelope.test.ts for the
+// envelope's own shape validation).
 
 const baseInput: SolveInput = {
   modelId: "p-median-us",
@@ -155,113 +157,5 @@ describe("buildPayload()", () => {
       },
     };
     expect(buildPayload(input).customerDemands).toEqual({ C1: 42 });
-  });
-});
-
-describe("envelopeToLegacy()", () => {
-  const optimalEnvelope: ResultEnvelope = {
-    status: "optimal",
-    objective: 94500000,
-    runTimeSec: 0.4,
-    quality: "Optimal",
-    edges: [{ fromId: "CHI", toId: "C1", flow: 205375, distance: 120, band: 0 }],
-    metrics: {
-      utilizationByNode: [
-        { warehouseId: "CHI", city: "Chicago", utilization: 85 },
-        { warehouseId: "LA", city: "Los Angeles", utilization: 72 },
-      ],
-      bandCoverage: [
-        { band: 200, percent: 38 },
-        { band: 400, percent: 67 },
-      ],
-      weightedAvgDistance: 412.6,
-    },
-    details: {
-      openWarehouseIds: ["CHI", "LA"],
-      assignments: [{ customerId: "C1", warehouseId: "CHI", distanceMi: 120, band: 0 }],
-    },
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason: null,
-  };
-
-  it("translates all fields for an optimal result", () => {
-    const result = envelopeToLegacy(optimalEnvelope);
-    expect(result.status).toBe("optimal");
-    expect(result.openWarehouseIds).toEqual(["CHI", "LA"]);
-    expect(result.assignments).toEqual([{ customerId: "C1", warehouseId: "CHI", distanceMi: 120, band: 0 }]);
-    expect(result.objective).toBe(94500000);
-    expect(result.weightedAvgDistanceMi).toBe(412.6);
-    expect(result.bandCoverage).toEqual([{ band: 200, percent: 38 }, { band: 400, percent: 67 }]);
-    expect(result.utilization).toEqual([
-      { warehouseId: "CHI", city: "Chicago", utilization: 85 },
-      { warehouseId: "LA", city: "Los Angeles", utilization: 72 },
-    ]);
-    expect(result.runTimeSec).toBe(0.4);
-    expect(result.solverUsed).toBe("CBC (PuLP)");
-    expect(result.infeasibilityReason).toBeNull();
-  });
-
-  it("preserves transport-specific flowTons/flowFraction via details.assignments", () => {
-    const transportEnvelope: ResultEnvelope = {
-      status: "optimal",
-      objective: 50840650000,
-      runTimeSec: 0.3,
-      quality: "Optimal",
-      edges: [{ fromId: "MINE1", toId: "STN1", flow: 7000000, distance: 450, band: 0 }],
-      metrics: { utilizationByNode: [], bandCoverage: [], weightedAvgDistance: 696.4 },
-      details: {
-        openWarehouseIds: [],
-        assignments: [
-          { customerId: "STN1", warehouseId: "MINE1", distanceMi: 450, band: 0, flowTons: 7000000, flowFraction: 1.0 },
-        ],
-      },
-      solverUsed: "CBC (PuLP)",
-      infeasibilityReason: null,
-    };
-
-    const result = envelopeToLegacy(transportEnvelope);
-    expect(result.objective).toBe(50840650000);
-    expect(result.weightedAvgDistanceMi).toBe(696.4);
-    const first = result.assignments[0] as unknown as Record<string, unknown>;
-    expect(first.flowTons).toBe(7000000);
-    expect(first.flowFraction).toBe(1.0);
-    expect(first.warehouseId).toBe("MINE1");
-    expect(first.customerId).toBe("STN1");
-  });
-
-  it("defaults empty arrays/zero when an infeasible envelope's details/metrics are empty", () => {
-    const infeasibleEnvelope: ResultEnvelope = {
-      status: "infeasible",
-      objective: 0,
-      runTimeSec: 0.1,
-      quality: "Infeasible",
-      edges: [],
-      metrics: {},
-      details: {},
-      solverUsed: "CBC (PuLP)",
-      infeasibilityReason: "Demand exceeds capacity.",
-    };
-
-    const result = envelopeToLegacy(infeasibleEnvelope);
-    expect(result.status).toBe("infeasible");
-    expect(result.openWarehouseIds).toEqual([]);
-    expect(result.assignments).toEqual([]);
-    expect(result.objective).toBe(0);
-    expect(result.weightedAvgDistanceMi).toBe(0);
-    expect(result.bandCoverage).toEqual([]);
-    expect(result.utilization).toEqual([]);
-    expect(result.infeasibilityReason).toBe("Demand exceeds capacity.");
-  });
-
-  it("all SolveOutput fields are present in a successful translation", () => {
-    const result = envelopeToLegacy(optimalEnvelope);
-    const requiredKeys = [
-      "status", "openWarehouseIds", "assignments", "objective",
-      "weightedAvgDistanceMi", "bandCoverage", "utilization",
-      "runTimeSec", "solverUsed", "infeasibilityReason",
-    ];
-    for (const key of requiredKeys) {
-      expect(result).toHaveProperty(key);
-    }
   });
 });

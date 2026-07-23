@@ -229,16 +229,21 @@ describe("Studio — Transport scenario (output tab)", () => {
     ...transportScenario,
     result: {
       status: "optimal",
-      openWarehouseIds: [],
-      assignments: [
-        { customerId: "STN1", warehouseId: "PRB", distanceMi: 1071, band: 2, flowTons: 7000000, flowFraction: 1.0 },
-        { customerId: "STN2", warehouseId: "ILL", distanceMi: 400, band: 0, flowTons: 3500000, flowFraction: 0.5 },
-      ],
       objective: 50840650000,
-      weightedAvgDistanceMi: 696.4,
-      bandCoverage: [],
-      utilization: [],
       runTimeSec: 0.3,
+      quality: "Optimal",
+      edges: [
+        { fromId: "PRB", toId: "STN1", flow: 7000000, distance: 1071, band: 2 },
+        { fromId: "ILL", toId: "STN2", flow: 3500000, distance: 400, band: 0 },
+      ],
+      metrics: { weightedAvgDistance: 696.4, bandCoverage: [], utilizationByNode: [] },
+      details: {
+        openWarehouseIds: [],
+        assignments: [
+          { customerId: "STN1", warehouseId: "PRB", distanceMi: 1071, band: 2, flowTons: 7000000, flowFraction: 1.0 },
+          { customerId: "STN2", warehouseId: "ILL", distanceMi: 400, band: 0, flowTons: 3500000, flowFraction: 0.5 },
+        ],
+      },
       solverUsed: "CBC (PuLP)",
       infeasibilityReason: null,
     },
@@ -439,13 +444,12 @@ describe("Studio — Brazil infeasibility output banner", () => {
     ...brazilScenario,
     result: {
       status: "infeasible",
-      openWarehouseIds: [],
-      assignments: [],
       objective: 0,
-      weightedAvgDistanceMi: 0,
-      bandCoverage: [],
-      utilization: [],
       runTimeSec: 0.1,
+      quality: "Infeasible",
+      edges: [],
+      metrics: { weightedAvgDistance: 0, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: [], assignments: [] },
       solverUsed: "CBC (PuLP)",
       infeasibilityReason:
         "Demand region São Paulo (29,029,226) exceeds single-warehouse capacity (20,000,000). Relax single-sourcing to split demand across warehouses.",
@@ -587,13 +591,12 @@ describe("Studio — Reset to baseline", () => {
 describe("Studio — Stale badge", () => {
   const solvedResult = {
     status: "optimal",
-    openWarehouseIds: ["CHI"],
-    assignments: [],
     objective: 1,
-    weightedAvgDistanceMi: 100,
-    bandCoverage: [],
-    utilization: [],
     runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [],
+    metrics: { weightedAvgDistance: 100, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["CHI"], assignments: [] },
     solverUsed: "CBC (PuLP)",
     infeasibilityReason: null,
   };
@@ -680,13 +683,12 @@ describe("Studio — Async solve", () => {
 describe("Studio — Quality statement", () => {
   const solvedResult = {
     status: "optimal",
-    openWarehouseIds: ["CHI"],
-    assignments: [],
     objective: 1,
-    weightedAvgDistanceMi: 100,
-    bandCoverage: [],
-    utilization: [],
     runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [],
+    metrics: { weightedAvgDistance: 100, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["CHI"], assignments: [] },
     solverUsed: "CBC (PuLP)",
     infeasibilityReason: null,
   };

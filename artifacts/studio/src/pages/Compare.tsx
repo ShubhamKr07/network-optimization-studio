@@ -329,23 +329,25 @@ export function Compare() {
                   <div className="space-y-4">
                     {/* Just some static calculation logic for demo based on differences */}
                     {(() => {
-                      const bSet = new Set(beforeScenarioMeta.result!.openWarehouseIds ?? []);
-                      const newWHs = (afterScenarioMeta.result!.openWarehouseIds ?? []).filter(id => !bSet.has(id));
+                      const bOpenIds = (beforeScenarioMeta.result!.details as { openWarehouseIds?: string[] } | undefined)?.openWarehouseIds ?? [];
+                      const aOpenIds = (afterScenarioMeta.result!.details as { openWarehouseIds?: string[] } | undefined)?.openWarehouseIds ?? [];
+                      const bSet = new Set(bOpenIds);
+                      const newWHs = aOpenIds.filter(id => !bSet.has(id));
                       const newWHCities = newWHs.map(id => dataset.warehouses.find(w => w.id === id)?.city).join(", ");
-                      
-                      const bAvg = beforeScenarioMeta.result!.weightedAvgDistanceMi;
-                      const aAvg = afterScenarioMeta.result!.weightedAvgDistanceMi;
+
+                      const bAvg = beforeScenarioMeta.result!.metrics.weightedAvgDistance ?? 0;
+                      const aAvg = afterScenarioMeta.result!.metrics.weightedAvgDistance ?? 0;
                       const distDiff = aAvg - bAvg;
                       const distPct = (distDiff / bAvg) * 100;
-                      
+
                       const reassignedCount = dataset.customers.filter(c => {
-                        const bAss = beforeScenarioMeta.result!.assignments.find(a => a.customerId === c.id);
-                        const aAss = afterScenarioMeta.result!.assignments.find(a => a.customerId === c.id);
-                        return bAss?.warehouseId !== aAss?.warehouseId;
+                        const bEdge = beforeScenarioMeta.result!.edges.find(e => e.toId === c.id);
+                        const aEdge = afterScenarioMeta.result!.edges.find(e => e.toId === c.id);
+                        return bEdge?.fromId !== aEdge?.fromId;
                       }).length;
 
-                      const bUtilization = beforeScenarioMeta.result!.utilization ?? [];
-                      const aUtilization = afterScenarioMeta.result!.utilization ?? [];
+                      const bUtilization = beforeScenarioMeta.result!.metrics.utilizationByNode ?? [];
+                      const aUtilization = afterScenarioMeta.result!.metrics.utilizationByNode ?? [];
                       const bUtil = bUtilization.reduce((sum, u) => sum + u.utilization, 0) / bUtilization.length;
                       const aUtil = aUtilization.reduce((sum, u) => sum + u.utilization, 0) / aUtilization.length;
 
