@@ -675,3 +675,37 @@ describe("Studio — Async solve", () => {
     expect(screen.getByTestId("button-solve")).not.toHaveTextContent("Solving...");
   });
 });
+
+// ── Quality statement (E3.1) ─────────────────────────────────────────────────
+describe("Studio — Quality statement", () => {
+  const solvedResult = {
+    status: "optimal",
+    openWarehouseIds: ["CHI"],
+    assignments: [],
+    objective: 1,
+    weightedAvgDistanceMi: 100,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 0.1,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("shows 'Proven optimal' when the solved scenario's gap is 0", async () => {
+    const scenario = { ...pmedianScenario, result: solvedResult, inputs: { ...pmedianInputs, gap: 0 } };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByTestId("text-quality-statement")).toHaveTextContent("Proven optimal");
+  });
+
+  it("shows the configured-gap statement when the solved scenario's gap is > 0", async () => {
+    const scenario = { ...pmedianScenario, result: solvedResult, inputs: { ...pmedianInputs, gap: 0.05 } };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByTestId("text-quality-statement")).toHaveTextContent("Within configured gap 5%, limit reached");
+  });
+});

@@ -26,6 +26,7 @@ import { CustomerTable } from "@/components/tables/CustomerTable";
 import { ImportDialog } from "@/components/ImportDialog";
 import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
+import { qualityStatement } from "@/lib/quality";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1112,6 +1113,13 @@ export function Studio({ modelId }: StudioProps) {
                     <p className="text-xs text-muted-foreground mt-2">
                       Objective {(result.objective ?? 0).toExponential(2)} · Run {result.runTimeSec.toFixed(2)}s · {result.solverUsed}
                     </p>
+                    {(() => {
+                      const solvedGap = (scenarioFromApi?.inputs as { gap?: number } | undefined)?.gap ?? 0;
+                      const statement = qualityStatement(result.status, solvedGap);
+                      return statement ? (
+                        <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-quality-statement">{statement}</p>
+                      ) : null;
+                    })()}
                   </div>
 
                   {/* Transport flow table — shown when transport LP */}
