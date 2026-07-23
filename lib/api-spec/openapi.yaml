@@ -228,6 +228,17 @@ paths:
           description: Not found
         "422":
           description: Validation errors prevent solving
+        "429":
+          description: Solver worker pool is at capacity (queue depth threshold exceeded, P1.1); retry after the given delay
+          headers:
+            Retry-After:
+              description: Suggested number of seconds to wait before retrying
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /scenarios/{scenarioId}/solve-jobs/{jobId}:
     get:

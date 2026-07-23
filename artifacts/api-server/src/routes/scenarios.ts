@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
-import { enqueueSolveJob } from "../solver/jobRunner.js";
+import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
@@ -180,7 +180,26 @@ router.delete("/scenarios/:scenarioId", async (req, res) => {
   res.status(204).send();
 });
 
+// Fixed conservative estimate for the Retry-After header (seconds) when the
+// solve queue is at capacity. Not derived from live queue depth / average
+// solve time — this pilot has no measured average solve time yet (P1.1), and
+// a fixed value is simple and won't under-promise if load is heavier than
+// expected. 30s is roughly one solve's worth of wall-clock time for this
+// dataset size; callers should treat it as a hint to back off, not a precise
+// ETA.
+const SOLVE_RETRY_AFTER_SECONDS = 30;
+
 router.post("/scenarios/:scenarioId/solve", async (req, res) => {
+  // Backpressure check first (before any DB work) so an overloaded server
+  // sheds load as cheaply as possible — same ordering as auth.ts's login
+  // rate limiter, which checks before querying the DB.
+  if (getQueueDepth() >= QUEUE_DEPTH_LIMIT) {
+    res.status(429)
+      .set("Retry-After", String(SOLVE_RETRY_AFTER_SECONDS))
+      .json({ error: "Solver is at capacity, try again shortly" });
+    return;
+  }
+
   const id = Number(req.params.scenarioId);
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));

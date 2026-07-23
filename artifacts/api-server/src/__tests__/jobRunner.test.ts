@@ -31,7 +31,7 @@ class FakeChild extends EventEmitter {
   kill = vi.fn();
 }
 
-import { enqueueSolveJob } from "../solver/jobRunner.js";
+import { enqueueSolveJob, getQueueDepth, parsePositiveIntEnv, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 
 const baseInput: SolveInput = {
@@ -203,6 +203,55 @@ describe("jobRunner", () => {
     });
   });
 
+  // P1.1 — configurable concurrency / backpressure.
+  it("getQueueDepth() reflects jobs waiting for a free worker slot, not in-flight jobs (default concurrency)", async () => {
+    mockDb.insert
+      .mockReturnValueOnce(makeChain([{ id: 1 }]))
+      .mockReturnValueOnce(makeChain([{ id: 2 }]))
+      .mockReturnValueOnce(makeChain([{ id: 3 }]))
+      .mockReturnValueOnce(makeChain([{ id: 4 }]));
+    mockDb.update.mockReturnValue(makeChain([{}]));
+
+    const children = [new FakeChild(), new FakeChild(), new FakeChild(), new FakeChild()];
+    mockSpawn
+      .mockReturnValueOnce(children[0])
+      .mockReturnValueOnce(children[1])
+      .mockReturnValueOnce(children[2])
+      .mockReturnValueOnce(children[3]);
+
+    expect(getQueueDepth()).toBe(0);
+
+    // Default concurrency is 3 (no SOLVE_WORKER_CONCURRENCY set in this test
+    // process) — the 4th job should sit in the queue until a slot frees up.
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await enqueueSolveJob(2, "user-1", baseInput);
+    await enqueueSolveJob(3, "user-1", baseInput);
+    await enqueueSolveJob(4, "user-1", baseInput);
+
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(3));
+    expect(getQueueDepth()).toBe(1); // job 4 waiting, jobs 1-3 running (not counted)
+
+    const envelope = JSON.stringify({
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    });
+    children[0].stdout.emit("data", Buffer.from(envelope));
+    children[0].emit("close", 0);
+
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(4));
+    expect(getQueueDepth()).toBe(0); // job 4 was picked up, nothing left waiting
+
+    // Drain the rest so this test doesn't leak activeCount into later tests.
+    for (const child of children.slice(1)) {
+      child.stdout.emit("data", Buffer.from(envelope));
+      child.emit("close", 0);
+    }
+    await vi.waitFor(() => {
+      const updateCalls = (mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(updateCalls).toBeGreaterThanOrEqual(12); // 4x(running + job-succeeded + scenario-succeeded)
+    });
+  });
+
   it("spawn error (e.g. ENOENT) marks the job failed without throwing", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
@@ -219,5 +268,40 @@ describe("jobRunner", () => {
       const calls = setValues(jobUpdateChain);
       expect(calls.some((s) => s.status === "failed" && String(s.error).includes("ENOENT"))).toBe(true);
     });
+  });
+});
+
+describe("parsePositiveIntEnv (P1.1 env-var config parsing)", () => {
+  it("returns the fallback when the env var is unset", () => {
+    expect(parsePositiveIntEnv(undefined, 3)).toBe(3);
+  });
+
+  it("returns the fallback when the env var is blank/whitespace", () => {
+    expect(parsePositiveIntEnv("", 3)).toBe(3);
+    expect(parsePositiveIntEnv("   ", 3)).toBe(3);
+  });
+
+  it("returns the fallback when the env var is non-numeric", () => {
+    expect(parsePositiveIntEnv("not-a-number", 3)).toBe(3);
+  });
+
+  it("returns the fallback when the env var is a non-integer", () => {
+    expect(parsePositiveIntEnv("2.5", 3)).toBe(3);
+  });
+
+  it("returns the fallback when the env var is zero or negative", () => {
+    expect(parsePositiveIntEnv("0", 3)).toBe(3);
+    expect(parsePositiveIntEnv("-5", 3)).toBe(3);
+  });
+
+  it("returns the parsed value when the env var is a valid positive integer", () => {
+    expect(parsePositiveIntEnv("8", 3)).toBe(8);
+    expect(parsePositiveIntEnv("1", 3)).toBe(1);
+  });
+});
+
+describe("QUEUE_DEPTH_LIMIT (P1.1)", () => {
+  it("resolves to the documented default (30) when SOLVE_QUEUE_DEPTH_LIMIT is unset in this test process", () => {
+    expect(QUEUE_DEPTH_LIMIT).toBe(30);
   });
 });

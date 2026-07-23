@@ -10,6 +10,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 const mockEnqueueSolveJob = vi.hoisted(() => vi.fn());
+const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
@@ -27,6 +28,8 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("../solver/jobRunner.js", () => ({
   enqueueSolveJob: mockEnqueueSolveJob,
+  getQueueDepth: mockGetQueueDepth,
+  QUEUE_DEPTH_LIMIT: 30,
 }));
 
 import app from "../app.js";
@@ -150,6 +153,7 @@ beforeEach(() => {
   mockDb.select.mockReturnValue(makeChain([]));
   mockDb.update.mockReturnValue(makeChain([]));
   mockDb.delete.mockReturnValue(makeChain(undefined));
+  mockGetQueueDepth.mockReturnValue(0);
 });
 
 // ── Health ─────────────────────────────────────────────────────────────────
@@ -834,6 +838,54 @@ describe("POST /api/scenarios/:id/solve", () => {
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(422);
     expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  // P1.1 — backpressure: queue depth at/over the threshold sheds load with
+  // 429 + Retry-After instead of enqueuing.
+  it("returns 429 with a Retry-After header when queue depth is at the limit, and does not enqueue", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    mockGetQueueDepth.mockReturnValue(30); // mocked QUEUE_DEPTH_LIMIT is 30
+
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+
+    expect(res.status).toBe(429);
+    expect(res.headers["retry-after"]).toBeDefined();
+    expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
+    expect(res.body.error).toBeTypeOf("string");
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 when queue depth exceeds the limit (not just exactly at it)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    mockGetQueueDepth.mockReturnValue(31);
+
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(429);
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  it("still enqueues normally when queue depth is just below the limit", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    mockGetQueueDepth.mockReturnValue(29);
+    mockEnqueueSolveJob.mockResolvedValue(55);
+
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(res.body.jobId).toBe(55);
+    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+  });
+
+  it("the 429 backpressure check runs before the scenario ownership lookup (fails fast without a DB query)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockGetQueueDepth.mockReturnValue(30);
+    // mockDb.select default (from beforeEach) returns [] — if the route queried
+    // the DB before the capacity check, a nonexistent scenario would 404 instead
+    // of 429; asserting 429 here proves the capacity check ran first.
+    const res = await request(app).post("/api/scenarios/999999/solve").set("Cookie", cookie);
+    expect(res.status).toBe(429);
   });
 });
 

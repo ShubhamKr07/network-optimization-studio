@@ -37,11 +37,50 @@ const SOLVER_PY = path.join(findRepoRoot(__dirname), "artifacts", "api-server", 
 // Small in-process worker pool (Phase 3.5, G3.1) — replaces the old
 // blocking spawnSync call. Pilot cohort is assumed <=10 concurrent users
 // (§0.5 OQ2), so a simple array-based queue + fixed concurrency is enough;
-// genuine throughput scaling is deferred to Phase 6.
-const CONCURRENCY = 3;
+// genuine throughput scaling (Phase 6, P1.1) tunes the two knobs below via
+// env vars but keeps this same array-based design — no separate process/
+// service split, that's explicitly out of scope until a real pilot proves
+// a single Node process is the bottleneck.
+
+// Parses a positive integer out of an env var, falling back to `fallback`
+// when the var is unset, blank, non-numeric, non-integer, or <= 0. Exported
+// as a pure function (rather than inlined at module load) so it's directly
+// unit-testable without needing to reload the module per env-var value.
+export function parsePositiveIntEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+// Default kept modest (matches the Phase 3.5 default) — the plan explicitly
+// says to size this "based on measured host CPU/memory headroom," and this
+// pilot has no such measurement yet. Operators should tune
+// SOLVE_WORKER_CONCURRENCY based on their own host once they have one.
+const DEFAULT_CONCURRENCY = 3;
+const CONCURRENCY = parsePositiveIntEnv(process.env.SOLVE_WORKER_CONCURRENCY, DEFAULT_CONCURRENCY);
+
+// Backpressure threshold: how many jobs may wait in `queue` (not yet
+// running — `activeCount` jobs already have a worker slot and aren't a
+// capacity problem) before the route layer starts shedding load with 429s.
+// Default 30: the pilot is assumed <=10 concurrent users (§0.5 OQ2), so a
+// healthy queue should rarely exceed single digits; 30 gives ~3x headroom
+// above that assumed ceiling for a burst before rejecting new solves, while
+// still bounding the memory `pendingJobs` can hold (each entry carries a
+// full SolveInput payload). Tune via SOLVE_QUEUE_DEPTH_LIMIT.
+const DEFAULT_QUEUE_DEPTH_LIMIT = 30;
+export const QUEUE_DEPTH_LIMIT = parsePositiveIntEnv(process.env.SOLVE_QUEUE_DEPTH_LIMIT, DEFAULT_QUEUE_DEPTH_LIMIT);
+
 let activeCount = 0;
 const queue: number[] = [];
 const pendingJobs = new Map<number, { scenarioId: number; input: SolveInput }>();
+
+// Jobs waiting for a free worker slot — the number the route layer's
+// backpressure check cares about. Deliberately excludes `activeCount`
+// (already-running jobs aren't a queuing/capacity problem).
+export function getQueueDepth(): number {
+  return queue.length;
+}
 
 // Canonical JSON: recursively sorts object keys so the same logical input
 // always hashes the same way regardless of key insertion order.
