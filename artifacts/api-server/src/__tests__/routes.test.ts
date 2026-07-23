@@ -22,6 +22,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ col: _col, val })),
   and: vi.fn((...conds: unknown[]) => ({ and: conds })),
   desc: vi.fn((_col: unknown) => ({ desc: _col })),
+  inArray: vi.fn((_col: unknown, vals: unknown) => ({ inArray: _col, vals })),
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({
@@ -937,6 +938,35 @@ describe("GET /api/solve-history", () => {
 
 // ── Compare scenarios ──────────────────────────────────────────────────────
 describe("POST /api/scenarios/compare", () => {
+  // Standardized result envelope (Phase 3.5/G2.1) — this is the current
+  // scenario.result shape; compare must read it as-is, not the old
+  // pre-envelope flat fields (utilization/openWarehouseIds/bandCoverage/etc
+  // at the top level).
+  function envelope(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      status: "optimal",
+      objective: 182000000,
+      runTimeSec: 0.5,
+      quality: "Proven optimal",
+      edges: [],
+      metrics: { utilizationByNode: [], bandCoverage: [], weightedAvgDistance: 561.3 },
+      details: { openWarehouseIds: ["LA", "CHI"] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+      ...overrides,
+    };
+  }
+
+  const solvedAt = new Date("2026-01-05T00:00:00Z");
+  const row1 = {
+    ...pmedianRow, id: 1, name: "2 WH",
+    result: envelope(), solvedAt, inputsUpdatedAt: pmedianRow.createdAt,
+  };
+  const row2 = {
+    ...pmedianRow, id: 2, name: "3 WH",
+    result: envelope({ objective: 134000000 }), solvedAt, inputsUpdatedAt: pmedianRow.createdAt,
+  };
+
   it("returns 400 when fewer than 2 IDs provided", async () => {
     const cookie = await loginAs(OWNER);
     const res = await request(app)
@@ -956,42 +986,73 @@ describe("POST /api/scenarios/compare", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 200 with comparison metrics for 2 valid scenarios", async () => {
+  it("returns 400 when more than 4 IDs provided", async () => {
     const cookie = await loginAs(OWNER);
-    const row1 = {
-      ...pmedianRow, id: 1, name: "2 WH",
-      result: {
-        status: "optimal",
-        openWarehouseIds: ["LA", "CHI"],
-        objective: 182000000,
-        weightedAvgDistanceMi: 561.3,
-        bandCoverage: [{ band: 200, percent: 26 }],
-        utilization: [
-          { warehouseId: "LA", utilization: 91 },
-          { warehouseId: "CHI", utilization: 91 },
-        ],
-      },
-    };
-    const row2 = {
-      ...pmedianRow, id: 2, name: "3 WH",
-      result: {
-        status: "optimal",
-        openWarehouseIds: ["LA", "CHI", "ATL"],
-        objective: 134000000,
-        weightedAvgDistanceMi: 412.6,
-        bandCoverage: [{ band: 200, percent: 38 }],
-        utilization: [
-          { warehouseId: "LA", utilization: 72 },
-          { warehouseId: "CHI", utilization: 85 },
-          { warehouseId: "ATL", utilization: 64 },
-        ],
-      },
-    };
+    const res = await request(app)
+      .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
+      .send({ scenarioIds: [1, 2, 3, 4, 5] });
+    expect(res.status).toBe(400);
+  });
 
-    // compare fetches each id sequentially: select call #1 → row1, #2 → row2
-    mockDb.select
-      .mockReturnValueOnce(makeChain([row1]))
-      .mockReturnValueOnce(makeChain([row2]));
+  it("returns 404 when a requested scenario doesn't exist or isn't owned by the caller", async () => {
+    const cookie = await loginAs(OWNER);
+    // The DB query already scopes by userId — a non-owned/nonexistent id
+    // simply doesn't come back, so only 1 of the 2 requested rows resolves.
+    mockDb.select.mockReturnValueOnce(makeChain([row1]));
+    const res = await request(app)
+      .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
+      .send({ scenarioIds: [1, 999] });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 422 when scenarios don't share the same model", async () => {
+    const cookie = await loginAs(OWNER);
+    const brazilRowSolved = {
+      ...brazilRow, id: 10,
+      result: envelope(), solvedAt, inputsUpdatedAt: brazilRow.createdAt,
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([row1, brazilRowSolved]));
+    const res = await request(app)
+      .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
+      .send({ scenarioIds: [1, 10] });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/same model/i);
+  });
+
+  it("returns 422 listing offending IDs when a scenario is unsolved", async () => {
+    const cookie = await loginAs(OWNER);
+    const unsolvedRow = { ...pmedianRow, id: 3, result: null, solvedAt: null };
+    mockDb.select.mockReturnValueOnce(makeChain([row1, unsolvedRow]));
+    const res = await request(app)
+      .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
+      .send({ scenarioIds: [1, 3] });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/solved/i);
+    expect(res.body.offendingIds).toEqual([3]);
+  });
+
+  it("returns 422 listing offending IDs when a scenario is stale", async () => {
+    const cookie = await loginAs(OWNER);
+    const staleRow = {
+      ...pmedianRow, id: 4,
+      result: envelope(), solvedAt, inputsUpdatedAt: new Date("2026-01-06T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([row1, staleRow]));
+    const res = await request(app)
+      .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
+      .send({ scenarioIds: [1, 4] });
+    expect(res.status).toBe(422);
+    expect(res.body.offendingIds).toEqual([4]);
+  });
+
+  it("returns 200 with each scenario's opaque inputs and result envelope", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([row1, row2]));
 
     const res = await request(app)
       .post("/api/scenarios/compare")
@@ -1001,10 +1062,25 @@ describe("POST /api/scenarios/compare", () => {
     expect(res.status).toBe(200);
     expect(res.body.scenarios).toHaveLength(2);
     expect(res.body.scenarios[0].name).toBe("2 WH");
+    expect(res.body.scenarios[0].inputs).toEqual(pmedianInputs);
+    expect(res.body.scenarios[0].result.objective).toBe(182000000);
+    expect(res.body.scenarios[0].result.details).toEqual({ openWarehouseIds: ["LA", "CHI"] });
+    expect(res.body.scenarios[0].stale).toBe(false);
     expect(res.body.scenarios[1].name).toBe("3 WH");
-    expect(res.body.scenarios[0].openSites).toContain("Los Angeles");
-    expect(res.body.scenarios[0].avgUtilization).toBe(91);
-    expect(res.body.scenarios[1].avgUtilization).toBe(74);
+    expect(res.body.scenarios[1].result.objective).toBe(134000000);
+  });
+
+  it("returns scenarios in the requested order, regardless of DB row order", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([row2, row1]));
+
+    const res = await request(app)
+      .post("/api/scenarios/compare")
+      .set("Cookie", cookie)
+      .send({ scenarioIds: [1, 2] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.scenarios.map((s: { id: number }) => s.id)).toEqual([1, 2]);
   });
 });
 

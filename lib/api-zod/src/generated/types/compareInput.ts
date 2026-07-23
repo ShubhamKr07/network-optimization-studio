@@ -7,6 +7,9 @@
  */
 
 export interface CompareInput {
-  /** @minItems 2 */
+  /**
+     * @minItems 2
+     * @maxItems 4
+     */
   scenarioIds: number[];
 }

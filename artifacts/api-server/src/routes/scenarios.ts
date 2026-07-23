@@ -1,9 +1,8 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { enqueueSolveJob } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
-import { WAREHOUSES } from "../data/dataset.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import {
@@ -82,39 +81,55 @@ router.post("/scenarios", async (req, res) => {
   res.status(201).json(toApiScenario(row));
 });
 
+// Compare accepts 2-4 scenarios that (a) all belong to the caller, (b) share
+// a model, and (c) are all solved and not stale. Response carries each
+// scenario's opaque `inputs` plus its standardized result envelope, unchanged
+// — no server-side flattening/aggregation; F2.1's frontend diff engine reads
+// these generically.
 router.post("/scenarios/compare", async (req, res) => {
-  const ids: number[] = req.body.scenarioIds ?? [];
-  if (!Array.isArray(ids) || ids.length < 2) {
-    res.status(400).json({ error: "Provide at least 2 scenario IDs" });
+  const ids: unknown = req.body.scenarioIds;
+  if (
+    !Array.isArray(ids) ||
+    ids.length < 2 ||
+    ids.length > 4 ||
+    !ids.every((id) => Number.isInteger(id))
+  ) {
+    res.status(400).json({ error: "Provide 2 to 4 scenario IDs" });
     return;
   }
-  const allRows: Array<typeof scenariosTable.$inferSelect> = [];
-  for (const id of ids) {
-    const [r] = await db.select().from(scenariosTable)
-      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-    if (r) allRows.push(r);
+
+  const rows = await db.select().from(scenariosTable)
+    .where(and(inArray(scenariosTable.id, ids), eq(scenariosTable.userId, req.userId!)));
+
+  // Ownership/existence check first (404, never 403 — avoids ID enumeration):
+  // if any requested ID doesn't resolve to a row owned by this caller, reject
+  // without revealing which ones did or didn't.
+  if (rows.length !== ids.length) {
+    res.status(404).json({ error: "One or more scenarios not found" });
+    return;
   }
-  const scenarios = allRows.map(row => {
-    const result = row.result as Record<string, unknown> | null;
-    const util = (result?.utilization as Array<{ utilization: number }> | undefined) ?? [];
-    const avgUtil = util.length ? Math.round(util.reduce((s, u) => s + u.utilization, 0) / util.length) : 0;
-    const openIds = (result?.openWarehouseIds as string[]) ?? [];
-    const openSites = openIds.map((id: string) => {
-      const wh = WAREHOUSES.find(w => w.id === id);
-      return wh ? wh.city : id;
+
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  const orderedRows = ids.map((id) => rowById.get(id)!);
+
+  const modelIds = new Set(orderedRows.map((r) => r.modelId));
+  if (modelIds.size > 1) {
+    res.status(422).json({
+      error: `Scenarios must share the same model to compare (found: ${[...modelIds].join(", ")})`,
     });
-    return {
-      scenarioId: row.id,
-      name: row.name,
-      openSites,
-      weightedAvgDistanceMi: (result?.weightedAvgDistanceMi as number) ?? 0,
-      objective: (result?.objective as number) ?? 0,
-      bandDemandPercent: (result?.bandCoverage as Array<{ band: number; percent: number }>) ?? [],
-      avgUtilization: avgUtil,
-      solverStatus: result ? (result.status as string) : "unsolved",
-    };
-  });
-  res.json({ scenarios });
+    return;
+  }
+
+  const offendingIds = orderedRows.filter((r) => r.result == null || isStale(r)).map((r) => r.id);
+  if (offendingIds.length > 0) {
+    res.status(422).json({
+      error: "All scenarios must be solved and not stale to compare",
+      offendingIds,
+    });
+    return;
+  }
+
+  res.json({ scenarios: orderedRows.map(toApiScenario) });
 });
 
 router.get("/scenarios/:scenarioId", async (req, res) => {

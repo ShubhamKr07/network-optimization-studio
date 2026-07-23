@@ -5,8 +5,11 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ScenarioMetrics } from './scenarioMetrics';
+import type { Scenario } from './scenario';
 
+/**
+ * One entry per requested scenario, in the request's order. Each is the full Scenario shape (opaque inputs + standardized result envelope) — F2.1's frontend diff engine interprets these generically rather than the server pre-flattening comparison metrics.
+ */
 export interface CompareResult {
-  scenarios: ScenarioMetrics[];
+  scenarios: Scenario[];
 }

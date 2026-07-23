@@ -22,6 +22,7 @@ import type {
 import type {
   AuthUserEnvelope,
   CompareInput,
+  CompareRejection,
   CompareResult,
   Dataset,
   ErrorEnvelope,
@@ -1283,7 +1284,7 @@ export const getCompareScenariosUrl = () => {
 }
 
 /**
- * @summary Compare multiple solved scenarios
+ * @summary Compare 2-4 solved scenarios that share a model
  */
 export const compareScenarios = async (compareInput: CompareInput, options?: RequestInit): Promise<CompareResult> => {
 
@@ -1300,7 +1301,7 @@ export const compareScenarios = async (compareInput: CompareInput, options?: Req
 
 
 
-export const getCompareScenariosMutationOptions = <TError = ErrorType<void>,
+export const getCompareScenariosMutationOptions = <TError = ErrorType<ErrorEnvelope | void | CompareRejection>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext> => {
 
@@ -1329,12 +1330,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CompareScenariosMutationResult = NonNullable<Awaited<ReturnType<typeof compareScenarios>>>
     export type CompareScenariosMutationBody = BodyType<CompareInput>
-    export type CompareScenariosMutationError = ErrorType<void>
+    export type CompareScenariosMutationError = ErrorType<ErrorEnvelope | void | CompareRejection>
 
     /**
- * @summary Compare multiple solved scenarios
+ * @summary Compare 2-4 solved scenarios that share a model
  */
-export const useCompareScenarios = <TError = ErrorType<void>,
+export const useCompareScenarios = <TError = ErrorType<ErrorEnvelope | void | CompareRejection>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof compareScenarios>>,

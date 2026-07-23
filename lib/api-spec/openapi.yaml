@@ -411,7 +411,7 @@ paths:
     post:
       operationId: compareScenarios
       tags: [scenarios]
-      summary: Compare multiple solved scenarios
+      summary: Compare 2-4 solved scenarios that share a model
       requestBody:
         required: true
         content:
@@ -420,13 +420,31 @@ paths:
               $ref: "#/components/schemas/CompareInput"
       responses:
         "200":
-          description: Comparison metrics for each scenario
+          description: The compared scenarios, each with its opaque inputs and standardized result envelope
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompareResult"
+        "400":
+          description: scenarioIds must be an array of 2-4 integers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           description: Not authenticated
+        "404":
+          description: One or more scenario IDs don't exist or aren't owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Scenarios don't share the same model, or one or more isn't solved/is stale
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompareRejection"
 
   /auth/register:
     post:
@@ -906,49 +924,31 @@ components:
           items:
             type: integer
           minItems: 2
+          maxItems: 4
       required: [scenarioIds]
-
-    ScenarioMetrics:
-      type: object
-      properties:
-        scenarioId:
-          type: integer
-        name:
-          type: string
-        openSites:
-          type: array
-          items:
-            type: string
-        weightedAvgDistanceMi:
-          type: number
-        objective:
-          type: number
-        bandDemandPercent:
-          type: array
-          items:
-            $ref: "#/components/schemas/BandCoverage"
-        avgUtilization:
-          type: number
-        solverStatus:
-          type: string
-      required:
-        - scenarioId
-        - name
-        - openSites
-        - weightedAvgDistanceMi
-        - objective
-        - bandDemandPercent
-        - avgUtilization
-        - solverStatus
 
     CompareResult:
       type: object
+      description: One entry per requested scenario, in the request's order. Each is the full Scenario shape (opaque inputs + standardized result envelope) — F2.1's frontend diff engine interprets these generically rather than the server pre-flattening comparison metrics.
       properties:
         scenarios:
           type: array
           items:
-            $ref: "#/components/schemas/ScenarioMetrics"
+            $ref: "#/components/schemas/Scenario"
       required: [scenarios]
+
+    CompareRejection:
+      type: object
+      description: 422 body when one or more requested scenarios aren't eligible to compare (different models, or unsolved/stale).
+      properties:
+        error:
+          type: string
+        offendingIds:
+          type: array
+          items:
+            type: integer
+          description: IDs of scenarios that fail the comparison precondition (present for the unsolved/stale rejection; omitted for the differing-models rejection).
+      required: [error]
 
     ImportRequest:
       type: object
