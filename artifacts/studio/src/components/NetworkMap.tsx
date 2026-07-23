@@ -7,6 +7,7 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
 import { assignBand } from "@/lib/bands";
 import { BAND_COLORS as bandColors, getBandColor } from "@/lib/bandPalette";
+import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -70,6 +71,17 @@ const createTriangleIcon = (
 
 function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
   useMapEvents({ click: onDeselect });
+  return null;
+}
+
+// E5.1: fits the map to the model's manifest-derived bounds on mount (and
+// whenever the bounds themselves change, e.g. switching lab/model) rather
+// than guessing a fixed zoom level.
+function FitBounds({ bounds }: { bounds: [[number, number], [number, number]] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.fitBounds(bounds);
+  }, [map, bounds]);
   return null;
 }
 
@@ -144,9 +156,13 @@ interface NetworkMapProps {
   // `.band` (which reflects the bands at solve time and goes stale the
   // moment a student edits them without re-solving).
   bands: number[];
+  // E5.1: the active model's manifest countryBounds — falls back to a
+  // continental-US default when not yet loaded/available.
+  countryBounds?: CountryBounds;
 }
 
-export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, bands }: NetworkMapProps) {
+export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, bands, countryBounds }: NetworkMapProps) {
+  const mapBounds = getMapBoundsProps(countryBounds);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
 
@@ -243,11 +259,15 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, ban
   return (
     <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
       <MapContainer
-        center={[39.5, -98.35]}
+        center={mapBounds.center}
         zoom={4}
+        minZoom={mapBounds.minZoom}
+        maxBounds={mapBounds.maxBounds}
+        maxBoundsViscosity={1.0}
         className="w-full flex-1 z-0"
         zoomControl={false}
       >
+        <FitBounds bounds={mapBounds.maxBounds} />
         <MapClickDeselect onDeselect={handleDeselect} />
 
         {popupInfo && (

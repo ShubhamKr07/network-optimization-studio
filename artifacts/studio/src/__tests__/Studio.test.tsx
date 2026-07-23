@@ -22,7 +22,9 @@ vi.mock("@tanstack/react-query", () => ({
 
 // ── Mock NetworkMap & ObjectiveBar (heavy deps) ───────────────────────────────
 vi.mock("@/components/NetworkMap", () => ({
-  NetworkMap: () => <div data-testid="network-map" />,
+  NetworkMap: (props: { countryBounds?: { sw: number[]; ne: number[] } }) => (
+    <div data-testid="network-map" data-country-bounds={props.countryBounds ? JSON.stringify(props.countryBounds) : ""} />
+  ),
 }));
 vi.mock("@/components/ObjectiveBar", () => ({
   ObjectiveBar: () => <div data-testid="objective-bar" />,
@@ -88,6 +90,7 @@ const mockResetToBaseline = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(),
   useGetDataset: vi.fn(),
+  useListModels: vi.fn(() => ({ data: [] })),
   useGetScenario: vi.fn(),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => mockSolveScenario),
@@ -103,11 +106,12 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { useSearch } from "wouter";
-import { useListScenarios, useGetDataset, useGetScenario, useGetSolveJob } from "@workspace/api-client-react";
+import { useListScenarios, useGetDataset, useGetScenario, useGetSolveJob, useListModels } from "@workspace/api-client-react";
 import { Studio } from "@/pages/Studio";
 
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUseGetDataset = vi.mocked(useGetDataset);
+const mockUseListModels = vi.mocked(useListModels);
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseSearch = vi.mocked(useSearch);
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
@@ -798,5 +802,32 @@ describe("Studio — Auto-show routes", () => {
     await userEvent.click(screen.getByTestId("button-solve"));
 
     await vi.waitFor(() => expect(screen.getByTestId("switch-show-routes")).toHaveAttribute("data-state", "checked"));
+  });
+});
+
+// ── Map bounds per model (E5.1) ──────────────────────────────────────────────
+describe("Studio — Map bounds per model", () => {
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("passes the active model's manifest countryBounds through to NetworkMap", () => {
+    mockUseListModels.mockReturnValue({
+      data: [
+        { id: "p-median-us", name: "Al's Athletics", chapter: "Chapter 3", countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] }, capabilities: { supportsP: true, capacityModes: [], demandEditable: true }, inputsSchema: {} },
+      ],
+    } as ReturnType<typeof useListModels>);
+    renderStudio();
+    expect(screen.getByTestId("network-map")).toHaveAttribute(
+      "data-country-bounds",
+      JSON.stringify({ sw: [25.78, -123.11], ne: [47.67, -71.02] }),
+    );
+  });
+
+  it("renders with no countryBounds attribute when models haven't loaded yet", () => {
+    mockUseListModels.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useListModels>);
+    renderStudio();
+    expect(screen.getByTestId("network-map")).toHaveAttribute("data-country-bounds", "");
   });
 });

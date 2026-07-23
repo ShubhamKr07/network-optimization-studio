@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useListScenarios,
   useGetDataset,
+  useListModels,
   useGetScenario,
   useUpdateScenario,
   useSolveScenario,
@@ -164,6 +165,7 @@ export function Studio({ modelId }: StudioProps) {
 
   const { data: scenarios, isLoading: scenariosLoading } = useListScenarios({ modelId });
   const { data: dataset, isLoading: datasetLoading } = useGetDataset();
+  const { data: models } = useListModels();
   const { data: scenarioFromApi } = useGetScenario(scenarioId!, {
     query: { enabled: !!scenarioId, queryKey: getGetScenarioQueryKey(scenarioId!) },
   });
@@ -177,6 +179,7 @@ export function Studio({ modelId }: StudioProps) {
   // selection or in-page state.
   const activeModelId = modelId;
   const activeModelIndex = modelId === "p-median-brazil" ? 3 : modelId === "transport-coal" ? 2 : 1;
+  const activeModelManifest = models?.find(m => m.id === activeModelId);
 
   // Derive currentScenario here so effects can reference it before early returns
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioId) ?? scenarios?.[0];
@@ -1005,6 +1008,7 @@ export function Studio({ modelId }: StudioProps) {
                   result={activeTab === "output" ? result : null}
                   showRoutes={activeTab === "output" && showRoutes}
                   bands={bands}
+                  countryBounds={activeModelManifest?.countryBounds}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading map...</div>
