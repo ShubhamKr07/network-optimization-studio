@@ -146,6 +146,8 @@ export interface Scenario {
   result: SolveResult | null;
   createdAt: string;
   updatedAt: string;
+  /** Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null. */
+  stale: boolean;
 }
 
 export type ScenarioInputModelId = typeof ScenarioInputModelId[keyof typeof ScenarioInputModelId];

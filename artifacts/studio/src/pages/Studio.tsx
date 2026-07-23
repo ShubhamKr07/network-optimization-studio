@@ -407,8 +407,11 @@ export function Studio({ modelId }: StudioProps) {
     setLocalConfig(prev => prev ? { ...prev, distanceBands: prev.distanceBands.filter(b => b !== band) } : prev);
   };
 
+  const isStale = currentScenario?.stale ?? false;
+
   const statusLabel = (() => {
     if (isSolving) return { text: "Solving...", color: "text-amber-600 bg-amber-50 border-amber-200" };
+    if (result && !isDirty && isStale) return { text: "Stale · re-solve", color: "text-amber-700 bg-amber-50 border-amber-300" };
     if (result && !isDirty) return { text: "Solved · validated", color: "text-green-700 bg-green-50 border-green-200" };
     if (hasErrors) return { text: `${blockingErrors.length} error · ${warnings.length} warning`, color: "text-red-600 bg-red-50 border-red-200" };
     if (isDirty) return { text: "draft", color: "text-muted-foreground bg-muted border-border" };
@@ -1052,6 +1055,11 @@ export function Studio({ modelId }: StudioProps) {
                   <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: result.status === "optimal" ? "#16A34A" : result.status === "infeasible" ? "#DC2626" : "#F59E0B" }} />
                   {result.status === "optimal" ? "Optimal" : result.status === "infeasible" ? "Infeasible" : "Error"}
                 </span>
+                {isStale && (
+                  <Badge variant="outline" className="ml-2 text-[10px] text-amber-700 border-amber-300 bg-amber-50" data-testid="badge-stale">
+                    Stale — inputs changed since this solve
+                  </Badge>
+                )}
               </div>
 
               {result.status === "infeasible" ? (

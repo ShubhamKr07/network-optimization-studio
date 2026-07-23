@@ -437,6 +437,70 @@ describe("PATCH /api/scenarios/:id", () => {
   });
 });
 
+// ── Scenario.stale (X1.1) ───────────────────────────────────────────────────
+describe("Scenario.stale", () => {
+  it("an unsolved scenario is never stale", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(res.body.stale).toBe(false);
+  });
+
+  it("solve returns stale=false", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    mockSolveFn.mockReturnValue({ status: "optimal" });
+    const solvedAt = new Date("2026-01-02T00:00:00Z");
+    mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: pmedianRow.createdAt }]));
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(false);
+  });
+
+  it("patching inputs on a previously-solved scenario marks it stale", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const solvedRow = { ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const newInputs = { ...pmedianInputs, p: 5 };
+    const bumpedAt = new Date("2026-01-02T00:00:00Z");
+    mockDb.update.mockReturnValue(makeChain([{ ...solvedRow, inputs: newInputs, inputsUpdatedAt: bumpedAt }]));
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(true);
+  });
+
+  it("patching only name does not bump inputsUpdatedAt", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const solvedRow = { ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const chain = makeChain([{ ...solvedRow, name: "Renamed" }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ name: "Renamed" });
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(false);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+
+  it("re-solving a stale scenario clears stale", async () => {
+    const cookie = await loginAs(OWNER);
+    const staleRow = {
+      ...pmedianRow,
+      result: { status: "optimal" },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+      inputsUpdatedAt: new Date("2026-01-02T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([staleRow]));
+    mockSolveFn.mockReturnValue({ status: "optimal" });
+    mockDb.update.mockReturnValue(makeChain([{ ...staleRow, result: { status: "optimal" }, solvedAt: new Date("2026-01-03T00:00:00Z") }]));
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(false);
+  });
+});
+
 // ── Delete scenario ────────────────────────────────────────────────────────
 describe("DELETE /api/scenarios/:id", () => {
   it("returns 204 on successful delete", async () => {

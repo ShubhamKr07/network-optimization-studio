@@ -138,12 +138,14 @@ export function Compare() {
                   {metrics.map(m => {
                     const isCurrent = m.scenarioId === currentScenarioId;
                     const isLowestDist = m.weightedAvgDistanceMi === bestDistance;
+                    const isStale = scenarios?.find(s => s.id === m.scenarioId)?.stale ?? false;
                     return (
                       <th key={m.scenarioId} className="py-4 px-4 border-l min-w-[200px] align-top">
                         <div className="font-bold text-slate-900 text-base mb-2">{m.name}</div>
                         <div className="flex flex-wrap gap-1">
                           {isCurrent && <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Current</Badge>}
                           {isLowestDist && <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Lowest distance</Badge>}
+                          {isStale && <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300" data-testid={`badge-stale-${m.scenarioId}`}>Stale</Badge>}
                         </div>
                       </th>
                     );

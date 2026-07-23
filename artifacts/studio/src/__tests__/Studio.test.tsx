@@ -575,3 +575,39 @@ describe("Studio — Reset to baseline", () => {
     );
   });
 });
+
+// ── Stale badge (X1.1) ───────────────────────────────────────────────────────
+describe("Studio — Stale badge", () => {
+  const solvedResult = {
+    status: "optimal",
+    openWarehouseIds: ["CHI"],
+    assignments: [],
+    objective: 1,
+    weightedAvgDistanceMi: 100,
+    bandCoverage: [],
+    utilization: [],
+    runTimeSec: 0.1,
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("shows a Stale badge on the output tab when the scenario is stale", async () => {
+    const staleScenario = { ...pmedianScenario, result: solvedResult, stale: true };
+    mockUseListScenarios.mockReturnValue({ data: [staleScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: staleScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByTestId("badge-stale")).toBeInTheDocument();
+    expect(screen.getByTestId("status-badge")).toHaveTextContent(/Stale/);
+  });
+
+  it("does NOT show a Stale badge when the scenario is not stale", async () => {
+    const freshScenario = { ...pmedianScenario, result: solvedResult, stale: false };
+    mockUseListScenarios.mockReturnValue({ data: [freshScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: freshScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.queryByTestId("badge-stale")).not.toBeInTheDocument();
+    expect(screen.getByTestId("status-badge")).toHaveTextContent(/Solved/);
+  });
+});

@@ -79,7 +79,8 @@ export const ListScenariosResponseItem = zod.object({
   "infeasibilityReason": zod.string().nullable()
 }),zod.null()]),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
 
@@ -135,7 +136,8 @@ export const GetScenarioResponse = zod.object({
   "infeasibilityReason": zod.string().nullable()
 }),zod.null()]),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 
 
@@ -185,7 +187,8 @@ export const UpdateScenarioResponse = zod.object({
   "infeasibilityReason": zod.string().nullable()
 }),zod.null()]),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 
 
@@ -236,7 +239,8 @@ export const SolveScenarioResponse = zod.object({
   "infeasibilityReason": zod.string().nullable()
 }),zod.null()]),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 
 
@@ -318,7 +322,8 @@ export const ApplyScenarioImportResponse = zod.object({
   "infeasibilityReason": zod.string().nullable()
 }),zod.null()]),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 }).optional(),
   "applied": zod.number(),
   "errors": zod.array(zod.object({
@@ -368,7 +373,8 @@ export const ResetScenarioToBaselineResponse = zod.object({
   "infeasibilityReason": zod.string().nullable()
 }),zod.null()]),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 
 

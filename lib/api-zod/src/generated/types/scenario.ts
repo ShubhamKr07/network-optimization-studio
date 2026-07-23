@@ -18,4 +18,6 @@ export interface Scenario {
   result: SolveResult | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null. */
+  stale: boolean;
 }

@@ -29,6 +29,14 @@ const VALID_MODEL_IDS = new Set([
   "set_cover",
 ]);
 
+// Derived, never stored — true when inputs changed after the last solve.
+// Unsolved scenarios (result === null) are never "stale"; that's a distinct
+// state. `solvedAt` is always set alongside `result` by the solve route, so
+// result !== null implies solvedAt !== null.
+function isStale(row: typeof scenariosTable.$inferSelect): boolean {
+  return row.result != null && row.inputsUpdatedAt > row.solvedAt!;
+}
+
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
     id: row.id,
@@ -38,6 +46,7 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
     result: row.result ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    stale: isStale(row),
   };
 }
 

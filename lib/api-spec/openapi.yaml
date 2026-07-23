@@ -659,6 +659,9 @@ components:
         updatedAt:
           type: string
           format: date-time
+        stale:
+          type: boolean
+          description: Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.
       required:
         - id
         - name
@@ -667,6 +670,7 @@ components:
         - result
         - createdAt
         - updatedAt
+        - stale
 
     ScenarioInput:
       type: object
