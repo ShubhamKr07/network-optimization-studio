@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 import { eq } from "drizzle-orm";
-import { db, solveJobsTable, scenariosTable } from "@workspace/db";
+import { db, solveJobsTable, scenariosTable, resultCacheTable } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
 import { ResultEnvelopeSchema } from "./resultEnvelope.js";
 import type { ResultEnvelope } from "./resultEnvelope.js";
@@ -189,6 +189,45 @@ async function markFailed(jobId: number, error: string): Promise<void> {
     .where(eq(solveJobsTable.id, jobId));
 }
 
+// Phase 6 (P1.2) — write-through result cache, keyed on computeInputsHash().
+// Byte-identical repeated solves (common in a classroom where many students
+// start from the textbook baseline) skip spawning solve.py entirely.
+
+async function lookupCachedResult(inputsHash: string): Promise<ResultEnvelope | null> {
+  try {
+    const [row] = await db.select().from(resultCacheTable)
+      .where(eq(resultCacheTable.inputsHash, inputsHash));
+    if (!row) return null;
+
+    // Don't trust a cached blob blindly — the envelope schema can drift
+    // between when an entry was cached and now. A malformed/stale entry is
+    // treated as a cache miss (solve normally), never a failure — same
+    // reasoning as writeThroughCache below: caching is a pure optimization,
+    // so any problem with it must degrade to "solve normally," never fail
+    // or hang the job.
+    const parsed = ResultEnvelopeSchema.safeParse(row.result);
+    if (!parsed.success) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+async function writeThroughCache(inputsHash: string, modelId: string, envelope: ResultEnvelope): Promise<void> {
+  // Two near-simultaneous identical solves can race to insert the same key;
+  // onConflictDoNothing means the loser of that race just doesn't overwrite
+  // the winner's (equivalent, by definition of the hash) row. This must
+  // never throw and take down an otherwise-successful job.
+  try {
+    await db.insert(resultCacheTable)
+      .values({ inputsHash, modelId, result: envelope as unknown as Record<string, unknown> })
+      .onConflictDoNothing({ target: resultCacheTable.inputsHash });
+  } catch {
+    /* caching is a pure optimization — a write-through failure must not
+       fail a job that otherwise solved successfully. */
+  }
+}
+
 async function markSucceeded(jobId: number, scenarioId: number, envelope: ResultEnvelope): Promise<void> {
   await db.update(solveJobsTable)
     .set({
@@ -213,6 +252,13 @@ async function markSucceeded(jobId: number, scenarioId: number, envelope: Result
 // synthesized error-shaped result).
 async function runJob(jobId: number, scenarioId: number, input: SolveInput): Promise<void> {
   await markRunning(jobId);
+
+  const inputsHash = computeInputsHash(input);
+  const cached = await lookupCachedResult(inputsHash);
+  if (cached) {
+    await markSucceeded(jobId, scenarioId, cached);
+    return;
+  }
 
   const payload = JSON.stringify(buildPayload(input));
   const timeoutMs = input.inputs.timeLimitSec * 1000 + 15000;
@@ -246,5 +292,6 @@ async function runJob(jobId: number, scenarioId: number, input: SolveInput): Pro
     return;
   }
 
+  await writeThroughCache(inputsHash, input.modelId, parsed.data);
   await markSucceeded(jobId, scenarioId, parsed.data);
 }

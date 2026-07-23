@@ -11,6 +11,7 @@ vi.mock("@workspace/db", () => ({
   db: mockDb,
   solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status" },
   scenariosTable: { id: "id" },
+  resultCacheTable: { inputsHash: "inputs_hash", modelId: "model_id", result: "result" },
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn());
@@ -18,7 +19,7 @@ vi.mock("child_process", () => ({ spawn: mockSpawn }));
 
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
-  ["select", "from", "where", "insert", "values", "returning", "update", "set"].forEach((m) => {
+  ["select", "from", "where", "insert", "values", "returning", "update", "set", "onConflictDoNothing"].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => Promise.resolve(returnValue).then(resolve);
@@ -51,6 +52,12 @@ beforeEach(() => {
   // mockReturnValueOnce() values a failed/finished test left behind, so
   // one test's mock setup can't leak into the next.
   vi.resetAllMocks();
+  // P1.2: runJob() now does a result_cache lookup (db.select) before
+  // spawning the solver. Default every test to a cache miss (empty result
+  // set) so pre-existing tests that never anticipated this extra query
+  // keep exercising the real spawn path unchanged; cache-hit tests below
+  // override this per-test with mockReturnValueOnce.
+  mockDb.select.mockReturnValue(makeChain([]));
 });
 
 afterEach(() => {
@@ -267,6 +274,122 @@ describe("jobRunner", () => {
     await vi.waitFor(() => {
       const calls = setValues(jobUpdateChain);
       expect(calls.some((s) => s.status === "failed" && String(s.error).includes("ENOENT"))).toBe(true);
+    });
+  });
+});
+
+describe("result_cache (P1.2 write-through cache)", () => {
+  const envelope = {
+    status: "optimal", objective: 42, runTimeSec: 0.2, quality: "Optimal",
+    edges: [], metrics: { weightedAvgDistance: 7 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  };
+
+  it("a cache hit skips spawning the solver entirely and still transitions the job to succeeded", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    // Call order on a cache hit: markRunning, then markSucceeded's job-row
+    // update, then markSucceeded's scenario-row update — no solver-process
+    // updates in between, because there's no solver process.
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "does-not-matter-to-the-mock", modelId: "p-median-us", result: envelope },
+    ]));
+
+    await enqueueSolveJob(99, "user-1", baseInput);
+
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(setValues(scenarioUpdateChain).some((s) => (s.result as { objective: number })?.objective === 42)).toBe(true);
+  });
+
+  it("a cache miss spawns the solver normally and writes the result through to result_cache", async () => {
+    const enqueueChain = makeChain([{ id: 1 }]);
+    const cacheInsertChain = makeChain([{}]);
+    mockDb.insert.mockReturnValueOnce(enqueueChain).mockReturnValueOnce(cacheInsertChain);
+    mockDb.update.mockReturnValue(makeChain([{}]));
+    // mockDb.select's beforeEach default ([]) applies here — cache miss.
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(7, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => {
+      expect((cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    });
+    const written = (cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+    expect(written.modelId).toBe("p-median-us");
+    expect((written.result as typeof envelope).objective).toBe(42);
+    expect(typeof written.inputsHash).toBe("string");
+    expect((written.inputsHash as string).length).toBeGreaterThan(0);
+  });
+
+  it("two jobs with the same inputsHash: the second serves from the cache the first wrote, without spawning a second solver process", async () => {
+    const enqueueChain1 = makeChain([{ id: 1 }]);
+    const cacheInsertChain = makeChain([{}]);
+    const enqueueChain2 = makeChain([{ id: 2 }]);
+    mockDb.insert
+      .mockReturnValueOnce(enqueueChain1)
+      .mockReturnValueOnce(cacheInsertChain)
+      .mockReturnValueOnce(enqueueChain2);
+    mockDb.update.mockReturnValue(makeChain([{}]));
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(1));
+    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => {
+      expect((cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    });
+    // Feed the second job's select exactly what the first job's write-through
+    // wrote — a genuine round-trip through the write-then-read path, not a
+    // blindly scripted "assume it's cached" stub.
+    const written = (cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    mockDb.select.mockReturnValueOnce(makeChain([written]));
+
+    await enqueueSolveJob(2, "user-1", baseInput);
+    await vi.waitFor(() => {
+      const updateCalls = (mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length;
+      // job1 (miss): running + succeeded(job) + succeeded(scenario) = 3
+      // job2 (hit):  running + succeeded(job) + succeeded(scenario) = 3
+      expect(updateCalls).toBeGreaterThanOrEqual(6);
+    });
+    expect(mockSpawn).toHaveBeenCalledTimes(1); // job2 never spawned a second process
+  });
+
+  it("a malformed cached entry (schema drift) is treated as a cache miss instead of crashing the job", async () => {
+    const enqueueChain = makeChain([{ id: 1 }]);
+    const cacheInsertChain = makeChain([{}]);
+    mockDb.insert.mockReturnValueOnce(enqueueChain).mockReturnValueOnce(cacheInsertChain);
+    mockDb.update.mockReturnValue(makeChain([{}]));
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "x", modelId: "p-median-us", result: { not: "a valid envelope" } },
+    ]));
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    // Falls through to a real solve rather than crashing on the bad cache row.
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => {
+      const updateCalls = (mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(updateCalls).toBeGreaterThanOrEqual(3); // running + succeeded(job) + succeeded(scenario)
     });
   });
 });

@@ -23,6 +23,7 @@ vi.mock("@workspace/db", () => ({
   db: mockDb,
   solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status" },
   scenariosTable: { id: "id" },
+  resultCacheTable: { inputsHash: "inputs_hash", modelId: "model_id", result: "result" },
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn());
@@ -67,6 +68,11 @@ describe("jobRunner honors SOLVE_WORKER_CONCURRENCY=1", () => {
       .mockReturnValueOnce(makeChain([{ id: 1 }]))
       .mockReturnValueOnce(makeChain([{ id: 2 }]));
     mockDb.update.mockReturnValue(makeChain([{}]));
+
+    // P1.2: runJob() now does a result_cache lookup (db.select) before
+    // spawning the solver — default to a cache miss (empty result set) so
+    // this concurrency test still exercises the real spawn path.
+    mockDb.select.mockReturnValue(makeChain([]));
 
     const child1 = new FakeChild();
     const child2 = new FakeChild();
