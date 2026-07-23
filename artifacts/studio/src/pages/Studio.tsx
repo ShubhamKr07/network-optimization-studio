@@ -7,6 +7,7 @@ import {
   useGetScenario,
   useUpdateScenario,
   useSolveScenario,
+  useGetSolveJob,
   useCloneScenario,
   useCreateScenario,
   useDeleteScenario,
@@ -14,6 +15,7 @@ import {
   exportScenario,
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
+  getGetSolveJobQueryKey,
 } from "@workspace/api-client-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
@@ -182,6 +184,7 @@ export function Studio({ modelId }: StudioProps) {
   const [localConfig, setLocalConfig] = useState<LocalConfig | null>(null);
   const [savedConfig, setSavedConfig] = useState<LocalConfig | null>(null);
   const [isSolving, setIsSolving] = useState(false);
+  const [pollingJobId, setPollingJobId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"input" | "output">("input");
   const [showRoutes, setShowRoutes] = useState(false);
   const [showScenarioDropdown, setShowScenarioDropdown] = useState(false);
@@ -275,22 +278,50 @@ export function Studio({ modelId }: StudioProps) {
   const hasErrors = blockingErrors.length > 0;
   const result = scenarioFromApi?.result ?? null;
 
+  // Phase 3.5 (G3.1): solve is async now — POST enqueues a job and returns
+  // {jobId} immediately; useGetSolveJob below polls it until it leaves
+  // queued/running.
   const handleSolve = () => {
     if (!scenarioId || hasErrors) return;
     setIsSolving(true);
     solveScenario.mutate(
       { scenarioId },
       {
-        onSuccess: (updated) => {
-          setIsSolving(false);
-          setActiveTab("output");
-          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
-        },
+        onSuccess: (job) => setPollingJobId(job.jobId),
         onError: () => setIsSolving(false),
       }
     );
   };
+
+  const { data: jobStatus } = useGetSolveJob(scenarioId!, pollingJobId!, {
+    query: {
+      enabled: !!scenarioId && !!pollingJobId,
+      queryKey: getGetSolveJobQueryKey(scenarioId!, pollingJobId!),
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        return status === "queued" || status === "running" ? 800 : false;
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (!jobStatus || !scenarioId) return;
+    if (jobStatus.status === "succeeded") {
+      setIsSolving(false);
+      setPollingJobId(null);
+      setActiveTab("output");
+      queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+    } else if (jobStatus.status === "failed") {
+      setIsSolving(false);
+      setPollingJobId(null);
+      toast({
+        title: "Solve failed",
+        description: jobStatus.error ?? "The solver did not complete. Try again.",
+        variant: "destructive",
+      });
+    }
+  }, [jobStatus, scenarioId, queryClient]);
 
   const handleClone = () => {
     if (!scenarioId) return;

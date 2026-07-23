@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, scenariosTable } from "@workspace/db";
-import { solve } from "../solver/pmedian.js";
+import { db, scenariosTable, solveJobsTable } from "@workspace/db";
+import { enqueueSolveJob } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { WAREHOUSES } from "../data/dataset.js";
 import { requireAuth } from "../middlewares/auth.js";
@@ -177,14 +177,36 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     return;
   }
 
-  const result = solve({ modelId: scenario.modelId, inputs: validation.data } as SolveInput);
+  const jobId = await enqueueSolveJob(
+    id,
+    req.userId!,
+    { modelId: scenario.modelId, inputs: validation.data } as SolveInput,
+  );
 
-  const [updated] = await db.update(scenariosTable)
-    .set({ result: result as unknown as Record<string, unknown>, solvedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
-    .returning();
+  res.status(202).json({ jobId });
+});
 
-  res.json(toApiScenario(updated));
+router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
+  const scenarioId = Number(req.params.scenarioId);
+  const jobId = Number(req.params.jobId);
+
+  const [job] = await db.select().from(solveJobsTable)
+    .where(and(
+      eq(solveJobsTable.id, jobId),
+      eq(solveJobsTable.scenarioId, scenarioId),
+      eq(solveJobsTable.userId, req.userId!),
+    ));
+  if (!job) { res.status(404).json({ error: "Not found" }); return; }
+
+  res.json({
+    id: job.id,
+    status: job.status,
+    error: job.error ?? null,
+    resultSummary: job.resultSummary ?? null,
+    queuedAt: job.queuedAt.toISOString(),
+    startedAt: job.startedAt ? job.startedAt.toISOString() : null,
+    finishedAt: job.finishedAt ? job.finishedAt.toISOString() : null,
+  });
 });
 
 router.get("/scenarios/:scenarioId/export", async (req, res) => {

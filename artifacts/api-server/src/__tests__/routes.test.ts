@@ -9,11 +9,12 @@ const mockDb = vi.hoisted(() => ({
   delete: vi.fn(),
 }));
 
-const mockSolveFn = vi.hoisted(() => vi.fn());
+const mockEnqueueSolveJob = vi.hoisted(() => vi.fn());
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
   scenariosTable: { id: "id", name: "name", userId: "user_id", modelId: "model_id", createdAt: "created_at", updatedAt: "updated_at" },
+  solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -22,8 +23,8 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conds: unknown[]) => ({ and: conds })),
 }));
 
-vi.mock("../solver/pmedian.js", () => ({
-  solve: mockSolveFn,
+vi.mock("../solver/jobRunner.js", () => ({
+  enqueueSolveJob: mockEnqueueSolveJob,
 }));
 
 import app from "../app.js";
@@ -446,13 +447,15 @@ describe("Scenario.stale", () => {
     expect(res.body.stale).toBe(false);
   });
 
-  it("solve returns stale=false", async () => {
+  it("a freshly solved scenario (solvedAt >= inputsUpdatedAt) is not stale", async () => {
+    // G3.1: solve is now async (jobRunner writes scenarios.result/solvedAt
+    // in the background — covered by jobRunner.test.ts). This test checks
+    // isStale()'s own logic via GET against a row shaped like the result
+    // of a completed solve.
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    mockSolveFn.mockReturnValue({ status: "optimal" });
     const solvedAt = new Date("2026-01-02T00:00:00Z");
-    mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: pmedianRow.createdAt }]));
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: pmedianRow.createdAt }]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.stale).toBe(false);
   });
@@ -484,18 +487,17 @@ describe("Scenario.stale", () => {
     expect(setArg).not.toHaveProperty("inputsUpdatedAt");
   });
 
-  it("re-solving a stale scenario clears stale", async () => {
+  it("after a re-solve catches solvedAt up to inputsUpdatedAt, GET shows stale=false", async () => {
+    // Same isStale() logic, exercised against the row shape a completed
+    // re-solve leaves behind (jobRunner.test.ts covers the write itself).
     const cookie = await loginAs(OWNER);
-    const staleRow = {
+    mockDb.select.mockReturnValue(makeChain([{
       ...pmedianRow,
       result: { status: "optimal" },
-      solvedAt: new Date("2026-01-01T00:00:00Z"),
+      solvedAt: new Date("2026-01-03T00:00:00Z"),
       inputsUpdatedAt: new Date("2026-01-02T00:00:00Z"),
-    };
-    mockDb.select.mockReturnValue(makeChain([staleRow]));
-    mockSolveFn.mockReturnValue({ status: "optimal" });
-    mockDb.update.mockReturnValue(makeChain([{ ...staleRow, result: { status: "optimal" }, solvedAt: new Date("2026-01-03T00:00:00Z") }]));
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    }]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.stale).toBe(false);
   });
@@ -772,29 +774,40 @@ describe("POST /api/scenarios/:id/clone", () => {
 
 // ── Solve scenario ─────────────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/solve", () => {
-  const solverResult = {
-    status: "optimal",
-    openWarehouseIds: ["CHI", "ATL"],
-    assignments: [],
-    objective: 134000000,
-    weightedAvgDistanceMi: 412.6,
-    bandCoverage: [],
-    utilization: [],
-    runTimeSec: 0.4,
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason: null,
-  };
-
-  it("returns 200 with result populated from solver", async () => {
+  // G3.1: solve is now async — the route's job is to validate + enqueue and
+  // return 202 {jobId}. Input-translation (buildPayload) and result-shape
+  // translation (envelopeToLegacy) are pure functions covered directly in
+  // pmedian.test.ts; the actual job lifecycle is covered in
+  // jobRunner.test.ts. This block only tests the route's own contract.
+  it("returns 202 with a jobId and enqueues the job with the scenario's modelId/inputs", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    mockDb.update.mockReturnValue(makeChain([{ ...pmedianRow, result: solverResult }]));
-    mockSolveFn.mockReturnValue(solverResult);
+    mockEnqueueSolveJob.mockResolvedValue(42);
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.result.status).toBe("optimal");
-    expect(res.body.result.openWarehouseIds).toContain("CHI");
+    expect(res.status).toBe(202);
+    expect(res.body.jobId).toBe(42);
+    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(1, OWNER, { modelId: "p-median-us", inputs: pmedianInputs });
+  });
+
+  it("enqueues transport-coal scenarios with their modelId/inputs", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    mockEnqueueSolveJob.mockResolvedValue(7);
+
+    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(8, OWNER, { modelId: "transport-coal", inputs: transportInputs });
+  });
+
+  it("enqueues p-median-brazil scenarios with their modelId/inputs", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    mockEnqueueSolveJob.mockResolvedValue(9);
+
+    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(10, OWNER, { modelId: "p-median-brazil", inputs: brazilInputs });
   });
 
   it("returns 404 when scenario not found", async () => {
@@ -802,12 +815,62 @@ describe("POST /api/scenarios/:id/solve", () => {
     // Default: select returns [] → 404
     const res = await request(app).post("/api/scenarios/999/solve").set("Cookie", cookie);
     expect(res.status).toBe(404);
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
   });
 
   it("returns 404 (not 403) when solving a scenario owned by a different user", async () => {
     const cookie = await loginAs("other-user-id");
     mockDb.select.mockReturnValue(makeChain([]));
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 when the scenario's stored inputs fail model validation", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, capacityMode: "bogus" } }]));
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+});
+
+// ── Solve job polling ──────────────────────────────────────────────────────
+describe("GET /api/scenarios/:id/solve-jobs/:jobId", () => {
+  const jobRow = {
+    id: 42, scenarioId: 1, userId: OWNER, status: "succeeded",
+    inputsHash: "abc123", resultSummary: { status: "optimal", objective: 100 }, error: null,
+    queuedAt: new Date("2026-01-01T00:00:00Z"),
+    startedAt: new Date("2026-01-01T00:00:01Z"),
+    finishedAt: new Date("2026-01-01T00:00:02Z"),
+  };
+
+  it("returns 200 with the job's status", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jobRow]));
+    const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("succeeded");
+    expect(res.body.resultSummary).toEqual({ status: "optimal", objective: 100 });
+    expect(res.body.error).toBeNull();
+  });
+
+  it("returns 401 without a session", async () => {
+    const res = await request(app).get("/api/scenarios/1/solve-jobs/42");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the job does not exist", async () => {
+    const cookie = await loginAs(OWNER);
+    // Default: select returns [] → 404
+    const res = await request(app).get("/api/scenarios/1/solve-jobs/999").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) for a job owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
     expect(res.status).toBe(404);
   });
 });
@@ -928,140 +991,3 @@ describe("transport scenario — field serialization", () => {
   });
 });
 
-// ── Transport solve ────────────────────────────────────────────────────────
-describe("POST /api/scenarios/:id/solve — transport", () => {
-  const transportSolverResult = {
-    status: "optimal",
-    openWarehouseIds: [],
-    assignments: [
-      { customerId: "STN1", warehouseId: "MINE1", distanceMi: 450, band: 0, flowTons: 7000000, flowFraction: 1.0 },
-    ],
-    objective: 50840650000,
-    weightedAvgDistanceMi: 696.4,
-    bandCoverage: [],
-    utilization: [],
-    runTimeSec: 0.3,
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason: null,
-  };
-
-  it("passes transport fields to the solver and returns result", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = { ...transportRow, inputs: { ...transportInputs, capacityFactor: 1.1, singleSource: true } };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    mockDb.update.mockReturnValue(makeChain([{ ...row, result: transportSolverResult }]));
-    mockSolveFn.mockReturnValue(transportSolverResult);
-
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-
-    const solveCall = mockSolveFn.mock.calls[0][0] as { modelId: string; inputs: Record<string, unknown> };
-    expect(solveCall.modelId).toBe("transport-coal");
-    expect(solveCall.inputs.capacityFactor).toBe(1.1);
-    expect(solveCall.inputs.singleSource).toBe(true);
-    expect(solveCall.inputs.capacityInactive).toBe(false);
-  });
-
-  it("returns transport flow assignments in result", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockDb.update.mockReturnValue(makeChain([{ ...transportRow, result: transportSolverResult }]));
-    mockSolveFn.mockReturnValue(transportSolverResult);
-
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.result.status).toBe("optimal");
-    expect(res.body.result.objective).toBe(50840650000);
-    expect(res.body.result.assignments).toHaveLength(1);
-    expect(res.body.result.assignments[0].flowTons).toBe(7000000);
-  });
-});
-
-// ── Brazil solve ───────────────────────────────────────────────────────────
-describe("POST /api/scenarios/:id/solve — Brazil capacitated p-median", () => {
-  const brazilInfeasibleResult = {
-    status: "infeasible",
-    openWarehouseIds: [],
-    assignments: [],
-    objective: 0,
-    weightedAvgDistanceMi: 0,
-    bandCoverage: [],
-    utilization: [],
-    runTimeSec: 0.1,
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason:
-      "Demand region São Paulo (29,029,226) exceeds single-warehouse capacity (20,000,000). Relax single-sourcing to split demand across warehouses.",
-  };
-
-  const brazilFeasibleResult = {
-    status: "optimal",
-    openWarehouseIds: ["SAO", "RIO", "CUR", "REC", "MAN"],
-    assignments: [
-      { customerId: "SP", warehouseId: "SAO", distanceMi: 12, flowFraction: 0.69 },
-      { customerId: "SP", warehouseId: "CUR", distanceMi: 234, flowFraction: 0.31 },
-    ],
-    objective: 8500000000,
-    weightedAvgDistanceMi: 287.3,
-    bandCoverage: [],
-    utilization: [],
-    runTimeSec: 1.2,
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason: null,
-  };
-
-  it("returns infeasible status when singleSource=true and São Paulo exceeds capacity", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = { ...brazilRow, inputs: { ...brazilInputs, singleSource: true } };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilInfeasibleResult }]));
-    mockSolveFn.mockReturnValue(brazilInfeasibleResult);
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.result.status).toBe("infeasible");
-    expect(res.body.result.infeasibilityReason).toMatch(/São Paulo/);
-  });
-
-  it("passes p-median-brazil modelId, warehouseCapacity, singleSource, pValue to solver", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([brazilRow]));
-    mockDb.update.mockReturnValue(makeChain([{ ...brazilRow, result: brazilInfeasibleResult }]));
-    mockSolveFn.mockReturnValue(brazilInfeasibleResult);
-    await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    const call = mockSolveFn.mock.calls[0][0] as { modelId: string; inputs: Record<string, unknown> };
-    expect(call.modelId).toBe("p-median-brazil");
-    expect(call.inputs.uniformCapacity).toBe(20000000);
-    expect(call.inputs.singleSource).toBe(true);
-    expect(call.inputs.p).toBe(5);
-  });
-
-  it("returns optimal when singleSource=false (relaxed — São Paulo demand splits)", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = { ...brazilRow, inputs: { ...brazilInputs, singleSource: false } };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilFeasibleResult }]));
-    mockSolveFn.mockReturnValue(brazilFeasibleResult);
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.result.status).toBe("optimal");
-    expect(res.body.result.weightedAvgDistanceMi).toBe(287.3);
-    expect(res.body.result.openWarehouseIds).toHaveLength(5);
-  });
-
-  it("returns flow assignments with flowFraction for Brazil optimal result", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = { ...brazilRow, inputs: { ...brazilInputs, singleSource: false } };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    mockDb.update.mockReturnValue(makeChain([{ ...row, result: brazilFeasibleResult }]));
-    mockSolveFn.mockReturnValue(brazilFeasibleResult);
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.body.result.assignments).toHaveLength(2);
-    expect(res.body.result.assignments[0].flowFraction).toBeCloseTo(0.69, 2);
-  });
-
-  it("returns 404 when Brazil scenario not found", async () => {
-    const cookie = await loginAs(OWNER);
-    // Default: select returns [] → 404
-    const res = await request(app).post("/api/scenarios/99/solve").set("Cookie", cookie);
-    expect(res.status).toBe(404);
-  });
-});

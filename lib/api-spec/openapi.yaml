@@ -184,7 +184,7 @@ paths:
     post:
       operationId: solveScenario
       tags: [scenarios]
-      summary: Run the optimization solver for a scenario
+      summary: Enqueue an async solve job for a scenario (Phase 3.5, G3.1 — replaces the old blocking solve)
       parameters:
         - name: scenarioId
           in: path
@@ -192,18 +192,46 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
-          description: Scenario with solve result
+        "202":
+          description: Solve job queued
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Scenario"
+                $ref: "#/components/schemas/SolveJobQueued"
         "401":
           description: Not authenticated
         "404":
           description: Not found
         "422":
           description: Validation errors prevent solving
+
+  /scenarios/{scenarioId}/solve-jobs/{jobId}:
+    get:
+      operationId: getSolveJob
+      tags: [scenarios]
+      summary: Poll a solve job's status
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Solve job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SolveJob"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found
 
   /scenarios/{scenarioId}/import:
     post:
@@ -729,6 +757,39 @@ components:
         - createdAt
         - updatedAt
         - stale
+
+    SolveJobQueued:
+      type: object
+      properties:
+        jobId:
+          type: integer
+      required: [jobId]
+
+    SolveJobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed]
+
+    SolveJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          $ref: "#/components/schemas/SolveJobStatus"
+        error:
+          type: ["string", "null"]
+        resultSummary:
+          type: ["object", "null"]
+        queuedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: ["string", "null"]
+          format: date-time
+        finishedAt:
+          type: ["string", "null"]
+          format: date-time
+      required: [id, status, error, resultSummary, queuedAt, startedAt, finishedAt]
 
     ScenarioInput:
       type: object

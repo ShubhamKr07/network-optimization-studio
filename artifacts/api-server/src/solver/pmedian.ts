@@ -1,13 +1,6 @@
-import { spawnSync } from "child_process";
-import path from "path";
-import { fileURLToPath } from "url";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
-import { ResultEnvelopeSchema, type ResultEnvelope } from "./resultEnvelope.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const SOLVER_PY = path.resolve(__dirname, "..", "src", "solver", "solve.py");
+import type { ResultEnvelope } from "./resultEnvelope.js";
 
 export type SolveInput =
   | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
@@ -15,8 +8,9 @@ export type SolveInput =
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
-// (an internal wire format, not part of the public API contract).
-function buildPayload(input: SolveInput): Record<string, unknown> {
+// (an internal wire format, not part of the public API contract). Used by
+// jobRunner.ts to build solve.py's stdin payload.
+export function buildPayload(input: SolveInput): Record<string, unknown> {
   if (input.modelId === "transport-coal") {
     const i = input.inputs;
     return {
@@ -64,25 +58,6 @@ function buildPayload(input: SolveInput): Record<string, unknown> {
   };
 }
 
-export interface SolverInfo {
-  id: string;
-  name: string;
-  available: boolean;
-}
-
-export function listSolvers(): SolverInfo[] {
-  const result = spawnSync("python3", [SOLVER_PY, "--list-solvers"], {
-    encoding: "utf8",
-    timeout: 10000,
-  });
-  if (result.error || result.status !== 0) return [];
-  try {
-    return JSON.parse(result.stdout) as SolverInfo[];
-  } catch {
-    return [];
-  }
-}
-
 export interface Assignment {
   customerId: string;
   warehouseId: string;
@@ -117,28 +92,13 @@ export interface SolveOutput {
   infeasibilityReason: string | null;
 }
 
-function errorOutput(reason: string): SolveOutput {
-  return {
-    status: "error",
-    openWarehouseIds: [],
-    assignments: [],
-    objective: 0,
-    weightedAvgDistanceMi: 0,
-    bandCoverage: [],
-    utilization: [],
-    runTimeSec: 0,
-    solverUsed: "CBC (PuLP)",
-    infeasibilityReason: reason,
-  };
-}
-
-// Phase 3.5 (G2.1): solve.py now emits a standardized envelope
-// ({status, objective, edges, metrics, details, ...}), validated here
-// against the shared Zod schema before anything trusts it. This translates
-// it back to the pre-envelope flat SolveOutput shape so routes.ts and the
-// frontend are unaffected by the wire-shape refactor — Phase 4/5 will read
-// the envelope directly and this shim goes away.
-function envelopeToLegacy(env: ResultEnvelope): SolveOutput {
+// Phase 3.5 (G2.1): solve.py emits a standardized envelope
+// ({status, objective, edges, metrics, details, ...}), validated by
+// jobRunner.ts against the shared Zod schema before anything trusts it.
+// This translates it back to the pre-envelope flat SolveOutput shape so
+// routes.ts and the frontend are unaffected by the wire-shape refactor —
+// Phase 4/5 will read the envelope directly and this shim goes away.
+export function envelopeToLegacy(env: ResultEnvelope): SolveOutput {
   const details = env.details as { openWarehouseIds?: string[]; assignments?: Assignment[] };
   return {
     status: env.status,
@@ -152,33 +112,4 @@ function envelopeToLegacy(env: ResultEnvelope): SolveOutput {
     solverUsed: env.solverUsed,
     infeasibilityReason: env.infeasibilityReason,
   };
-}
-
-export function solve(input: SolveInput): SolveOutput {
-  const payload = JSON.stringify(buildPayload(input));
-
-  const result = spawnSync("python3", [SOLVER_PY], {
-    input: payload,
-    encoding: "utf8",
-    timeout: input.inputs.timeLimitSec * 1000 + 15000,
-  });
-
-  if (result.error || result.status !== 0) {
-    const msg = result.stderr || result.error?.message || "python3 process failed";
-    return errorOutput(msg.slice(0, 500));
-  }
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(result.stdout);
-  } catch {
-    return errorOutput("Failed to parse solver output: " + result.stdout.slice(0, 200));
-  }
-
-  const parsed = ResultEnvelopeSchema.safeParse(raw);
-  if (!parsed.success) {
-    return errorOutput("Solver output failed envelope validation: " + parsed.error.message.slice(0, 300));
-  }
-
-  return envelopeToLegacy(parsed.data);
 }

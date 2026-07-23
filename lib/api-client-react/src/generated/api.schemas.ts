@@ -187,6 +187,39 @@ export interface Scenario {
   stale: boolean;
 }
 
+export interface SolveJobQueued {
+  jobId: number;
+}
+
+export type SolveJobStatus = typeof SolveJobStatus[keyof typeof SolveJobStatus];
+
+
+export const SolveJobStatus = {
+  queued: 'queued',
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SolveJobResultSummary = { [key: string]: unknown } | null;
+
+export interface SolveJob {
+  id: number;
+  status: SolveJobStatus;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  resultSummary: SolveJobResultSummary;
+  queuedAt: string;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  finishedAt: string | null;
+}
+
 export type ScenarioInputModelId = typeof ScenarioInputModelId[keyof typeof ScenarioInputModelId];
 
 

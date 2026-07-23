@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // ── Hoist stable mocks before vi.mock hoisting ────────────────────────────────
-const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
+const { mockNavigate, mockToast } = vi.hoisted(() => ({ mockNavigate: vi.fn(), mockToast: vi.fn() }));
 
 // ── Mock wouter ───────────────────────────────────────────────────────────────
 vi.mock("wouter", () => ({
@@ -11,6 +11,9 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/", mockNavigate],
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }));
+
+// ── Mock toast ────────────────────────────────────────────────────────────────
+vi.mock("@/hooks/use-toast", () => ({ toast: mockToast }));
 
 // ── Mock React Query ──────────────────────────────────────────────────────────
 vi.mock("@tanstack/react-query", () => ({
@@ -88,6 +91,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetScenario: vi.fn(),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => mockSolveScenario),
+  useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
@@ -98,13 +103,14 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { useSearch } from "wouter";
-import { useListScenarios, useGetDataset, useGetScenario } from "@workspace/api-client-react";
+import { useListScenarios, useGetDataset, useGetScenario, useGetSolveJob } from "@workspace/api-client-react";
 import { Studio } from "@/pages/Studio";
 
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUseGetDataset = vi.mocked(useGetDataset);
 const mockUseGetScenario = vi.mocked(useGetScenario);
 const mockUseSearch = vi.mocked(useSearch);
+const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 
 function renderStudio(modelId: "p-median-us" | "transport-coal" | "p-median-brazil" = "p-median-us") {
   return render(<Studio modelId={modelId} />);
@@ -115,6 +121,7 @@ beforeEach(() => {
   mockNavigate.mockReset();
   mockUseGetDataset.mockReturnValue({ data: dataset, isLoading: false } as ReturnType<typeof useGetDataset>);
   mockUseSearch.mockReturnValue("?scenario=1");
+  mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
 });
 
 // ── P-Median rendering ────────────────────────────────────────────────────────
@@ -609,5 +616,62 @@ describe("Studio — Stale badge", () => {
     await userEvent.click(screen.getByText("Output"));
     expect(screen.queryByTestId("badge-stale")).not.toBeInTheDocument();
     expect(screen.getByTestId("status-badge")).toHaveTextContent(/Solved/);
+  });
+});
+
+// ── Async solve (G3.1) ───────────────────────────────────────────────────────
+describe("Studio — Async solve", () => {
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("clicking Solve enqueues a job and starts polling with the returned jobId", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    expect(mockSolveScenario.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
+    const lastCall = mockUseGetSolveJob.mock.calls[mockUseGetSolveJob.mock.calls.length - 1];
+    expect(lastCall[1]).toBe(7);
+  });
+
+  it("switches to the output tab once the polled job succeeds", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    expect(await screen.findByTestId("button-tab-output")).toHaveClass("bg-primary");
+  });
+
+  it("shows a failure toast and stops solving when the polled job fails", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "failed", error: "Solver timed out", resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    await vi.waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Solve failed",
+      description: "Solver timed out",
+    })));
+    expect(screen.getByTestId("button-solve")).not.toHaveTextContent("Solving...");
   });
 });

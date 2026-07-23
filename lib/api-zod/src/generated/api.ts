@@ -232,46 +232,31 @@ export const DeleteScenarioParams = zod.object({
 
 
 /**
- * @summary Run the optimization solver for a scenario
+ * @summary Enqueue an async solve job for a scenario (Phase 3.5, G3.1 — replaces the old blocking solve)
  */
 export const SolveScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
-export const SolveScenarioResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'max_coverage', 'p_center', 'set_cover']),
-  "inputs": zod.object({
 
-}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
-  "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'solving', 'error']),
-  "openWarehouseIds": zod.array(zod.string()).optional(),
-  "assignments": zod.array(zod.object({
-  "customerId": zod.string(),
-  "warehouseId": zod.string(),
-  "distanceMi": zod.number(),
-  "band": zod.number()
-})),
-  "objective": zod.number().optional(),
-  "weightedAvgDistanceMi": zod.number(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "utilization": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "city": zod.string(),
-  "utilization": zod.number()
-})).optional(),
-  "runTimeSec": zod.number(),
-  "solverUsed": zod.string(),
-  "infeasibilityReason": zod.string().nullable()
-}),zod.null()]),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
+/**
+ * @summary Poll a solve job's status
+ */
+export const GetSolveJobParams = zod.object({
+  "scenarioId": zod.coerce.number(),
+  "jobId": zod.coerce.number()
+})
+
+export const GetSolveJobResponse = zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['queued', 'running', 'succeeded', 'failed']),
+  "error": zod.string().nullable(),
+  "resultSummary": zod.object({
+
+}).passthrough().nullable(),
+  "queuedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
 })
 
 

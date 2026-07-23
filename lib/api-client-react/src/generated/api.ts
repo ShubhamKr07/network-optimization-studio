@@ -39,7 +39,9 @@ import type {
   RegisterRequest,
   Scenario,
   ScenarioInput,
-  ScenarioUpdate
+  ScenarioUpdate,
+  SolveJob,
+  SolveJobQueued
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -670,11 +672,11 @@ export const getSolveScenarioUrl = (scenarioId: number,) => {
 }
 
 /**
- * @summary Run the optimization solver for a scenario
+ * @summary Enqueue an async solve job for a scenario (Phase 3.5, G3.1 — replaces the old blocking solve)
  */
-export const solveScenario = async (scenarioId: number, options?: RequestInit): Promise<Scenario> => {
+export const solveScenario = async (scenarioId: number, options?: RequestInit): Promise<SolveJobQueued> => {
 
-  return customFetch<Scenario>(getSolveScenarioUrl(scenarioId),
+  return customFetch<SolveJobQueued>(getSolveScenarioUrl(scenarioId),
   {
     ...options,
     method: 'POST'
@@ -718,7 +720,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SolveScenarioMutationError = ErrorType<void>
 
     /**
- * @summary Run the optimization solver for a scenario
+ * @summary Enqueue an async solve job for a scenario (Phase 3.5, G3.1 — replaces the old blocking solve)
  */
 export const useSolveScenario = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof solveScenario>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -730,6 +732,88 @@ export const useSolveScenario = <TError = ErrorType<void>,
       > => {
       return useMutation(getSolveScenarioMutationOptions(options));
     }
+
+export const getGetSolveJobUrl = (scenarioId: number,
+    jobId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/solve-jobs/${jobId}`
+}
+
+/**
+ * @summary Poll a solve job's status
+ */
+export const getSolveJob = async (scenarioId: number,
+    jobId: number, options?: RequestInit): Promise<SolveJob> => {
+
+  return customFetch<SolveJob>(getGetSolveJobUrl(scenarioId,jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSolveJobQueryKey = (scenarioId: number,
+    jobId: number,) => {
+    return [
+    `/api/scenarios/${scenarioId}/solve-jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetSolveJobQueryOptions = <TData = Awaited<ReturnType<typeof getSolveJob>>, TError = ErrorType<void>>(scenarioId: number,
+    jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSolveJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSolveJobQueryKey(scenarioId,jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSolveJob>>> = ({ signal }) => getSolveJob(scenarioId,jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(scenarioId && jobId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSolveJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSolveJobQueryResult = NonNullable<Awaited<ReturnType<typeof getSolveJob>>>
+export type GetSolveJobQueryError = ErrorType<void>
+
+
+/**
+ * @summary Poll a solve job's status
+ */
+
+export function useGetSolveJob<TData = Awaited<ReturnType<typeof getSolveJob>>, TError = ErrorType<void>>(
+ scenarioId: number,
+    jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSolveJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSolveJobQueryOptions(scenarioId,jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getPreviewScenarioImportUrl = (scenarioId: number,) => {
 
