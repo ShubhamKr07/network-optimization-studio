@@ -41,6 +41,37 @@ export const GetDatasetResponse = zod.object({
 
 
 /**
+ * @summary List available solver models (registry-driven, see solvers/*\/manifest.json)
+ */
+export const listModelsResponseCountryBoundsSwMin = 2;
+export const listModelsResponseCountryBoundsSwMax = 2;
+
+export const listModelsResponseCountryBoundsNeMin = 2;
+export const listModelsResponseCountryBoundsNeMax = 2;
+
+
+
+export const ListModelsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "chapter": zod.string(),
+  "countryBounds": zod.object({
+  "sw": zod.array(zod.number()).min(listModelsResponseCountryBoundsSwMin).max(listModelsResponseCountryBoundsSwMax),
+  "ne": zod.array(zod.number()).min(listModelsResponseCountryBoundsNeMin).max(listModelsResponseCountryBoundsNeMax)
+}),
+  "capabilities": zod.object({
+  "supportsP": zod.boolean(),
+  "capacityModes": zod.array(zod.string()),
+  "demandEditable": zod.boolean()
+}),
+  "inputsSchema": zod.object({
+
+}).passthrough().describe('JSON Schema describing this model\'s inputs shape. Opaque to this contract.')
+}).describe('Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers\/<model-id>\/manifest.json, datasetDir omitted (server-internal filesystem path).')
+export const ListModelsResponse = zod.array(ListModelsResponseItem)
+
+
+/**
  * @summary List all scenarios
  */
 export const ListScenariosQueryParams = zod.object({

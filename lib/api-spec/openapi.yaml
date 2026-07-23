@@ -46,6 +46,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/Dataset"
 
+  /models:
+    get:
+      operationId: listModels
+      tags: [models]
+      summary: List available solver models (registry-driven, see solvers/*/manifest.json)
+      responses:
+        "200":
+          description: Available models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+
   /scenarios:
     get:
       operationId: listScenarios
@@ -541,6 +556,49 @@ components:
           items:
             $ref: "#/components/schemas/Customer"
       required: [warehouses, customers]
+
+    ModelInfo:
+      type: object
+      description: Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers/<model-id>/manifest.json, datasetDir omitted (server-internal filesystem path).
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        chapter:
+          type: string
+        countryBounds:
+          type: object
+          properties:
+            sw:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+            ne:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+          required: [sw, ne]
+        capabilities:
+          type: object
+          properties:
+            supportsP:
+              type: boolean
+            capacityModes:
+              type: array
+              items:
+                type: string
+            demandEditable:
+              type: boolean
+          required: [supportsP, capacityModes, demandEditable]
+        inputsSchema:
+          type: object
+          description: JSON Schema describing this model's inputs shape. Opaque to this contract.
+      required: [id, name, chapter, countryBounds, capabilities, inputsSchema]
 
     TransportAssignment:
       type: object

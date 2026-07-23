@@ -70,6 +70,43 @@ export interface Dataset {
   customers: Customer[];
 }
 
+export type ModelInfoCountryBounds = {
+  /**
+     * @minItems 2
+     * @maxItems 2
+     */
+  sw: number[];
+  /**
+     * @minItems 2
+     * @maxItems 2
+     */
+  ne: number[];
+};
+
+export type ModelInfoCapabilities = {
+  supportsP: boolean;
+  capacityModes: string[];
+  demandEditable: boolean;
+};
+
+/**
+ * JSON Schema describing this model's inputs shape. Opaque to this contract.
+ */
+export type ModelInfoInputsSchema = { [key: string]: unknown };
+
+/**
+ * Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers/<model-id>/manifest.json, datasetDir omitted (server-internal filesystem path).
+ */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  chapter: string;
+  countryBounds: ModelInfoCountryBounds;
+  capabilities: ModelInfoCapabilities;
+  /** JSON Schema describing this model's inputs shape. Opaque to this contract. */
+  inputsSchema: ModelInfoInputsSchema;
+}
+
 export interface TransportAssignment {
   mineId: string;
   stationId: string;
