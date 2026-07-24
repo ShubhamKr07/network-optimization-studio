@@ -42,5 +42,5 @@ services:
 
 databases:
   - name: nos-postgres
-    plan: starter
+    plan: basic-256mb
     postgresMajorVersion: 16
