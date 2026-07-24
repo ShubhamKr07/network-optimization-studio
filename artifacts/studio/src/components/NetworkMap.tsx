@@ -346,7 +346,14 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, ban
                   setSelectedCustomerId((prev) => (prev === c.id ? null : c.id));
                 },
               }}
-            />
+            >
+              <Tooltip direction="top" offset={[0, -4]} opacity={1}>
+                <span className="font-semibold text-xs">
+                  {(c as unknown as { city?: string }).city ?? c.id}, {(c as unknown as { state?: string }).state ?? ""}
+                  {" · "}{c.demand.toLocaleString()} {assignment ? `· Band ${assignmentBand + 1}` : ""}
+                </span>
+              </Tooltip>
+            </CircleMarker>
           );
         })}
 
