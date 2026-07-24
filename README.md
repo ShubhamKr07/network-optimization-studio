@@ -68,3 +68,9 @@ On top of the solver sits **Arcadia**, a gamification layer: quests tied to prob
 
 - API contract changes start in `lib/api-spec/openapi.yaml`, then run the codegen script — don't hand-edit generated files in `lib/api-client-react` or `lib/api-zod`.
 - Solver logic lives in Python (`solve.py`); the TS wrapper (`pmedian.ts`) just shells out to it — keep model correctness changes in Python and covered by the pytest suite (including `e2e_accuracy.py` and `e2e_journey.py`).
+
+## Deploying
+
+This app deploys to Render via the Blueprint in `render.yaml` (three services: `nos-api` Docker web service, `nos-studio` static site, `nos-postgres` managed Postgres). See `docs/superpowers/plans/2026-07-24-render-migration.md` for the full rationale and task-by-task history.
+
+One manual step after the first Blueprint apply: copy the two real `*.onrender.com` URLs Render assigns and set `CORS_ALLOWED_ORIGIN` (on `nos-api`) and `VITE_API_BASE_URL` (on `nos-studio`) to each other's real URL, then redeploy both services.
