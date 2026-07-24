@@ -57,5 +57,10 @@ jobs:
       - name: Solver test suite
         run: cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x
 
+      - name: Solver code quality
+        run: |
+          grep -nE '^\s*print\(' artifacts/api-server/src/solver/solve.py | grep -v 'print(json.dumps(result))' && { echo "stray print() in solve.py"; exit 1; } || true
+          grep -n 'writeLP(' artifacts/api-server/src/solver/solve.py && { echo "writeLP() forbidden"; exit 1; } || true
+
       - name: Solver accuracy suite (X3 — sacred, must pass unmodified)
         run: cd artifacts/api-server/src/solver/tests && python3 e2e_accuracy.py
