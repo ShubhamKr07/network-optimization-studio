@@ -239,3 +239,48 @@ def test_mine_capacity_override_absent_matches_base():
     assert result["objective"] > 0  # smoke check -- the real byte-identical
     # comparison against the textbook's published answer is e2e_accuracy.py's
     # job, run separately per this plan's Global Constraints
+
+
+# ── Per-station demand override (stationDemands) ──────────────────────────────
+
+def test_station_demand_override_changes_equality_and_total():
+    # CHI's base demand is 6,000,000 tons. Override it to 12,000,000 --
+    # total flow into CHI, and total_demand-derived avg_dist, must both
+    # reflect the new value. The coal dataset is perfectly balanced (70M
+    # supply == 70M demand), so raising CHI's demand to 12M (76M total)
+    # would exceed the 70M supply at capacityFactor=1.0 and report
+    # infeasible; capacityFactor=1.5 gives slack (105M cap > 76M demand)
+    # so the demand override can actually be met.
+    base = solve_transport({
+        "capacityFactor": 1.5, "singleSource": False, "capacityInactive": False,
+        "distanceBands": [500, 1000, 1500, 2000], "gap": 0, "timeLimitSec": 30,
+    })
+    base_chi_flow = sum(e["flow"] for e in base["edges"] if e["toId"] == "CHI")
+    assert base_chi_flow == 6_000_000
+
+    overridden = solve_transport({
+        "capacityFactor": 1.5, "singleSource": False, "capacityInactive": False,
+        "distanceBands": [500, 1000, 1500, 2000], "gap": 0, "timeLimitSec": 30,
+        "stationDemands": {"CHI": 12_000_000},
+    })
+    assert overridden["status"] == "optimal"
+    chi_flow = sum(e["flow"] for e in overridden["edges"] if e["toId"] == "CHI")
+    assert abs(chi_flow - 12_000_000) <= 1  # rounding
+    # avg distance = objective / total_demand -- total_demand must include
+    # the overridden 12M for CHI, not the base 6M, so this must differ from
+    # a naive (wrong) recompute that ignored the override.
+    assert overridden["metrics"]["weightedAvgDistance"] != base["metrics"]["weightedAvgDistance"]
+
+def test_station_demand_override_with_single_source_stays_consistent():
+    # Regression guard for the "two solver sites" risk the design doc calls
+    # out: the demand equality AND the single-source big-M link must both
+    # use the same effective (overridden) demand, or this could produce an
+    # inconsistent/wrong-but-not-obviously-broken model.
+    result = solve_transport({
+        "capacityFactor": 1.0, "singleSource": True, "capacityInactive": True,
+        "distanceBands": [500, 1000, 1500, 2000], "gap": 0, "timeLimitSec": 30,
+        "stationDemands": {"LAX": 2_000_000},
+    })
+    assert result["status"] == "optimal"
+    lax_flow = sum(e["flow"] for e in result["edges"] if e["toId"] == "LAX")
+    assert abs(lax_flow - 2_000_000) <= 1

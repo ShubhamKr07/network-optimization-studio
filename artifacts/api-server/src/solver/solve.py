@@ -237,11 +237,15 @@ def solve_transport(inp):
     gap               = float(inp.get('gap', 0.0))
     time_limit        = int(inp.get('timeLimitSec', 120))
     mine_caps         = inp.get('mineCapacities', {})
+    station_demands   = inp.get('stationDemands', {})
+
+    def effective_demand(s):
+        return station_demands.get(s, POWER_STATIONS[s]['demand'])
 
     mines    = list(COAL_MINES.keys())
     stations = list(POWER_STATIONS.keys())
     dist     = _transport_distances()
-    total_demand = sum(s['demand'] for s in POWER_STATIONS.values())
+    total_demand = sum(effective_demand(s) for s in stations)
 
     start = time.time()
     prob  = LpProblem("TransportLP", LpMinimize)
@@ -256,7 +260,7 @@ def solve_transport(inp):
     for s in stations:
         prob += LpConstraint(
             lpSum(flow[m, s] for m in mines),
-            LpConstraintEQ, f"demand_{s}", POWER_STATIONS[s]['demand'])
+            LpConstraintEQ, f"demand_{s}", effective_demand(s))
 
     if not capacity_inactive:
         for m in mines:
@@ -273,7 +277,7 @@ def solve_transport(inp):
                 LpConstraintEQ, f"onesrc_{s}", 1)
             for m in mines:
                 prob += LpConstraint(
-                    flow[m, s] - POWER_STATIONS[s]['demand'] * source[m, s],
+                    flow[m, s] - effective_demand(s) * source[m, s],
                     LpConstraintLE, f"link_{m}_{s}", 0)
 
     solver = PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False)
@@ -325,7 +329,7 @@ def solve_transport(inp):
                 "distanceMi": d,
                 "band": band_idx,
                 "flowTons": flow_tons,
-                "flowFraction": round(flow_val / POWER_STATIONS[s]['demand'], 4)
+                "flowFraction": round(flow_val / effective_demand(s), 4)
             })
             edges.append({"fromId": m, "toId": s, "flow": flow_tons, "distance": d, "band": band_idx})
             for b in distance_bands:
