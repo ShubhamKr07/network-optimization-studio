@@ -1,0 +1,16 @@
+{
+  "daggar-hills": {
+    "id": "daggar-hills",
+    "city": "Daggar Hills",
+    "state": "WA",
+    "lat": -28.15,
+    "lng": 117.6
+  },
+  "cunnamulla": {
+    "id": "cunnamulla",
+    "city": "Cunnamulla",
+    "state": "QLD",
+    "lat": -28.0716,
+    "lng": 145.6695
+  }
+}

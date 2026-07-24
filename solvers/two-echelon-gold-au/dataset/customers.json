@@ -1,0 +1,82 @@
+{
+  "sydney": {
+    "id": "sydney",
+    "city": "Sydney",
+    "state": "NSW",
+    "lat": -33.87,
+    "lng": 151.21,
+    "demand": 500000.0
+  },
+  "melbourne": {
+    "id": "melbourne",
+    "city": "Melbourne",
+    "state": "VIC",
+    "lat": -37.81,
+    "lng": 144.96,
+    "demand": 1000000.0
+  },
+  "brisbane": {
+    "id": "brisbane",
+    "city": "Brisbane",
+    "state": "QLD",
+    "lat": -27.46,
+    "lng": 153.02,
+    "demand": 750000.0
+  },
+  "adelaide": {
+    "id": "adelaide",
+    "city": "Adelaide",
+    "state": "SA",
+    "lat": -34.93,
+    "lng": 138.6,
+    "demand": 850000.0
+  },
+  "canberra": {
+    "id": "canberra",
+    "city": "Canberra",
+    "state": "ACT",
+    "lat": -35.31,
+    "lng": 149.13,
+    "demand": 900000.0
+  },
+  "newcastle": {
+    "id": "newcastle",
+    "city": "Newcastle",
+    "state": "NSW",
+    "lat": -32.92,
+    "lng": 151.75,
+    "demand": 650000.0
+  },
+  "sunshine-coast": {
+    "id": "sunshine-coast",
+    "city": "Sunshine Coast",
+    "state": "QLD",
+    "lat": -25.88,
+    "lng": 152.56,
+    "demand": 500000.0
+  },
+  "townsville": {
+    "id": "townsville",
+    "city": "Townsville",
+    "state": "QLD",
+    "lat": -19.26,
+    "lng": 146.78,
+    "demand": 850000.0
+  },
+  "cairns": {
+    "id": "cairns",
+    "city": "Cairns",
+    "state": "QLD",
+    "lat": -16.92,
+    "lng": 145.75,
+    "demand": 650000.0
+  },
+  "bendigo": {
+    "id": "bendigo",
+    "city": "Bendigo",
+    "state": "VIC",
+    "lat": -36.76,
+    "lng": 144.28,
+    "demand": 750000.0
+  }
+}
