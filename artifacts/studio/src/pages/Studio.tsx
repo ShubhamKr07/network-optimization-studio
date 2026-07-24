@@ -394,6 +394,50 @@ export function Studio({ modelId }: StudioProps) {
     );
   };
 
+  // Extracted so it can be rendered in *every* return branch, including the
+  // early-return "no scenarios" states. Previously this Dialog lived only in
+  // the main return, so clicking "Create first scenario" set
+  // showCreateDialog=true but there was no Dialog mounted to display.
+  const createScenarioDialog = (
+    <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>New scenario</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Scenario name</Label>
+            <Input
+              value={newScenarioName}
+              onChange={e => setNewScenarioName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleCreateConfirm(); }}
+              placeholder="e.g. 5 Warehouses – West Coast"
+              className="text-sm"
+              autoFocus
+              data-testid="input-new-scenario-name"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Starts with P = 3, CBC solver, default settings. You can change everything in the configure panel.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleCreateConfirm}
+            disabled={createScenario.isPending}
+            data-testid="button-create-confirm"
+          >
+            {createScenario.isPending ? "Creating..." : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   const handleExport = async (entity: "warehouses" | "customers", format: "csv" | "json") => {
     if (!scenarioId) return;
     try {
@@ -476,23 +520,29 @@ export function Studio({ modelId }: StudioProps) {
 
   if (!scenarios?.length) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen gap-4">
-        <p className="text-muted-foreground">No scenarios yet.</p>
-        <Button onClick={handleCreateNew} data-testid="button-create-scenario">
-          <Plus className="w-4 h-4 mr-2" /> Create first scenario
-        </Button>
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center h-screen gap-4">
+          <p className="text-muted-foreground">No scenarios yet.</p>
+          <Button onClick={handleCreateNew} data-testid="button-create-scenario">
+            <Plus className="w-4 h-4 mr-2" /> Create first scenario
+          </Button>
+        </div>
+        {createScenarioDialog}
+      </>
     );
   }
 
   if (activeModelIndex === 3 && !scenarios.some(s => s.modelId === "p-median-brazil")) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen gap-4">
-        <p className="text-muted-foreground">No Brazil Capacity scenarios yet.</p>
-        <Button onClick={handleCreateNew} data-testid="button-create-scenario">
-          <Plus className="w-4 h-4 mr-2" /> Create first scenario
-        </Button>
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center h-screen gap-4">
+          <p className="text-muted-foreground">No Brazil Capacity scenarios yet.</p>
+          <Button onClick={handleCreateNew} data-testid="button-create-scenario">
+            <Plus className="w-4 h-4 mr-2" /> Create first scenario
+          </Button>
+        </div>
+        {createScenarioDialog}
+      </>
     );
   }
 
@@ -1299,43 +1349,7 @@ export function Studio({ modelId }: StudioProps) {
       )}
 
       {/* Create scenario dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>New scenario</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1">
-              <Label className="text-xs">Scenario name</Label>
-              <Input
-                value={newScenarioName}
-                onChange={e => setNewScenarioName(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") handleCreateConfirm(); }}
-                placeholder="e.g. 5 Warehouses – West Coast"
-                className="text-sm"
-                autoFocus
-                data-testid="input-new-scenario-name"
-              />
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Starts with P = 3, CBC solver, default settings. You can change everything in the configure panel.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleCreateConfirm}
-              disabled={createScenario.isPending}
-              data-testid="button-create-confirm"
-            >
-              {createScenario.isPending ? "Creating..." : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {createScenarioDialog}
 
       {/* Warehouse overrides table (D2.1) */}
       <Dialog open={showWarehouseTable} onOpenChange={setShowWarehouseTable}>

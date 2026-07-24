@@ -881,3 +881,20 @@ describe("Studio — Constraint chip bar", () => {
     expect(screen.queryByTestId("constraint-chips")).not.toBeInTheDocument();
   });
 });
+
+// ── Create-scenario dialog reachable when scenarios list is empty ──────────
+describe("Studio — empty scenarios", () => {
+  it("opens the create-scenario dialog after clicking 'Create first scenario'", async () => {
+    // Zero scenarios → the Studio early-returns from the "No scenarios yet."
+    // branch, which previously did not mount the Dialog at all.
+    mockUseListScenarios.mockReturnValue({ data: [], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: undefined } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-create-scenario"));
+
+    // The dialog must actually open now that it is mounted in this branch.
+    expect(await screen.findByTestId("input-new-scenario-name")).toBeInTheDocument();
+    expect(screen.getByText("New scenario")).toBeInTheDocument();
+  });
+});
