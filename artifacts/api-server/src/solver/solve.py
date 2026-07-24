@@ -236,6 +236,7 @@ def solve_transport(inp):
     distance_bands    = sorted(inp.get('distanceBands', [500, 1000, 1500, 2000]))
     gap               = float(inp.get('gap', 0.0))
     time_limit        = int(inp.get('timeLimitSec', 120))
+    mine_caps         = inp.get('mineCapacities', {})
 
     mines    = list(COAL_MINES.keys())
     stations = list(POWER_STATIONS.keys())
@@ -259,7 +260,8 @@ def solve_transport(inp):
 
     if not capacity_inactive:
         for m in mines:
-            cap = COAL_MINES[m]['capacity'] * capacity_factor
+            base_cap = mine_caps.get(m, COAL_MINES[m]['capacity'])
+            cap = base_cap * capacity_factor
             prob += LpConstraint(
                 lpSum(flow[m, s] for s in stations),
                 LpConstraintLE, f"cap_{m}", cap)

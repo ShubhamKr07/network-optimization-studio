@@ -6,7 +6,9 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from _envelope_compat import flatten_envelope  # noqa: E402
+from solve import solve_transport  # noqa: E402
 
 SOLVER_PY = Path(__file__).parent.parent / "solve.py"
 
@@ -195,3 +197,45 @@ class TestSingleSource:
                 assert is_binary, (
                     f"Single-source fraction should be 1.0, got {a['flowFraction']}"
                 )
+
+
+# ── Per-mine capacity override (mineCapacities) ────────────────────────────────
+
+def test_mine_capacity_override_binds():
+    # KY's base capacity is 25,000,000 tons. The coal dataset is perfectly
+    # balanced (70M total supply == 70M total demand), so with capacityFactor=1.0
+    # every mine is pinned at 100% and reducing any one mine's cap makes the
+    # whole model infeasible. To demonstrate the override *binding* while
+    # staying feasible we give the system slack via capacityFactor=1.5
+    # (total cap = 105M > 70M demand), then override KY down to 5,000,000 --
+    # far below the 8.5M tons KY normally ships with that slack -- so the
+    # override must visibly reduce KY's outbound flow versus an unoverridden
+    # solve. The override is applied BEFORE the capacityFactor multiplier
+    # (effective_cap = 5M * 1.5 = 7.5M), matching the plan's documented
+    # semantics for mineCapsacities.
+    base = solve_transport({
+        "capacityFactor": 1.5, "singleSource": False, "capacityInactive": False,
+        "distanceBands": [500, 1000, 1500, 2000], "gap": 0, "timeLimitSec": 30,
+    })
+    base_ky_flow = sum(e["flow"] for e in base["edges"] if e["fromId"] == "KY")
+    assert base_ky_flow > 7_500_000  # sanity: KY normally ships more than the override cap
+
+    overridden = solve_transport({
+        "capacityFactor": 1.5, "singleSource": False, "capacityInactive": False,
+        "distanceBands": [500, 1000, 1500, 2000], "gap": 0, "timeLimitSec": 30,
+        "mineCapacities": {"KY": 5_000_000},
+    })
+    ky_flow = sum(e["flow"] for e in overridden["edges"] if e["fromId"] == "KY")
+    assert ky_flow <= 7_500_000 + 1  # +1 for rounding (flow_tons = round(flow_val))
+    assert overridden["status"] == "optimal"
+
+def test_mine_capacity_override_absent_matches_base():
+    # No mineCapacities key at all must solve byte-identically to today.
+    result = solve_transport({
+        "capacityFactor": 1.0, "singleSource": False, "capacityInactive": False,
+        "distanceBands": [500, 1000, 1500, 2000], "gap": 0, "timeLimitSec": 30,
+    })
+    assert result["status"] == "optimal"
+    assert result["objective"] > 0  # smoke check -- the real byte-identical
+    # comparison against the textbook's published answer is e2e_accuracy.py's
+    # job, run separately per this plan's Global Constraints
