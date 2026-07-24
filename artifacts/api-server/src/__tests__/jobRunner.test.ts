@@ -32,7 +32,7 @@ class FakeChild extends EventEmitter {
   kill = vi.fn();
 }
 
-import { enqueueSolveJob, getQueueDepth, parsePositiveIntEnv, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
+import { enqueueSolveJob, getQueueDepth, parsePositiveIntEnv, QUEUE_DEPTH_LIMIT, reapStuckJobs } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 
 const baseInput: SolveInput = {
@@ -275,6 +275,37 @@ describe("jobRunner", () => {
       const calls = setValues(jobUpdateChain);
       expect(calls.some((s) => s.status === "failed" && String(s.error).includes("ENOENT"))).toBe(true);
     });
+  });
+});
+
+describe("reapStuckJobs (startup reaper)", () => {
+  it("marks a leftover running job as failed with an interruption message", async () => {
+    // Seed a single stuck "running" row.
+    const selectChain = makeChain([{ id: 7 }]);
+    mockDb.select.mockReturnValueOnce(selectChain);
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValueOnce(jobUpdateChain);
+
+    await reapStuckJobs();
+
+    const calls = setValues(jobUpdateChain);
+    expect(calls.some((s) => s.status === "failed" && String(s.error).includes("Interrupted by server restart"))).toBe(true);
+  });
+
+  it("leaves queued/succeeded/failed jobs untouched and only fails running jobs", async () => {
+    // Seed rows: only the "running" one (id 3) should be transitioned.
+    const selectChain = makeChain([{ id: 3 }]);
+    mockDb.select.mockReturnValueOnce(selectChain);
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValueOnce(jobUpdateChain);
+
+    await reapStuckJobs();
+
+    // Exactly one update (markFailed) was issued — for the running row only.
+    const updateCalls = setValues(jobUpdateChain);
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].status).toBe("failed");
+    expect(String(updateCalls[0].error).includes("Interrupted by server restart")).toBe(true);
   });
 });
 

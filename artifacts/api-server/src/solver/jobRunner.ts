@@ -189,6 +189,25 @@ async function markFailed(jobId: number, error: string): Promise<void> {
     .where(eq(solveJobsTable.id, jobId));
 }
 
+// Startup reaper: any solve_jobs row left in "running" status from a prior
+// process is, by definition, no longer running (the in-process worker pool
+// died with that process and nothing is feeding solve.py for it). On boot
+// we sweep them all to "failed" so they don't appear forever-stuck to the
+// client. This must never block or fail startup — any error is swallowed.
+export async function reapStuckJobs(): Promise<void> {
+  try {
+    const stuck = await db.select().from(solveJobsTable)
+      .where(eq(solveJobsTable.status, "running"));
+    for (const job of stuck) {
+      await markFailed(job.id, "Interrupted by server restart");
+    }
+  } catch {
+    // The reaper is a best-effort cleanup — a transient DB error or a
+    // botched markFailed must not prevent the server from coming up.
+    return;
+  }
+}
+
 // Phase 6 (P1.2) — write-through result cache, keyed on computeInputsHash().
 // Byte-identical repeated solves (common in a classroom where many students
 // start from the textbook baseline) skip spawning solve.py entirely.
