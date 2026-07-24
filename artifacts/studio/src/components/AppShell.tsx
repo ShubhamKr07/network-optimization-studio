@@ -17,7 +17,13 @@ export function AppShell({ userEmail, children }: AppShellProps) {
   function handleLogout() {
     logoutUser.mutate(undefined, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetCurrentAuthUserQueryKey() });
+        // Same class of bug as Login.tsx/Register.tsx, mirrored: navigating
+        // to "/login" immediately used to race Gate()'s auth-gated render
+        // against an async invalidate+refetch. Gate() would still see the
+        // (stale) logged-in user, render AuthedRouter for the new "/login"
+        // URL, and AuthedRouter has no "/login" route — 404. Clear the
+        // cache synchronously instead of waiting on a refetch.
+        queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), { user: null });
         navigate("/login", { replace: true });
       },
     });
