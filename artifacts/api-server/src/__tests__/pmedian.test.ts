@@ -33,6 +33,7 @@ const transportInput: SolveInput = {
     capacityFactor: 1.1,
     singleSource: true,
     capacityInactive: false,
+    mineCapacities: {},
   },
 };
 
