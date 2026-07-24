@@ -30,7 +30,7 @@ export function AppShell({ userEmail, children }: AppShellProps) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       <header className="h-12 border-b flex items-center px-4 gap-3 flex-shrink-0 bg-background">
         <span className="font-semibold text-sm">Network Optimization Studio</span>
         <div className="flex-1" />
@@ -39,7 +39,7 @@ export function AppShell({ userEmail, children }: AppShellProps) {
           Log out
         </Button>
       </header>
-      <main className="flex-1 min-h-0">{children}</main>
+      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
     </div>
   );
 }

@@ -54,3 +54,23 @@ describe("AppShell logout", () => {
     expect(screen.getByText("lab content")).toBeInTheDocument();
   });
 });
+
+describe("AppShell layout", () => {
+  it("clamps its root to exactly one viewport height and scopes scrolling to <main>", () => {
+    render(
+      <AppShell userEmail="student@example.com">
+        <div>lab content</div>
+      </AppShell>,
+    );
+    const root = screen.getByTestId("text-user-email").closest("div.flex.flex-col") as HTMLElement;
+    // .closest() already returns the outermost div AppShell renders (the
+    // text-user-email span is nested span -> header -> root-div, so walking
+    // up the flex/flex-col chain lands on the root div itself).
+    const outerRoot = root as HTMLElement;
+    expect(outerRoot.className).toContain("h-screen");
+    expect(outerRoot.className).not.toContain("min-h-screen");
+    expect(outerRoot.className).toContain("overflow-hidden");
+    const main = screen.getByText("lab content").closest("main") as HTMLElement;
+    expect(main.className).toContain("overflow-y-auto");
+  });
+});
