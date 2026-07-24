@@ -34,6 +34,7 @@ const transportInput: SolveInput = {
     singleSource: true,
     capacityInactive: false,
     mineCapacities: {},
+    stationDemands: {},
   },
 };
 

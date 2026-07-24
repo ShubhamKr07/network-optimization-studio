@@ -4,7 +4,7 @@
   "chapter": "Chapter 5",
   "datasetDir": "solvers/transport-coal/dataset",
   "countryBounds": { "sw": [29.76, -122.42], "ne": [47.61, -73.61] },
-  "capabilities": { "supportsP": false, "capacityModes": ["per_mine"], "demandEditable": false },
+  "capabilities": { "supportsP": false, "capacityModes": ["per_mine"], "demandEditable": true },
   "inputsSchema": {
     "type": "object",
     "properties": {
@@ -19,6 +19,10 @@
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
       "mineCapacities": {
+        "type": "object",
+        "additionalProperties": { "type": "number", "minimum": 0 }
+      },
+      "stationDemands": {
         "type": "object",
         "additionalProperties": { "type": "number", "minimum": 0 }
       }

@@ -805,7 +805,7 @@ describe("POST /api/scenarios/:id/solve", () => {
 
     const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
     expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(8, OWNER, { modelId: "transport-coal", inputs: { ...transportInputs, mineCapacities: {} } });
+    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(8, OWNER, { modelId: "transport-coal", inputs: { ...transportInputs, mineCapacities: {}, stationDemands: {} } });
   });
 
   it("enqueues p-median-brazil scenarios with their modelId/inputs", async () => {
