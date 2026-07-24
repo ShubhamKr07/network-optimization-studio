@@ -40,10 +40,12 @@ export function resetLoginRateLimiterForTests(): void {
 }
 
 function setSessionCookie(res: Response, userId: string) {
+  const crossOrigin = process.env.NODE_ENV === "production";
   res.cookie(SESSION_COOKIE, userId, {
     httpOnly: true,
     signed: true,
-    sameSite: "lax",
+    sameSite: crossOrigin ? "none" : "lax",
+    secure: crossOrigin,
     path: "/",
     maxAge: SESSION_TTL_MS,
   });
@@ -107,7 +109,12 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/logout", (_req: Request, res: Response) => {
-  res.clearCookie(SESSION_COOKIE, { path: "/" });
+  const crossOrigin = process.env.NODE_ENV === "production";
+  res.clearCookie(SESSION_COOKIE, {
+    path: "/",
+    sameSite: crossOrigin ? "none" : "lax",
+    secure: crossOrigin,
+  });
   res.json(LogoutUserResponse.parse({ success: true }));
 });
 

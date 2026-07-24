@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import argon2 from "argon2";
 
@@ -63,6 +63,42 @@ describe("POST /api/auth/register", () => {
       .post("/api/auth/register")
       .send({ email: "student@example.com", password: "short" });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("session cookie flags by environment", () => {
+  const ORIGINAL_ENV = process.env;
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it("sets SameSite=Lax and no Secure flag outside production", async () => {
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: "development" };
+    mockDb.insert.mockReturnValue(
+      makeChain([{ id: "user-2", email: "dev@example.com", role: "student" }]),
+    );
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email: "dev@example.com", password: "supersecret" });
+
+    const setCookie = res.headers["set-cookie"]?.[0] ?? "";
+    expect(setCookie).toMatch(/SameSite=Lax/i);
+    expect(setCookie).not.toMatch(/Secure/i);
+  });
+
+  it("sets SameSite=None and Secure in production", async () => {
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: "production" };
+    mockDb.insert.mockReturnValue(
+      makeChain([{ id: "user-3", email: "prod@example.com", role: "student" }]),
+    );
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email: "prod@example.com", password: "supersecret" });
+
+    const setCookie = res.headers["set-cookie"]?.[0] ?? "";
+    expect(setCookie).toMatch(/SameSite=None/i);
+    expect(setCookie).toMatch(/Secure/i);
   });
 });
 
