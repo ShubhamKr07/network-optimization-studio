@@ -28,6 +28,10 @@ services:
       pnpm install --frozen-lockfile &&
       pnpm --filter studio... --if-present run build
     staticPublishPath: artifacts/studio/dist/public
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: BASE_PATH
         value: /
@@ -36,7 +40,10 @@ services:
                                   # vite.config.ts just needs it present
                                   # and numeric at build time (G6)
       - key: VITE_API_BASE_URL
-        value: https://nos-api.onrender.com
+        # nos-api's actual assigned URL (the bare "nos-api" name was
+        # already taken globally; Render appended a random suffix) —
+        # confirmed live at deploy time, not the name-derived guess.
+        value: https://nos-api-uwf8.onrender.com
       - key: NODE_VERSION
         value: "24"
 
