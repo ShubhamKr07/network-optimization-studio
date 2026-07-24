@@ -289,6 +289,7 @@ export function NetworkMap({
         maxBoundsViscosity={1.0}
         className="w-full flex-1 z-0"
         zoomControl={false}
+        boxZoom={false}
       >
         <FitBounds bounds={mapBounds.maxBounds} />
         <MapClickDeselect onDeselect={handleDeselect} />

@@ -10,13 +10,24 @@ import { render, fireEvent } from "@testing-library/react";
 // emits a Tooltip with the right children) without depending on Leaflet DOM
 // behavior under jsdom.
 const tooltipChildren: React.ReactNode[] = [];
+// Capture the props passed to <MapContainer> so we can assert that Leaflet
+// interaction options (e.g. boxZoom) are disabled as expected. We wrap the real
+// MapContainer (rather than replacing it) so it still provides the Leaflet
+// context that descendant hooks (useMap/useMapEvents) rely on under jsdom.
+const mapContainerProps: Record<string, unknown>[] = [];
 vi.mock("react-leaflet", async () => {
   const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
+  const RealMapContainer = actual.MapContainer;
   return {
     ...actual,
     Tooltip: (props: { children?: React.ReactNode }) => {
       if (props.children) tooltipChildren.push(props.children);
       return null;
+    },
+    MapContainer: (props: React.ComponentProps<typeof RealMapContainer>) => {
+      const { children, ...rest } = props;
+      mapContainerProps.push(rest);
+      return <RealMapContainer {...props}>{children}</RealMapContainer>;
     },
   };
 });
@@ -103,5 +114,26 @@ describe("NetworkMap multi-select", () => {
     // the existing single-select highlight ring (#FCD34D, amber) so a student
     // can tell the two selection modes apart at a glance.
     expect(container.innerHTML).toContain("#7C3AED");
+  });
+});
+
+describe("NetworkMap MapContainer boxZoom", () => {
+  it("disables Leaflet's boxZoom so it doesn't collide with shift-click multi-select", () => {
+    render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+
+    expect(mapContainerProps.length).toBeGreaterThan(0);
+    expect(mapContainerProps[mapContainerProps.length - 1].boxZoom).toBe(false);
   });
 });
