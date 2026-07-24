@@ -23,7 +23,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-const VALID_MODEL_IDS = new Set([
+export const VALID_MODEL_IDS = new Set([
   "p-median-us",
   "transport-coal",
   "p-median-brazil",
