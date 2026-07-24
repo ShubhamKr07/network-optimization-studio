@@ -25,6 +25,7 @@ import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { WarehouseTable } from "@/components/tables/WarehouseTable";
 import { CustomerTable } from "@/components/tables/CustomerTable";
 import { MineTable, type MineOverride } from "@/components/tables/MineTable";
+import { StationTable, type StationOverride } from "@/components/tables/StationTable";
 import { ImportDialog } from "@/components/ImportDialog";
 import { ConstraintChips } from "@/components/ConstraintChips";
 import { toast } from "@/hooks/use-toast";
@@ -90,6 +91,7 @@ interface LocalConfig {
   singleSource: boolean;
   capacityInactive: boolean;
   mineCapacities: MineOverride[];
+  stationDemands: StationOverride[];
 }
 
 function configFromScenario(s: Scenario): LocalConfig {
@@ -109,6 +111,7 @@ function configFromScenario(s: Scenario): LocalConfig {
       singleSource: i.singleSource,
       capacityInactive: i.capacityInactive,
       mineCapacities: (s.inputs as { mineCapacities?: Record<string, number> }).mineCapacities ? Object.entries((s.inputs as { mineCapacities?: Record<string, number> }).mineCapacities as Record<string, number>).map(([id, capacity]) => ({ id, capacity })) : [],
+      stationDemands: (s.inputs as { stationDemands?: Record<string, number> }).stationDemands ? Object.entries((s.inputs as { stationDemands?: Record<string, number> }).stationDemands as Record<string, number>).map(([id, demand]) => ({ id, demand })) : [],
     };
   }
   const i = s.inputs as unknown as PMedianInputsShape;
@@ -126,6 +129,7 @@ function configFromScenario(s: Scenario): LocalConfig {
     singleSource: i.singleSource ?? false,
     capacityInactive: false,
     mineCapacities: [],
+    stationDemands: [],
   };
 }
 
@@ -141,6 +145,7 @@ function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, u
       singleSource: cfg.singleSource,
       capacityInactive: cfg.capacityInactive,
       mineCapacities: Object.fromEntries(cfg.mineCapacities.filter(o => o.capacity != null).map(o => [o.id, o.capacity])),
+      stationDemands: Object.fromEntries(cfg.stationDemands.filter(o => o.demand != null).map(o => [o.id, o.demand])),
     };
   }
   return {
@@ -207,6 +212,7 @@ export function Studio({ modelId }: StudioProps) {
   const [showWarehouseTable, setShowWarehouseTable] = useState(false);
   const [showCustomerTable, setShowCustomerTable] = useState(false);
   const [showMineTable, setShowMineTable] = useState(false);
+  const [showStationTable, setShowStationTable] = useState(false);
   const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -922,6 +928,16 @@ export function Studio({ modelId }: StudioProps) {
                     Mines
                     <span className="text-muted-foreground">{localConfig.mineCapacities.length > 0 ? `${localConfig.mineCapacities.length} overridden` : "4"}</span>
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowStationTable(true)}
+                    data-testid="button-open-station-table"
+                    className="w-full h-7 text-xs justify-between"
+                  >
+                    Stations
+                    <span className="text-muted-foreground">{localConfig.stationDemands.length > 0 ? `${localConfig.stationDemands.length} overridden` : "15"}</span>
+                  </Button>
                 </div>
               )}
 
@@ -1437,6 +1453,19 @@ export function Studio({ modelId }: StudioProps) {
                   mines={dataset.warehouses}
                   overrides={localConfig.mineCapacities}
                   onChange={next => update("mineCapacities", next)}
+                />
+              </DialogContent>
+            </Dialog>
+          )}
+
+          {localConfig && dataset && modelId === "transport-coal" && (
+            <Dialog open={showStationTable} onOpenChange={setShowStationTable}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader><DialogTitle>Station demand overrides</DialogTitle></DialogHeader>
+                <StationTable
+                  stations={dataset.customers}
+                  overrides={localConfig.stationDemands}
+                  onChange={next => update("stationDemands", next)}
                 />
               </DialogContent>
             </Dialog>

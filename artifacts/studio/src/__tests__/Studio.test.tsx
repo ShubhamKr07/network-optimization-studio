@@ -246,6 +246,12 @@ describe("Studio — Transport scenario (configure)", () => {
     await userEvent.click(screen.getByTestId("button-open-mine-table"));
     expect(screen.getByText("Mine capacity overrides")).toBeInTheDocument();
   });
+
+  it("opens the Station table dialog and shows the 15 stations for a transport-coal scenario", async () => {
+    renderStudio("transport-coal");
+    await userEvent.click(screen.getByTestId("button-open-station-table"));
+    expect(screen.getByText("Station demand overrides")).toBeInTheDocument();
+  });
 });
 
 // ── Transport scenario results ─────────────────────────────────────────────────
