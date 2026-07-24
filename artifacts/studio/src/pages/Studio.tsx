@@ -165,7 +165,7 @@ export function Studio({ modelId }: StudioProps) {
   const scenarioId = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
 
   const { data: scenarios, isLoading: scenariosLoading } = useListScenarios({ modelId });
-  const { data: dataset, isLoading: datasetLoading } = useGetDataset();
+  const { data: dataset, isLoading: datasetLoading } = useGetDataset({ modelId: modelId as "p-median-us" | "transport-coal" | undefined });
   const { data: models } = useListModels();
   const { data: scenarioFromApi } = useGetScenario(scenarioId!, {
     query: { enabled: !!scenarioId, queryKey: getGetScenarioQueryKey(scenarioId!) },

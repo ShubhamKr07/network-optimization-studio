@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // ── Hoist stable mocks before vi.mock hoisting ────────────────────────────────
@@ -232,6 +232,13 @@ describe("Studio — Transport scenario (configure)", () => {
     renderStudio("transport-coal");
     expect(screen.getByText(/C1 Meet all station demand/)).toBeInTheDocument();
     expect(screen.getByText(/C2 Mine capacity limits/)).toBeInTheDocument();
+  });
+
+  it("requests the transport-coal dataset (not the default p-median-us one) when the active model is transport-coal", async () => {
+    renderStudio("transport-coal");
+    await waitFor(() => {
+      expect(mockUseGetDataset).toHaveBeenCalledWith({ modelId: "transport-coal" });
+    });
   });
 });
 
