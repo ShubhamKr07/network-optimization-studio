@@ -38,8 +38,17 @@ function makeChain(returnValue: unknown) {
   return chain;
 }
 
+// jobRunner's runSolverProcess attaches listeners to child.stdout AND
+// child.stderr (commit 8f325a5 added stderr capture so CBC banners/deprecation
+// warnings don't get lost). A FakeChild without a stderr makes
+// child.stderr.on("data", ...) throw synchronously inside the Promise
+// executor, rejecting the spawn promise — which the worker pool treats as a
+// job failure, prematurely freeing the slot and breaking the concurrency=1
+// invariant under test. So FakeChild must mirror a real ChildProcess's
+// stderr stream too.
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
+  stderr = new EventEmitter();
   stdin = { write: vi.fn(), end: vi.fn() };
   kill = vi.fn();
 }
