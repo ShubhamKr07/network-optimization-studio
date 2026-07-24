@@ -24,6 +24,8 @@ export * from './exportEnvelopeRowsItem';
 export * from './exportScenarioEntity';
 export * from './exportScenarioFormat';
 export * from './exportScenarioParams';
+export * from './getDatasetModelId';
+export * from './getDatasetParams';
 export * from './getSolveHistoryParams';
 export * from './healthStatus';
 export * from './importApplyRequest';

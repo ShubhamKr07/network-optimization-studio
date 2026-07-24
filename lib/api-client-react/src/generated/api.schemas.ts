@@ -402,6 +402,18 @@ export interface ExportEnvelope {
   rows: ExportEnvelopeRowsItem[];
 }
 
+export type GetDatasetParams = {
+modelId?: GetDatasetModelId;
+};
+
+export type GetDatasetModelId = typeof GetDatasetModelId[keyof typeof GetDatasetModelId];
+
+
+export const GetDatasetModelId = {
+  'p-median-us': 'p-median-us',
+  'transport-coal': 'transport-coal',
+} as const;
+
 export type GetSolveHistoryParams = {
 limit?: number;
 };

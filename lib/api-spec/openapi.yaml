@@ -36,8 +36,16 @@ paths:
     get:
       operationId: getDataset
       tags: [dataset]
-      summary: Get the fixed dataset
-      description: Returns all 26 warehouse candidates and 200 customers
+      summary: Get the dataset for a given model
+      description: Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, or transport-coal's mines/stations mapped onto the same shape). Defaults to p-median-us.
+      parameters:
+        - name: modelId
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [p-median-us, transport-coal]
+            default: p-median-us
       responses:
         "200":
           description: Dataset
@@ -45,6 +53,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Dataset"
+        "400":
+          description: Unknown modelId
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /models:
     get:

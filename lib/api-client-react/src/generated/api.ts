@@ -28,6 +28,7 @@ import type {
   ErrorEnvelope,
   ExportEnvelope,
   ExportScenarioParams,
+  GetDatasetParams,
   GetSolveHistoryParams,
   HealthStatus,
   ImportApplyRequest,
@@ -137,21 +138,28 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
-export const getGetDatasetUrl = () => {
+export const getGetDatasetUrl = (params?: GetDatasetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/dataset`
+  return stringifiedParams.length > 0 ? `/api/dataset?${stringifiedParams}` : `/api/dataset`
 }
 
 /**
- * Returns all 26 warehouse candidates and 200 customers
- * @summary Get the fixed dataset
+ * Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, or transport-coal's mines/stations mapped onto the same shape). Defaults to p-median-us.
+ * @summary Get the dataset for a given model
  */
-export const getDataset = async ( options?: RequestInit): Promise<Dataset> => {
+export const getDataset = async (params?: GetDatasetParams, options?: RequestInit): Promise<Dataset> => {
 
-  return customFetch<Dataset>(getGetDatasetUrl(),
+  return customFetch<Dataset>(getGetDatasetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -164,23 +172,23 @@ export const getDataset = async ( options?: RequestInit): Promise<Dataset> => {
 
 
 
-export const getGetDatasetQueryKey = () => {
+export const getGetDatasetQueryKey = (params?: GetDatasetParams,) => {
     return [
-    `/api/dataset`
+    `/api/dataset`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetDatasetQueryOptions = <TData = Awaited<ReturnType<typeof getDataset>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDataset>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetDatasetQueryOptions = <TData = Awaited<ReturnType<typeof getDataset>>, TError = ErrorType<ErrorEnvelope>>(params?: GetDatasetParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDataset>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetDatasetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetDatasetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDataset>>> = ({ signal }) => getDataset({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDataset>>> = ({ signal }) => getDataset(params, { signal, ...requestOptions });
 
 
 
@@ -190,19 +198,19 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetDatasetQueryResult = NonNullable<Awaited<ReturnType<typeof getDataset>>>
-export type GetDatasetQueryError = ErrorType<unknown>
+export type GetDatasetQueryError = ErrorType<ErrorEnvelope>
 
 
 /**
- * @summary Get the fixed dataset
+ * @summary Get the dataset for a given model
  */
 
-export function useGetDataset<TData = Awaited<ReturnType<typeof getDataset>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDataset>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetDataset<TData = Awaited<ReturnType<typeof getDataset>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: GetDatasetParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDataset>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetDatasetQueryOptions(options)
+  const queryOptions = getGetDatasetQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

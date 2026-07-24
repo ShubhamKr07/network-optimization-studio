@@ -18,9 +18,15 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * Returns all 26 warehouse candidates and 200 customers
- * @summary Get the fixed dataset
+ * Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, or transport-coal's mines/stations mapped onto the same shape). Defaults to p-median-us.
+ * @summary Get the dataset for a given model
  */
+export const getDatasetQueryModelIdDefault = `p-median-us`;
+
+export const GetDatasetQueryParams = zod.object({
+  "modelId": zod.enum(['p-median-us', 'transport-coal']).default(getDatasetQueryModelIdDefault)
+})
+
 export const GetDatasetResponse = zod.object({
   "warehouses": zod.array(zod.object({
   "id": zod.string(),
