@@ -510,7 +510,12 @@ export function Studio({ modelId }: StudioProps) {
         onSuccess: (updated) => {
           handleImportApplied(updated);
           setShowResetConfirm(false);
-          toast({ title: "Reset to baseline", description: "Warehouse and customer overrides cleared." });
+          toast({
+            title: "Reset to baseline",
+            description: activeModelId === "transport-coal"
+              ? "Mine and station overrides cleared."
+              : "Warehouse and customer overrides cleared.",
+          });
         },
       }
     );
@@ -1554,7 +1559,9 @@ export function Studio({ modelId }: StudioProps) {
             <DialogTitle>Reset to baseline?</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground py-2">
-            This clears every warehouse and customer override on this scenario, restoring the canonical textbook dataset. This cannot be undone.
+            {activeModelId === "transport-coal"
+              ? "This clears every mine capacity and station demand override on this scenario, restoring the canonical textbook dataset. This cannot be undone."
+              : "This clears every warehouse and customer override on this scenario, restoring the canonical textbook dataset. This cannot be undone."}
           </p>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setShowResetConfirm(false)} data-testid="button-reset-cancel">

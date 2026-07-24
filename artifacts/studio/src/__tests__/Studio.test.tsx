@@ -617,6 +617,94 @@ describe("Studio — Reset to baseline", () => {
       expect.anything()
     );
   });
+
+  it("shows a p-median 'Warehouse and customer overrides cleared' toast on reset success", async () => {
+    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByTestId("button-reset-baseline"));
+    mockResetToBaseline.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (r: typeof dirtyScenario) => void }) =>
+        opts.onSuccess(pmedianScenario),
+    );
+    await userEvent.click(screen.getByTestId("button-reset-confirm"));
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Reset to baseline",
+      description: "Warehouse and customer overrides cleared.",
+    }));
+  });
+});
+
+// ── Reset to baseline — transport-coal (Task 7 bugfix) ─────────────────────
+// The button's disabled state and toast must be model-aware: transport-coal's
+// reset clears mineCapacities/stationDemands, not warehouse/customer overrides.
+describe("Studio — Reset to baseline (transport-coal)", () => {
+  it("is disabled when there are no mine/station overrides", () => {
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    expect(screen.getByTestId("button-reset-baseline")).toBeDisabled();
+  });
+
+  it("is enabled when mineCapacities overrides exist", () => {
+    const dirty = {
+      ...transportScenario,
+      inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } },
+    };
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    expect(screen.getByTestId("button-reset-baseline")).not.toBeDisabled();
+  });
+
+  it("is enabled when stationDemands overrides exist", () => {
+    const dirty = {
+      ...transportScenario,
+      inputs: { ...transportInputs, stationDemands: { CHI: 999 } },
+    };
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    expect(screen.getByTestId("button-reset-baseline")).not.toBeDisabled();
+  });
+
+  it("shows a transport-coal 'Mine and station overrides cleared' toast on reset success", async () => {
+    const dirty = {
+      ...transportScenario,
+      inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } },
+    };
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    await userEvent.click(screen.getByTestId("button-reset-baseline"));
+    mockResetToBaseline.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (r: typeof transportScenario) => void }) =>
+        opts.onSuccess(transportScenario),
+    );
+    await userEvent.click(screen.getByTestId("button-reset-confirm"));
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Reset to baseline",
+      description: "Mine and station overrides cleared.",
+    }));
+  });
+
+  it("confirm dialog body references mine/station overrides for transport-coal", async () => {
+    const dirty = {
+      ...transportScenario,
+      inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } },
+    };
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    await userEvent.click(screen.getByTestId("button-reset-baseline"));
+    expect(screen.getByText(/mine capacity and station demand override/i)).toBeInTheDocument();
+    expect(screen.queryByText(/warehouse and customer override/i)).not.toBeInTheDocument();
+  });
 });
 
 // ── Stale badge (X1.1) ───────────────────────────────────────────────────────

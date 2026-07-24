@@ -818,12 +818,38 @@ describe("POST /api/scenarios/:id/reset-to-baseline", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
-  it("returns 422 for a non-p-median-us scenario", async () => {
+  it("returns 422 for a p-median-brazil scenario (no overrides to reset)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    const res = await request(app).post("/api/scenarios/8/reset-to-baseline").set("Cookie", cookie);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).post("/api/scenarios/10/reset-to-baseline").set("Cookie", cookie);
     expect(res.status).toBe(422);
     expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("clears mineCapacities and stationDemands for a transport-coal scenario, leaving other inputs untouched", async () => {
+    const cookie = await loginAs(OWNER);
+    const dirtyRow = {
+      ...transportRow,
+      inputs: {
+        ...transportInputs,
+        mineCapacities: { KY: 1000000 },
+        stationDemands: { CHI: 999 },
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([dirtyRow]));
+    const clearedRow = { ...transportRow, inputs: { ...transportInputs, mineCapacities: {}, stationDemands: {} } };
+    mockDb.update.mockReturnValue(makeChain([clearedRow]));
+
+    const res = await request(app).post("/api/scenarios/8/reset-to-baseline").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.inputs.mineCapacities).toEqual({});
+    expect(res.body.inputs.stationDemands).toEqual({});
+    // Other transport-coal inputs must survive the reset.
+    expect(res.body.inputs.capacityFactor).toBe(transportInputs.capacityFactor);
+    expect(res.body.inputs.singleSource).toBe(transportInputs.singleSource);
+    expect(res.body.inputs.capacityInactive).toBe(transportInputs.capacityInactive);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 
   it("clears warehouseOverrides and customerOverrides, leaving other inputs untouched", async () => {

@@ -487,15 +487,27 @@ router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
-  if (scenario.modelId !== "p-median-us") {
-    res.status(422).json({ error: "Reset to baseline is only supported for p-median-us scenarios" });
+
+  // D6.1's original reset only knew p-median-us's
+  // warehouseOverrides/customerOverrides. transport-coal's override pair
+  // (mineCapacities/stationDemands) was added later — reset must clear
+  // whichever pair belongs to the scenario's modelId. p-median-brazil (and
+  // the newer model variants) carry no resettable overrides on this route,
+  // so they still 422 — same boundary export/import enforce.
+  const inputs = scenario.inputs as Record<string, unknown>;
+  let nextInputs: Record<string, unknown>;
+  if (scenario.modelId === "transport-coal") {
+    nextInputs = { ...inputs, mineCapacities: {}, stationDemands: {} };
+  } else if (scenario.modelId === "p-median-us") {
+    nextInputs = { ...inputs, warehouseOverrides: [], customerOverrides: [] };
+  } else {
+    res.status(422).json({ error: "Reset to baseline is only supported for p-median-us and transport-coal scenarios" });
     return;
   }
 
-  const inputs = scenario.inputs as Record<string, unknown>;
   const [updated] = await db.update(scenariosTable)
     .set({
-      inputs: { ...inputs, warehouseOverrides: [], customerOverrides: [] },
+      inputs: nextInputs,
       inputsUpdatedAt: new Date(),
       updatedAt: new Date(),
     })
