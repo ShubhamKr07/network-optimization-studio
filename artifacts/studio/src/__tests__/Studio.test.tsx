@@ -1081,6 +1081,42 @@ describe("Studio — Map multi-select bulk-edit toolbar", () => {
 });
 
 
+// ── Map multi-select bulk-edit toolbar — transport-coal extension (Task 3) ──
+// transport-coal reuses the same toolbar but with entityKind="mine-station",
+// which hides the status-only buttons (mines/stations have no status concept).
+// The NetworkMap mock above stubs the same warehouse/customer marker buttons
+// for every model, so toggling a mine = the warehouse marker button and a
+// station = the customer marker button. The toolbar writes into mineCapacities
+// /stationDemands instead of warehouse/customer overrides.
+describe("Studio — Map multi-select bulk-edit toolbar (transport-coal)", () => {
+  beforeEach(() => {
+    mockUseSearch.mockReturnValue("?scenario=8");
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("shows only Set capacity + Cancel for a mine selection (no status buttons)", async () => {
+    renderStudio("transport-coal");
+    expect(screen.queryByTestId("map-bulk-edit-toolbar")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("mock-marker-warehouse-W1"));
+    expect(screen.getByTestId("map-bulk-edit-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("button-bulk-set-capacity")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-force-open")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-inactive")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-clear-status")).not.toBeInTheDocument();
+  });
+
+  it("shows only Set demand + Cancel for a station selection (no Exclude)", async () => {
+    renderStudio("transport-coal");
+    await userEvent.click(screen.getByTestId("mock-marker-customer-C1"));
+    expect(screen.getByTestId("map-bulk-edit-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("button-bulk-set-demand")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-exclude")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-clear-status")).not.toBeInTheDocument();
+  });
+});
+
+
 // ── invalidateQueries + navigate race fix (mirrors AppShell.tsx logout) ──────
 // handleClone, handleDelete and handleCreateConfirm must write the mutation's
 // result into the query cache synchronously (setQueryData) BEFORE navigate, so

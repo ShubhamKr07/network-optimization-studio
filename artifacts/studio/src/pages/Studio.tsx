@@ -1268,19 +1268,36 @@ export function Studio({ modelId }: StudioProps) {
                     showRoutes={activeTab === "output" && showRoutes}
                     bands={bands}
                     countryBounds={activeModelManifest?.countryBounds}
-                    multiSelectedWarehouseIds={modelId === "p-median-us" ? multiSelectedWarehouseIds : []}
-                    multiSelectedCustomerIds={modelId === "p-median-us" ? multiSelectedCustomerIds : []}
+                    multiSelectedWarehouseIds={(modelId === "p-median-us" || modelId === "transport-coal") ? multiSelectedWarehouseIds : []}
+                    multiSelectedCustomerIds={(modelId === "p-median-us" || modelId === "transport-coal") ? multiSelectedCustomerIds : []}
                     onToggleWarehouseMultiSelect={toggleWarehouseMultiSelect}
                     onToggleCustomerMultiSelect={toggleCustomerMultiSelect}
                   />
-                  {modelId === "p-median-us" && localConfig && (
+                  {(modelId === "p-median-us" || modelId === "transport-coal") && localConfig && (
                     <MapBulkEditToolbar
                       selectedWarehouseIds={multiSelectedWarehouseIds}
                       selectedCustomerIds={multiSelectedCustomerIds}
-                      capacityMode={localConfig.capacityMode}
-                      onSetWarehouseCapacity={(ids, capacity) => { bulkUpsertWarehouseOverrides(ids, { capacity }); clearMultiSelection(); }}
+                      capacityMode={modelId === "p-median-us" ? localConfig.capacityMode : "per_wh"}
+                      entityKind={modelId === "transport-coal" ? "mine-station" : "warehouse-customer"}
+                      onSetWarehouseCapacity={(ids, capacity) => {
+                        if (modelId === "transport-coal") {
+                          const rest = localConfig.mineCapacities.filter(o => !ids.includes(o.id));
+                          update("mineCapacities", [...rest, ...ids.map(id => ({ id, capacity }))]);
+                        } else {
+                          bulkUpsertWarehouseOverrides(ids, { capacity });
+                        }
+                        clearMultiSelection();
+                      }}
                       onSetWarehouseStatus={(ids, status) => { bulkUpsertWarehouseOverrides(ids, { status, capacity: status === "active" ? null : undefined }); clearMultiSelection(); }}
-                      onSetCustomerDemand={(ids, demand) => { bulkUpsertCustomerOverrides(ids, { demand }); clearMultiSelection(); }}
+                      onSetCustomerDemand={(ids, demand) => {
+                        if (modelId === "transport-coal") {
+                          const rest = localConfig.stationDemands.filter(o => !ids.includes(o.id));
+                          update("stationDemands", [...rest, ...ids.map(id => ({ id, demand }))]);
+                        } else {
+                          bulkUpsertCustomerOverrides(ids, { demand });
+                        }
+                        clearMultiSelection();
+                      }}
                       onSetCustomerStatus={(ids, status) => { bulkUpsertCustomerOverrides(ids, { status, demand: status === "active" ? null : undefined }); clearMultiSelection(); }}
                       onClearSelection={clearMultiSelection}
                     />

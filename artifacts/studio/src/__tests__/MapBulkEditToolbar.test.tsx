@@ -89,4 +89,42 @@ describe("MapBulkEditToolbar", () => {
     );
     expect(screen.queryByTestId("input-bulk-capacity")).not.toBeInTheDocument();
   });
+
+  it("hides status buttons entirely for transport-coal (mines have no status concept)", () => {
+    render(
+      <MapBulkEditToolbar
+        selectedWarehouseIds={["KY"]}
+        selectedCustomerIds={[]}
+        capacityMode="per_wh"
+        entityKind="mine-station"
+        onSetWarehouseCapacity={vi.fn()}
+        onSetWarehouseStatus={vi.fn()}
+        onSetCustomerDemand={vi.fn()}
+        onSetCustomerStatus={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("button-bulk-set-capacity")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-force-open")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-inactive")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-clear-status")).not.toBeInTheDocument();
+  });
+
+  it("hides the exclude button for transport-coal stations", () => {
+    render(
+      <MapBulkEditToolbar
+        selectedWarehouseIds={[]}
+        selectedCustomerIds={["CHI"]}
+        capacityMode="none"
+        entityKind="mine-station"
+        onSetWarehouseCapacity={vi.fn()}
+        onSetWarehouseStatus={vi.fn()}
+        onSetCustomerDemand={vi.fn()}
+        onSetCustomerStatus={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("button-bulk-set-demand")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-exclude")).not.toBeInTheDocument();
+  });
 });

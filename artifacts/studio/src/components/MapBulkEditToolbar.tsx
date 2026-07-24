@@ -6,6 +6,7 @@ interface MapBulkEditToolbarProps {
   selectedWarehouseIds: string[];
   selectedCustomerIds: string[];
   capacityMode: "none" | "uniform" | "per_wh";
+  entityKind?: "warehouse-customer" | "mine-station";
   onSetWarehouseCapacity: (ids: string[], capacity: number) => void;
   onSetWarehouseStatus: (ids: string[], status: "active" | "forced_open" | "inactive") => void;
   onSetCustomerDemand: (ids: string[], demand: number) => void;
@@ -14,7 +15,7 @@ interface MapBulkEditToolbarProps {
 }
 
 export function MapBulkEditToolbar({
-  selectedWarehouseIds, selectedCustomerIds, capacityMode,
+  selectedWarehouseIds, selectedCustomerIds, capacityMode, entityKind = "warehouse-customer",
   onSetWarehouseCapacity, onSetWarehouseStatus,
   onSetCustomerDemand, onSetCustomerStatus,
   onClearSelection,
@@ -63,18 +64,22 @@ export function MapBulkEditToolbar({
               </Button>
             </>
           )}
-          <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-force-open"
-            onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "forced_open")}>
-            Force open
-          </Button>
-          <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-inactive"
-            onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "inactive")}>
-            Set inactive
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-clear-status"
-            onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "active")}>
-            Clear overrides
-          </Button>
+          {entityKind === "warehouse-customer" && (
+            <>
+              <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-force-open"
+                onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "forced_open")}>
+                Force open
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-inactive"
+                onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "inactive")}>
+                Set inactive
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-clear-status"
+                onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "active")}>
+                Clear overrides
+              </Button>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -98,14 +103,18 @@ export function MapBulkEditToolbar({
           >
             Set demand
           </Button>
-          <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-exclude"
-            onClick={() => onSetCustomerStatus(selectedCustomerIds, "excluded")}>
-            Exclude
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-clear-status"
-            onClick={() => onSetCustomerStatus(selectedCustomerIds, "active")}>
-            Clear overrides
-          </Button>
+          {entityKind === "warehouse-customer" && (
+            <>
+              <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-exclude"
+                onClick={() => onSetCustomerStatus(selectedCustomerIds, "excluded")}>
+                Exclude
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-clear-status"
+                onClick={() => onSetCustomerStatus(selectedCustomerIds, "active")}>
+                Clear overrides
+              </Button>
+            </>
+          )}
         </>
       )}
       <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-cancel" onClick={onClearSelection}>
