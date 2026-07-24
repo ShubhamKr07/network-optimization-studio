@@ -20,8 +20,16 @@ export function Login() {
     loginUser.mutate(
       { data: { email, password } },
       {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetCurrentAuthUserQueryKey() });
+        onSuccess: (data) => {
+          // Write the cache synchronously instead of invalidating + waiting
+          // on a refetch: navigating to "/" immediately races Gate()'s
+          // auth-gated render against that refetch, and on a slow enough
+          // round trip (e.g. real cross-origin network latency), Gate()
+          // still sees no user, renders UnauthedRouter for the new "/" URL,
+          // and its catch-all bounces the URL back to "/login" — which
+          // isn't a route in AuthedRouter, so once the user data does
+          // arrive the app 404s instead of showing Landing.
+          queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), data);
           navigate("/", { replace: true });
         },
       },

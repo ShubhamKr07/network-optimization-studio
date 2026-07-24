@@ -23,8 +23,11 @@ export function Register() {
     registerUser.mutate(
       { data: { email, password } },
       {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetCurrentAuthUserQueryKey() });
+        onSuccess: (data) => {
+          // See Login.tsx's onSuccess for why this writes the cache
+          // synchronously instead of invalidating + waiting on a refetch
+          // (avoids a real race against Gate()'s auth-gated render).
+          queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), data);
           navigate("/", { replace: true });
         },
       },

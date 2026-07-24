@@ -8,9 +8,9 @@ vi.mock("wouter", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }));
 
-const mockInvalidateQueries = vi.fn();
+const mockSetQueryData = vi.fn();
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  useQueryClient: () => ({ setQueryData: mockSetQueryData }),
 }));
 
 const mockLoginMutate = vi.fn();
@@ -40,14 +40,21 @@ describe("Login", () => {
     );
   });
 
-  it("navigates home and invalidates the auth query on success", async () => {
-    mockLoginMutate.mockImplementation((_body, { onSuccess }) => onSuccess());
+  it("writes the auth-user cache synchronously and navigates home on success", async () => {
+    const authEnvelope = { user: { id: "u1", email: "student@example.com", role: "student" } };
+    mockLoginMutate.mockImplementation((_body, { onSuccess }) => onSuccess(authEnvelope));
     render(<Login />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
     await userEvent.click(screen.getByTestId("button-login"));
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["getCurrentAuthUser"] });
+    // Writing the cache directly (not invalidate + refetch) is the fix for
+    // a real production 404: navigating to "/" immediately used to race
+    // Gate()'s auth-gated render against an async refetch, and on a slow
+    // enough round trip Gate() would still see no user, bounce the URL to
+    // "/login" via UnauthedRouter's catch-all, then land on AuthedRouter's
+    // NotFound once the stale URL didn't match any of its routes.
+    expect(mockSetQueryData).toHaveBeenCalledWith(["getCurrentAuthUser"], authEnvelope);
     expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
   });
 

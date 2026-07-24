@@ -8,9 +8,9 @@ vi.mock("wouter", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }));
 
-const mockInvalidateQueries = vi.fn();
+const mockSetQueryData = vi.fn();
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  useQueryClient: () => ({ setQueryData: mockSetQueryData }),
 }));
 
 const mockRegisterMutate = vi.fn();
@@ -44,14 +44,17 @@ describe("Register", () => {
     );
   });
 
-  it("navigates home and invalidates the auth query on success", async () => {
-    mockRegisterMutate.mockImplementation((_body, { onSuccess }) => onSuccess());
+  it("writes the auth-user cache synchronously and navigates home on success", async () => {
+    const authEnvelope = { user: { id: "u1", email: "student@example.com", role: "student" } };
+    mockRegisterMutate.mockImplementation((_body, { onSuccess }) => onSuccess(authEnvelope));
     render(<Register />);
     await userEvent.type(screen.getByTestId("input-email"), "student@example.com");
     await userEvent.type(screen.getByTestId("input-password"), "correcthorse");
     await userEvent.click(screen.getByTestId("button-register"));
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["getCurrentAuthUser"] });
+    // See Login.test.tsx for why this must write the cache directly rather
+    // than invalidate + refetch (closes a real production 404 race).
+    expect(mockSetQueryData).toHaveBeenCalledWith(["getCurrentAuthUser"], authEnvelope);
     expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
   });
 
