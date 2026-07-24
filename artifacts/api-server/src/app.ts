@@ -34,7 +34,23 @@ app.use(
     },
   }),
 );
-app.use(cors({ credentials: true, origin: true }));
+
+// In production the API and frontend are different Render services (
+// different origins), so an explicit allowlist is required — reflecting
+// every origin (today's behavior) would be an open credentialed CORS
+// policy once the API has a real public hostname. Local dev keeps the
+// permissive reflect-all behavior unchanged.
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGIN ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    credentials: true,
+    origin: process.env.NODE_ENV === "production" ? allowedOrigins : true,
+  }),
+);
 app.use(cookieParser(COOKIE_SECRET));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
