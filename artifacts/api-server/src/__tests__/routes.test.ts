@@ -152,7 +152,7 @@ beforeEach(() => {
   // or a later test can silently inherit an earlier test's mockReturnValue.
   mockDb.select.mockReturnValue(makeChain([]));
   mockDb.update.mockReturnValue(makeChain([]));
-  mockDb.delete.mockReturnValue(makeChain(undefined));
+  mockDb.delete.mockReturnValue(makeChain([]));
   mockGetQueueDepth.mockReturnValue(0);
 });
 
@@ -513,23 +513,25 @@ describe("Scenario.stale", () => {
 describe("DELETE /api/scenarios/:id", () => {
   it("returns 204 on successful delete", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.delete.mockReturnValue(makeChain(undefined));
+    mockDb.delete.mockReturnValue(makeChain([pmedianRow]));
     const res = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(204);
   });
 
-  it("returns 204 even when not found (idempotent)", async () => {
+  it("returns 404 when not found (no row deleted)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.delete.mockReturnValue(makeChain(undefined));
+    // Default: delete returns no deleted row → 404
     const res = await request(app).delete("/api/scenarios/999").set("Cookie", cookie);
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ error: "Not found" });
   });
 
-  it("returns 204 (never leaks existence) when deleting a scenario owned by a different user", async () => {
+  it("returns 404 (never leaks existence) when deleting a scenario owned by a different user", async () => {
     const cookie = await loginAs("other-user-id");
-    mockDb.delete.mockReturnValue(makeChain(undefined));
+    // Ownership-filtered delete affects zero rows → 404, same as nonexistent.
+    mockDb.delete.mockReturnValue(makeChain([]));
     const res = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(404);
   });
 });
 

@@ -175,8 +175,14 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
 
 router.delete("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  await db.delete(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  // .returning() yields the deleted row (or none). The userId-scoped WHERE
+  // means a row owned by a different user — or a nonexistent id — both
+  // return nothing, and both must 404 (never 204 or 403, to avoid ID
+  // enumeration side-channels — same ownership-filtering rule GET/PATCH use).
+  const [row] = await db.delete(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+    .returning();
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
   res.status(204).send();
 });
 
