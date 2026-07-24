@@ -28,6 +28,7 @@ function makeChain(returnValue: unknown) {
 
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
+  stderr = new EventEmitter();
   stdin = { write: vi.fn(), end: vi.fn() };
   kill = vi.fn();
 }
@@ -274,6 +275,60 @@ describe("jobRunner", () => {
     await vi.waitFor(() => {
       const calls = setValues(jobUpdateChain);
       expect(calls.some((s) => s.status === "failed" && String(s.error).includes("ENOENT"))).toBe(true);
+    });
+  });
+
+  // H2 — lastJsonLine() tolerates a banner printed before the JSON envelope:
+  // a deprecation warning or CBC banner on stdout must not break parsing,
+  // only the last non-empty line is read.
+  it("banner-then-JSON on stdout parses correctly (banner ignored)", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    child.stdout.emit("data", Buffer.from("CBC solver banner line\n"));
+    child.stdout.emit("data", Buffer.from(JSON.stringify({
+      status: "optimal", objective: 7, runTimeSec: 0.1, quality: "Optimal",
+      edges: [], metrics: { weightedAvgDistance: 5 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    })));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+    expect(setValues(scenarioUpdateChain).some((s) => (s.result as { objective: number })?.objective === 7)).toBe(true);
+  });
+
+  // H2 — banner-only stdout (no JSON anywhere) fails the job, and stderr is
+  // included in the failure message so the failure is diagnosable.
+  it("banner-only stdout fails the job with stderr included in the message", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    child.stdout.emit("data", Buffer.from("just a banner, no JSON\n"));
+    child.stderr.emit("data", Buffer.from("python3: traceback boom\n"));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed")).toBe(true);
+      expect(calls.some((s) => String(s.error).includes("Failed to parse solver output"))).toBe(true);
+      expect(calls.some((s) => String(s.error).includes("traceback boom"))).toBe(true);
     });
   });
 });

@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import os from "os";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
@@ -33,6 +34,17 @@ function findRepoRoot(from: string): string {
 }
 
 const SOLVER_PY = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "solve.py");
+
+// Cache key must change when solver logic changes, not just when the dataset
+// version bumps — otherwise a fixed solver returns the pre-fix cached result.
+// Hashing solve.py's bytes means any edit to the solver invalidates every
+// cached entry, so a deployed solver fix can never silently serve the stale,
+// pre-fix result from the cache. [S2]
+const SOLVER_CODE_HASH = crypto
+  .createHash("sha256")
+  .update(readFileSync(SOLVER_PY))
+  .digest("hex")
+  .slice(0, 12);
 
 // Small in-process worker pool (Phase 3.5, G3.1) — replaces the old
 // blocking spawnSync call. Pilot cohort is assumed <=10 concurrent users
@@ -97,7 +109,7 @@ export function computeInputsHash(input: SolveInput): string {
   const datasetVersion = String(readVersion(input.modelId).version);
   return crypto
     .createHash("sha256")
-    .update(input.modelId + datasetVersion + canonicalJson(input.inputs))
+    .update(input.modelId + datasetVersion + SOLVER_CODE_HASH + canonicalJson(input.inputs))
     .digest("hex");
 }
 
@@ -140,15 +152,33 @@ function pump(): void {
 
 interface SpawnResult {
   stdout: string;
+  stderr: string;
   code: number | null;
   timedOut: boolean;
   spawnError: string | null;
 }
 
+// Solver contract: stdout's last non-empty line is the JSON envelope.
+// Tolerates stray banner output without silently accepting garbage — solve.py
+// may emit a deprecation warning or CBC banner line, and a naive
+// JSON.parse(stdout) would reject the whole thing. We take only the last
+// non-empty line so a banner doesn't break parsing, and throw explicitly if
+// there's nothing to parse (a real failure worth surfacing, not a silent
+// empty-object fallthrough). [R1, R2]
+function lastJsonLine(raw: string): string {
+  const lines = raw.trim().split("\n").filter((l) => l.trim() !== "");
+  if (lines.length === 0) throw new Error("empty solver stdout");
+  return lines[lines.length - 1];
+}
+
 function runSolverProcess(payload: string, timeoutMs: number): Promise<SpawnResult> {
   return new Promise((resolve) => {
-    const child = spawn("python3", [SOLVER_PY]);
+    // cwd guards [C6] — run from os.tmpdir() so a malicious/buggy solver
+    // script that writes relative paths lands them in the OS temp dir, not
+    // the repo root.
+    const child = spawn("python3", [SOLVER_PY], { cwd: os.tmpdir() });
     let stdout = "";
+    let stderr = "";
     let timedOut = false;
     let settled = false;
 
@@ -165,12 +195,13 @@ function runSolverProcess(payload: string, timeoutMs: number): Promise<SpawnResu
       // Resolve directly rather than waiting on "close" — a killed process
       // isn't guaranteed to report it promptly, and this is the one signal
       // the job runner actually needs to move on and mark the job failed.
-      finish({ stdout, code: null, timedOut: true, spawnError: null });
+      finish({ stdout, stderr, code: null, timedOut: true, spawnError: null });
     }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-    child.on("error", (err) => finish({ stdout, code: null, timedOut, spawnError: err.message }));
-    child.on("close", (code) => finish({ stdout, code, timedOut, spawnError: null }));
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (err) => finish({ stdout, stderr, code: null, timedOut, spawnError: err.message }));
+    child.on("close", (code) => finish({ stdout, stderr, code, timedOut, spawnError: null }));
 
     child.stdin.write(payload);
     child.stdin.end();
@@ -282,7 +313,7 @@ async function runJob(jobId: number, scenarioId: number, input: SolveInput): Pro
   const payload = JSON.stringify(buildPayload(input));
   const timeoutMs = input.inputs.timeLimitSec * 1000 + 15000;
 
-  const { stdout, code, timedOut, spawnError } = await runSolverProcess(payload, timeoutMs);
+  const { stdout, stderr, code, timedOut, spawnError } = await runSolverProcess(payload, timeoutMs);
 
   if (timedOut) {
     await markFailed(jobId, "Solver timed out");
@@ -293,15 +324,18 @@ async function runJob(jobId: number, scenarioId: number, input: SolveInput): Pro
     return;
   }
   if (code !== 0) {
-    await markFailed(jobId, "python3 process failed");
+    await markFailed(jobId, `python3 process failed: ${stderr.slice(0, 500)}`);
     return;
   }
 
   let raw: unknown;
   try {
-    raw = JSON.parse(stdout);
+    raw = JSON.parse(lastJsonLine(stdout));
   } catch {
-    await markFailed(jobId, "Failed to parse solver output: " + stdout.slice(0, 200));
+    await markFailed(
+      jobId,
+      `Failed to parse solver output. stdout=${stdout.slice(0, 200)} stderr=${stderr.slice(0, 500)}`,
+    );
     return;
   }
 
