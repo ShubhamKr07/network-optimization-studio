@@ -16,8 +16,15 @@ vi.mock("wouter", () => ({
 vi.mock("@/hooks/use-toast", () => ({ toast: mockToast }));
 
 // ── Mock React Query ──────────────────────────────────────────────────────────
+// A single shared queryClient mock so setQueryData writes are observable
+// across renders (mirrors real QueryClient behavior) and tests can prove the
+// cache is updated synchronously, before navigate.
+const mockQueryClient = {
+  invalidateQueries: vi.fn(),
+  setQueryData: vi.fn(),
+};
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
+  useQueryClient: vi.fn(() => mockQueryClient),
 }));
 
 // ── Mock NetworkMap & ObjectiveBar (heavy deps) ───────────────────────────────
@@ -123,6 +130,8 @@ function renderStudio(modelId: "p-median-us" | "transport-coal" | "p-median-braz
 beforeEach(() => {
   vi.clearAllMocks();
   mockNavigate.mockReset();
+  mockQueryClient.invalidateQueries.mockReset();
+  mockQueryClient.setQueryData.mockReset();
   mockUseGetDataset.mockReturnValue({ data: dataset, isLoading: false } as ReturnType<typeof useGetDataset>);
   mockUseSearch.mockReturnValue("?scenario=1");
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
@@ -898,3 +907,178 @@ describe("Studio — empty scenarios", () => {
     expect(screen.getByText("New scenario")).toBeInTheDocument();
   });
 });
+
+// ── invalidateQueries + navigate race fix (mirrors AppShell.tsx logout) ──────
+// handleClone, handleDelete and handleCreateConfirm must write the mutation's
+// result into the query cache synchronously (setQueryData) BEFORE navigate, so
+// the destination never renders against stale cached data. invalidateQueries
+// then runs as a non-blocking background refresh AFTER navigate.
+//
+// These tests deliberately fire onSuccess only after a real async hop (a
+// setTimeout(0) wrapped in a microtask), so any handler that reordered the
+// calls to invalidate→navigate (with no sync cache write) would expose the
+// race: navigate would fire before the cache reflected the new/deleted
+// scenario.
+describe("Studio — invalidateQueries/navigate race fix", () => {
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  // Helper: record the global call order across the three mocked fns so a
+  // test can assert relative ordering (setQueryData before navigate before
+  // invalidateQueries).
+  function recordCallOrder() {
+    const order: string[] = [];
+    mockQueryClient.setQueryData.mockImplementation(() => { order.push("setQueryData"); });
+    mockQueryClient.invalidateQueries.mockImplementation(() => { order.push("invalidateQueries"); });
+    mockNavigate.mockImplementation(() => { order.push("navigate"); });
+    return order;
+  }
+
+  // Wrap a mutation's onSuccess so it only fires after a real async hop,
+  // simulating the latency of the API response. Any handler that relies on
+  // invalidate's refetch resolving before navigate would flake here.
+  function asyncOnSuccess(invoker: { mutate: ReturnType<typeof vi.fn> }) {
+    invoker.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (r: unknown) => void }) => {
+        setTimeout(() => opts.onSuccess(_vars), 0);
+      }
+    );
+  }
+
+  it("handleClone: writes the cloned scenario to the cache, THEN navigates to it, THEN invalidates", async () => {
+    const order = recordCallOrder();
+    const clonedScenario = { ...pmedianScenario, id: 42, name: "3 Warehouses (copy)" };
+    asyncOnSuccess(mockCloneScenario);
+    // resolve the setTimeout with the cloned payload
+    mockCloneScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (r: unknown) => void }) => {
+        setTimeout(() => opts.onSuccess(clonedScenario), 0);
+      }
+    );
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-clone"));
+
+    // (a) navigate targets the NEW (cloned) scenario id.
+    await vi.waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("/?scenario=42")
+    );
+    // (b) setQueryData was called with the list key and the new scenario.
+    expect(mockQueryClient.setQueryData).toHaveBeenCalledWith(
+      getListScenariosQueryKeyForAssert(),
+      expect.any(Function)
+    );
+    const updater = mockQueryClient.setQueryData.mock.calls[0][1] as (
+      prev: typeof pmedianScenario[] | undefined
+    ) => typeof pmedianScenario[];
+    expect(updater([pmedianScenario])).toEqual([pmedianScenario, clonedScenario]);
+
+    // (c) Ordering proves the race is fixed: cache write → navigate → background invalidate.
+    expect(order).toEqual(["setQueryData", "navigate", "invalidateQueries"]);
+  });
+
+  it("handleCreateConfirm: writes the new scenario to the cache, THEN navigates to it, THEN invalidates", async () => {
+    const order = recordCallOrder();
+    const newScenario = { ...pmedianScenario, id: 77, name: "My New Scenario" };
+    asyncOnSuccess(mockCreateScenario);
+    mockCreateScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (r: unknown) => void }) => {
+        setTimeout(() => opts.onSuccess(newScenario), 0);
+      }
+    );
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-create-scenario"));
+    const input = screen.getByTestId("input-new-scenario-name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "My New Scenario");
+    await userEvent.click(screen.getByTestId("button-create-confirm"));
+
+    // (a) navigate targets the NEW scenario id.
+    await vi.waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("/?scenario=77")
+    );
+    // (b) setQueryData was called with the list key and the new scenario.
+    expect(mockQueryClient.setQueryData).toHaveBeenCalledWith(
+      getListScenariosQueryKeyForAssert(),
+      expect.any(Function)
+    );
+    const updater = mockQueryClient.setQueryData.mock.calls[0][1] as (
+      prev: typeof pmedianScenario[] | undefined
+    ) => typeof pmedianScenario[];
+    expect(updater([pmedianScenario])).toEqual([pmedianScenario, newScenario]);
+
+    // (c) Ordering proves the race is fixed: cache write → navigate → background invalidate.
+    expect(order).toEqual(["setQueryData", "navigate", "invalidateQueries"]);
+  });
+
+  it("handleDelete: removes the deleted scenario from the cache, THEN conditionally navigates, THEN invalidates", async () => {
+    const order = recordCallOrder();
+    const scenario42 = { ...pmedianScenario, id: 42, name: "ToDelete" };
+    const scenario43 = { ...pmedianScenario, id: 43, name: "Keep" };
+    mockUseListScenarios.mockReturnValue({
+      data: [scenario42, scenario43],
+      isLoading: false,
+    } as ReturnType<typeof useListScenarios>);
+    // Currently viewing scenario 42 — deleting it must redirect to 43.
+    mockUseSearch.mockReturnValue("?scenario=42");
+    mockUseGetScenario.mockReturnValue({ data: scenario42 } as ReturnType<typeof useGetScenario>);
+
+    mockDeleteScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: () => void }) => {
+        setTimeout(() => opts.onSuccess(), 0);
+      }
+    );
+    renderStudio();
+
+    // Open the dropdown and delete scenario 42.
+    await userEvent.click(screen.getByTestId("button-scenario-dropdown"));
+    await userEvent.click(screen.getByTestId("button-delete-scenario-42"));
+    await userEvent.click(screen.getByText("Delete"));
+
+    // (a) conditional navigate redirects to the first remaining scenario (43).
+    await vi.waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("/?scenario=43")
+    );
+    // (b) setQueryData removes scenario 42 from the cached list.
+    expect(mockQueryClient.setQueryData).toHaveBeenCalledWith(
+      getListScenariosQueryKeyForAssert(),
+      expect.any(Function)
+    );
+    const updater = mockQueryClient.setQueryData.mock.calls[0][1] as (
+      prev: typeof pmedianScenario[] | undefined
+    ) => typeof pmedianScenario[];
+    expect(updater([scenario42, scenario43])).toEqual([scenario43]);
+
+    // (c) Ordering: cache write → navigate → background invalidate.
+    expect(order).toEqual(["setQueryData", "navigate", "invalidateQueries"]);
+  });
+
+  it("the cache updater passed to setQueryData is a pure append/remove — would be absent under the old invalidate-first order", () => {
+    // Regression guard: if the race fix were reverted, setQueryData would
+    // never be called for these mutations (only invalidateQueries would be).
+    // This test fails on the old implementation by asserting setQueryData is
+    // invoked at least once during a clone.
+    const clonedScenario = { ...pmedianScenario, id: 99, name: "copy" };
+    mockCloneScenario.mutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (r: unknown) => void }) => {
+        setTimeout(() => opts.onSuccess(clonedScenario), 0);
+      }
+    );
+    renderStudio();
+
+    // Drive the clone synchronously up to the setTimeout, then flush.
+    return userEvent.click(screen.getByTestId("button-clone")).then(() =>
+      vi.waitFor(() => expect(mockQueryClient.setQueryData).toHaveBeenCalled())
+    );
+  });
+});
+
+// Helper so the race tests don't import the (mocked) getListScenariosQueryKey
+// from the module under test — they get the exact array the mock returns.
+function getListScenariosQueryKeyForAssert() {
+  // The mocked getListScenariosQueryKey returns ["scenarios"].
+  return ["scenarios"];
+}

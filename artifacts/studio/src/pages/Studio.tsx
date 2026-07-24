@@ -342,8 +342,16 @@ export function Studio({ modelId }: StudioProps) {
       { scenarioId },
       {
         onSuccess: (cloned) => {
-          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          // Sync-write the cloned scenario into the list cache BEFORE
+          // navigating so the destination renders against fresh data, not a
+          // stale list awaiting invalidate's async refetch.
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), (prev) =>
+            prev ? [...prev, cloned] : [cloned]
+          );
           navigate(`${chapterPath}?scenario=${cloned.id}`);
+          // Background consistency refresh — non-blocking; the optimistic
+          // cache write above already covers the immediate render.
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
       }
     );
@@ -355,7 +363,12 @@ export function Studio({ modelId }: StudioProps) {
       {
         onSuccess: () => {
           setConfirmDeleteId(null);
-          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          // Sync-remove the deleted scenario from the list cache so the
+          // conditional navigation below renders against fresh data instead
+          // of racing the async invalidate refetch.
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), (prev) =>
+            prev ? prev.filter((s) => s.id !== id) : prev
+          );
           if (id === scenarioId) {
             const remaining = (scenarios ?? []).filter(s => s.id !== id);
             if (remaining.length > 0) {
@@ -364,6 +377,8 @@ export function Studio({ modelId }: StudioProps) {
               navigate(chapterPath);
             }
           }
+          // Background consistency refresh — non-blocking.
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
       }
     );
@@ -387,8 +402,16 @@ export function Studio({ modelId }: StudioProps) {
       {
         onSuccess: (s) => {
           setShowCreateDialog(false);
-          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          // Sync-write the new scenario into the list cache BEFORE navigating
+          // so the destination renders against fresh data, not a stale list
+          // awaiting invalidate's async refetch.
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), (prev) =>
+            prev ? [...prev, s] : [s]
+          );
           navigate(`${chapterPath}?scenario=${s.id}`);
+          // Background consistency refresh — non-blocking; the optimistic
+          // cache write above already covers the immediate render.
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
       }
     );
