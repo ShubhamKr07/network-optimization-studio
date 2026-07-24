@@ -1226,6 +1226,10 @@ export function Studio({ modelId }: StudioProps) {
                   showRoutes={activeTab === "output" && showRoutes}
                   bands={bands}
                   countryBounds={activeModelManifest?.countryBounds}
+                  multiSelectedWarehouseIds={[]}
+                  multiSelectedCustomerIds={[]}
+                  onToggleWarehouseMultiSelect={() => {}}
+                  onToggleCustomerMultiSelect={() => {}}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading map...</div>

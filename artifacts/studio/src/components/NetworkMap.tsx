@@ -28,6 +28,7 @@ const createTriangleIcon = (
   status: "potential" | "forced_open" | "inactive" | "open",
   highlighted = false,
   dimmed = false,
+  multiSelected = false,
 ) => {
   let fill = "none";
   let stroke = "#64748B";
@@ -50,6 +51,12 @@ const createTriangleIcon = (
   const ringCircle = highlighted
     ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#FCD34D" stroke-width="2" />`
     : "";
+  // Multi-select ring uses a distinct violet stroke so it's visually
+  // unambiguous from the amber single-select ring above, and can coexist
+  // with it (a warehouse can be both single-selected and multi-selected).
+  const multiSelectRing = multiSelected
+    ? `<circle cx="12" cy="12" r="9" fill="none" stroke="#7C3AED" stroke-width="2.5" />`
+    : "";
 
   const opacity = dimmed ? 0.25 : 1;
   const size = highlighted ? 32 : 24;
@@ -57,6 +64,7 @@ const createTriangleIcon = (
 
   const svg = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" opacity="${opacity}">
     ${ringCircle}
+    ${multiSelectRing}
     ${extraCircle}
     <polygon points="12,2 22,20 2,20" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} />
   </svg>`;
@@ -159,9 +167,20 @@ interface NetworkMapProps {
   // E5.1: the active model's manifest countryBounds — falls back to a
   // continental-US default when not yet loaded/available.
   countryBounds?: CountryBounds;
+  // Multi-select (shift/ctrl-click) is lifted state, independent of this
+  // component's own single-select filter/inspect state above — Studio.tsx
+  // owns it so it can render a bulk-edit toolbar outside this component.
+  multiSelectedWarehouseIds: string[];
+  multiSelectedCustomerIds: string[];
+  onToggleWarehouseMultiSelect: (id: string) => void;
+  onToggleCustomerMultiSelect: (id: string) => void;
 }
 
-export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, bands, countryBounds }: NetworkMapProps) {
+export function NetworkMap({
+  dataset, warehouseStatuses, result, showRoutes, bands, countryBounds,
+  multiSelectedWarehouseIds, multiSelectedCustomerIds,
+  onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
+}: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
@@ -235,6 +254,10 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, ban
 
   const handleWarehouseClick = (whId: string, status: string, e: L.LeafletMouseEvent) => {
     L.DomEvent.stopPropagation(e);
+    if (e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+      onToggleWarehouseMultiSelect(whId);
+      return;
+    }
     // Only filter by open/forced_open warehouses that have assignments
     if (status !== "open" && status !== "forced_open") return;
     setSelectedCustomerId(null);
@@ -332,16 +355,22 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, ban
               pathOptions={{
                 fillColor,
                 fillOpacity: dimmed ? 0.15 : 0.8,
-                color: isCustomerSelected
-                  ? getBandColor(assignmentBand)
-                  : isWarehouseHighlighted
+                color: multiSelectedCustomerIds.includes(c.id)
+                  ? "#7C3AED"
+                  : isCustomerSelected
                     ? getBandColor(assignmentBand)
-                    : "#64748B",
-                weight: isCustomerSelected ? 2.5 : isWarehouseHighlighted ? 1.5 : 1,
+                    : isWarehouseHighlighted
+                      ? getBandColor(assignmentBand)
+                      : "#64748B",
+                weight: multiSelectedCustomerIds.includes(c.id) ? 3 : isCustomerSelected ? 2.5 : isWarehouseHighlighted ? 1.5 : 1,
               }}
               eventHandlers={{
                 click: (e) => {
                   L.DomEvent.stopPropagation(e);
+                  if (e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+                    onToggleCustomerMultiSelect(c.id);
+                    return;
+                  }
                   setSelectedWarehouseId(null);
                   setSelectedCustomerId((prev) => (prev === c.id ? null : c.id));
                 },
@@ -367,7 +396,7 @@ export function NetworkMap({ dataset, warehouseStatuses, result, showRoutes, ban
             <Marker
               key={w.id}
               position={[w.lat, w.lng]}
-              icon={createTriangleIcon(status, isHighlighted, isDimmed)}
+              icon={createTriangleIcon(status, isHighlighted, isDimmed, multiSelectedWarehouseIds.includes(w.id))}
               eventHandlers={
                 isOpen
                   ? {
