@@ -240,6 +240,12 @@ describe("Studio — Transport scenario (configure)", () => {
       expect(mockUseGetDataset).toHaveBeenCalledWith({ modelId: "transport-coal" });
     });
   });
+
+  it("opens the Mine table dialog and shows the 4 mines for a transport-coal scenario", async () => {
+    renderStudio("transport-coal");
+    await userEvent.click(screen.getByTestId("button-open-mine-table"));
+    expect(screen.getByText("Mine capacity overrides")).toBeInTheDocument();
+  });
 });
 
 // ── Transport scenario results ─────────────────────────────────────────────────

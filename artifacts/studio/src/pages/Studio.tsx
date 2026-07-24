@@ -24,6 +24,7 @@ import { BrazilMap } from "@/components/BrazilMap";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { WarehouseTable } from "@/components/tables/WarehouseTable";
 import { CustomerTable } from "@/components/tables/CustomerTable";
+import { MineTable, type MineOverride } from "@/components/tables/MineTable";
 import { ImportDialog } from "@/components/ImportDialog";
 import { ConstraintChips } from "@/components/ConstraintChips";
 import { toast } from "@/hooks/use-toast";
@@ -88,6 +89,7 @@ interface LocalConfig {
   capacityFactor: number;
   singleSource: boolean;
   capacityInactive: boolean;
+  mineCapacities: MineOverride[];
 }
 
 function configFromScenario(s: Scenario): LocalConfig {
@@ -106,6 +108,7 @@ function configFromScenario(s: Scenario): LocalConfig {
       capacityFactor: i.capacityFactor,
       singleSource: i.singleSource,
       capacityInactive: i.capacityInactive,
+      mineCapacities: (s.inputs as { mineCapacities?: Record<string, number> }).mineCapacities ? Object.entries((s.inputs as { mineCapacities?: Record<string, number> }).mineCapacities as Record<string, number>).map(([id, capacity]) => ({ id, capacity })) : [],
     };
   }
   const i = s.inputs as unknown as PMedianInputsShape;
@@ -122,6 +125,7 @@ function configFromScenario(s: Scenario): LocalConfig {
     capacityFactor: 1.0,
     singleSource: i.singleSource ?? false,
     capacityInactive: false,
+    mineCapacities: [],
   };
 }
 
@@ -136,6 +140,7 @@ function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, u
       capacityFactor: cfg.capacityFactor,
       singleSource: cfg.singleSource,
       capacityInactive: cfg.capacityInactive,
+      mineCapacities: Object.fromEntries(cfg.mineCapacities.filter(o => o.capacity != null).map(o => [o.id, o.capacity])),
     };
   }
   return {
@@ -201,6 +206,7 @@ export function Studio({ modelId }: StudioProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [showWarehouseTable, setShowWarehouseTable] = useState(false);
   const [showCustomerTable, setShowCustomerTable] = useState(false);
+  const [showMineTable, setShowMineTable] = useState(false);
   const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -903,6 +909,22 @@ export function Studio({ modelId }: StudioProps) {
                 </>
               )}
 
+              {modelId === "transport-coal" && (
+                <div className="px-3 py-3 space-y-2">
+                  <p className="text-xs font-semibold text-foreground">Overrides</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowMineTable(true)}
+                    data-testid="button-open-mine-table"
+                    className="w-full h-7 text-xs justify-between"
+                  >
+                    Mines
+                    <span className="text-muted-foreground">{localConfig.mineCapacities.length > 0 ? `${localConfig.mineCapacities.length} overridden` : "4"}</span>
+                  </Button>
+                </div>
+              )}
+
               {/* Brazil (capacitated_pmedian) controls */}
               {modelId === "p-median-brazil" && (
                 <>
@@ -1406,6 +1428,19 @@ export function Studio({ modelId }: StudioProps) {
           )}
         </DialogContent>
       </Dialog>
+
+          {localConfig && dataset && modelId === "transport-coal" && (
+            <Dialog open={showMineTable} onOpenChange={setShowMineTable}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader><DialogTitle>Mine capacity overrides</DialogTitle></DialogHeader>
+                <MineTable
+                  mines={dataset.warehouses}
+                  overrides={localConfig.mineCapacities}
+                  onChange={next => update("mineCapacities", next)}
+                />
+              </DialogContent>
+            </Dialog>
+          )}
 
       {/* Reset to baseline confirm dialog (D6.1) */}
       <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
