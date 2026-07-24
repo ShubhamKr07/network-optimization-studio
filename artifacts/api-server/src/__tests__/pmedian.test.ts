@@ -65,6 +65,25 @@ describe("buildPayload()", () => {
     expect(payload.singleSource).toBe(true);
   });
 
+  it("forwards mineCapacities/stationDemands for transport-coal", () => {
+    const input: SolveInput = {
+      modelId: "transport-coal",
+      inputs: {
+        distanceBands: [500, 1000, 1500, 2000],
+        gap: 0,
+        timeLimitSec: 120,
+        capacityFactor: 1.1,
+        singleSource: true,
+        capacityInactive: false,
+        mineCapacities: { KY: 1000000 },
+        stationDemands: { CHI: 12000000 },
+      },
+    };
+    const payload = buildPayload(input);
+    expect(payload.mineCapacities).toEqual({ KY: 1000000 });
+    expect(payload.stationDemands).toEqual({ CHI: 12000000 });
+  });
+
   it("sends modelType=transport and all transport fields for modelId transport-coal", () => {
     const payload = buildPayload(transportInput);
     expect(payload.modelType).toBe("transport");

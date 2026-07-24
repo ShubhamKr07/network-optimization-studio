@@ -20,6 +20,8 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       capacityFactor: i.capacityFactor,
       singleSource: i.singleSource,
       capacityInactive: i.capacityInactive,
+      mineCapacities: i.mineCapacities,
+      stationDemands: i.stationDemands,
     };
   }
 
