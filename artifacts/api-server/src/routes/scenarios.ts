@@ -9,11 +9,15 @@ import {
   TEMPLATE_VERSION,
   applyWarehouseOverrides,
   applyCustomerOverrides,
+  applyMineOverrides,
+  applyStationOverrides,
   warehouseRowsToCsv,
   customerRowsToCsv,
+  mineRowsToCsv,
+  stationRowsToCsv,
 } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
-import type { ImportRowChange } from "../services/import.js";
+import type { ImportEntity, ImportRowChange } from "../services/import.js";
 
 const router = Router();
 
@@ -254,8 +258,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const entity = req.query.entity as string | undefined;
   const format = req.query.format as string | undefined;
 
-  if (entity !== "warehouses" && entity !== "customers") {
-    res.status(422).json({ error: "entity must be 'warehouses' or 'customers'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', or 'stations'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -267,15 +271,46 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
-  // Export reads solvers/p-median-us's own warehouse/customer dataset directly
-  // (via services/templates.ts) — Brazil uses a different dataset/id
-  // namespace entirely and transport has no warehouse/customer overrides
-  // concept at all, same boundary D1.1/D2/D3 already drew.
-  if (scenario.modelId !== "p-median-us") {
-    res.status(422).json({ error: "Export is only supported for p-median-us scenarios" });
+  // Each model is scoped to its own entity pair: p-median-us exports
+  // warehouses/customers, transport-coal exports mines/stations. Any
+  // mismatch 422s — same anti-cross-model-confusion boundary the original
+  // D4.1 gate had, widened to a second model.
+  const entityIsPMedian = entity === "warehouses" || entity === "customers";
+  const entityIsCoal = entity === "mines" || entity === "stations";
+  if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
+    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers export" });
+    return;
+  }
+  if (scenario.modelId === "transport-coal" && !entityIsCoal) {
+    res.status(422).json({ error: "transport-coal scenarios only support mines/stations export" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal") {
+    res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
 
+  if (scenario.modelId === "transport-coal") {
+    // Mines/stations persist as sparse dicts (mineCapacities/stationDemands);
+    // convert to the array shape the apply* functions expect, same direction
+    // Studio's tables convert when loading.
+    const inputs = scenario.inputs as { mineCapacities?: Record<string, number>; stationDemands?: Record<string, number> };
+    if (format === "csv") {
+      const csv = entity === "mines"
+        ? mineRowsToCsv(applyMineOverrides(Object.entries(inputs.mineCapacities ?? {}).map(([mineId, capacity]) => ({ id: mineId, capacity }))))
+        : stationRowsToCsv(applyStationOverrides(Object.entries(inputs.stationDemands ?? {}).map(([stationId, demand]) => ({ id: stationId, demand }))));
+      res.type("text/csv").send(csv);
+      return;
+    }
+    const rows = entity === "mines"
+      ? applyMineOverrides(Object.entries(inputs.mineCapacities ?? {}).map(([mineId, capacity]) => ({ id: mineId, capacity })))
+      : applyStationOverrides(Object.entries(inputs.stationDemands ?? {}).map(([stationId, demand]) => ({ id: stationId, demand })));
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    return;
+  }
+
+  // p-median-us: export reads solvers/p-median-us's own warehouse/customer
+  // dataset directly (via services/templates.ts).
   const inputs = scenario.inputs as { warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
   const rows = entity === "warehouses"
     ? applyWarehouseOverrides((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0])
@@ -309,12 +344,39 @@ function mergeChangesIntoOverrides(
   return [...rest, ...applied];
 }
 
+// Transport-coal's mines/stations persist overrides as sparse dicts
+// (mineCapacities/stationDemands), not arrays. Same "null value = no
+// override, omit the entry" semantics as the array merge above, just keyed
+// by id into a dict — matching the wire shape transportLp.ts validates and
+// solve.py reads (mine_caps.get(m, ...)).
+function mergeChangesIntoDict(
+  current: Record<string, number>,
+  changes: ImportRowChange[],
+): Record<string, number> {
+  const changedIds = new Set(changes.map(c => c.id));
+  const result: Record<string, number> = {};
+  // Preserve current overrides this import didn't touch (the export is a
+  // full dump, but a partial/short CSV must not silently drop untouched rows).
+  for (const [id, val] of Object.entries(current)) {
+    if (!changedIds.has(id) && val != null) {
+      result[id] = val;
+    }
+  }
+  // Apply imported changes — a null value clears the override (omit entry).
+  for (const c of changes) {
+    if (c.after.value != null) {
+      result[c.id] = c.after.value;
+    }
+  }
+  return result;
+}
+
 router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText } = req.body as { entity?: string; csvText?: string };
 
-  if (entity !== "warehouses" && entity !== "customers") {
-    res.status(422).json({ error: "entity must be 'warehouses' or 'customers'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', or 'stations'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -325,13 +387,30 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
-  if (scenario.modelId !== "p-median-us") {
-    res.status(422).json({ error: "Import is only supported for p-median-us scenarios" });
+
+  // Same model↔entity pairing the export route enforces: p-median-us imports
+  // warehouses/customers, transport-coal imports mines/stations.
+  const entityIsPMedian = entity === "warehouses" || entity === "customers";
+  const entityIsCoal = entity === "mines" || entity === "stations";
+  if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
+    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers import" });
+    return;
+  }
+  if (scenario.modelId === "transport-coal" && !entityIsCoal) {
+    res.status(422).json({ error: "transport-coal scenarios only support mines/stations import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal") {
+    res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
 
-  const inputs = scenario.inputs as { p: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
-  const preview = parseAndValidateImport(entity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p);
+  // inputs carries warehouseOverrides/customerOverrides (p-median) or
+  // mineCapacities/stationDemands (transport-coal); parseAndValidateImport
+  // reads whichever matches `entity`. p is p-median-only — pass 0 for
+  // transport-coal (its p-driven warning branch never fires for mines/stations).
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number> };
+  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0);
   res.json(preview);
 });
 
@@ -339,8 +418,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText, mode } = req.body as { entity?: string; csvText?: string; mode?: string };
 
-  if (entity !== "warehouses" && entity !== "customers") {
-    res.status(422).json({ error: "entity must be 'warehouses' or 'customers'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', or 'stations'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -352,28 +431,48 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
-  if (scenario.modelId !== "p-median-us") {
-    res.status(422).json({ error: "Import is only supported for p-median-us scenarios" });
+
+  const entityIsPMedian = entity === "warehouses" || entity === "customers";
+  const entityIsCoal = entity === "mines" || entity === "stations";
+  if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
+    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers import" });
+    return;
+  }
+  if (scenario.modelId === "transport-coal" && !entityIsCoal) {
+    res.status(422).json({ error: "transport-coal scenarios only support mines/stations import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal") {
+    res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
 
   // Always re-validate against the live scenario state — never trust a
   // client-held preview, which may be stale by the time apply is called.
-  const inputs = scenario.inputs as { p: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
-  const preview = parseAndValidateImport(entity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p);
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number> };
+  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0);
 
   if (applyMode === "all_or_nothing" && preview.errors.length > 0) {
     res.status(422).json({ error: "Import has errors; nothing was applied (all-or-nothing mode)", preview });
     return;
   }
 
-  const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
-  const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
-  const nextOverrides = mergeChangesIntoOverrides(entity, currentOverrides, preview.changes);
+  let nextInputs: Record<string, unknown>;
+  if (entity === "mines" || entity === "stations") {
+    const overrideKey = entity === "mines" ? "mineCapacities" : "stationDemands";
+    const currentDict = inputs[overrideKey] ?? {};
+    const nextDict = mergeChangesIntoDict(currentDict, preview.changes);
+    nextInputs = { ...inputs, [overrideKey]: nextDict };
+  } else {
+    const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
+    const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
+    const nextOverrides = mergeChangesIntoOverrides(entity as "warehouses" | "customers", currentOverrides, preview.changes);
+    nextInputs = { ...inputs, [overrideKey]: nextOverrides };
+  }
 
   const [updated] = await db.update(scenariosTable)
     .set({
-      inputs: { ...inputs, [overrideKey]: nextOverrides },
+      inputs: nextInputs,
       inputsUpdatedAt: new Date(),
       updatedAt: new Date(),
     })

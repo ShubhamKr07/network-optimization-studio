@@ -213,7 +213,7 @@ export function Studio({ modelId }: StudioProps) {
   const [showCustomerTable, setShowCustomerTable] = useState(false);
   const [showMineTable, setShowMineTable] = useState(false);
   const [showStationTable, setShowStationTable] = useState(false);
-  const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | null>(null);
+  const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | "mines" | "stations" | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const deleteScenario = useDeleteScenario();
@@ -473,7 +473,7 @@ export function Studio({ modelId }: StudioProps) {
     </Dialog>
   );
 
-  const handleExport = async (entity: "warehouses" | "customers", format: "csv" | "json") => {
+  const handleExport = async (entity: "warehouses" | "customers" | "mines" | "stations", format: "csv" | "json") => {
     if (!scenarioId) return;
     try {
       const data = await exportScenario(scenarioId, { entity, format });
@@ -926,8 +926,41 @@ export function Studio({ modelId }: StudioProps) {
                     className="w-full h-7 text-xs justify-between"
                   >
                     Mines
-                    <span className="text-muted-foreground">{localConfig.mineCapacities.length > 0 ? `${localConfig.mineCapacities.length} overridden` : "4"}</span>
+                    <span className="text-muted-foreground">{localConfig.mineCapacities.length > 0 ? `${localConfig.mineCapacities.length} overridden` : `${dataset?.warehouses.length ?? 4}`}</span>
                   </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport("mines", "csv")}
+                      disabled={!scenarioId}
+                      data-testid="button-export-mines-csv"
+                      className="flex-1 h-6 text-[10px] px-1"
+                    >
+                      <Download className="w-3 h-3 mr-1" /> CSV
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport("mines", "json")}
+                      disabled={!scenarioId}
+                      data-testid="button-export-mines-json"
+                      className="flex-1 h-6 text-[10px] px-1"
+                    >
+                      <Download className="w-3 h-3 mr-1" /> JSON
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImportEntity("mines")}
+                      disabled={!scenarioId}
+                      data-testid="button-import-mines"
+                      className="flex-1 h-6 text-[10px] px-1"
+                    >
+                      <Upload className="w-3 h-3 mr-1" /> Import
+                    </Button>
+                  </div>
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -936,7 +969,50 @@ export function Studio({ modelId }: StudioProps) {
                     className="w-full h-7 text-xs justify-between"
                   >
                     Stations
-                    <span className="text-muted-foreground">{localConfig.stationDemands.length > 0 ? `${localConfig.stationDemands.length} overridden` : "15"}</span>
+                    <span className="text-muted-foreground">{localConfig.stationDemands.length > 0 ? `${localConfig.stationDemands.length} overridden` : `${dataset?.customers.length ?? 15}`}</span>
+                  </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport("stations", "csv")}
+                      disabled={!scenarioId}
+                      data-testid="button-export-stations-csv"
+                      className="flex-1 h-6 text-[10px] px-1"
+                    >
+                      <Download className="w-3 h-3 mr-1" /> CSV
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport("stations", "json")}
+                      disabled={!scenarioId}
+                      data-testid="button-export-stations-json"
+                      className="flex-1 h-6 text-[10px] px-1"
+                    >
+                      <Download className="w-3 h-3 mr-1" /> JSON
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImportEntity("stations")}
+                      disabled={!scenarioId}
+                      data-testid="button-import-stations"
+                      className="flex-1 h-6 text-[10px] px-1"
+                    >
+                      <Upload className="w-3 h-3 mr-1" /> Import
+                    </Button>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowResetConfirm(true)}
+                    disabled={!scenarioId || (localConfig.mineCapacities.length === 0 && localConfig.stationDemands.length === 0)}
+                    data-testid="button-reset-baseline"
+                    className="w-full h-7 text-xs justify-center text-muted-foreground"
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" /> Reset to baseline
                   </Button>
                 </div>
               )}

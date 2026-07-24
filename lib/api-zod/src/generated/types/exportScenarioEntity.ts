@@ -12,4 +12,6 @@ export type ExportScenarioEntity = typeof ExportScenarioEntity[keyof typeof Expo
 export const ExportScenarioEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;

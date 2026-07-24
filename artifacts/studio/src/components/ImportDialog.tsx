@@ -16,7 +16,7 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scenarioId: number;
-  entity: "warehouses" | "customers";
+  entity: "warehouses" | "customers" | "mines" | "stations";
   onApplied?: (scenario: Scenario) => void;
 }
 
@@ -80,7 +80,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Import {entity === "warehouses" ? "warehouses" : "customers"}</DialogTitle>
+          <DialogTitle>Import {entity}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 py-2">

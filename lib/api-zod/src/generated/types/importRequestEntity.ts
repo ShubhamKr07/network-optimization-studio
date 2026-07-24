@@ -12,4 +12,6 @@ export type ImportRequestEntity = typeof ImportRequestEntity[keyof typeof Import
 export const ImportRequestEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;

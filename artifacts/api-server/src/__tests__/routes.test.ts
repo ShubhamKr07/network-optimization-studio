@@ -607,6 +607,73 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.body.rows).toHaveLength(200);
     expect(res.body.rows.find((r: { id: string }) => r.id === "C1").demand).toBe(999);
   });
+
+  // Transport-coal mine/station export (Task 7) — mirrors the p-median-us
+  // warehouses/customers export above, scoped to entity=mines|stations and
+  // modelId=transport-coal.
+  it("exports a transport-coal scenario's mine capacity overrides as CSV", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...transportRow, inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=mines&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("template_version,id,city,state,capacity");
+    expect(lines.length).toBe(5); // header + 4 mines
+    // KY's override must surface on its row.
+    expect(lines.some((l) => l.startsWith("1,KY,"))).toBe(true);
+  });
+
+  it("exports a transport-coal scenario's mine overrides as JSON reflecting overrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...transportRow, inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=mines&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("mines");
+    expect(res.body.rows).toHaveLength(4);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "KY").capacity).toBe(1000000);
+  });
+
+  it("exports a transport-coal scenario's station demand overrides as CSV", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...transportRow, inputs: { ...transportInputs, stationDemands: { CHI: 12000000 } } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=stations&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("template_version,id,city,state,demand");
+    expect(lines.length).toBe(16); // header + 15 stations
+    // CHI's override must surface on its row.
+    expect(lines.some((l) => l.startsWith("1,CHI,"))).toBe(true);
+  });
+
+  it("exports a transport-coal scenario's station overrides as JSON reflecting overrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...transportRow, inputs: { ...transportInputs, stationDemands: { CHI: 12000000 } } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=stations&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("stations");
+    expect(res.body.rows).toHaveLength(15);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "CHI").demand).toBe(12000000);
+  });
+
+  it("rejects entity=warehouses for a transport-coal scenario (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=warehouses&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects entity=mines for a p-median-us scenario (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=mines&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
 });
 
 // ── Import preview + apply ─────────────────────────────────────────────────
@@ -651,6 +718,37 @@ describe("POST /api/scenarios/:id/import", () => {
     expect(res.body.errors).toHaveLength(1);
     expect(res.body.errors[0].errorClass).toBe("logic");
   });
+
+  // Transport-coal mine/station import preview (Task 7).
+  it("previews a transport-coal mine import with one change and no mutation", async () => {
+    const cookie = await loginAs(OWNER);
+    const mineCsv = "template_version,id,city,state,capacity\n1,KY,Pikeville,KY,1000000\n";
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "mines", csvText: mineCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0].id).toBe("KY");
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("previews a transport-coal station import with one change", async () => {
+    const cookie = await loginAs(OWNER);
+    const stationCsv = "template_version,id,city,state,demand\n1,CHI,Chicago,IL,12000000\n";
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "stations", csvText: stationCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0].id).toBe("CHI");
+  });
+
+  it("rejects entity=warehouses for a transport-coal import (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
+    expect(res.status).toBe(422);
+  });
 });
 
 describe("POST /api/scenarios/:id/import/apply", () => {
@@ -686,6 +784,22 @@ describe("POST /api/scenarios/:id/import/apply", () => {
       .send({ entity: "warehouses", csvText: cleanCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(404);
     expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  // Transport-coal mine import apply (Task 7) — persists into the
+  // mineCapacities sparse dict, mirroring the warehouses array apply above.
+  it("all_or_nothing mode: applies a clean transport-coal mine import into mineCapacities", async () => {
+    const cookie = await loginAs(OWNER);
+    const mineCsv = "template_version,id,city,state,capacity\n1,KY,Pikeville,KY,1000000\n";
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const updatedRow = { ...transportRow, inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } } };
+    mockDb.update.mockReturnValue(makeChain([updatedRow]));
+    const res = await request(app).post("/api/scenarios/8/import/apply").set("Cookie", cookie)
+      .send({ entity: "mines", csvText: mineCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 });
 

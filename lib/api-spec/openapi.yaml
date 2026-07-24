@@ -408,7 +408,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers]
+            enum: [warehouses, customers, mines, stations]
         - name: format
           in: query
           required: true
@@ -980,7 +980,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers]
+          enum: [warehouses, customers, mines, stations]
         csvText:
           type: string
       required: [entity, csvText]
@@ -1032,7 +1032,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers]
+          enum: [warehouses, customers, mines, stations]
         csvText:
           type: string
         mode:
@@ -1060,7 +1060,7 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers]
+          enum: [warehouses, customers, mines, stations]
         rows:
           type: array
           items:

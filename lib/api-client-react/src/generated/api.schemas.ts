@@ -318,6 +318,8 @@ export type ImportRequestEntity = typeof ImportRequestEntity[keyof typeof Import
 export const ImportRequestEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;
 
 export interface ImportRequest {
@@ -364,6 +366,8 @@ export type ImportApplyRequestEntity = typeof ImportApplyRequestEntity[keyof typ
 export const ImportApplyRequestEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;
 
 export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
@@ -392,6 +396,8 @@ export type ExportEnvelopeEntity = typeof ExportEnvelopeEntity[keyof typeof Expo
 export const ExportEnvelopeEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;
 
 export type ExportEnvelopeRowsItem = { [key: string]: unknown };
@@ -448,6 +454,8 @@ export type ExportScenarioEntity = typeof ExportScenarioEntity[keyof typeof Expo
 export const ExportScenarioEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];

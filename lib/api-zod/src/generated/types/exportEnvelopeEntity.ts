@@ -12,4 +12,6 @@ export type ExportEnvelopeEntity = typeof ExportEnvelopeEntity[keyof typeof Expo
 export const ExportEnvelopeEntity = {
   warehouses: 'warehouses',
   customers: 'customers',
+  mines: 'mines',
+  stations: 'stations',
 } as const;

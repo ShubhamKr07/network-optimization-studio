@@ -1,4 +1,5 @@
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 
 // D4.1 export. CSV format choice: plain columns with template_version
 // repeated on every row (not a leading comment line) — simpler for D5's
@@ -8,6 +9,11 @@ export const TEMPLATE_VERSION = 1;
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
+// Mines/stations have no open/close binary in the LP (no status field) — a
+// "closed" mine is expressed as a capacity override of 0. See this plan's
+// Global Constraints in docs/superpowers/plans/2026-07-24-transport-coal-overrides.md.
+interface MineOverride { id: string; capacity?: number | null; }
+interface StationOverride { id: string; demand?: number | null; }
 
 export interface WarehouseTemplateRow {
   templateVersion: number;
@@ -25,6 +31,22 @@ export interface CustomerTemplateRow {
   state: string;
   demand: number;
   status: "active" | "excluded";
+}
+
+export interface MineTemplateRow {
+  templateVersion: number;
+  id: string;
+  city: string;
+  state: string;
+  capacity: number | null;
+}
+
+export interface StationTemplateRow {
+  templateVersion: number;
+  id: string;
+  city: string;
+  state: string;
+  demand: number;
 }
 
 // Merges the base dataset with a scenario's sparse overrides into the full
@@ -62,6 +84,42 @@ export function applyCustomerOverrides(overrides: CustomerOverride[]): CustomerT
   });
 }
 
+// Mines mirror warehouses minus the status field: capacity is override-only
+// (null = no override) — there is no base capacity on the in-memory
+// TRANSPORT_COAL_WAREHOUSES row (WarehouseCandidate carries geometry only),
+// matching how the MineTable UI renders an empty input as "no override".
+export function applyMineOverrides(overrides: MineOverride[]): MineTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  return TRANSPORT_COAL_WAREHOUSES.map(w => {
+    const o = byId.get(w.id);
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: w.id,
+      city: w.city,
+      state: w.state,
+      capacity: o?.capacity ?? null,
+    };
+  });
+}
+
+// Stations mirror customers minus the status field: demand defaults to the
+// station's base demand (TRANSPORT_COAL_CUSTOMERS preserves it), so the
+// export shows the full effective demand a student would edit — same
+// "merge base + override" semantics applyCustomerOverrides uses.
+export function applyStationOverrides(overrides: StationOverride[]): StationTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  return TRANSPORT_COAL_CUSTOMERS.map(c => {
+    const o = byId.get(c.id);
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: c.id,
+      city: c.city,
+      state: c.state,
+      demand: o?.demand ?? c.demand,
+    };
+  });
+}
+
 function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
@@ -78,6 +136,22 @@ export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
   const header = "template_version,id,city,state,demand,status";
   const lines = rows.map(r =>
     [r.templateVersion, r.id, csvEscape(r.city), r.state, r.demand, r.status].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+export function mineRowsToCsv(rows: MineTemplateRow[]): string {
+  const header = "template_version,id,city,state,capacity";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.capacity ?? ""].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+export function stationRowsToCsv(rows: StationTemplateRow[]): string {
+  const header = "template_version,id,city,state,demand";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.demand].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }

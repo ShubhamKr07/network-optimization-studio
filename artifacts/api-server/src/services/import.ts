@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyMineOverrides, applyStationOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
@@ -23,23 +23,40 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-const COLUMNS: Record<"warehouses" | "customers", string[]> = {
+export type ImportEntity = "warehouses" | "customers" | "mines" | "stations";
+
+const COLUMNS: Record<ImportEntity, string[]> = {
   warehouses: ["template_version", "id", "city", "state", "capacity", "status"],
   customers: ["template_version", "id", "city", "state", "demand", "status"],
+  mines: ["template_version", "id", "city", "state", "capacity"],
+  stations: ["template_version", "id", "city", "state", "demand"],
 };
 
-const VALID_STATUSES: Record<"warehouses" | "customers", string[]> = {
+const VALID_STATUSES: Record<ImportEntity, string[]> = {
   warehouses: ["active", "forced_open", "inactive"],
   customers: ["active", "excluded"],
+  // Mines/stations have no status column (no open/close concept) — never
+  // consulted because the per-row status validation is gated on entityHasStatus.
+  mines: [],
+  stations: [],
 };
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
+interface MineOverride { id: string; capacity?: number | null; }
+interface StationOverride { id: string; demand?: number | null; }
+
+export interface ImportCurrentOverrides {
+  warehouseOverrides?: WarehouseOverride[];
+  customerOverrides?: CustomerOverride[];
+  mineCapacities?: Record<string, number>;
+  stationDemands?: Record<string, number>;
+}
 
 export function parseAndValidateImport(
-  entity: "warehouses" | "customers",
+  entity: ImportEntity,
   csvText: string,
-  currentOverrides: { warehouseOverrides?: WarehouseOverride[]; customerOverrides?: CustomerOverride[] },
+  currentOverrides: ImportCurrentOverrides,
   pValue: number,
 ): ImportPreview {
   const errors: ImportError[] = [];
@@ -79,12 +96,20 @@ export function parseAndValidateImport(
     return { errors, changes, warnings };
   }
 
-  const baseline = entity === "warehouses"
-    ? applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
-    : applyCustomerOverrides(currentOverrides.customerOverrides ?? []);
+  // Mines/stations store overrides as sparse dicts (mineCapacities/
+  // stationDemands); convert to the array shape the apply* functions take,
+  // same direction Studio's tables do internally.
+  const baseline =
+    entity === "warehouses" ? applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+    : entity === "customers" ? applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
+    : entity === "mines" ? applyMineOverrides(Object.entries(currentOverrides.mineCapacities ?? {}).map(([id, capacity]) => ({ id, capacity })))
+    : applyStationOverrides(Object.entries(currentOverrides.stationDemands ?? {}).map(([id, demand]) => ({ id, demand })));
   const baselineById = new Map(baseline.map(r => [r.id, r] as const));
+  // Mines/stations carry no status column, so status parsing/validation is
+  // skipped for them (only warehouses/customers validate status).
+  const entityHasStatus = entity === "warehouses" || entity === "customers";
   const validStatuses = VALID_STATUSES[entity];
-  const valueLabel = entity === "warehouses" ? "capacity" : "demand";
+  const valueLabel = entity === "warehouses" || entity === "mines" ? "capacity" : "demand";
 
   const seenIds = new Set<string>();
   const dataRows = rows.slice(1);
@@ -98,7 +123,8 @@ export function parseAndValidateImport(
       continue;
     }
 
-    const [tvStr, id, , , valueStr, status] = cols;
+    const [tvStr, id, , , valueStr] = cols;
+    const status = entityHasStatus ? cols[5] : "active";
 
     if (Number(tvStr) !== TEMPLATE_VERSION) {
       errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
@@ -127,28 +153,32 @@ export function parseAndValidateImport(
       value = parsedValue;
     }
 
-    if (!validStatuses.includes(status)) {
+    if (entityHasStatus && !validStatuses.includes(status)) {
       errors.push({ errorClass: "logic", line, message: `Invalid status "${status}" (expected one of ${validStatuses.join(", ")})` });
       continue;
     }
 
-    const beforeValue = entity === "warehouses" ? (baselineRow as { capacity: number | null }).capacity : (baselineRow as { demand: number }).demand;
+    const beforeValue = entity === "warehouses" || entity === "mines"
+      ? (baselineRow as { capacity: number | null }).capacity
+      : (baselineRow as { demand: number }).demand;
+    const beforeStatus = entityHasStatus ? (baselineRow as unknown as { status: string }).status : "active";
 
-    if (baselineRow.status !== status || beforeValue !== value) {
+    if (beforeStatus !== status || beforeValue !== value) {
       changes.push({
         id,
         line,
-        before: { status: baselineRow.status, value: beforeValue },
+        before: { status: beforeStatus, value: beforeValue },
         after: { status, value },
       });
     }
   }
 
   // Cross-field warning (non-blocking): total capacity of the p highest-
-  // capacity active warehouses vs total customer demand.
+  // capacity active warehouses vs total customer demand. P-median-only —
+  // transport-coal has no P and no aggregate capacity-vs-demand check here.
   if (errors.length === 0 && entity === "warehouses") {
     const changeByIdMap = new Map(changes.map(c => [c.id, c]));
-    const warehouseBaseline = baseline as Array<{ id: string; status: "active" | "forced_open" | "inactive"; capacity: number | null }>;
+    const warehouseBaseline = baseline as unknown as Array<{ id: string; status: "active" | "forced_open" | "inactive"; capacity: number | null }>;
     const merged = warehouseBaseline.map(row => {
       const change = changeByIdMap.get(row.id);
       return change ? { ...row, status: change.after.status as typeof row.status, capacity: change.after.value } : row;
