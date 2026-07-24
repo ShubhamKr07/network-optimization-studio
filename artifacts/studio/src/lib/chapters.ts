@@ -6,6 +6,7 @@ export interface Chapter {
   chapter: string;
   title: string;
   description: string;
+  hiddenFromLanding?: boolean;
 }
 
 export const CHAPTERS: Chapter[] = [
@@ -22,6 +23,7 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 5",
     title: "Coal Transport LP",
     description: "Transportation LP: route coal from mines to power stations at minimum cost.",
+    hiddenFromLanding: true,
   },
   {
     path: "/chapter-5/brazil",
@@ -29,6 +31,7 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 5",
     title: "Brazil Capacity — Capacitated P-Median",
     description: "Capacitated facility location: open warehouses under per-site capacity limits.",
+    hiddenFromLanding: true,
   },
 ];
 

@@ -12,7 +12,7 @@ export function Landing() {
       <h1 className="text-2xl font-semibold mb-1">Labs</h1>
       <p className="text-muted-foreground mb-6">Pick a chapter to start or continue a scenario.</p>
       <div className="grid gap-4 sm:grid-cols-2">
-        {CHAPTERS.map((c) => (
+        {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => (
           <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
             <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full">
               <CardHeader>
