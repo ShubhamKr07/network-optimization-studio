@@ -38,6 +38,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install solver dependencies
+        run: pip install pulp pytest
+
       - name: Typecheck (whole workspace)
         run: pnpm run typecheck
 
@@ -46,13 +53,6 @@ jobs:
 
       - name: Studio tests
         run: pnpm --filter studio run test
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install solver dependencies
-        run: pip install pulp pytest
 
       - name: Solver test suite
         run: cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x
