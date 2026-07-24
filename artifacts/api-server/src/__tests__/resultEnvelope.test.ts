@@ -58,4 +58,24 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     expect(raw.status).toBe("infeasible");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
+
+  it("retains leg and avgDistanceByLeg through Zod parse (S1 guard)", () => {
+    // Zod's z.object() strips unknown keys silently. The two-echelon solver
+    // emits edge.leg and metrics.avgDistanceByLeg; if EdgeSchema/MetricsSchema
+    // didn't declare them optional, both would vanish in transit with zero
+    // error. This guard fails the moment someone removes those fields.
+    const raw = {
+      status: "optimal", objective: 100, runTimeSec: 0.1, quality: "Optimal",
+      edges: [{ fromId: "kalgoorlie", toId: "cunnamulla", flow: 1000, distance: 1465, leg: "mine_to_refinery" }],
+      metrics: {
+        weightedAvgDistance: 500,
+        avgDistanceByLeg: [{ leg: "mine_to_refinery", avgDistance: 1465, totalFlow: 1000 }],
+      },
+      details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    const parsed = ResultEnvelopeSchema.parse(raw);
+    expect(parsed.edges[0].leg).toBe("mine_to_refinery");
+    expect(parsed.metrics.avgDistanceByLeg).toHaveLength(1);
+    expect(parsed.metrics.avgDistanceByLeg![0].avgDistance).toBe(1465);
+  });
 });

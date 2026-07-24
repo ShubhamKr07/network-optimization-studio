@@ -11,6 +11,10 @@ export const EdgeSchema = z.object({
   flow: z.number(),
   distance: z.number(),
   band: z.number().optional(),
+  // Two-echelon models tag each edge with its leg so the map can style
+  // mine->refinery and refinery->customer differently. Optional: single-echelon
+  // models omit it. Without this field here, Zod strips it silently.
+  leg: z.enum(["mine_to_refinery", "refinery_to_customer"]).optional(),
 });
 
 export const MetricsSchema = z.object({
@@ -19,6 +23,13 @@ export const MetricsSchema = z.object({
     .optional(),
   bandCoverage: z.array(z.object({ band: z.number(), percent: z.number() })).optional(),
   weightedAvgDistance: z.number().optional(),
+  // Two-echelon models emit per-leg average distance + total flow so the UI
+  // can show how the mine->refinery vs refinery->customer legs trade off as
+  // bomRatio changes. Optional: single-echelon models omit it. Without this
+  // field here, Zod strips it silently.
+  avgDistanceByLeg: z
+    .array(z.object({ leg: z.string(), avgDistance: z.number(), totalFlow: z.number() }))
+    .optional(),
 });
 
 export const ResultEnvelopeSchema = z.object({

@@ -72,6 +72,23 @@ BRAZIL_REGIONS      = _safe_load("p-median-brazil", "states.json", default={})
 _BRAZIL_DIST_RAW    = _safe_load("p-median-brazil", "distances.json", default={})
 BRAZIL_TOTAL_DEMAND = sum(r["demand"] for r in BRAZIL_REGIONS.values())
 
+# ---------------------------------------------------------------------------
+# Dataset: Chapter 10 Two-Echelon Gold Refinery (Australia)
+# Source: Notebook_Mining_Problem_Chapter_10_Network_Design_Book.ipynb
+# 1 gold mine -> 2 candidate refineries -> 10 customers
+# solvers/two-echelon-gold-au/dataset/
+# ---------------------------------------------------------------------------
+GOLD_MINES      = _safe_load("two-echelon-gold-au", "mines.json")
+GOLD_REFINERIES = _safe_load("two-echelon-gold-au", "refineries.json")
+GOLD_CUSTOMERS  = _safe_load("two-echelon-gold-au", "customers.json")
+_GOLD_DIST_RAW  = _safe_load("two-echelon-gold-au", "distances.json")
+
+# Notebook's cost divisor: kg -> truckloads (the objective divides each leg's
+# distance*flow by TRUCKLOAD_KG, so the objective is NOT in kg-km and must
+# never be divided by demand to derive an average distance -- see
+# test_avg_distance_not_derived_from_objective).
+TRUCKLOAD_KG = 44000
+
 def _transport_distances():
     """Mine→station distances in miles, precomputed at extraction time
     (haversine × circuity — see scripts/extract-datasets.py)."""
@@ -81,6 +98,9 @@ def _brazil_distances():
     """Warehouse→region distances in miles, precomputed at extraction time
     (haversine × circuity — see scripts/extract-datasets.py)."""
     return {tuple(k.split(',')): v for k, v in _BRAZIL_DIST_RAW.items()}
+
+def _gold_distances():
+    return {(k.split(',')[0], k.split(',')[1]): v for k, v in _GOLD_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
 # Standardized result envelope (Phase 3.5, G2.1). `details` deliberately
@@ -101,6 +121,13 @@ def _envelope(status, quality, objective, run_time, edges, metrics, details, inf
         "solverUsed": "CBC (PuLP)",
         "infeasibilityReason": infeasibility_reason,
     }
+
+# Empty envelope slot constants reused by every model's error/infeasible path
+# (two-echelon's solve_two_echelon introduced these references; behavior-
+# preserving shorthands for the inline dicts the three existing models already
+# emit on their error/infeasible branches — no numeric value changes).
+_EMPTY_METRICS = {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0}
+_EMPTY_DETAILS = {"openWarehouseIds": [], "assignments": []}
 
 def _load_error_envelope(model_id, run_time=0.0):
     """Error envelope returned when a model's dataset failed to load at
@@ -523,6 +550,163 @@ def solve_capacitated_pmedian(inp):
                       {"openWarehouseIds": open_wh_ids, "assignments": assignments})
 
 # ---------------------------------------------------------------------------
+# Two-Echelon Gold Refinery solver (Chapter 10)
+# mine -> refinery -> customer, exactly one of two candidate refineries opens.
+# ---------------------------------------------------------------------------
+def solve_two_echelon(inp):
+    if _LOAD_ERRORS.get("two-echelon-gold-au"):
+        return _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
+                         f"Dataset load failed: {_LOAD_ERRORS['two-echelon-gold-au']}")
+
+    bom            = float(inp.get('bomRatio', 1.1))
+    distance_bands = sorted(inp.get('distanceBands', [500, 1000, 1500, 2000, 2600]))
+    gap            = float(inp.get('gap', 0.0))
+    time_limit     = int(inp.get('timeLimitSec', 120))
+    ref_status     = {o['refineryId']: o['status'] for o in inp.get('refineryStatuses', [])}
+    excluded       = set(inp.get('excludedCustomerIds', []))
+    demand_over    = inp.get('customerDemands', {})
+
+    mines      = list(GOLD_MINES.keys())
+    refineries = list(GOLD_REFINERIES.keys())
+    customers  = [c for c in GOLD_CUSTOMERS if c not in excluded]
+    dist       = _gold_distances()
+    demands    = {c: float(demand_over.get(c, GOLD_CUSTOMERS[c]['demand'])) for c in customers}
+    total_demand = sum(demands.values())
+
+    start = time.time()
+    prob  = LpProblem("TwoEchelonGold", LpMinimize)
+
+    x      = LpVariable.dicts("MineToRef",  [(p, r) for p in mines for r in refineries], lowBound=0)
+    y      = LpVariable.dicts("RefToCust",  [(r, c) for r in refineries for c in customers], lowBound=0)
+    open_r = LpVariable.dicts("Open", refineries, cat="Binary")
+
+    prob += (lpSum(dist[p, r] * x[p, r] / TRUCKLOAD_KG for p in mines for r in refineries)
+             + lpSum(dist[r, c] * y[r, c] / TRUCKLOAD_KG for r in refineries for c in customers))
+
+    # C1 -- every customer's demand met exactly
+    for c in customers:
+        prob += LpConstraint(lpSum(y[r, c] for r in refineries),
+                             LpConstraintEQ, f"demand_{c}", demands[c])
+
+    # C2 -- exactly one refinery open, honouring forced_open / inactive
+    for r in refineries:
+        if ref_status.get(r) == "inactive":
+            prob += LpConstraint(open_r[r], LpConstraintEQ, f"inactive_{r}", 0)
+        elif ref_status.get(r) == "forced_open":
+            prob += LpConstraint(open_r[r], LpConstraintEQ, f"forced_{r}", 1)
+    prob += LpConstraint(lpSum(open_r[r] for r in refineries), LpConstraintEQ, "total_open", 1)
+
+    # C3 -- big-M: no outflow from a closed refinery
+    for r in refineries:
+        prob += LpConstraint(lpSum(y[r, c] for c in customers) - total_demand * open_r[r],
+                             LpConstraintLE, f"open_link_{r}", 0)
+
+    # C4 -- BOM flow balance, summed over mines. The notebook constrains this
+    # per (p,r) pair, which is correct only for a single mine; with two it
+    # forces each mine to supply the full requirement independently, doubling
+    # raw inflow with no error raised.
+    for r in refineries:
+        prob += LpConstraint(lpSum(x[p, r] for p in mines) - bom * lpSum(y[r, c] for c in customers),
+                             LpConstraintEQ, f"bom_balance_{r}", 0)
+
+    prob.solve(PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False))
+    run_time   = time.time() - start
+    status_str = LpStatus[prob.status]
+
+    if status_str == "Infeasible":
+        active = [r for r in refineries if ref_status.get(r) != "inactive"]
+        forced = [r for r in refineries if ref_status.get(r) == "forced_open"]
+        if not active:
+            reason = ("Every refinery is marked inactive, but exactly one must be open to "
+                      "refine gold. Re-activate at least one refinery.")
+        elif len(forced) > 1:
+            reason = (f"{len(forced)} refineries are forced open, but this model builds exactly "
+                      "one. Force at most one open, or leave them all active.")
+        else:
+            reason = f"No feasible assignment for total demand of {total_demand:,.0f} kg."
+        return _envelope("infeasible", status_str, 0, run_time, [],
+                         _EMPTY_METRICS, {"openWarehouseIds": [], "assignments": []}, reason)
+
+    EPS = max(total_demand * 1e-9, 1e-6)          # relative, not absolute
+    open_ids = [r for r in refineries if (open_r[r].varValue or 0) > 0.5]
+
+    edges, assignments = [], []
+    leg_dist_flow = {"mine_to_refinery": 0.0, "refinery_to_customer": 0.0}
+    leg_flow      = {"mine_to_refinery": 0.0, "refinery_to_customer": 0.0}
+    band_flow     = {b: 0.0 for b in distance_bands}
+    band_overflow = 0.0
+
+    def _band(d):
+        """Returns None for distances past the last band rather than absorbing
+        them into it -- the existing models' len(bands)-1 fallback silently
+        misreports coverage on this dataset, whose longest leg is 2,544 km."""
+        for i, b in enumerate(distance_bands):
+            if d <= b:
+                return i
+        return None
+
+    for p in mines:
+        for r in refineries:
+            f = x[p, r].varValue or 0
+            if f <= EPS:
+                continue
+            d = dist[p, r]
+            leg_dist_flow["mine_to_refinery"] += d * f
+            leg_flow["mine_to_refinery"]      += f
+            edges.append({"fromId": p, "toId": r, "flow": round(f), "distance": d,
+                          "band": _band(d) if _band(d) is not None else len(distance_bands),
+                          "leg": "mine_to_refinery"})
+
+    for r in refineries:
+        for c in customers:
+            f = y[r, c].varValue or 0
+            if f <= EPS:
+                continue
+            d  = dist[r, c]
+            bi = _band(d)
+            leg_dist_flow["refinery_to_customer"] += d * f
+            leg_flow["refinery_to_customer"]      += f
+            if bi is None:
+                band_overflow += f
+            else:
+                for b in distance_bands:
+                    if d <= b:
+                        band_flow[b] += f
+            edges.append({"fromId": r, "toId": c, "flow": round(f), "distance": d,
+                          "band": bi if bi is not None else len(distance_bands),
+                          "leg": "refinery_to_customer"})
+            assignments.append({"customerId": c, "warehouseId": r, "distanceMi": d,
+                                "band": bi if bi is not None else len(distance_bands),
+                                "flowKg": round(f),
+                                "flowFraction": round(f / demands[c], 4) if demands[c] else 0})
+
+    def _avg(leg):
+        return round(leg_dist_flow[leg] / leg_flow[leg], 1) if leg_flow[leg] > 0 else 0
+
+    avg_by_leg = [{"leg": leg, "avgDistance": _avg(leg), "totalFlow": round(leg_flow[leg])}
+                  for leg in ("mine_to_refinery", "refinery_to_customer")]
+
+    total_flow = sum(leg_flow.values())
+    blended = round(sum(leg_dist_flow.values()) / total_flow, 1) if total_flow else 0
+
+    band_coverage = [{"band": b, "percent": round(band_flow[b] * 100 / total_demand)}
+                     for b in distance_bands]
+    if band_overflow > 0:
+        band_coverage.append({"band": -1,
+                              "percent": round(band_overflow * 100 / total_demand)})
+
+    utilization = [{"warehouseId": r, "city": GOLD_REFINERIES[r]['city'],
+                    "utilization": 100 if r in open_ids else 0} for r in refineries]
+
+    return _envelope("optimal", status_str, round(value(prob.objective) or 0, 2), run_time, edges,
+                     {"utilizationByNode": utilization,
+                      "bandCoverage": band_coverage,
+                      "weightedAvgDistance": blended,
+                      "avgDistanceByLeg": avg_by_leg},
+                     {"openWarehouseIds": open_ids, "assignments": assignments,
+                      "bomRatio": bom})
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 def solve(inp):
@@ -531,6 +715,8 @@ def solve(inp):
         return solve_transport(inp)
     if model_type == 'capacitated_pmedian':
         return solve_capacitated_pmedian(inp)
+    if model_type == 'two_echelon':
+        return solve_two_echelon(inp)
     return solve_pmedian(inp)
 
 if __name__ == "__main__":
