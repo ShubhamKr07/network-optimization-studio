@@ -22,13 +22,29 @@ def _load_json(model_id, filename):
         return json.load(f)
 
 # ---------------------------------------------------------------------------
+# Dataset load-failure containment (Phase H, H4). A single corrupt/missing
+# dataset file used to crash solve.py at import time, taking down EVERY
+# model — not just the one whose dataset was broken. _safe_load wraps each
+# module-level load so a failure is captured into _LOAD_ERRORS keyed by
+# model_id; the affected model's solve_* function then returns an error
+# envelope instead of crashing, while the OTHER models keep working.
+_LOAD_ERRORS = {}
+
+def _safe_load(model_id, filename, default=None):
+    try:
+        return _load_json(model_id, filename)
+    except Exception as e:  # noqa: BLE001 — intentionally broad: any IO/JSON failure
+        _LOAD_ERRORS[model_id] = f"Failed to load {model_id}/{filename}: {e}"
+        return default
+
+# ---------------------------------------------------------------------------
 # Dataset: Al's Athletics — P-Median (26 warehouses, 200 customers)
 # Source: Watson et al. "Supply Chain Network Design" Ch.5 Exercise 5 notebook
 # solvers/p-median-us/dataset/
 # ---------------------------------------------------------------------------
-_WH_DATA  = _load_json("p-median-us", "warehouses.json")
-_CU_DATA  = _load_json("p-median-us", "customers.json")
-_DIST_RAW = _load_json("p-median-us", "distances.json")
+_WH_DATA  = _safe_load("p-median-us", "warehouses.json", default={})
+_CU_DATA  = _safe_load("p-median-us", "customers.json", default={})
+_DIST_RAW = _safe_load("p-median-us", "distances.json", default={})
 
 WAREHOUSES     = {int(k): v for k, v in _WH_DATA.items()}
 CUSTOMERS      = {int(k): v for k, v in _CU_DATA.items()}
@@ -41,9 +57,9 @@ WH_STRING_TO_NUM = {v['id']: int(k) for k, v in _WH_DATA.items()}
 # Source: Watson et al. "Supply Chain Network Design" Ch.5 Exercise 5 notebook
 # solvers/transport-coal/dataset/
 # ---------------------------------------------------------------------------
-COAL_MINES      = _load_json("transport-coal", "mines.json")
-POWER_STATIONS  = _load_json("transport-coal", "stations.json")
-_TRANSPORT_COSTS_RAW = _load_json("transport-coal", "costs.json")
+COAL_MINES      = _safe_load("transport-coal", "mines.json", default={})
+POWER_STATIONS  = _safe_load("transport-coal", "stations.json", default={})
+_TRANSPORT_COSTS_RAW = _safe_load("transport-coal", "costs.json", default={})
 
 # ---------------------------------------------------------------------------
 # Dataset: Brazil Facility Location (Chapter 5 Capacitated P-Median)
@@ -51,9 +67,9 @@ _TRANSPORT_COSTS_RAW = _load_json("transport-coal", "costs.json")
 # 25 candidate warehouse cities, 25 demand regions (states)
 # solvers/p-median-brazil/dataset/
 # ---------------------------------------------------------------------------
-BRAZIL_WAREHOUSES   = _load_json("p-median-brazil", "warehouses.json")
-BRAZIL_REGIONS      = _load_json("p-median-brazil", "states.json")
-_BRAZIL_DIST_RAW    = _load_json("p-median-brazil", "distances.json")
+BRAZIL_WAREHOUSES   = _safe_load("p-median-brazil", "warehouses.json", default={})
+BRAZIL_REGIONS      = _safe_load("p-median-brazil", "states.json", default={})
+_BRAZIL_DIST_RAW    = _safe_load("p-median-brazil", "distances.json", default={})
 BRAZIL_TOTAL_DEMAND = sum(r["demand"] for r in BRAZIL_REGIONS.values())
 
 def _transport_distances():
@@ -86,10 +102,23 @@ def _envelope(status, quality, objective, run_time, edges, metrics, details, inf
         "infeasibilityReason": infeasibility_reason,
     }
 
+def _load_error_envelope(model_id, run_time=0.0):
+    """Error envelope returned when a model's dataset failed to load at
+    import time — keyed off _LOAD_ERRORS so the user sees the actual
+    IO/JSON failure message instead of a bare traceback."""
+    return _envelope(
+        "error", "error", 0, run_time, [],
+        {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
+        {"openWarehouseIds": [], "assignments": []},
+        _LOAD_ERRORS.get(model_id, f"Unknown load error for {model_id}"),
+    )
+
 # ---------------------------------------------------------------------------
 # P-Median solver (Chapter 3)
 # ---------------------------------------------------------------------------
 def solve_pmedian(inp):
+    if _LOAD_ERRORS.get("p-median-us"):
+        return _load_error_envelope("p-median-us")
     p = inp['pValue']
     distance_bands = sorted(inp['distanceBands'])
     uniform_capacity = inp.get('uniformCapacity')
@@ -230,6 +259,8 @@ def solve_pmedian(inp):
 # Transportation LP solver (Chapter 5)
 # ---------------------------------------------------------------------------
 def solve_transport(inp):
+    if _LOAD_ERRORS.get("transport-coal"):
+        return _load_error_envelope("transport-coal")
     capacity_factor   = float(inp.get('capacityFactor', 1.0))
     single_source     = bool(inp.get('singleSource', False))
     capacity_inactive = bool(inp.get('capacityInactive', False))
@@ -356,6 +387,8 @@ def solve_transport(inp):
 # singleSource=False → continuous assign (LP relaxation, always feasible)
 # ---------------------------------------------------------------------------
 def solve_capacitated_pmedian(inp):
+    if _LOAD_ERRORS.get("p-median-brazil"):
+        return _load_error_envelope("p-median-brazil")
     p               = int(inp.get('pValue', 5))
     wh_cap          = int(inp.get('warehouseCapacity', 20_000_000))
     single_source   = bool(inp.get('singleSource', True))

@@ -25,8 +25,22 @@ function discoverManifests(): Map<string, Manifest> {
     if (!entry.isDirectory()) continue;
     const manifestPath = path.join(SOLVERS_ROOT, entry.name, "manifest.json");
     if (!fs.existsSync(manifestPath)) continue;
-    const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    map.set(entry.name, ManifestSchema.parse(raw));
+    // One corrupt/invalid manifest must NOT take down the whole registry —
+    // every other model would vanish from GET /api/models alongside it.
+    // Wrap each manifest's parse+validate in its own try/catch so a bad
+    // manifest is logged and skipped, and the rest still register.
+    try {
+      const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      map.set(entry.name, ManifestSchema.parse(raw));
+    } catch (err) {
+      // Use console.error (not the app logger) — discoverManifests runs at
+      // module load, before the logger is initialised, and a registry scan
+      // failure is an operator-visible boot problem, not request-scoped.
+      console.error(
+        `[modelRegistry] skipping invalid manifest ${manifestPath}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   return map;
 }
