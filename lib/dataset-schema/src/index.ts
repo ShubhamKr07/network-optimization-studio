@@ -52,6 +52,16 @@ export const BrazilStateEntry = z.object({
   demand: z.number(),
 });
 
+export const RefineryEntry = z.object({
+  id: z.string(),
+  city: z.string(),
+  state: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+});
+export const GoldMineEntry = RefineryEntry;
+export const GoldCustomerEntry = RefineryEntry.extend({ demand: z.number() });
+
 export const VersionFile = z.object({
   version: z.number(),
   sha256: z.string(),
@@ -85,6 +95,15 @@ export const PACKAGE_SPECS: ModelPackageSpec[] = [
     files: {
       "warehouses.json": z.record(z.string(), BrazilWarehouseEntry),
       "states.json": z.record(z.string(), BrazilStateEntry),
+      "distances.json": DistanceMap,
+    },
+  },
+  {
+    modelId: "two-echelon-gold-au",
+    files: {
+      "mines.json": z.record(z.string(), GoldMineEntry),
+      "refineries.json": z.record(z.string(), RefineryEntry),
+      "customers.json": z.record(z.string(), GoldCustomerEntry),
       "distances.json": DistanceMap,
     },
   },
@@ -145,7 +164,7 @@ export const ManifestSchema = z.object({
 
 export type Manifest = z.infer<typeof ManifestSchema>;
 
-export const MODEL_IDS = ["p-median-us", "transport-coal", "p-median-brazil"] as const;
+export const MODEL_IDS = ["p-median-us", "transport-coal", "p-median-brazil", "two-echelon-gold-au"] as const;
 
 /** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */
 export function readManifest(modelId: string): Manifest {

@@ -1,0 +1,46 @@
+{
+  "id": "two-echelon-gold-au",
+  "name": "Gold Refinery Siting — Two-Echelon",
+  "chapter": "Chapter 10",
+  "datasetDir": "solvers/two-echelon-gold-au/dataset",
+  "countryBounds": { "sw": [-38.5, 113.0], "ne": [-16.0, 154.5] },
+  "capabilities": { "supportsP": false, "capacityModes": [], "demandEditable": true },
+  "inputsSchema": {
+    "type": "object",
+    "properties": {
+      "bomRatio": { "type": "number", "exclusiveMinimum": 1 },
+      "refineryOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "customerOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "demand": { "type": ["number", "null"], "minimum": 0 },
+            "status": { "type": "string", "enum": ["active", "excluded"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "distanceBands": {
+        "type": "array",
+        "items": { "type": "integer", "exclusiveMinimum": 0 },
+        "minItems": 1,
+        "default": [500, 1000, 1500, 2000, 2600]
+      },
+      "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 }
+    },
+    "required": ["bomRatio", "distanceBands", "gap", "timeLimitSec"]
+  }
+}
