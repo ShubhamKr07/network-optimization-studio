@@ -27,6 +27,7 @@ export const VALID_MODEL_IDS = new Set([
   "p-median-us",
   "transport-coal",
   "p-median-brazil",
+  "two-echelon-gold-au",
   "max_coverage",
   "p_center",
   "set_cover",

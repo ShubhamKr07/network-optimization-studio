@@ -4,6 +4,7 @@ import type { ZodType } from "zod";
 import { SOLVERS_ROOT, ManifestSchema, type Manifest } from "@workspace/dataset-schema";
 import { pMedianInputsSchema } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema } from "../validation/inputs/transportLp.js";
+import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
 // new dataset+manifest+solver directory shows up in listModels()/GET
@@ -17,6 +18,7 @@ const KNOWN_SCHEMAS: Record<string, ZodType> = {
   "p-median-us": pMedianInputsSchema,
   "p-median-brazil": pMedianInputsSchema,
   "transport-coal": transportLpInputsSchema,
+  "two-echelon-gold-au": twoEchelonInputsSchema,
 };
 
 function discoverManifests(): Map<string, Manifest> {

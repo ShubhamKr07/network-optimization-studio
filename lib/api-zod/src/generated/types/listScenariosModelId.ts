@@ -13,6 +13,7 @@ export const ListScenariosModelId = {
   'p-median-us': 'p-median-us',
   'transport-coal': 'transport-coal',
   'p-median-brazil': 'p-median-brazil',
+  'two-echelon-gold-au': 'two-echelon-gold-au',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',

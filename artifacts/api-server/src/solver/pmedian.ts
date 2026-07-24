@@ -1,9 +1,11 @@
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
+import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 
 export type SolveInput =
   | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
-  | { modelId: "transport-coal"; inputs: TransportLpInputs };
+  | { modelId: "transport-coal"; inputs: TransportLpInputs }
+  | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs };
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
@@ -22,6 +24,25 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       capacityInactive: i.capacityInactive,
       mineCapacities: i.mineCapacities,
       stationDemands: i.stationDemands,
+    };
+  }
+
+  if (input.modelId === "two-echelon-gold-au") {
+    const i = input.inputs;
+    return {
+      modelType: "two_echelon",
+      bomRatio: i.bomRatio,
+      refineryStatuses: i.refineryOverrides
+        .filter((o) => o.status !== "active")
+        .map((o) => ({ refineryId: o.id, status: o.status })),
+      excludedCustomerIds: i.customerOverrides
+        .filter((o) => o.status === "excluded").map((o) => o.id),
+      customerDemands: Object.fromEntries(
+        i.customerOverrides.filter((o) => o.demand != null).map((o) => [o.id, o.demand as number]),
+      ),
+      distanceBands: i.distanceBands,
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
     };
   }
 

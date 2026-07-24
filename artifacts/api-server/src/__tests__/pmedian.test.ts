@@ -179,4 +179,20 @@ describe("buildPayload()", () => {
     };
     expect(buildPayload(input).customerDemands).toEqual({ C1: 42 });
   });
+
+  it("buildPayload forwards two-echelon-gold-au inputs to the solver payload", () => {
+    const payload = buildPayload({
+      modelId: "two-echelon-gold-au",
+      inputs: {
+        bomRatio: 1.5,
+        refineryOverrides: [{ id: "daggar-hills", status: "inactive" }],
+        customerOverrides: [{ id: "sydney", demand: 3000000, status: "active" }],
+        distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120,
+      },
+    });
+    expect(payload.modelType).toBe("two_echelon");
+    expect(payload.bomRatio).toBe(1.5);
+    expect(payload.refineryStatuses).toEqual([{ refineryId: "daggar-hills", status: "inactive" }]);
+    expect(payload.customerDemands).toEqual({ sydney: 3000000 });
+  });
 });
