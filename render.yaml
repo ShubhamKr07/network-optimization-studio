@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: nos-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nos-postgres
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGIN
+        value: https://nos-studio.onrender.com
+      - key: LOG_LEVEL
+        value: info
+
+  - type: web
+    name: nos-studio
+    runtime: static
+    buildCommand: >-
+      corepack enable && corepack prepare pnpm@9 --activate &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter studio... --if-present run build
+    staticPublishPath: artifacts/studio/dist/public
+    envVars:
+      - key: BASE_PATH
+        value: /
+      - key: PORT
+        value: "10000"          # unused at runtime for a static site;
+                                  # vite.config.ts just needs it present
+                                  # and numeric at build time (G6)
+      - key: VITE_API_BASE_URL
+        value: https://nos-api.onrender.com
+      - key: NODE_VERSION
+        value: "24"
+
+databases:
+  - name: nos-postgres
+    plan: starter
+    postgresMajorVersion: 16
