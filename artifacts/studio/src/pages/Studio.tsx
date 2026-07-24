@@ -21,6 +21,7 @@ import {
 import type { Scenario } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
+import { MapBulkEditToolbar } from "@/components/MapBulkEditToolbar";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
 import { WarehouseTable } from "@/components/tables/WarehouseTable";
 import { CustomerTable } from "@/components/tables/CustomerTable";
@@ -215,6 +216,46 @@ export function Studio({ modelId }: StudioProps) {
   const [showStationTable, setShowStationTable] = useState(false);
   const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | "mines" | "stations" | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // Multi-select (shift/ctrl-click) lifted state — Studio.tsx owns it so the
+  // MapBulkEditToolbar rendered outside NetworkMap can act on the selection.
+  const [multiSelectedWarehouseIds, setMultiSelectedWarehouseIds] = useState<string[]>([]);
+  const [multiSelectedCustomerIds, setMultiSelectedCustomerIds] = useState<string[]>([]);
+
+  const toggleWarehouseMultiSelect = (id: string) => {
+    setMultiSelectedCustomerIds([]); // selecting a warehouse clears any customer selection -- enforces the "one entity type at a time" rule at the toggle site, not just in the toolbar's disabled-state display
+    setMultiSelectedWarehouseIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const toggleCustomerMultiSelect = (id: string) => {
+    setMultiSelectedWarehouseIds([]);
+    setMultiSelectedCustomerIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const clearMultiSelection = () => {
+    setMultiSelectedWarehouseIds([]);
+    setMultiSelectedCustomerIds([]);
+  };
+
+  function bulkUpsertWarehouseOverrides(ids: string[], patch: Partial<WarehouseOverride>) {
+    if (!localConfig) return;
+    const rest = localConfig.warehouseOverrides.filter(o => !ids.includes(o.id));
+    const applied = ids.map(id => {
+      const existing = localConfig.warehouseOverrides.find(o => o.id === id);
+      const merged: WarehouseOverride = { id, status: existing?.status ?? "active", capacity: existing?.capacity, ...patch };
+      return merged;
+    }).filter(o => !(o.status === "active" && o.capacity == null));
+    update("warehouseOverrides", [...rest, ...applied]);
+  }
+
+  function bulkUpsertCustomerOverrides(ids: string[], patch: Partial<CustomerOverride>) {
+    if (!localConfig) return;
+    const rest = localConfig.customerOverrides.filter(o => !ids.includes(o.id));
+    const applied = ids.map(id => {
+      const existing = localConfig.customerOverrides.find(o => o.id === id);
+      const merged: CustomerOverride = { id, status: existing?.status ?? "active", demand: existing?.demand, ...patch };
+      return merged;
+    }).filter(o => !(o.status === "active" && o.demand == null));
+    update("customerOverrides", [...rest, ...applied]);
+  }
 
   const deleteScenario = useDeleteScenario();
   const resetToBaseline = useResetScenarioToBaseline();
@@ -1217,20 +1258,34 @@ export function Studio({ modelId }: StudioProps) {
                   showRoutes={activeTab === "output" && showRoutes}
                 />
               ) : dataset ? (
-                <NetworkMap
-                  dataset={dataset}
-                  warehouseStatuses={(localConfig?.warehouseOverrides ?? [])
-                    .filter(o => o.status !== "active")
-                    .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }))}
-                  result={activeTab === "output" ? result : null}
-                  showRoutes={activeTab === "output" && showRoutes}
-                  bands={bands}
-                  countryBounds={activeModelManifest?.countryBounds}
-                  multiSelectedWarehouseIds={[]}
-                  multiSelectedCustomerIds={[]}
-                  onToggleWarehouseMultiSelect={() => {}}
-                  onToggleCustomerMultiSelect={() => {}}
-                />
+                <>
+                  <NetworkMap
+                    dataset={dataset}
+                    warehouseStatuses={(localConfig?.warehouseOverrides ?? [])
+                      .filter(o => o.status !== "active")
+                      .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }))}
+                    result={activeTab === "output" ? result : null}
+                    showRoutes={activeTab === "output" && showRoutes}
+                    bands={bands}
+                    countryBounds={activeModelManifest?.countryBounds}
+                    multiSelectedWarehouseIds={modelId === "p-median-us" ? multiSelectedWarehouseIds : []}
+                    multiSelectedCustomerIds={modelId === "p-median-us" ? multiSelectedCustomerIds : []}
+                    onToggleWarehouseMultiSelect={toggleWarehouseMultiSelect}
+                    onToggleCustomerMultiSelect={toggleCustomerMultiSelect}
+                  />
+                  {modelId === "p-median-us" && localConfig && (
+                    <MapBulkEditToolbar
+                      selectedWarehouseIds={multiSelectedWarehouseIds}
+                      selectedCustomerIds={multiSelectedCustomerIds}
+                      capacityMode={localConfig.capacityMode}
+                      onSetWarehouseCapacity={(ids, capacity) => { bulkUpsertWarehouseOverrides(ids, { capacity }); clearMultiSelection(); }}
+                      onSetWarehouseStatus={(ids, status) => { bulkUpsertWarehouseOverrides(ids, { status, capacity: status === "active" ? null : undefined }); clearMultiSelection(); }}
+                      onSetCustomerDemand={(ids, demand) => { bulkUpsertCustomerOverrides(ids, { demand }); clearMultiSelection(); }}
+                      onSetCustomerStatus={(ids, status) => { bulkUpsertCustomerOverrides(ids, { status, demand: status === "active" ? null : undefined }); clearMultiSelection(); }}
+                      onClearSelection={clearMultiSelection}
+                    />
+                  )}
+                </>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading map...</div>
               )}

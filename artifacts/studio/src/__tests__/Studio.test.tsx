@@ -28,9 +28,39 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 // ── Mock NetworkMap & ObjectiveBar (heavy deps) ───────────────────────────────
+// NetworkMap is a heavy Leaflet component that doesn't mount real DOM markers
+// under jsdom. This stub renders two clickable buttons wired to the multi-select
+// toggle callbacks Studio.tsx passes down, so the map-bulk-edit wiring
+// (multi-select state → toolbar render → bulkUpsert helpers → customerOverrides)
+// is fully testable without a real Leaflet instance — same pattern this file
+// already uses for BrazilMap/ObjectiveBar (testid-tagged placeholder stubs).
 vi.mock("@/components/NetworkMap", () => ({
-  NetworkMap: (props: { countryBounds?: { sw: number[]; ne: number[] } }) => (
-    <div data-testid="network-map" data-country-bounds={props.countryBounds ? JSON.stringify(props.countryBounds) : ""} />
+  NetworkMap: (props: {
+    countryBounds?: { sw: number[]; ne: number[] };
+    onToggleWarehouseMultiSelect?: (id: string) => void;
+    onToggleCustomerMultiSelect?: (id: string) => void;
+  }) => (
+    <div
+      data-testid="network-map"
+      data-country-bounds={props.countryBounds ? JSON.stringify(props.countryBounds) : ""}
+    >
+      <button
+        data-testid="mock-marker-warehouse-W1"
+        onClick={() => props.onToggleWarehouseMultiSelect?.("W1")}
+      />
+      <button
+        data-testid="mock-marker-warehouse-W2"
+        onClick={() => props.onToggleWarehouseMultiSelect?.("W2")}
+      />
+      <button
+        data-testid="mock-marker-customer-C1"
+        onClick={() => props.onToggleCustomerMultiSelect?.("C1")}
+      />
+      <button
+        data-testid="mock-marker-customer-C2"
+        onClick={() => props.onToggleCustomerMultiSelect?.("C2")}
+      />
+    </div>
   ),
 }));
 vi.mock("@/components/ObjectiveBar", () => ({
@@ -1014,6 +1044,42 @@ describe("Studio — empty scenarios", () => {
     expect(screen.getByText("New scenario")).toBeInTheDocument();
   });
 });
+
+// ── Map multi-select bulk-edit toolbar (Task 2) ─────────────────────────────
+// Studio.tsx lifts the multi-select state and renders MapBulkEditToolbar over
+// the map. The NetworkMap mock (above) stubs warehouse/customer markers as
+// testid-tagged buttons wired to the toggle callbacks, so the full wiring —
+// toggle → toolbar render → bulkUpsert helper → override arrays — is observable.
+describe("Studio — Map multi-select bulk-edit toolbar", () => {
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("multi-selecting two warehouses shows the bulk-edit toolbar with the count", async () => {
+    renderStudio();
+    expect(screen.queryByTestId("map-bulk-edit-toolbar")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("mock-marker-warehouse-W1"));
+    await userEvent.click(screen.getByTestId("mock-marker-warehouse-W2"));
+    expect(screen.getByTestId("map-bulk-edit-toolbar")).toBeInTheDocument();
+    expect(screen.getByText(/2 warehouses selected/i)).toBeInTheDocument();
+  });
+
+  it("applying a bulk exclude to selected customers updates customerOverrides", async () => {
+    renderStudio();
+    await userEvent.click(screen.getByTestId("mock-marker-customer-C1"));
+    await userEvent.click(screen.getByTestId("button-bulk-exclude"));
+    // Read the committed override back through the Customer table dialog —
+    // matches how other override tests in this file verify a round-trip
+    // (the toolbar writes into the same customerOverrides array the table
+    // dialog reads from, and clearMultiSelection already dismissed the
+    // toolbar so this is the stable, post-action assertion point).
+    await userEvent.click(screen.getByTestId("button-open-customer-table"));
+    expect(screen.getByTestId("button-customer-C1-excluded")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-bulk-edit-toolbar")).not.toBeInTheDocument();
+  });
+});
+
 
 // ── invalidateQueries + navigate race fix (mirrors AppShell.tsx logout) ──────
 // handleClone, handleDelete and handleCreateConfirm must write the mutation's
