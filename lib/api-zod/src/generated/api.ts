@@ -24,7 +24,7 @@ export const HealthCheckResponse = zod.object({
 export const getDatasetQueryModelIdDefault = `p-median-us`;
 
 export const GetDatasetQueryParams = zod.object({
-  "modelId": zod.enum(['p-median-us', 'transport-coal']).default(getDatasetQueryModelIdDefault)
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au']).default(getDatasetQueryModelIdDefault)
 })
 
 export const GetDatasetResponse = zod.object({
@@ -125,8 +125,9 @@ export const ListScenariosResponseItem = zod.object({
   "toId": zod.string(),
   "flow": zod.number(),
   "distance": zod.number(),
-  "band": zod.number().optional()
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
   "metrics": zod.object({
   "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
@@ -137,7 +138,12 @@ export const ListScenariosResponseItem = zod.object({
   "band": zod.number(),
   "percent": zod.number()
 })).optional(),
-  "weightedAvgDistance": zod.number().optional()
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
 }),
   "details": zod.object({
 
@@ -188,8 +194,9 @@ export const GetScenarioResponse = zod.object({
   "toId": zod.string(),
   "flow": zod.number(),
   "distance": zod.number(),
-  "band": zod.number().optional()
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
   "metrics": zod.object({
   "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
@@ -200,7 +207,12 @@ export const GetScenarioResponse = zod.object({
   "band": zod.number(),
   "percent": zod.number()
 })).optional(),
-  "weightedAvgDistance": zod.number().optional()
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
 }),
   "details": zod.object({
 
@@ -245,8 +257,9 @@ export const UpdateScenarioResponse = zod.object({
   "toId": zod.string(),
   "flow": zod.number(),
   "distance": zod.number(),
-  "band": zod.number().optional()
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
   "metrics": zod.object({
   "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
@@ -257,7 +270,12 @@ export const UpdateScenarioResponse = zod.object({
   "band": zod.number(),
   "percent": zod.number()
 })).optional(),
-  "weightedAvgDistance": zod.number().optional()
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
 }),
   "details": zod.object({
 
@@ -371,8 +389,9 @@ export const ApplyScenarioImportResponse = zod.object({
   "toId": zod.string(),
   "flow": zod.number(),
   "distance": zod.number(),
-  "band": zod.number().optional()
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
   "metrics": zod.object({
   "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
@@ -383,7 +402,12 @@ export const ApplyScenarioImportResponse = zod.object({
   "band": zod.number(),
   "percent": zod.number()
 })).optional(),
-  "weightedAvgDistance": zod.number().optional()
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
 }),
   "details": zod.object({
 
@@ -428,8 +452,9 @@ export const ResetScenarioToBaselineResponse = zod.object({
   "toId": zod.string(),
   "flow": zod.number(),
   "distance": zod.number(),
-  "band": zod.number().optional()
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
   "metrics": zod.object({
   "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
@@ -440,7 +465,12 @@ export const ResetScenarioToBaselineResponse = zod.object({
   "band": zod.number(),
   "percent": zod.number()
 })).optional(),
-  "weightedAvgDistance": zod.number().optional()
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
 }),
   "details": zod.object({
 
@@ -513,8 +543,9 @@ export const CompareScenariosResponse = zod.object({
   "toId": zod.string(),
   "flow": zod.number(),
   "distance": zod.number(),
-  "band": zod.number().optional()
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.')),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
   "metrics": zod.object({
   "utilizationByNode": zod.array(zod.object({
   "warehouseId": zod.string(),
@@ -525,7 +556,12 @@ export const CompareScenariosResponse = zod.object({
   "band": zod.number(),
   "percent": zod.number()
 })).optional(),
-  "weightedAvgDistance": zod.number().optional()
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
 }),
   "details": zod.object({
 

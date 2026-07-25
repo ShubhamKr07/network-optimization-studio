@@ -77,6 +77,14 @@ interface TransportLpInputsShape {
   gap: number;
   timeLimitSec: number;
 }
+interface TwoEchelonInputsShape {
+  bomRatio: number;
+  refineryOverrides: { id: string; status: "active" | "forced_open" | "inactive" }[];
+  customerOverrides: { id: string; demand?: number | null; status: "active" | "excluded" }[];
+  distanceBands: number[];
+  gap: number;
+  timeLimitSec: number;
+}
 
 interface LocalConfig {
   name: string;
@@ -93,6 +101,7 @@ interface LocalConfig {
   capacityInactive: boolean;
   mineCapacities: MineOverride[];
   stationDemands: StationOverride[];
+  bomRatio: number;
 }
 
 function configFromScenario(s: Scenario): LocalConfig {
@@ -113,6 +122,27 @@ function configFromScenario(s: Scenario): LocalConfig {
       capacityInactive: i.capacityInactive,
       mineCapacities: (s.inputs as { mineCapacities?: Record<string, number> }).mineCapacities ? Object.entries((s.inputs as { mineCapacities?: Record<string, number> }).mineCapacities as Record<string, number>).map(([id, capacity]) => ({ id, capacity })) : [],
       stationDemands: (s.inputs as { stationDemands?: Record<string, number> }).stationDemands ? Object.entries((s.inputs as { stationDemands?: Record<string, number> }).stationDemands as Record<string, number>).map(([id, demand]) => ({ id, demand })) : [],
+      bomRatio: 1.1,
+    };
+  }
+  if (s.modelId === "two-echelon-gold-au") {
+    const i = s.inputs as unknown as TwoEchelonInputsShape;
+    return {
+      name: s.name,
+      pValue: 1,
+      distanceBands: [...i.distanceBands],
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
+      capacityMode: "none",
+      uniformCapacity: null,
+      warehouseOverrides: (i.refineryOverrides ?? []).map(o => ({ id: o.id, status: o.status })),
+      customerOverrides: (i.customerOverrides ?? []).map(o => ({ id: o.id, demand: o.demand ?? null, status: o.status })),
+      capacityFactor: 1.0,
+      singleSource: false,
+      capacityInactive: false,
+      mineCapacities: [],
+      stationDemands: [],
+      bomRatio: i.bomRatio,
     };
   }
   const i = s.inputs as unknown as PMedianInputsShape;
@@ -131,6 +161,7 @@ function configFromScenario(s: Scenario): LocalConfig {
     capacityInactive: false,
     mineCapacities: [],
     stationDemands: [],
+    bomRatio: 1.1,
   };
 }
 
@@ -147,6 +178,16 @@ function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, u
       capacityInactive: cfg.capacityInactive,
       mineCapacities: Object.fromEntries(cfg.mineCapacities.filter(o => o.capacity != null).map(o => [o.id, o.capacity])),
       stationDemands: Object.fromEntries(cfg.stationDemands.filter(o => o.demand != null).map(o => [o.id, o.demand])),
+    };
+  }
+  if (modelId === "two-echelon-gold-au") {
+    return {
+      bomRatio: cfg.bomRatio,
+      refineryOverrides: cfg.warehouseOverrides,
+      customerOverrides: cfg.customerOverrides,
+      distanceBands: cfg.distanceBands,
+      gap: cfg.gap,
+      timeLimitSec: cfg.timeLimitSec,
     };
   }
   return {
@@ -176,7 +217,7 @@ export function Studio({ modelId }: StudioProps) {
   const scenarioId = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
 
   const { data: scenarios, isLoading: scenariosLoading } = useListScenarios({ modelId });
-  const { data: dataset, isLoading: datasetLoading } = useGetDataset({ modelId: modelId as "p-median-us" | "transport-coal" | undefined });
+  const { data: dataset, isLoading: datasetLoading } = useGetDataset({ modelId: modelId as "p-median-us" | "transport-coal" | "two-echelon-gold-au" | undefined });
   const { data: models } = useListModels();
   const { data: scenarioFromApi } = useGetScenario(scenarioId!, {
     query: { enabled: !!scenarioId, queryKey: getGetScenarioQueryKey(scenarioId!) },
@@ -190,7 +231,7 @@ export function Studio({ modelId }: StudioProps) {
   // Which lab is active — driven by the chapter route (App.tsx), not user
   // selection or in-page state.
   const activeModelId = modelId;
-  const activeModelIndex = modelId === "p-median-brazil" ? 3 : modelId === "transport-coal" ? 2 : 1;
+  const activeModelIndex = modelId === "p-median-brazil" ? 3 : modelId === "transport-coal" ? 2 : modelId === "two-echelon-gold-au" ? 4 : 1;
   const activeModelManifest = models?.find(m => m.id === activeModelId);
 
   // Derive currentScenario here so effects can reference it before early returns
@@ -449,6 +490,8 @@ export function Studio({ modelId }: StudioProps) {
         ? { distanceBands: [500, 1000, 1500, 2000], gap: 0, timeLimitSec: 120, capacityFactor: 1.0, singleSource: false, capacityInactive: false }
         : activeModelId === "p-median-brazil"
         ? { p: 7, distanceBands: [500, 1000, 2000, 4000], capacityMode: "uniform", uniformCapacity: 20000000, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120, singleSource: true }
+        : activeModelId === "two-echelon-gold-au"
+        ? { bomRatio: 1.1, refineryOverrides: [], customerOverrides: [], distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120 }
         : { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
     createScenario.mutate(
       { data: { name, modelId: activeModelId, inputs } },
@@ -1063,6 +1106,25 @@ export function Studio({ modelId }: StudioProps) {
                 </div>
               )}
 
+              {/* Two-echelon (gold-au) controls — BOM ratio slider. Sweeping it
+                  shifts which refinery the solver opens. */}
+              {modelId === "two-echelon-gold-au" && (
+                <div className="px-3 py-3 border-b space-y-2">
+                  <p className="text-xs font-semibold text-foreground">BOM ratio (raw kg per refined kg)</p>
+                  <div className="flex items-center gap-2">
+                    <Slider
+                      min={1.0} max={3.0} step={0.1}
+                      value={[localConfig.bomRatio]}
+                      onValueChange={([v]) => update("bomRatio", Math.round(v * 10) / 10)}
+                      data-testid="slider-bom-ratio"
+                      className="flex-1"
+                    />
+                    <span className="text-xs font-mono w-10 text-right" data-testid="text-bom-ratio">{localConfig.bomRatio.toFixed(1)}×</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
+                </div>
+              )}
+
               {/* Brazil (capacitated_pmedian) controls */}
               {modelId === "p-median-brazil" && (
                 <>
@@ -1203,7 +1265,7 @@ export function Studio({ modelId }: StudioProps) {
                 <p className="text-sm font-semibold text-foreground">{activeTab === "output" && result ? "Optimized network" : "Input network"}</p>
                 <p className="text-xs text-muted-foreground">{currentScenario?.modelId === "transport-coal"
                   ? (activeTab === "output" && result ? `${result.edges.length} active flows` : "4 mines · 15 power stations")
-                  : (activeTab === "output" && result ? `${(result.details as { openWarehouseIds?: string[] })?.openWarehouseIds?.length ?? 0} open sites · ${result.edges.length} customers` : `26 warehouse candidates · ${dataset?.customers.length ?? 0} customers`)}</p>
+                  : (activeTab === "output" && result ? `${(result.details as { openWarehouseIds?: string[] })?.openWarehouseIds?.length ?? 0}${currentScenario?.modelId === "two-echelon-gold-au" ? " refinery selected" : " open sites"} · ${result.edges.length} ${currentScenario?.modelId === "two-echelon-gold-au" ? "flows" : "customers"}` : `${currentScenario?.modelId === "two-echelon-gold-au" ? "refinery candidates" : "26 warehouse candidates"} · ${dataset?.customers.length ?? 0} customers`)}</p>
               </div>
               <div className="flex items-center gap-3">
                 {result && (
@@ -1362,6 +1424,20 @@ export function Studio({ modelId }: StudioProps) {
                       ) : null;
                     })()}
                   </div>
+
+                  {/* Per-leg metrics — two-echelon only. Each leg's avg distance
+                      and total flow help explain which echelon dominates cost. */}
+                  {result.metrics.avgDistanceByLeg && result.metrics.avgDistanceByLeg.length > 0 && (
+                    <div className="px-3 py-3 border-b space-y-2" data-testid="result-per-leg-metrics">
+                      <p className="text-xs font-semibold text-foreground">Average distance by leg</p>
+                      {result.metrics.avgDistanceByLeg.map((l) => (
+                        <div key={l.leg} className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">{l.leg === "mine_to_refinery" ? "Mine → Refinery" : "Refinery → Customer"}</span>
+                          <span className="font-mono">{l.avgDistance.toFixed(1)} km · {l.totalFlow.toLocaleString()} kg</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Transport flow table — shown when transport LP */}
                   {currentScenario?.modelId === "transport-coal" ? (

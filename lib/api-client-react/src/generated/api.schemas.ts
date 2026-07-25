@@ -134,7 +134,18 @@ export interface Assignment {
 }
 
 /**
- * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.
+ * Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.
+ */
+export type EdgeLeg = typeof EdgeLeg[keyof typeof EdgeLeg];
+
+
+export const EdgeLeg = {
+  mine_to_refinery: 'mine_to_refinery',
+  refinery_to_customer: 'refinery_to_customer',
+} as const;
+
+/**
+ * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
  */
 export interface Edge {
   fromId: string;
@@ -142,12 +153,22 @@ export interface Edge {
   flow: number;
   distance: number;
   band?: number;
+  /** Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models. */
+  leg?: EdgeLeg;
+}
+
+export interface LegAverageDistance {
+  leg: string;
+  avgDistance: number;
+  totalFlow: number;
 }
 
 export interface SolveMetrics {
   utilizationByNode?: WarehouseUtilization[];
   bandCoverage?: BandCoverage[];
   weightedAvgDistance?: number;
+  /** Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models. */
+  avgDistanceByLeg?: LegAverageDistance[];
 }
 
 export type SolveResultStatus = typeof SolveResultStatus[keyof typeof SolveResultStatus];
@@ -420,6 +441,7 @@ export type GetDatasetModelId = typeof GetDatasetModelId[keyof typeof GetDataset
 export const GetDatasetModelId = {
   'p-median-us': 'p-median-us',
   'transport-coal': 'transport-coal',
+  'two-echelon-gold-au': 'two-echelon-gold-au',
 } as const;
 
 export type GetSolveHistoryParams = {

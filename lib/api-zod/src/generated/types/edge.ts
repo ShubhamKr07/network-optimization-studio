@@ -5,9 +5,10 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { EdgeLeg } from './edgeLeg';
 
 /**
- * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.
+ * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
  */
 export interface Edge {
   fromId: string;
@@ -15,4 +16,6 @@ export interface Edge {
   flow: number;
   distance: number;
   band?: number;
+  /** Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models. */
+  leg?: EdgeLeg;
 }

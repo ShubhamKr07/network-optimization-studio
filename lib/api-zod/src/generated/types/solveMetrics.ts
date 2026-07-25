@@ -6,10 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BandCoverage } from './bandCoverage';
+import type { LegAverageDistance } from './legAverageDistance';
 import type { WarehouseUtilization } from './warehouseUtilization';
 
 export interface SolveMetrics {
   utilizationByNode?: WarehouseUtilization[];
   bandCoverage?: BandCoverage[];
   weightedAvgDistance?: number;
+  /** Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models. */
+  avgDistanceByLeg?: LegAverageDistance[];
 }

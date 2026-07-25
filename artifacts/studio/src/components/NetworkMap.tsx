@@ -317,6 +317,14 @@ export function NetworkMap({
               const focused = isCustomerFocused(edge.toId);
               const dimmed = anySelection && !focused;
 
+              // Two-echelon models tag each edge with its leg so the map can
+              // style mine->refinery and refinery->customer differently. When
+              // leg is absent (every single-echelon model), fall back to the
+              // existing band-color behavior completely unchanged.
+              const legColor = edge.leg === "mine_to_refinery" ? "#16A34A"
+                : edge.leg === "refinery_to_customer" ? "#DC2626"
+                : getBandColor(assignBand(edge.distance, bands));
+
               return (
                 <Polyline
                   key={`route-${edge.toId}`}
@@ -325,7 +333,7 @@ export function NetworkMap({
                     [warehouse.lat, warehouse.lng],
                   ]}
                   pathOptions={{
-                    color: getBandColor(assignBand(edge.distance, bands)),
+                    color: legColor,
                     weight: focused && hasCustomerSelection ? 4 : 2,
                     opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
                   }}

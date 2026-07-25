@@ -12,4 +12,5 @@ export type GetDatasetModelId = typeof GetDatasetModelId[keyof typeof GetDataset
 export const GetDatasetModelId = {
   'p-median-us': 'p-median-us',
   'transport-coal': 'transport-coal',
+  'two-echelon-gold-au': 'two-echelon-gold-au',
 } as const;

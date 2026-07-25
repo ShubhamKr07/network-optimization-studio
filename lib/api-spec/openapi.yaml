@@ -44,7 +44,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au]
             default: p-median-us
       responses:
         "200":
@@ -746,7 +746,7 @@ components:
 
     Edge:
       type: object
-      description: Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP. flow is demand units or tons depending on the model.
+      description: Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
       properties:
         fromId:
           type: string
@@ -758,7 +758,22 @@ components:
           type: number
         band:
           type: integer
+        leg:
+          type: string
+          enum: [mine_to_refinery, refinery_to_customer]
+          description: Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.
       required: [fromId, toId, flow, distance]
+
+    LegAverageDistance:
+      type: object
+      properties:
+        leg:
+          type: string
+        avgDistance:
+          type: number
+        totalFlow:
+          type: number
+      required: [leg, avgDistance, totalFlow]
 
     SolveMetrics:
       type: object
@@ -773,6 +788,11 @@ components:
             $ref: "#/components/schemas/BandCoverage"
         weightedAvgDistance:
           type: number
+        avgDistanceByLeg:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegAverageDistance"
+          description: Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.
 
     SolveResult:
       type: object

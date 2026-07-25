@@ -1,4 +1,4 @@
-export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil";
+export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au";
 
 export interface Chapter {
   path: string;
@@ -31,6 +31,14 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 5",
     title: "Brazil Capacity — Capacitated P-Median",
     description: "Capacitated facility location: open warehouses under per-site capacity limits.",
+    hiddenFromLanding: true,
+  },
+  {
+    path: "/chapter-10/gold-refinery",
+    modelId: "two-echelon-gold-au",
+    chapter: "Chapter 10",
+    title: "Gold Refinery Siting — Two-Echelon",
+    description: "Two-echelon facility location: site a refinery between a gold mine and ten customers, and watch the choice flip as the bill-of-materials ratio changes.",
     hiddenFromLanding: true,
   },
 ];
