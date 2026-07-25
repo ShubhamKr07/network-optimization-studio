@@ -1285,6 +1285,84 @@ describe("Studio — invalidateQueries/navigate race fix", () => {
   });
 });
 
+// ── Per-leg panel absent when avgDistanceByLeg is absent (M4.4 / row p) ──────
+// The two-echelon-only "Average distance by leg" panel must NOT appear for a
+// single-echelon result (p-median-us), whose metrics lack avgDistanceByLeg.
+// Studio.tsx gates the panel on `result.metrics.avgDistanceByLeg?.length > 0`,
+// so a p-median result — which populates weightedAvgDistance/bandCoverage but
+// never avgDistanceByLeg — must render zero per-leg rows. This is the S1/F1
+// regression guard: if someone accidentally drops the gate, p-median would
+// suddenly show an empty (or worse, undefined-accessing) per-leg block.
+describe("Studio — per-leg metrics panel (M4.4)", () => {
+  it("does NOT render the 'Average distance by leg' panel for a p-median-us result", async () => {
+    // p-median result shape: edges/bandCoverage/utilizationByNode present,
+    // avgDistanceByLeg deliberately absent (single-echelon model).
+    const pmedianSolvedResult = {
+      status: "optimal",
+      objective: 1,
+      runTimeSec: 0.1,
+      quality: "Optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 50, distance: 150, band: 0 }],
+      metrics: { weightedAvgDistance: 150, bandCoverage: [], utilizationByNode: [{ warehouseId: "CHI", city: "Chicago", utilization: 100 }] },
+      details: { openWarehouseIds: ["CHI"], assignments: [] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const scenario = { ...pmedianScenario, result: pmedianSolvedResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    // The panel's own heading and its data-testid must both be absent.
+    expect(screen.queryByText("Average distance by leg")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("result-per-leg-metrics")).not.toBeInTheDocument();
+  });
+
+  it("renders the 'Average distance by leg' panel only when avgDistanceByLeg is present (two-echelon)", async () => {
+    // Positive control: the same gate must OPEN the panel when a two-echelon
+    // result carries avgDistanceByLeg. Confirms the absence above is because
+    // of the missing field, not a broken render path.
+    const twoEchelonResult = {
+      status: "optimal",
+      objective: 386577,
+      runTimeSec: 0.1,
+      quality: "Optimal",
+      edges: [
+        { fromId: "kalgoorlie", toId: "cunnamulla", flow: 8140000, distance: 1465, leg: "mine_to_refinery" },
+        { fromId: "cunnamulla", toId: "sydney", flow: 740000, distance: 1000, leg: "refinery_to_customer" },
+      ],
+      metrics: {
+        weightedAvgDistance: 1100,
+        bandCoverage: [],
+        utilizationByNode: [],
+        avgDistanceByLeg: [
+          { leg: "mine_to_refinery", avgDistance: 1465, totalFlow: 8140000 },
+          { leg: "refinery_to_customer", avgDistance: 1000, totalFlow: 740000 },
+        ],
+      },
+      details: { openWarehouseIds: ["cunnamulla"], assignments: [] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const twoEchelonScenario = {
+      id: 20,
+      name: "Gold BOM 1.1",
+      modelId: "two-echelon-gold-au",
+      inputs: { bomRatio: 1.1, refineryOverrides: [], customerOverrides: [], distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120 },
+      result: twoEchelonResult,
+      createdAt: "2026-01-04T00:00:00Z",
+      updatedAt: "2026-01-04T00:00:00Z",
+    };
+    mockUseSearch.mockReturnValue("?scenario=20");
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
+    render(<Studio modelId="two-echelon-gold-au" />);
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByText("Average distance by leg")).toBeInTheDocument();
+    expect(screen.getByTestId("result-per-leg-metrics")).toBeInTheDocument();
+  });
+});
+
 // Helper so the race tests don't import the (mocked) getListScenariosQueryKey
 // from the module under test — they get the exact array the mock returns.
 function getListScenariosQueryKeyForAssert() {

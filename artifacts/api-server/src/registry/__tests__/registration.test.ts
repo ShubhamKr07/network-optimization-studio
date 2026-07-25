@@ -6,11 +6,12 @@ import {
 import { PACKAGE_SPECS, readVersion } from "@workspace/dataset-schema";
 import { VALID_MODEL_IDS } from "../../routes/scenarios.js";
 
-// The three models that are fully solvable end-to-end today (each has a
+// The four models that are fully solvable end-to-end today (each has a
 // manifest + dataset package + Zod input validator + solver dispatch).
-// two-echelon-gold-au (Chapter 10) is manifest-discoverable but not yet in
-// this set — it's intentionally excluded until its solver lands.
-const SOLVABLE = ["p-median-us", "transport-coal", "p-median-brazil"];
+// two-echelon-gold-au (Chapter 10) was added once its solver, schema, and
+// allowlist entries all landed — this test is the drift guard that catches
+// a model registered in one place but missing from the others.
+const SOLVABLE = ["p-median-us", "transport-coal", "p-median-brazil", "two-echelon-gold-au"];
 
 describe("model registration consistency", () => {
   for (const modelId of SOLVABLE) {

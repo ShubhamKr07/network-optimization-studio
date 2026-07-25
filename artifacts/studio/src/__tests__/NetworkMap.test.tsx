@@ -33,6 +33,7 @@ vi.mock("react-leaflet", async () => {
 });
 
 const { NetworkMap } = await import("@/components/NetworkMap");
+const { getBandColor } = await import("@/lib/bandPalette");
 
 const dataset = {
   warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
@@ -135,5 +136,124 @@ describe("NetworkMap MapContainer boxZoom", () => {
 
     expect(mapContainerProps.length).toBeGreaterThan(0);
     expect(mapContainerProps[mapContainerProps.length - 1].boxZoom).toBe(false);
+  });
+});
+
+// ── Edge coloring keys off `leg` (M4.2 / row q) ─────────────────────────────
+// Two-echelon edges carry a `leg` field; the map must style mine→refinery
+// edges green (#16A34A) and refinery→customer edges red (#DC2626). When an
+// edge has NO leg (every single-echelon model), the map must fall back to
+// the band-color behavior unchanged. NetworkMap passes the resolved color
+// to react-leaflet's <Polyline pathOptions={{color}}>; under jsdom react-leaflet
+// serializes that into a stroke attribute on the rendered <path>, which is
+// readable from container.innerHTML — same assertion style the multi-select
+// ring test above uses.
+describe("NetworkMap edge coloring by leg (M4.2)", () => {
+  it("renders a mine_to_refinery edge green and a refinery_to_customer edge red", () => {
+    // NetworkMap resolves each edge's endpoints as fromId→warehouse and
+    // toId→customer, so a two-echelon refinery node must appear in BOTH
+    // arrays (it is the `toId` of the mine→refinery leg and the `fromId`
+    // of the refinery→customer leg) for both polylines to render.
+    const twoEchelonDataset = {
+      warehouses: [
+        { id: "kalgoorlie", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47 },
+        { id: "cunnamulla", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68 },
+      ],
+      customers: [
+        { id: "cunnamulla", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68, demand: 1000 },
+        { id: "sydney", city: "Sydney", state: "NSW", lat: -33.87, lng: 151.21, demand: 740000 },
+      ],
+    };
+    const result = {
+      status: "optimal" as const,
+      objective: 386577,
+      runTimeSec: 0.1,
+      quality: "Optimal",
+      edges: [
+        { fromId: "kalgoorlie", toId: "cunnamulla", flow: 8140000, distance: 1465, leg: "mine_to_refinery" as const },
+        { fromId: "cunnamulla", toId: "sydney", flow: 740000, distance: 1000, leg: "refinery_to_customer" as const },
+      ],
+      metrics: { weightedAvgDistance: 1100, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["cunnamulla"], assignments: [] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={twoEchelonDataset}
+        warehouseStatuses={[]}
+        result={result}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000, 2600]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    // Isolate the route-pane SVG so the assertion reflects the polylines'
+    // strokes, not the band-legend swatches (which always paint Band 1 =
+    // #16A34A and, with 5 bands, Band 5 = #DC2626 regardless of edges).
+    const routeSvg = container.querySelector(".leaflet-route-pane svg");
+    const routeHtml = routeSvg?.innerHTML ?? "";
+    // mine→refinery leg = green (#16A34A), refinery→customer leg = red (#DC2626).
+    expect(routeHtml).toContain("#16A34A");
+    expect(routeHtml).toContain("#DC2626");
+  });
+
+  it("falls back to band coloring for an edge with no leg field (single-echelon models)", () => {
+    // An edge with no `leg` must resolve to getBandColor(assignBand(distance,
+    // bands)) — never to the leg colors. With bands=[500,1000,1500,2000] and a
+    // 900mi edge, assignBand returns the index of the first boundary the
+    // distance fits under (1000 → index 1) → getBandColor(1). Asserting the
+    // polyline carries the band color AND that it carries NEITHER leg color
+    // proves the fallback path, not just "some color was set".
+    const singleEchelonDataset = {
+      warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+      customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 }],
+    };
+    const result = {
+      status: "optimal" as const,
+      objective: 1,
+      runTimeSec: 0.1,
+      quality: "Optimal",
+      edges: [{ fromId: "W1", toId: "C1", flow: 50, distance: 900 }],  // no leg field
+      metrics: { weightedAvgDistance: 900, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["W1"], assignments: [] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={singleEchelonDataset}
+        warehouseStatuses={[]}
+        result={result}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    // Isolate the route-pane SVG: the legend swatches in the results overlay
+    // always paint Band 1 (#16A34A) regardless of the edges, so asserting
+    // against container.innerHTML would conflate the legend with the polyline.
+    // The route pane holds only the rendered <Polyline> strokes.
+    const routeSvg = container.querySelector(".leaflet-route-pane svg");
+    const routeHtml = routeSvg?.innerHTML ?? "";
+    const fullHtml = container.innerHTML;
+    // getBandColor(1) is the band palette color NetworkMap resolves for a
+    // 900mi edge under [500,1000,1500,2000] — read it from the same source
+    // the component uses, then assert it appears on the rendered polyline.
+    const bandColor = getBandColor(1);
+    expect(routeHtml.toLowerCase()).toContain(bandColor.toLowerCase());
+    // Must NOT have keyed off a leg: the route polyline must carry NEITHER
+    // leg color. (Checked on the route pane only — the legend always shows
+    // #16A34A as Band 1, which is unrelated to the polyline's leg.)
+    expect(routeHtml).not.toContain("#16A34A");
+    expect(routeHtml).not.toContain("#DC2626");
+    // Sanity: the full DOM still renders the band legend.
+    expect(fullHtml).toContain("#16A34A");
   });
 });
