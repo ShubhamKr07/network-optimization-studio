@@ -569,6 +569,17 @@ describe("Studio — two-echelon-gold-au left panel", () => {
     await userEvent.click(screen.getByTestId("button-open-refinery-table"));
     expect(screen.getByRole("heading", { name: "Refineries" })).toBeInTheDocument();
   });
+
+  // Regression: twoEchelonInputsSchema requires bomRatio strictly > 1 (a
+  // ratio at or below 1 means refining creates mass — physically invalid).
+  // The slider used to allow exactly 1.0, which the backend rejected with a
+  // 422 that (before the toast fix above) failed completely silently — every
+  // "solve" at that value just redisplayed the stale previous result.
+  it("BOM ratio slider's minimum is 1.1, never exactly 1.0 (backend requires strictly > 1)", () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    const thumb = screen.getByTestId("slider-bom-ratio").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemin", "1.1");
+  });
 });
 
 // ── Left panel width + import/export toolbar placement ──────────────────────
@@ -986,6 +997,179 @@ describe("Studio — Async solve", () => {
 
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
     expect(mockSolveScenario.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
+  });
+
+  // Regression: a rejected save used to fail completely silently — Solve did
+  // nothing and the previous (stale) result stayed on screen with zero
+  // indication anything was wrong. Real case that surfaced this: two-echelon
+  // gold-au's BOM ratio slider allowed exactly 1.0, which the backend 422s
+  // (bomRatio must be strictly > 1) — every "solve" at that value just
+  // silently redisplayed the last successful result.
+  it("shows a destructive toast when the pre-solve save is rejected, and does not proceed to solve", async () => {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"));
+    });
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-p-quick-10"));
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save your changes",
+      variant: "destructive",
+    }));
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("button-solve")).not.toHaveTextContent("Solving...");
+  });
+
+  it("shows a destructive toast when enqueuing the solve itself fails", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(new Error("HTTP 429: queue depth limit exceeded"));
+    });
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Solve failed to start",
+      variant: "destructive",
+    }));
+    expect(screen.getByTestId("button-solve")).not.toHaveTextContent("Solving...");
+  });
+});
+
+describe("Studio — Save button error handling", () => {
+  it("shows a destructive toast when Save itself is rejected (pre-existing gap, same fix)", async () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"));
+    });
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-p-quick-10"));
+    await userEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save your changes",
+      variant: "destructive",
+    }));
+  });
+});
+
+// ── Pre-solve validation panel: model-relevant warnings only ────────────────
+// Regression: the "Validate · Pre-Solve" right panel's blockingErrors/warnings
+// (Forced-Open-vs-P, "N potential sites", the fixed 50,000,000 capacity
+// threshold) used to compute unconditionally for every model — a two-echelon
+// or transport-coal student saw p-median-us-specific warehouse-count/capacity
+// text that made no sense for their model (no P, no warehouse capacity
+// concept at all).
+describe("Studio — Pre-solve validation panel is model-relevant", () => {
+  it("p-median-us: shows the capacity warning (has P and warehouse capacity)", () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getByText("Warnings · solve allowed")).toBeInTheDocument();
+    expect(screen.getByTestId("warning-0")).toBeInTheDocument();
+  });
+
+  it("two-echelon-gold-au: shows NO warnings/errors panel (no P, no warehouse capacity concept)", () => {
+    mockUseSearch.mockReturnValue("?scenario=20");
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.queryByText("Warnings · solve allowed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Errors · must fix")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("warning-0")).not.toBeInTheDocument();
+  });
+
+  it("transport-coal: shows NO warnings/errors panel (no P, no warehouse capacity concept)", () => {
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    expect(screen.queryByText("Warnings · solve allowed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Errors · must fix")).not.toBeInTheDocument();
+  });
+});
+
+// ── Page-back button ──────────────────────────────────────────────────────
+describe("Studio — page-back button", () => {
+  it("calls window.history.back() when clicked", async () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-page-back"));
+
+    expect(backSpy).toHaveBeenCalledTimes(1);
+    backSpy.mockRestore();
+  });
+});
+
+// ── Result history back/forward ──────────────────────────────────────────
+// Session-local navigation through this scenario's solve outputs — the DB
+// only ever keeps the single latest `result`, so stepping back to see an
+// earlier solve (e.g. before sweeping the BOM ratio again) needs a client-
+// side history the UI accumulates as new results land.
+describe("Studio — result history back/forward", () => {
+  const resultA = {
+    status: "optimal" as const, objective: 100, runTimeSec: 0.1, quality: "Optimal",
+    edges: [{ fromId: "CHI", toId: "C1", flow: 10, distance: 50 }],
+    metrics: { weightedAvgDistance: 50, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["CHI"], assignments: [] },
+    solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  };
+  const resultB = { ...resultA, objective: 200, runTimeSec: 0.2 };
+
+  it("does not show back/forward controls with only one result", () => {
+    const scenario = { ...pmedianScenario, result: resultA };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
+  });
+
+  it("accumulates a second solve into history, jumps to it, and lets you step back to the first", async () => {
+    const scenarioA = { ...pmedianScenario, result: resultA };
+    mockUseListScenarios.mockReturnValue({ data: [scenarioA], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenarioA } as ReturnType<typeof useGetScenario>);
+    const { rerender } = renderStudio();
+    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
+
+    // A second, distinct result lands (simulating a completed re-solve) —
+    // rerender the SAME component instance so its history state accumulates
+    // (a fresh render() would mount an unrelated second tree instead).
+    const scenarioB = { ...pmedianScenario, result: resultB };
+    mockUseGetScenario.mockReturnValue({ data: scenarioB } as ReturnType<typeof useGetScenario>);
+    rerender(<Studio modelId="p-median-us" />);
+
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(screen.getByTestId("button-result-back")).not.toBeDisabled();
+    expect(screen.getByTestId("button-result-forward")).toBeDisabled();
+
+    await userEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(screen.getByTestId("button-result-back")).toBeDisabled();
+    expect(screen.getByTestId("button-result-forward")).not.toBeDisabled();
+
+    await userEvent.click(screen.getByTestId("button-result-forward"));
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+  });
+
+  it("resets history when switching to a different scenario", () => {
+    const scenarioA = { ...pmedianScenario, id: 1, result: resultA };
+    mockUseListScenarios.mockReturnValue({ data: [scenarioA], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenarioA } as ReturnType<typeof useGetScenario>);
+    const { rerender } = renderStudio();
+
+    const scenarioC = { ...pmedianScenario, id: 2, result: resultB };
+    mockUseGetScenario.mockReturnValue({ data: scenarioC } as ReturnType<typeof useGetScenario>);
+    rerender(<Studio modelId="p-median-us" />);
+    // Different scenario id -> history resets to just this one result, no
+    // back/forward controls (would show "1/2" if history wrongly carried
+    // over from scenario A).
+    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
   });
 });
 

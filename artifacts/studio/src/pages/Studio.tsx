@@ -18,7 +18,7 @@ import {
   getGetScenarioQueryKey,
   getGetSolveJobQueryKey,
 } from "@workspace/api-client-react";
-import type { Scenario } from "@workspace/api-client-react";
+import type { Scenario, SolveResult } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
 import { MapBulkEditToolbar } from "@/components/MapBulkEditToolbar";
@@ -43,7 +43,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, Pencil, Trash2, Save, Download, Upload, RotateCcw } from "lucide-react";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, ChevronLeft, ArrowLeft, Pencil, Trash2, Save, Download, Upload, RotateCcw } from "lucide-react";
 
 const CONSTRAINTS: Record<string, string[]> = {
   "transport-coal": ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
@@ -242,6 +242,8 @@ export function Studio({ modelId }: StudioProps) {
   const [savedConfig, setSavedConfig] = useState<LocalConfig | null>(null);
   const [isSolving, setIsSolving] = useState(false);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
+  const [resultHistoryState, setResultHistoryState] = useState<{ items: SolveResult[]; index: number }>({ items: [], index: -1 });
+  const lastResultSigRef = useRef<string | null>(null);
   const [activeTab, setActiveTab] = useState<"input" | "output">("input");
   const [showRoutes, setShowRoutes] = useState(false);
   const [showScenarioDropdown, setShowScenarioDropdown] = useState(false);
@@ -371,6 +373,13 @@ export function Studio({ modelId }: StudioProps) {
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
         },
+        onError: (err) => {
+          toast({
+            title: "Couldn't save your changes",
+            description: err instanceof Error ? err.message : "The scenario was not saved.",
+            variant: "destructive",
+          });
+        },
       }
     );
   }, [localConfig, scenarioId, isDirty, updateScenario, queryClient, activeModelId]);
@@ -385,32 +394,72 @@ export function Studio({ modelId }: StudioProps) {
   const demandEditedCount = localConfig?.customerOverrides.filter(o => o.demand != null).length ?? 0;
   const pValue = localConfig?.pValue ?? 3;
   const bands = localConfig?.distanceBands ?? [];
-  const maxBand = bands.length ? Math.max(...bands) : 1600;
 
+  // These checks (Forced-Open-vs-P, "N potential sites", the fixed capacity
+  // threshold) are p-median-us-specific — P and warehouse capacity are
+  // concepts only p-median-us (and, for the P check, p-median-brazil) has.
+  // Previously computed for every model, hardcoding p-median-us's own
+  // warehouse count (26) and default capacity (50,000,000) — nonsensical,
+  // irrelevant text for a Chapter 10 (two-echelon) or Chapter 5 (transport)
+  // student, who has neither concept.
   const blockingErrors: Array<{ title: string; desc: string }> = [];
-  if (forcedOpenCount > pValue) {
-    blockingErrors.push({
-      title: `Forced Open (${forcedOpenCount}) exceeds P (${pValue})`,
-      desc: `You have ${forcedOpenCount} warehouses set to Forced Open, but P = ${pValue}. Increase P to at least ${forcedOpenCount} or reduce Forced Open count.`,
-    });
+  const warnings: Array<{ title: string }> = [];
+  if (modelId === "p-median-us" || modelId === "p-median-brazil") {
+    const totalWarehouses = 26;
+    if (forcedOpenCount > pValue) {
+      blockingErrors.push({
+        title: `Forced Open (${forcedOpenCount}) exceeds P (${pValue})`,
+        desc: `You have ${forcedOpenCount} warehouses set to Forced Open, but P = ${pValue}. Increase P to at least ${forcedOpenCount} or reduce Forced Open count.`,
+      });
+    }
+    const availablePotential = totalWarehouses - forcedOpenCount - inactiveCount;
+    if (pValue - forcedOpenCount > availablePotential) {
+      blockingErrors.push({
+        title: `Not enough potential sites`,
+        desc: `P requires ${pValue - forcedOpenCount} additional sites but only ${availablePotential} are Potential.`,
+      });
+    }
   }
-  const availablePotential = 26 - forcedOpenCount - inactiveCount;
-  if (pValue - forcedOpenCount > availablePotential) {
-    blockingErrors.push({
-      title: `Not enough potential sites`,
-      desc: `P requires ${pValue - forcedOpenCount} additional sites but only ${availablePotential} are Potential.`,
-    });
-  }
-
-  const warnings: Array<{ title: string }> = [
-    { title: `12 customers lie beyond the largest band (${maxBand.toLocaleString()} mi) — expected with sparse coverage.` },
-  ];
-  if ((localConfig?.uniformCapacity ?? 50000000) >= 50000000) {
-    warnings.push({ title: "Capacity 50,000,000 is non-binding — C3 will be inactive." });
+  if (modelId === "p-median-us") {
+    const nonBindingCapacity = 50000000;
+    if ((localConfig?.uniformCapacity ?? nonBindingCapacity) >= nonBindingCapacity) {
+      warnings.push({ title: `Capacity ${nonBindingCapacity.toLocaleString()} is non-binding — C3 will be inactive.` });
+    }
   }
 
   const hasErrors = blockingErrors.length > 0;
-  const result = scenarioFromApi?.result ?? null;
+
+  // Session-local history of this scenario's solve results, so a student can
+  // step back/forward through outputs from repeated solves (e.g. sweeping
+  // the BOM ratio) without losing earlier results the moment a new solve
+  // completes — the DB only ever keeps the single latest `result` per
+  // scenario. Not persisted; resets on scenario switch or page reload.
+  const resultSignature = (r: SolveResult) => `${r.objective}|${r.runTimeSec}|${r.edges.length}`;
+  useEffect(() => {
+    setResultHistoryState(scenarioFromApi?.result ? { items: [scenarioFromApi.result], index: 0 } : { items: [], index: -1 });
+    lastResultSigRef.current = scenarioFromApi?.result ? resultSignature(scenarioFromApi.result) : null;
+  }, [scenarioFromApi?.id]);
+  useEffect(() => {
+    const latest = scenarioFromApi?.result;
+    if (!latest) return;
+    const sig = resultSignature(latest);
+    if (sig === lastResultSigRef.current) return;
+    lastResultSigRef.current = sig;
+    // A fresh solve always jumps the view to the newest entry, even if the
+    // student had navigated back to an earlier one — the new index is
+    // items.length (the position the new entry lands at), never
+    // prevIndex + 1, which would land on the wrong entry if prevIndex was
+    // behind the array's actual end.
+    setResultHistoryState(prev => ({ items: [...prev.items, latest], index: prev.items.length }));
+  }, [scenarioFromApi?.result]);
+
+  const resultHistory = resultHistoryState.items;
+  const resultHistoryIndex = resultHistoryState.index;
+  const result = resultHistoryIndex >= 0 ? resultHistory[resultHistoryIndex] ?? null : (scenarioFromApi?.result ?? null);
+  const canGoBackResult = resultHistoryIndex > 0;
+  const canGoForwardResult = resultHistoryIndex >= 0 && resultHistoryIndex < resultHistory.length - 1;
+  const goResultBack = () => setResultHistoryState(prev => ({ ...prev, index: Math.max(0, prev.index - 1) }));
+  const goResultForward = () => setResultHistoryState(prev => ({ ...prev, index: Math.min(prev.items.length - 1, prev.index + 1) }));
 
   // Phase 3.5 (G3.1): solve is async now — POST enqueues a job and returns
   // {jobId} immediately; useGetSolveJob below polls it until it leaves
@@ -431,7 +480,14 @@ export function Studio({ modelId }: StudioProps) {
         { scenarioId },
         {
           onSuccess: (job) => setPollingJobId(job.jobId),
-          onError: () => setIsSolving(false),
+          onError: (err) => {
+            setIsSolving(false);
+            toast({
+              title: "Solve failed to start",
+              description: err instanceof Error ? err.message : "Could not enqueue the solve. Try again.",
+              variant: "destructive",
+            });
+          },
         }
       );
     };
@@ -446,7 +502,18 @@ export function Studio({ modelId }: StudioProps) {
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
             runSolve();
           },
-          onError: () => setIsSolving(false),
+          // Save failing (e.g. a rejected input, like BOM ratio not being
+          // strictly > 1) used to fail completely silently here — Solve just
+          // quietly did nothing, and the stale previous result stayed on
+          // screen forever with zero indication anything was wrong.
+          onError: (err) => {
+            setIsSolving(false);
+            toast({
+              title: "Couldn't save your changes",
+              description: err instanceof Error ? err.message : "The scenario was not solved — fix the invalid input and try again.",
+              variant: "destructive",
+            });
+          },
         }
       );
     } else {
@@ -803,6 +870,14 @@ export function Studio({ modelId }: StudioProps) {
     <div className="studio-lab flex flex-col h-full overflow-hidden bg-background">
       {/* HEADER */}
       <header className="h-14 border-b bg-white flex items-center px-4 gap-3 flex-shrink-0 z-50 relative">
+        <button
+          onClick={() => window.history.back()}
+          data-testid="button-page-back"
+          title="Back"
+          className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0" style={{ background: "rgba(87,208,201,.15)", color: "var(--arc-cyan)", border: "1px solid rgba(87,208,201,.3)" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M8 3h8M7 15h10"/></svg>
@@ -927,6 +1002,33 @@ export function Studio({ modelId }: StudioProps) {
               <BarChart2 className="w-3.5 h-3.5 mr-1" /> Compare
             </Button>
           </Link>
+          {resultHistory.length > 1 && (
+            <div className="flex items-center gap-0.5" title="Step through this session's solve outputs for this scenario">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goResultBack}
+                disabled={!canGoBackResult}
+                data-testid="button-result-back"
+                className="h-8 w-8 p-0"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </Button>
+              <span className="text-[10px] text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
+                {resultHistoryIndex + 1}/{resultHistory.length}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goResultForward}
+                disabled={!canGoForwardResult}
+                data-testid="button-result-forward"
+                className="h-8 w-8 p-0"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
           <Button
             size="sm"
             onClick={handleSolve}
@@ -1208,7 +1310,14 @@ export function Studio({ modelId }: StudioProps) {
                   <p className="text-xs font-semibold text-foreground">BOM ratio (raw kg per refined kg)</p>
                   <div className="flex items-center gap-2">
                     <Slider
-                      min={1.0} max={3.0} step={0.1}
+                      // twoEchelonInputsSchema requires bomRatio strictly > 1
+                      // (a ratio at or below 1 means refining creates mass —
+                      // physically invalid, not just a solver edge case).
+                      // min=1.1, not 1.0: at exactly 1.0 the backend 422s on
+                      // save, which used to fail completely silently — Solve
+                      // did nothing and the previous result stayed on screen
+                      // with zero indication anything was wrong.
+                      min={1.1} max={3.0} step={0.1}
                       value={[localConfig.bomRatio]}
                       onValueChange={([v]) => update("bomRatio", Math.round(v * 10) / 10)}
                       data-testid="slider-bom-ratio"
