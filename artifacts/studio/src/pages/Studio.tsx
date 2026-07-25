@@ -49,6 +49,7 @@ const CONSTRAINTS: Record<string, string[]> = {
   "transport-coal": ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
   "p-median-us": ["C1 Serve every customer", "C2 Open exactly P facilities", "C3 Respect capacity", "C4 Honor warehouse status", "C5 Route only to open facility"],
   "p-median-brazil": ["C1 Serve every customer", "C2 Capacity constraint per facility", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimize fixed + transport cost"],
+  "two-echelon-gold-au": ["C1 Serve every customer's demand exactly", "C2 Open exactly one refinery", "C3 No flow from a closed refinery", "C4 BOM flow balance: raw in = ratio × refined out", "C5 Honor refinery forced-open/inactive status"],
   max_coverage: ["C1 Open exactly P facilities", "C2 Coverage distance threshold", "C3 Honor warehouse status", "C4 Maximize demand within threshold", "C5 Binary assignment"],
   p_center: ["C1 Open exactly P facilities", "C2 Minimize maximum distance", "C3 Honor warehouse status", "C4 Route only to open facility", "C5 Minimax objective"],
   set_cover: ["C1 Cover all demand nodes", "C2 Coverage radius defined", "C3 Minimize number of facilities", "C4 Honor warehouse status", "C5 Binary covering"],
@@ -1313,17 +1314,17 @@ export function Studio({ modelId }: StudioProps) {
                       // twoEchelonInputsSchema requires bomRatio strictly > 1
                       // (a ratio at or below 1 means refining creates mass —
                       // physically invalid, not just a solver edge case).
-                      // min=1.1, not 1.0: at exactly 1.0 the backend 422s on
+                      // min=1.05, not 1.0: at exactly 1.0 the backend 422s on
                       // save, which used to fail completely silently — Solve
                       // did nothing and the previous result stayed on screen
                       // with zero indication anything was wrong.
-                      min={1.1} max={3.0} step={0.1}
+                      min={1.05} max={2.0} step={0.05}
                       value={[localConfig.bomRatio]}
-                      onValueChange={([v]) => update("bomRatio", Math.round(v * 10) / 10)}
+                      onValueChange={([v]) => update("bomRatio", Math.round(v * 20) / 20)}
                       data-testid="slider-bom-ratio"
                       className="flex-1"
                     />
-                    <span className="text-xs font-mono w-10 text-right" data-testid="text-bom-ratio">{localConfig.bomRatio.toFixed(1)}×</span>
+                    <span className="text-xs font-mono w-10 text-right" data-testid="text-bom-ratio">{localConfig.bomRatio.toFixed(2)}×</span>
                   </div>
                   <p className="text-[10px] text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
                 </div>

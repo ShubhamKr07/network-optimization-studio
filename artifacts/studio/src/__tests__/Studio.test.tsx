@@ -575,10 +575,22 @@ describe("Studio — two-echelon-gold-au left panel", () => {
   // The slider used to allow exactly 1.0, which the backend rejected with a
   // 422 that (before the toast fix above) failed completely silently — every
   // "solve" at that value just redisplayed the stale previous result.
-  it("BOM ratio slider's minimum is 1.1, never exactly 1.0 (backend requires strictly > 1)", () => {
+  it("BOM ratio slider spans 1.05-2.0 in 0.05 steps, never exactly 1.0 (backend requires strictly > 1)", () => {
     render(<Studio modelId="two-echelon-gold-au" />);
     const thumb = screen.getByTestId("slider-bom-ratio").querySelector('[role="slider"]');
-    expect(thumb).toHaveAttribute("aria-valuemin", "1.1");
+    expect(thumb).toHaveAttribute("aria-valuemin", "1.05");
+    expect(thumb).toHaveAttribute("aria-valuemax", "2");
+  });
+
+  // Regression: CONSTRAINTS had no two-echelon-gold-au entry, so the
+  // "Constraints · model-defined" panel silently fell back to p-median-us's
+  // list (CONSTRAINTS[modelId] ?? CONSTRAINTS["p-median-us"]) — a Chapter 10
+  // student saw "Open exactly P facilities" for a model that has no P.
+  it("shows two-echelon's own constraints, not p-median-us's fallback list", () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.getByText(/Open exactly one refinery/)).toBeInTheDocument();
+    expect(screen.getByText(/BOM flow balance/)).toBeInTheDocument();
+    expect(screen.queryByText(/Open exactly P facilities/)).not.toBeInTheDocument();
   });
 });
 

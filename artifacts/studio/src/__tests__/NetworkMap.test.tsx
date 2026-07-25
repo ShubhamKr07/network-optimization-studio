@@ -56,15 +56,21 @@ describe("NetworkMap customer/station hover tooltip", () => {
       />,
     );
 
-    // The dataset has one customer (no solved result, so no warehouse tooltip is
-    // emitted either) -> exactly one Tooltip should have been rendered, and its
-    // content should include the customer's city/state and demand, matching the
-    // existing warehouse Tooltip's content style (NetworkMap.tsx:372-378).
-    expect(tooltipChildren).toHaveLength(1);
-    const { container } = render(<>{tooltipChildren[0]}</>);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Sampleburg, SB");
-    expect(text).toContain("5,000");
+    // One customer + one warehouse -> two Tooltips, regardless of solve/open
+    // state (a warehouse's Tooltip used to be gated on isOpen, so an
+    // unsolved/"potential" candidate — most markers, especially pre-solve —
+    // showed nothing on hover at all).
+    expect(tooltipChildren).toHaveLength(2);
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    const customerText = texts.find((t) => t.includes("Sampleburg"));
+    const warehouseText = texts.find((t) => t.includes("Testville"));
+    expect(customerText).toContain("Sampleburg, SB");
+    expect(customerText).toContain("5,000");
+    expect(warehouseText).toContain("W1");
+    expect(warehouseText).toContain("Testville, TS");
   });
 });
 
@@ -185,6 +191,56 @@ describe("NetworkMap warehouse icon shape by kind", () => {
     const marker = container.querySelector(".leaflet-marker-icon");
     expect(marker?.innerHTML).toContain("<polygon");
     expect(marker?.innerHTML).not.toContain("<path");
+  });
+
+  // Regression: the legend had no entry explaining the star icon, and the
+  // mine's Tooltip never rendered (gated on isOpen, which is never true for
+  // a mine — it's a fixed source, not a facility-location choice the solver
+  // ever puts in openWarehouseIds).
+  it("shows a 'Mine (fixed)' legend entry when the dataset has a mine, and gives the mine its own hover tooltip", () => {
+    const mineDataset = {
+      warehouses: [{ id: "M1", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const }],
+      customers: [],
+    };
+    const tooltipCountBefore = tooltipChildren.length;
+    const { container } = render(
+      <NetworkMap
+        dataset={mineDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    expect(container.textContent).toContain("Mine (fixed)");
+    // The mine's own Tooltip (gated on isOpen before this fix — a mine is
+    // never in openWarehouseIds, so it never rendered one at all).
+    expect(tooltipChildren.length).toBe(tooltipCountBefore + 1);
+    const { container: tooltipContainer } = render(<>{tooltipChildren[tooltipChildren.length - 1]}</>);
+    expect(tooltipContainer.textContent).toContain("M1");
+    expect(tooltipContainer.textContent).toContain("Kalgoorlie, WA");
+    expect(tooltipContainer.textContent).toContain("(mine)");
+  });
+
+  it("does NOT show a 'Mine (fixed)' legend entry for models with no mine", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    expect(container.textContent).not.toContain("Mine (fixed)");
   });
 });
 
@@ -309,10 +365,14 @@ describe("NetworkMap MapContainer boxZoom", () => {
 // ring test above uses.
 describe("NetworkMap edge coloring by leg (M4.2)", () => {
   it("renders a mine_to_refinery edge green and a refinery_to_customer edge red", () => {
-    // NetworkMap resolves each edge's endpoints as fromId→warehouse and
-    // toId→customer, so a two-echelon refinery node must appear in BOTH
-    // arrays (it is the `toId` of the mine→refinery leg and the `fromId`
-    // of the refinery→customer leg) for both polylines to render.
+    // A mine_to_refinery edge's toId is the refinery — a warehouse-role
+    // entity — so the refinery is duplicated into `customers` here too, to
+    // exercise the fromId/toId resolution regardless of which array it
+    // happens to also be findable in. The real-shape regression (refinery
+    // present ONLY in `warehouses`, not duplicated into `customers`) is
+    // covered separately below — that's the case that actually caught the
+    // bug (dataset.customers.find() always failed for a mine_to_refinery
+    // edge's toId, silently dropping the polyline).
     const twoEchelonDataset = {
       warehouses: [
         { id: "kalgoorlie", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47 },
@@ -358,6 +418,62 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
     // mine→refinery leg = green (#16A34A), refinery→customer leg = red (#DC2626).
     expect(routeHtml).toContain("#16A34A");
     expect(routeHtml).toContain("#DC2626");
+  });
+
+  // Regression: the real two-echelon-gold-au dataset does NOT duplicate the
+  // refinery id into `customers` — mines and refineries live only in
+  // `warehouses`. A mine_to_refinery edge's toId (the refinery) resolved
+  // via dataset.customers.find(), which always returned undefined for this
+  // shape, silently dropping the mine→refinery polyline from the map (it
+  // never appeared at all, not even in a wrong color).
+  it("renders the mine→refinery route even when the refinery is NOT duplicated into dataset.customers (the real dataset shape)", () => {
+    const realShapeDataset = {
+      warehouses: [
+        { id: "kalgoorlie", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const },
+        { id: "cunnamulla", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68, kind: "facility" as const },
+      ],
+      customers: [
+        { id: "sydney", city: "Sydney", state: "NSW", lat: -33.87, lng: 151.21, demand: 740000 },
+      ],
+    };
+    const result = {
+      status: "optimal" as const,
+      objective: 386577,
+      runTimeSec: 0.1,
+      quality: "Optimal",
+      edges: [
+        { fromId: "kalgoorlie", toId: "cunnamulla", flow: 8140000, distance: 1465, leg: "mine_to_refinery" as const },
+        { fromId: "cunnamulla", toId: "sydney", flow: 740000, distance: 1000, leg: "refinery_to_customer" as const },
+      ],
+      metrics: { weightedAvgDistance: 1100, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["cunnamulla"], assignments: [] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={realShapeDataset}
+        warehouseStatuses={[]}
+        result={result}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000, 2600]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeSvg = container.querySelector(".leaflet-route-pane svg");
+    const routeHtml = routeSvg?.innerHTML ?? "";
+    // Both edges must render — previously only the refinery_to_customer
+    // (red) line appeared; the mine_to_refinery (green) line was silently
+    // dropped.
+    expect(routeHtml).toContain("#16A34A");
+    expect(routeHtml).toContain("#DC2626");
+    // A real <path> element per edge (not just a color mentioned somewhere
+    // else, e.g. the legend) — exactly 2 route polylines.
+    const pathCount = (routeHtml.match(/<path/g) ?? []).length;
+    expect(pathCount).toBe(2);
   });
 
   it("falls back to band coloring for an edge with no leg field (single-echelon models)", () => {

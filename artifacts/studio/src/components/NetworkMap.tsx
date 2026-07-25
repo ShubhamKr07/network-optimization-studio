@@ -389,12 +389,25 @@ export function NetworkMap({
         <Pane name="routePane" style={{ zIndex: 350 }}>
           {showRoutes &&
             result?.edges.map((edge) => {
-              const customer = dataset.customers.find((c) => c.id === edge.toId);
+              // Two-echelon's mine->refinery leg has fromId=mine, toId=refinery
+              // — BOTH warehouse-role entities in dataset.warehouses, not
+              // dataset.customers. Every other edge (every single-echelon
+              // model, and two-echelon's own refinery->customer leg) is the
+              // usual fromId=warehouse, toId=customer shape. Looking this leg
+              // up in dataset.customers always failed (no such customer id),
+              // silently dropping the mine->refinery route from the map.
+              const isMineLeg = edge.leg === "mine_to_refinery";
+              const toEntity = isMineLeg
+                ? dataset.warehouses.find((w) => w.id === edge.toId)
+                : dataset.customers.find((c) => c.id === edge.toId);
               const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
-              if (!customer || !warehouse) return null;
+              if (!toEntity || !warehouse) return null;
 
-              const focused = isCustomerFocused(edge.toId);
-              const dimmed = anySelection && !focused;
+              // The mine->refinery leg isn't tied to any one customer, so
+              // customer-focus dimming (inspecting a specific customer's
+              // route) doesn't apply to it — it stays fully visible.
+              const focused = isMineLeg || isCustomerFocused(edge.toId);
+              const dimmed = !isMineLeg && anySelection && !focused;
 
               // Two-echelon models tag each edge with its leg so the map can
               // style mine->refinery and refinery->customer differently. When
@@ -408,7 +421,7 @@ export function NetworkMap({
                 <Polyline
                   key={`route-${edge.toId}`}
                   positions={[
-                    [customer.lat, customer.lng],
+                    [toEntity.lat, toEntity.lng],
                     [warehouse.lat, warehouse.lng],
                   ]}
                   pathOptions={{
@@ -495,14 +508,19 @@ export function NetworkMap({
                   : undefined
               }
             >
-              {isOpen && (
-                <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                  <span className="font-semibold text-xs">
-                    {w.city}, {w.state}
-                    {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers` : ""}
-                  </span>
-                </Tooltip>
-              )}
+              {/* Hover details for every warehouse-role marker (mine, refinery,
+                  warehouse) regardless of status — previously gated on
+                  isOpen, so a "potential" candidate (most markers, especially
+                  pre-solve) or the fixed mine (never in openWarehouseIds,
+                  since it's not a facility-location choice — so isOpen was
+                  always false for it) showed nothing on hover at all. */}
+              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                <span className="font-semibold text-xs">
+                  {w.id} — {w.city}, {w.state}
+                  {w.kind === "mine" && " (mine)"}
+                  {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers` : ""}
+                </span>
+              </Tooltip>
             </Marker>
           );
         })}
@@ -510,6 +528,18 @@ export function NetworkMap({
 
       <div className="absolute bottom-4 right-4 bg-white border border-border p-2 rounded-md shadow flex flex-col gap-2 z-10 text-xs">
         <div className="flex items-center gap-3">
+          {/* Only shown when the dataset actually has a mine (two-echelon-
+              gold-au) — every other model's legend is unchanged. Without
+              this, the star icon (createStarIcon) had no legend entry
+              explaining what it meant. */}
+          {dataset.warehouses.some((w) => w.kind === "mine") && (
+            <div className="flex items-center gap-1">
+              <svg width="14" height="14" viewBox="0 0 24 24">
+                <path d="M12 2L14.2 8.9L21.5 8.9L15.6 13.2L17.9 20.1L12 15.8L6.1 20.1L8.4 13.2L2.5 8.9L9.8 8.9Z" fill="none" stroke="#64748B" strokeWidth="2" />
+              </svg>
+              <span className="text-muted-foreground">Mine (fixed)</span>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <svg width="14" height="14" viewBox="0 0 24 24">
               <polygon points="12,2 22,20 2,20" fill="none" stroke="#64748B" strokeWidth="2" />
