@@ -23,6 +23,29 @@ export function assignBand(distance: number, bands: number[]): number {
   return idx === -1 ? sorted.length - 1 : idx;
 }
 
+// Rounds a raw step up to the nearest "nice" 1/2/5 * 10^k value, so
+// auto-fit bands read like 500/1000/1500 rather than 483/966/1449.
+function niceStep(raw: number): number {
+  if (raw <= 0) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+  const fraction = raw / magnitude;
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return niceFraction * magnitude;
+}
+
+// Derives `count` equal-width band boundaries spanning 0..max(edge distance)
+// from a just-solved result, instead of relying on a manifest's static
+// default (which has to be hand-sized per model's geography — see
+// model-integration-precheck.md Gate 4 — and can mismatch the dataset's
+// actual distance range). Returns [] when there's nothing to fit (no edges,
+// or every edge at distance 0) so callers can leave the existing bands alone.
+export function computeAutoBands(edges: BandEdge[], count = 5): number[] {
+  const maxDistance = edges.reduce((max, e) => Math.max(max, e.distance), 0);
+  if (maxDistance <= 0) return [];
+  const step = niceStep(maxDistance / count);
+  return Array.from({ length: count }, (_, i) => Math.round((i + 1) * step));
+}
+
 // Cumulative: percent of total flow with distance <= each boundary.
 export function computeBandCoverage(edges: BandEdge[], bands: number[]): BandCoverageEntry[] {
   const sorted = [...bands].sort((a, b) => a - b);

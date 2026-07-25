@@ -77,6 +77,67 @@ const createTriangleIcon = (
   });
 };
 
+// Sibling of createTriangleIcon — identical status/ring/multiSelect/opacity/
+// size logic, only the shape differs: a 5-point star instead of a triangle.
+// Used to render the single non-overridable mine in two-echelon-gold-au
+// (WarehouseCandidate.kind === "mine"); every other model's rows have
+// kind undefined and still render the triangle unchanged.
+const createStarIcon = (
+  status: "potential" | "forced_open" | "inactive" | "open",
+  highlighted = false,
+  dimmed = false,
+  multiSelected = false,
+) => {
+  let fill = "none";
+  let stroke = "#64748B";
+  let strokeWidth = "2";
+  let dash = "";
+  let extraCircle = "";
+
+  if (status === "open" || status === "forced_open") {
+    fill = highlighted ? "#15803D" : "#16A34A";
+    stroke = highlighted ? "#15803D" : "#16A34A";
+  } else if (status === "inactive") {
+    stroke = "#DC2626";
+    dash = 'stroke-dasharray="4"';
+  }
+
+  if (status === "forced_open") {
+    extraCircle = `<circle cx="12" cy="12" r="10" fill="none" stroke="#2D6CDF" stroke-width="1.5" stroke-dasharray="3" />`;
+  }
+
+  const ringCircle = highlighted
+    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#FCD34D" stroke-width="2" />`
+    : "";
+  // Multi-select ring uses a distinct violet stroke so it's visually
+  // unambiguous from the amber single-select ring above, and can coexist
+  // with it (a warehouse can be both single-selected and multi-selected).
+  const multiSelectRing = multiSelected
+    ? `<circle cx="12" cy="12" r="9" fill="none" stroke="#7C3AED" stroke-width="2.5" />`
+    : "";
+
+  const opacity = dimmed ? 0.25 : 1;
+  const size = highlighted ? 32 : 24;
+  const anchor = highlighted ? 16 : 12;
+
+  // Standard 5-point star centered in the same 24x24 viewBox as the
+  // triangle, outer radius ~10 / inner ~3.8 so it roughly matches the
+  // triangle's visual weight (which spans y=2..20, x=2..22).
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" opacity="${opacity}">
+    ${ringCircle}
+    ${multiSelectRing}
+    ${extraCircle}
+    <path d="M12 2L14.2 8.9L21.5 8.9L15.6 13.2L17.9 20.1L12 15.8L6.1 20.1L8.4 13.2L2.5 8.9L9.8 8.9Z" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" ${dash} />
+  </svg>`;
+
+  return L.divIcon({
+    html: svg,
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [anchor, anchor],
+  });
+};
+
 function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
   useMapEvents({ click: onDeselect });
   return null;
@@ -408,7 +469,9 @@ export function NetworkMap({
             <Marker
               key={w.id}
               position={[w.lat, w.lng]}
-              icon={createTriangleIcon(status, isHighlighted, isDimmed, multiSelectedWarehouseIds.includes(w.id))}
+              icon={w.kind === "mine"
+                ? createStarIcon(status, isHighlighted, isDimmed, multiSelectedWarehouseIds.includes(w.id))
+                : createTriangleIcon(status, isHighlighted, isDimmed, multiSelectedWarehouseIds.includes(w.id))}
               eventHandlers={
                 isOpen
                   ? {

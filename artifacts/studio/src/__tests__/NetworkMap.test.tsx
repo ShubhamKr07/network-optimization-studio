@@ -118,6 +118,76 @@ describe("NetworkMap multi-select", () => {
   });
 });
 
+// ── Marker icon shape by kind (mine=star, facility/undefined=triangle) ─────
+describe("NetworkMap warehouse icon shape by kind", () => {
+  it("renders a star icon (svg path) for a warehouse tagged kind: 'mine'", () => {
+    const mineDataset = {
+      warehouses: [{ id: "M1", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const }],
+      customers: [],
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={mineDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const marker = container.querySelector(".leaflet-marker-icon");
+    expect(marker?.innerHTML).toContain("<path");
+    expect(marker?.innerHTML).not.toContain("<polygon");
+  });
+
+  it("renders a triangle icon (svg polygon) for a warehouse tagged kind: 'facility'", () => {
+    const facilityDataset = {
+      warehouses: [{ id: "R1", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68, kind: "facility" as const }],
+      customers: [],
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={facilityDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const marker = container.querySelector(".leaflet-marker-icon");
+    expect(marker?.innerHTML).toContain("<polygon");
+    expect(marker?.innerHTML).not.toContain("<path");
+  });
+
+  it("renders a triangle icon (svg polygon) for every other model, whose warehouses carry no kind at all", () => {
+    // dataset.warehouses[0] has no `kind` field — matches every model except
+    // two-echelon-gold-au. Must render identically to before this change.
+    const { container } = render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const marker = container.querySelector(".leaflet-marker-icon");
+    expect(marker?.innerHTML).toContain("<polygon");
+    expect(marker?.innerHTML).not.toContain("<path");
+  });
+});
+
 describe("NetworkMap MapContainer boxZoom", () => {
   it("disables Leaflet's boxZoom so it doesn't collide with shift-click multi-select", () => {
     render(

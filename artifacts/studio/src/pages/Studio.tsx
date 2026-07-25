@@ -33,7 +33,7 @@ import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { chapterForModelId } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
-import { computeBandCoverage } from "@/lib/bands";
+import { computeBandCoverage, computeAutoBands } from "@/lib/bands";
 import { getBandColor } from "@/lib/bandPalette";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -383,16 +383,43 @@ export function Studio({ modelId }: StudioProps) {
   // Phase 3.5 (G3.1): solve is async now — POST enqueues a job and returns
   // {jobId} immediately; useGetSolveJob below polls it until it leaves
   // queued/running.
+  //
+  // POST /solve carries no body — it solves whatever is already persisted on
+  // the scenario row ("DB row is the source of truth", see CLAUDE.md's solve
+  // path). A dirty (unsaved) localConfig change — e.g. dragging the BOM ratio
+  // slider without clicking Save — used to be silently discarded: Solve ran
+  // against the stale saved inputs, so the result never reflected the edit.
+  // Save first when dirty, then solve, so "Solve"/"Re-solve" always reflects
+  // what's currently on screen.
   const handleSolve = () => {
     if (!scenarioId || hasErrors) return;
     setIsSolving(true);
-    solveScenario.mutate(
-      { scenarioId },
-      {
-        onSuccess: (job) => setPollingJobId(job.jobId),
-        onError: () => setIsSolving(false),
-      }
-    );
+    const runSolve = () => {
+      solveScenario.mutate(
+        { scenarioId },
+        {
+          onSuccess: (job) => setPollingJobId(job.jobId),
+          onError: () => setIsSolving(false),
+        }
+      );
+    };
+    if (isDirty && localConfig) {
+      const inputs = buildInputsForSave(localConfig, activeModelId);
+      updateScenario.mutate(
+        { scenarioId, data: { name: localConfig.name, inputs } },
+        {
+          onSuccess: () => {
+            setSavedConfig(localConfig);
+            queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+            queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+            runSolve();
+          },
+          onError: () => setIsSolving(false),
+        }
+      );
+    } else {
+      runSolve();
+    }
   };
 
   const { data: jobStatus } = useGetSolveJob(scenarioId!, pollingJobId!, {
@@ -425,6 +452,31 @@ export function Studio({ modelId }: StudioProps) {
       });
     }
   }, [jobStatus, scenarioId, queryClient]);
+
+  // Auto-fit distance bands to whatever the solver actually returned, rather
+  // than requiring a manifest's static default to already match this
+  // scenario's true distance range (see model-integration-precheck.md
+  // Gate 4). Runs whenever a (new) result lands — including on first load of
+  // an already-solved scenario. Updates both localConfig and savedConfig
+  // together so this doesn't itself flip the scenario into a dirty/unsaved
+  // state — bands are a client-side reporting lens (E1.1), not a solve
+  // input the server needs to agree with. Still freely re-editable afterward
+  // via the band editor.
+  useEffect(() => {
+    if (!scenarioFromApi?.result) return;
+    const autoBands = computeAutoBands(scenarioFromApi.result.edges);
+    if (autoBands.length === 0) return;
+    setLocalConfig(prev => {
+      if (!prev) return prev;
+      const same = prev.distanceBands.length === autoBands.length && prev.distanceBands.every((b, i) => b === autoBands[i]);
+      return same ? prev : { ...prev, distanceBands: autoBands };
+    });
+    setSavedConfig(prev => {
+      if (!prev) return prev;
+      const same = prev.distanceBands.length === autoBands.length && prev.distanceBands.every((b, i) => b === autoBands[i]);
+      return same ? prev : { ...prev, distanceBands: autoBands };
+    });
+  }, [scenarioFromApi?.result]);
 
   // E2.1: constraint chips focus/open their source input on click.
   const scrollToSection = (id: string) => {
@@ -578,6 +630,50 @@ export function Studio({ modelId }: StudioProps) {
       });
     }
   };
+
+  // Compact CSV/JSON export + Import button cluster, reused by the per-model
+  // export/import toolbar above the three-panel row. Relocated here from the
+  // left panel's per-model Overrides sections — the same handleExport/
+  // setImportEntity handlers and Download/Upload icons, no logic duplicated.
+  // data-testid values are preserved verbatim (tests rely on them).
+  const renderEntityGroup = (
+    label: string,
+    entity: "warehouses" | "customers" | "mines" | "stations" | "refineries",
+  ) => (
+    <div className="flex items-center gap-1.5">
+      <span className="text-muted-foreground">{label}:</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => handleExport(entity, "csv")}
+        disabled={!scenarioId}
+        data-testid={`button-export-${entity}-csv`}
+        className="h-6 text-[10px] px-1.5"
+      >
+        <Download className="w-3 h-3 mr-0.5" /> CSV
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => handleExport(entity, "json")}
+        disabled={!scenarioId}
+        data-testid={`button-export-${entity}-json`}
+        className="h-6 text-[10px] px-1.5"
+      >
+        <Download className="w-3 h-3 mr-0.5" /> JSON
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setImportEntity(entity)}
+        disabled={!scenarioId}
+        data-testid={`button-import-${entity}`}
+        className="h-6 text-[10px] px-1.5"
+      >
+        <Upload className="w-3 h-3 mr-0.5" /> Import
+      </Button>
+    </div>
+  );
 
   const handleImportApplied = (updated: Scenario) => {
     const cfg = configFromScenario(updated);
@@ -813,20 +909,48 @@ export function Studio({ modelId }: StudioProps) {
       </header>
 
       {/* OBJECTIVE BAR */}
-      <ObjectiveBar pValue={pValue} result={result} scenarioId={scenarioId} modelId={currentScenario?.modelId} />
+      <ObjectiveBar result={result} scenarioId={scenarioId} modelId={currentScenario?.modelId} scenarioName={currentScenario?.name} />
+
+      {/* EXPORT / IMPORT TOOLBAR — one full-width row above the three-panel
+          layout. Relocated out of the left panel's per-model Overrides
+          sections (which now keep only the open-table + reset buttons).
+          p-median-brazil has no import/export surface today, so the toolbar
+          renders nothing for it. */}
+      {activeModelId !== "p-median-brazil" && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-white text-xs flex-shrink-0">
+          {activeModelId === "transport-coal" && (
+            <>
+              {renderEntityGroup("Mines", "mines")}
+              {renderEntityGroup("Stations", "stations")}
+            </>
+          )}
+          {activeModelId === "p-median-us" && (
+            <>
+              {renderEntityGroup("Warehouses", "warehouses")}
+              {renderEntityGroup("Customers", "customers")}
+            </>
+          )}
+          {activeModelId === "two-echelon-gold-au" && (
+            <>
+              {renderEntityGroup("Refineries", "refineries")}
+              {renderEntityGroup("Customers", "customers")}
+            </>
+          )}
+        </div>
+      )}
 
       {/* THREE PANELS */}
       <div className="flex flex-1 overflow-hidden">
         {/* LEFT PANEL — CONFIGURE */}
-        <aside className="w-[220px] flex-shrink-0 border-r bg-white overflow-y-auto flex flex-col">
-          <div className="px-3 py-2 bg-white border-b">
+        <aside className="w-[253px] flex-shrink-0 border-r bg-white overflow-y-auto flex flex-col">
+          <div className="px-4 py-2 bg-white border-b">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-primary">Configure · Step 1</span>
           </div>
 
           {localConfig ? (
             <>
               {/* Scenario name */}
-              <div className="px-3 py-3 border-b space-y-1">
+              <div className="px-4 py-3 border-b space-y-1">
                 <p className="text-xs font-semibold text-foreground">Scenario name</p>
                 {editingName ? (
                   <Input
@@ -854,7 +978,7 @@ export function Studio({ modelId }: StudioProps) {
               {/* P value — both p-median variants use P; transport-coal and
                   two-echelon-gold-au have no P concept. */}
               {(modelId === "p-median-us" || modelId === "p-median-brazil") && (
-              <div id="section-p-value" className="px-3 py-3 border-b space-y-2">
+              <div id="section-p-value" className="px-4 py-3 border-b space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-foreground">Warehouses to open (P)</p>
                   <span className="text-sm font-bold text-primary" data-testid="text-p-value">{localConfig.pValue}</span>
@@ -866,7 +990,7 @@ export function Studio({ modelId }: StudioProps) {
                   data-testid="slider-p-value"
                   className="my-1"
                 />
-                <div className="flex gap-1 flex-wrap">
+                <div className="flex gap-1.5 flex-wrap">
                   {[2, 3, 4, 10, 25].map(n => (
                     <button
                       key={n}
@@ -883,7 +1007,7 @@ export function Studio({ modelId }: StudioProps) {
               )}
 
               {/* Solve settings */}
-              <div className="px-3 py-3 border-b space-y-2">
+              <div className="px-4 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Solve settings</p>
                 <div className="flex gap-2">
                   <div className="flex-1">
@@ -914,7 +1038,7 @@ export function Studio({ modelId }: StudioProps) {
               {/* Warehouse capacity — both p-median variants; transport-coal
                   and two-echelon-gold-au have no capacity-mode concept here. */}
               {(modelId === "p-median-us" || modelId === "p-median-brazil") && (
-              <div id="section-capacity" className="px-3 py-3 border-b space-y-2">
+              <div id="section-capacity" className="px-4 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse capacity</p>
                 {localConfig.capacityMode === "uniform" && (
                   <Input
@@ -950,7 +1074,7 @@ export function Studio({ modelId }: StudioProps) {
               )}
 
               {/* Constraints */}
-              <div className="px-3 py-3 border-b space-y-2">
+              <div className="px-4 py-3 border-b space-y-2">
                 <div className="flex items-center gap-1">
                   <p className="text-xs font-semibold text-foreground">Constraints · model-defined</p>
                   <Badge variant="outline" className="text-[9px] text-primary border-primary/30 bg-primary/5 px-1 py-0">· read-only</Badge>
@@ -971,7 +1095,7 @@ export function Studio({ modelId }: StudioProps) {
               {/* Transport LP controls — only for transport problem type */}
               {modelId === "transport-coal" && (
                 <>
-                  <div className="px-3 py-3 border-b space-y-2">
+                  <div className="px-4 py-3 border-b space-y-2">
                     <p className="text-xs font-semibold text-foreground">Mine capacity factor</p>
                     <div className="flex items-center gap-2">
                       <Slider
@@ -984,7 +1108,7 @@ export function Studio({ modelId }: StudioProps) {
                     </div>
                     <p className="text-[10px] text-muted-foreground">1.0 = base capacity. 1.1 = +10% slack allows cheaper routing.</p>
                   </div>
-                  <div className="px-3 py-3 border-b space-y-2">
+                  <div className="px-4 py-3 border-b space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-foreground">Single-source</p>
                       <Switch
@@ -994,7 +1118,7 @@ export function Studio({ modelId }: StudioProps) {
                     </div>
                     <p className="text-[10px] text-muted-foreground">Forces each station to receive coal from exactly one mine (integer program). Raises avg distance.</p>
                   </div>
-                  <div className="px-3 py-3 border-b space-y-2">
+                  <div className="px-4 py-3 border-b space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-foreground">Ignore capacity</p>
                       <Switch
@@ -1008,7 +1132,7 @@ export function Studio({ modelId }: StudioProps) {
               )}
 
               {modelId === "transport-coal" && (
-                <div className="px-3 py-3 space-y-2">
+                <div className="px-4 py-3 space-y-2">
                   <p className="text-xs font-semibold text-foreground">Overrides</p>
                   <Button
                     variant="outline"
@@ -1020,38 +1144,6 @@ export function Studio({ modelId }: StudioProps) {
                     Mines
                     <span className="text-muted-foreground">{localConfig.mineCapacities.length > 0 ? `${localConfig.mineCapacities.length} overridden` : `${dataset?.warehouses.length ?? 4}`}</span>
                   </Button>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport("mines", "csv")}
-                      disabled={!scenarioId}
-                      data-testid="button-export-mines-csv"
-                      className="flex-1 h-6 text-[10px] px-1"
-                    >
-                      <Download className="w-3 h-3 mr-1" /> CSV
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport("mines", "json")}
-                      disabled={!scenarioId}
-                      data-testid="button-export-mines-json"
-                      className="flex-1 h-6 text-[10px] px-1"
-                    >
-                      <Download className="w-3 h-3 mr-1" /> JSON
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setImportEntity("mines")}
-                      disabled={!scenarioId}
-                      data-testid="button-import-mines"
-                      className="flex-1 h-6 text-[10px] px-1"
-                    >
-                      <Upload className="w-3 h-3 mr-1" /> Import
-                    </Button>
-                  </div>
 
                   <Button
                     variant="outline"
@@ -1063,38 +1155,6 @@ export function Studio({ modelId }: StudioProps) {
                     Stations
                     <span className="text-muted-foreground">{localConfig.stationDemands.length > 0 ? `${localConfig.stationDemands.length} overridden` : `${dataset?.customers.length ?? 15}`}</span>
                   </Button>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport("stations", "csv")}
-                      disabled={!scenarioId}
-                      data-testid="button-export-stations-csv"
-                      className="flex-1 h-6 text-[10px] px-1"
-                    >
-                      <Download className="w-3 h-3 mr-1" /> CSV
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport("stations", "json")}
-                      disabled={!scenarioId}
-                      data-testid="button-export-stations-json"
-                      className="flex-1 h-6 text-[10px] px-1"
-                    >
-                      <Download className="w-3 h-3 mr-1" /> JSON
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setImportEntity("stations")}
-                      disabled={!scenarioId}
-                      data-testid="button-import-stations"
-                      className="flex-1 h-6 text-[10px] px-1"
-                    >
-                      <Upload className="w-3 h-3 mr-1" /> Import
-                    </Button>
-                  </div>
 
                   <Button
                     variant="outline"
@@ -1112,7 +1172,7 @@ export function Studio({ modelId }: StudioProps) {
               {/* Two-echelon (gold-au) controls — BOM ratio slider. Sweeping it
                   shifts which refinery the solver opens. */}
               {modelId === "two-echelon-gold-au" && (
-                <div className="px-3 py-3 border-b space-y-2">
+                <div className="px-4 py-3 border-b space-y-2">
                   <p className="text-xs font-semibold text-foreground">BOM ratio (raw kg per refined kg)</p>
                   <div className="flex items-center gap-2">
                     <Slider
@@ -1131,7 +1191,7 @@ export function Studio({ modelId }: StudioProps) {
               {/* Brazil (capacitated_pmedian) controls */}
               {modelId === "p-median-brazil" && (
                 <>
-                  <div className="px-3 py-3 border-b space-y-2">
+                  <div className="px-4 py-3 border-b space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-foreground">Single-source</p>
                       <Switch
@@ -1152,7 +1212,7 @@ export function Studio({ modelId }: StudioProps) {
               {/* Warehouse & customer overrides — P-Median only (not transport, not Brazil:
                   Brazil uses a different dataset/id namespace with no table UI yet) */}
               {modelId === "p-median-us" && (
-              <div className="px-3 py-3 space-y-2">
+              <div className="px-4 py-3 space-y-2">
                 <p className="text-xs font-semibold text-foreground">Overrides</p>
                 <Button
                   variant="outline"
@@ -1164,38 +1224,6 @@ export function Studio({ modelId }: StudioProps) {
                   Warehouses
                   <span className="text-muted-foreground">{forcedOpenCount + inactiveCount > 0 ? `${forcedOpenCount + inactiveCount} overridden` : "26"}</span>
                 </Button>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("warehouses", "csv")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-warehouses-csv"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> CSV
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("warehouses", "json")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-warehouses-json"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> JSON
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setImportEntity("warehouses")}
-                    disabled={!scenarioId}
-                    data-testid="button-import-warehouses"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Upload className="w-3 h-3 mr-1" /> Import
-                  </Button>
-                </div>
 
                 <Button
                   variant="outline"
@@ -1207,38 +1235,6 @@ export function Studio({ modelId }: StudioProps) {
                   Customers
                   <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
                 </Button>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("customers", "csv")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-customers-csv"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> CSV
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("customers", "json")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-customers-json"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> JSON
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setImportEntity("customers")}
-                    disabled={!scenarioId}
-                    data-testid="button-import-customers"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Upload className="w-3 h-3 mr-1" /> Import
-                  </Button>
-                </div>
 
                 <Button
                   variant="outline"
@@ -1260,7 +1256,7 @@ export function Studio({ modelId }: StudioProps) {
                    Dialog below. Refineries carry only a status (no capacity),
                    so capacityMode "none" is forced on the shared table. */}
               {modelId === "two-echelon-gold-au" && (
-              <div className="px-3 py-3 space-y-2">
+              <div className="px-4 py-3 space-y-2">
                 <p className="text-xs font-semibold text-foreground">Overrides</p>
                 <Button
                   variant="outline"
@@ -1272,38 +1268,6 @@ export function Studio({ modelId }: StudioProps) {
                   Refineries
                   <span className="text-muted-foreground">{forcedOpenCount + inactiveCount > 0 ? `${forcedOpenCount + inactiveCount} overridden` : "2"}</span>
                 </Button>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("refineries", "csv")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-refineries-csv"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> CSV
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("refineries", "json")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-refineries-json"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> JSON
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setImportEntity("refineries")}
-                    disabled={!scenarioId}
-                    data-testid="button-import-refineries"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Upload className="w-3 h-3 mr-1" /> Import
-                  </Button>
-                </div>
 
                 <Button
                   variant="outline"
@@ -1315,38 +1279,6 @@ export function Studio({ modelId }: StudioProps) {
                   Customers
                   <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
                 </Button>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("customers", "csv")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-customers-csv"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> CSV
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleExport("customers", "json")}
-                    disabled={!scenarioId}
-                    data-testid="button-export-customers-json"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Download className="w-3 h-3 mr-1" /> JSON
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setImportEntity("customers")}
-                    disabled={!scenarioId}
-                    data-testid="button-import-customers"
-                    className="flex-1 h-6 text-[10px] px-1"
-                  >
-                    <Upload className="w-3 h-3 mr-1" /> Import
-                  </Button>
-                </div>
 
                 <Button
                   variant="outline"

@@ -571,6 +571,61 @@ describe("Studio — two-echelon-gold-au left panel", () => {
   });
 });
 
+// ── Left panel width + import/export toolbar placement ──────────────────────
+describe("Studio — left panel width", () => {
+  it("the left CONFIGURE panel is 253px wide (220px + 15%)", () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    const { container } = renderStudio();
+    const configureLabel = screen.getByText("Configure · Step 1");
+    const aside = configureLabel.closest("aside");
+    expect(aside?.className).toContain("w-[253px]");
+    // The right (results) panel must be untouched.
+    const rightAside = container.querySelectorAll("aside")[1];
+    expect(rightAside?.className).toContain("w-[280px]");
+  });
+});
+
+describe("Studio — export/import toolbar above the map", () => {
+  it("p-median-us: shows exactly one Warehouses export/import group and one Customers group, not duplicated in the left panel", () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getAllByTestId("button-export-warehouses-csv")).toHaveLength(1);
+    expect(screen.getAllByTestId("button-import-warehouses")).toHaveLength(1);
+    expect(screen.getAllByTestId("button-export-customers-csv")).toHaveLength(1);
+    // The left panel's "open table" entry point stays put — the toolbar move
+    // only relocated export/import, not the whole Overrides section.
+    expect(screen.getByTestId("button-open-warehouse-table")).toBeInTheDocument();
+  });
+
+  it("transport-coal: shows Mines and Stations export/import groups", () => {
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio("transport-coal");
+    expect(screen.getByTestId("button-export-mines-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-stations-csv")).toBeInTheDocument();
+  });
+
+  it("two-echelon-gold-au: shows Refineries and Customers export/import groups", () => {
+    mockUseSearch.mockReturnValue("?scenario=20");
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.getByTestId("button-export-refineries-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-customers-csv")).toBeInTheDocument();
+  });
+
+  it("p-median-brazil: shows no export/import toolbar at all (no import/export surface for this model)", () => {
+    mockUseSearch.mockReturnValue("?scenario=10");
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio("p-median-brazil");
+    expect(screen.queryByTestId("button-export-warehouses-csv")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-import-warehouses")).not.toBeInTheDocument();
+  });
+});
+
 // ── Brazil Studio — infeasibility output ──────────────────────────────────
 describe("Studio — Brazil infeasibility output banner", () => {
   const brazilInfeasibleScenario = {
@@ -898,6 +953,40 @@ describe("Studio — Async solve", () => {
     })));
     expect(screen.getByTestId("button-solve")).not.toHaveTextContent("Solving...");
   });
+
+  // Regression test: Solve used to fire directly against the DB row's saved
+  // inputs, silently discarding a dirty (unsaved) edit — e.g. dragging a
+  // slider then clicking Solve solved the OLD value with zero indication.
+  it("saves a dirty change before solving, and only solves after the save succeeds", async () => {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    renderStudio();
+
+    // Dirty the scenario: p defaults to 3, quick-pick 10 changes it.
+    await userEvent.click(screen.getByTestId("button-p-quick-10"));
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [saveVars] = mockUpdateScenario.mutate.mock.calls[0];
+    expect((saveVars as { data: { inputs: { p: number } } }).data.inputs.p).toBe(10);
+    expect(mockSolveScenario.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
+  });
+
+  it("does NOT save when the scenario is already clean — solves directly", async () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    renderStudio();
+
+    await userEvent.click(screen.getByTestId("button-solve"));
+
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockSolveScenario.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
+  });
 });
 
 // ── Quality statement (E3.1) ─────────────────────────────────────────────────
@@ -969,22 +1058,63 @@ describe("Studio — Client-side distance bands", () => {
     renderStudio();
     await userEvent.click(screen.getByText("Output"));
 
-    // Baseline bands are [200,400,800,1600] (pmedianInputs); the 800mi band
-    // only covers the 150mi edge (50% of flow) since 900 > 800.
+    // pmedianInputs' saved bands are [200,400,800,1600], but this scenario
+    // already has a result — computeAutoBands([150,900], count=5) auto-fits
+    // to [200,400,600,800,1000] on load, coincidentally still including 800
+    // (only the 150mi edge is within it, since 900 > 800: 50% of flow).
     expect(screen.getByTestId("result-band-800")).toHaveTextContent("50%");
 
     await userEvent.click(screen.getByTestId("button-add-band"));
-    await userEvent.type(screen.getByTestId("input-new-band"), "1000");
+    await userEvent.type(screen.getByTestId("input-new-band"), "1500");
     await userEvent.click(screen.getByTestId("button-add-band-confirm"));
 
-    // New band boundary (not present in the server's stale metrics.bandCoverage
-    // at all) shows up with correctly recomputed coverage — the 900mi edge is
-    // now included (900<=1000), proving this is live client-side computation.
-    expect(screen.getByTestId("result-band-1000")).toHaveTextContent("100%");
+    // New band boundary (not present in the server's stale metrics.bandCoverage,
+    // and not one of the auto-fit bands either) shows up with correctly
+    // recomputed coverage — the 900mi edge is now included (900<=1500),
+    // proving this is live client-side computation.
+    expect(screen.getByTestId("result-band-1500")).toHaveTextContent("100%");
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
     expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+// ── Auto-fit distance bands from the solved result (new) ────────────────────
+describe("Studio — auto-fit distance bands", () => {
+  it("replaces the saved bands with ones fit to the result's actual edge distances on load", async () => {
+    const solvedResult = {
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 50, distance: 1000, band: 0 }],
+      metrics: { weightedAvgDistance: 1000, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["CHI"], assignments: [] },
+      solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    const scenario = { ...pmedianScenario, result: solvedResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+
+    // pmedianInputs' saved bands [200,400,800,1600] never appear — the 1000mi
+    // edge fits computeAutoBands's [200,400,600,800,1000].
+    expect(screen.getByTestId("result-band-1000")).toBeInTheDocument();
+    expect(screen.queryByTestId("result-band-1600")).not.toBeInTheDocument();
+  });
+
+  it("does not itself mark the scenario dirty (no Save prompt from an auto re-band alone)", async () => {
+    const solvedResult = {
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 50, distance: 1000, band: 0 }],
+      metrics: { weightedAvgDistance: 1000, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: ["CHI"], assignments: [] },
+      solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    const scenario = { ...pmedianScenario, result: solvedResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
   });
 });
 
