@@ -409,7 +409,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers, mines, stations]
+            enum: [warehouses, customers, mines, stations, refineries]
         - name: format
           in: query
           required: true
@@ -610,6 +610,7 @@ components:
 
     WarehouseCandidate:
       type: object
+      description: Generic facility-candidate row, reused across models (warehouses, mines, refineries). `kind` distinguishes non-overridable supply nodes (two-echelon-gold-au's single mine) from overridable ones; omitted for models where every row is overridable.
       properties:
         id:
           type: string
@@ -621,6 +622,9 @@ components:
           type: number
         lng:
           type: number
+        kind:
+          type: string
+          enum: [mine, facility]
       required: [id, city, state, lat, lng]
 
     Customer:
@@ -1003,7 +1007,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations]
+          enum: [warehouses, customers, mines, stations, refineries]
         csvText:
           type: string
       required: [entity, csvText]
@@ -1055,7 +1059,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations]
+          enum: [warehouses, customers, mines, stations, refineries]
         csvText:
           type: string
         mode:
@@ -1083,7 +1087,7 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations]
+          enum: [warehouses, customers, mines, stations, refineries]
         rows:
           type: array
           items:

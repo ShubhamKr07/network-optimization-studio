@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyMineOverrides, applyStationOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
@@ -23,13 +23,27 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations";
+export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries";
 
 const COLUMNS: Record<ImportEntity, string[]> = {
   warehouses: ["template_version", "id", "city", "state", "capacity", "status"],
   customers: ["template_version", "id", "city", "state", "demand", "status"],
   mines: ["template_version", "id", "city", "state", "capacity"],
   stations: ["template_version", "id", "city", "state", "demand"],
+  // Refineries have status but no value column at all (two-echelon-gold-au
+  // has no per-refinery capacity concept) — the only entity with a status
+  // column and no value column.
+  refineries: ["template_version", "id", "city", "state", "status"],
+};
+
+// Whether this entity's rows carry a capacity/demand value column at all.
+// Refineries is the one entity with none.
+const ENTITY_HAS_VALUE: Record<ImportEntity, boolean> = {
+  warehouses: true,
+  customers: true,
+  mines: true,
+  stations: true,
+  refineries: false,
 };
 
 const VALID_STATUSES: Record<ImportEntity, string[]> = {
@@ -39,18 +53,21 @@ const VALID_STATUSES: Record<ImportEntity, string[]> = {
   // consulted because the per-row status validation is gated on entityHasStatus.
   mines: [],
   stations: [],
+  refineries: ["active", "forced_open", "inactive"],
 };
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
 interface MineOverride { id: string; capacity?: number | null; }
 interface StationOverride { id: string; demand?: number | null; }
+interface RefineryOverride { id: string; status: "active" | "forced_open" | "inactive"; }
 
 export interface ImportCurrentOverrides {
   warehouseOverrides?: WarehouseOverride[];
   customerOverrides?: CustomerOverride[];
   mineCapacities?: Record<string, number>;
   stationDemands?: Record<string, number>;
+  refineryOverrides?: RefineryOverride[];
 }
 
 export function parseAndValidateImport(
@@ -58,6 +75,11 @@ export function parseAndValidateImport(
   csvText: string,
   currentOverrides: ImportCurrentOverrides,
   pValue: number,
+  // "customers" is a shared entity name between p-median-us (200-row
+  // dataset) and two-echelon-gold-au (10-row dataset) — modelId disambiguates
+  // which baseline to validate against. Defaults to p-median-us so existing
+  // callers/tests that never passed this don't need to change.
+  modelId: string = "p-median-us",
 ): ImportPreview {
   const errors: ImportError[] = [];
   const changes: ImportRowChange[] = [];
@@ -101,15 +123,25 @@ export function parseAndValidateImport(
   // same direction Studio's tables do internally.
   const baseline =
     entity === "warehouses" ? applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
-    : entity === "customers" ? applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
+    : entity === "customers" ? (
+        modelId === "two-echelon-gold-au"
+          ? applyGoldCustomerOverrides(currentOverrides.customerOverrides ?? [])
+          : applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
+      )
     : entity === "mines" ? applyMineOverrides(Object.entries(currentOverrides.mineCapacities ?? {}).map(([id, capacity]) => ({ id, capacity })))
+    : entity === "refineries" ? applyRefineryOverrides(currentOverrides.refineryOverrides ?? [])
     : applyStationOverrides(Object.entries(currentOverrides.stationDemands ?? {}).map(([id, demand]) => ({ id, demand })));
   const baselineById = new Map(baseline.map(r => [r.id, r] as const));
   // Mines/stations carry no status column, so status parsing/validation is
-  // skipped for them (only warehouses/customers validate status).
-  const entityHasStatus = entity === "warehouses" || entity === "customers";
+  // skipped for them (only warehouses/customers/refineries validate status).
+  const entityHasStatus = entity === "warehouses" || entity === "customers" || entity === "refineries";
+  const entityHasValue = ENTITY_HAS_VALUE[entity];
   const validStatuses = VALID_STATUSES[entity];
   const valueLabel = entity === "warehouses" || entity === "mines" ? "capacity" : "demand";
+  // Value column (when present) is always index 4; status (when present)
+  // follows it at 5, or sits at 4 itself if there's no value column
+  // (refineries).
+  const statusColIdx = entityHasValue ? 5 : 4;
 
   const seenIds = new Set<string>();
   const dataRows = rows.slice(1);
@@ -123,8 +155,9 @@ export function parseAndValidateImport(
       continue;
     }
 
-    const [tvStr, id, , , valueStr] = cols;
-    const status = entityHasStatus ? cols[5] : "active";
+    const [tvStr, id] = cols;
+    const valueStr = entityHasValue ? cols[4] : "";
+    const status = entityHasStatus ? cols[statusColIdx] : "active";
 
     if (Number(tvStr) !== TEMPLATE_VERSION) {
       errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
@@ -144,7 +177,7 @@ export function parseAndValidateImport(
     seenIds.add(id);
 
     let value: number | null = null;
-    if (valueStr !== "") {
+    if (entityHasValue && valueStr !== "") {
       const parsedValue = Number(valueStr);
       if (!Number.isFinite(parsedValue) || parsedValue < 0) {
         errors.push({ errorClass: "logic", line, message: `${valueLabel} must be a non-negative number, got "${valueStr}"` });
@@ -158,7 +191,8 @@ export function parseAndValidateImport(
       continue;
     }
 
-    const beforeValue = entity === "warehouses" || entity === "mines"
+    const beforeValue = !entityHasValue ? null
+      : entity === "warehouses" || entity === "mines"
       ? (baselineRow as { capacity: number | null }).capacity
       : (baselineRow as { demand: number }).demand;
     const beforeStatus = entityHasStatus ? (baselineRow as unknown as { status: string }).status : "active";

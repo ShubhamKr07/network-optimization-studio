@@ -3,8 +3,11 @@ import {
   TEMPLATE_VERSION,
   applyWarehouseOverrides,
   applyCustomerOverrides,
+  applyRefineryOverrides,
+  applyGoldCustomerOverrides,
   warehouseRowsToCsv,
   customerRowsToCsv,
+  refineryRowsToCsv,
 } from "../services/templates.js";
 
 describe("applyWarehouseOverrides", () => {
@@ -69,5 +72,47 @@ describe("warehouseRowsToCsv / customerRowsToCsv", () => {
     const rows = [{ templateVersion: TEMPLATE_VERSION, id: "X1", city: "Springfield, Ohio", state: "OH", capacity: null, status: "active" as const }];
     const csv = warehouseRowsToCsv(rows);
     expect(csv).toContain('"Springfield, Ohio"');
+  });
+});
+
+describe("applyRefineryOverrides", () => {
+  it("returns one row per refinery, excluding the mine, with default status 'active'", () => {
+    const rows = applyRefineryOverrides([]);
+    expect(rows.length).toBe(2);
+    expect(rows.map(r => r.id).sort()).toEqual(["cunnamulla", "daggar-hills"]);
+    expect(rows.find(r => r.id === "daggar-hills")).toMatchObject({ templateVersion: TEMPLATE_VERSION, city: "Daggar Hills", state: "WA", status: "active" });
+    // no capacity field at all — refineries have none
+    expect(rows.find(r => r.id === "daggar-hills")).not.toHaveProperty("capacity");
+  });
+
+  it("merges a status override onto its matching refinery, leaving the other untouched", () => {
+    const rows = applyRefineryOverrides([{ id: "cunnamulla", status: "forced_open" }]);
+    expect(rows.find(r => r.id === "cunnamulla")!.status).toBe("forced_open");
+    expect(rows.find(r => r.id === "daggar-hills")!.status).toBe("active");
+  });
+});
+
+describe("applyGoldCustomerOverrides", () => {
+  it("returns one row per two-echelon-gold-au customer (10, not the p-median 200) with base demand", () => {
+    const rows = applyGoldCustomerOverrides([]);
+    expect(rows.length).toBe(10);
+    expect(rows.find(r => r.id === "sydney")).toMatchObject({ templateVersion: TEMPLATE_VERSION, city: "Sydney", state: "NSW", demand: 500000, status: "active" });
+  });
+
+  it("merges a demand override, leaving other rows at base demand", () => {
+    const rows = applyGoldCustomerOverrides([{ id: "sydney", status: "active", demand: 1 }]);
+    expect(rows.find(r => r.id === "sydney")!.demand).toBe(1);
+    expect(rows.find(r => r.id === "melbourne")!.demand).toBe(1000000);
+  });
+});
+
+describe("refineryRowsToCsv", () => {
+  it("produces a header row plus one line per row, status column, no value column", () => {
+    const rows = applyRefineryOverrides([{ id: "cunnamulla", status: "forced_open" }]);
+    const csv = refineryRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[0]).toBe("template_version,id,city,state,status");
+    expect(lines).toContain(`${TEMPLATE_VERSION},cunnamulla,Cunnamulla,QLD,forced_open`);
+    expect(lines.length).toBe(3);
   });
 });

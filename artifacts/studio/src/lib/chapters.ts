@@ -7,6 +7,10 @@ export interface Chapter {
   title: string;
   description: string;
   hiddenFromLanding?: boolean;
+  /** Studio header bar's compact title, e.g. "Al's Athletics · Model Lab". */
+  labHeaderTitle: string;
+  /** Studio header bar's mono subtitle line, e.g. "Ch 3 · p-median · facility location". */
+  labHeaderSubtitle: string;
 }
 
 export const CHAPTERS: Chapter[] = [
@@ -16,6 +20,8 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 3",
     title: "Al's Athletics — P-Median",
     description: "Facility-location: choose which warehouses to open to minimize weighted distance to customers.",
+    labHeaderTitle: "Al's Athletics · Model Lab",
+    labHeaderSubtitle: "Ch 3 · p-median · facility location",
   },
   {
     path: "/chapter-5/transport",
@@ -24,6 +30,8 @@ export const CHAPTERS: Chapter[] = [
     title: "Coal Transport LP",
     description: "Transportation LP: route coal from mines to power stations at minimum cost.",
     hiddenFromLanding: true,
+    labHeaderTitle: "Coal Transport LP · Model Lab",
+    labHeaderSubtitle: "Ch 5 · transport LP · coal mines → power stations",
   },
   {
     path: "/chapter-5/brazil",
@@ -32,6 +40,8 @@ export const CHAPTERS: Chapter[] = [
     title: "Brazil Capacity — Capacitated P-Median",
     description: "Capacitated facility location: open warehouses under per-site capacity limits.",
     hiddenFromLanding: true,
+    labHeaderTitle: "Brazil Capacity · Model Lab",
+    labHeaderSubtitle: "Ch 5 · capacitated p-median · Brazil",
   },
   {
     path: "/chapter-10/gold-refinery",
@@ -39,8 +49,14 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 10",
     title: "Gold Refinery Siting — Two-Echelon",
     description: "Two-echelon facility location: site a refinery between a gold mine and ten customers, and watch the choice flip as the bill-of-materials ratio changes.",
+    labHeaderTitle: "Gold Refinery Siting · Model Lab",
+    labHeaderSubtitle: "Ch 10 · two-echelon LP · mine → refinery → customer",
   },
 ];
+
+export function chapterForModelId(modelId: string | undefined): Chapter | undefined {
+  return CHAPTERS.find((c) => c.modelId === modelId);
+}
 
 export function chapterPathForModelId(modelId: string | undefined): string | undefined {
   return CHAPTERS.find((c) => c.modelId === modelId)?.path;

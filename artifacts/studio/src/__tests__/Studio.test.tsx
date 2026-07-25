@@ -111,6 +111,25 @@ const transportScenario = {
   updatedAt: "2026-01-02T00:00:00Z",
 };
 
+const twoEchelonInputs = {
+  bomRatio: 1.1,
+  refineryOverrides: [],
+  customerOverrides: [],
+  distanceBands: [500, 1000, 1500, 2000, 2600],
+  gap: 0,
+  timeLimitSec: 120,
+};
+
+const twoEchelonScenario = {
+  id: 20,
+  name: "Gold BOM 1.1",
+  modelId: "two-echelon-gold-au",
+  inputs: twoEchelonInputs,
+  result: null,
+  createdAt: "2026-01-04T00:00:00Z",
+  updatedAt: "2026-01-04T00:00:00Z",
+};
+
 const dataset = {
   warehouses: [{ id: "CHI", city: "Chicago", state: "IL", lat: 41.88, lng: -87.62 }],
   customers: [{ id: "C1", lat: 40.71, lng: -74.00, demand: 100 }],
@@ -497,6 +516,58 @@ describe("Studio — Header lab name by active lab (all three labs)", () => {
     mockUseGetScenario.mockReturnValue({ data: brazilScenario } as ReturnType<typeof useGetScenario>);
     renderStudio("p-median-brazil");
     expect(screen.getByText(/Brazil Capacity · Model Lab/)).toBeInTheDocument();
+  });
+
+  // Regression guard: the header used to be a hardcoded ternary keyed off
+  // activeModelIndex that never got a branch for two-echelon-gold-au, so a
+  // Chapter 10 scenario silently fell through to "Al's Athletics" — now
+  // derived from chapters.ts's CHAPTERS lookup instead.
+  it("shows Gold Refinery Siting · Model Lab (Ch 10), not Al's Athletics, for a two-echelon-gold-au scenario", () => {
+    mockUseSearch.mockReturnValue("?scenario=20");
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.getByText(/Gold Refinery Siting · Model Lab/)).toBeInTheDocument();
+    expect(screen.queryByText(/Al's Athletics/)).not.toBeInTheDocument();
+  });
+});
+
+// ── Two-echelon-gold-au (Chapter 10) left panel parity ───────────────────
+describe("Studio — two-echelon-gold-au left panel", () => {
+  beforeEach(() => {
+    mockUseSearch.mockReturnValue("?scenario=20");
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
+  });
+
+  it("does NOT show the p-median 'Warehouses to open (P)' control (no P concept in this model)", () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.queryByText("Warehouses to open (P)")).not.toBeInTheDocument();
+  });
+
+  it("does NOT show the 'Warehouse capacity' control (refineries have no capacity concept)", () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.queryByText("Warehouse capacity")).not.toBeInTheDocument();
+  });
+
+  it("shows a Refineries overrides button with export/import controls", () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.getByTestId("button-open-refinery-table")).toBeInTheDocument();
+    expect(screen.getByText("Refineries")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-refineries-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-refineries-json")).toBeInTheDocument();
+    expect(screen.getByTestId("button-import-refineries")).toBeInTheDocument();
+  });
+
+  it("shows a Reset to baseline button", () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    expect(screen.getByTestId("button-reset-baseline")).toBeInTheDocument();
+  });
+
+  it("opening the Refineries dialog titles it 'Refineries', not 'Warehouses'", async () => {
+    render(<Studio modelId="two-echelon-gold-au" />);
+    await userEvent.click(screen.getByTestId("button-open-refinery-table"));
+    expect(screen.getByRole("heading", { name: "Refineries" })).toBeInTheDocument();
   });
 });
 

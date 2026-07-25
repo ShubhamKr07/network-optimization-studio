@@ -29,6 +29,8 @@ export interface WarehouseCandidate {
   state: string;
   lat: number;
   lng: number;
+  /** Distinguishes non-overridable supply nodes (e.g. two-echelon-gold-au's mine) from overridable ones. Omitted where every row is overridable. */
+  kind?: "mine" | "facility";
 }
 
 export interface Customer {

@@ -14,4 +14,5 @@ export const ImportApplyRequestEntity = {
   customers: 'customers',
   mines: 'mines',
   stations: 'stations',
+  refineries: 'refineries',
 } as const;

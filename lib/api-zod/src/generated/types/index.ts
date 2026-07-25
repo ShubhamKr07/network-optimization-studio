@@ -70,4 +70,5 @@ export * from './solveResultDetails';
 export * from './solveResultStatus';
 export * from './transportAssignment';
 export * from './warehouseCandidate';
+export * from './warehouseCandidateKind';
 export * from './warehouseUtilization';

@@ -255,7 +255,10 @@ export function NetworkMap({
   const handleWarehouseClick = (whId: string, status: string, e: L.LeafletMouseEvent) => {
     L.DomEvent.stopPropagation(e);
     if (e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
-      onToggleWarehouseMultiSelect(whId);
+      // The mine (kind="mine", two-echelon only) is not an overridable entity,
+      // so it is excluded from multi-select; it still renders as a marker.
+      const wh = dataset.warehouses.find(w => w.id === whId);
+      if (wh?.kind !== "mine") onToggleWarehouseMultiSelect(whId);
       return;
     }
     // Only filter by open/forced_open warehouses that have assignments

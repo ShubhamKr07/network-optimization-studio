@@ -33,8 +33,9 @@ export const GetDatasetResponse = zod.object({
   "city": zod.string(),
   "state": zod.string(),
   "lat": zod.number(),
-  "lng": zod.number()
-})),
+  "lng": zod.number(),
+  "kind": zod.enum(['mine', 'facility']).optional()
+}).describe('Generic facility-candidate row, reused across models (warehouses, mines, refineries). `kind` distinguishes non-overridable supply nodes (two-echelon-gold-au\'s single mine) from overridable ones; omitted for models where every row is overridable.')),
   "customers": zod.array(zod.object({
   "id": zod.string(),
   "city": zod.string(),
@@ -334,7 +335,7 @@ export const PreviewScenarioImportParams = zod.object({
 })
 
 export const PreviewScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
   "csvText": zod.string()
 })
 
@@ -366,7 +367,7 @@ export const ApplyScenarioImportParams = zod.object({
 })
 
 export const ApplyScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
   "csvText": zod.string(),
   "mode": zod.enum(['all_or_nothing', 'partial']).optional()
 })
@@ -500,13 +501,13 @@ export const ExportScenarioParams = zod.object({
 })
 
 export const ExportScenarioQueryParams = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
   "format": zod.enum(['csv', 'json'])
 })
 
 export const ExportScenarioResponse = zod.object({
   "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
   "rows": zod.array(zod.object({
 
 }).passthrough())

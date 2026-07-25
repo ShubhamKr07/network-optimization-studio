@@ -11,10 +11,13 @@ import {
   applyCustomerOverrides,
   applyMineOverrides,
   applyStationOverrides,
+  applyRefineryOverrides,
+  applyGoldCustomerOverrides,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
   stationRowsToCsv,
+  refineryRowsToCsv,
 } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
@@ -271,8 +274,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const entity = req.query.entity as string | undefined;
   const format = req.query.format as string | undefined;
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', or 'stations'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', or 'refineries'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -285,11 +288,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   // Each model is scoped to its own entity pair: p-median-us exports
-  // warehouses/customers, transport-coal exports mines/stations. Any
-  // mismatch 422s — same anti-cross-model-confusion boundary the original
-  // D4.1 gate had, widened to a second model.
+  // warehouses/customers, transport-coal exports mines/stations,
+  // two-echelon-gold-au exports refineries/customers. Any mismatch 422s —
+  // same anti-cross-model-confusion boundary the original D4.1 gate had,
+  // widened to a third model.
   const entityIsPMedian = entity === "warehouses" || entity === "customers";
   const entityIsCoal = entity === "mines" || entity === "stations";
+  const entityIsTwoEchelon = entity === "refineries" || entity === "customers";
   if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers export" });
     return;
@@ -298,7 +303,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "transport-coal scenarios only support mines/stations export" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal") {
+  if (scenario.modelId === "two-echelon-gold-au" && !entityIsTwoEchelon) {
+    res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers export" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
@@ -318,6 +327,22 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     const rows = entity === "mines"
       ? applyMineOverrides(Object.entries(inputs.mineCapacities ?? {}).map(([mineId, capacity]) => ({ id: mineId, capacity })))
       : applyStationOverrides(Object.entries(inputs.stationDemands ?? {}).map(([stationId, demand]) => ({ id: stationId, demand })));
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    return;
+  }
+
+  if (scenario.modelId === "two-echelon-gold-au") {
+    const inputs = scenario.inputs as { refineryOverrides?: unknown[]; customerOverrides?: unknown[] };
+    if (format === "csv") {
+      const csv = entity === "refineries"
+        ? refineryRowsToCsv(applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0]))
+        : customerRowsToCsv(applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0]));
+      res.type("text/csv").send(csv);
+      return;
+    }
+    const rows = entity === "refineries"
+      ? applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0])
+      : applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0]);
     res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
     return;
   }
@@ -345,15 +370,17 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
 // applied everywhere else this shape is edited (Studio's tables, D1.1's
 // solve.py translation).
 function mergeChangesIntoOverrides(
-  entity: "warehouses" | "customers",
+  entity: "warehouses" | "customers" | "refineries",
   currentOverrides: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>,
   changes: ImportRowChange[],
 ): Array<Record<string, unknown>> {
-  const valueField = entity === "warehouses" ? "capacity" : "demand";
+  // Refineries have no value column at all (no capacity/demand concept) —
+  // their override entries are status-only.
+  const valueField = entity === "warehouses" ? "capacity" : entity === "customers" ? "demand" : null;
   const rest = currentOverrides.filter(o => !changes.some(c => c.id === o.id));
   const applied = changes
-    .map(c => ({ id: c.id, status: c.after.status, [valueField]: c.after.value }))
-    .filter(o => !(o.status === "active" && o[valueField] == null));
+    .map(c => (valueField ? { id: c.id, status: c.after.status, [valueField]: c.after.value } : { id: c.id, status: c.after.status }))
+    .filter(o => !(o.status === "active" && (valueField ? (o as Record<string, unknown>)[valueField] == null : true)));
   return [...rest, ...applied];
 }
 
@@ -388,8 +415,8 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText } = req.body as { entity?: string; csvText?: string };
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', or 'stations'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', or 'refineries'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -402,9 +429,11 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   // Same model↔entity pairing the export route enforces: p-median-us imports
-  // warehouses/customers, transport-coal imports mines/stations.
+  // warehouses/customers, transport-coal imports mines/stations,
+  // two-echelon-gold-au imports refineries/customers.
   const entityIsPMedian = entity === "warehouses" || entity === "customers";
   const entityIsCoal = entity === "mines" || entity === "stations";
+  const entityIsTwoEchelon = entity === "refineries" || entity === "customers";
   if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers import" });
     return;
@@ -413,17 +442,23 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     res.status(422).json({ error: "transport-coal scenarios only support mines/stations import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal") {
+  if (scenario.modelId === "two-echelon-gold-au" && !entityIsTwoEchelon) {
+    res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
 
-  // inputs carries warehouseOverrides/customerOverrides (p-median) or
-  // mineCapacities/stationDemands (transport-coal); parseAndValidateImport
-  // reads whichever matches `entity`. p is p-median-only — pass 0 for
-  // transport-coal (its p-driven warning branch never fires for mines/stations).
-  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number> };
-  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0);
+  // inputs carries warehouseOverrides/customerOverrides (p-median),
+  // mineCapacities/stationDemands (transport-coal), or
+  // refineryOverrides/customerOverrides (two-echelon-gold-au);
+  // parseAndValidateImport reads whichever matches `entity`, disambiguating
+  // the shared "customers" entity name by modelId. p is p-median-only —
+  // pass 0 otherwise (its p-driven warning branch never fires for other entities).
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: unknown[] };
+  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
   res.json(preview);
 });
 
@@ -431,8 +466,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText, mode } = req.body as { entity?: string; csvText?: string; mode?: string };
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', or 'stations'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', or 'refineries'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -447,6 +482,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
   const entityIsPMedian = entity === "warehouses" || entity === "customers";
   const entityIsCoal = entity === "mines" || entity === "stations";
+  const entityIsTwoEchelon = entity === "refineries" || entity === "customers";
   if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers import" });
     return;
@@ -455,15 +491,19 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     res.status(422).json({ error: "transport-coal scenarios only support mines/stations import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal") {
+  if (scenario.modelId === "two-echelon-gold-au" && !entityIsTwoEchelon) {
+    res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
 
   // Always re-validate against the live scenario state — never trust a
   // client-held preview, which may be stale by the time apply is called.
-  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number> };
-  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0);
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: Array<{ id: string; status: string }> };
+  const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
 
   if (applyMode === "all_or_nothing" && preview.errors.length > 0) {
     res.status(422).json({ error: "Import has errors; nothing was applied (all-or-nothing mode)", preview });
@@ -477,9 +517,9 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const nextDict = mergeChangesIntoDict(currentDict, preview.changes);
     nextInputs = { ...inputs, [overrideKey]: nextDict };
   } else {
-    const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
+    const overrideKey = entity === "warehouses" ? "warehouseOverrides" : entity === "refineries" ? "refineryOverrides" : "customerOverrides";
     const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
-    const nextOverrides = mergeChangesIntoOverrides(entity as "warehouses" | "customers", currentOverrides, preview.changes);
+    const nextOverrides = mergeChangesIntoOverrides(entity as "warehouses" | "customers" | "refineries", currentOverrides, preview.changes);
     nextInputs = { ...inputs, [overrideKey]: nextOverrides };
   }
 
@@ -503,18 +543,21 @@ router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
 
   // D6.1's original reset only knew p-median-us's
   // warehouseOverrides/customerOverrides. transport-coal's override pair
-  // (mineCapacities/stationDemands) was added later — reset must clear
-  // whichever pair belongs to the scenario's modelId. p-median-brazil (and
-  // the newer model variants) carry no resettable overrides on this route,
-  // so they still 422 — same boundary export/import enforce.
+  // (mineCapacities/stationDemands) and two-echelon-gold-au's
+  // (refineryOverrides/customerOverrides) were added later — reset must
+  // clear whichever pair belongs to the scenario's modelId. p-median-brazil
+  // (and the newer model variants) carry no resettable overrides on this
+  // route, so they still 422 — same boundary export/import enforce.
   const inputs = scenario.inputs as Record<string, unknown>;
   let nextInputs: Record<string, unknown>;
   if (scenario.modelId === "transport-coal") {
     nextInputs = { ...inputs, mineCapacities: {}, stationDemands: {} };
   } else if (scenario.modelId === "p-median-us") {
     nextInputs = { ...inputs, warehouseOverrides: [], customerOverrides: [] };
+  } else if (scenario.modelId === "two-echelon-gold-au") {
+    nextInputs = { ...inputs, refineryOverrides: [], customerOverrides: [] };
   } else {
-    res.status(422).json({ error: "Reset to baseline is only supported for p-median-us and transport-coal scenarios" });
+    res.status(422).json({ error: "Reset to baseline is only supported for p-median-us, transport-coal, and two-echelon-gold-au scenarios" });
     return;
   }
 

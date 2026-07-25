@@ -5,11 +5,16 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { WarehouseCandidateKind } from './warehouseCandidateKind';
 
+/**
+ * Generic facility-candidate row, reused across models (warehouses, mines, refineries). `kind` distinguishes non-overridable supply nodes (two-echelon-gold-au's single mine) from overridable ones; omitted for models where every row is overridable.
+ */
 export interface WarehouseCandidate {
   id: string;
   city: string;
   state: string;
   lat: number;
   lng: number;
+  kind?: WarehouseCandidateKind;
 }

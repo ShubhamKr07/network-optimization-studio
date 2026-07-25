@@ -148,6 +148,27 @@ const brazilRow = {
   updatedAt: new Date("2026-01-03T00:00:00Z"),
 };
 
+const twoEchelonInputs = {
+  bomRatio: 1.1,
+  refineryOverrides: [],
+  customerOverrides: [],
+  distanceBands: [500, 1000, 1500, 2000, 2600],
+  gap: 0,
+  timeLimitSec: 120,
+};
+
+const twoEchelonRow = {
+  id: 11,
+  name: "Gold Base Case",
+  modelId: "two-echelon-gold-au",
+  userId: OWNER,
+  inputs: twoEchelonInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-04T00:00:00Z"),
+  updatedAt: new Date("2026-01-04T00:00:00Z"),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
@@ -707,6 +728,57 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/1/export?entity=mines&format=csv").set("Cookie", cookie);
     expect(res.status).toBe(422);
   });
+
+  // Two-echelon-gold-au refinery/customer export — mirrors the transport-coal
+  // mines/stations pairing above, scoped to entity=refineries|customers and
+  // modelId=two-echelon-gold-au. Only 2 refineries (the mine is excluded).
+  it("exports a two-echelon-gold-au scenario's refinery overrides as CSV (mine excluded)", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/11/export?entity=refineries&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("template_version,id,city,state,status");
+    expect(lines.length).toBe(3); // header + 2 refineries, mine not included
+    expect(lines.some((l) => l.startsWith("1,cunnamulla,") && l.endsWith("forced_open"))).toBe(true);
+  });
+
+  it("exports a two-echelon-gold-au scenario's refinery overrides as JSON", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/11/export?entity=refineries&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("refineries");
+    expect(res.body.rows).toHaveLength(2);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "cunnamulla").status).toBe("forced_open");
+  });
+
+  it("exports a two-echelon-gold-au scenario's customer overrides against its own 10-customer dataset", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, customerOverrides: [{ id: "sydney", status: "active", demand: 1 }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/11/export?entity=customers&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(10);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "sydney").demand).toBe(1);
+  });
+
+  it("rejects entity=warehouses for a two-echelon-gold-au scenario (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const res = await request(app).get("/api/scenarios/11/export?entity=warehouses&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects entity=refineries for a p-median-us scenario (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=refineries&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
 });
 
 // ── Import preview + apply ─────────────────────────────────────────────────
@@ -782,6 +854,37 @@ describe("POST /api/scenarios/:id/import", () => {
     const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
     expect(res.status).toBe(422);
   });
+
+  // Two-echelon-gold-au refinery import preview (Task 7).
+  it("previews a two-echelon-gold-au refinery import with one change and no mutation", async () => {
+    const cookie = await loginAs(OWNER);
+    const refineryCsv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "refineries", csvText: refineryCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0].id).toBe("cunnamulla");
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("previews a two-echelon-gold-au customer import against its own dataset (not p-median's)", async () => {
+    const cookie = await loginAs(OWNER);
+    const customerCsv = "template_version,id,city,state,demand,status\n1,sydney,Sydney,NSW,1,active\n";
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "customers", csvText: customerCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0].id).toBe("sydney");
+  });
+
+  it("rejects entity=warehouses for a two-echelon-gold-au import (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
+    expect(res.status).toBe(422);
+  });
 });
 
 describe("POST /api/scenarios/:id/import/apply", () => {
@@ -834,6 +937,24 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(res.body.errors).toEqual([]);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
+
+  // Two-echelon-gold-au refinery import apply (Task 7) — persists into the
+  // refineryOverrides array (status-only, no capacity field), mirroring the
+  // warehouses array apply above.
+  it("all_or_nothing mode: applies a clean two-echelon-gold-au refinery import into refineryOverrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const refineryCsv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const updatedRow = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] } };
+    mockDb.update.mockReturnValue(makeChain([updatedRow]));
+    const res = await request(app).post("/api/scenarios/11/import/apply").set("Cookie", cookie)
+      .send({ entity: "refineries", csvText: refineryCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.scenario.inputs.refineryOverrides).toEqual([{ id: "cunnamulla", status: "forced_open" }]);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── Reset to baseline ───────────────────────────────────────────────────────
@@ -882,6 +1003,25 @@ describe("POST /api/scenarios/:id/reset-to-baseline", () => {
     expect(res.body.inputs.capacityFactor).toBe(transportInputs.capacityFactor);
     expect(res.body.inputs.singleSource).toBe(transportInputs.singleSource);
     expect(res.body.inputs.capacityInactive).toBe(transportInputs.capacityInactive);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears refineryOverrides and customerOverrides for a two-echelon-gold-au scenario, leaving bomRatio untouched", async () => {
+    const cookie = await loginAs(OWNER);
+    const dirtyRow = {
+      ...twoEchelonRow,
+      inputs: { ...twoEchelonInputs, refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }], customerOverrides: [{ id: "sydney", status: "active", demand: 1 }] },
+    };
+    mockDb.select.mockReturnValue(makeChain([dirtyRow]));
+    const clearedRow = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, refineryOverrides: [], customerOverrides: [] } };
+    mockDb.update.mockReturnValue(makeChain([clearedRow]));
+
+    const res = await request(app).post("/api/scenarios/11/reset-to-baseline").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.inputs.refineryOverrides).toEqual([]);
+    expect(res.body.inputs.customerOverrides).toEqual([]);
+    expect(res.body.inputs.bomRatio).toBe(twoEchelonInputs.bomRatio);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 

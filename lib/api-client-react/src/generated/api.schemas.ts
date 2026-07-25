@@ -48,12 +48,24 @@ export interface HealthStatus {
   status: string;
 }
 
+export type WarehouseCandidateKind = typeof WarehouseCandidateKind[keyof typeof WarehouseCandidateKind];
+
+
+export const WarehouseCandidateKind = {
+  mine: 'mine',
+  facility: 'facility',
+} as const;
+
+/**
+ * Generic facility-candidate row, reused across models (warehouses, mines, refineries). `kind` distinguishes non-overridable supply nodes (two-echelon-gold-au's single mine) from overridable ones; omitted for models where every row is overridable.
+ */
 export interface WarehouseCandidate {
   id: string;
   city: string;
   state: string;
   lat: number;
   lng: number;
+  kind?: WarehouseCandidateKind;
 }
 
 export interface Customer {
@@ -343,6 +355,7 @@ export const ImportRequestEntity = {
   customers: 'customers',
   mines: 'mines',
   stations: 'stations',
+  refineries: 'refineries',
 } as const;
 
 export interface ImportRequest {
@@ -391,6 +404,7 @@ export const ImportApplyRequestEntity = {
   customers: 'customers',
   mines: 'mines',
   stations: 'stations',
+  refineries: 'refineries',
 } as const;
 
 export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
@@ -421,6 +435,7 @@ export const ExportEnvelopeEntity = {
   customers: 'customers',
   mines: 'mines',
   stations: 'stations',
+  refineries: 'refineries',
 } as const;
 
 export type ExportEnvelopeRowsItem = { [key: string]: unknown };
@@ -481,6 +496,7 @@ export const ExportScenarioEntity = {
   customers: 'customers',
   mines: 'mines',
   stations: 'stations',
+  refineries: 'refineries',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];

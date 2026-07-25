@@ -120,3 +120,64 @@ describe("parseAndValidateImport — business rules", () => {
     expect(result.warnings[0]).toMatch(/total capacity/i);
   });
 });
+
+describe("parseAndValidateImport — refineries (no value column, status only)", () => {
+  it("clean row: registers a status change, value is always null (refineries have no capacity/demand field)", () => {
+    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "cunnamulla",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "forced_open", value: null },
+    }]);
+  });
+
+  it("rejects a row with a stray value column as a format error (wrong column count)", () => {
+    const csv = "template_version,id,city,state,capacity,status\n1,cunnamulla,Cunnamulla,QLD,,forced_open\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
+  });
+
+  it("rejects an unknown refinery id (the mine's own id is not importable — it's not a refinery)", () => {
+    const csv = "template_version,id,city,state,status\n1,kalgoorlie,Kalgoorlie,WA,forced_open\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
+  });
+
+  it("rejects an invalid status", () => {
+    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,bogus\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/invalid status/i) }]);
+  });
+
+  it("produces no change when the row matches the current baseline exactly", () => {
+    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,active\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("diffs against an existing refineryOverrides entry, not just the raw baseline", () => {
+    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,inactive\n";
+    const result = parseAndValidateImport("refineries", csv, { refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] }, 0);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ before: { status: "forced_open" }, after: { status: "inactive" } });
+  });
+});
+
+describe("parseAndValidateImport — 'customers' entity disambiguated by modelId", () => {
+  it("modelId two-echelon-gold-au validates against the 10-row gold dataset, not p-median's 200", () => {
+    const csv = "template_version,id,city,state,demand,status\n1,sydney,Sydney,NSW,1,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-gold-au");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{ id: "sydney", line: 2, before: { status: "active", value: 500000 }, after: { status: "active", value: 1 } }]);
+  });
+
+  it("defaults to p-median-us's dataset when modelId is omitted — a gold customer id is unknown there", () => {
+    const csv = "template_version,id,city,state,demand,status\n1,sydney,Sydney,NSW,1,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
+  });
+});

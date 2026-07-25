@@ -31,6 +31,7 @@ import { ImportDialog } from "@/components/ImportDialog";
 import { ConstraintChips } from "@/components/ConstraintChips";
 import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
+import { chapterForModelId } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
 import { computeBandCoverage } from "@/lib/bands";
 import { getBandColor } from "@/lib/bandPalette";
@@ -255,7 +256,7 @@ export function Studio({ modelId }: StudioProps) {
   const [showCustomerTable, setShowCustomerTable] = useState(false);
   const [showMineTable, setShowMineTable] = useState(false);
   const [showStationTable, setShowStationTable] = useState(false);
-  const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | "mines" | "stations" | null>(null);
+  const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | "mines" | "stations" | "refineries" | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Multi-select (shift/ctrl-click) lifted state — Studio.tsx owns it so the
@@ -557,7 +558,7 @@ export function Studio({ modelId }: StudioProps) {
     </Dialog>
   );
 
-  const handleExport = async (entity: "warehouses" | "customers" | "mines" | "stations", format: "csv" | "json") => {
+  const handleExport = async (entity: "warehouses" | "customers" | "mines" | "stations" | "refineries", format: "csv" | "json") => {
     if (!scenarioId) return;
     try {
       const data = await exportScenario(scenarioId, { entity, format });
@@ -680,14 +681,10 @@ export function Studio({ modelId }: StudioProps) {
           </div>
           <div>
             <div className="font-semibold text-sm leading-tight text-foreground" style={{ fontFamily: "var(--arc-display)" }}>
-              {activeModelIndex === 3 ? "Brazil Capacity · Model Lab" : activeModelIndex === 2 ? "Coal Transport LP · Model Lab" : "Al's Athletics · Model Lab"}
+              {chapterForModelId(currentScenario?.modelId ?? modelId)?.labHeaderTitle}
             </div>
             <div className="text-xs text-muted-foreground leading-tight" style={{ fontFamily: "var(--arc-mono)", fontSize: "10px", letterSpacing: "0.05em" }}>
-              {currentScenario?.modelId === "transport-coal"
-                ? "Ch 5 · transport LP · coal mines → power stations"
-                : currentScenario?.modelId === "p-median-brazil"
-                ? "Ch 5 · capacitated p-median · Brazil"
-                : "Ch 3 · p-median · facility location"}
+              {chapterForModelId(currentScenario?.modelId ?? modelId)?.labHeaderSubtitle}
             </div>
           </div>
         </div>
@@ -854,7 +851,9 @@ export function Studio({ modelId }: StudioProps) {
                 )}
               </div>
 
-              {/* P value */}
+              {/* P value — both p-median variants use P; transport-coal and
+                  two-echelon-gold-au have no P concept. */}
+              {(modelId === "p-median-us" || modelId === "p-median-brazil") && (
               <div id="section-p-value" className="px-3 py-3 border-b space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-foreground">Warehouses to open (P)</p>
@@ -881,6 +880,7 @@ export function Studio({ modelId }: StudioProps) {
                 </div>
                 <p className="text-[10px] text-muted-foreground">Max 50 – capped at {26 - inactiveCount} available sites.</p>
               </div>
+              )}
 
               {/* Solve settings */}
               <div className="px-3 py-3 border-b space-y-2">
@@ -911,7 +911,9 @@ export function Studio({ modelId }: StudioProps) {
                 <p className="text-[10px] text-muted-foreground">CBC (PuLP) — the only solver this build runs.</p>
               </div>
 
-              {/* Warehouse capacity */}
+              {/* Warehouse capacity — both p-median variants; transport-coal
+                  and two-echelon-gold-au have no capacity-mode concept here. */}
+              {(modelId === "p-median-us" || modelId === "p-median-brazil") && (
               <div id="section-capacity" className="px-3 py-3 border-b space-y-2">
                 <p className="text-xs font-semibold text-foreground">Warehouse capacity</p>
                 {localConfig.capacityMode === "uniform" && (
@@ -945,6 +947,7 @@ export function Studio({ modelId }: StudioProps) {
                   <p className="text-[10px] text-muted-foreground">Set each warehouse's capacity in the Warehouses table below.</p>
                 )}
               </div>
+              )}
 
               {/* Constraints */}
               <div className="px-3 py-3 border-b space-y-2">
@@ -1249,6 +1252,114 @@ export function Studio({ modelId }: StudioProps) {
                 </Button>
               </div>
               )}
+
+              {/* Refinery & customer overrides — two-echelon (gold-au) only.
+                   Reuses the same WarehouseTable/CustomerTable dialogs as
+                   p-median-us; the non-overridable mine is excluded from the
+                   shared WarehouseTable via the kind filter applied in the
+                   Dialog below. Refineries carry only a status (no capacity),
+                   so capacityMode "none" is forced on the shared table. */}
+              {modelId === "two-echelon-gold-au" && (
+              <div className="px-3 py-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">Overrides</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowWarehouseTable(true)}
+                  data-testid="button-open-refinery-table"
+                  className="w-full h-7 text-xs justify-between"
+                >
+                  Refineries
+                  <span className="text-muted-foreground">{forcedOpenCount + inactiveCount > 0 ? `${forcedOpenCount + inactiveCount} overridden` : "2"}</span>
+                </Button>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("refineries", "csv")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-refineries-csv"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("refineries", "json")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-refineries-json"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> JSON
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setImportEntity("refineries")}
+                    disabled={!scenarioId}
+                    data-testid="button-import-refineries"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Upload className="w-3 h-3 mr-1" /> Import
+                  </Button>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCustomerTable(true)}
+                  data-testid="button-open-customer-table"
+                  className="w-full h-7 text-xs justify-between"
+                >
+                  Customers
+                  <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
+                </Button>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("customers", "csv")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-customers-csv"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleExport("customers", "json")}
+                    disabled={!scenarioId}
+                    data-testid="button-export-customers-json"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> JSON
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setImportEntity("customers")}
+                    disabled={!scenarioId}
+                    data-testid="button-import-customers"
+                    className="flex-1 h-6 text-[10px] px-1"
+                  >
+                    <Upload className="w-3 h-3 mr-1" /> Import
+                  </Button>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowResetConfirm(true)}
+                  disabled={!scenarioId || (forcedOpenCount + inactiveCount === 0 && localConfig.customerOverrides.length === 0)}
+                  data-testid="button-reset-baseline"
+                  className="w-full h-7 text-xs justify-center text-muted-foreground"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" /> Reset to baseline
+                </Button>
+              </div>
+              )}
             </>
           ) : (
             <div className="p-3 space-y-2">
@@ -1330,16 +1441,16 @@ export function Studio({ modelId }: StudioProps) {
                     showRoutes={activeTab === "output" && showRoutes}
                     bands={bands}
                     countryBounds={activeModelManifest?.countryBounds}
-                    multiSelectedWarehouseIds={(modelId === "p-median-us" || modelId === "transport-coal") ? multiSelectedWarehouseIds : []}
-                    multiSelectedCustomerIds={(modelId === "p-median-us" || modelId === "transport-coal") ? multiSelectedCustomerIds : []}
+                    multiSelectedWarehouseIds={(modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au") ? multiSelectedWarehouseIds : []}
+                    multiSelectedCustomerIds={(modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au") ? multiSelectedCustomerIds : []}
                     onToggleWarehouseMultiSelect={toggleWarehouseMultiSelect}
                     onToggleCustomerMultiSelect={toggleCustomerMultiSelect}
                   />
-                  {(modelId === "p-median-us" || modelId === "transport-coal") && localConfig && (
+                  {(modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au") && localConfig && (
                     <MapBulkEditToolbar
                       selectedWarehouseIds={multiSelectedWarehouseIds}
                       selectedCustomerIds={multiSelectedCustomerIds}
-                      capacityMode={modelId === "p-median-us" ? localConfig.capacityMode : "per_wh"}
+                      capacityMode={modelId === "p-median-us" ? localConfig.capacityMode : modelId === "two-echelon-gold-au" ? "none" : "per_wh"}
                       entityKind={modelId === "transport-coal" ? "mine-station" : "warehouse-customer"}
                       onSetWarehouseCapacity={(ids, capacity) => {
                         if (modelId === "transport-coal") {
@@ -1649,13 +1760,13 @@ export function Studio({ modelId }: StudioProps) {
       <Dialog open={showWarehouseTable} onOpenChange={setShowWarehouseTable}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Warehouses</DialogTitle>
+            <DialogTitle>{modelId === "two-echelon-gold-au" ? "Refineries" : "Warehouses"}</DialogTitle>
           </DialogHeader>
           {localConfig && dataset && (
             <WarehouseTable
-              warehouses={dataset.warehouses}
+              warehouses={dataset.warehouses.filter(w => w.kind !== "mine")}
               overrides={localConfig.warehouseOverrides}
-              capacityMode={localConfig.capacityMode}
+              capacityMode={modelId === "two-echelon-gold-au" ? "none" : localConfig.capacityMode}
               onChange={next => update("warehouseOverrides", next)}
             />
           )}
