@@ -11,6 +11,7 @@ import { ResultEnvelopeSchema } from "./resultEnvelope.js";
 import type { ResultEnvelope } from "./resultEnvelope.js";
 import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
+import { posthog } from "../lib/posthog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,7 +86,7 @@ export const QUEUE_DEPTH_LIMIT = parsePositiveIntEnv(process.env.SOLVE_QUEUE_DEP
 
 let activeCount = 0;
 const queue: number[] = [];
-const pendingJobs = new Map<number, { scenarioId: number; input: SolveInput }>();
+const pendingJobs = new Map<number, { scenarioId: number; userId: string; input: SolveInput }>();
 
 // Jobs waiting for a free worker slot — the number the route layer's
 // backpressure check cares about. Deliberately excludes `activeCount`
@@ -125,7 +126,7 @@ export async function enqueueSolveJob(scenarioId: number, userId: string, input:
     inputsHash,
   }).returning();
 
-  pendingJobs.set(job.id, { scenarioId, input });
+  pendingJobs.set(job.id, { scenarioId, userId, input });
   queue.push(job.id);
   pump();
   return job.id;
@@ -138,7 +139,7 @@ function pump(): void {
     pendingJobs.delete(jobId);
     if (!job) continue;
     activeCount++;
-    runJob(jobId, job.scenarioId, job.input)
+    runJob(jobId, job.scenarioId, job.userId, job.input)
       .catch(() => {
         /* runJob itself never throws — this is a last-resort guard so a
            bug here can't wedge the worker pool. */
@@ -300,13 +301,14 @@ async function markSucceeded(jobId: number, scenarioId: number, envelope: Result
 // The solver wrapper never throws — crashes, timeouts, and unparseable
 // stdout all degrade to a "failed" job with a message (a job status, not a
 // synthesized error-shaped result).
-async function runJob(jobId: number, scenarioId: number, input: SolveInput): Promise<void> {
+async function runJob(jobId: number, scenarioId: number, userId: string, input: SolveInput): Promise<void> {
   await markRunning(jobId);
 
   const inputsHash = computeInputsHash(input);
   const cached = await lookupCachedResult(inputsHash);
   if (cached) {
     await markSucceeded(jobId, scenarioId, cached);
+    posthog?.capture({ distinctId: userId, event: "scenario solved", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, objective: cached.objective, run_time_sec: cached.runTimeSec, from_cache: true } });
     return;
   }
 
@@ -317,14 +319,17 @@ async function runJob(jobId: number, scenarioId: number, input: SolveInput): Pro
 
   if (timedOut) {
     await markFailed(jobId, "Solver timed out");
+    posthog?.capture({ distinctId: userId, event: "scenario solve failed", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, reason: "timeout" } });
     return;
   }
   if (spawnError) {
     await markFailed(jobId, spawnError);
+    posthog?.capture({ distinctId: userId, event: "scenario solve failed", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, reason: "spawn_error" } });
     return;
   }
   if (code !== 0) {
     await markFailed(jobId, `python3 process failed: ${stderr.slice(0, 500)}`);
+    posthog?.capture({ distinctId: userId, event: "scenario solve failed", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, reason: "non_zero_exit" } });
     return;
   }
 
@@ -336,15 +341,18 @@ async function runJob(jobId: number, scenarioId: number, input: SolveInput): Pro
       jobId,
       `Failed to parse solver output. stdout=${stdout.slice(0, 200)} stderr=${stderr.slice(0, 500)}`,
     );
+    posthog?.capture({ distinctId: userId, event: "scenario solve failed", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, reason: "parse_error" } });
     return;
   }
 
   const parsed = ResultEnvelopeSchema.safeParse(raw);
   if (!parsed.success) {
     await markFailed(jobId, "Solver output failed envelope validation: " + parsed.error.message.slice(0, 300));
+    posthog?.capture({ distinctId: userId, event: "scenario solve failed", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, reason: "invalid_envelope" } });
     return;
   }
 
   await writeThroughCache(inputsHash, input.modelId, parsed.data);
   await markSucceeded(jobId, scenarioId, parsed.data);
+  posthog?.capture({ distinctId: userId, event: "scenario solved", properties: { scenario_id: scenarioId, model_id: input.modelId, job_id: jobId, objective: parsed.data.objective, run_time_sec: parsed.data.runTimeSec, from_cache: false } });
 }

@@ -10,6 +10,7 @@ import {
   GetCurrentAuthUserResponse,
 } from "@workspace/api-zod";
 import { SESSION_COOKIE, SESSION_TTL_MS } from "../middlewares/auth.js";
+import { posthog } from "../lib/posthog.js";
 
 const router: IRouter = Router();
 
@@ -77,6 +78,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
   }).returning();
 
   setSessionCookie(res, user.id);
+  posthog?.identify({ distinctId: user.id, properties: { email: user.email, role: user.role } });
+  posthog?.capture({ distinctId: user.id, event: "user registered", properties: { role: user.role } });
   res.status(201).json(LoginUserResponse.parse({ user: toAuthUser(user) }));
 });
 
@@ -105,11 +108,17 @@ router.post("/auth/login", async (req: Request, res: Response) => {
   }
 
   setSessionCookie(res, user.id);
+  posthog?.identify({ distinctId: user.id, properties: { email: user.email, role: user.role } });
+  posthog?.capture({ distinctId: user.id, event: "user logged in" });
   res.json(LoginUserResponse.parse({ user: toAuthUser(user) }));
 });
 
-router.post("/auth/logout", (_req: Request, res: Response) => {
+router.post("/auth/logout", (req: Request, res: Response) => {
   const crossOrigin = process.env.NODE_ENV === "production";
+  const userId = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
+  if (userId) {
+    posthog?.capture({ distinctId: userId, event: "user logged out" });
+  }
   res.clearCookie(SESSION_COOKIE, {
     path: "/",
     sameSite: crossOrigin ? "none" : "lax",
