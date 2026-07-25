@@ -39,7 +39,6 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 10",
     title: "Gold Refinery Siting — Two-Echelon",
     description: "Two-echelon facility location: site a refinery between a gold mine and ten customers, and watch the choice flip as the bill-of-materials ratio changes.",
-    hiddenFromLanding: true,
   },
 ];
 
