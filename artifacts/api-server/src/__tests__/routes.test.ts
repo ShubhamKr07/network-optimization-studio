@@ -7,6 +7,7 @@ const mockDb = vi.hoisted(() => ({
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
+  transaction: vi.fn(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb)),
 }));
 
 const mockEnqueueSolveJob = vi.hoisted(() => vi.fn());
@@ -35,6 +36,9 @@ vi.mock("../solver/jobRunner.js", () => ({
 import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
+// Import the (mocked) table symbols so the DELETE regression test can assert
+// which table each db.delete call targeted.
+import { scenariosTable, solveJobsTable } from "@workspace/db";
 
 // ---------------------------------------------------------------------------
 // Chainable drizzle mock
@@ -153,6 +157,9 @@ beforeEach(() => {
   mockDb.select.mockReturnValue(makeChain([]));
   mockDb.update.mockReturnValue(makeChain([]));
   mockDb.delete.mockReturnValue(makeChain([]));
+  // transaction defaults to running the callback against the shared mockDb,
+  // so a route that deletes child rows then the parent resolves in order.
+  mockDb.transaction.mockImplementation(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb));
   mockGetQueueDepth.mockReturnValue(0);
 });
 
@@ -516,6 +523,32 @@ describe("DELETE /api/scenarios/:id", () => {
     mockDb.delete.mockReturnValue(makeChain([pmedianRow]));
     const res = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(204);
+  });
+
+  // Regression: a solved scenario owns solve_jobs rows whose
+  // scenario_id FK points at it (no ON DELETE CASCADE). Deleting the
+  // scenario first trips the FK constraint → 500. The fix deletes
+  // solve_jobs inside a transaction BEFORE the scenario, scoped by both
+  // scenarioId AND userId.
+  it("returns 204 (not 500) when deleting a solved scenario that owns solve_jobs rows, and deletes the jobs first", async () => {
+    const cookie = await loginAs(OWNER);
+    // Sequence the deletes so the FIRST db.delete call (the solve_jobs
+    // cleanup, scoped by scenarioId + userId) resolves cleanly, and the
+    // SECOND (the scenario itself) returns the deleted scenario row.
+    mockDb.delete
+      .mockReturnValueOnce(makeChain([{ count: 1 }])) // solve_jobs delete
+      .mockReturnValueOnce(makeChain([pmedianRow])); // scenario delete
+
+    const res = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
+
+    expect(res.status).toBe(204);
+    expect(mockDb.delete).toHaveBeenCalledTimes(2);
+    expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    // Both deletes happened inside the transaction's callback (tx.delete),
+    // not against the top-level db directly.
+    const deleteCalls = (mockDb.delete as ReturnType<typeof vi.fn>).mock.calls;
+    expect(deleteCalls[0][0]).toBe(solveJobsTable);
+    expect(deleteCalls[1][0]).toBe(scenariosTable);
   });
 
   it("returns 404 when not found (no row deleted)", async () => {

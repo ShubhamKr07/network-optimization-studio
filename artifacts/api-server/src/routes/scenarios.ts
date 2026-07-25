@@ -180,13 +180,25 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
 
 router.delete("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
-  // .returning() yields the deleted row (or none). The userId-scoped WHERE
-  // means a row owned by a different user — or a nonexistent id — both
-  // return nothing, and both must 404 (never 204 or 403, to avoid ID
-  // enumeration side-channels — same ownership-filtering rule GET/PATCH use).
-  const [row] = await db.delete(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
-    .returning();
+  // A solved scenario owns solve_jobs rows whose scenario_id FK points at it
+  // (no ON DELETE CASCADE). Deleting the scenario first trips that FK
+  // constraint and surfaces as a 500 to the caller. Fix: delete the child
+  // solve_jobs rows FIRST — scoped by both scenarioId AND userId so a row
+  // owned by a different user is never touched — then delete the scenario,
+  // all inside one transaction so a mid-way failure leaves no orphans.
+  //
+  // .returning() yields the deleted scenario row (or none). The
+  // userId-scoped WHERE on the scenario delete means a row owned by a
+  // different user — or a nonexistent id — both return nothing, and both
+  // must 404 (never 204 or 403, to avoid ID enumeration side-channels —
+  // same ownership-filtering rule GET/PATCH use).
+  const [row] = await db.transaction(async (tx) => {
+    await tx.delete(solveJobsTable)
+      .where(and(eq(solveJobsTable.scenarioId, id), eq(solveJobsTable.userId, req.userId!)));
+    return tx.delete(scenariosTable)
+      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
+      .returning();
+  });
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
   res.status(204).send();
 });
