@@ -299,6 +299,38 @@ export function Studio({ modelId }: StudioProps) {
     update("customerOverrides", [...rest, ...applied]);
   }
 
+  // Restricts the solver to ONLY the multi-selected entities: forces the
+  // selection open/active and every OTHER entity of the same type
+  // inactive/excluded, so the next solve considers nothing else. Computed as
+  // one combined update (not two sequential bulkUpsert* calls) — two calls in
+  // the same handler would both read the same stale `localConfig` closure and
+  // the second would silently clobber the first's change.
+  function makeWarehousesExclusive(selectedIds: string[]) {
+    if (!localConfig || !dataset || selectedIds.length === 0) return;
+    const allIds = dataset.warehouses.filter(w => w.kind !== "mine").map(w => w.id);
+    const next = allIds.map(id => {
+      const existing = localConfig.warehouseOverrides.find(o => o.id === id);
+      const status = selectedIds.includes(id) ? "forced_open" : "inactive";
+      return { id, status, capacity: existing?.capacity } as WarehouseOverride;
+    });
+    const rest = localConfig.warehouseOverrides.filter(o => !allIds.includes(o.id));
+    update("warehouseOverrides", [...rest, ...next]);
+    clearMultiSelection();
+  }
+
+  function makeCustomersExclusive(selectedIds: string[]) {
+    if (!localConfig || !dataset || selectedIds.length === 0) return;
+    const allIds = dataset.customers.map(c => c.id);
+    const next = allIds.map(id => {
+      const existing = localConfig.customerOverrides.find(o => o.id === id);
+      const status = selectedIds.includes(id) ? "active" : "excluded";
+      return { id, status, demand: existing?.demand } as CustomerOverride;
+    });
+    const rest = localConfig.customerOverrides.filter(o => !allIds.includes(o.id));
+    update("customerOverrides", [...rest, ...next]);
+    clearMultiSelection();
+  }
+
   const deleteScenario = useDeleteScenario();
   const resetToBaseline = useResetScenarioToBaseline();
 
@@ -1404,6 +1436,8 @@ export function Studio({ modelId }: StudioProps) {
                         clearMultiSelection();
                       }}
                       onSetCustomerStatus={(ids, status) => { bulkUpsertCustomerOverrides(ids, { status, demand: status === "active" ? null : undefined }); clearMultiSelection(); }}
+                      onMakeWarehousesExclusive={modelId === "transport-coal" ? undefined : makeWarehousesExclusive}
+                      onMakeCustomersExclusive={modelId === "transport-coal" ? undefined : makeCustomersExclusive}
                       onClearSelection={clearMultiSelection}
                     />
                   )}
@@ -1561,20 +1595,30 @@ export function Studio({ modelId }: StudioProps) {
                     <p className="text-[10px] text-muted-foreground italic">Bands re-analyze the current solution; they do not re-optimize.</p>
                   </div>
 
-                  {/* Band coverage — P-Median only, recomputed client-side */}
+                  {/* Band coverage — P-Median only, recomputed client-side.
+                      Exclusive buckets: each band's demand excludes whatever
+                      a lesser band already counted, so the label shows the
+                      band's own (lowerBound, thisBound] range rather than a
+                      cumulative "< X mi". */}
                   <div className="px-3 py-3 border-b space-y-2">
                     <p className="text-xs font-semibold text-foreground">Demand served within band</p>
-                    {computeBandCoverage(result.edges, bands).map((bc, i) => (
-                      <div key={bc.band} className="space-y-0.5" data-testid={`result-band-${bc.band}`}>
-                        <div className="flex justify-between">
-                          <span className="text-[10px] text-muted-foreground">&lt; {bc.band.toLocaleString()} mi</span>
-                          <span className="text-[10px] font-semibold" style={{ color: getBandColor(i) }}>{bc.percent}%</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{ width: `${bc.percent}%`, backgroundColor: getBandColor(i) }} />
-                        </div>
-                      </div>
-                    ))}
+                    {(() => {
+                      const sortedBands = [...bands].sort((a, b) => a - b);
+                      return computeBandCoverage(result.edges, bands).map((bc, i) => {
+                        const lowerBound = i === 0 ? 0 : sortedBands[i - 1];
+                        return (
+                          <div key={bc.band} className="space-y-0.5" data-testid={`result-band-${bc.band}`}>
+                            <div className="flex justify-between">
+                              <span className="text-[10px] text-muted-foreground">{lowerBound.toLocaleString()}–{bc.band.toLocaleString()} mi</span>
+                              <span className="text-[10px] font-semibold" style={{ color: getBandColor(i) }}>{bc.percent}%</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${bc.percent}%`, backgroundColor: getBandColor(i) }} />
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
 
                   {/* Utilization — P-Median only */}

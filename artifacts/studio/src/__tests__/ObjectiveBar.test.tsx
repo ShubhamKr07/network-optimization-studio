@@ -55,11 +55,29 @@ describe("ObjectiveBar — chapter/title by model", () => {
   });
 });
 
+// ── Teaching-intent description ─────────────────────────────────────────────
+describe("ObjectiveBar — teaching-intent description", () => {
+  it("shows each model's teaching-intent description (from chapters.ts), not just its title", () => {
+    render(<ObjectiveBar result={null} scenarioId={5} modelId="p-median-us" />);
+    expect(screen.getByText(/choose which warehouses to open to minimize weighted distance/)).toBeInTheDocument();
+  });
+
+  it("shows the two-echelon-gold-au description (BOM ratio / mine / refinery / customers)", () => {
+    render(<ObjectiveBar result={null} scenarioId={20} modelId="two-echelon-gold-au" />);
+    expect(screen.getByText(/bill-of-materials ratio changes/)).toBeInTheDocument();
+  });
+
+  it("omits the description line (no crash) when modelId is unrecognized", () => {
+    render(<ObjectiveBar result={null} scenarioId={5} />);
+    expect(screen.getByText("Model")).toBeInTheDocument();
+  });
+});
+
 // ── Scenario name ────────────────────────────────────────────────────────────
 describe("ObjectiveBar — scenario name", () => {
   it("shows the scenario name when provided", () => {
     render(<ObjectiveBar result={null} scenarioId={5} modelId="p-median-us" scenarioName="3 Warehouses" />);
-    expect(screen.getByText("3 Warehouses")).toBeInTheDocument();
+    expect(screen.getByText(/3 Warehouses/)).toBeInTheDocument();
   });
 
   it("renders without a scenario name (no crash, nothing extra shown)", () => {

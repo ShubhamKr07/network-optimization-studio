@@ -25,24 +25,24 @@ describe("assignBand", () => {
 });
 
 describe("computeBandCoverage", () => {
-  it("returns cumulative percent coverage per band boundary", () => {
+  it("returns exclusive percent coverage per band — flow already counted in a lesser band is excluded from every greater band", () => {
     const edges = [
       { distance: 100, flow: 50 },
       { distance: 300, flow: 30 },
       { distance: 900, flow: 20 },
     ];
     expect(computeBandCoverage(edges, [200, 400, 800])).toEqual([
-      { band: 200, percent: 50 },
-      { band: 400, percent: 80 },
-      { band: 800, percent: 80 },
+      { band: 200, percent: 50 }, // (0,200]: the 100mi edge
+      { band: 400, percent: 30 }, // (200,400]: the 300mi edge only — NOT the 100mi one again
+      { band: 800, percent: 0 },  // (400,800]: nothing (900mi is past 800)
     ]);
   });
 
-  it("counts distance == boundary as within that band", () => {
+  it("counts distance == boundary as within that band, and excludes it from the next band", () => {
     const edges = [{ distance: 200, flow: 100 }];
     expect(computeBandCoverage(edges, [200, 400])).toEqual([
       { band: 200, percent: 100 },
-      { band: 400, percent: 100 },
+      { band: 400, percent: 0 },
     ]);
   });
 

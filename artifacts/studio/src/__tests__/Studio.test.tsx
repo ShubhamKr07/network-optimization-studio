@@ -1060,19 +1060,24 @@ describe("Studio — Client-side distance bands", () => {
 
     // pmedianInputs' saved bands are [200,400,800,1600], but this scenario
     // already has a result — computeAutoBands([150,900], count=5) auto-fits
-    // to [200,400,600,800,1000] on load, coincidentally still including 800
-    // (only the 150mi edge is within it, since 900 > 800: 50% of flow).
-    expect(screen.getByTestId("result-band-800")).toHaveTextContent("50%");
+    // to [200,400,600,800,1000] on load. Coverage is EXCLUSIVE: band 800's
+    // bucket is (600,800], which contains neither edge (150 already belongs
+    // to band 200's bucket, 900 belongs to band 1000's) — 0%.
+    expect(screen.getByTestId("result-band-800")).toHaveTextContent("0%");
+    expect(screen.getByTestId("result-band-1000")).toHaveTextContent("50%");
 
     await userEvent.click(screen.getByTestId("button-add-band"));
-    await userEvent.type(screen.getByTestId("input-new-band"), "1500");
+    await userEvent.type(screen.getByTestId("input-new-band"), "950");
     await userEvent.click(screen.getByTestId("button-add-band-confirm"));
 
     // New band boundary (not present in the server's stale metrics.bandCoverage,
-    // and not one of the auto-fit bands either) shows up with correctly
-    // recomputed coverage — the 900mi edge is now included (900<=1500),
-    // proving this is live client-side computation.
-    expect(screen.getByTestId("result-band-1500")).toHaveTextContent("100%");
+    // and not one of the auto-fit bands either) splits band 1000's bucket into
+    // (800,950] and (950,1000] and recomputes instantly — the 900mi edge now
+    // belongs to the new 950 bucket (100% of its own share) instead of 1000's,
+    // which drops to 0%. Proves this is live client-side recomputation, not a
+    // stale value carried over.
+    expect(screen.getByTestId("result-band-950")).toHaveTextContent("50%");
+    expect(screen.getByTestId("result-band-1000")).toHaveTextContent("0%");
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
     expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
@@ -1278,6 +1283,64 @@ describe("Studio — Map multi-select bulk-edit toolbar", () => {
     await userEvent.click(screen.getByTestId("button-open-customer-table"));
     expect(screen.getByTestId("button-customer-C1-excluded")).toBeInTheDocument();
     expect(screen.queryByTestId("map-bulk-edit-toolbar")).not.toBeInTheDocument();
+  });
+});
+
+// ── "Restrict solver to selection" (exclusivity) ────────────────────────────
+// The shared NetworkMap mock's marker buttons are hardcoded to ids
+// W1/W2/C1/C2, which don't match the file-level `dataset` fixture's single
+// CHI/C1 rows — override the dataset mock locally so "every other entity"
+// is a real, checkable set.
+describe("Studio — Restrict solver to selection (exclusivity)", () => {
+  const exclusivityDataset = {
+    warehouses: [
+      { id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 },
+      { id: "W2", city: "Otherville", state: "TS", lat: 41, lng: -91 },
+    ],
+    customers: [
+      { id: "C1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 },
+      { id: "C2", city: "Otherburg", state: "SB", lat: 42, lng: -92, demand: 3000 },
+    ],
+  };
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    mockUseGetDataset.mockReturnValue({ data: exclusivityDataset, isLoading: false } as ReturnType<typeof useGetDataset>);
+  });
+
+  it("forces the selected warehouse open and every other warehouse inactive, in one combined update", async () => {
+    renderStudio();
+    await userEvent.click(screen.getByTestId("mock-marker-warehouse-W1"));
+    await userEvent.click(screen.getByTestId("button-bulk-make-exclusive"));
+
+    await userEvent.click(screen.getByTestId("button-open-warehouse-table"));
+    expect(screen.getByTestId("button-wh-W1-forced_open")).toHaveClass("bg-primary");
+    expect(screen.getByTestId("button-wh-W2-inactive")).toHaveClass("bg-destructive");
+    expect(screen.queryByTestId("map-bulk-edit-toolbar")).not.toBeInTheDocument();
+  });
+
+  it("makes the selected customer active and every other customer excluded", async () => {
+    renderStudio();
+    await userEvent.click(screen.getByTestId("mock-marker-customer-C1"));
+    await userEvent.click(screen.getByTestId("button-bulk-make-exclusive"));
+
+    // The status buttons are toggles rendered for every row regardless of
+    // current state — the CURRENTLY selected status is the one carrying the
+    // highlight class (bg-destructive for excluded, bg-slate-200 for active).
+    await userEvent.click(screen.getByTestId("button-open-customer-table"));
+    expect(screen.getByTestId("button-customer-C2-excluded")).toHaveClass("bg-destructive");
+    expect(screen.getByTestId("button-customer-C1-active")).toHaveClass("bg-slate-200");
+    expect(screen.getByTestId("button-customer-C1-excluded")).not.toHaveClass("bg-destructive");
+  });
+
+  it("does not fire a network call — this is a local override edit, not a solve", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    renderStudio();
+    await userEvent.click(screen.getByTestId("mock-marker-warehouse-W1"));
+    await userEvent.click(screen.getByTestId("button-bulk-make-exclusive"));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });
 

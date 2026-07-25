@@ -11,6 +11,12 @@ interface MapBulkEditToolbarProps {
   onSetWarehouseStatus: (ids: string[], status: "active" | "forced_open" | "inactive") => void;
   onSetCustomerDemand: (ids: string[], demand: number) => void;
   onSetCustomerStatus: (ids: string[], status: "active" | "excluded") => void;
+  // Restricts the solver to ONLY the selected entities of this type: forces
+  // the selection open/active and every other entity of the same type
+  // inactive/excluded, in one atomic update. Optional so existing callers
+  // that don't need this (or don't yet pass it) keep working unchanged.
+  onMakeWarehousesExclusive?: (ids: string[]) => void;
+  onMakeCustomersExclusive?: (ids: string[]) => void;
   onClearSelection: () => void;
 }
 
@@ -18,6 +24,7 @@ export function MapBulkEditToolbar({
   selectedWarehouseIds, selectedCustomerIds, capacityMode, entityKind = "warehouse-customer",
   onSetWarehouseCapacity, onSetWarehouseStatus,
   onSetCustomerDemand, onSetCustomerStatus,
+  onMakeWarehousesExclusive, onMakeCustomersExclusive,
   onClearSelection,
 }: MapBulkEditToolbarProps) {
   const [capacityDraft, setCapacityDraft] = useState("");
@@ -74,6 +81,12 @@ export function MapBulkEditToolbar({
                 onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "inactive")}>
                 Set inactive
               </Button>
+              {onMakeWarehousesExclusive && (
+                <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-make-exclusive"
+                  onClick={() => onMakeWarehousesExclusive(selectedWarehouseIds)}>
+                  Restrict solver to selection
+                </Button>
+              )}
               <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-clear-status"
                 onClick={() => onSetWarehouseStatus(selectedWarehouseIds, "active")}>
                 Clear overrides
@@ -109,6 +122,12 @@ export function MapBulkEditToolbar({
                 onClick={() => onSetCustomerStatus(selectedCustomerIds, "excluded")}>
                 Exclude
               </Button>
+              {onMakeCustomersExclusive && (
+                <Button size="sm" variant="outline" className="h-7 text-xs" data-testid="button-bulk-make-exclusive"
+                  onClick={() => onMakeCustomersExclusive(selectedCustomerIds)}>
+                  Restrict solver to selection
+                </Button>
+              )}
               <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-clear-status"
                 onClick={() => onSetCustomerStatus(selectedCustomerIds, "active")}>
                 Clear overrides
@@ -118,7 +137,7 @@ export function MapBulkEditToolbar({
         </>
       )}
       <Button size="sm" variant="ghost" className="h-7 text-xs" data-testid="button-bulk-cancel" onClick={onClearSelection}>
-        Cancel
+        Deselect all
       </Button>
     </div>
   );

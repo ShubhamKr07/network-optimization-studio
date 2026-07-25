@@ -188,6 +188,95 @@ describe("NetworkMap warehouse icon shape by kind", () => {
   });
 });
 
+// ── Map bounds fix: resolving countryBounds after initial mount ────────────
+// Regression test for: Chapter 10 (Australia-bounded) showing the continental
+// US map. react-leaflet's MapContainer applies center/maxBounds/minZoom only
+// at construction — they're not reactive. GET /api/models (source of
+// countryBounds) and GET /dataset are independent queries with no guaranteed
+// ordering, so NetworkMap can mount before countryBounds resolves, baking
+// FALLBACK_BOUNDS (continental US) into an immutable Leaflet maxBounds that a
+// later FitBounds() call can't override (maxBoundsViscosity=1.0 clamps the
+// view back to the stale bounds). The fix keys <MapContainer> on the
+// resolved bounds so React fully remounts it once real bounds arrive.
+describe("NetworkMap remounts on countryBounds resolution", () => {
+  it("replaces the Leaflet map DOM node when countryBounds changes from undefined to a real value", () => {
+    const { container, rerender } = render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const firstMapNode = container.querySelector(".leaflet-container");
+    expect(firstMapNode).not.toBeNull();
+
+    rerender(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        countryBounds={{ sw: [-38.5, 113.0], ne: [-16.0, 154.5] }}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const secondMapNode = container.querySelector(".leaflet-container");
+    expect(secondMapNode).not.toBeNull();
+    // A genuinely new Leaflet instance was mounted (not just re-propped) —
+    // this is what actually applies the real maxBounds, unlike a plain
+    // prop update to an already-mounted MapContainer.
+    expect(secondMapNode).not.toBe(firstMapNode);
+  });
+
+  it("does NOT remount when countryBounds is unchanged across renders", () => {
+    const bounds = { sw: [-38.5, 113.0], ne: [-16.0, 154.5] };
+    const { container, rerender } = render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        countryBounds={bounds}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const firstMapNode = container.querySelector(".leaflet-container");
+
+    // Re-render with a new object reference but the same values, plus an
+    // unrelated prop change (showRoutes) — should NOT remount the map.
+    rerender(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        countryBounds={{ sw: [-38.5, 113.0], ne: [-16.0, 154.5] }}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const secondMapNode = container.querySelector(".leaflet-container");
+    expect(secondMapNode).toBe(firstMapNode);
+  });
+});
+
 describe("NetworkMap MapContainer boxZoom", () => {
   it("disables Leaflet's boxZoom so it doesn't collide with shift-click multi-select", () => {
     render(

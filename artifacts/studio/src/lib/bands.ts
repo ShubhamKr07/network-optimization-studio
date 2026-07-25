@@ -1,8 +1,13 @@
 // E1.1 — distance bands are presentation state: recompute band assignment
 // and coverage client-side from a solved result's `edges`, never by
-// re-solving. Mirrors solve.py's band semantics exactly (cumulative
-// coverage per boundary — a customer within 200mi also counts toward the
-// 400mi/800mi/etc bands, since those distances have been Reached too).
+// re-solving.
+//
+// computeBandCoverage is EXCLUSIVE, not cumulative: each band counts only
+// the flow strictly beyond the previous boundary and up to its own (a
+// half-open bucket (prevBand, thisBand]), so a route already counted in a
+// lesser band is excluded from every greater band's count. This is a
+// client-side-only reporting lens — solve.py's own bandCoverage (unused by
+// the frontend, which always recomputes from `edges` here) is untouched.
 
 export interface BandEdge {
   distance: number;
@@ -46,14 +51,18 @@ export function computeAutoBands(edges: BandEdge[], count = 5): number[] {
   return Array.from({ length: count }, (_, i) => Math.round((i + 1) * step));
 }
 
-// Cumulative: percent of total flow with distance <= each boundary.
+// Exclusive: percent of total flow with prevBoundary < distance <= band —
+// flow already counted toward a lesser band is never counted again here.
 export function computeBandCoverage(edges: BandEdge[], bands: number[]): BandCoverageEntry[] {
   const sorted = [...bands].sort((a, b) => a - b);
   if (sorted.length === 0) return [];
   const totalFlow = edges.reduce((sum, e) => sum + e.flow, 0);
-  return sorted.map((band) => {
+  return sorted.map((band, i) => {
     if (totalFlow === 0) return { band, percent: 0 };
-    const flowWithin = edges.filter((e) => e.distance <= band).reduce((sum, e) => sum + e.flow, 0);
+    const lowerBound = i === 0 ? 0 : sorted[i - 1];
+    const flowWithin = edges
+      .filter((e) => e.distance > lowerBound && e.distance <= band)
+      .reduce((sum, e) => sum + e.flow, 0);
     return { band, percent: Math.round((flowWithin * 100) / totalFlow) };
   });
 }

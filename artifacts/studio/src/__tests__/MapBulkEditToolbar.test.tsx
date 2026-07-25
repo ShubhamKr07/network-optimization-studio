@@ -127,4 +127,94 @@ describe("MapBulkEditToolbar", () => {
     expect(screen.getByTestId("button-bulk-set-demand")).toBeInTheDocument();
     expect(screen.queryByTestId("button-bulk-exclude")).not.toBeInTheDocument();
   });
+
+  it('labels the clear-selection button "Deselect all"', () => {
+    render(
+      <MapBulkEditToolbar
+        selectedWarehouseIds={["W1"]}
+        selectedCustomerIds={[]}
+        capacityMode="none"
+        onSetWarehouseCapacity={vi.fn()}
+        onSetWarehouseStatus={vi.fn()}
+        onSetCustomerDemand={vi.fn()}
+        onSetCustomerStatus={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("button-bulk-cancel")).toHaveTextContent("Deselect all");
+  });
+
+  describe("restrict solver to selection", () => {
+    it("calls onMakeWarehousesExclusive with the selected warehouse ids when clicked", async () => {
+      const onMakeWarehousesExclusive = vi.fn();
+      render(
+        <MapBulkEditToolbar
+          selectedWarehouseIds={["W1", "W2"]}
+          selectedCustomerIds={[]}
+          capacityMode="none"
+          onSetWarehouseCapacity={vi.fn()}
+          onSetWarehouseStatus={vi.fn()}
+          onSetCustomerDemand={vi.fn()}
+          onSetCustomerStatus={vi.fn()}
+          onMakeWarehousesExclusive={onMakeWarehousesExclusive}
+          onClearSelection={vi.fn()}
+        />,
+      );
+      await userEvent.click(screen.getByTestId("button-bulk-make-exclusive"));
+      expect(onMakeWarehousesExclusive).toHaveBeenCalledWith(["W1", "W2"]);
+    });
+
+    it("calls onMakeCustomersExclusive with the selected customer ids when clicked", async () => {
+      const onMakeCustomersExclusive = vi.fn();
+      render(
+        <MapBulkEditToolbar
+          selectedWarehouseIds={[]}
+          selectedCustomerIds={["C1", "C2"]}
+          capacityMode="none"
+          onSetWarehouseCapacity={vi.fn()}
+          onSetWarehouseStatus={vi.fn()}
+          onSetCustomerDemand={vi.fn()}
+          onSetCustomerStatus={vi.fn()}
+          onMakeCustomersExclusive={onMakeCustomersExclusive}
+          onClearSelection={vi.fn()}
+        />,
+      );
+      await userEvent.click(screen.getByTestId("button-bulk-make-exclusive"));
+      expect(onMakeCustomersExclusive).toHaveBeenCalledWith(["C1", "C2"]);
+    });
+
+    it("does not render when the corresponding onMake*Exclusive prop is omitted (back-compat)", () => {
+      render(
+        <MapBulkEditToolbar
+          selectedWarehouseIds={["W1"]}
+          selectedCustomerIds={[]}
+          capacityMode="none"
+          onSetWarehouseCapacity={vi.fn()}
+          onSetWarehouseStatus={vi.fn()}
+          onSetCustomerDemand={vi.fn()}
+          onSetCustomerStatus={vi.fn()}
+          onClearSelection={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId("button-bulk-make-exclusive")).not.toBeInTheDocument();
+    });
+
+    it("does not render for transport-coal (mine-station has no status concept)", () => {
+      render(
+        <MapBulkEditToolbar
+          selectedWarehouseIds={["KY"]}
+          selectedCustomerIds={[]}
+          capacityMode="per_wh"
+          entityKind="mine-station"
+          onSetWarehouseCapacity={vi.fn()}
+          onSetWarehouseStatus={vi.fn()}
+          onSetCustomerDemand={vi.fn()}
+          onSetCustomerStatus={vi.fn()}
+          onMakeWarehousesExclusive={vi.fn()}
+          onClearSelection={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId("button-bulk-make-exclusive")).not.toBeInTheDocument();
+    });
+  });
 });

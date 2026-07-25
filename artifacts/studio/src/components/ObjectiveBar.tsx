@@ -11,10 +11,11 @@ interface ObjectiveBarProps {
 // Neutral model-summary bar. This was previously a gamified "Beat X mi" goal
 // box (Phase 1 A3.1/A3.2 "Remove gamification" was never cleaned up here, and
 // it was also broken for two-echelon-gold-au, which had no MODEL_TARGETS
-// entry). Now it just shows the active model's chapter/title (sourced from
-// lib/chapters, the single source of truth — no second per-model table), the
-// scenario name when present, and plain solve stats read straight off `result`
-// when available. No arbitrary targets, no hit/miss coloring, no checkmarks.
+// entry). Now it shows the active model's chapter/title/teaching-intent
+// description (all sourced from lib/chapters, the single source of truth —
+// no second per-model table), the scenario name when present, and plain
+// solve stats read straight off `result` when available. No arbitrary
+// targets, no hit/miss coloring, no checkmarks.
 export function ObjectiveBar({ result, modelId, scenarioName }: ObjectiveBarProps) {
   const chapter = chapterForModelId(modelId);
   const avgDistance = result?.metrics.weightedAvgDistance;
@@ -28,19 +29,23 @@ export function ObjectiveBar({ result, modelId, scenarioName }: ObjectiveBarProp
       borderRadius: "10px",
       margin: "6px 8px 0",
       position: "relative",
-      overflow: "hidden",
       flexShrink: 0,
     }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "var(--arc-mono)", fontSize: "9.5px", letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--arc-muted)", marginBottom: "1px" }}>
           {chapter?.chapter ?? "Model"}
         </div>
-        <div style={{ fontFamily: "var(--arc-display)", fontSize: "13px", fontWeight: 600, color: "var(--arc-paper)" }}>
-          {chapter?.title ?? ""}
+        <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+          <b style={{ fontFamily: "var(--arc-display)", fontSize: "13px", fontWeight: 600, color: "var(--arc-paper)" }}>
+            {chapter?.title ?? ""}
+          </b>
+          {scenarioName ? (
+            <span style={{ color: "var(--arc-muted)", fontSize: "12px" }}>· {scenarioName}</span>
+          ) : null}
         </div>
-        {scenarioName ? (
-          <div style={{ color: "var(--arc-muted)", fontSize: "12px", marginTop: "1px" }}>
-            {scenarioName}
+        {chapter?.description ? (
+          <div style={{ color: "var(--arc-muted)", fontSize: "11px", marginTop: "2px", lineHeight: 1.35 }}>
+            {chapter.description}
           </div>
         ) : null}
       </div>

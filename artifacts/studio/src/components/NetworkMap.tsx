@@ -243,6 +243,20 @@ export function NetworkMap({
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
+  // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
+  // construction — they are NOT reactive props. GET /api/models (the source
+  // of countryBounds) and GET /dataset are independent queries with no
+  // guaranteed ordering; if dataset resolves first, NetworkMap's first mount
+  // captures FALLBACK_BOUNDS (continental US) into an immutable Leaflet
+  // maxBounds. FitBounds's imperative fitBounds() call below DOES fire once
+  // the real bounds arrive, but with maxBoundsViscosity=1.0 the frozen US
+  // maxBounds fights it and clamps the view back — the map effectively gets
+  // stuck showing the US even for an Australia-bounded model. Keying the
+  // MapContainer on the resolved bounds forces a full remount (fresh Leaflet
+  // instance, correct init props) the moment the real countryBounds lands,
+  // instead of trying to mutate a Leaflet option that was never designed to
+  // be mutated after construction.
+  const mapKey = countryBounds ? `${countryBounds.sw.join(",")}_${countryBounds.ne.join(",")}` : "fallback";
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
 
@@ -346,6 +360,7 @@ export function NetworkMap({
   return (
     <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
       <MapContainer
+        key={mapKey}
         center={mapBounds.center}
         zoom={4}
         minZoom={mapBounds.minZoom}
