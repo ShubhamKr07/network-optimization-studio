@@ -29,9 +29,9 @@ Legend: **[BLOCKER]** stop and fix · **[VERIFY]** confirm before proceeding · 
 
 ---
 
-## Gate 1 — The eight registration points
+## Gate 1 — The ten registration points
 
-Adding a model is **eight** registrations across five packages. Each omission fails differently.
+Adding a model is **ten** registrations across five packages. Each omission fails differently.
 Tick every row.
 
 - [ ] **1. Manifest** — `solvers/<model-id>/manifest.json`
@@ -56,9 +56,33 @@ Tick every row.
 - [ ] **8. Dispatcher** — `solve(inp)` in `solver/solve.py`
       *Miss:* falls through to `solve_pmedian` and **returns a plausible wrong answer**. The
       fallback is silent; there is no unknown-model error.
+- [ ] **9. Override entity registration (import/export)** — `services/templates.ts`
+      (`apply<Entity>Overrides` + `<entity>RowsToCsv`), `services/import.ts` (`ImportEntity` union +
+      `COLUMNS`/`ENTITY_HAS_VALUE`/`VALID_STATUSES`), `routes/scenarios.ts` (entity union + the
+      model↔entity pairing checks repeated in `GET .../export`, `POST .../import`,
+      `POST .../import/apply`, and `POST .../reset-to-baseline`).
+      *Miss:* the model solves fine and lists fine — export/import/reset-to-baseline just 422 with
+      no other symptom, or worse, silently validate against the *wrong* dataset if your new model
+      reuses an existing entity name like `"customers"` (thread `modelId` through
+      `parseAndValidateImport` to disambiguate — see its `modelId` parameter). This is exactly what
+      shipped for `two-echelon-gold-au`: fully solvable, zero override-editing UI, for a full session
+      before anyone noticed. Not every entity has a value column either — a status-only entity
+      (no capacity/demand field at all) needs `ENTITY_HAS_VALUE[entity] = false`, not a reused
+      column layout.
+- [ ] **10. Map multi-select allowlist** — `Studio.tsx`'s `multiSelectedWarehouseIds` /
+      `multiSelectedCustomerIds` / the `<MapBulkEditToolbar>` render gate are a hardcoded
+      `modelId === X || modelId === Y` allowlist, entirely separate from every other point on this
+      list.
+      *Miss:* shift/ctrl-click selection and bulk edit silently do nothing for the new model — no
+      error, and easy to miss in manual testing since ordinary single-click flows work fine. If the
+      dataset has a non-overridable entity mixed into the same array as overridable ones (e.g. a
+      fixed supply node alongside candidate facilities), tag it (`kind` field or equivalent — see
+      Gate 2) and exclude it from the multi-select toggle handler in `NetworkMap.tsx`, not just from
+      the override UI.
 
 - [ ] **[BLOCKER]** Run the registration consistency test (`registration.test.ts`). If it doesn't
-      exist yet, write it — it makes this entire gate automatic for every future model.
+      exist yet, write it — it makes this entire gate automatic for every future model. (Points 9–10
+      have no automated equivalent yet — cover them with route/component tests instead, see Gate 7.)
 
 ---
 
@@ -80,6 +104,11 @@ Tick every row.
       negative).
 - [ ] **[VERIFY]** Totals asserted against the source (entity counts, total demand, distance-pair
       count).
+- [ ] **[VERIFY]** If your model mixes a non-overridable entity into an array the frontend otherwise
+      treats as uniformly overridable (e.g. one fixed mine sharing `Dataset.warehouses` with several
+      candidate facilities, `WarehouseCandidate.kind: "mine" | "facility"`), tag it explicitly on the
+      wire rather than leaving callers to infer it from id or position. Every consumer — the override
+      table, export, import, map multi-select (Gate 1.10) — must filter on the same tag.
 
 ---
 
@@ -150,6 +179,22 @@ Tick every row.
 - [ ] **[VERIFY]** Numeric inputs round before sending (sliders emit `1.7000000000000002`).
 - [ ] **[NOTE]** There is currently **no React error boundary**. A render throw in your panel blanks
       the whole app. Until that's fixed app-wide, defensive rendering is mandatory.
+- [ ] **[BLOCKER]** Override editing is wired for the new model, not just displayed: an
+      import/export section (Gate 1.9) and map multi-select + `<MapBulkEditToolbar>` (Gate 1.10).
+      A model that solves and renders correctly but silently lacks these is the **default outcome**
+      of copying an existing chapter's JSX without also copying its allowlist entries — every
+      `modelId === "..."` gate in `Studio.tsx` (left-panel sections, the Overrides block, the
+      multi-select props) must be checked for your model, not just the ones that obviously error.
+- [ ] **[BLOCKER]** Header title/subtitle come from `chapters.ts`'s `CHAPTERS` lookup
+      (`labHeaderTitle`/`labHeaderSubtitle`), not a hardcoded per-model ternary. A ternary with no
+      branch for your model doesn't error — it silently renders whichever model the ternary's
+      `else` falls back to. This exact bug shipped for `two-echelon-gold-au`: the header read
+      "Al's Athletics" (Chapter 3) on every Chapter 10 screen for a full session.
+- [ ] **[VERIFY]** Any left-panel section gated to specific models (e.g. a P-value slider, a
+      capacity-mode toggle) is scoped to the models that actually have that concept — not left
+      ungated (shows for every model, including ones it doesn't apply to) and not over-narrowed to
+      a single existing model when a sibling model shares the same concept (e.g. two different
+      p-median variants both need a P slider; gating to only one of them regresses the other).
 
 ---
 
@@ -168,6 +213,13 @@ Tick every row.
 - [ ] API: envelope **retains** new fields after Zod parse
 - [ ] API: invalid inputs rejected at the boundary, not in the runner
 - [ ] Registration consistency test includes the new model
+- [ ] Export/import route tests: correct entity accepted, sibling models' entities rejected (422),
+      apply persists into the right `inputs` field, reset-to-baseline clears it
+- [ ] Frontend test: the header title/subtitle shown for the new model is correct — assert the
+      new model's text is present AND an existing model's text is absent (a ternary fallback bug
+      passes a positive-only assertion)
+- [ ] Frontend test: map multi-select props/toolbar actually render for the new model (not just that
+      they don't crash)
 - [ ] **[BLOCKER]** Existing `e2e_accuracy.py` and `e2e_journey.py` pass **unchanged**
 
 ---
@@ -189,7 +241,7 @@ Tick every row.
 
 ---
 
-## Quick reference — the five silent failures
+## Quick reference — the six silent failures
 
 Ranked by how long they waste before you find them.
 
@@ -200,5 +252,6 @@ Ranked by how long they waste before you find them.
 | 3 | Plausible but wrong results | Dispatcher fell through to `solve_pmedian` |
 | 4 | Coverage chart reads ~100% | Out-of-range distances absorbed into the last band |
 | 5 | Model lists but can't be created | Missing from `VALID_MODEL_IDS` |
+| 6 | Model solves, lists, and renders — but override editing (import/export, multi-select) and/or the header title are just missing/wrong, with zero errors anywhere | Gate 1.9/1.10's hardcoded per-model allowlists (`ImportEntity`, the export/import route pairing checks, `Studio.tsx`'s multi-select props, the header ternary) were never extended for the new model |
 
-None of these produce an error. All five are cheap to prevent and expensive to diagnose.
+None of these produce an error. All six are cheap to prevent and expensive to diagnose.
