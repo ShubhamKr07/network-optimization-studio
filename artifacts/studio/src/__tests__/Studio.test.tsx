@@ -1106,16 +1106,14 @@ describe("Studio — Pre-solve validation panel is model-relevant", () => {
 
 // ── Page-back button ──────────────────────────────────────────────────────
 describe("Studio — page-back button", () => {
-  it("calls window.history.back() when clicked", async () => {
+  it("navigates to the Landing page (\"/\") when clicked, not browser history", async () => {
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
-    const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
     renderStudio();
 
     await userEvent.click(screen.getByTestId("button-page-back"));
 
-    expect(backSpy).toHaveBeenCalledTimes(1);
-    backSpy.mockRestore();
+    expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 });
 
@@ -1134,12 +1132,24 @@ describe("Studio — result history back/forward", () => {
   };
   const resultB = { ...resultA, objective: 200, runTimeSec: 0.2 };
 
-  it("does not show back/forward controls with only one result", () => {
+  it("is always visible, even with zero or one result", () => {
     const scenario = { ...pmedianScenario, result: resultA };
     mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
-    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-result-back")).toBeInTheDocument();
+    expect(screen.getByTestId("button-result-back")).toBeDisabled();
+    expect(screen.getByTestId("button-result-forward")).toBeDisabled();
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/1");
+  });
+
+  it("shows '–/–' when the scenario has never been solved", () => {
+    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("–/–");
+    expect(screen.getByTestId("button-result-back")).toBeDisabled();
+    expect(screen.getByTestId("button-result-forward")).toBeDisabled();
   });
 
   it("accumulates a second solve into history, jumps to it, and lets you step back to the first", async () => {
@@ -1147,7 +1157,6 @@ describe("Studio — result history back/forward", () => {
     mockUseListScenarios.mockReturnValue({ data: [scenarioA], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: scenarioA } as ReturnType<typeof useGetScenario>);
     const { rerender } = renderStudio();
-    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
 
     // A second, distinct result lands (simulating a completed re-solve) —
     // rerender the SAME component instance so its history state accumulates
@@ -1169,6 +1178,40 @@ describe("Studio — result history back/forward", () => {
     expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
   });
 
+  it("restores the respective inputs (not just the output) when stepping through history", async () => {
+    const scenarioA = { ...pmedianScenario, inputs: { ...pmedianScenario.inputs, p: 3 }, result: resultA };
+    mockUseListScenarios.mockReturnValue({ data: [scenarioA], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenarioA } as ReturnType<typeof useGetScenario>);
+    const { rerender } = renderStudio();
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
+
+    // A second solve lands with DIFFERENT inputs (p changed from 3 to 10)
+    // alongside its different result. Landing does NOT auto-sync the
+    // displayed inputs — that would risk clobbering a genuinely in-progress
+    // unsaved edit if the query ever refetched from something other than
+    // the current student's own solve (e.g. a window-refocus background
+    // refetch). In the real Save→Solve flow localConfig already matches by
+    // the time a new result arrives, since handleSolve saves first.
+    const scenarioB = { ...pmedianScenario, inputs: { ...pmedianScenario.inputs, p: 10 }, result: resultB };
+    mockUseGetScenario.mockReturnValue({ data: scenarioB } as ReturnType<typeof useGetScenario>);
+    rerender(<Studio modelId="p-median-us" />);
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    // Explicit navigation is what restores each entry's respective inputs.
+    // Step back to the first entry (p=3, the input that actually produced
+    // resultA)...
+    await userEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+
+    // ...then forward again restores p=10 (the input that produced
+    // resultB) — proving this comes from the captured history entry, not
+    // from localConfig ever having been auto-set to it.
+    await userEvent.click(screen.getByTestId("button-result-forward"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("10");
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+  });
+
   it("resets history when switching to a different scenario", () => {
     const scenarioA = { ...pmedianScenario, id: 1, result: resultA };
     mockUseListScenarios.mockReturnValue({ data: [scenarioA], isLoading: false } as ReturnType<typeof useListScenarios>);
@@ -1178,10 +1221,10 @@ describe("Studio — result history back/forward", () => {
     const scenarioC = { ...pmedianScenario, id: 2, result: resultB };
     mockUseGetScenario.mockReturnValue({ data: scenarioC } as ReturnType<typeof useGetScenario>);
     rerender(<Studio modelId="p-median-us" />);
-    // Different scenario id -> history resets to just this one result, no
-    // back/forward controls (would show "1/2" if history wrongly carried
-    // over from scenario A).
-    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
+    // Different scenario id -> history resets to just this one result (not
+    // "1/2", which would mean it wrongly carried over from scenario A).
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/1");
+    expect(screen.getByTestId("button-result-back")).toBeDisabled();
   });
 });
 

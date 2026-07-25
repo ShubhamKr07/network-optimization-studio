@@ -45,6 +45,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, ChevronLeft, ArrowLeft, Pencil, Trash2, Save, Download, Upload, RotateCcw } from "lucide-react";
 
+interface ResultHistoryEntry { result: SolveResult; inputs: LocalConfig }
+
 const CONSTRAINTS: Record<string, string[]> = {
   "transport-coal": ["C1 Meet all station demand", "C2 Mine capacity limits", "C3 Fractional flow allowed (LP relaxation)", "C4 Single-source toggle (forces integer)", "C5 Minimize total ton-miles"],
   "p-median-us": ["C1 Serve every customer", "C2 Open exactly P facilities", "C3 Respect capacity", "C4 Honor warehouse status", "C5 Route only to open facility"],
@@ -243,7 +245,7 @@ export function Studio({ modelId }: StudioProps) {
   const [savedConfig, setSavedConfig] = useState<LocalConfig | null>(null);
   const [isSolving, setIsSolving] = useState(false);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
-  const [resultHistoryState, setResultHistoryState] = useState<{ items: SolveResult[]; index: number }>({ items: [], index: -1 });
+  const [resultHistoryState, setResultHistoryState] = useState<{ items: ResultHistoryEntry[]; index: number }>({ items: [], index: -1 });
   const lastResultSigRef = useRef<string | null>(null);
   const [activeTab, setActiveTab] = useState<"input" | "output">("input");
   const [showRoutes, setShowRoutes] = useState(false);
@@ -430,37 +432,77 @@ export function Studio({ modelId }: StudioProps) {
 
   const hasErrors = blockingErrors.length > 0;
 
-  // Session-local history of this scenario's solve results, so a student can
-  // step back/forward through outputs from repeated solves (e.g. sweeping
-  // the BOM ratio) without losing earlier results the moment a new solve
-  // completes — the DB only ever keeps the single latest `result` per
-  // scenario. Not persisted; resets on scenario switch or page reload.
+  // Session-local history of this scenario's solve results AND the exact
+  // inputs that produced each one, so a student can step back/forward
+  // through both outputs and their respective inputs from repeated solves
+  // (e.g. sweeping the BOM ratio) without losing earlier results the moment
+  // a new solve completes — the DB only ever keeps the single latest
+  // `result`/`inputs` pair per scenario. Not persisted; resets on scenario
+  // switch or page reload.
   const resultSignature = (r: SolveResult) => `${r.objective}|${r.runTimeSec}|${r.edges.length}`;
   useEffect(() => {
-    setResultHistoryState(scenarioFromApi?.result ? { items: [scenarioFromApi.result], index: 0 } : { items: [], index: -1 });
+    if (scenarioFromApi?.result) {
+      setResultHistoryState({ items: [{ result: scenarioFromApi.result, inputs: configFromScenario(scenarioFromApi) }], index: 0 });
+    } else {
+      setResultHistoryState({ items: [], index: -1 });
+    }
     lastResultSigRef.current = scenarioFromApi?.result ? resultSignature(scenarioFromApi.result) : null;
   }, [scenarioFromApi?.id]);
   useEffect(() => {
     const latest = scenarioFromApi?.result;
-    if (!latest) return;
+    if (!latest || !scenarioFromApi) return;
     const sig = resultSignature(latest);
     if (sig === lastResultSigRef.current) return;
     lastResultSigRef.current = sig;
+    const entry: ResultHistoryEntry = { result: latest, inputs: configFromScenario(scenarioFromApi) };
     // A fresh solve always jumps the view to the newest entry, even if the
     // student had navigated back to an earlier one — the new index is
     // items.length (the position the new entry lands at), never
     // prevIndex + 1, which would land on the wrong entry if prevIndex was
     // behind the array's actual end.
-    setResultHistoryState(prev => ({ items: [...prev.items, latest], index: prev.items.length }));
+    setResultHistoryState(prev => ({ items: [...prev.items, entry], index: prev.items.length }));
+    // Deliberately does NOT touch localConfig/savedConfig here. In the real
+    // Save→Solve flow they already match (handleSolve saves first), so
+    // there's nothing to sync. Auto-syncing on every arriving result would
+    // risk clobbering a genuinely in-progress unsaved edit if the query
+    // ever refetches from something other than the current student's own
+    // solve (e.g. a window-refocus background refetch) — explicit
+    // navigation (goResultBack/goResultForward below) is the only place
+    // inputs get restored from history, matching what was actually asked
+    // for (stepping through history shows the respective inputs).
   }, [scenarioFromApi?.result]);
 
   const resultHistory = resultHistoryState.items;
   const resultHistoryIndex = resultHistoryState.index;
-  const result = resultHistoryIndex >= 0 ? resultHistory[resultHistoryIndex] ?? null : (scenarioFromApi?.result ?? null);
+  const currentHistoryEntry = resultHistoryIndex >= 0 ? resultHistory[resultHistoryIndex] ?? null : null;
+  const result = currentHistoryEntry ? currentHistoryEntry.result : (scenarioFromApi?.result ?? null);
   const canGoBackResult = resultHistoryIndex > 0;
   const canGoForwardResult = resultHistoryIndex >= 0 && resultHistoryIndex < resultHistory.length - 1;
-  const goResultBack = () => setResultHistoryState(prev => ({ ...prev, index: Math.max(0, prev.index - 1) }));
-  const goResultForward = () => setResultHistoryState(prev => ({ ...prev, index: Math.min(prev.items.length - 1, prev.index + 1) }));
+  // Stepping through history also restores the exact inputs that produced
+  // that result (BOM ratio, P value, overrides, etc all reflect what was
+  // actually solved, not whatever is currently in localConfig). savedConfig
+  // is set to match too, so navigating alone is never treated as an unsaved
+  // edit — editing further from a historical point creates a new branch the
+  // normal Save/Solve flow already handles (jumps to the newest entry).
+  // Side effects (setLocalConfig/setSavedConfig) intentionally happen here in
+  // the event handler body, NOT inside the setResultHistoryState updater
+  // function — updater functions must stay pure.
+  const goResultBack = () => {
+    const nextIndex = Math.max(0, resultHistoryIndex - 1);
+    const entry = resultHistory[nextIndex];
+    if (!entry) return;
+    setResultHistoryState(prev => ({ ...prev, index: nextIndex }));
+    setLocalConfig(entry.inputs);
+    setSavedConfig(entry.inputs);
+  };
+  const goResultForward = () => {
+    const nextIndex = Math.min(resultHistory.length - 1, resultHistoryIndex + 1);
+    const entry = resultHistory[nextIndex];
+    if (!entry) return;
+    setResultHistoryState(prev => ({ ...prev, index: nextIndex }));
+    setLocalConfig(entry.inputs);
+    setSavedConfig(entry.inputs);
+  };
 
   // Phase 3.5 (G3.1): solve is async now — POST enqueues a job and returns
   // {jobId} immediately; useGetSolveJob below polls it until it leaves
@@ -872,9 +914,9 @@ export function Studio({ modelId }: StudioProps) {
       {/* HEADER */}
       <header className="h-14 border-b bg-white flex items-center px-4 gap-3 flex-shrink-0 z-50 relative">
         <button
-          onClick={() => window.history.back()}
+          onClick={() => navigate("/")}
           data-testid="button-page-back"
-          title="Back"
+          title="Back to models"
           className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -1003,33 +1045,31 @@ export function Studio({ modelId }: StudioProps) {
               <BarChart2 className="w-3.5 h-3.5 mr-1" /> Compare
             </Button>
           </Link>
-          {resultHistory.length > 1 && (
-            <div className="flex items-center gap-0.5" title="Step through this session's solve outputs for this scenario">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={goResultBack}
-                disabled={!canGoBackResult}
-                data-testid="button-result-back"
-                className="h-8 w-8 p-0"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </Button>
-              <span className="text-[10px] text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
-                {resultHistoryIndex + 1}/{resultHistory.length}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={goResultForward}
-                disabled={!canGoForwardResult}
-                data-testid="button-result-forward"
-                className="h-8 w-8 p-0"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center gap-0.5" title="Step through this session's solve outputs and their respective inputs for this scenario">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goResultBack}
+              disabled={!canGoBackResult}
+              data-testid="button-result-back"
+              className="h-8 w-8 p-0"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </Button>
+            <span className="text-[10px] text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
+              {resultHistory.length > 0 ? `${resultHistoryIndex + 1}/${resultHistory.length}` : "–/–"}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goResultForward}
+              disabled={!canGoForwardResult}
+              data-testid="button-result-forward"
+              className="h-8 w-8 p-0"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Button>
+          </div>
           <Button
             size="sm"
             onClick={handleSolve}
