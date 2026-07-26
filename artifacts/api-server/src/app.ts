@@ -2,8 +2,10 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import { setupExpressRequestContext, setupExpressErrorHandler } from "posthog-node";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { posthog } from "./lib/posthog";
 
 const COOKIE_SECRET = process.env.SESSION_SECRET || "arcadia-dev-secret";
 
@@ -55,6 +57,13 @@ app.use(cookieParser(COOKIE_SECRET));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// PostHog Express middleware: reads X-POSTHOG-SESSION-ID and
+// X-POSTHOG-DISTINCT-ID headers sent by posthog-js on the frontend so
+// server-side events can be linked to client sessions and person profiles.
+if (posthog) {
+  setupExpressRequestContext(posthog, app);
+}
+
 app.use("/api", router);
 
 // Catch-all error-handling middleware. Express identifies this by its
@@ -68,6 +77,13 @@ app.use("/api", router);
 //
 // This must be the LAST middleware registered: anything mounted after it would
 // run before the error is caught.
+// PostHog error handler captures unhandled Express exceptions to error
+// tracking. Must come before the project's own 500 handler so PostHog sees
+// the original error before we swallow it into a generic JSON response.
+if (posthog) {
+  setupExpressErrorHandler(posthog, app);
+}
+
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   logger.error({ err }, "Unhandled error in request");
   if (res.headersSent) {
