@@ -19,6 +19,12 @@ services:
         value: https://nos-studio.onrender.com
       - key: LOG_LEVEL
         value: info
+      # PostHog analytics — read by src/lib/posthog.ts. Without
+      # POSTHOG_API_KEY the client is null and all captures are no-ops.
+      - key: POSTHOG_API_KEY
+        value: phc_wLZvqpCAco2WwSiqjo5TFVEUzbLzKTLGtaA8EdxKmPmn
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com
 
   - type: web
     name: nos-studio
