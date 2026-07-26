@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
+import { posthog } from "../lib/posthog.js";
 import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
@@ -86,6 +87,7 @@ router.post("/scenarios", async (req, res) => {
     inputs: validation.data,
     result: null,
   }).returning();
+  posthog?.capture({ distinctId: req.userId!, event: "scenario created", properties: { model_id: row.modelId, scenario_id: row.id } });
   res.status(201).json(toApiScenario(row));
 });
 
@@ -137,6 +139,7 @@ router.post("/scenarios/compare", async (req, res) => {
     return;
   }
 
+  posthog?.capture({ distinctId: req.userId!, event: "scenarios compared", properties: { scenario_count: ids.length, model_id: [...modelIds][0] } });
   res.json({ scenarios: orderedRows.map(toApiScenario) });
 });
 
@@ -203,6 +206,7 @@ router.delete("/scenarios/:scenarioId", async (req, res) => {
       .returning();
   });
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  posthog?.capture({ distinctId: req.userId!, event: "scenario deleted", properties: { model_id: row.modelId, scenario_id: row.id } });
   res.status(204).send();
 });
 
@@ -242,6 +246,7 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     req.userId!,
     { modelId: scenario.modelId, inputs: validation.data } as SolveInput,
   );
+  posthog?.capture({ distinctId: req.userId!, event: "scenario solve requested", properties: { scenario_id: id, model_id: scenario.modelId, job_id: jobId } });
 
   res.status(202).json({ jobId });
 });
@@ -311,6 +316,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
+
+  posthog?.capture({ distinctId: req.userId!, event: "scenario exported", properties: { scenario_id: id, model_id: scenario.modelId, entity, format } });
 
   if (scenario.modelId === "transport-coal") {
     // Mines/stations persist as sparse dicts (mineCapacities/stationDemands);
@@ -532,6 +539,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
 
+  posthog?.capture({ distinctId: req.userId!, event: "scenario imported", properties: { scenario_id: id, model_id: scenario.modelId, entity, changes_applied: preview.changes.length, mode: applyMode } });
   res.json({ scenario: toApiScenario(updated), applied: preview.changes.length, errors: preview.errors });
 });
 
@@ -570,6 +578,7 @@ router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
 
+  posthog?.capture({ distinctId: req.userId!, event: "scenario reset to baseline", properties: { scenario_id: id, model_id: scenario.modelId } });
   res.json(toApiScenario(updated));
 });
 
@@ -587,6 +596,7 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
     result: null,
   }).returning();
 
+  posthog?.capture({ distinctId: req.userId!, event: "scenario cloned", properties: { source_scenario_id: id, clone_scenario_id: clone.id, model_id: clone.modelId } });
   res.status(201).json(toApiScenario(clone));
 });
 

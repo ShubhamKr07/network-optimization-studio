@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { reapStuckJobs } from "./solver/jobRunner.js";
+import { posthog } from "./lib/posthog.js";
 
 const rawPort = process.env["PORT"];
 
@@ -25,11 +26,16 @@ try {
   /* never block startup */
 }
 
-app.listen(port, (err) => {
+const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
 
   logger.info({ port }, "Server listening");
+});
+
+process.on("SIGTERM", async () => {
+  server.close();
+  await posthog?.shutdown();
 });

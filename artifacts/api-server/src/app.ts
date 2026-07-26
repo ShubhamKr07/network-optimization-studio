@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { posthog } from "./lib/posthog.js";
 
 const COOKIE_SECRET = process.env.SESSION_SECRET || "arcadia-dev-secret";
 
@@ -70,6 +71,7 @@ app.use("/api", router);
 // run before the error is caught.
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   logger.error({ err }, "Unhandled error in request");
+  posthog?.captureException(err instanceof Error ? err : new Error(String(err)));
   if (res.headersSent) {
     // Headers already went out (e.g. a streaming response or a route that
     // began writing then threw) — we can no longer send a JSON body, so

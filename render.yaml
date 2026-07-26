@@ -19,6 +19,14 @@ services:
         value: https://nos-studio.onrender.com
       - key: LOG_LEVEL
         value: info
+      # PostHog product analytics (api-server). POSTHOG_API_KEY enables the
+      # posthog-node client in src/lib/posthog.ts; without it events are
+      # silently dropped (with a dev-only warning). POSTHOG_HOST is the
+      # ingestion endpoint for this project's region (US cloud).
+      - key: POSTHOG_API_KEY
+        value: phc_wLZvqpCAco2WwSiqjo5TFVEUzbLzKTLGtaA8EdxKmPmn
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com
 
   - type: web
     name: nos-studio
