@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { reapStuckJobs } from "./solver/jobRunner.js";
+import { posthog } from "./lib/posthog.js";
 
 const rawPort = process.env["PORT"];
 
@@ -32,4 +33,14 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+});
+
+// Flush any queued PostHog events before the process exits so they are not lost.
+process.on("SIGTERM", async () => {
+  await posthog?.shutdown();
+  process.exit(0);
+});
+process.on("SIGINT", async () => {
+  await posthog?.shutdown();
+  process.exit(0);
 });

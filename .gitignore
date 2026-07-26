@@ -53,3 +53,8 @@ __pycache__/
 /artifacts/studio/e2e/.auth/
 /artifacts/studio/e2e/report/
 /artifacts/studio/test-results/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
