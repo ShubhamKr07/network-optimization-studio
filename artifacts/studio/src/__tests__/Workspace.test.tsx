@@ -165,3 +165,72 @@ describe("Workspace — placeholder tabs", () => {
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 });
+
+describe("Workspace — Optimization Parameters tab", () => {
+  it("opening the sidebar entry renders the real form with the scenario's values, not a placeholder", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
+    expect(screen.getByTestId("input-gap")).toHaveValue(0);
+    expect(screen.getByTestId("input-time-limit")).toHaveValue(120);
+  });
+
+  it("Save is disabled when nothing changed, and no mutation fires just from opening the tab", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  it("an edit does NOT save on its own — only an explicit Save click persists it via useUpdateScenario (the same shared mechanism as Warehouses/Customers)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({ p: 10 }),
+      },
+    });
+  });
+
+  it("edits to gap/timeLimitSec/distanceBands all funnel through the same localInputs draft and are saved together", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "0.05" } });
+    fireEvent.change(screen.getByTestId("input-time-limit"), { target: { value: "300" } });
+    fireEvent.click(screen.getByTestId("button-remove-band-400"));
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          gap: 0.05,
+          timeLimitSec: 300,
+          distanceBands: [200, 800, 1600],
+        }),
+      },
+    });
+  });
+
+  it("shows an 'Unsaved changes' indicator only while dirty", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+  });
+});

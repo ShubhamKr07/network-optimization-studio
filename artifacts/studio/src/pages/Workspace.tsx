@@ -16,6 +16,7 @@ import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTr
 import { TabBar } from "@/components/workspace/TabBar";
 import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
+import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import {
@@ -39,6 +40,29 @@ function customerOverridesFromInputs(inputs: Record<string, unknown> | null): Cu
 function capacityModeFromInputs(inputs: Record<string, unknown> | null): "none" | "uniform" | "per_wh" {
   const raw = inputs?.capacityMode;
   return raw === "uniform" || raw === "per_wh" ? raw : "none";
+}
+
+// A1.2 — `p` is undefined (not 0) for models with no P concept
+// (transport-coal, two-echelon-gold-au), so OptimizationParametersTab can
+// omit that section entirely rather than showing a misleading "0".
+function pFromInputs(inputs: Record<string, unknown> | null): number | undefined {
+  const raw = inputs?.p;
+  return typeof raw === "number" ? raw : undefined;
+}
+
+function gapFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = inputs?.gap;
+  return typeof raw === "number" ? raw : 0;
+}
+
+function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = inputs?.timeLimitSec;
+  return typeof raw === "number" ? raw : 120;
+}
+
+function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
+  const raw = inputs?.distanceBands;
+  return Array.isArray(raw) ? (raw as number[]) : [];
 }
 
 // A0.1 — pilot Inputs/Outputs entity list, matching the wireframe's example
@@ -152,7 +176,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // set as each one is wired up; every other entry stays an inert
   // placeholder with nothing to save yet.
   const isEditableInputTab =
-    activeTab?.kind === "input" && (activeTab.entity === "warehouses" || activeTab.entity === "customers");
+    activeTab?.kind === "input" &&
+    (activeTab.entity === "warehouses" || activeTab.entity === "customers" || activeTab.entity === "optimization-parameters");
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -195,8 +220,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // Every other entry (Demand, Distances, Optimization Parameters, every
-    // Output) is a later task (A1.2-A3.1) — unchanged placeholder.
+    if (activeTab.kind === "input" && activeTab.entity === "optimization-parameters") {
+      if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <OptimizationParametersTab
+          p={pFromInputs(localInputs)}
+          gap={gapFromInputs(localInputs)}
+          timeLimitSec={timeLimitSecFromInputs(localInputs)}
+          distanceBands={distanceBandsFromInputs(localInputs)}
+          onChange={(field, value) => updateInputsField(field, value)}
+        />
+      );
+    }
+
+    // Every other entry (Demand, Distances, every Output) is a later task
+    // (B5.1-A3.1) — unchanged placeholder.
     return (
       <span className="text-muted-foreground" data-testid="tab-content-placeholder">
         {activeTab.label} — content wired in a later task (A1.2-A3.1).
