@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 // ── Mock wouter ───────────────────────────────────────────────────────────────
 vi.mock("wouter", () => ({
@@ -43,7 +43,7 @@ const dataset = {
 
 // ── Mock the generated API client hooks (mock at the generated-hooks level,
 // per this repo's established convention — see Studio.test.tsx) ─────────────
-const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn() };
+const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario] })),
@@ -62,6 +62,7 @@ function renderWorkspace() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUpdateScenario.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
 });
 
@@ -81,47 +82,42 @@ describe("Workspace — Warehouses tab", () => {
     expect(screen.getAllByText("Fixed-Open").length).toBeGreaterThan(0);
   });
 
-  it("an edit debounces through to useUpdateScenario", () => {
-    vi.useFakeTimers();
-    try {
-      renderWorkspace();
-      fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
-      fireEvent.click(screen.getByTestId("button-wh-CHI-forced_open"));
-
-      // Not saved yet — still within the debounce window.
-      expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
-
-      act(() => {
-        vi.advanceTimersByTime(600);
-      });
-
-      expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
-      const [args] = mockUpdateScenario.mutate.mock.calls[0];
-      expect(args).toEqual({
-        scenarioId: 1,
-        data: {
-          inputs: expect.objectContaining({
-            warehouseOverrides: [{ id: "CHI", status: "forced_open", capacity: undefined }],
-          }),
-        },
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+  it("Save is disabled when nothing changed, and no mutation fires just from opening the tab", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 
-  it("does not fire a save when nothing changed after the debounce window", () => {
-    vi.useFakeTimers();
-    try {
-      renderWorkspace();
-      fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
-      act(() => {
-        vi.advanceTimersByTime(600);
-      });
-      expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+  it("an edit does NOT save on its own — only an explicit Save click persists it via useUpdateScenario", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    fireEvent.click(screen.getByTestId("button-wh-CHI-forced_open"));
+
+    // Edited but not yet saved: Save is now enabled, but nothing was sent.
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          warehouseOverrides: [{ id: "CHI", status: "forced_open", capacity: undefined }],
+        }),
+      },
+    });
+  });
+
+  it("shows an 'Unsaved changes' indicator only while dirty", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-wh-CHI-forced_open"));
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
   });
 });
 
@@ -134,31 +130,38 @@ describe("Workspace — Customers tab", () => {
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 
-  it("an edit debounces through to useUpdateScenario", () => {
-    vi.useFakeTimers();
-    try {
-      renderWorkspace();
-      fireEvent.click(screen.getByTestId("sidebar-input-customers"));
-      fireEvent.change(screen.getByTestId("input-customer-demand-C1"), { target: { value: "250" } });
+  it("an edit does NOT save on its own — only an explicit Save click persists it via useUpdateScenario", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    fireEvent.change(screen.getByTestId("input-customer-demand-C1"), { target: { value: "250" } });
 
-      expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
 
-      act(() => {
-        vi.advanceTimersByTime(600);
-      });
+    fireEvent.click(screen.getByTestId("button-save"));
 
-      expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
-      const [args] = mockUpdateScenario.mutate.mock.calls[0];
-      expect(args).toEqual({
-        scenarioId: 1,
-        data: {
-          inputs: expect.objectContaining({
-            customerOverrides: [{ id: "C1", status: "active", demand: 250 }],
-          }),
-        },
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          customerOverrides: [{ id: "C1", status: "active", demand: 250 }],
+        }),
+      },
+    });
+  });
+
+  it("Save is disabled when nothing changed", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+});
+
+describe("Workspace — placeholder tabs", () => {
+  it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 });

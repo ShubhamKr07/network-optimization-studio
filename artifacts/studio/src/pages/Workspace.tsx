@@ -8,7 +8,9 @@ import {
   useUpdateScenario,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
+  type GetDatasetModelId,
 } from "@workspace/api-client-react";
+import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
@@ -16,7 +18,6 @@ import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
-import { useDebounce } from "@/hooks/use-debounce";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -24,18 +25,6 @@ import {
   type WorkspaceTab,
 } from "@/lib/workspaceTabs";
 import type { StudioModelType } from "@/lib/chapters";
-
-// A1.1 — how long an edit sits in local state before it's written through to
-// the server. Batches rapid successive edits (e.g. several status-button
-// clicks) into one PATCH instead of firing on every click/keystroke, mirroring
-// the already-existing-but-previously-unused `useDebounce` hook's intended
-// purpose (see its own file). Studio.tsx's parallel mechanism
-// (configFromScenario/buildInputsForSave) instead batches via an explicit
-// Save button — not reused verbatim here because Workspace's grids-as-tabs
-// model has no per-tab Save button in the wireframe; the write-through
-// *shape* (local draft state, diffed against a last-saved baseline before
-// calling useUpdateScenario) is the part lifted from that pattern.
-const INPUTS_SAVE_DEBOUNCE_MS = 600;
 
 function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
   const raw = inputs?.warehouseOverrides;
@@ -89,7 +78,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const { data: scenarioFromApi } = useGetScenario(scenarioIdFromUrl!, {
     query: { enabled: !!scenarioIdFromUrl, queryKey: getGetScenarioQueryKey(scenarioIdFromUrl!) },
   });
-  const { data: dataset } = useGetDataset({ modelId: modelId as "p-median-us" });
+  // The generated hook's `modelId` param is narrower than StudioModelType
+  // (it has no "p-median-brazil" value — Brazil has no dataset endpoint
+  // entry). Cast to the hook's own real param type rather than a single
+  // hand-picked literal, so this stays correct if/when a future model flip
+  // (A5.1-A5.3) passes a different modelId through.
+  const { data: dataset } = useGetDataset({ modelId: modelId as GetDatasetModelId | undefined });
   const updateScenario = useUpdateScenario();
 
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
@@ -102,6 +96,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // (configFromScenario/buildInputsForSave), scoped here to the raw inputs
   // object directly since PATCH replaces the whole `inputs` blob and A1.2's
   // Optimization Parameters tab (not yet built) owns the rest of its fields.
+  //
+  // Save is explicit (Studio.tsx's manual Save-button pattern), not
+  // debounced/auto-saved: an earlier version of this file auto-saved on a
+  // 600ms debounce, which review flagged as a real data-loss bug — a
+  // pending edit inside the debounce window was silently dropped if the
+  // student switched scenarios or navigated away before it fired. Manual
+  // Save (this scenario's inputs blob is only ever written on an explicit
+  // click) has no such window: nothing is ever "pending" without the
+  // student knowing. This is now the standing pattern for every future
+  // Workspace input tab (A1.2, B5.1, ...), not just this one.
   const [localInputs, setLocalInputs] = useState<Record<string, unknown> | null>(null);
   const savedInputsRef = useRef<Record<string, unknown> | null>(null);
 
@@ -112,27 +116,29 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     }
   }, [currentScenario?.id]);
 
-  const debouncedInputs = useDebounce(localInputs, INPUTS_SAVE_DEBOUNCE_MS);
-  useEffect(() => {
-    if (!currentScenario || !debouncedInputs) return;
-    if (debouncedInputs === savedInputsRef.current) return;
-    if (JSON.stringify(debouncedInputs) === JSON.stringify(savedInputsRef.current)) return;
+  const isDirty =
+    localInputs != null &&
+    savedInputsRef.current != null &&
+    JSON.stringify(localInputs) !== JSON.stringify(savedInputsRef.current);
+
+  function updateInputsField(key: string, value: unknown) {
+    setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
+  }
+
+  function handleSaveInputs() {
+    if (!currentScenario || !localInputs || !isDirty) return;
     const scenarioId = currentScenario.id;
+    const inputs = localInputs;
     updateScenario.mutate(
-      { scenarioId, data: { inputs: debouncedInputs } },
+      { scenarioId, data: { inputs } },
       {
         onSuccess: () => {
-          savedInputsRef.current = debouncedInputs;
+          savedInputsRef.current = inputs;
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
         },
       },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed only on debouncedInputs; re-running on updateScenario/queryClient identity churn would misfire saves
-  }, [debouncedInputs]);
-
-  function updateInputsField(key: string, value: unknown) {
-    setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
   }
 
   const [tabState, dispatch] = useReducer(workspaceTabsReducer, initialWorkspaceTabState);
@@ -140,6 +146,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     () => tabState.tabs.find(t => t.id === tabState.activeTabId) ?? null,
     [tabState.tabs, tabState.activeTabId],
   );
+
+  // A1.1 — the Save toolbar (below) shows for any input tab that's actually
+  // wired to `localInputs` today. A1.2/B5.1 add their own entities to this
+  // set as each one is wired up; every other entry stays an inert
+  // placeholder with nothing to save yet.
+  const isEditableInputTab =
+    activeTab?.kind === "input" && (activeTab.entity === "warehouses" || activeTab.entity === "customers");
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -247,6 +260,30 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onActivate={id => dispatch({ type: "activate", id })}
             onClose={id => dispatch({ type: "close", id })}
           />
+          {isEditableInputTab && (
+            // A1.1 (fix) — explicit Save, replacing the earlier debounced
+            // auto-save. Mirrors Studio.tsx's toolbar Save button
+            // (isDirty-gated, useUpdateScenario on click) rather than
+            // writing on every edit.
+            <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
+              {isDirty && (
+                <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+                  Unsaved changes
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSaveInputs}
+                disabled={!isDirty || updateScenario.isPending}
+                data-testid="button-save"
+                className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+              >
+                <Save className="w-3.5 h-3.5 mr-1" />
+                {updateScenario.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          )}
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
               {activeTab ? renderTabContent() : <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>}
