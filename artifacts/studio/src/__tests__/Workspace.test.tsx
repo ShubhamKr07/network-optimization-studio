@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
+// ── Mock toast ────────────────────────────────────────────────────────────────
+const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
+vi.mock("@/hooks/use-toast", () => ({ toast: mockToast }));
+
 // ── Mock wouter ───────────────────────────────────────────────────────────────
 vi.mock("wouter", () => ({
   useSearch: vi.fn(() => "?scenario=1"),
@@ -44,17 +48,24 @@ const dataset = {
 // ── Mock the generated API client hooks (mock at the generated-hooks level,
 // per this repo's established convention — see Studio.test.tsx) ─────────────
 const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario] })),
   useGetScenario: vi.fn(() => ({ data: scenario })),
   useGetDataset: vi.fn(() => ({ data: dataset })),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
+  useSolveScenario: vi.fn(() => mockSolveScenario),
+  useGetSolveJob: vi.fn(() => ({ data: undefined })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
+  getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
 }));
 
 import { Workspace } from "@/pages/Workspace";
+import { useGetSolveJob } from "@workspace/api-client-react";
+
+const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -63,7 +74,9 @@ function renderWorkspace() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockUpdateScenario.isPending = false;
+  mockSolveScenario.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
+  mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
 });
 
 describe("Workspace — Warehouses tab", () => {
@@ -232,5 +245,174 @@ describe("Workspace — Optimization Parameters tab", () => {
     expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+  });
+});
+
+// ── A2.1 — Solve dialog ──────────────────────────────────────────────────────
+describe("Workspace — Solve dialog", () => {
+  it("Run Optimizer opens the dialog showing the scenario's current p/gap/timeLimitSec — synced with Optimization Parameters", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-p-value")).toHaveTextContent("3");
+    expect(screen.getByTestId("solve-dialog-input-gap")).toHaveValue(0);
+    expect(screen.getByTestId("solve-dialog-input-time-limit")).toHaveValue(120);
+  });
+
+  it("editing p in the Optimization Parameters tab is reflected in the Solve dialog (single source of truth)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByTestId("solve-dialog-p-value")).toHaveTextContent("10");
+  });
+
+  it("editing gap in the Solve dialog is reflected in the Optimization Parameters tab (single source of truth)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.change(screen.getByTestId("solve-dialog-input-gap"), { target: { value: "0.05" } });
+    fireEvent.click(screen.getByTestId("solve-dialog-cancel"));
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("input-gap")).toHaveValue(0.05);
+  });
+
+  // The one test that must exist per the task brief: this repo already shipped
+  // and fixed this exact bug once in Studio.tsx (CLAUDE.md's "Round 2" —
+  // handleSolve firing against stale persisted inputs because POST /solve has
+  // no body and reads whatever's already saved). SolveDialog's Solve button
+  // must save a dirty localInputs draft first, and only enqueue the solve once
+  // that save succeeds.
+  it("clicking Solve with unsaved edits SAVES FIRST, then solves only after the save succeeds", () => {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+    renderWorkspace();
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [saveArgs] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(saveArgs).toEqual({
+      scenarioId: 1,
+      data: { inputs: expect.objectContaining({ p: 10 }) },
+    });
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
+  });
+
+  it("clicking Solve with a dirty draft does NOT enqueue the solve before the save resolves", () => {
+    // Save mutate is called but its onSuccess is never invoked in this test —
+    // simulates the save still being in flight. `mockReset` guards against a
+    // leftover `mockImplementation` from an earlier test in this file (`vi
+    // .clearAllMocks()` in the top-level beforeEach clears calls, not a
+    // previously-set implementation).
+    mockUpdateScenario.mutate.mockReset();
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
+  });
+
+  it("clicking Solve with no unsaved changes solves immediately, without saving first", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
+  });
+
+  it("shows a progress state while the solve is in flight, and disables the Solve button", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(screen.getByTestId("solve-dialog-progress")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-solve")).toBeDisabled();
+  });
+
+  it("shows a destructive toast and an inline error, and does not proceed to solve, when the pre-solve save is rejected", () => {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(new Error("HTTP 422 Unprocessable Entity: inputs fails model-specific validation"));
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Couldn't save your changes",
+      variant: "destructive",
+    }));
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("solve-dialog-error")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-solve")).not.toBeDisabled();
+  });
+
+  it("shows a destructive toast when enqueuing the solve itself fails", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (err: unknown) => void }) => {
+      opts.onError(new Error("HTTP 429: queue depth limit exceeded"));
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Solve failed to start",
+      variant: "destructive",
+    }));
+  });
+
+  it("on a successful poll, opens and activates the Output Map tab and closes the dialog", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(screen.queryByTestId("solve-dialog")).not.toBeInTheDocument();
+    const outputMapTab = screen.getByTestId("tab-output:output-map");
+    expect(outputMapTab).toBeInTheDocument();
+    expect(outputMapTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows a destructive toast and does not open Output Map when the polled job fails", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "failed", error: "Solver timed out", resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Solve failed",
+      description: "Solver timed out",
+    }));
+    expect(screen.queryByTestId("tab-output:output-map")).not.toBeInTheDocument();
   });
 });

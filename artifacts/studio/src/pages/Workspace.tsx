@@ -6,8 +6,11 @@ import {
   useGetScenario,
   useGetDataset,
   useUpdateScenario,
+  useSolveScenario,
+  useGetSolveJob,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
+  getGetSolveJobQueryKey,
   type GetDatasetModelId,
   type Scenario,
 } from "@workspace/api-client-react";
@@ -15,6 +18,7 @@ import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
+import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
 import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
@@ -27,6 +31,7 @@ import {
   type WorkspaceTab,
 } from "@/lib/workspaceTabs";
 import type { StudioModelType } from "@/lib/chapters";
+import { toast } from "@/hooks/use-toast";
 
 function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
   const raw = inputs?.warehouseOverrides;
@@ -78,7 +83,13 @@ const INPUT_ENTRIES: SidebarEntry[] = [
   { id: "optimization-parameters", label: "Optimization Parameters" },
 ];
 
+// A3.1 builds this tab's real content (re-homed NetworkMap + layer toggles)
+// — A2.1 only needs the sidebar/tab-bar entry to exist so a successful solve
+// has something real to open+activate.
+const OUTPUT_MAP_ENTRY: SidebarEntry = { id: "output-map", label: "Output Map" };
+
 const OUTPUT_ENTRIES: SidebarEntry[] = [
+  OUTPUT_MAP_ENTRY,
   { id: "open-warehouses", label: "Open Warehouses" },
   { id: "customer-assignments", label: "Customer Assignments" },
   { id: "flows", label: "Flows" },
@@ -210,6 +221,123 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // callback, per the brief.
   }
 
+  // A2.1 — Run Optimizer / Solve dialog. Solve is async (G3.1): POST /solve
+  // enqueues a job and returns {jobId} immediately; useGetSolveJob below
+  // polls it until it leaves queued/running — same mechanics as
+  // Studio.tsx's handleSolve/pollingJobId, replicated here rather than
+  // reinvented.
+  const solveScenario = useSolveScenario();
+  const [solveDialogOpen, setSolveDialogOpen] = useState(false);
+  const [solvePhase, setSolvePhase] = useState<SolveDialogPhase>("idle");
+  const [solveError, setSolveError] = useState<string | null>(null);
+  const [pollingJobId, setPollingJobId] = useState<number | null>(null);
+
+  function openSolveDialog() {
+    setSolveError(null);
+    setSolvePhase("idle");
+    setSolveDialogOpen(true);
+  }
+
+  // CRITICAL — save-before-solve (CLAUDE.md's documented Round-2 bug):
+  // POST /scenarios/:id/solve carries no body — it solves whatever is
+  // ALREADY PERSISTED on the scenario row ("DB row is the source of truth").
+  // Studio.tsx's handleSolve used to fire directly against that stale saved
+  // value, silently discarding any dirty (unsaved) localConfig edit — e.g.
+  // dragging a slider in this dialog or the Optimization Parameters tab,
+  // then clicking Solve, solved the OLD value with zero indication anything
+  // was wrong. Fix (now the standing pattern): if localInputs is dirty, save
+  // it first and wait for that save to succeed, THEN enqueue the solve.
+  // Never let this dialog become a second place where that bug can recur.
+  function handleSolve() {
+    if (!currentScenario) return;
+    setSolveError(null);
+    const scenarioId = currentScenario.id;
+
+    const runSolve = () => {
+      setSolvePhase("solving");
+      solveScenario.mutate(
+        { scenarioId },
+        {
+          onSuccess: job => setPollingJobId(job.jobId),
+          onError: err => {
+            const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+            setSolvePhase("failed");
+            setSolveError(message);
+            toast({
+              title: "Solve failed to start",
+              description: message,
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    };
+
+    if (isDirty && localInputs) {
+      setSolvePhase("saving");
+      const inputs = localInputs;
+      updateScenario.mutate(
+        { scenarioId, data: { inputs } },
+        {
+          onSuccess: () => {
+            savedInputsRef.current = inputs;
+            queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+            queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+            runSolve();
+          },
+          // A save failing (e.g. a rejected input) used to fail completely
+          // silently in Studio.tsx before that was fixed — Solve just quietly
+          // did nothing. Surface it the same way here.
+          onError: err => {
+            const message = err instanceof Error ? err.message : "The scenario was not solved — fix the invalid input and try again.";
+            setSolvePhase("failed");
+            setSolveError(message);
+            toast({
+              title: "Couldn't save your changes",
+              description: message,
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    } else {
+      runSolve();
+    }
+  }
+
+  const { data: jobStatus } = useGetSolveJob(currentScenario?.id!, pollingJobId!, {
+    query: {
+      enabled: !!currentScenario && !!pollingJobId,
+      queryKey: getGetSolveJobQueryKey(currentScenario?.id!, pollingJobId!),
+      refetchInterval: query => {
+        const status = query.state.data?.status;
+        return status === "queued" || status === "running" ? 800 : false;
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (!jobStatus || !currentScenario) return;
+    if (jobStatus.status === "succeeded") {
+      setSolvePhase("idle");
+      setPollingJobId(null);
+      setSolveDialogOpen(false);
+      openTab("output", OUTPUT_MAP_ENTRY);
+      queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(currentScenario.id) });
+    } else if (jobStatus.status === "failed") {
+      const message = jobStatus.error ?? "The solver did not complete. Try again.";
+      setSolvePhase("failed");
+      setSolveError(message);
+      setPollingJobId(null);
+      toast({
+        title: "Solve failed",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  }, [jobStatus, currentScenario?.id, queryClient]);
+
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
@@ -291,7 +419,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <span className="text-sm text-muted-foreground" data-testid="text-user-email">
             {userEmail}
           </span>
-          <Button size="sm" disabled={!currentScenario} data-testid="button-run-optimizer">
+          <Button
+            size="sm"
+            disabled={!currentScenario}
+            onClick={openSolveDialog}
+            data-testid="button-run-optimizer"
+          >
             Run Optimizer
           </Button>
         </div>
@@ -355,6 +488,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           </div>
         </div>
       </div>
+
+      <SolveDialog
+        open={solveDialogOpen}
+        onOpenChange={setSolveDialogOpen}
+        p={pFromInputs(localInputs)}
+        gap={gapFromInputs(localInputs)}
+        timeLimitSec={timeLimitSecFromInputs(localInputs)}
+        onChange={(field, value) => updateInputsField(field, value)}
+        phase={solvePhase}
+        errorMessage={solveError}
+        onSolve={handleSolve}
+      />
     </div>
   );
 }
