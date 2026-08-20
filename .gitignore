@@ -53,3 +53,6 @@ __pycache__/
 /artifacts/studio/e2e/.auth/
 /artifacts/studio/e2e/report/
 /artifacts/studio/test-results/
+
+# Worktrees (subagent-driven-development scratch)
+.worktrees/
