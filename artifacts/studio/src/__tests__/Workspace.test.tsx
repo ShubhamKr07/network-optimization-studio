@@ -57,6 +57,7 @@ vi.mock("@workspace/api-client-react", () => ({
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  useListModels: vi.fn(() => ({ data: [{ id: "p-median-us", countryBounds: { sw: [24, -125], ne: [50, -66] } }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),

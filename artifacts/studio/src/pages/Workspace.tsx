@@ -8,6 +8,7 @@ import {
   useUpdateScenario,
   useSolveScenario,
   useGetSolveJob,
+  useListModels,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
@@ -22,6 +23,7 @@ import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/Solve
 import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import {
@@ -69,6 +71,20 @@ function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number 
 function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
   const raw = inputs?.distanceBands;
   return Array.isArray(raw) ? (raw as number[]) : [];
+}
+
+// A3.1 — same derivation Studio.tsx applies at its NetworkMap call site
+// (`(localConfig?.warehouseOverrides ?? []).filter(o => o.status !==
+// "active").map(...)`), replicated against localInputs instead of
+// localConfig per the task brief. "active" overrides carry no marker-status
+// meaning of their own (NetworkMap's getStatus already falls back to
+// "potential" for anything absent from this list).
+function warehouseStatusesFromInputs(
+  inputs: Record<string, unknown> | null,
+): { warehouseId: string; status: "forced_open" | "inactive" }[] {
+  return warehouseOverridesFromInputs(inputs)
+    .filter(o => o.status !== "active")
+    .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }));
 }
 
 // A0.1 — pilot Inputs/Outputs entity list, matching the wireframe's example
@@ -121,6 +137,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // (A5.1-A5.3) passes a different modelId through.
   const { data: dataset } = useGetDataset({ modelId: modelId as GetDatasetModelId | undefined });
   const updateScenario = useUpdateScenario();
+
+  // A3.1 — Output Map tab's countryBounds, sourced the same way Studio.tsx
+  // sources activeModelManifest (Studio.tsx:225/239) — GET /api/models is
+  // independent of GET /dataset with no ordering guarantee, so this can
+  // resolve after NetworkMap's first mount; NetworkMap itself already
+  // handles that (E5.1's remount-on-resolution fix), nothing extra needed
+  // here beyond passing whatever's currently available.
+  const { data: models } = useListModels();
+  const activeModelManifest = models?.find(m => m.id === modelId);
 
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
   const hasSolvedRun = currentScenario?.result != null;
@@ -381,8 +406,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // Every other entry (Demand, Distances, every Output) is a later task
-    // (B5.1-A3.1) — unchanged placeholder.
+    // A3.1 — Output Map tab. `result` is passed only while this tab is
+    // actually the active one (mirrors Studio.tsx's `activeTab === "output"
+    // ? result : null` guard, Studio.tsx:1544/1554) even though
+    // renderTabContent() itself is only invoked for the active tab — belt
+    // and suspenders so a stale result can never bleed into an unrelated
+    // tab if this component's mounting rules ever change.
+    if (activeTab.kind === "output" && activeTab.entity === "output-map") {
+      if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <OutputMapTab
+          dataset={dataset}
+          warehouseStatuses={warehouseStatusesFromInputs(localInputs)}
+          result={activeTab.entity === "output-map" ? (currentScenario?.result ?? null) : null}
+          bands={distanceBandsFromInputs(localInputs)}
+          countryBounds={activeModelManifest?.countryBounds}
+        />
+      );
+    }
+
+    // Every other entry (Demand, Distances, and every remaining Output grid)
+    // is a later task (B5.1-C6.1) — unchanged placeholder.
     return (
       <span className="text-muted-foreground" data-testid="tab-content-placeholder">
         {activeTab.label} — content wired in a later task (A1.2-A3.1).
@@ -478,12 +522,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
               {activeTab ? renderTabContent() : <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>}
-            </div>
-            <div
-              className="w-[420px] flex-shrink-0 border-l flex items-center justify-center text-xs text-muted-foreground bg-muted/20"
-              data-testid="map-placeholder"
-            >
-              Map — wired in A3.1
             </div>
           </div>
         </div>

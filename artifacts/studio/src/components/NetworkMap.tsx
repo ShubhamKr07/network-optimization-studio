@@ -235,12 +235,24 @@ interface NetworkMapProps {
   multiSelectedCustomerIds: string[];
   onToggleWarehouseMultiSelect: (id: string) => void;
   onToggleCustomerMultiSelect: (id: string) => void;
+  // A3.1 (Output Map tab) — independent marker-visibility toggles. Deliberately
+  // NOT dataset filtering: a route's endpoints are looked up via
+  // dataset.warehouses.find()/dataset.customers.find() below, so emptying
+  // either array to hide markers would also silently drop every route
+  // touching that entity — exactly the "Lanes on, Warehouses off" combination
+  // the Output Map tab's independently-toggleable layers require. These props
+  // gate ONLY marker rendering; route/tooltip/popup lookups keep using the
+  // full dataset regardless. Both default to true (undefined = on) so every
+  // existing caller (Studio.tsx, tests) is unaffected without passing them.
+  showWarehouseMarkers?: boolean;
+  showCustomerMarkers?: boolean;
 }
 
 export function NetworkMap({
   dataset, warehouseStatuses, result, showRoutes, bands, countryBounds,
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
+  showWarehouseMarkers = true, showCustomerMarkers = true,
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
@@ -434,7 +446,7 @@ export function NetworkMap({
             })}
         </Pane>
 
-        {dataset.customers.map((c) => {
+        {showCustomerMarkers && dataset.customers.map((c) => {
           const assignment = assignmentMap.get(c.id);
           const assignmentBand = assignment ? assignBand(assignment.distance, bands) : 0;
           const focused = isCustomerFocused(c.id);
@@ -487,7 +499,7 @@ export function NetworkMap({
           );
         })}
 
-        {dataset.warehouses.map((w) => {
+        {showWarehouseMarkers && dataset.warehouses.map((w) => {
           const status = getStatus(w.id);
           const isOpen = status === "open" || status === "forced_open";
           const isHighlighted = w.id === selectedWarehouseId;
