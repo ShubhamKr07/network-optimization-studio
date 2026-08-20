@@ -9,6 +9,7 @@ import {
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   type GetDatasetModelId,
+  type Scenario,
 } from "@workspace/api-client-react";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     );
   }
 
+  // A1.3 — mirrors Studio.tsx's `handleImportApplied`: an import-apply
+  // replaces the scenario's whole `inputs` blob server-side, so the local
+  // draft (and its "last saved" snapshot) must be resynced from the
+  // response directly, same as a fresh Save success — otherwise the grid
+  // would keep showing pre-import data until an unrelated refetch happened
+  // to land. Also invalidates both queries Studio.tsx invalidates, so any
+  // other consumer (sidebar scenario list, a background refetch) doesn't
+  // see stale data either.
+  function handleImportApplied(updated: Scenario) {
+    setLocalInputs(updated.inputs);
+    savedInputsRef.current = updated.inputs;
+    queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
+  }
+
   const [tabState, dispatch] = useReducer(workspaceTabsReducer, initialWorkspaceTabState);
   const activeTab = useMemo(
     () => tabState.tabs.find(t => t.id === tabState.activeTabId) ?? null,
@@ -205,6 +221,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           overrides={warehouseOverridesFromInputs(localInputs)}
           capacityMode={capacityModeFromInputs(localInputs)}
           onChange={next => updateInputsField("warehouseOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
         />
       );
     }
@@ -216,6 +234,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           customers={dataset.customers}
           overrides={customerOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("customerOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
         />
       );
     }
