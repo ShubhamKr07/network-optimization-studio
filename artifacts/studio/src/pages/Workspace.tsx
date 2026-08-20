@@ -1,9 +1,22 @@
-import { useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { useSearch, useLocation } from "wouter";
-import { useListScenarios, useGetScenario, getGetScenarioQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useListScenarios,
+  useGetScenario,
+  useGetDataset,
+  useUpdateScenario,
+  getGetScenarioQueryKey,
+  getListScenariosQueryKey,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
+import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
+import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
+import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
+import type { CustomerOverride } from "@/components/tables/CustomerTable";
+import { useDebounce } from "@/hooks/use-debounce";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -11,6 +24,33 @@ import {
   type WorkspaceTab,
 } from "@/lib/workspaceTabs";
 import type { StudioModelType } from "@/lib/chapters";
+
+// A1.1 — how long an edit sits in local state before it's written through to
+// the server. Batches rapid successive edits (e.g. several status-button
+// clicks) into one PATCH instead of firing on every click/keystroke, mirroring
+// the already-existing-but-previously-unused `useDebounce` hook's intended
+// purpose (see its own file). Studio.tsx's parallel mechanism
+// (configFromScenario/buildInputsForSave) instead batches via an explicit
+// Save button — not reused verbatim here because Workspace's grids-as-tabs
+// model has no per-tab Save button in the wireframe; the write-through
+// *shape* (local draft state, diffed against a last-saved baseline before
+// calling useUpdateScenario) is the part lifted from that pattern.
+const INPUTS_SAVE_DEBOUNCE_MS = 600;
+
+function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
+  const raw = inputs?.warehouseOverrides;
+  return Array.isArray(raw) ? (raw as WarehouseOverride[]) : [];
+}
+
+function customerOverridesFromInputs(inputs: Record<string, unknown> | null): CustomerOverride[] {
+  const raw = inputs?.customerOverrides;
+  return Array.isArray(raw) ? (raw as CustomerOverride[]) : [];
+}
+
+function capacityModeFromInputs(inputs: Record<string, unknown> | null): "none" | "uniform" | "per_wh" {
+  const raw = inputs?.capacityMode;
+  return raw === "uniform" || raw === "per_wh" ? raw : "none";
+}
 
 // A0.1 — pilot Inputs/Outputs entity list, matching the wireframe's example
 // set verbatim (SCN Design.pdf, screen 1a·1). Per-model tab config (A5.1-A5.3)
@@ -41,6 +81,7 @@ interface WorkspaceProps {
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const search = useSearch();
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const scenarioIdStr = new URLSearchParams(search).get("scenario");
   const scenarioIdFromUrl = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
 
@@ -48,9 +89,51 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const { data: scenarioFromApi } = useGetScenario(scenarioIdFromUrl!, {
     query: { enabled: !!scenarioIdFromUrl, queryKey: getGetScenarioQueryKey(scenarioIdFromUrl!) },
   });
+  const { data: dataset } = useGetDataset({ modelId: modelId as "p-median-us" });
+  const updateScenario = useUpdateScenario();
 
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
   const hasSolvedRun = currentScenario?.result != null;
+
+  // A1.1 — local draft of the active scenario's `inputs` blob, decoupled
+  // from the persisted row so an in-progress edit (e.g. a warehouse status
+  // click) isn't visually reverted by a background refetch mid-edit — same
+  // rationale as Studio.tsx's localConfig/savedConfig split
+  // (configFromScenario/buildInputsForSave), scoped here to the raw inputs
+  // object directly since PATCH replaces the whole `inputs` blob and A1.2's
+  // Optimization Parameters tab (not yet built) owns the rest of its fields.
+  const [localInputs, setLocalInputs] = useState<Record<string, unknown> | null>(null);
+  const savedInputsRef = useRef<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    if (currentScenario) {
+      setLocalInputs(currentScenario.inputs);
+      savedInputsRef.current = currentScenario.inputs;
+    }
+  }, [currentScenario?.id]);
+
+  const debouncedInputs = useDebounce(localInputs, INPUTS_SAVE_DEBOUNCE_MS);
+  useEffect(() => {
+    if (!currentScenario || !debouncedInputs) return;
+    if (debouncedInputs === savedInputsRef.current) return;
+    if (JSON.stringify(debouncedInputs) === JSON.stringify(savedInputsRef.current)) return;
+    const scenarioId = currentScenario.id;
+    updateScenario.mutate(
+      { scenarioId, data: { inputs: debouncedInputs } },
+      {
+        onSuccess: () => {
+          savedInputsRef.current = debouncedInputs;
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+        },
+      },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed only on debouncedInputs; re-running on updateScenario/queryClient identity churn would misfire saves
+  }, [debouncedInputs]);
+
+  function updateInputsField(key: string, value: unknown) {
+    setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
+  }
 
   const [tabState, dispatch] = useReducer(workspaceTabsReducer, initialWorkspaceTabState);
   const activeTab = useMemo(
@@ -71,6 +154,41 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // inputs via useCreateScenario). Out of scope for A0.1's shell — this
     // task only needs the "+" affordance to exist and be wired to a
     // callback, per the brief.
+  }
+
+  function renderTabContent(): ReactNode {
+    if (!activeTab) return null;
+
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <WarehousesTab
+          warehouses={dataset.warehouses}
+          overrides={warehouseOverridesFromInputs(localInputs)}
+          capacityMode={capacityModeFromInputs(localInputs)}
+          onChange={next => updateInputsField("warehouseOverrides", next)}
+        />
+      );
+    }
+
+    if (activeTab.kind === "input" && activeTab.entity === "customers") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <CustomersTab
+          customers={dataset.customers}
+          overrides={customerOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("customerOverrides", next)}
+        />
+      );
+    }
+
+    // Every other entry (Demand, Distances, Optimization Parameters, every
+    // Output) is a later task (A1.2-A3.1) — unchanged placeholder.
+    return (
+      <span className="text-muted-foreground" data-testid="tab-content-placeholder">
+        {activeTab.label} — content wired in a later task (A1.2-A3.1).
+      </span>
+    );
   }
 
   return (
@@ -130,14 +248,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onClose={id => dispatch({ type: "close", id })}
           />
           <div className="flex-1 min-h-0 flex overflow-hidden">
-            <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm text-muted-foreground" data-testid="tab-content-region">
-              {activeTab ? (
-                <span data-testid="tab-content-placeholder">
-                  {activeTab.label} — content wired in a later task (A1.1-A3.1).
-                </span>
-              ) : (
-                <span>Pick an item from the sidebar to open it as a tab.</span>
-              )}
+            <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
+              {activeTab ? renderTabContent() : <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>}
             </div>
             <div
               className="w-[420px] flex-shrink-0 border-l flex items-center justify-center text-xs text-muted-foreground bg-muted/20"
