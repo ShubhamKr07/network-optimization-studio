@@ -12,6 +12,7 @@ vi.mock("@/pages/auth/Login", () => ({ Login: () => <div>LoginPage</div> }));
 vi.mock("@/pages/auth/Register", () => ({ Register: () => <div>RegisterPage</div> }));
 vi.mock("@/pages/Landing", () => ({ Landing: () => <div>LandingPage</div> }));
 vi.mock("@/pages/Studio", () => ({ Studio: () => <div>StudioPage</div> }));
+vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> }));
 vi.mock("@/pages/Compare", () => ({ Compare: () => <div>ComparePage</div> }));
 vi.mock("@/components/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div data-testid="app-shell">{children}</div>,
@@ -76,8 +77,8 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
     expect(screen.getByText("LandingPage")).toBeInTheDocument();
   });
 
-  it("shows Studio at a chapter path when authenticated", () => {
-    renderAt("/chapter-3", { email: "student@example.com" });
+  it("shows Studio at a non-workspace chapter path when authenticated", () => {
+    renderAt("/chapter-5/transport", { email: "student@example.com" });
     expect(screen.getByText("StudioPage")).toBeInTheDocument();
   });
 
@@ -90,4 +91,33 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
     renderAt("/some-unknown-path", null);
     expect(screen.getByText("LoginPage")).toBeInTheDocument();
   });
+});
+
+describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not Studio", () => {
+  it("shows Workspace (not Studio) at /chapter-3 when authenticated", () => {
+    renderAt("/chapter-3", { email: "student@example.com" });
+    expect(screen.getByText("WorkspacePage")).toBeInTheDocument();
+    expect(screen.queryByText("StudioPage")).not.toBeInTheDocument();
+  });
+
+  it("does NOT wrap Workspace in AppShell (Workspace renders its own self-contained header — avoids the double-header risk flagged by A0.1's review)", () => {
+    renderAt("/chapter-3", { email: "student@example.com" });
+    expect(screen.queryByTestId("app-shell")).not.toBeInTheDocument();
+  });
+
+  it("redirects to /login at /chapter-3 when unauthenticated, same as every other chapter route", () => {
+    renderAt("/chapter-3", null);
+    expect(screen.getByText("LoginPage")).toBeInTheDocument();
+    expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
+  });
+
+  it.each(["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"])(
+    "still shows Studio inside AppShell at %s (fast-follow flip is a later task)",
+    (path) => {
+      renderAt(path, { email: "student@example.com" });
+      expect(screen.getByText("StudioPage")).toBeInTheDocument();
+      expect(screen.getByTestId("app-shell")).toBeInTheDocument();
+      expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
+    },
+  );
 });

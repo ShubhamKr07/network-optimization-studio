@@ -7,6 +7,12 @@ export interface Chapter {
   title: string;
   description: string;
   hiddenFromLanding?: boolean;
+  /** SCN v0.3 route cutover flag (DD-4): when true, App.tsx renders the new
+   * tabbed Workspace page instead of Studio for this chapter's route. Set
+   * per-chapter as each model's Workspace tab content lands (A5.1-A5.3
+   * fast-follow flips other chapters); false/absent chapters keep Studio
+   * unchanged until then. */
+  workspace?: boolean;
   /** Studio header bar's compact title, e.g. "Al's Athletics · Model Lab". */
   labHeaderTitle: string;
   /** Studio header bar's mono subtitle line, e.g. "Ch 3 · p-median · facility location". */
@@ -20,6 +26,7 @@ export const CHAPTERS: Chapter[] = [
     chapter: "Chapter 3",
     title: "Al's Athletics — P-Median",
     description: "Facility-location: choose which warehouses to open to minimize weighted distance to customers.",
+    workspace: true,
     labHeaderTitle: "Al's Athletics · Model Lab",
     labHeaderSubtitle: "Ch 3 · p-median · facility location",
   },

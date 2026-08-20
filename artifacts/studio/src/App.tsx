@@ -7,6 +7,7 @@ import { useGetCurrentAuthUser } from "@workspace/api-client-react";
 import NotFound from "@/pages/not-found";
 import { Landing } from "@/pages/Landing";
 import { Studio } from "@/pages/Studio";
+import { Workspace } from "@/pages/Workspace";
 import { Compare } from "@/pages/Compare";
 import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
@@ -46,7 +47,16 @@ export function Gate() {
       <Route path="/">{authedOnly(<Landing />)}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>
-          {authedOnly(<Studio modelId={c.modelId} />)}
+          {c.workspace
+            ? // A0.2 pilot route flip (SCN v0.3 DD-4): Workspace renders its
+              // own full self-contained header (app name, scenario picker,
+              // account, Run Optimizer) — wrapping it in AppShell too (which
+              // also renders app name + account) would stack two headers.
+              // Route workspace-enabled chapters directly, without AppShell.
+              user
+              ? <Workspace modelId={c.modelId} userEmail={user.email} />
+              : <Redirect to="/login" />
+            : authedOnly(<Studio modelId={c.modelId} />)}
         </Route>
       ))}
       <Route path="/compare">{authedOnly(<Compare />)}</Route>
