@@ -39,6 +39,7 @@ import type {
   LoginRequest,
   LogoutSuccess,
   ModelInfo,
+  PrecheckResult,
   RegisterRequest,
   Scenario,
   ScenarioInput,
@@ -898,6 +899,83 @@ export function useGetSolveJob<TData = Awaited<ReturnType<typeof getSolveJob>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetSolveJobQueryOptions(scenarioId,jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getPrecheckScenarioUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/precheck`
+}
+
+/**
+ * @summary Semantic precheck of a scenario's network-edit fields (SCN v0.3 Phase B, B2.1) — read-only, no DB writes. p-median-us only for now; other models return ok:true with no errors until B6.x extends this.
+ */
+export const precheckScenario = async (scenarioId: number, options?: RequestInit): Promise<PrecheckResult> => {
+
+  return customFetch<PrecheckResult>(getPrecheckScenarioUrl(scenarioId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPrecheckScenarioQueryKey = (scenarioId: number,) => {
+    return [
+    `/api/scenarios/${scenarioId}/precheck`
+    ] as const;
+    }
+
+
+export const getPrecheckScenarioQueryOptions = <TData = Awaited<ReturnType<typeof precheckScenario>>, TError = ErrorType<void>>(scenarioId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof precheckScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPrecheckScenarioQueryKey(scenarioId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof precheckScenario>>> = ({ signal }) => precheckScenario(scenarioId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(scenarioId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof precheckScenario>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type PrecheckScenarioQueryResult = NonNullable<Awaited<ReturnType<typeof precheckScenario>>>
+export type PrecheckScenarioQueryError = ErrorType<void>
+
+
+/**
+ * @summary Semantic precheck of a scenario's network-edit fields (SCN v0.3 Phase B, B2.1) — read-only, no DB writes. p-median-us only for now; other models return ok:true with no errors until B6.x extends this.
+ */
+
+export function usePrecheckScenario<TData = Awaited<ReturnType<typeof precheckScenario>>, TError = ErrorType<void>>(
+ scenarioId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof precheckScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getPrecheckScenarioQueryOptions(scenarioId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

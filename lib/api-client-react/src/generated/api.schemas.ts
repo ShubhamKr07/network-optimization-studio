@@ -347,6 +347,31 @@ export interface CompareRejection {
   offendingIds?: number[];
 }
 
+export type PrecheckErrorCode = typeof PrecheckErrorCode[keyof typeof PrecheckErrorCode];
+
+
+export const PrecheckErrorCode = {
+  completeness: 'completeness',
+  id_collision: 'id_collision',
+  reference_integrity: 'reference_integrity',
+} as const;
+
+/**
+ * One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. "WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142".
+ */
+export interface PrecheckError {
+  code: PrecheckErrorCode;
+  message: string;
+}
+
+/**
+ * Result of the semantic precheck against a scenario's addedWarehouses/addedCustomers/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route's 422 when the same precheck fails before enqueue.
+ */
+export interface PrecheckResult {
+  ok: boolean;
+  errors: PrecheckError[];
+}
+
 export type ImportRequestEntity = typeof ImportRequestEntity[keyof typeof ImportRequestEntity];
 
 

@@ -22,6 +22,9 @@ import {
 } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
+import { precheckPMedianInputs } from "../services/precheck.js";
+import type { PrecheckResult } from "../services/precheck.js";
+import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 
 const router = Router();
 
@@ -258,6 +261,23 @@ router.delete("/scenarios/:scenarioId", async (req, res) => {
 // ETA.
 const SOLVE_RETRY_AFTER_SECONDS = 30;
 
+// SCN v0.3 Phase B, task B2.1 — semantic precheck of a scenario's
+// network-edit fields (addedWarehouses/addedCustomers/distanceOverrides,
+// B1.1), beyond what Zod's shape validation (validateInputsForModel) can
+// express: completeness, ID collision, reference integrity. p-median-us
+// only for now (B6.x fast-follows the other three models) — every other
+// model trivially passes with ok:true/errors:[], matching this endpoint's
+// own OpenAPI doc note. `inputs` here is always already-validated
+// (validateInputsForModel's `.data`), so the cast to PMedianInputs is safe
+// exactly where it's used, same pattern as this file's existing `as
+// SolveInput` cast below.
+function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
+  if (modelId === "p-median-us") {
+    return precheckPMedianInputs(inputs as unknown as PMedianInputs);
+  }
+  return { ok: true, errors: [] };
+}
+
 router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   // Backpressure check first (before any DB work) so an overloaded server
   // sheds load as cheaply as possible — same ordering as auth.ts's login
@@ -277,6 +297,15 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
   if (!validation.success) {
     res.status(422).json({ error: validation.error });
+    return;
+  }
+
+  // B2.1 — semantic precheck runs after shape validation succeeds and
+  // before the job is enqueued. Returns the same `errors` shape as
+  // GET .../precheck for the same scenario state.
+  const precheck = runNetworkEditsPrecheck(scenario.modelId, validation.data);
+  if (!precheck.ok) {
+    res.status(422).json({ error: "Network-edit precheck failed", errors: precheck.errors });
     return;
   }
 
@@ -320,6 +349,32 @@ router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
     startedAt: job.startedAt ? job.startedAt.toISOString() : null,
     finishedAt: job.finishedAt ? job.finishedAt.toISOString() : null,
   });
+});
+
+// B2.1 — standalone precheck endpoint so the frontend (B5.2, a later task)
+// can show inline network-edit warnings without triggering a solve
+// attempt. Same underlying check as the solve route above; read-only, no
+// DB writes. Ownership/404-not-403 idiom matches every other
+// GET /scenarios/:scenarioId/... handler in this file.
+router.get("/scenarios/:scenarioId/precheck", async (req, res) => {
+  const id = Number(req.params.scenarioId);
+  const [scenario] = await db.select().from(scenariosTable)
+    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+
+  const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
+  if (!validation.success) {
+    // Stored inputs that fail shape validation are a distinct, pre-existing
+    // failure mode this endpoint's PrecheckResult contract has no room to
+    // express (its error codes are semantic, not "your stored data is
+    // malformed") — the solve route already surfaces that as its own 422
+    // via this same validateInputsForModel call. Report no precheck
+    // findings here rather than inventing a mismatched shape.
+    res.json({ ok: true, errors: [] });
+    return;
+  }
+
+  res.json(runNetworkEditsPrecheck(scenario.modelId, validation.data));
 });
 
 router.get("/scenarios/:scenarioId/export", async (req, res) => {

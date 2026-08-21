@@ -328,6 +328,22 @@ export const GetSolveJobResponse = zod.object({
 
 
 /**
+ * @summary Semantic precheck of a scenario's network-edit fields (SCN v0.3 Phase B, B2.1) — read-only, no DB writes. p-median-us only for now; other models return ok:true with no errors until B6.x extends this.
+ */
+export const PrecheckScenarioParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const PrecheckScenarioResponse = zod.object({
+  "ok": zod.boolean(),
+  "errors": zod.array(zod.object({
+  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity']),
+  "message": zod.string()
+}).describe('One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. \"WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142\".'))
+}).describe('Result of the semantic precheck against a scenario\'s addedWarehouses\/addedCustomers\/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route\'s 422 when the same precheck fails before enqueue.')
+
+
+/**
  * @summary Parse and validate a CSV import against the scenario's current state, without applying it
  */
 export const PreviewScenarioImportParams = zod.object({

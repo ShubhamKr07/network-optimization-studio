@@ -1208,6 +1208,102 @@ describe("POST /api/scenarios/:id/solve", () => {
     const res = await request(app).post("/api/scenarios/999999/solve").set("Cookie", cookie);
     expect(res.status).toBe(429);
   });
+
+  // B2.1 — semantic precheck runs after shape validation, before enqueue.
+  it("returns 422 with structured precheck errors when a p-median-us scenario's network edits fail precheck, and does not enqueue", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...pmedianRow,
+      inputs: {
+        ...pmedianInputs,
+        // Reuses a real base-dataset warehouse id — an id-collision finding.
+        addedWarehouses: [{ id: WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBeTypeOf("string");
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
+    });
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  it("still enqueues a p-median-us scenario with no network edits (precheck trivially passes)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    mockEnqueueSolveJob.mockResolvedValue(99);
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+  });
+
+  it("does not run the p-median-us precheck against non-p-median-us models (transport-coal enqueues even though it has no network-edit fields)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    mockEnqueueSolveJob.mockResolvedValue(100);
+    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+  });
+});
+
+// B2.1 — standalone precheck endpoint (frontend inline warnings, B5.2).
+describe("GET /api/scenarios/:id/precheck", () => {
+  it("returns 401 without a session", async () => {
+    expect((await request(app).get("/api/scenarios/1/precheck")).status).toBe(401);
+  });
+
+  it("returns 404 when not found", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).get("/api/scenarios/999/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 (not 403) for a scenario owned by a different user", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValue(makeChain([]));
+    const res = await request(app).get("/api/scenarios/1/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns ok:true with no errors for a scenario with no network edits", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, errors: [] });
+  });
+
+  it("returns the same structured errors the solve route's 422 would return, for the same scenario state", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...pmedianRow,
+      inputs: {
+        ...pmedianInputs,
+        addedWarehouses: [{ id: WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
+    });
+  });
+
+  it("never writes to the DB (read-only)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    await request(app).get("/api/scenarios/1/precheck").set("Cookie", cookie);
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDb.insert).not.toHaveBeenCalled();
+    expect(mockDb.delete).not.toHaveBeenCalled();
+  });
 });
 
 // ── Solve job polling ──────────────────────────────────────────────────────

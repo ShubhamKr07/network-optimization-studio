@@ -242,7 +242,7 @@ paths:
         "404":
           description: Not found
         "422":
-          description: Validation errors prevent solving
+          description: Validation errors prevent solving, or (p-median-us) the scenario's network edits fail the semantic precheck (B2.1) — body carries the same `errors` shape as `GET /scenarios/{scenarioId}/precheck`
         "429":
           description: Solver worker pool is at capacity (queue depth threshold exceeded, P1.1); retry after the given delay
           headers:
@@ -278,6 +278,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SolveJob"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found
+
+  /scenarios/{scenarioId}/precheck:
+    get:
+      operationId: precheckScenario
+      tags: [scenarios]
+      summary: Semantic precheck of a scenario's network-edit fields (SCN v0.3 Phase B, B2.1) — read-only, no DB writes. p-median-us only for now; other models return ok:true with no errors until B6.x extends this.
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Precheck result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrecheckResult"
         "401":
           description: Not authenticated
         "404":
@@ -1001,6 +1024,29 @@ components:
             type: integer
           description: IDs of scenarios that fail the comparison precondition (present for the unsolved/stale rejection; omitted for the differing-models rejection).
       required: [error]
+
+    PrecheckError:
+      type: object
+      description: One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. "WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142".
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [completeness, id_collision, reference_integrity]
+        message:
+          type: string
+
+    PrecheckResult:
+      type: object
+      description: Result of the semantic precheck against a scenario's addedWarehouses/addedCustomers/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route's 422 when the same precheck fails before enqueue.
+      required: [ok, errors]
+      properties:
+        ok:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrecheckError"
 
     ImportRequest:
       type: object
