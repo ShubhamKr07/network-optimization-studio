@@ -77,11 +77,6 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
     expect(screen.getByText("LandingPage")).toBeInTheDocument();
   });
 
-  it("shows Studio at a non-workspace chapter path when authenticated", () => {
-    renderAt("/chapter-10/gold-refinery", { email: "student@example.com" });
-    expect(screen.getByText("StudioPage")).toBeInTheDocument();
-  });
-
   it("shows Compare at /compare when authenticated", () => {
     renderAt("/compare", { email: "student@example.com" });
     expect(screen.getByText("ComparePage")).toBeInTheDocument();
@@ -111,19 +106,16 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
     expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
   });
 
-  it.each(["/chapter-10/gold-refinery"])(
-    "still shows Studio inside AppShell at %s (fast-follow flip is a later task)",
-    (path) => {
-      renderAt(path, { email: "student@example.com" });
-      expect(screen.getByText("StudioPage")).toBeInTheDocument();
-      expect(screen.getByTestId("app-shell")).toBeInTheDocument();
-      expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
-    },
-  );
+  // A5.1-A5.3: every chapter route now has `workspace: true` — there is no
+  // remaining "still shows Studio" chapter path to assert on (the
+  // corresponding test above this describe block was removed for the same
+  // reason). Studio.tsx itself is untouched and still exists (its deletion
+  // is Phase D's D1.1, a separate task) but no live chapter route points at
+  // it anymore.
 });
 
-describe("Gate routing — A5.1/A5.2 fast-follow flips: transport-coal and p-median-brazil render Workspace, not Studio", () => {
-  it.each(["/chapter-5/transport", "/chapter-5/brazil"])(
+describe("Gate routing — A5.1/A5.2/A5.3 fast-follow flips: every chapter route renders Workspace, not Studio", () => {
+  it.each(["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"])(
     "shows Workspace (not Studio) at %s when authenticated",
     (path) => {
       renderAt(path, { email: "student@example.com" });
@@ -132,7 +124,7 @@ describe("Gate routing — A5.1/A5.2 fast-follow flips: transport-coal and p-med
     },
   );
 
-  it.each(["/chapter-5/transport", "/chapter-5/brazil"])(
+  it.each(["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"])(
     "does NOT wrap Workspace in AppShell at %s",
     (path) => {
       renderAt(path, { email: "student@example.com" });
@@ -140,7 +132,7 @@ describe("Gate routing — A5.1/A5.2 fast-follow flips: transport-coal and p-med
     },
   );
 
-  it.each(["/chapter-5/transport", "/chapter-5/brazil"])(
+  it.each(["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"])(
     "redirects to /login at %s when unauthenticated",
     (path) => {
       renderAt(path, null);
