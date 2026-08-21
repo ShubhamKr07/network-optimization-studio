@@ -34,7 +34,7 @@ vi.mock("../solver/jobRunner.js", () => ({
 }));
 
 import app from "../app.js";
-import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES } from "../data/dataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -1507,6 +1507,37 @@ describe("POST /api/scenarios/:id/solve", () => {
     expect(res.status).toBe(202);
     expect(mockEnqueueSolveJob).toHaveBeenCalled();
   });
+
+  // B6.3 — p-median-brazil fast-follows p-median-us' precheck wiring.
+  it("returns 422 with structured precheck errors when a p-median-brazil scenario's network edits fail precheck, and does not enqueue", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...brazilRow,
+      inputs: {
+        ...brazilInputs,
+        // Reuses a real Brazil base-dataset warehouse id — an id-collision finding.
+        addedWarehouses: [{ id: BRAZIL_WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBeTypeOf("string");
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added warehouse id '${BRAZIL_WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
+    });
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  it("still enqueues a p-median-brazil scenario with no network edits (precheck trivially passes)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    mockEnqueueSolveJob.mockResolvedValue(101);
+    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+  });
 });
 
 // B2.1 — standalone precheck endpoint (frontend inline warnings, B5.2).
@@ -1562,6 +1593,27 @@ describe("GET /api/scenarios/:id/precheck", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockDb.insert).not.toHaveBeenCalled();
     expect(mockDb.delete).not.toHaveBeenCalled();
+  });
+
+  // B6.3 — p-median-brazil fast-follow: same endpoint, checked against the
+  // real Brazil base dataset (BRAZIL_DATASET) instead of p-median-us's.
+  it("returns structured precheck errors for a p-median-brazil scenario against the real Brazil dataset", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...brazilRow,
+      inputs: {
+        ...brazilInputs,
+        addedWarehouses: [{ id: BRAZIL_WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/10/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added warehouse id '${BRAZIL_WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
+    });
   });
 });
 

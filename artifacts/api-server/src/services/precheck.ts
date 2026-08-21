@@ -1,4 +1,4 @@
-import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 
 /**
@@ -63,6 +63,17 @@ export interface PrecheckDataset {
 // same function against a different model's base dataset without a
 // rewrite. No multi-model dispatch is built here - that's still B6.x's job.
 const DEFAULT_DATASET: PrecheckDataset = { warehouses: WAREHOUSES, customers: CUSTOMERS };
+
+// SCN v0.3 Phase B, task B6.3 — p-median-brazil's base dataset, shaped for
+// this service (`{warehouses: {id}[], customers: {id}[]}`; Brazil's
+// "customers" role is filled by its demand regions/states). Exported so
+// routes/scenarios.ts's runNetworkEditsPrecheck can pass it as the `dataset`
+// argument to precheckPMedianInputs for p-median-brazil scenarios, the same
+// way it already calls the function with the (implicit default) p-median-us
+// dataset. p-median-brazil shares pMedianInputsSchema/PMedianInputs with
+// p-median-us (validation/inputs/pMedian.ts), so no new schema is needed —
+// only a different base dataset to check added entities against.
+export const BRAZIL_DATASET: PrecheckDataset = { warehouses: BRAZIL_WAREHOUSES, customers: BRAZIL_REGIONS };
 
 /**
  * Builds the strict per-role id spaces (base dataset + this scenario's added

@@ -263,3 +263,133 @@ def build_merged_pmedian_dataset(
         "addedWarehousesById": added_warehouses_by_id,
         "addedCustomersById": added_customers_by_id,
     }
+
+
+def build_merged_brazil_dataset(
+    inputs: dict[str, Any],
+    warehouses: dict[str, dict],
+    regions: dict[str, dict],
+    distance: dict[tuple[str, str], float],
+) -> dict[str, Any]:
+    """B6.3: `p-median-brazil`'s own `load_dataset -> apply distance
+    overrides -> append added entities` pipeline, consumed by
+    `solve_capacitated_pmedian` in solve.py as a per-call, non-mutating
+    drop-in for its `BRAZIL_WAREHOUSES`/`BRAZIL_REGIONS`/`_brazil_distances()`
+    module-level data.
+
+    Deliberately NOT a generalization of `build_merged_pmedian_dataset`
+    above, nor built by parameterizing that function - it exists
+    specifically to do the id<->index bridge (B1.3's whole point, since
+    p-median-us's WAREHOUSES/CUSTOMERS/DISTANCE are index-keyed, DD-2's
+    correction). `p-median-brazil` is already ID-keyed end to end
+    (`BRAZIL_WAREHOUSES`/`BRAZIL_REGIONS` are `{str_id: {...}}`,
+    `_brazil_distances()` is `{(str_wh_id, str_region_id): float}`) - there
+    is no index to bridge to, so a shared "generalized" merge would need a
+    conditional bridge-or-not branch purely to serve the one caller (Brazil)
+    that never needs the branch taken. Simpler to keep this as its own
+    function: a plain dict merge, reusing only what's genuinely shared with
+    the p-median-us pipeline - the shape of the merge itself
+    (`{**base, **added}` for entities, `{**base, **overrides}` for
+    distance) and `UnresolvableIdError` for reference-integrity failures.
+
+    Args:
+        inputs: the validated `inputs` blob (or any dict exposing the same
+            keys) containing `addedWarehouses`, `addedCustomers`,
+            `distanceOverrides` (B1.1's schema, shared with p-median-us).
+            All three optional, missing keys treated as empty lists.
+        warehouses: base dataset, `solve.py`'s `BRAZIL_WAREHOUSES`-shaped
+            `{str_id: {"id": str, "city": str, "state": str, "lat": float,
+            "lng": float}}`. Never mutated.
+        regions: base dataset, `solve.py`'s `BRAZIL_REGIONS`-shaped
+            `{str_id: {"id": str, "name": str, "lat": float, "lng": float,
+            "demand": float}}`. Never mutated.
+        distance: base dataset, `solve.py`'s `_brazil_distances()`-shaped
+            `{(str_wh_id, str_region_id): float}`. Never mutated.
+
+    Returns a dict:
+        warehouses: `{**warehouses}` plus one entry per `addedWarehouses`
+            item keyed by its own id (no synthetic index needed - the id
+            IS the key), shaped like an existing `warehouses` value.
+        regions: same pattern for `addedCustomers`, shaped like an existing
+            `regions` value - `addedCustomers`' `city` field becomes this
+            shape's `name` field (`BRAZIL_REGIONS` has no separate `city`
+            key, only `name`), and `demand` carries straight through (same
+            as p-median-us's `addedCustomersById` treatment).
+        distance: `{**distance, **<resolved overrides>}` - each
+            `distanceOverrides` entry's `(fromId, toId)` pair used directly
+            as the merged dict's key (no index resolution - the pair
+            already matches `distance`'s own key shape). Also how an added
+            entity gets any distance at all (same L4 precedent as
+            p-median-us: an override IS the mechanism, no auto-haversine).
+        addedWarehousesById: `{id: <raw addedWarehouses entry>}` - lets
+            `solve_capacitated_pmedian` resolve an added warehouse's own
+            `status` (forced_open/inactive) without a base-warehouse-style
+            sparse override map (p-median-brazil has none - D1.1's
+            per-warehouse override tables were never built for this model).
+        addedCustomersById: `{id: <raw addedCustomers entry>}` - same
+            reasoning, unused by solve_capacitated_pmedian today (an added
+            region's demand is read straight off the merged `regions` dict
+            instead, mirroring how base regions' demand is already read)
+            but included for parity with `build_merged_pmedian_dataset`'s
+            return shape.
+
+    Raises:
+        UnresolvableIdError: a `distanceOverrides` entry's `fromId` is not a
+            known warehouse id (base or added), or `toId` is not a known
+            region id (base or added) - checked strictly per role, same
+            backwards-pair protection as `resolve_pmedian_ids_to_indices`.
+    """
+    added_warehouses = inputs.get("addedWarehouses", []) or []
+    added_customers = inputs.get("addedCustomers", []) or []
+    distance_overrides = inputs.get("distanceOverrides", []) or []
+
+    merged_warehouses = dict(warehouses)
+    added_warehouses_by_id: dict[str, dict] = {}
+    for wh in added_warehouses:
+        wid = wh["id"]
+        merged_warehouses[wid] = {
+            "id": wid,
+            "city": wh["city"],
+            "state": wh["state"],
+            "lat": wh["lat"],
+            "lng": wh["lng"],
+        }
+        added_warehouses_by_id[wid] = wh
+
+    merged_regions = dict(regions)
+    added_customers_by_id: dict[str, dict] = {}
+    for c in added_customers:
+        cid = c["id"]
+        merged_regions[cid] = {
+            "id": cid,
+            "name": c["city"],
+            "lat": c["lat"],
+            "lng": c["lng"],
+            "demand": c["demand"],
+        }
+        added_customers_by_id[cid] = c
+
+    merged_distance = dict(distance)
+    for override in distance_overrides:
+        from_id, to_id = override["fromId"], override["toId"]
+        if from_id not in merged_warehouses:
+            raise UnresolvableIdError(
+                f"distanceOverrides references id '{from_id}' that does not resolve as a "
+                "warehouse - not found among warehouse ids in the base p-median-brazil "
+                "dataset or this scenario's added entities"
+            )
+        if to_id not in merged_regions:
+            raise UnresolvableIdError(
+                f"distanceOverrides references id '{to_id}' that does not resolve as a "
+                "customer - not found among customer ids in the base p-median-brazil "
+                "dataset or this scenario's added entities"
+            )
+        merged_distance[(from_id, to_id)] = override["distance"]
+
+    return {
+        "warehouses": merged_warehouses,
+        "regions": merged_regions,
+        "distance": merged_distance,
+        "addedWarehousesById": added_warehouses_by_id,
+        "addedCustomersById": added_customers_by_id,
+    }

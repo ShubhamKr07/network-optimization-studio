@@ -5,7 +5,7 @@ import sys, json, time, math, os
 from pulp import (LpProblem, LpMinimize, LpVariable, lpSum,
                   LpConstraint, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
                   LpStatus, value, PULP_CBC_CMD)
-from merge_inputs import build_merged_pmedian_dataset
+from merge_inputs import build_merged_pmedian_dataset, build_merged_brazil_dataset
 
 # ---------------------------------------------------------------------------
 # Canonical datasets live in solvers/<model-id>/dataset/*.json (C1.1/C1.2).
@@ -456,15 +456,42 @@ def solve_capacitated_pmedian(inp):
     time_limit      = int(inp.get('timeLimitSec', 120))
     distance_bands  = sorted(inp.get('distanceBands', [500, 1000, 2000, 4000]))
 
-    warehouses = list(BRAZIL_WAREHOUSES.keys())
-    regions    = list(BRAZIL_REGIONS.keys())
-    dist       = _brazil_distances()     # in miles
+    # B6.3: per-call merge of the base dataset with this scenario's
+    # scenario-local network edits (addedWarehouses/addedCustomers/
+    # distanceOverrides, B1.1) — mirrors solve_pmedian's B3.1 wiring, but
+    # p-median-brazil is already ID-keyed (DD-2's correction), so
+    # build_merged_brazil_dataset does a plain dict merge with no id<->index
+    # bridge. Never mutates the module-level BRAZIL_WAREHOUSES/
+    # BRAZIL_REGIONS/_brazil_distances() data. Empty inputs (the default)
+    # produce a merged dataset equal to the base globals, so this is a no-op
+    # for every scenario that doesn't use the feature.
+    merged = build_merged_brazil_dataset(inp, BRAZIL_WAREHOUSES, BRAZIL_REGIONS, _brazil_distances())
+    wh_data     = merged['warehouses']
+    region_data = merged['regions']
+    dist        = merged['distance']     # in miles
+    # An added warehouse's own status (forced_open/inactive) comes straight
+    # off its addedWarehouses record — p-median-brazil has no base-warehouse
+    # status override table (D1.1's per-warehouse override UI was never
+    # built for this model), so base warehouses stay unconstrained (free to
+    # be selected for any of the P slots) exactly as before this task.
+    added_warehouses_by_id = merged['addedWarehousesById']
+
+    warehouses = list(wh_data.keys())
+    regions    = list(region_data.keys())
+    total_demand = sum(r['demand'] for r in region_data.values())
+
+    def get_bounds(w):
+        added = added_warehouses_by_id.get(w)
+        s = added['status'] if added is not None else 'active'
+        if s == 'forced_open': return (1, 1)
+        if s == 'inactive':    return (0, 0)
+        return (0, 1)
 
     # Pre-check: if single-source and any region exceeds capacity, report infeasibility
     # immediately without running the solver (faster feedback, clearer message).
     if single_source:
-        over_cap = [(rid, BRAZIL_REGIONS[rid]['name'], BRAZIL_REGIONS[rid]['demand'])
-                    for rid in regions if BRAZIL_REGIONS[rid]['demand'] > wh_cap]
+        over_cap = [(rid, region_data[rid]['name'], region_data[rid]['demand'])
+                    for rid in regions if region_data[rid]['demand'] > wh_cap]
         if over_cap:
             names = ", ".join(f"{n} ({d/1e6:.0f}M)" for _, n, d in over_cap[:3])
             plural = "regions" if len(over_cap) > 1 else "region"
@@ -488,8 +515,11 @@ def solve_capacitated_pmedian(inp):
     assign_vars   = LpVariable.dicts("A",    [(w, r) for w in warehouses for r in regions], 0, 1, cat=cat)
     facility_vars = LpVariable.dicts("Open", warehouses, 0, 1, cat='Binary')
 
-    # Objective: minimise sum of distance * demand * assignment_fraction
-    prob += lpSum(dist[w, r] * BRAZIL_REGIONS[r]['demand'] * assign_vars[w, r]
+    # Objective: minimise sum of distance * demand * assignment_fraction.
+    # dist.get((w, r), 9999) — same missing-pair sentinel as solve_pmedian —
+    # an added warehouse/region with no distanceOverrides to some pair on
+    # the other side simply can't be assigned there (no auto-haversine, L4).
+    prob += lpSum(dist.get((w, r), 9999) * region_data[r]['demand'] * assign_vars[w, r]
                   for w in warehouses for r in regions)
 
     # C1: every region fully served (fractions sum to 1)
@@ -503,10 +533,19 @@ def solve_capacitated_pmedian(inp):
         lpSum(facility_vars[w] for w in warehouses),
         LpConstraintEQ, "FacilityCount", p)
 
+    # C2b: forced-open/inactive bounds for added warehouses (base warehouses
+    # are unaffected — get_bounds returns the default (0, 1) for any id not
+    # in added_warehouses_by_id, so no constraint is added for them).
+    for w in warehouses:
+        lb, ub = get_bounds(w)
+        if (lb, ub) != (0, 1):
+            prob += LpConstraint(facility_vars[w], LpConstraintGE, f"lb_{w}", lb)
+            prob += LpConstraint(facility_vars[w], LpConstraintLE, f"ub_{w}", ub)
+
     # C3: capacity per open warehouse
     for w in warehouses:
         prob += LpConstraint(
-            lpSum(BRAZIL_REGIONS[r]['demand'] * assign_vars[w, r] for r in regions)
+            lpSum(region_data[r]['demand'] * assign_vars[w, r] for r in regions)
             - wh_cap * facility_vars[w],
             LpConstraintLE, f"cap_{w}", 0)
 
@@ -528,7 +567,7 @@ def solve_capacitated_pmedian(inp):
         reason = (
             f"Model is infeasible with P={p}, capacity={wh_cap:,}. "
             f"Total required capacity with P warehouses = {p * wh_cap:,} vs "
-            f"total demand = {BRAZIL_TOTAL_DEMAND:,}. "
+            f"total demand = {total_demand:,}. "
             "Try increasing P, raising warehouse capacity, or disabling single-sourcing."
         )
         return _envelope("infeasible", status_str, 0, run_time, [],
@@ -544,12 +583,12 @@ def solve_capacitated_pmedian(inp):
     obj_val      = value(prob.objective) or 0
 
     for r in regions:
-        rd = BRAZIL_REGIONS[r]['demand']
+        rd = region_data[r]['demand']
         for w in open_wh_ids:
             frac = assign_vars[w, r].varValue or 0
             if frac < 1e-6:
                 continue
-            d = dist[w, r]
+            d = dist.get((w, r), 9999)
             wh_demand[w] += rd * frac
             band_idx = next((i for i, b in enumerate(distance_bands) if d <= b), len(distance_bands) - 1)
             assignments.append({
@@ -564,15 +603,15 @@ def solve_capacitated_pmedian(inp):
                 if d <= b:
                     band_demand[b] += rd * frac
 
-    wt_avg = obj_val / BRAZIL_TOTAL_DEMAND if BRAZIL_TOTAL_DEMAND > 0 else 0
+    wt_avg = obj_val / total_demand if total_demand > 0 else 0
     band_coverage = [
-        {"band": b, "percent": round(band_demand[b] * 100 / BRAZIL_TOTAL_DEMAND)}
+        {"band": b, "percent": round(band_demand[b] * 100 / total_demand)}
         for b in distance_bands
     ]
     utilization = [
         {
             "warehouseId": w,
-            "city": BRAZIL_WAREHOUSES[w]['city'],
+            "city": wh_data[w]['city'],
             "utilization": min(100, round(wh_demand[w] * 100 / wh_cap)),
         }
         for w in open_wh_ids

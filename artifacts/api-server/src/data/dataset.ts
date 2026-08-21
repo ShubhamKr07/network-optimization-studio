@@ -23,6 +23,16 @@ function findRepoRoot(from: string): string {
 
 const DATASET_DIR = path.join(findRepoRoot(__dirname), "solvers", "p-median-us", "dataset");
 
+// SCN v0.3 Phase B, task B6.3 — p-median-brazil's own dataset directory.
+// NOT exposed via GET /dataset (that endpoint's modelId enum still has no
+// p-median-brazil value — the frontend has no per-row Brazil dataset UI,
+// see Workspace.tsx's placeholder, and adding that endpoint is explicitly
+// out of scope for this task). This loader exists solely so the backend
+// (precheck.ts's semantic checks) can validate a Brazil scenario's
+// addedWarehouses/addedCustomers/distanceOverrides against real base-dataset
+// ids, the same way it already does for p-median-us.
+const BRAZIL_DATASET_DIR = path.join(findRepoRoot(__dirname), "solvers", "p-median-brazil", "dataset");
+
 export interface WarehouseCandidate {
   id: string;
   city: string;
@@ -55,3 +65,29 @@ function byIndex(record: Record<string, unknown>): unknown[] {
 export const WAREHOUSES = byIndex(loadJson("warehouses.json")) as WarehouseCandidate[];
 export const CUSTOMERS = byIndex(loadJson("customers.json")) as Customer[];
 export const TOTAL_DEMAND = CUSTOMERS.reduce((sum, c) => sum + c.demand, 0);
+
+// p-median-brazil — already ID-keyed on disk (DD-2's correction: warehouses/
+// states are `{str_id: {...}}`, not p-median-us's index-keyed shape), so
+// Object.values needs no byIndex sort.
+export interface BrazilWarehouse {
+  id: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+}
+
+export interface BrazilRegion {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  demand: number;
+}
+
+function loadBrazilJson(filename: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path.join(BRAZIL_DATASET_DIR, filename), "utf8"));
+}
+
+export const BRAZIL_WAREHOUSES = Object.values(loadBrazilJson("warehouses.json")) as BrazilWarehouse[];
+export const BRAZIL_REGIONS = Object.values(loadBrazilJson("states.json")) as BrazilRegion[];

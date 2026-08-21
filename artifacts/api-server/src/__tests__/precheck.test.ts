@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { precheckPMedianInputs, type PrecheckDataset } from "../services/precheck.js";
+import { precheckPMedianInputs, BRAZIL_DATASET, type PrecheckDataset } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 
 // Small fake dataset (not the real 26/200-row p-median-us dataset) — the
@@ -236,5 +236,78 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
       code: "id_collision",
       message: "Added warehouse id 'ALN' collides with an existing base-dataset warehouse id",
     });
+  });
+});
+
+// SCN v0.3 Phase B, task B6.3 — p-median-brazil fast-follow. Same
+// precheckPMedianInputs function, same PMedianInputs shape (shared schema),
+// just called against BRAZIL_DATASET instead of the p-median-us default —
+// proves the "dataset is a parameter" design B2.1 built for exactly this
+// works unmodified for a real second model. Uses BRAZIL_DATASET (the real
+// 25-warehouse/25-region dataset, precheck.ts's own export) rather than a
+// synthetic fixture, since the whole point here is confirming the real
+// wiring, not re-testing precheckPMedianInputs' own logic (already covered
+// exhaustively above against the small fake DATASET).
+describe("precheckPMedianInputs — B6.3 p-median-brazil dataset wiring", () => {
+  const BRAZIL_BASE: PMedianInputs = {
+    ...BASE,
+    // p-median-brazil's own shape (singleSource present, no bearing on
+    // precheck itself — precheck only reads the network-edit fields).
+    singleSource: true,
+  };
+
+  it("returns ok:true with no errors for a Brazil scenario with no network edits", () => {
+    const result = precheckPMedianInputs(BRAZIL_BASE, BRAZIL_DATASET);
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it("rejects an added warehouse reusing a real Brazil base-dataset id (ANP, Anápolis)", () => {
+    const inputs: PMedianInputs = {
+      ...BRAZIL_BASE,
+      addedWarehouses: [{ id: "ANP", city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+    };
+    const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual({
+      code: "id_collision",
+      message: "Added warehouse id 'ANP' collides with an existing base-dataset warehouse id",
+    });
+  });
+
+  it("rejects a distanceOverrides pair referencing an unknown Brazil region id", () => {
+    const inputs: PMedianInputs = {
+      ...BRAZIL_BASE,
+      distanceOverrides: [{ fromId: "ANP", toId: "GHOST-REGION", distance: 50 }],
+    };
+    const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual({
+      code: "reference_integrity",
+      message:
+        "distanceOverrides toId 'GHOST-REGION' does not reference a known customer (base dataset or this scenario's added customers)",
+    });
+  });
+
+  it("flags an added Brazil warehouse missing a distance to an active real region (completeness)", () => {
+    const inputs: PMedianInputs = {
+      ...BRAZIL_BASE,
+      addedWarehouses: [{ id: "WH-09", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }],
+      distanceOverrides: [{ fromId: "WH-09", toId: "SP", distance: 100 }],
+    };
+    const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
+    expect(result.ok).toBe(false);
+    // WH-09 is missing distances to every other real region besides SP.
+    expect(result.errors.some((e) => e.code === "completeness" && e.message.startsWith("WH-09"))).toBe(true);
+  });
+
+  it("accepts a distanceOverrides pair referencing a scenario's own added Brazil warehouse and region", () => {
+    const inputs: PMedianInputs = {
+      ...BRAZIL_BASE,
+      addedWarehouses: [{ id: "WH-09", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }],
+      addedCustomers: [{ id: "REG-NEW", city: "New Region", state: "XX", lat: -8.0, lng: -48.0, demand: 500 }],
+      distanceOverrides: [{ fromId: "WH-09", toId: "REG-NEW", distance: 5 }],
+    };
+    const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
+    expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(false);
   });
 });

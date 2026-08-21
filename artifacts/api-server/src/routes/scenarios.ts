@@ -25,7 +25,7 @@ import {
 } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs } from "../services/precheck.js";
+import { precheckPMedianInputs, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 
@@ -267,16 +267,24 @@ const SOLVE_RETRY_AFTER_SECONDS = 30;
 // SCN v0.3 Phase B, task B2.1 — semantic precheck of a scenario's
 // network-edit fields (addedWarehouses/addedCustomers/distanceOverrides,
 // B1.1), beyond what Zod's shape validation (validateInputsForModel) can
-// express: completeness, ID collision, reference integrity. p-median-us
-// only for now (B6.x fast-follows the other three models) — every other
-// model trivially passes with ok:true/errors:[], matching this endpoint's
-// own OpenAPI doc note. `inputs` here is always already-validated
-// (validateInputsForModel's `.data`), so the cast to PMedianInputs is safe
-// exactly where it's used, same pattern as this file's existing `as
-// SolveInput` cast below.
+// express: completeness, ID collision, reference integrity.
+//
+// B6.3: p-median-brazil fast-follows p-median-us here — it shares the exact
+// same PMedianInputs shape/schema (pMedianInputsSchema), so no new checking
+// logic is needed, only a different base `dataset` argument
+// (precheck.ts's BRAZIL_DATASET instead of the implicit p-median-us
+// default). transport-coal and two-echelon-gold-au have no network-edit
+// fields on their own input schemas at all, so they still trivially pass
+// with ok:true/errors:[], matching this endpoint's own OpenAPI doc note.
+// `inputs` here is always already-validated (validateInputsForModel's
+// `.data`), so the cast to PMedianInputs is safe exactly where it's used,
+// same pattern as this file's existing `as SolveInput` cast below.
 function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
   if (modelId === "p-median-us") {
     return precheckPMedianInputs(inputs as unknown as PMedianInputs);
+  }
+  if (modelId === "p-median-brazil") {
+    return precheckPMedianInputs(inputs as unknown as PMedianInputs, BRAZIL_DATASET);
   }
   return { ok: true, errors: [] };
 }
