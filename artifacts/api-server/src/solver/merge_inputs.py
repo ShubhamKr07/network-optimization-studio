@@ -22,21 +22,35 @@ from typing import Any
 
 
 class UnresolvableIdError(ValueError):
-    """Raised when a distanceOverride references an id that resolves to
-    neither the base dataset nor this scenario's own added entities. Never
-    silently coerced to a wrong/garbage index - B2.1's precheck service is
-    the primary place this gets caught before a solve is even attempted,
-    but this function must not paper over it either."""
+    """Raised when a distanceOverride's fromId does not resolve as a
+    warehouse id, or its toId does not resolve as a customer id - whether
+    because the id doesn't exist anywhere (neither the base dataset nor
+    this scenario's own added entities), or because it exists but only in
+    the OTHER role (e.g. a backwards override passing a customer id as
+    fromId). Never silently coerced to a wrong/garbage index - B2.1's
+    precheck service is the primary place this gets caught before a solve
+    is even attempted, but this function must not paper over it either."""
 
 
-def _resolve_id(entity_id: str, warehouse_id_to_index: dict, customer_id_to_index: dict) -> int:
-    if entity_id in warehouse_id_to_index:
-        return warehouse_id_to_index[entity_id]
-    if entity_id in customer_id_to_index:
-        return customer_id_to_index[entity_id]
+def _resolve_as(entity_id: str, role: str, id_to_index: dict) -> int:
+    """Resolve entity_id strictly within one role's id space (warehouse OR
+    customer - never "whichever space happens to contain it"). Fix for a
+    real review-confirmed bug: probing both maps and returning whichever
+    matched let a backwards override (fromId=a customer id, toId=a
+    warehouse id) silently resolve to a structurally valid-looking
+    (int, int) tuple - e.g. {fromId: "C1", toId: "ALN"} produced (1, 1),
+    the SAME key as the real ALN->C1 distance, silently corrupting it once
+    merged into DISTANCE. distanceOverrides is a warehouse->customer pair
+    by definition (it mirrors DISTANCE's own (warehouse_idx, customer_idx)
+    shape), not a generic "any two ids" pair, so fromId must resolve as a
+    warehouse and toId must resolve as a customer - even if the id happens
+    to also be valid in the other role."""
+    if entity_id in id_to_index:
+        return id_to_index[entity_id]
     raise UnresolvableIdError(
-        f"distanceOverrides references unknown id '{entity_id}' - not found in the base "
-        "p-median-us dataset or in this scenario's addedWarehouses/addedCustomers"
+        f"distanceOverrides references id '{entity_id}' that does not resolve as a {role} - "
+        f"not found among {role} ids in the base p-median-us dataset or this scenario's "
+        "added entities"
     )
 
 
@@ -72,8 +86,12 @@ def resolve_pmedian_ids_to_indices(
             over the base DISTANCE dict.
 
     Raises:
-        UnresolvableIdError: a distanceOverride's fromId/toId is neither in
-            the base dataset nor in this scenario's own added entities.
+        UnresolvableIdError: a distanceOverride's fromId does not resolve
+            as a warehouse id, or its toId does not resolve as a customer
+            id (checked against the base dataset + this scenario's own
+            added entities only - never against the other role, so a
+            backwards override can't silently produce a coincidentally
+            valid-looking index pair).
     """
     added_warehouses = inputs.get("addedWarehouses", []) or []
     added_customers = inputs.get("addedCustomers", []) or []
@@ -108,8 +126,12 @@ def resolve_pmedian_ids_to_indices(
 
     distance_overrides_by_index: dict[tuple[int, int], float] = {}
     for override in distance_overrides:
-        from_index = _resolve_id(override["fromId"], warehouse_id_to_index, customer_id_to_index)
-        to_index = _resolve_id(override["toId"], warehouse_id_to_index, customer_id_to_index)
+        # Direction is meaningful, not incidental: distanceOverrides mirrors
+        # DISTANCE's own (warehouse_idx, customer_idx) key shape, so fromId
+        # must resolve as a warehouse and toId must resolve as a customer -
+        # each checked against its own role's map only.
+        from_index = _resolve_as(override["fromId"], "warehouse", warehouse_id_to_index)
+        to_index = _resolve_as(override["toId"], "customer", customer_id_to_index)
         distance_overrides_by_index[(from_index, to_index)] = override["distance"]
 
     return {

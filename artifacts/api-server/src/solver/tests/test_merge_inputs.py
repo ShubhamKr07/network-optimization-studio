@@ -55,6 +55,32 @@ def test_unknown_to_id_in_distance_override_also_raises():
         resolve_pmedian_ids_to_indices(inputs, S.WAREHOUSES, S.CUSTOMERS)
 
 
+def test_backwards_override_raises_not_silently_resolved_to_coincidental_pair():
+    # Fix-brief regression: fromId="C1" (a real customer id) and toId="ALN"
+    # (a real warehouse id) is backwards. Before the fix, the old
+    # either-map probe resolved this to (1, 1) - the SAME index pair as the
+    # real ALN->C1 distance - because C1 happens to be customer index 1 and
+    # ALN happens to be warehouse index 1. Must raise, never silently
+    # produce that coincidentally-valid-looking tuple.
+    inputs = empty_inputs(distanceOverrides=[{"fromId": "C1", "toId": "ALN", "distance": 999.0}])
+    with pytest.raises(UnresolvableIdError):
+        resolve_pmedian_ids_to_indices(inputs, S.WAREHOUSES, S.CUSTOMERS)
+
+
+def test_correctly_ordered_override_with_synthetic_added_warehouse_still_resolves():
+    # Confirms the direction-aware fix doesn't regress a legitimate
+    # warehouse(added, synthetic index)->customer(base) override.
+    max_wh_index = max(S.WAREHOUSES.keys())
+    inputs = empty_inputs(
+        addedWarehouses=[
+            {"id": "WH-NEW-1", "city": "Reno", "state": "NV", "lat": 39.53, "lng": -119.81, "status": "active"},
+        ],
+        distanceOverrides=[{"fromId": "WH-NEW-1", "toId": "C1", "distance": 42.5}],
+    )
+    result = resolve_pmedian_ids_to_indices(inputs, S.WAREHOUSES, S.CUSTOMERS)
+    assert result["distanceOverridesByIndex"] == {(max_wh_index + 1, 1): 42.5}
+
+
 def test_added_warehouse_gets_synthetic_index_beyond_existing_max():
     max_wh_index = max(S.WAREHOUSES.keys())
     inputs = empty_inputs(addedWarehouses=[
