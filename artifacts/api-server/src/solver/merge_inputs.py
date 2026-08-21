@@ -535,3 +535,148 @@ def build_merged_transport_dataset(
         "addedMinesById": added_mines_by_id,
         "addedStationsById": added_stations_by_id,
     }
+
+
+def build_merged_two_echelon_dataset(
+    inputs: dict[str, Any],
+    mines: dict[str, dict],
+    refineries: dict[str, dict],
+    customers: dict[str, dict],
+    distance: dict[tuple[str, str], float],
+) -> dict[str, Any]:
+    """B6.2: `two-echelon-gold-au`'s own `load_dataset -> apply distance
+    overrides -> append added entities` pipeline, consumed by
+    `solve_two_echelon` in solve.py as a per-call, non-mutating drop-in for
+    its `GOLD_REFINERIES`/`GOLD_CUSTOMERS`/`_gold_distances()` module-level
+    data.
+
+    Own function, not forced through `build_merged_pmedian_dataset` (owns the
+    id<->index bridge this model doesn't need) or `build_merged_transport_
+    dataset`/`build_merged_brazil_dataset` (both two-entity-type merges) —
+    two-echelon-gold-au is already ID-keyed end to end (DD-2), like Brazil/
+    transport-coal, but has a genuinely different shape: THREE entity types
+    (mines/refineries/customers, not two) and TWO legs sharing one flat
+    distance dict, not one. `mines` is a parameter purely for the leg-
+    resolution check below — there is no `addedMines` concept at all (the
+    mine is fixed, never overridable) and `mines` is never merged/returned.
+
+    Args:
+        inputs: the validated `inputs` blob (or any dict exposing the same
+            keys) containing `addedRefineries`, `addedCustomers`,
+            `distanceOverrides` (twoEchelon.ts's B6.2 schema). All three
+            optional, missing keys treated as empty lists.
+        mines: base dataset, `solve.py`'s `GOLD_MINES`-shaped
+            `{str_id: {"id": str, "city": str, "state": str, "lat": float,
+            "lng": float}}`. Never mutated, never merged (no addedMines).
+        refineries: base dataset, `solve.py`'s `GOLD_REFINERIES`-shaped
+            `{str_id: {...}}`. Never mutated.
+        customers: base dataset, `solve.py`'s `GOLD_CUSTOMERS`-shaped
+            `{str_id: {..., "demand": float}}`. Never mutated.
+        distance: base dataset, `solve.py`'s `_gold_distances()`-shaped
+            `{(str_from_id, str_to_id): float}` — ONE dict covering BOTH the
+            mine->refinery leg and the refinery->customer leg (verified
+            directly against solve_two_echelon's own `dist[p, r]`/
+            `dist[r, c]` indexing, both drawn from this same dict). Never
+            mutated.
+
+    Returns a dict:
+        refineries: `{**refineries}` plus one entry per `addedRefineries`
+            item keyed by its own id (no synthetic index needed), shaped
+            like an existing `refineries` value — no `status` key (that
+            lives in `addedRefineriesById` below instead, matching the base
+            refineries' own shape, which also carries no status — status
+            comes from a separate sparse `refineryStatuses` override map for
+            base refineries).
+        customers: same pattern for `addedCustomers`, INCLUDING `demand`
+            directly on the merged dict (mirrors `build_merged_pmedian_
+            dataset`'s added customers, which also carry demand directly —
+            unlike refineries' status, demand has no separate sparse-
+            override-only mechanism to conflict with).
+        distance: `{**distance, **<resolved distanceOverrides>}` — the
+            override pairs simply overlay the base dict. This is also how an
+            added entity gets ANY distance at all (L4: no auto-haversine —
+            an override IS the mechanism). Each override's leg is resolved
+            purely by which id-space `fromId`/`toId` belong to (mine/
+            refinery/customer are three disjoint id sets) — NOT a string-
+            prefix convention. A pair must cleanly match one of the two
+            adjacent-leg shapes (mine->refinery, or refinery->customer);
+            anything else (backwards, or skipping a leg entirely, e.g.
+            mine->customer) raises UnresolvableIdError.
+        addedRefineriesById: `{id: <raw addedRefineries entry>}` — lets
+            `solve_two_echelon` resolve an added refinery's OWN `status`
+            (forced_open/inactive/active) without conflating it with the
+            sparse `refineryStatuses` override map that applies to BASE
+            refineries only (mirrors B3.1/B6.1's established "added entity's
+            own record wins" precedent) — an added refinery competing to be
+            the single open one is a real, meaningful capability, not
+            skipped for a first pass.
+        addedCustomersById: `{id: <raw addedCustomers entry>}` — same
+            reasoning for `demand`, mirroring the sparse `customerDemands`
+            override map's "applies to BASE customers only" boundary.
+
+    Raises:
+        UnresolvableIdError: a `distanceOverrides` entry's `(fromId, toId)`
+            pair does not resolve as a mine->refinery leg or a refinery->
+            customer leg (base dataset or this scenario's added
+            refineries/customers) — checked strictly per role, same
+            backwards-pair protection as every other merge function above.
+    """
+    added_refineries = inputs.get("addedRefineries", []) or []
+    added_customers = inputs.get("addedCustomers", []) or []
+    distance_overrides = inputs.get("distanceOverrides", []) or []
+
+    merged_refineries = dict(refineries)
+    added_refineries_by_id: dict[str, dict] = {}
+    for r in added_refineries:
+        rid = r["id"]
+        merged_refineries[rid] = {
+            "id": rid,
+            "city": r["city"],
+            "state": r["state"],
+            "lat": r["lat"],
+            "lng": r["lng"],
+        }
+        added_refineries_by_id[rid] = r
+
+    merged_customers = dict(customers)
+    added_customers_by_id: dict[str, dict] = {}
+    for c in added_customers:
+        cid = c["id"]
+        merged_customers[cid] = {
+            "id": cid,
+            "city": c["city"],
+            "state": c["state"],
+            "lat": c["lat"],
+            "lng": c["lng"],
+            "demand": c["demand"],
+        }
+        added_customers_by_id[cid] = c
+
+    merged_distance = dict(distance)
+    for override in distance_overrides:
+        from_id, to_id = override["fromId"], override["toId"]
+        # Leg resolved purely by which id-space each side belongs to (never a
+        # string-prefix convention) -- mirrors solve_two_echelon's own
+        # dist[p, r] / dist[r, c] indexing, both drawn from this SAME flat
+        # dict. A pair must cleanly match one of the two adjacent-leg shapes:
+        # mine -> refinery, or refinery -> customer. Anything else
+        # (backwards, or skipping a leg entirely, e.g. mine -> customer) is
+        # rejected rather than silently coerced.
+        is_mine_to_refinery = from_id in mines and to_id in merged_refineries
+        is_refinery_to_customer = from_id in merged_refineries and to_id in merged_customers
+        if not is_mine_to_refinery and not is_refinery_to_customer:
+            raise UnresolvableIdError(
+                f"distanceOverrides pair (fromId '{from_id}', toId '{to_id}') does not "
+                "resolve as a mine->refinery leg or a refinery->customer leg - fromId/toId "
+                "must be adjacent ids in this model's two-echelon structure (base dataset "
+                "or this scenario's added refineries/customers)"
+            )
+        merged_distance[(from_id, to_id)] = override["distance"]
+
+    return {
+        "refineries": merged_refineries,
+        "customers": merged_customers,
+        "distance": merged_distance,
+        "addedRefineriesById": added_refineries_by_id,
+        "addedCustomersById": added_customers_by_id,
+    }

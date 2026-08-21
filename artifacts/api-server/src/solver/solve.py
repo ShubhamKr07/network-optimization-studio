@@ -5,7 +5,12 @@ import sys, json, time, math, os
 from pulp import (LpProblem, LpMinimize, LpVariable, lpSum,
                   LpConstraint, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
                   LpStatus, value, PULP_CBC_CMD)
-from merge_inputs import build_merged_pmedian_dataset, build_merged_brazil_dataset, build_merged_transport_dataset
+from merge_inputs import (
+    build_merged_pmedian_dataset,
+    build_merged_brazil_dataset,
+    build_merged_transport_dataset,
+    build_merged_two_echelon_dataset,
+)
 
 # ---------------------------------------------------------------------------
 # Canonical datasets live in solvers/<model-id>/dataset/*.json (C1.1/C1.2).
@@ -683,11 +688,45 @@ def solve_two_echelon(inp):
     excluded       = set(inp.get('excludedCustomerIds', []))
     demand_over    = inp.get('customerDemands', {})
 
+    # B6.2: per-call merge of the base dataset with this scenario's
+    # scenario-local network edits (addedRefineries/addedCustomers/
+    # distanceOverrides) -- mirrors solve_transport's B6.1 / solve_
+    # capacitated_pmedian's B6.3 wiring. two-echelon-gold-au is already
+    # ID-keyed (DD-2), so build_merged_two_echelon_dataset does a plain
+    # dict merge, no id<->index bridge. Never mutates GOLD_MINES/
+    # GOLD_REFINERIES/GOLD_CUSTOMERS/_gold_distances() module-level data.
+    # No addedMines concept -- the mine is fixed, never overridable (not a
+    # facility-location choice).
+    merged = build_merged_two_echelon_dataset(inp, GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS, _gold_distances())
+    refinery_data = merged['refineries']
+    customer_data = merged['customers']
+    dist          = merged['distance']
+    # An added refinery/customer's own status/demand comes straight off its
+    # addedRefineries/addedCustomers record (own-record wins, mirroring
+    # solve_pmedian's/solve_transport's established precedent) -- distinct
+    # from base entities, whose status/demand come from the sparse
+    # ref_status/demand_over override maps above. An added refinery
+    # competing to be the single open one is a real capability, not skipped
+    # for a first pass.
+    added_refineries_by_id = merged['addedRefineriesById']
+    added_customers_by_id  = merged['addedCustomersById']
+
+    def get_ref_status(r):
+        added = added_refineries_by_id.get(r)
+        if added is not None:
+            return added['status']
+        return ref_status.get(r)
+
+    def get_demand(c):
+        added = added_customers_by_id.get(c)
+        if added is not None:
+            return float(added['demand'])
+        return float(demand_over.get(c, customer_data[c]['demand']))
+
     mines      = list(GOLD_MINES.keys())
-    refineries = list(GOLD_REFINERIES.keys())
-    customers  = [c for c in GOLD_CUSTOMERS if c not in excluded]
-    dist       = _gold_distances()
-    demands    = {c: float(demand_over.get(c, GOLD_CUSTOMERS[c]['demand'])) for c in customers}
+    refineries = list(refinery_data.keys())
+    customers  = [c for c in customer_data if c not in excluded]
+    demands    = {c: get_demand(c) for c in customers}
     total_demand = sum(demands.values())
 
     start = time.time()
@@ -697,8 +736,15 @@ def solve_two_echelon(inp):
     y      = LpVariable.dicts("RefToCust",  [(r, c) for r in refineries for c in customers], lowBound=0)
     open_r = LpVariable.dicts("Open", refineries, cat="Binary")
 
-    prob += (lpSum(dist[p, r] * x[p, r] / TRUCKLOAD_KG for p in mines for r in refineries)
-             + lpSum(dist[r, c] * y[r, c] / TRUCKLOAD_KG for r in refineries for c in customers))
+    # .get((p, r)/(r, c), 9999) -- same missing-pair sentinel convention as
+    # solve_transport's dist.get((m, s), 9999): the base dataset's distance
+    # matrix is complete, but an added refinery/customer with an incomplete
+    # distanceOverrides set has no entry for that pair at all (L4: no
+    # auto-haversine). Without a fallback the objective's lpSum would raise a
+    # bare KeyError -- precheck.ts is the primary place this gets caught
+    # before a solve is even attempted, but solve.py must not crash outright.
+    prob += (lpSum(dist.get((p, r), 9999) * x[p, r] / TRUCKLOAD_KG for p in mines for r in refineries)
+             + lpSum(dist.get((r, c), 9999) * y[r, c] / TRUCKLOAD_KG for r in refineries for c in customers))
 
     # C1 -- every customer's demand met exactly
     for c in customers:
@@ -706,10 +752,11 @@ def solve_two_echelon(inp):
                              LpConstraintEQ, f"demand_{c}", demands[c])
 
     # C2 -- exactly one refinery open, honouring forced_open / inactive
+    # (own-record wins for an added refinery -- see get_ref_status above).
     for r in refineries:
-        if ref_status.get(r) == "inactive":
+        if get_ref_status(r) == "inactive":
             prob += LpConstraint(open_r[r], LpConstraintEQ, f"inactive_{r}", 0)
-        elif ref_status.get(r) == "forced_open":
+        elif get_ref_status(r) == "forced_open":
             prob += LpConstraint(open_r[r], LpConstraintEQ, f"forced_{r}", 1)
     prob += LpConstraint(lpSum(open_r[r] for r in refineries), LpConstraintEQ, "total_open", 1)
 
@@ -731,8 +778,8 @@ def solve_two_echelon(inp):
     status_str = LpStatus[prob.status]
 
     if status_str == "Infeasible":
-        active = [r for r in refineries if ref_status.get(r) != "inactive"]
-        forced = [r for r in refineries if ref_status.get(r) == "forced_open"]
+        active = [r for r in refineries if get_ref_status(r) != "inactive"]
+        forced = [r for r in refineries if get_ref_status(r) == "forced_open"]
         if not active:
             reason = ("Every refinery is marked inactive, but exactly one must be open to "
                       "refine gold. Re-activate at least one refinery.")
@@ -767,7 +814,7 @@ def solve_two_echelon(inp):
             f = x[p, r].varValue or 0
             if f <= EPS:
                 continue
-            d = dist[p, r]
+            d = dist.get((p, r), 9999)
             leg_dist_flow["mine_to_refinery"] += d * f
             leg_flow["mine_to_refinery"]      += f
             edges.append({"fromId": p, "toId": r, "flow": round(f), "distance": d,
@@ -779,7 +826,7 @@ def solve_two_echelon(inp):
             f = y[r, c].varValue or 0
             if f <= EPS:
                 continue
-            d  = dist[r, c]
+            d  = dist.get((r, c), 9999)
             bi = _band(d)
             leg_dist_flow["refinery_to_customer"] += d * f
             leg_flow["refinery_to_customer"]      += f
@@ -812,7 +859,7 @@ def solve_two_echelon(inp):
         band_coverage.append({"band": -1,
                               "percent": round(band_overflow * 100 / total_demand)})
 
-    utilization = [{"warehouseId": r, "city": GOLD_REFINERIES[r]['city'],
+    utilization = [{"warehouseId": r, "city": refinery_data[r]['city'],
                     "utilization": 100 if r in open_ids else 0} for r in refineries]
 
     return _envelope("optimal", status_str, round(value(prob.objective) or 0, 2), run_time, edges,
