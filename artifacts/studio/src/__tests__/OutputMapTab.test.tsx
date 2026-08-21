@@ -1,0 +1,199 @@
+import { describe, it, expect } from "vitest";
+import { render, fireEvent } from "@testing-library/react";
+import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
+import { getBandColor } from "@/lib/bandPalette";
+
+// A3.1 — Output Map tab. Renders the REAL NetworkMap (no react-leaflet
+// mocking, same convention NetworkMap.test.tsx already uses) so assertions
+// reflect actual rendered Leaflet DOM: warehouse markers land in
+// `.leaflet-marker-pane`, customer CircleMarkers in `.leaflet-overlay-pane`
+// (SVG paths), and routes in the dedicated named `.leaflet-route-pane`
+// (NetworkMap.tsx's own Pane name="routePane").
+
+const dataset = {
+  warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+  customers: [
+    { id: "C1", city: "Nearburg", state: "SB", lat: 40.5, lng: -90.5, demand: 100 },
+    { id: "C2", city: "Farburg", state: "SB", lat: 45, lng: -95, demand: 200 },
+  ],
+};
+
+// C1 is close (short distance -> band 0), C2 is far (long distance -> a
+// later band) under bands=[250,500,750] so the two edges land in visibly
+// different bands, letting the color-by-band assertions distinguish
+// "plain" (identical color) from "colored" (different colors).
+const result = {
+  status: "optimal" as const,
+  objective: 1,
+  runTimeSec: 0.1,
+  quality: "Optimal",
+  edges: [
+    { fromId: "W1", toId: "C1", flow: 50, distance: 100 },
+    { fromId: "W1", toId: "C2", flow: 50, distance: 900 },
+  ],
+  metrics: { weightedAvgDistance: 500, bandCoverage: [], utilizationByNode: [] },
+  details: { openWarehouseIds: ["W1"], assignments: [] },
+  solverUsed: "CBC (PuLP)",
+  infeasibilityReason: null,
+};
+
+function routePaneHtml(container: HTMLElement): string {
+  return container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+}
+
+// react-leaflet's SVG renderer keeps an empty `<g>` layer-group in the pane
+// even with zero Polylines rendered — "no routes" means zero <path>
+// elements, not an empty string.
+function routePathCount(container: HTMLElement): number {
+  return (routePaneHtml(container).match(/<path/g) ?? []).length;
+}
+
+function warehouseMarkerCount(container: HTMLElement): number {
+  return container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon").length;
+}
+
+function customerMarkerCount(container: HTMLElement): number {
+  // Customer CircleMarkers render as SVG <path class="leaflet-interactive">
+  // inside the default overlay pane — a distinct DOM area from both the
+  // marker pane (warehouses) and the named routePane (lanes).
+  return container.querySelectorAll(".leaflet-overlay-pane path.leaflet-interactive").length;
+}
+
+describe("OutputMapTab — layer toggles", () => {
+  it("all three layers (Warehouses/Customers/Lanes) and Color-by-band are ON by default", () => {
+    const { getByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    expect(getByTestId("checkbox-toggle-warehouses")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("checkbox-toggle-customers")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("checkbox-toggle-lanes")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("checkbox-color-lanes-band")).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("unchecking Warehouses removes warehouse markers but leaves customer markers and lanes untouched", () => {
+    const { getByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    expect(warehouseMarkerCount(container)).toBe(1);
+    expect(customerMarkerCount(container)).toBe(2);
+    expect(routePathCount(container)).toBe(2);
+
+    fireEvent.click(getByTestId("checkbox-toggle-warehouses"));
+
+    expect(warehouseMarkerCount(container)).toBe(0);
+    expect(customerMarkerCount(container)).toBe(2);
+    // Lanes must survive hiding the warehouse MARKER — NetworkMap still
+    // resolves route endpoints against the full dataset regardless of the
+    // marker-visibility toggle (this is exactly why dataset-filtering was
+    // rejected in favor of the showWarehouseMarkers prop).
+    expect(routePathCount(container)).toBe(2);
+  });
+
+  it("unchecking Customers removes customer markers but leaves warehouse markers and lanes untouched", () => {
+    const { getByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(getByTestId("checkbox-toggle-customers"));
+
+    expect(customerMarkerCount(container)).toBe(0);
+    expect(warehouseMarkerCount(container)).toBe(1);
+    expect(routePathCount(container)).toBe(2);
+  });
+
+  it("unchecking Lanes removes routes but leaves both marker layers untouched", () => {
+    const { getByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(getByTestId("checkbox-toggle-lanes"));
+
+    expect(routePathCount(container)).toBe(0);
+    expect(warehouseMarkerCount(container)).toBe(1);
+    expect(customerMarkerCount(container)).toBe(2);
+  });
+
+  it("all three layers can be independently re-enabled after being turned off", () => {
+    const { getByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(getByTestId("checkbox-toggle-warehouses"));
+    fireEvent.click(getByTestId("checkbox-toggle-customers"));
+    fireEvent.click(getByTestId("checkbox-toggle-lanes"));
+    expect(warehouseMarkerCount(container)).toBe(0);
+    expect(customerMarkerCount(container)).toBe(0);
+    expect(routePathCount(container)).toBe(0);
+
+    fireEvent.click(getByTestId("checkbox-toggle-warehouses"));
+    fireEvent.click(getByTestId("checkbox-toggle-customers"));
+    fireEvent.click(getByTestId("checkbox-toggle-lanes"));
+    expect(warehouseMarkerCount(container)).toBe(1);
+    expect(customerMarkerCount(container)).toBe(2);
+    expect(routePathCount(container)).toBe(2);
+  });
+});
+
+describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
+  it("colors the two lanes differently by distance band when Color-by-band is ON (default)", () => {
+    const { container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    const html = routePaneHtml(container);
+    // 100mi edge -> band 0. 900mi edge exceeds every boundary in
+    // [250,500,750] (3 bands, indices 0-2) -> assignBand returns the last
+    // index, 2 -> distinct palette colors from band 0.
+    expect(html.toLowerCase()).toContain(getBandColor(0).toLowerCase());
+    expect(html.toLowerCase()).toContain(getBandColor(2).toLowerCase());
+  });
+
+  it("colors every lane identically (band-0 color) when Color-by-band is turned OFF, regardless of each edge's real distance", () => {
+    const { getByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(getByTestId("checkbox-color-lanes-band"));
+
+    const html = routePaneHtml(container);
+    // Both edges (100mi and 900mi — normally different bands) must render
+    // the SAME uniform color, and NOT the "should be different" band-2 color.
+    expect(html.toLowerCase()).not.toContain(getBandColor(2).toLowerCase());
+    expect(routePathCount(container)).toBe(2);
+  });
+
+  it("applies DD-5's default 250/500/750 bands for lane coloring when the scenario hasn't configured its own (bands=[])", () => {
+    const { container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[]} />,
+    );
+    const html = routePaneHtml(container);
+    // Same 100mi/900mi edges as above still resolve to different bands under
+    // the DD-5 default [250,500,750], proving the fallback was applied
+    // rather than the empty array silently collapsing every edge to band 0.
+    expect(html.toLowerCase()).toContain(getBandColor(0).toLowerCase());
+    expect(html.toLowerCase()).toContain(getBandColor(2).toLowerCase());
+  });
+
+  it("the Color-by-band checkbox is disabled once Lanes itself is off", () => {
+    const { getByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(getByTestId("checkbox-toggle-lanes"));
+    expect(getByTestId("checkbox-color-lanes-band")).toBeDisabled();
+  });
+});
+
+describe("OutputMapTab — result gating", () => {
+  it("shows a 'no result yet' hint and renders no routes when result is null (pre-solve / inactive tab)", () => {
+    const { getByTestId, container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[250, 500, 750]} />,
+    );
+    expect(getByTestId("output-map-no-result")).toBeInTheDocument();
+    expect(routePathCount(container)).toBe(0);
+    // Markers still render — the input network stays visible without a result.
+    expect(warehouseMarkerCount(container)).toBe(1);
+    expect(customerMarkerCount(container)).toBe(2);
+  });
+
+  it("does NOT show the 'no result yet' hint once a result is supplied", () => {
+    const { queryByTestId } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    expect(queryByTestId("output-map-no-result")).not.toBeInTheDocument();
+  });
+});

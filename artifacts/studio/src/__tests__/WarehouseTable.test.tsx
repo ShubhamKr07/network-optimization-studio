@@ -42,6 +42,15 @@ describe("WarehouseTable", () => {
     expect(screen.getByText("Capacity")).toBeInTheDocument();
   });
 
+  it("applies DD-6's label mapping (Potential / Fixed-Open / Inactive) — this is the single mapping constant, not re-implemented per caller", () => {
+    render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} />);
+    expect(screen.getAllByText("Potential").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fixed-Open").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Inactive").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.queryByText("Forced open")).not.toBeInTheDocument();
+  });
+
   it("clicking Forced open calls onChange with an upserted override", async () => {
     const onChange = vi.fn();
     render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={onChange} />);

@@ -9,6 +9,14 @@
 // client-side-only reporting lens — solve.py's own bandCoverage (unused by
 // the frontend, which always recomputes from `edges` here) is untouched.
 
+// A3.1 (DD-5) — default distance-band cut points for a scenario that hasn't
+// configured its own yet (Optimization Parameters tab's distanceBands is
+// empty). Wireframe default (250/500/750 mi), used ONLY as a display
+// fallback for band-colored lane rendering — bands stay fully
+// student-editable via distanceBandsFromInputs's normal round-trip; this
+// constant is never written back onto a scenario's saved inputs.
+export const DEFAULT_DISTANCE_BANDS = [250, 500, 750];
+
 export interface BandEdge {
   distance: number;
   flow: number;

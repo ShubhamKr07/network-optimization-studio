@@ -14,9 +14,15 @@ interface WarehouseTableProps {
 }
 
 const STATUSES = ["active", "forced_open", "inactive"] as const;
+// DD-6 (SCN v0.3 plan, `docs/superpowers/plans/2026-08-20-scn-v0.3-workspace.md`):
+// "Status vocabulary is display-only mapping. UI labels Potential /
+// Fixed-Open / Inactive <-> stored enum active / forced_open / inactive.
+// One mapping constant in the frontend; no API or schema change." This is
+// that one constant — the stored/API enum (and every `data-testid`, which
+// still uses the raw enum values below) is untouched.
 const STATUS_LABEL: Record<(typeof STATUSES)[number], string> = {
-  active: "Active",
-  forced_open: "Forced open",
+  active: "Potential",
+  forced_open: "Fixed-Open",
   inactive: "Inactive",
 };
 

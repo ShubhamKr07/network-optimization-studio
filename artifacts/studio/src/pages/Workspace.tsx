@@ -1,0 +1,1005 @@
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useSearch, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useListScenarios,
+  useGetScenario,
+  useGetDataset,
+  useUpdateScenario,
+  useSolveScenario,
+  useCreateScenario,
+  useCloneScenario,
+  useDeleteScenario,
+  useResetScenarioToBaseline,
+  useGetSolveJob,
+  useListModels,
+  useLogoutUser,
+  getGetScenarioQueryKey,
+  getListScenariosQueryKey,
+  getGetSolveJobQueryKey,
+  getGetCurrentAuthUserQueryKey,
+  getGetDatasetQueryKey,
+  type GetDatasetModelId,
+  type Scenario,
+} from "@workspace/api-client-react";
+import { ArrowLeft, Save } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
+import { TabBar } from "@/components/workspace/TabBar";
+import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
+import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
+import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
+import { MinesTab } from "@/components/workspace/tabs/MinesTab";
+import { StationsTab } from "@/components/workspace/tabs/StationsTab";
+import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
+import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
+import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
+import type { CustomerOverride } from "@/components/tables/CustomerTable";
+import type { MineOverride } from "@/components/tables/MineTable";
+import type { StationOverride } from "@/components/tables/StationTable";
+import {
+  workspaceTabsReducer,
+  workspaceTabId,
+  initialWorkspaceTabState,
+  type WorkspaceTab,
+} from "@/lib/workspaceTabs";
+import type { StudioModelType } from "@/lib/chapters";
+import { toast } from "@/hooks/use-toast";
+
+// A5.1-A5.3 — every model's default `inputs` shape for a brand-new scenario,
+// copied verbatim from Studio.tsx's handleCreateConfirm switch
+// (Studio.tsx:681-690) rather than invented — one branch per model, matching
+// that switch's own structure so a future model flip only needs a new case
+// here, not a rewrite.
+function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
+  switch (modelId) {
+    case "transport-coal":
+      return { distanceBands: [500, 1000, 1500, 2000], gap: 0, timeLimitSec: 120, capacityFactor: 1.0, singleSource: false, capacityInactive: false };
+    case "p-median-brazil":
+      return { p: 7, distanceBands: [500, 1000, 2000, 4000], capacityMode: "uniform", uniformCapacity: 20000000, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120, singleSource: true };
+    case "two-echelon-gold-au":
+      return { bomRatio: 1.1, refineryOverrides: [], customerOverrides: [], distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120 };
+    case "p-median-us":
+    default:
+      return { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
+  }
+}
+
+function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
+  const raw = inputs?.warehouseOverrides;
+  return Array.isArray(raw) ? (raw as WarehouseOverride[]) : [];
+}
+
+function customerOverridesFromInputs(inputs: Record<string, unknown> | null): CustomerOverride[] {
+  const raw = inputs?.customerOverrides;
+  return Array.isArray(raw) ? (raw as CustomerOverride[]) : [];
+}
+
+function capacityModeFromInputs(inputs: Record<string, unknown> | null): "none" | "uniform" | "per_wh" {
+  const raw = inputs?.capacityMode;
+  return raw === "uniform" || raw === "per_wh" ? raw : "none";
+}
+
+// A1.2 — `p` is undefined (not 0) for models with no P concept
+// (transport-coal, two-echelon-gold-au), so OptimizationParametersTab can
+// omit that section entirely rather than showing a misleading "0".
+function pFromInputs(inputs: Record<string, unknown> | null): number | undefined {
+  const raw = inputs?.p;
+  return typeof raw === "number" ? raw : undefined;
+}
+
+function gapFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = inputs?.gap;
+  return typeof raw === "number" ? raw : 0;
+}
+
+function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number {
+  const raw = inputs?.timeLimitSec;
+  return typeof raw === "number" ? raw : 120;
+}
+
+function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
+  const raw = inputs?.distanceBands;
+  return Array.isArray(raw) ? (raw as number[]) : [];
+}
+
+// A5.1 — transport-coal's mineCapacities/stationDemands persist as sparse
+// dicts (`Record<string, number>`), not arrays with a status field — unlike
+// warehouseOverrides/customerOverrides/refineryOverrides. Mirrors Studio.tsx's
+// configFromScenario translation (Studio.tsx:127-128) exactly.
+function mineOverridesFromInputs(inputs: Record<string, unknown> | null): MineOverride[] {
+  const raw = inputs?.mineCapacities as Record<string, number> | undefined;
+  return raw ? Object.entries(raw).map(([id, capacity]) => ({ id, capacity })) : [];
+}
+
+function stationOverridesFromInputs(inputs: Record<string, unknown> | null): StationOverride[] {
+  const raw = inputs?.stationDemands as Record<string, number> | undefined;
+  return raw ? Object.entries(raw).map(([id, demand]) => ({ id, demand })) : [];
+}
+
+// A5.3 — two-echelon-gold-au's refineryOverrides is array-shaped exactly
+// like warehouseOverrides ({id, status}, no capacity field in its schema —
+// see solvers/two-echelon-gold-au/manifest.json) — reuse WarehouseOverride's
+// reader/shape rather than inventing a parallel type.
+function refineryOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
+  const raw = inputs?.refineryOverrides;
+  return Array.isArray(raw) ? (raw as WarehouseOverride[]) : [];
+}
+
+// A5.1/A5.3 — model-specific scalar solve parameters, each undefined when
+// the active model's inputs shape has no such field (same convention as
+// `pFromInputs`).
+function capacityFactorFromInputs(inputs: Record<string, unknown> | null): number | undefined {
+  const raw = inputs?.capacityFactor;
+  return typeof raw === "number" ? raw : undefined;
+}
+
+function singleSourceFromInputs(inputs: Record<string, unknown> | null): boolean | undefined {
+  const raw = inputs?.singleSource;
+  return typeof raw === "boolean" ? raw : undefined;
+}
+
+function capacityInactiveFromInputs(inputs: Record<string, unknown> | null): boolean | undefined {
+  const raw = inputs?.capacityInactive;
+  return typeof raw === "boolean" ? raw : undefined;
+}
+
+function bomRatioFromInputs(inputs: Record<string, unknown> | null): number | undefined {
+  const raw = inputs?.bomRatio;
+  return typeof raw === "number" ? raw : undefined;
+}
+
+// A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
+// (`(localConfig?.warehouseOverrides ?? []).filter(o => o.status !==
+// "active").map(...)`), generalized per model: two-echelon-gold-au's forced-
+// open/inactive concept lives on `refineryOverrides`, not
+// `warehouseOverrides`; transport-coal's mines/stations have no status
+// concept at all (mineCapacities/stationDemands are plain value overrides).
+// "active" overrides carry no marker-status meaning of their own
+// (NetworkMap's getStatus already falls back to "potential" for anything
+// absent from this list).
+function warehouseStatusesFromInputs(
+  inputs: Record<string, unknown> | null,
+  modelId: StudioModelType,
+): { warehouseId: string; status: "forced_open" | "inactive" }[] {
+  if (modelId === "transport-coal") return [];
+  const overrides = modelId === "two-echelon-gold-au" ? refineryOverridesFromInputs(inputs) : warehouseOverridesFromInputs(inputs);
+  return overrides
+    .filter(o => o.status !== "active")
+    .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }));
+}
+
+// A5.1-A5.3 — per-model Inputs sidebar entries. p-median-us's original list
+// (A0.1, matching the wireframe's example set verbatim, SCN Design.pdf
+// screen 1a·1) is now one case among four rather than a single constant.
+//
+// p-median-brazil keeps "Warehouses"/"Customers" labels for naming parity
+// with the pilot, but their tab CONTENT stays a placeholder (see
+// renderTabContent below) — confirmed against the real repo state, not
+// invented: `GET /dataset` (openapi.yaml's `modelId` enum) genuinely has no
+// p-median-brazil entry, and Studio.tsx itself has zero warehouse/customer
+// override UI for this model (Studio.tsx:1396's Overrides section is
+// `modelId === "p-median-us"` only). Building a real table here would need a
+// backend dataset endpoint that doesn't exist — out of this task's scope per
+// its own "no lib/db, no api-spec, no api-server/validation changes"
+// guarantee. Documented as a deferred follow-up in the task report, not a
+// silent gap.
+function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
+  switch (modelId) {
+    case "transport-coal":
+      return [
+        { id: "mines", label: "Mines" },
+        { id: "stations", label: "Stations" },
+        { id: "demand", label: "Demand" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+    case "two-echelon-gold-au":
+      return [
+        { id: "refineries", label: "Refineries" },
+        { id: "customers", label: "Customers" },
+        { id: "demand", label: "Demand" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+    case "p-median-brazil":
+    case "p-median-us":
+    default:
+      return [
+        { id: "customers", label: "Customers" },
+        { id: "demand", label: "Demand" },
+        { id: "warehouses", label: "Warehouses" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+  }
+}
+
+// A3.1 builds this tab's real content (re-homed NetworkMap + layer toggles)
+// — A2.1 only needs the sidebar/tab-bar entry to exist so a successful solve
+// has something real to open+activate.
+const OUTPUT_MAP_ENTRY: SidebarEntry = { id: "output-map", label: "Output Map" };
+
+const OUTPUT_ENTRIES: SidebarEntry[] = [
+  OUTPUT_MAP_ENTRY,
+  { id: "open-warehouses", label: "Open Warehouses" },
+  { id: "customer-assignments", label: "Customer Assignments" },
+  { id: "flows", label: "Flows" },
+  { id: "cost-summary", label: "Cost Summary" },
+  { id: "service-stats", label: "Service Stats" },
+];
+
+interface WorkspaceProps {
+  modelId: StudioModelType;
+  /** Passed in by the routing layer (mirrors AppShellProps) rather than fetched here, so this page doesn't duplicate auth-fetching. */
+  userEmail: string;
+}
+
+export function Workspace({ modelId, userEmail }: WorkspaceProps) {
+  const search = useSearch();
+  // A4.1 — `chapterPath` (was discarded) is needed as the "clear the
+  // ?scenario= param" navigation target once the last scenario is deleted,
+  // mirroring Studio.tsx's `navigate(chapterPath)`.
+  const [chapterPath, navigate] = useLocation();
+  const queryClient = useQueryClient();
+  const scenarioIdStr = new URLSearchParams(search).get("scenario");
+  const scenarioIdFromUrl = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
+
+  // Task 10 — logout. Workspace renders its own self-contained header
+  // (deliberately not wrapped in AppShell, to avoid a double-header — see
+  // App.tsx's A0.2 comment), so it needs its own logout affordance rather
+  // than inheriting AppShell's. Reuses AppShell.tsx's exact pattern verbatim
+  // rather than reinventing it: navigating to "/login" immediately after the
+  // logout mutation used to race Gate()'s auth-gated render against an async
+  // cache invalidate+refetch (same bug class as the Login.tsx/Register.tsx/
+  // Gate() race documented in this repo's CLAUDE.md), producing a 404. The
+  // fix is writing { user: null } into the auth-user query cache
+  // SYNCHRONOUSLY in onSuccess, strictly BEFORE navigate — not relying on
+  // invalidateQueries alone before leaving an authed route.
+  const logoutUser = useLogoutUser();
+
+  function handleLogout() {
+    logoutUser.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), { user: null });
+        navigate("/login", { replace: true });
+      },
+    });
+  }
+
+  const { data: scenarios } = useListScenarios({ modelId });
+  const { data: scenarioFromApi } = useGetScenario(scenarioIdFromUrl!, {
+    query: { enabled: !!scenarioIdFromUrl, queryKey: getGetScenarioQueryKey(scenarioIdFromUrl!) },
+  });
+  // The generated hook's `modelId` param is narrower than StudioModelType
+  // (it has no "p-median-brazil" value — Brazil has no dataset endpoint
+  // entry, confirmed against openapi.yaml's `/dataset` `modelId` enum, not
+  // just the generated type). Cast to the hook's own real param type for the
+  // other three models; disabled entirely for p-median-brazil rather than
+  // firing a request the backend will 400 on (see inputEntriesForModel's
+  // comment on this same gap).
+  const datasetParams = { modelId: modelId as GetDatasetModelId | undefined };
+  const { data: dataset } = useGetDataset(datasetParams, {
+    query: { enabled: modelId !== "p-median-brazil", queryKey: getGetDatasetQueryKey(datasetParams) },
+  });
+  const updateScenario = useUpdateScenario();
+
+  // A3.1 — Output Map tab's countryBounds, sourced the same way Studio.tsx
+  // sources activeModelManifest (Studio.tsx:225/239) — GET /api/models is
+  // independent of GET /dataset with no ordering guarantee, so this can
+  // resolve after NetworkMap's first mount; NetworkMap itself already
+  // handles that (E5.1's remount-on-resolution fix), nothing extra needed
+  // here beyond passing whatever's currently available.
+  const { data: models } = useListModels();
+  const activeModelManifest = models?.find(m => m.id === modelId);
+
+  const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
+
+  // A3.2 — `result != null` (A0.1's `hasSolvedRun`) is necessary but not
+  // sufficient: a scenario can have a non-null `result` and still be
+  // `stale` (X1.1's `Scenario.stale` — derived server-side, always false
+  // when `result` is null). The correct "outputs are fresh and viewable"
+  // condition combines both; this drives BOTH the sidebar's Outputs
+  // greying (SidebarTree's `hasSolvedRun` prop) AND, per-tab, whether
+  // output-kind tab content renders for real or gets blanked behind
+  // StaleOutputBanner (see renderTabContent's output-map branch below).
+  const hasFreshSolvedRun = currentScenario?.result != null && !currentScenario?.stale;
+
+  // A1.1 — local draft of the active scenario's `inputs` blob, decoupled
+  // from the persisted row so an in-progress edit (e.g. a warehouse status
+  // click) isn't visually reverted by a background refetch mid-edit — same
+  // rationale as Studio.tsx's localConfig/savedConfig split
+  // (configFromScenario/buildInputsForSave), scoped here to the raw inputs
+  // object directly since PATCH replaces the whole `inputs` blob and A1.2's
+  // Optimization Parameters tab (not yet built) owns the rest of its fields.
+  //
+  // Save is explicit (Studio.tsx's manual Save-button pattern), not
+  // debounced/auto-saved: an earlier version of this file auto-saved on a
+  // 600ms debounce, which review flagged as a real data-loss bug — a
+  // pending edit inside the debounce window was silently dropped if the
+  // student switched scenarios or navigated away before it fired. Manual
+  // Save (this scenario's inputs blob is only ever written on an explicit
+  // click) has no such window: nothing is ever "pending" without the
+  // student knowing. This is now the standing pattern for every future
+  // Workspace input tab (A1.2, B5.1, ...), not just this one.
+  const [localInputs, setLocalInputs] = useState<Record<string, unknown> | null>(null);
+  const savedInputsRef = useRef<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    if (currentScenario) {
+      setLocalInputs(currentScenario.inputs);
+      savedInputsRef.current = currentScenario.inputs;
+    }
+  }, [currentScenario?.id]);
+
+  const isDirty =
+    localInputs != null &&
+    savedInputsRef.current != null &&
+    JSON.stringify(localInputs) !== JSON.stringify(savedInputsRef.current);
+
+  function updateInputsField(key: string, value: unknown) {
+    setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
+  }
+
+  function handleSaveInputs() {
+    if (!currentScenario || !localInputs || !isDirty) return;
+    const scenarioId = currentScenario.id;
+    const inputs = localInputs;
+    updateScenario.mutate(
+      { scenarioId, data: { inputs } },
+      {
+        onSuccess: () => {
+          savedInputsRef.current = inputs;
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+        },
+      },
+    );
+  }
+
+  // A1.3 — mirrors Studio.tsx's `handleImportApplied`: an import-apply
+  // replaces the scenario's whole `inputs` blob server-side, so the local
+  // draft (and its "last saved" snapshot) must be resynced from the
+  // response directly, same as a fresh Save success — otherwise the grid
+  // would keep showing pre-import data until an unrelated refetch happened
+  // to land. Also invalidates both queries Studio.tsx invalidates, so any
+  // other consumer (sidebar scenario list, a background refetch) doesn't
+  // see stale data either.
+  function handleImportApplied(updated: Scenario) {
+    setLocalInputs(updated.inputs);
+    savedInputsRef.current = updated.inputs;
+    queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
+  }
+
+  const [tabState, dispatch] = useReducer(workspaceTabsReducer, initialWorkspaceTabState);
+  const activeTab = useMemo(
+    () => tabState.tabs.find(t => t.id === tabState.activeTabId) ?? null,
+    [tabState.tabs, tabState.activeTabId],
+  );
+
+  // A1.1/A5.1-A5.3 — the Save toolbar (below) shows for any input tab that's
+  // actually wired to `localInputs` today. Model-aware, not just entity-aware
+  // — p-median-brazil's "warehouses"/"customers" entries share entity ids
+  // with p-median-us but stay placeholder content (no dataset endpoint, see
+  // inputEntriesForModel's comment), so they must NOT be treated as
+  // editable/saveable here even though the entity string matches. Every
+  // other entry stays an inert placeholder with nothing to save yet.
+  const isEditableInputTab =
+    activeTab?.kind === "input" &&
+    (activeTab.entity === "optimization-parameters" ||
+      (activeTab.entity === "warehouses" && modelId === "p-median-us") ||
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
+      (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
+      (activeTab.entity === "mines" && modelId === "transport-coal") ||
+      (activeTab.entity === "stations" && modelId === "transport-coal"));
+
+  function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
+    dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
+  }
+
+  function handleSelectScenario(id: number) {
+    navigate(`?scenario=${id}`);
+  }
+
+  // A4.1 — sidebar scenario operations: create, rename, clone, delete,
+  // reset-to-baseline. Create/clone/delete all replicate Studio.tsx's
+  // documented cache-write-before-navigate fix (CLAUDE.md, "post-migration
+  // bug audit," Task 2 finding): `queryClient.setQueryData` writes the
+  // mutation's own response into the scenarios-list cache SYNCHRONOUSLY,
+  // strictly BEFORE `navigate(...)`, so the destination renders against
+  // fresh data instead of racing `invalidateQueries`' async refetch (which
+  // is moved to strictly after navigate, as a non-blocking background
+  // refresh). Do not reorder these — see Studio.tsx's handleClone/
+  // handleDelete/handleCreateConfirm for the original fix and the bug it
+  // replaced.
+  const createScenario = useCreateScenario();
+  const cloneScenario = useCloneScenario();
+  const deleteScenario = useDeleteScenario();
+  const resetToBaseline = useResetScenarioToBaseline();
+
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newScenarioName, setNewScenarioName] = useState("");
+
+  function handleCreateScenario() {
+    setNewScenarioName(`Scenario ${(scenarios?.length ?? 0) + 1}`);
+    setShowCreateDialog(true);
+  }
+
+  function handleCreateConfirm() {
+    const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
+    createScenario.mutate(
+      { data: { name, modelId, inputs: defaultInputsForModel(modelId) } },
+      {
+        onSuccess: created => {
+          setShowCreateDialog(false);
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? [...prev, created] : [created],
+          );
+          navigate(`?scenario=${created.id}`);
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+      },
+    );
+  }
+
+  function handleCloneScenario(id: number) {
+    cloneScenario.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: cloned => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? [...prev, cloned] : [cloned],
+          );
+          navigate(`?scenario=${cloned.id}`);
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+      },
+    );
+  }
+
+  function handleDeleteScenario(id: number) {
+    deleteScenario.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: () => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? prev.filter(s => s.id !== id) : prev,
+          );
+          if (id === currentScenario?.id) {
+            const remaining = (scenarios ?? []).filter(s => s.id !== id);
+            if (remaining.length > 0) {
+              navigate(`?scenario=${remaining[0].id}`);
+            } else {
+              navigate(chapterPath);
+            }
+          }
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+      },
+    );
+  }
+
+  // Rename — resolved design nuance (see task-9-brief.md): SidebarTree lists
+  // EVERY scenario, not just the active one, so a sibling row's rename
+  // cannot defer to the active scenario's input-editing Save button (that
+  // button is scoped to `localInputs`, which has no meaning for a scenario
+  // that isn't currently open). Rename fires its own immediate,
+  // isolated `{name}`-only PATCH via useUpdateScenario — independent of
+  // A1.1/A1.2's manual-Save-toolbar flow, and it deliberately never touches
+  // `localInputs`/`savedInputsRef` (even when renaming the ACTIVE scenario)
+  // so an in-progress unsaved input edit is never disturbed by a rename.
+  function handleRenameScenario(id: number, name: string) {
+    updateScenario.mutate(
+      { scenarioId: id, data: { name } },
+      {
+        onSuccess: updated => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
+          );
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
+        },
+      },
+    );
+  }
+
+  // Reset-to-baseline — same D6.1 endpoint Studio.tsx uses, now reachable
+  // per-row (any scenario, not just the active one) since SidebarTree lists
+  // all of them. Only resync `localInputs`/`savedInputsRef` when the RESET
+  // scenario is the currently ACTIVE one — resetting a sibling must not
+  // clobber an in-progress unsaved edit on the scenario actually open in the
+  // tabs (handleImportApplied's unconditional resync is correct for it, but
+  // would be wrong reused verbatim here for an arbitrary sidebar row).
+  function handleResetScenario(id: number) {
+    resetToBaseline.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: updated => {
+          if (id === currentScenario?.id) {
+            setLocalInputs(updated.inputs);
+            savedInputsRef.current = updated.inputs;
+          }
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
+          );
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
+        },
+      },
+    );
+  }
+
+  // A2.1 — Run Optimizer / Solve dialog. Solve is async (G3.1): POST /solve
+  // enqueues a job and returns {jobId} immediately; useGetSolveJob below
+  // polls it until it leaves queued/running — same mechanics as
+  // Studio.tsx's handleSolve/pollingJobId, replicated here rather than
+  // reinvented.
+  const solveScenario = useSolveScenario();
+  const [solveDialogOpen, setSolveDialogOpen] = useState(false);
+  const [solvePhase, setSolvePhase] = useState<SolveDialogPhase>("idle");
+  const [solveError, setSolveError] = useState<string | null>(null);
+  const [pollingJobId, setPollingJobId] = useState<number | null>(null);
+
+  function openSolveDialog() {
+    setSolveError(null);
+    setSolvePhase("idle");
+    setSolveDialogOpen(true);
+  }
+
+  // CRITICAL — save-before-solve (CLAUDE.md's documented Round-2 bug):
+  // POST /scenarios/:id/solve carries no body — it solves whatever is
+  // ALREADY PERSISTED on the scenario row ("DB row is the source of truth").
+  // Studio.tsx's handleSolve used to fire directly against that stale saved
+  // value, silently discarding any dirty (unsaved) localConfig edit — e.g.
+  // dragging a slider in this dialog or the Optimization Parameters tab,
+  // then clicking Solve, solved the OLD value with zero indication anything
+  // was wrong. Fix (now the standing pattern): if localInputs is dirty, save
+  // it first and wait for that save to succeed, THEN enqueue the solve.
+  // Never let this dialog become a second place where that bug can recur.
+  function handleSolve() {
+    if (!currentScenario) return;
+    setSolveError(null);
+    const scenarioId = currentScenario.id;
+
+    const runSolve = () => {
+      setSolvePhase("solving");
+      solveScenario.mutate(
+        { scenarioId },
+        {
+          onSuccess: job => setPollingJobId(job.jobId),
+          onError: err => {
+            const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+            setSolvePhase("failed");
+            setSolveError(message);
+            toast({
+              title: "Solve failed to start",
+              description: message,
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    };
+
+    if (isDirty && localInputs) {
+      setSolvePhase("saving");
+      const inputs = localInputs;
+      updateScenario.mutate(
+        { scenarioId, data: { inputs } },
+        {
+          onSuccess: () => {
+            savedInputsRef.current = inputs;
+            queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+            queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+            runSolve();
+          },
+          // A save failing (e.g. a rejected input) used to fail completely
+          // silently in Studio.tsx before that was fixed — Solve just quietly
+          // did nothing. Surface it the same way here.
+          onError: err => {
+            const message = err instanceof Error ? err.message : "The scenario was not solved — fix the invalid input and try again.";
+            setSolvePhase("failed");
+            setSolveError(message);
+            toast({
+              title: "Couldn't save your changes",
+              description: message,
+              variant: "destructive",
+            });
+          },
+        },
+      );
+    } else {
+      runSolve();
+    }
+  }
+
+  const { data: jobStatus } = useGetSolveJob(currentScenario?.id!, pollingJobId!, {
+    query: {
+      enabled: !!currentScenario && !!pollingJobId,
+      queryKey: getGetSolveJobQueryKey(currentScenario?.id!, pollingJobId!),
+      refetchInterval: query => {
+        const status = query.state.data?.status;
+        return status === "queued" || status === "running" ? 800 : false;
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (!jobStatus || !currentScenario) return;
+    if (jobStatus.status === "succeeded") {
+      setSolvePhase("idle");
+      setPollingJobId(null);
+      setSolveDialogOpen(false);
+      openTab("output", OUTPUT_MAP_ENTRY);
+      queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(currentScenario.id) });
+    } else if (jobStatus.status === "failed") {
+      const message = jobStatus.error ?? "The solver did not complete. Try again.";
+      setSolvePhase("failed");
+      setSolveError(message);
+      setPollingJobId(null);
+      toast({
+        title: "Solve failed",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  }, [jobStatus, currentScenario?.id, queryClient]);
+
+  function renderTabContent(): ReactNode {
+    if (!activeTab) return null;
+
+    // A5.1 — p-median-us's real Warehouses tab. two-echelon-gold-au's
+    // Refineries tab reuses the SAME component below (entity="refineries")
+    // rather than forking one — see WarehousesTab's own comment on why.
+    // p-median-brazil shares this entity id but stays a placeholder (falls
+    // through to the generic placeholder at the bottom — no dataset endpoint
+    // exists for it, see inputEntriesForModel's comment).
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && modelId === "p-median-us") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <WarehousesTab
+          warehouses={dataset.warehouses}
+          overrides={warehouseOverridesFromInputs(localInputs)}
+          capacityMode={capacityModeFromInputs(localInputs)}
+          onChange={next => updateInputsField("warehouseOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // A5.3 — two-echelon-gold-au's Refineries tab. `dataset.warehouses`
+    // carries both the fixed mine and the refinery candidates
+    // (WarehouseCandidate.kind) — WarehousesTab already filters out the
+    // mine-kind row regardless of entity, so this is a straight reuse.
+    if (activeTab.kind === "input" && activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <WarehousesTab
+          warehouses={dataset.warehouses}
+          overrides={refineryOverridesFromInputs(localInputs)}
+          capacityMode="none"
+          onChange={next => updateInputsField("refineryOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+          entity="refineries"
+        />
+      );
+    }
+
+    // A1.1/A5.3 — Customers tab, shared by p-median-us AND
+    // two-echelon-gold-au (both use `customerOverrides` and entity
+    // "customers" — the backend disambiguates the shared entity name via the
+    // scenario's own modelId, not a client-side param). p-median-brazil
+    // shares this entity id too but stays a placeholder, same reasoning as
+    // Warehouses above.
+    if (activeTab.kind === "input" && activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <CustomersTab
+          customers={dataset.customers}
+          overrides={customerOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("customerOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // A5.1 — transport-coal's Mines tab. `dataset.warehouses` carries mine
+    // rows for this model (GET /dataset's own description: "transport-coal's
+    // mines/stations mapped onto the same [warehouse/customer] shape").
+    if (activeTab.kind === "input" && activeTab.entity === "mines" && modelId === "transport-coal") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <MinesTab
+          mines={dataset.warehouses}
+          overrides={mineOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("mineCapacities", Object.fromEntries(next.filter(o => o.capacity != null).map(o => [o.id, o.capacity])))}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // A5.1 — transport-coal's Stations tab. `dataset.customers` carries
+    // station rows for this model.
+    if (activeTab.kind === "input" && activeTab.entity === "stations" && modelId === "transport-coal") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <StationsTab
+          stations={dataset.customers}
+          overrides={stationOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("stationDemands", Object.fromEntries(next.filter(o => o.demand != null).map(o => [o.id, o.demand])))}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    if (activeTab.kind === "input" && activeTab.entity === "optimization-parameters") {
+      if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <OptimizationParametersTab
+          p={pFromInputs(localInputs)}
+          gap={gapFromInputs(localInputs)}
+          timeLimitSec={timeLimitSecFromInputs(localInputs)}
+          distanceBands={distanceBandsFromInputs(localInputs)}
+          capacityFactor={capacityFactorFromInputs(localInputs)}
+          singleSource={singleSourceFromInputs(localInputs)}
+          capacityInactive={capacityInactiveFromInputs(localInputs)}
+          bomRatio={bomRatioFromInputs(localInputs)}
+          onChange={(field, value) => updateInputsField(field, value)}
+        />
+      );
+    }
+
+    // A3.1 — Output Map tab. `result` is passed only while this tab is
+    // actually the active one (mirrors Studio.tsx's `activeTab === "output"
+    // ? result : null` guard, Studio.tsx:1544/1554) even though
+    // renderTabContent() itself is only invoked for the active tab — belt
+    // and suspenders so a stale result can never bleed into an unrelated
+    // tab if this component's mounting rules ever change.
+    if (activeTab.kind === "output" && activeTab.entity === "output-map") {
+      // A3.2 — blank this tab's real content behind the stale banner
+      // whenever the scenario's outputs aren't trustworthy (unsolved or
+      // stale), even if the tab was already open+active from before the
+      // scenario transitioned to stale (e.g. solved once, then an input was
+      // edited+saved again without re-solving). Checked before the dataset
+      // loading guard so the banner never has to wait on the map's own data.
+      if (!hasFreshSolvedRun) {
+        return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
+      }
+      // A5.2 — p-median-brazil renders BrazilMap, which needs no `dataset`
+      // at all (it only reads `result`/`showRoutes` — see BrazilMap.tsx;
+      // Studio.tsx's own render branch checks `modelId === "p-median-brazil"`
+      // BEFORE ever touching `dataset` for the exact same reason, Studio.tsx:
+      // 1542). Every other model genuinely needs the dataset query to
+      // resolve first.
+      const useBrazilMap = modelId === "p-median-brazil";
+      if (!useBrazilMap && !dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <OutputMapTab
+          dataset={dataset}
+          warehouseStatuses={warehouseStatusesFromInputs(localInputs, modelId)}
+          result={activeTab.entity === "output-map" ? (currentScenario?.result ?? null) : null}
+          bands={distanceBandsFromInputs(localInputs)}
+          countryBounds={activeModelManifest?.countryBounds}
+          useBrazilMap={useBrazilMap}
+        />
+      );
+    }
+
+    // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids
+    // with p-median-us for naming parity (inputEntriesForModel's comment)
+    // but have no real content: `GET /dataset` genuinely has no
+    // p-median-brazil entry (openapi.yaml's modelId enum), and Studio.tsx
+    // itself has never had override-editing UI for this model either. A
+    // distinct message rather than the generic "later task" copy below,
+    // since this isn't simply unbuilt yet — it's blocked on a backend
+    // capability this task's scope explicitly excludes adding.
+    if (activeTab.kind === "input" && (activeTab.entity === "warehouses" || activeTab.entity === "customers") && modelId === "p-median-brazil") {
+      return (
+        <span className="text-muted-foreground" data-testid="tab-content-placeholder">
+          {activeTab.label} — not available for this model yet (no per-row dataset endpoint exists for p-median-brazil).
+        </span>
+      );
+    }
+
+    // Every other entry (Demand, Distances, and every remaining Output grid)
+    // is a later task (B5.1-C6.1) — unchanged placeholder.
+    return (
+      <span className="text-muted-foreground" data-testid="tab-content-placeholder">
+        {activeTab.label} — content wired in a later task (A1.2-A3.1).
+      </span>
+    );
+  }
+
+  return (
+    <div className="h-screen flex flex-col overflow-hidden" data-testid="workspace-page">
+      <header className="h-14 border-b flex items-center px-4 gap-4 flex-shrink-0 bg-background">
+        {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
+            convention verbatim (same testid/icon/onClick target) rather than
+            inventing new UX: Workspace was the only authed page with no way
+            back to "/" other than the browser's own back button. */}
+        <button
+          onClick={() => navigate("/")}
+          data-testid="button-page-back"
+          title="Back to models"
+          className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <span className="font-semibold text-sm" data-testid="text-app-name">
+          Network Optimization Studio
+        </span>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+          <span className="flex-shrink-0">Scenario:</span>
+          <select
+            aria-label="Scenario"
+            data-testid="select-scenario-context"
+            className="bg-transparent border rounded px-1.5 py-0.5 text-foreground text-sm max-w-[220px] truncate"
+            value={currentScenario?.id ?? ""}
+            onChange={e => handleSelectScenario(parseInt(e.target.value, 10))}
+            disabled={!scenarios?.length}
+          >
+            {!scenarios?.length && <option value="">No scenarios yet</option>}
+            {scenarios?.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1" />
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground" data-testid="text-user-email">
+              {userEmail}
+            </span>
+            {/* Task 10 — logout, reusing AppShell.tsx's exact handleLogout
+                pattern (see the comment on that function above). */}
+            <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
+              Log out
+            </Button>
+          </div>
+          <Button
+            size="sm"
+            disabled={!currentScenario}
+            onClick={openSolveDialog}
+            data-testid="button-run-optimizer"
+          >
+            Run Optimizer
+          </Button>
+        </div>
+      </header>
+
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        <SidebarTree
+          scenarios={(scenarios ?? []).map(s => ({ id: s.id, name: s.name }))}
+          activeScenarioId={currentScenario?.id ?? null}
+          onSelectScenario={handleSelectScenario}
+          onCreateScenario={handleCreateScenario}
+          inputs={inputEntriesForModel(modelId)}
+          outputs={OUTPUT_ENTRIES}
+          hasSolvedRun={hasFreshSolvedRun}
+          activeEntityId={activeTab?.entity ?? null}
+          onOpenInput={entry => openTab("input", entry)}
+          onOpenOutput={entry => openTab("output", entry)}
+          onRenameScenario={handleRenameScenario}
+          onCloneScenario={handleCloneScenario}
+          onDeleteScenario={handleDeleteScenario}
+          onResetScenario={handleResetScenario}
+        />
+
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <TabBar
+            tabs={tabState.tabs}
+            activeTabId={tabState.activeTabId}
+            onActivate={id => dispatch({ type: "activate", id })}
+            onClose={id => dispatch({ type: "close", id })}
+          />
+          {isEditableInputTab && (
+            // A1.1 (fix) — explicit Save, replacing the earlier debounced
+            // auto-save. Mirrors Studio.tsx's toolbar Save button
+            // (isDirty-gated, useUpdateScenario on click) rather than
+            // writing on every edit.
+            <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
+              {isDirty && (
+                <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+                  Unsaved changes
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSaveInputs}
+                disabled={!isDirty || updateScenario.isPending}
+                data-testid="button-save"
+                className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+              >
+                <Save className="w-3.5 h-3.5 mr-1" />
+                {updateScenario.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          )}
+          <div className="flex-1 min-h-0 flex overflow-hidden">
+            <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
+              {activeTab ? renderTabContent() : <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <SolveDialog
+        open={solveDialogOpen}
+        onOpenChange={setSolveDialogOpen}
+        p={pFromInputs(localInputs)}
+        gap={gapFromInputs(localInputs)}
+        timeLimitSec={timeLimitSecFromInputs(localInputs)}
+        onChange={(field, value) => updateInputsField(field, value)}
+        phase={solvePhase}
+        errorMessage={solveError}
+        onSolve={handleSolve}
+      />
+
+      {/* A4.1 — create-scenario dialog, triggered by SidebarTree's "+".
+          Workspace.tsx has a single unconditional return (no early-return
+          branches like Studio.tsx's empty-scenarios states), so — unlike
+          Studio.tsx's documented Dialog-in-an-unreachable-branch bug
+          (CLAUDE.md's gotchas) — there's only one place this needs to be
+          rendered, and it's always reachable. */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New scenario</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Scenario name</Label>
+              <Input
+                value={newScenarioName}
+                onChange={e => setNewScenarioName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") handleCreateConfirm();
+                }}
+                placeholder="e.g. 5 Warehouses – West Coast"
+                className="text-sm"
+                autoFocus
+                data-testid="input-new-scenario-name"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Starts with P = 3, CBC solver, default settings. You can change everything in the configure panel.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreateConfirm}
+              disabled={createScenario.isPending}
+              data-testid="button-create-confirm"
+            >
+              {createScenario.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
