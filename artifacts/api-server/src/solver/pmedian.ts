@@ -57,8 +57,20 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
   // D1.1: sparse per-entity overrides — only entities with a real capacity/
   // demand value produce an entry. solve_pmedian (p-median-us) applies these
   // in the LP; solve_capacitated_pmedian (Brazil) ignores unknown keys.
+  //
+  // Task 27 fix: under capacityMode "none", a per-warehouse capacity
+  // override is the closer structural analog to an added warehouse's own
+  // `capacity` field (task 24) than the uniform mechanism is — both are a
+  // single warehouse's explicit capacity value, keyed by id. "none" must
+  // mean no per-warehouse capacity constraint reaches solve.py from ANY
+  // source (uniform/effectiveCapacity, per-warehouse override here, or an
+  // added warehouse's own record), so the filter below also requires
+  // capacityMode !== "none" — producing an empty dict in that mode, same
+  // sparse-omission convention this dict already uses for "no override".
   const warehouseCapacities = Object.fromEntries(
-    i.warehouseOverrides.filter((o) => o.capacity != null).map((o) => [o.id, o.capacity as number]),
+    i.warehouseOverrides
+      .filter((o) => o.capacity != null && i.capacityMode !== "none")
+      .map((o) => [o.id, o.capacity as number]),
   );
   const customerDemands = Object.fromEntries(
     i.customerOverrides.filter((o) => o.demand != null).map((o) => [o.id, o.demand as number]),

@@ -166,10 +166,65 @@ describe("buildPayload()", () => {
       ...baseInput,
       inputs: {
         ...baseInput.inputs,
+        // capacityMode "per_wh" (not baseInput's default "none") — this
+        // test is about the override-translation mechanic itself, which
+        // only makes sense outside "none" mode (see the task-27 tests
+        // below for the "none" interaction).
+        capacityMode: "per_wh",
         warehouseOverrides: [
           { id: "CHI", status: "active", capacity: 500000 },
           { id: "LA", status: "forced_open" },
         ],
+      },
+    };
+    expect(buildPayload(input).warehouseCapacities).toEqual({ CHI: 500000 });
+  });
+
+  // Task 27: code review found the prior task-24 fix (capacityMode "none"
+  // nulls an added warehouse's own capacity) left a matching asymmetry
+  // unfixed — base warehouses' per-warehouse capacity overrides
+  // (warehouseCapacities, built from i.warehouseOverrides[].capacity) are
+  // the closer structural analog to an added warehouse's own capacity
+  // field, and were still binding under "none". "none" must mean no
+  // per-warehouse capacity constraint reaches solve.py from ANY source:
+  // uniform (effectiveCapacity, pre-existing), per-warehouse override
+  // (warehouseCapacities, this fix), or added-warehouse's own record
+  // (addedWarehouses[].capacity, task 24).
+  it("capacityMode 'none' also nulls out per-warehouse capacity overrides (warehouseCapacities empty, not silently binding)", () => {
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: {
+        ...baseInput.inputs,
+        capacityMode: "none",
+        warehouseOverrides: [
+          { id: "CHI", status: "active", capacity: 500000 },
+          { id: "LA", status: "forced_open" },
+        ],
+      },
+    };
+    expect(buildPayload(input).warehouseCapacities).toEqual({});
+  });
+
+  it("capacityMode 'uniform' still forwards per-warehouse capacity overrides as-authored (no regression)", () => {
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: {
+        ...baseInput.inputs,
+        capacityMode: "uniform",
+        uniformCapacity: 1000000,
+        warehouseOverrides: [{ id: "CHI", status: "active", capacity: 500000 }],
+      },
+    };
+    expect(buildPayload(input).warehouseCapacities).toEqual({ CHI: 500000 });
+  });
+
+  it("capacityMode 'per_wh' still forwards per-warehouse capacity overrides as-authored (no regression)", () => {
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: {
+        ...baseInput.inputs,
+        capacityMode: "per_wh",
+        warehouseOverrides: [{ id: "CHI", status: "active", capacity: 500000 }],
       },
     };
     expect(buildPayload(input).warehouseCapacities).toEqual({ CHI: 500000 });
