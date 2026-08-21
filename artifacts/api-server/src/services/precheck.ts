@@ -1,5 +1,7 @@
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
+import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
+import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 
 /**
  * SCN v0.3 Phase B, task B2.1 - semantic precheck for p-median-us
@@ -74,6 +76,16 @@ const DEFAULT_DATASET: PrecheckDataset = { warehouses: WAREHOUSES, customers: CU
 // p-median-us (validation/inputs/pMedian.ts), so no new schema is needed —
 // only a different base dataset to check added entities against.
 export const BRAZIL_DATASET: PrecheckDataset = { warehouses: BRAZIL_WAREHOUSES, customers: BRAZIL_REGIONS };
+
+// SCN v0.3 Phase B, task B6.1 — transport-coal's base dataset, shaped for
+// this service (`{warehouses: {id}[], customers: {id}[]}`; transport-coal's
+// "warehouses" role is filled by mines, "customers" role by stations).
+// Exported so routes/scenarios.ts's runNetworkEditsPrecheck can pass it to
+// precheckTransportInputs (this file's own transport-coal-specific check
+// function, below — NOT precheckPMedianInputs, since TransportLpInputs has
+// a structurally different shape: no warehouseOverrides/customerOverrides
+// status arrays at all).
+export const TRANSPORT_DATASET: PrecheckDataset = { warehouses: TRANSPORT_COAL_WAREHOUSES, customers: TRANSPORT_COAL_CUSTOMERS };
 
 /**
  * Builds the strict per-role id spaces (base dataset + this scenario's added
@@ -251,6 +263,135 @@ export function precheckPMedianInputs(
       errors.push({
         code: "completeness",
         message: `${whId} missing distances to ${missing.length} customer${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+      });
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+/**
+ * SCN v0.3 Phase B, task B6.1 — semantic precheck for transport-coal
+ * scenario-local network edits (addedMines/addedStations/
+ * laneCostOverrides, transportLp.ts's B6.1 schema). Own function, NOT a
+ * call into precheckPMedianInputs: TransportLpInputs has no
+ * warehouseOverrides/customerOverrides status arrays at all (mines/
+ * stations have no forced-open/inactive/excluded concept anywhere in this
+ * LP — verified against solve_transport and mines.json/stations.json, same
+ * finding merge_inputs.py's build_merged_transport_dataset already made),
+ * so "active" here trivially means every base entity PLUS every added
+ * entity, with no status filtering step — structurally simpler than
+ * precheckPMedianInputs, not just a renamed copy.
+ *
+ * Same three checks, same codes, same "IDs only, never city names"
+ * discipline:
+ *   (a) completeness        - every active added mine has a lane cost to
+ *                              every station, and every mine has a lane
+ *                              cost to every active added station (the
+ *                              "vice versa" direction).
+ *   (b) id collision         - every added entity's id is unique against
+ *                              both the base dataset and every other added
+ *                              entity in the same scenario.
+ *   (c) reference integrity  - every laneCostOverrides pair's fromId
+ *                              resolves as a real mine (base or added) and
+ *                              toId resolves as a real station (base or
+ *                              added) - strict role checking, matching
+ *                              merge_inputs.py's build_merged_transport_
+ *                              dataset (a backwards pair is rejected even
+ *                              if the id is valid in the other role).
+ *
+ * Purely a read/validate operation - never writes to the DB, never mutates
+ * `inputs`.
+ */
+export function precheckTransportInputs(
+  inputs: TransportLpInputs,
+  dataset: PrecheckDataset = TRANSPORT_DATASET,
+): PrecheckResult {
+  const errors: PrecheckError[] = [];
+
+  const baseMineIds = new Set(dataset.warehouses.map((m) => m.id));
+  const baseStationIds = new Set(dataset.customers.map((s) => s.id));
+
+  const addedMines = inputs.addedMines ?? [];
+  const addedStations = inputs.addedStations ?? [];
+  const laneCostOverrides = inputs.laneCostOverrides ?? [];
+
+  // --- (b) ID collision -----------------------------------------------
+  const addedMineIds = new Set<string>();
+  for (const m of addedMines) {
+    if (baseMineIds.has(m.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added mine id '${m.id}' collides with an existing base-dataset mine id`,
+      });
+    } else if (addedMineIds.has(m.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added mine id '${m.id}' is duplicated across addedMines`,
+      });
+    }
+    addedMineIds.add(m.id);
+  }
+
+  const addedStationIds = new Set<string>();
+  for (const s of addedStations) {
+    if (baseStationIds.has(s.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added station id '${s.id}' collides with an existing base-dataset station id`,
+      });
+    } else if (addedStationIds.has(s.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added station id '${s.id}' is duplicated across addedStations`,
+      });
+    }
+    addedStationIds.add(s.id);
+  }
+
+  // --- (c) reference integrity -----------------------------------------
+  const mineIdSpace = new Set(baseMineIds);
+  for (const m of addedMines) mineIdSpace.add(m.id);
+  const stationIdSpace = new Set(baseStationIds);
+  for (const s of addedStations) stationIdSpace.add(s.id);
+
+  for (const o of laneCostOverrides) {
+    if (!mineIdSpace.has(o.fromId)) {
+      errors.push({
+        code: "reference_integrity",
+        message: `laneCostOverrides fromId '${o.fromId}' does not reference a known mine (base dataset or this scenario's added mines)`,
+      });
+    }
+    if (!stationIdSpace.has(o.toId)) {
+      errors.push({
+        code: "reference_integrity",
+        message: `laneCostOverrides toId '${o.toId}' does not reference a known station (base dataset or this scenario's added stations)`,
+      });
+    }
+  }
+
+  // --- (a) completeness --------------------------------------------------
+  // No status filtering at all (unlike precheckPMedianInputs) — every base
+  // + added mine/station is unconditionally "active" here.
+  const activeMineIds = [...baseMineIds, ...addedMines.map((m) => m.id)];
+  const activeStationIds = [...baseStationIds, ...addedStations.map((s) => s.id)];
+  const activeAddedStationIds = addedStations.map((s) => s.id);
+
+  const overrideKeys = new Set(laneCostOverrides.map((o) => o.fromId + "|" + o.toId));
+
+  // A pair needs an explicit override iff at least one side is "added" -
+  // base<->base pairs are guaranteed covered by the base dataset's own
+  // cost matrix. For each mine, the set of stations it's REQUIRED to have
+  // an override for is: every station, if the mine itself is added;
+  // otherwise just the added stations (the "vice versa" direction).
+  for (const mineId of activeMineIds) {
+    const isAddedMine = addedMineIds.has(mineId);
+    const required = isAddedMine ? activeStationIds : activeAddedStationIds;
+    const missing = required.filter((stId) => !overrideKeys.has(mineId + "|" + stId));
+    if (missing.length > 0) {
+      errors.push({
+        code: "completeness",
+        message: `${mineId} missing lane costs to ${missing.length} station${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
       });
     }
   }

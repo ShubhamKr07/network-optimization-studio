@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { precheckPMedianInputs, BRAZIL_DATASET, type PrecheckDataset } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, BRAZIL_DATASET, TRANSPORT_DATASET, type PrecheckDataset } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
+import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 
 // Small fake dataset (not the real 26/200-row p-median-us dataset) — the
 // whole point of B2.1's "take the dataset as a parameter" design is that
@@ -309,5 +310,217 @@ describe("precheckPMedianInputs — B6.3 p-median-brazil dataset wiring", () => 
     };
     const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
     expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(false);
+  });
+});
+
+// SCN v0.3 Phase B, task B6.1 — transport-coal fast-follow. Own function
+// (not precheckPMedianInputs) because TransportLpInputs has no
+// warehouseOverrides/customerOverrides status arrays at all — mines/
+// stations have no forced-open/inactive/excluded concept, so "active"
+// trivially means every base + added entity, no status filtering needed.
+// Small fake dataset (mirrors the p-median describe block above's own
+// convention) for isolated unit coverage; the real TRANSPORT_DATASET
+// wiring is exercised separately below.
+const TRANSPORT_DATASET_FAKE: PrecheckDataset = {
+  warehouses: [{ id: "MN-A" }, { id: "MN-B" }],
+  customers: [{ id: "ST-1" }, { id: "ST-2" }, { id: "ST-3" }],
+};
+
+const TRANSPORT_BASE: TransportLpInputs = {
+  capacityFactor: 1.0,
+  singleSource: false,
+  capacityInactive: false,
+  distanceBands: [500, 1000, 1500, 2000],
+  gap: 0.01,
+  timeLimitSec: 60,
+  mineCapacities: {},
+  stationDemands: {},
+  addedMines: [],
+  addedStations: [],
+  laneCostOverrides: [],
+};
+
+describe("precheckTransportInputs — B6.1 semantic precheck", () => {
+  describe("(a) completeness", () => {
+    it("passes when an added mine has lane costs to every station", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedMines: [{ id: "MN-09", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5_000_000 }],
+        laneCostOverrides: [
+          { fromId: "MN-09", toId: "ST-1", cost: 10 },
+          { fromId: "MN-09", toId: "ST-2", cost: 20 },
+          { fromId: "MN-09", toId: "ST-3", cost: 30 },
+        ],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+
+    it("produces a structured error listing exactly which stations are missing lane costs", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedMines: [{ id: "MN-09", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5_000_000 }],
+        laneCostOverrides: [{ fromId: "MN-09", toId: "ST-1", cost: 10 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "MN-09 missing lane costs to 2 stations: ST-2, ST-3",
+      });
+    });
+
+    it("a base mine requires a lane cost to an added station (vice-versa direction)", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedStations: [{ id: "ST-NEW", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, demand: 500 }],
+        laneCostOverrides: [{ fromId: "MN-A", toId: "ST-NEW", cost: 15 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      // MN-B has no override to ST-NEW — must be flagged.
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "MN-B missing lane costs to 1 station: ST-NEW",
+      });
+      // MN-A is fully covered — must not be flagged.
+      expect(result.errors.some((e) => e.message.startsWith("MN-A"))).toBe(false);
+    });
+  });
+
+  describe("(b) ID collision", () => {
+    it("rejects an added mine reusing a real base-dataset ID", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedMines: [{ id: "MN-A", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added mine id 'MN-A' collides with an existing base-dataset mine id",
+      });
+    });
+
+    it("rejects two added mines sharing the same ID", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedMines: [
+          { id: "MN-DUP", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19 },
+          { id: "MN-DUP", city: "Beckley", state: "WV", lat: 37.78, lng: -81.19 },
+        ],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added mine id 'MN-DUP' is duplicated across addedMines",
+      });
+    });
+
+    it("rejects an added station reusing a real base-dataset ID", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedStations: [{ id: "ST-1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, demand: 500 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added station id 'ST-1' collides with an existing base-dataset station id",
+      });
+    });
+
+    it("rejects two added stations sharing the same ID", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedStations: [
+          { id: "ST-DUP", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, demand: 500 },
+          { id: "ST-DUP", city: "Sacramento", state: "CA", lat: 38.6, lng: -121.5, demand: 300 },
+        ],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added station id 'ST-DUP' is duplicated across addedStations",
+      });
+    });
+  });
+
+  describe("(c) reference integrity", () => {
+    it("rejects a laneCostOverrides pair whose fromId is unknown", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        laneCostOverrides: [{ fromId: "MN-GHOST", toId: "ST-1", cost: 50 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "reference_integrity",
+        message:
+          "laneCostOverrides fromId 'MN-GHOST' does not reference a known mine (base dataset or this scenario's added mines)",
+      });
+    });
+
+    it("rejects a laneCostOverrides pair whose toId is unknown", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        laneCostOverrides: [{ fromId: "MN-A", toId: "ST-GHOST", cost: 50 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "reference_integrity",
+        message:
+          "laneCostOverrides toId 'ST-GHOST' does not reference a known station (base dataset or this scenario's added stations)",
+      });
+    });
+
+    it("rejects a backwards pair (fromId is a station id, toId is a mine id)", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        laneCostOverrides: [{ fromId: "ST-1", toId: "MN-A", cost: 50 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(true);
+    });
+
+    it("accepts a laneCostOverrides pair referencing this scenario's own added entities", () => {
+      const inputs: TransportLpInputs = {
+        ...TRANSPORT_BASE,
+        addedMines: [{ id: "MN-09", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19 }],
+        addedStations: [{ id: "ST-NEW", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, demand: 500 }],
+        laneCostOverrides: [{ fromId: "MN-09", toId: "ST-NEW", cost: 5 }],
+      };
+      const result = precheckTransportInputs(inputs, TRANSPORT_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(false);
+    });
+  });
+
+  it("returns ok:true with no errors for a scenario with no network edits at all", () => {
+    const result = precheckTransportInputs(TRANSPORT_BASE, TRANSPORT_DATASET_FAKE);
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it("defaults to the real transport-coal dataset when no dataset argument is given", () => {
+    // Any real base-dataset mine id (KY) collides.
+    const inputs: TransportLpInputs = {
+      ...TRANSPORT_BASE,
+      addedMines: [{ id: "KY", city: "Pikeville", state: "KY", lat: 37.54, lng: -82.75 }],
+    };
+    const result = precheckTransportInputs(inputs);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual({
+      code: "id_collision",
+      message: "Added mine id 'KY' collides with an existing base-dataset mine id",
+    });
+  });
+
+  it("returns ok:true with no errors for a real transport-coal scenario with no network edits", () => {
+    const result = precheckTransportInputs(TRANSPORT_BASE, TRANSPORT_DATASET);
+    expect(result).toEqual({ ok: true, errors: [] });
   });
 });
