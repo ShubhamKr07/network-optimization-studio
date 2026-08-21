@@ -56,3 +56,8 @@ __pycache__/
 
 # Worktrees (subagent-driven-development scratch)
 .worktrees/
+
+# Environment variables
+.env
+.env.local
+.env.*.local

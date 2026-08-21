@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
+import { posthog } from "../lib/posthog.js";
 import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
@@ -86,6 +87,17 @@ router.post("/scenarios", async (req, res) => {
     inputs: validation.data,
     result: null,
   }).returning();
+
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario created",
+    properties: {
+      scenario_id: row.id,
+      model_id: row.modelId,
+      scenario_name: row.name,
+    },
+  });
+
   res.status(201).json(toApiScenario(row));
 });
 
@@ -137,6 +149,16 @@ router.post("/scenarios/compare", async (req, res) => {
     return;
   }
 
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario compared",
+    properties: {
+      scenario_ids: ids,
+      scenario_count: ids.length,
+      model_id: [...modelIds][0],
+    },
+  });
+
   res.json({ scenarios: orderedRows.map(toApiScenario) });
 });
 
@@ -178,6 +200,17 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
+
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario updated",
+    properties: {
+      scenario_id: row.id,
+      model_id: row.modelId,
+      updated_fields: Object.keys(updateObj),
+    },
+  });
+
   res.json(toApiScenario(row));
 });
 
@@ -203,6 +236,16 @@ router.delete("/scenarios/:scenarioId", async (req, res) => {
       .returning();
   });
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
+
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario deleted",
+    properties: {
+      scenario_id: row.id,
+      model_id: row.modelId,
+    },
+  });
+
   res.status(204).send();
 });
 
@@ -242,6 +285,16 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
     req.userId!,
     { modelId: scenario.modelId, inputs: validation.data } as SolveInput,
   );
+
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario solve enqueued",
+    properties: {
+      scenario_id: id,
+      model_id: scenario.modelId,
+      job_id: jobId,
+    },
+  });
 
   res.status(202).json({ jobId });
 });
@@ -317,6 +370,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // convert to the array shape the apply* functions expect, same direction
     // Studio's tables convert when loading.
     const inputs = scenario.inputs as { mineCapacities?: Record<string, number>; stationDemands?: Record<string, number> };
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
     if (format === "csv") {
       const csv = entity === "mines"
         ? mineRowsToCsv(applyMineOverrides(Object.entries(inputs.mineCapacities ?? {}).map(([mineId, capacity]) => ({ id: mineId, capacity }))))
@@ -333,6 +391,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
 
   if (scenario.modelId === "two-echelon-gold-au") {
     const inputs = scenario.inputs as { refineryOverrides?: unknown[]; customerOverrides?: unknown[] };
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
     if (format === "csv") {
       const csv = entity === "refineries"
         ? refineryRowsToCsv(applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0]))
@@ -353,6 +416,12 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const rows = entity === "warehouses"
     ? applyWarehouseOverrides((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0])
     : applyCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyCustomerOverrides>[0]);
+
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario data exported",
+    properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+  });
 
   if (format === "csv") {
     const csv = entity === "warehouses"
@@ -532,6 +601,19 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
 
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario data imported",
+    properties: {
+      scenario_id: id,
+      model_id: scenario.modelId,
+      entity,
+      applied_count: preview.changes.length,
+      error_count: preview.errors.length,
+      mode: applyMode,
+    },
+  });
+
   res.json({ scenario: toApiScenario(updated), applied: preview.changes.length, errors: preview.errors });
 });
 
@@ -570,6 +652,15 @@ router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
 
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario reset to baseline",
+    properties: {
+      scenario_id: id,
+      model_id: scenario.modelId,
+    },
+  });
+
   res.json(toApiScenario(updated));
 });
 
@@ -586,6 +677,16 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
     inputs: scenario.inputs,
     result: null,
   }).returning();
+
+  posthog?.capture({
+    distinctId: req.userId!,
+    event: "scenario cloned",
+    properties: {
+      source_scenario_id: id,
+      clone_scenario_id: clone.id,
+      model_id: clone.modelId,
+    },
+  });
 
   res.status(201).json(toApiScenario(clone));
 });
