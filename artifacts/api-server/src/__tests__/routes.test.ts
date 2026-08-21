@@ -36,6 +36,7 @@ vi.mock("../solver/jobRunner.js", () => ({
 import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES } from "../data/transportCoalDataset.js";
+import { GOLD_REFINERIES } from "../data/twoEchelonDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -1572,6 +1573,37 @@ describe("POST /api/scenarios/:id/solve", () => {
     expect(res.status).toBe(202);
     expect(mockEnqueueSolveJob).toHaveBeenCalled();
   });
+
+  // B6.2 — two-echelon-gold-au gets its own precheck function (precheckTwoEchelonInputs).
+  it("returns 422 with structured precheck errors when a two-echelon-gold-au scenario's network edits fail precheck, and does not enqueue", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...twoEchelonRow,
+      inputs: {
+        ...twoEchelonInputs,
+        // Reuses a real base-dataset refinery id — an id-collision finding.
+        addedRefineries: [{ id: GOLD_REFINERIES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).post("/api/scenarios/11/solve").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBeTypeOf("string");
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added refinery id '${GOLD_REFINERIES[0].id}' collides with an existing base-dataset refinery id`,
+    });
+    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+  });
+
+  it("still enqueues a two-echelon-gold-au scenario with no network edits (precheck trivially passes)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    mockEnqueueSolveJob.mockResolvedValue(103);
+    const res = await request(app).post("/api/scenarios/11/solve").set("Cookie", cookie);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+  });
 });
 
 // B2.1 — standalone precheck endpoint (frontend inline warnings, B5.2).
@@ -1675,6 +1707,35 @@ describe("GET /api/scenarios/:id/precheck", () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const res = await request(app).get("/api/scenarios/8/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, errors: [] });
+  });
+
+  // B6.2 — two-echelon-gold-au fast-follow: same endpoint, checked against
+  // precheckTwoEchelonInputs and the real two-echelon-gold-au base dataset.
+  it("returns structured precheck errors for a two-echelon-gold-au scenario against the real dataset", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...twoEchelonRow,
+      inputs: {
+        ...twoEchelonInputs,
+        addedRefineries: [{ id: GOLD_REFINERIES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
+      },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/11/precheck").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added refinery id '${GOLD_REFINERIES[0].id}' collides with an existing base-dataset refinery id`,
+    });
+  });
+
+  it("returns ok:true with no errors for a two-echelon-gold-au scenario with no network edits", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const res = await request(app).get("/api/scenarios/11/precheck").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, errors: [] });
   });

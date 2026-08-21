@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { precheckPMedianInputs, precheckTransportInputs, buildTransportIdSpaces, BRAZIL_DATASET, TRANSPORT_DATASET, type PrecheckDataset } from "../services/precheck.js";
+import {
+  precheckPMedianInputs,
+  precheckTransportInputs,
+  precheckTwoEchelonInputs,
+  buildTransportIdSpaces,
+  buildTwoEchelonIdSpaces,
+  BRAZIL_DATASET,
+  TRANSPORT_DATASET,
+  TWO_ECHELON_DATASET,
+  type PrecheckDataset,
+  type TwoEchelonPrecheckDataset,
+} from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
+import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 
 // Small fake dataset (not the real 26/200-row p-median-us dataset) — the
 // whole point of B2.1's "take the dataset as a parameter" design is that
@@ -551,5 +563,311 @@ describe("buildTransportIdSpaces", () => {
   it("defaults to the real transport-coal dataset when no dataset argument is given", () => {
     const { mineIdSpace } = buildTransportIdSpaces({});
     expect(mineIdSpace.has("KY")).toBe(true);
+  });
+});
+
+// SCN v0.3 Phase B, task B6.2 — two-echelon-gold-au fast-follow. Own
+// function (not precheckPMedianInputs/precheckTransportInputs) — a THIRD
+// entity type (mine/refinery/customer) and two legs sharing one
+// distanceOverrides array, where a pair's leg is resolved by which id-space
+// each side belongs to. Small fake dataset (mirrors the p-median/transport
+// describe blocks' own convention) for isolated unit coverage; the real
+// TWO_ECHELON_DATASET wiring is exercised separately below.
+const TWO_ECHELON_DATASET_FAKE: TwoEchelonPrecheckDataset = {
+  mines: [{ id: "MINE-A" }],
+  refineries: [{ id: "REF-A" }, { id: "REF-B" }],
+  customers: [{ id: "C-1" }, { id: "C-2" }, { id: "C-3" }],
+};
+
+const TWO_ECHELON_BASE: TwoEchelonInputs = {
+  bomRatio: 1.1,
+  refineryOverrides: [],
+  customerOverrides: [],
+  distanceBands: [500, 1000, 1500, 2000, 2600],
+  gap: 0.01,
+  timeLimitSec: 60,
+  addedRefineries: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+describe("precheckTwoEchelonInputs — B6.2 semantic precheck", () => {
+  describe("(a) completeness", () => {
+    it("passes when an added refinery has distances from the mine and to every customer", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+        distanceOverrides: [
+          { fromId: "MINE-A", toId: "REF-09", distance: 10 },
+          { fromId: "REF-09", toId: "C-1", distance: 20 },
+          { fromId: "REF-09", toId: "C-2", distance: 30 },
+          { fromId: "REF-09", toId: "C-3", distance: 40 },
+        ],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+
+    it("produces a structured error listing exactly which customers are missing distances", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+        distanceOverrides: [
+          { fromId: "MINE-A", toId: "REF-09", distance: 10 },
+          { fromId: "REF-09", toId: "C-1", distance: 20 },
+        ],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "REF-09 missing distances to 2 customers: C-2, C-3",
+      });
+    });
+
+    it("produces a structured error listing exactly which mines are missing distances", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+        distanceOverrides: [
+          { fromId: "REF-09", toId: "C-1", distance: 20 },
+          { fromId: "REF-09", toId: "C-2", distance: 30 },
+          { fromId: "REF-09", toId: "C-3", distance: 40 },
+        ],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "REF-09 missing distances from 1 mine: MINE-A",
+      });
+    });
+
+    it("an excluded base customer's missing distance does NOT trigger a completeness error", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+        customerOverrides: [{ id: "C-3", status: "excluded" }],
+        distanceOverrides: [
+          { fromId: "MINE-A", toId: "REF-09", distance: 10 },
+          { fromId: "REF-09", toId: "C-1", distance: 20 },
+          { fromId: "REF-09", toId: "C-2", distance: 30 },
+        ],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+
+    it("an inactive added refinery is not required to have distances (it's not active)", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "inactive" }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+    });
+
+    it("a base refinery requires a distance to an added active customer (vice-versa direction)", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedCustomers: [{ id: "C-NEW", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 }],
+        distanceOverrides: [{ fromId: "REF-A", toId: "C-NEW", distance: 15 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      // REF-B has no override to C-NEW — must be flagged.
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "REF-B missing distances to 1 customer: C-NEW",
+      });
+      // REF-A is fully covered — must not be flagged.
+      expect(result.errors.some((e) => e.message.startsWith("REF-A"))).toBe(false);
+      // Neither base refinery needs a mine-leg override — only added
+      // refineries do.
+      expect(result.errors.some((e) => e.message.includes("missing distances from"))).toBe(false);
+    });
+  });
+
+  describe("(b) ID collision", () => {
+    it("rejects an added refinery reusing a real base-dataset refinery ID", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-A", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added refinery id 'REF-A' collides with an existing base-dataset refinery id",
+      });
+    });
+
+    it("rejects an added refinery reusing the mine's own ID", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "MINE-A", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added refinery id 'MINE-A' collides with the mine id",
+      });
+    });
+
+    it("rejects two added refineries sharing the same ID", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [
+          { id: "REF-DUP", city: "X", state: "WA", lat: -30, lng: 121, status: "active" },
+          { id: "REF-DUP", city: "Y", state: "WA", lat: -31, lng: 122, status: "active" },
+        ],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added refinery id 'REF-DUP' is duplicated across addedRefineries",
+      });
+    });
+
+    it("rejects an added customer reusing a real base-dataset ID", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedCustomers: [{ id: "C-1", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added customer id 'C-1' collides with an existing base-dataset customer id",
+      });
+    });
+
+    it("rejects two added customers sharing the same ID", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedCustomers: [
+          { id: "C-DUP", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 },
+          { id: "C-DUP", city: "Adelaide", state: "SA", lat: -34, lng: 138, demand: 300 },
+        ],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added customer id 'C-DUP' is duplicated across addedCustomers",
+      });
+    });
+  });
+
+  describe("(c) reference integrity", () => {
+    it("rejects a distanceOverrides pair whose fromId/toId are both unknown", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        distanceOverrides: [{ fromId: "GHOST-1", toId: "GHOST-2", distance: 50 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "reference_integrity",
+        message:
+          "distanceOverrides pair (fromId 'GHOST-1', toId 'GHOST-2') does not resolve as a mine->refinery leg or a refinery->customer leg (base dataset or this scenario's added refineries/customers)",
+      });
+    });
+
+    it("rejects a backwards pair (fromId is a customer id, toId is a refinery id)", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        distanceOverrides: [{ fromId: "C-1", toId: "REF-A", distance: 50 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(true);
+    });
+
+    it("rejects a pair skipping a leg entirely (mine -> customer directly)", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        distanceOverrides: [{ fromId: "MINE-A", toId: "C-1", distance: 50 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(true);
+    });
+
+    it("accepts a mine->refinery leg pair referencing a base mine and an added refinery", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+        distanceOverrides: [{ fromId: "MINE-A", toId: "REF-09", distance: 5 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(false);
+    });
+
+    it("accepts a refinery->customer leg pair referencing this scenario's own added entities", () => {
+      const inputs: TwoEchelonInputs = {
+        ...TWO_ECHELON_BASE,
+        addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
+        addedCustomers: [{ id: "C-NEW", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 }],
+        distanceOverrides: [{ fromId: "REF-09", toId: "C-NEW", distance: 5 }],
+      };
+      const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(false);
+    });
+  });
+
+  it("returns ok:true with no errors for a scenario with no network edits at all", () => {
+    const result = precheckTwoEchelonInputs(TWO_ECHELON_BASE, TWO_ECHELON_DATASET_FAKE);
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it("defaults to the real two-echelon-gold-au dataset when no dataset argument is given", () => {
+    // Any real base-dataset refinery id (cunnamulla) collides.
+    const inputs: TwoEchelonInputs = {
+      ...TWO_ECHELON_BASE,
+      addedRefineries: [{ id: "cunnamulla", city: "X", state: "QLD", lat: 0, lng: 0, status: "active" }],
+    };
+    const result = precheckTwoEchelonInputs(inputs);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual({
+      code: "id_collision",
+      message: "Added refinery id 'cunnamulla' collides with an existing base-dataset refinery id",
+    });
+  });
+
+  it("returns ok:true with no errors for a real two-echelon-gold-au scenario with no network edits", () => {
+    const result = precheckTwoEchelonInputs(TWO_ECHELON_BASE, TWO_ECHELON_DATASET);
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+});
+
+describe("buildTwoEchelonIdSpaces", () => {
+  it("includes base mine/refinery/customer ids plus any added refineries/customers", () => {
+    const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(
+      {
+        addedRefineries: [{ id: "REF-NEW" }],
+        addedCustomers: [{ id: "C-NEW" }],
+      },
+      TWO_ECHELON_DATASET_FAKE,
+    );
+    expect(mineIdSpace).toEqual(new Set(["MINE-A"]));
+    expect(refineryIdSpace).toEqual(new Set(["REF-A", "REF-B", "REF-NEW"]));
+    expect(customerIdSpace).toEqual(new Set(["C-1", "C-2", "C-3", "C-NEW"]));
+  });
+
+  it("defaults to base ids only when no added entities are given", () => {
+    const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces({}, TWO_ECHELON_DATASET_FAKE);
+    expect(mineIdSpace).toEqual(new Set(["MINE-A"]));
+    expect(refineryIdSpace).toEqual(new Set(["REF-A", "REF-B"]));
+    expect(customerIdSpace).toEqual(new Set(["C-1", "C-2", "C-3"]));
+  });
+
+  it("defaults to the real two-echelon-gold-au dataset when no dataset argument is given", () => {
+    const { mineIdSpace } = buildTwoEchelonIdSpaces({});
+    expect(mineIdSpace.has("kalgoorlie")).toBe(true);
   });
 });

@@ -28,10 +28,11 @@ import {
 } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, BRAZIL_DATASET } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
+import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 
 const router = Router();
 
@@ -280,12 +281,13 @@ const SOLVE_RETRY_AFTER_SECONDS = 30;
 // default). B6.1: transport-coal gets its OWN check function
 // (precheckTransportInputs) — its TransportLpInputs shape has no
 // warehouseOverrides/customerOverrides status arrays at all, so it isn't a
-// drop-in call to precheckPMedianInputs. two-echelon-gold-au still has no
-// network-edit fields on its own input schema at all, so it still trivially
-// passes with ok:true/errors:[], matching this endpoint's own OpenAPI doc
-// note. `inputs` here is always already-validated (validateInputsForModel's
-// `.data`), so the casts are safe exactly where they're used, same pattern
-// as this file's existing `as SolveInput` cast below.
+// drop-in call to precheckPMedianInputs. B6.2: two-echelon-gold-au gets its
+// OWN check function too (precheckTwoEchelonInputs) — a THIRD entity type
+// (mine/refinery/customer) and two legs sharing one distanceOverrides array,
+// structurally different from both the above. `inputs` here is always
+// already-validated (validateInputsForModel's `.data`), so the casts are
+// safe exactly where they're used, same pattern as this file's existing
+// `as SolveInput` cast below.
 function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
   if (modelId === "p-median-us") {
     return precheckPMedianInputs(inputs as unknown as PMedianInputs);
@@ -295,6 +297,9 @@ function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown
   }
   if (modelId === "transport-coal") {
     return precheckTransportInputs(inputs as unknown as TransportLpInputs);
+  }
+  if (modelId === "two-echelon-gold-au") {
+    return precheckTwoEchelonInputs(inputs as unknown as TwoEchelonInputs);
   }
   return { ok: true, errors: [] };
 }

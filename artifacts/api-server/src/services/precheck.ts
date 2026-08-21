@@ -1,7 +1,9 @@
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
+import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
+import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 
 /**
  * SCN v0.3 Phase B, task B2.1 - semantic precheck for p-median-us
@@ -264,6 +266,213 @@ export function precheckPMedianInputs(
         code: "completeness",
         message: `${whId} missing distances to ${missing.length} customer${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
       });
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+// SCN v0.3 Phase B, task B6.2 — two-echelon-gold-au's base dataset, shaped
+// for THIS model's own three-entity-type precheck (mine/refinery/customer,
+// not the two-role PrecheckDataset shape every other model above uses —
+// this model has a genuinely third role, the fixed mine, that the two-role
+// shape has no field for). Exported so routes/scenarios.ts's
+// runNetworkEditsPrecheck can pass it to precheckTwoEchelonInputs.
+export interface TwoEchelonPrecheckDataset {
+  mines: readonly PrecheckDatasetEntity[];
+  refineries: readonly PrecheckDatasetEntity[];
+  customers: readonly PrecheckDatasetEntity[];
+}
+
+export const TWO_ECHELON_DATASET: TwoEchelonPrecheckDataset = {
+  mines: GOLD_MINES,
+  refineries: GOLD_REFINERIES,
+  customers: GOLD_CUSTOMERS,
+};
+
+/**
+ * SCN v0.3 Phase B, task B6.2 — the two-echelon-gold-au analogue of
+ * buildPMedianIdSpaces/buildTransportIdSpaces above: base mine/refinery/
+ * customer ids + this scenario's added refineries/customers (no
+ * addedMines — the mine is fixed, never overridable). Extracted from the
+ * start (not inlined and extracted later), mirroring buildTransportIdSpaces'
+ * own precedent — a future import.ts entity for this model's leg-distance
+ * grid reuses this exact id-space rule rather than recomputing it a
+ * possibly-divergent way.
+ */
+export function buildTwoEchelonIdSpaces(
+  addedEntities: {
+    addedRefineries?: readonly PrecheckDatasetEntity[];
+    addedCustomers?: readonly PrecheckDatasetEntity[];
+  },
+  dataset: TwoEchelonPrecheckDataset = TWO_ECHELON_DATASET,
+): { mineIdSpace: Set<string>; refineryIdSpace: Set<string>; customerIdSpace: Set<string> } {
+  const mineIdSpace = new Set(dataset.mines.map((m) => m.id));
+  const refineryIdSpace = new Set(dataset.refineries.map((r) => r.id));
+  for (const r of addedEntities.addedRefineries ?? []) refineryIdSpace.add(r.id);
+  const customerIdSpace = new Set(dataset.customers.map((c) => c.id));
+  for (const c of addedEntities.addedCustomers ?? []) customerIdSpace.add(c.id);
+  return { mineIdSpace, refineryIdSpace, customerIdSpace };
+}
+
+/**
+ * SCN v0.3 Phase B, task B6.2 — semantic precheck for two-echelon-gold-au
+ * scenario-local network edits (addedRefineries/addedCustomers/
+ * distanceOverrides, twoEchelon.ts's B6.2 schema). Own function, NOT a call
+ * into precheckPMedianInputs/precheckTransportInputs: this model has a
+ * genuinely different shape from both — THREE entity types (mine/refinery/
+ * customer, not two) and TWO legs sharing one flat distanceOverrides array,
+ * where a pair's leg is resolved by which id-space each side belongs to
+ * (mirrors merge_inputs.py's build_merged_two_echelon_dataset exactly, not
+ * re-derived differently here).
+ *
+ * Same three checks, same codes, same "IDs only, never city names"
+ * discipline:
+ *   (a) completeness        - every active added refinery needs a distance
+ *                              from the (fixed) mine AND to every active
+ *                              customer; every active refinery (base or
+ *                              added) needs a distance to every active
+ *                              added customer (the "vice versa" direction,
+ *                              refinery role = warehouse role in the other
+ *                              models' precedent).
+ *   (b) id collision         - every added refinery/customer's id is unique
+ *                              against the base dataset (refineries,
+ *                              customers, AND the mine — a refinery/mine id
+ *                              collision would make merge_inputs.py's own
+ *                              id-space membership check ambiguous) and
+ *                              every other added entity in the same
+ *                              scenario.
+ *   (c) reference integrity  - every distanceOverrides pair must resolve as
+ *                              EITHER a mine->refinery leg OR a refinery->
+ *                              customer leg (base dataset or this
+ *                              scenario's added refineries/customers) -
+ *                              strict role checking, matching merge_inputs.
+ *                              py's build_merged_two_echelon_dataset (a
+ *                              backwards or leg-skipping pair is rejected
+ *                              even if both ids are individually valid).
+ *
+ * Purely a read/validate operation - never writes to the DB, never mutates
+ * `inputs`.
+ */
+export function precheckTwoEchelonInputs(
+  inputs: TwoEchelonInputs,
+  dataset: TwoEchelonPrecheckDataset = TWO_ECHELON_DATASET,
+): PrecheckResult {
+  const errors: PrecheckError[] = [];
+
+  const baseMineIds = new Set(dataset.mines.map((m) => m.id));
+  const baseRefineryIds = new Set(dataset.refineries.map((r) => r.id));
+  const baseCustomerIds = new Set(dataset.customers.map((c) => c.id));
+
+  const addedRefineries = inputs.addedRefineries ?? [];
+  const addedCustomers = inputs.addedCustomers ?? [];
+  const distanceOverrides = inputs.distanceOverrides ?? [];
+  const refineryOverrides = inputs.refineryOverrides ?? [];
+  const customerOverrides = inputs.customerOverrides ?? [];
+
+  // --- (b) ID collision -----------------------------------------------
+  const addedRefineryIds = new Set<string>();
+  for (const r of addedRefineries) {
+    if (baseRefineryIds.has(r.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added refinery id '${r.id}' collides with an existing base-dataset refinery id`,
+      });
+    } else if (baseMineIds.has(r.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added refinery id '${r.id}' collides with the mine id`,
+      });
+    } else if (addedRefineryIds.has(r.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added refinery id '${r.id}' is duplicated across addedRefineries`,
+      });
+    }
+    addedRefineryIds.add(r.id);
+  }
+
+  const addedCustomerIds = new Set<string>();
+  for (const c of addedCustomers) {
+    if (baseCustomerIds.has(c.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added customer id '${c.id}' collides with an existing base-dataset customer id`,
+      });
+    } else if (addedCustomerIds.has(c.id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added customer id '${c.id}' is duplicated across addedCustomers`,
+      });
+    }
+    addedCustomerIds.add(c.id);
+  }
+
+  // --- (c) reference integrity -----------------------------------------
+  // Built via the shared helper above — every pair must cleanly resolve as
+  // ONE of the two adjacent-leg shapes, never "whichever role happens to
+  // contain it" (mirrors merge_inputs.py's build_merged_two_echelon_dataset
+  // exactly).
+  const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(inputs, dataset);
+  for (const o of distanceOverrides) {
+    const isMineToRefinery = mineIdSpace.has(o.fromId) && refineryIdSpace.has(o.toId);
+    const isRefineryToCustomer = refineryIdSpace.has(o.fromId) && customerIdSpace.has(o.toId);
+    if (!isMineToRefinery && !isRefineryToCustomer) {
+      errors.push({
+        code: "reference_integrity",
+        message: `distanceOverrides pair (fromId '${o.fromId}', toId '${o.toId}') does not resolve as a mine->refinery leg or a refinery->customer leg (base dataset or this scenario's added refineries/customers)`,
+      });
+    }
+  }
+
+  // --- (a) completeness --------------------------------------------------
+  // "Active" per the same rule precheckPMedianInputs/precheckTransportInputs
+  // already establish: base refineries not inactive per refineryOverrides,
+  // plus added refineries not inactive per their own status; base customers
+  // not excluded per customerOverrides, plus every added customer
+  // (addedCustomerSchema has no status field, same precedent as p-median's
+  // own added customers).
+  const refineryStatusById = new Map(refineryOverrides.map((o) => [o.id, o.status]));
+  const activeBaseRefineryIds = [...baseRefineryIds].filter((id) => refineryStatusById.get(id) !== "inactive");
+  const activeAddedRefineryIds = addedRefineries.filter((r) => r.status !== "inactive").map((r) => r.id);
+  const activeRefineryIds = [...activeBaseRefineryIds, ...activeAddedRefineryIds];
+
+  const customerStatusById = new Map(customerOverrides.map((o) => [o.id, o.status]));
+  const activeBaseCustomerIds = [...baseCustomerIds].filter((id) => customerStatusById.get(id) !== "excluded");
+  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
+
+  const overrideKeys = new Set(distanceOverrides.map((o) => o.fromId + "|" + o.toId));
+
+  for (const refId of activeRefineryIds) {
+    const isAddedRefinery = addedRefineryIds.has(refId);
+
+    // refinery -> customer leg: base<->base pairs are guaranteed covered by
+    // the base dataset's own distance matrix (an invariant of the dataset,
+    // not re-verified here) — a pair needs an explicit override iff at
+    // least one side is "added" (mirrors precheckPMedianInputs' own
+    // warehouse<->customer completeness rule exactly, refinery role =
+    // warehouse role).
+    const requiredCustomers = isAddedRefinery ? activeCustomerIds : activeAddedCustomerIds;
+    const missingCustomers = requiredCustomers.filter((custId) => !overrideKeys.has(refId + "|" + custId));
+    if (missingCustomers.length > 0) {
+      errors.push({
+        code: "completeness",
+        message: `${refId} missing distances to ${missingCustomers.length} customer${missingCustomers.length === 1 ? "" : "s"}: ${missingCustomers.join(", ")}`,
+      });
+    }
+
+    // mine -> refinery leg: only an ADDED refinery needs this at all — a
+    // base refinery already has a base-dataset distance to the (single)
+    // fixed mine, same "base<->base already covered" invariant as above.
+    if (isAddedRefinery) {
+      const missingMines = [...mineIdSpace].filter((mineId) => !overrideKeys.has(mineId + "|" + refId));
+      if (missingMines.length > 0) {
+        errors.push({
+          code: "completeness",
+          message: `${refId} missing distances from ${missingMines.length} mine${missingMines.length === 1 ? "" : "s"}: ${missingMines.join(", ")}`,
+        });
+      }
     }
   }
 
