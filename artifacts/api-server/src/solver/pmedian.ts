@@ -24,6 +24,16 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       capacityInactive: i.capacityInactive,
       mineCapacities: i.mineCapacities,
       stationDemands: i.stationDemands,
+      // B6.1: pass transportLp.ts's scenario-local network-edit arrays
+      // straight through by their exact schema names — merge_inputs.py's
+      // build_merged_transport_dataset reads them via
+      // inp.get("addedMines"/"addedStations"/"laneCostOverrides", []), so
+      // absent/empty here is byte-identical to today's behavior (mirrors
+      // p-median's addedWarehouses/addedCustomers/distanceOverrides
+      // passthrough below).
+      addedMines: i.addedMines,
+      addedStations: i.addedStations,
+      laneCostOverrides: i.laneCostOverrides,
     };
   }
 

@@ -393,3 +393,145 @@ def build_merged_brazil_dataset(
         "addedWarehousesById": added_warehouses_by_id,
         "addedCustomersById": added_customers_by_id,
     }
+
+
+def build_merged_transport_dataset(
+    inputs: dict[str, Any],
+    mines: dict[str, dict],
+    stations: dict[str, dict],
+    distance: dict[tuple[str, str], float],
+) -> dict[str, Any]:
+    """B6.1: `transport-coal`'s own `load_dataset -> apply lane-cost
+    overrides -> append added entities` pipeline, consumed by
+    `solve_transport` in solve.py as a per-call, non-mutating drop-in for
+    its `COAL_MINES`/`POWER_STATIONS`/`_transport_distances()` module-level
+    data.
+
+    Deliberately NOT built by forcing this through `build_merged_pmedian_
+    dataset` (p-median-specific, owns the id<->index bridge transport-coal
+    doesn't need) or by generalizing it — same rationale as
+    `build_merged_brazil_dataset`: `transport-coal` is already ID-keyed end
+    to end (`COAL_MINES`/`POWER_STATIONS` are `{str_id: {...}}`,
+    `_transport_distances()` is `{(str_mine_id, str_station_id): float}`),
+    DD-2's correction, so there is no index to bridge to. Only genuinely
+    shared code is reused: the merge shape itself (`{**base, **added}` for
+    entities, `{**base, **overrides}` for distance) and
+    `UnresolvableIdError` for reference-integrity failures.
+
+    Args:
+        inputs: the validated `inputs` blob (or any dict exposing the same
+            keys) containing `addedMines`, `addedStations`,
+            `laneCostOverrides` (transportLp.ts's B6.1 schema). All three
+            optional, missing keys treated as empty lists.
+        mines: base dataset, `solve.py`'s `COAL_MINES`-shaped
+            `{str_id: {"id": str, "name": str, "city": str, "state": str,
+            "lat": float, "lng": float, "capacity": float}}`. Never
+            mutated.
+        stations: base dataset, `solve.py`'s `POWER_STATIONS`-shaped
+            `{str_id: {"id": str, "city": str, "state": str, "lat": float,
+            "lng": float, "demand": float}}`. Never mutated.
+        distance: base dataset, `solve.py`'s `_transport_distances()`-shaped
+            `{(str_mine_id, str_station_id): float}` — despite the name
+            "distance", this is the same object `solve_transport` calls its
+            lane cost matrix (see transportLp.ts's header comment: the
+            values are real geographic distances in miles, but the model's
+            own vocabulary for this arc data — and this task's schema field
+            name — is "lane cost", matching costs.json). Never mutated.
+
+    Returns a dict:
+        mines: `{**mines}` plus one entry per `addedMines` item keyed by its
+            own id (no synthetic index needed - the id IS the key), shaped
+            like an existing `mines` value INCLUDING `capacity` (unlike
+            p-median's merged warehouses dict, which omits capacity/status
+            entirely — base `COAL_MINES` rows already carry `capacity`
+            directly, since `solve_transport` reads
+            `COAL_MINES[m]['capacity']` as its own fallback, not a separate
+            sparse-override-only mechanism the way p-median's warehouses
+            do). An added mine with no `capacity` given merges with
+            `capacity: None` (unconstrained supply — `solve_transport`
+            must treat `None` as "no capacity constraint for this mine",
+            mirroring p-median's own None-means-unconstrained convention).
+        stations: same pattern for `addedStations`, shaped like an existing
+            `stations` value including `demand` (added stations DO carry
+            `demand` directly, same as p-median's added customers).
+        distance: `{**distance, **<resolved lane cost overrides>}` - the
+            override pairs simply overlay the base dict. This is also how
+            an added entity gets ANY lane cost at all (L4: no auto-
+            haversine for added entities - an override IS the mechanism,
+            not a separate one).
+        addedMinesById: `{id: <raw addedMines entry>}` - lets
+            `solve_transport` resolve an added mine's OWN `capacity`
+            without conflating it with the sparse `mineCapacities` override
+            map that applies to BASE mines only (mirrors B3.1/B6.3's
+            established "added entity's own record wins" precedent). Note:
+            unlike p-median's added warehouses, there is no `status` here
+            at all - mines have no forced-open/inactive concept anywhere in
+            this LP (verified against solve_transport and mines.json - no
+            status column, no status-bound constraint).
+        addedStationsById: `{id: <raw addedStations entry>}` - same
+            reasoning for `demand`, mirroring the sparse `stationDemands`
+            override map's "applies to BASE stations only" boundary.
+
+    Raises:
+        UnresolvableIdError: a `laneCostOverrides` entry's `fromId` is not a
+            known mine id (base or added), or `toId` is not a known station
+            id (base or added) - checked strictly per role, same backwards-
+            pair protection as `resolve_pmedian_ids_to_indices`/
+            `build_merged_brazil_dataset`.
+    """
+    added_mines = inputs.get("addedMines", []) or []
+    added_stations = inputs.get("addedStations", []) or []
+    lane_cost_overrides = inputs.get("laneCostOverrides", []) or []
+
+    merged_mines = dict(mines)
+    added_mines_by_id: dict[str, dict] = {}
+    for m in added_mines:
+        mid = m["id"]
+        merged_mines[mid] = {
+            "id": mid,
+            "city": m["city"],
+            "state": m["state"],
+            "lat": m["lat"],
+            "lng": m["lng"],
+            "capacity": m.get("capacity"),
+        }
+        added_mines_by_id[mid] = m
+
+    merged_stations = dict(stations)
+    added_stations_by_id: dict[str, dict] = {}
+    for s in added_stations:
+        sid = s["id"]
+        merged_stations[sid] = {
+            "id": sid,
+            "city": s["city"],
+            "state": s["state"],
+            "lat": s["lat"],
+            "lng": s["lng"],
+            "demand": s["demand"],
+        }
+        added_stations_by_id[sid] = s
+
+    merged_distance = dict(distance)
+    for override in lane_cost_overrides:
+        from_id, to_id = override["fromId"], override["toId"]
+        if from_id not in merged_mines:
+            raise UnresolvableIdError(
+                f"laneCostOverrides references id '{from_id}' that does not resolve as a "
+                "mine - not found among mine ids in the base transport-coal dataset or "
+                "this scenario's added entities"
+            )
+        if to_id not in merged_stations:
+            raise UnresolvableIdError(
+                f"laneCostOverrides references id '{to_id}' that does not resolve as a "
+                "station - not found among station ids in the base transport-coal "
+                "dataset or this scenario's added entities"
+            )
+        merged_distance[(from_id, to_id)] = override["cost"]
+
+    return {
+        "mines": merged_mines,
+        "stations": merged_stations,
+        "distance": merged_distance,
+        "addedMinesById": added_mines_by_id,
+        "addedStationsById": added_stations_by_id,
+    }

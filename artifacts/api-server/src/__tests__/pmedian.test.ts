@@ -96,6 +96,29 @@ describe("buildPayload()", () => {
     expect(payload.stationDemands).toEqual({ CHI: 12000000 });
   });
 
+  it("forwards addedMines/addedStations/laneCostOverrides for transport-coal (B6.1)", () => {
+    const input: SolveInput = {
+      modelId: "transport-coal",
+      inputs: {
+        distanceBands: [500, 1000, 1500, 2000],
+        gap: 0,
+        timeLimitSec: 120,
+        capacityFactor: 1.0,
+        singleSource: false,
+        capacityInactive: false,
+        mineCapacities: {},
+        stationDemands: {},
+        addedMines: [{ id: "MN-NEW-1", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5_000_000 }],
+        addedStations: [{ id: "ST-NEW-1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, demand: 1_500_000 }],
+        laneCostOverrides: [{ fromId: "KY", toId: "LAX", cost: 123.4 }],
+      },
+    };
+    const payload = buildPayload(input);
+    expect(payload.addedMines).toEqual(input.inputs.addedMines);
+    expect(payload.addedStations).toEqual(input.inputs.addedStations);
+    expect(payload.laneCostOverrides).toEqual(input.inputs.laneCostOverrides);
+  });
+
   it("sends modelType=transport and all transport fields for modelId transport-coal", () => {
     const payload = buildPayload(transportInput);
     expect(payload.modelType).toBe("transport");

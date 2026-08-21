@@ -5,7 +5,7 @@ import sys, json, time, math, os
 from pulp import (LpProblem, LpMinimize, LpVariable, lpSum,
                   LpConstraint, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
                   LpStatus, value, PULP_CBC_CMD)
-from merge_inputs import build_merged_pmedian_dataset, build_merged_brazil_dataset
+from merge_inputs import build_merged_pmedian_dataset, build_merged_brazil_dataset, build_merged_transport_dataset
 
 # ---------------------------------------------------------------------------
 # Canonical datasets live in solvers/<model-id>/dataset/*.json (C1.1/C1.2).
@@ -330,12 +330,41 @@ def solve_transport(inp):
     mine_caps         = inp.get('mineCapacities', {})
     station_demands   = inp.get('stationDemands', {})
 
-    def effective_demand(s):
-        return station_demands.get(s, POWER_STATIONS[s]['demand'])
+    # B6.1: per-call merge of the base dataset with this scenario's
+    # scenario-local network edits (addedMines/addedStations/
+    # laneCostOverrides) — mirrors solve_pmedian's B3.1 / solve_capacitated_
+    # pmedian's B6.3 wiring; transport-coal is already ID-keyed (DD-2), so
+    # build_merged_transport_dataset does a plain dict merge, no id<->index
+    # bridge. Never mutates COAL_MINES/POWER_STATIONS/_transport_distances()
+    # module-level data. Empty inputs (the default) produce a merged dataset
+    # equal to the base globals, so this is a no-op for every scenario that
+    # doesn't use the feature.
+    merged = build_merged_transport_dataset(inp, COAL_MINES, POWER_STATIONS, _transport_distances())
+    mine_data    = merged['mines']
+    station_data = merged['stations']
+    dist         = merged['distance']
+    # An added mine/station's own capacity/demand comes straight off its
+    # addedMines/addedStations record — mines/stations have no status/open-
+    # close concept in this LP at all (a "closed" mine is a capacity
+    # override of 0, per templates.ts's own precedent), so unlike p-median
+    # there is no status-bound mechanism to wire here.
+    added_mines_by_id    = merged['addedMinesById']
+    added_stations_by_id = merged['addedStationsById']
 
-    mines    = list(COAL_MINES.keys())
-    stations = list(POWER_STATIONS.keys())
-    dist     = _transport_distances()
+    def get_base_capacity(m):
+        added = added_mines_by_id.get(m)
+        if added is not None:
+            return added.get('capacity')  # None -> unconstrained supply
+        return mine_caps.get(m, mine_data[m]['capacity'])
+
+    def effective_demand(s):
+        added = added_stations_by_id.get(s)
+        if added is not None:
+            return added['demand']
+        return station_demands.get(s, station_data[s]['demand'])
+
+    mines    = list(mine_data.keys())
+    stations = list(station_data.keys())
     total_demand = sum(effective_demand(s) for s in stations)
 
     start = time.time()
@@ -346,7 +375,17 @@ def solve_transport(inp):
     if single_source:
         source = LpVariable.dicts("Src", [(m, s) for m in mines for s in stations], 0, 1, cat='Binary')
 
-    prob += lpSum(dist[m, s] * flow[m, s] for m in mines for s in stations)
+    # .get((m, s), 9999) — same missing-pair sentinel convention as
+    # solve_pmedian's dist_data.get((w, c), 9999): the base dataset's cost
+    # matrix is a complete 4x15 grid (no missing pairs), but once an added
+    # mine/station has no laneCostOverrides to some counterpart, `dist` has
+    # no entry for that pair at all (L4: no auto-haversine — an override IS
+    # the mechanism). Without a fallback the objective's lpSum would raise a
+    # bare KeyError on any scenario reaching this constructor with an
+    # incomplete added-entity lane-cost set — B2.1-style precheck.ts is the
+    # primary place this gets caught before a solve is even attempted, but
+    # solve.py must not crash outright either.
+    prob += lpSum(dist.get((m, s), 9999) * flow[m, s] for m in mines for s in stations)
 
     for s in stations:
         prob += LpConstraint(
@@ -355,7 +394,9 @@ def solve_transport(inp):
 
     if not capacity_inactive:
         for m in mines:
-            base_cap = mine_caps.get(m, COAL_MINES[m]['capacity'])
+            base_cap = get_base_capacity(m)
+            if base_cap is None:
+                continue  # unconstrained supply (added mine with no capacity given)
             cap = base_cap * capacity_factor
             prob += LpConstraint(
                 lpSum(flow[m, s] for s in stations),
@@ -378,24 +419,25 @@ def solve_transport(inp):
     status_str = LpStatus[prob.status]
 
     if status_str == "Infeasible":
+        total_capacity = sum(int((get_base_capacity(m) or 0) * capacity_factor) for m in mines)
         if single_source and not capacity_inactive:
             reason = (
                 "Infeasible with single-source + capacity constraints active. "
                 f"Each station must be served by exactly one mine, but total mine capacity "
-                f"({sum(int(COAL_MINES[m]['capacity']*capacity_factor) for m in mines):,} tons) "
+                f"({total_capacity:,} tons) "
                 f"cannot cover all demand ({total_demand:,} tons) under these restrictions. "
                 "This is the pedagogical point of exercise part (c). "
                 "Fix: (a) disable single-source, (b) increase capacityFactor, or (c) set capacityInactive=true."
             )
         else:
             reason = (
-                f"Total mine capacity ({sum(int(COAL_MINES[m]['capacity']*capacity_factor) for m in mines):,} tons) "
+                f"Total mine capacity ({total_capacity:,} tons) "
                 f"is less than total station demand ({total_demand:,} tons). "
                 "Increase capacityFactor or set capacityInactive=true."
             )
         return _envelope("infeasible", status_str, 0, run_time, [],
                           {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
-                          {"openWarehouseIds": list(COAL_MINES.keys()), "assignments": []}, reason)
+                          {"openWarehouseIds": mines, "assignments": []}, reason)
 
     obj_val = value(prob.objective) or 0
     avg_dist = obj_val / total_demand if total_demand > 0 else 0
@@ -410,7 +452,7 @@ def solve_transport(inp):
             flow_val = (flow[m, s].varValue or 0)
             if flow_val < 1:
                 continue
-            d = dist[m, s]
+            d = dist.get((m, s), 9999)
             mine_outflow[m] += flow_val
             band_idx = next((i for i, b in enumerate(distance_bands) if d <= b), len(distance_bands) - 1)
             flow_tons = round(flow_val)
@@ -429,12 +471,15 @@ def solve_transport(inp):
 
     band_coverage = [{"band": b, "percent": round(band_demand[b] * 100 / total_demand)} for b in distance_bands]
 
-    utilization = [{
-        "warehouseId": m,
-        "city": COAL_MINES[m]['city'],
-        "utilization": min(100, round(mine_outflow[m] * 100 / (COAL_MINES[m]['capacity'] * capacity_factor)))
-        if not capacity_inactive else round(mine_outflow[m] * 100 / COAL_MINES[m]['capacity'])
-    } for m in mines]
+    utilization = []
+    for m in mines:
+        cap = get_base_capacity(m)
+        if cap:
+            denom = cap * capacity_factor if not capacity_inactive else cap
+            util = min(100, round(mine_outflow[m] * 100 / denom)) if not capacity_inactive else round(mine_outflow[m] * 100 / denom)
+        else:
+            util = 0  # unconstrained added mine (no capacity given) — nothing to be "full" against
+        utilization.append({"warehouseId": m, "city": mine_data[m]['city'], "utilization": util})
 
     return _envelope("optimal", status_str, round(obj_val), run_time, edges,
                       {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(avg_dist, 1)},
