@@ -64,6 +64,32 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
     i.customerOverrides.filter((o) => o.demand != null).map((o) => [o.id, o.demand as number]),
   );
 
+  // Task 24: pass B1.1's scenario-local network-edit arrays straight through
+  // by their exact schema names — merge_inputs.py (B1.3/B3.1) reads them via
+  // inp.get("addedWarehouses"/"addedCustomers"/"distanceOverrides", []), so
+  // absent/empty here is byte-identical to today's behavior. Forwarded to
+  // BOTH p-median-us and p-median-brazil (this shared block): solve_pmedian
+  // (p-median-us) is fully wired to consume them; solve_capacitated_pmedian
+  // (Brazil) doesn't read them yet (B6.3), same "harmless no-op, ignores
+  // unknown keys" precedent as warehouseCapacities/customerDemands above.
+  //
+  // Product decision (capacityMode vs added-warehouse capacity, flagged by
+  // B3.1's review): capacityMode is a scenario-wide toggle already enforced
+  // on BASE warehouses (effectiveCapacity above nulls out uniformCapacity
+  // when capacityMode is "none"). Left alone, solve_pmedian's
+  // addedWarehousesById lookup binds an added warehouse's own `capacity`
+  // regardless of capacityMode — "none" would silently mean "no capacity
+  // constraints, except ones a student just added," contradicting what the
+  // toggle claims to do. Stripping it here (data, not a new solve.py
+  // branch — hard rule #6) keeps capacityMode a real, uniform switch across
+  // base AND added warehouses; "uniform"/"per_wh" leave an added
+  // warehouse's capacity exactly as authored, since it's the student's own
+  // per-facility fact in those modes, not implied by the global mode.
+  const addedWarehouses =
+    i.capacityMode === "none"
+      ? i.addedWarehouses.map((w) => ({ ...w, capacity: null }))
+      : i.addedWarehouses;
+
   return {
     modelType: input.modelId === "p-median-brazil" ? "capacitated_pmedian" : "p_median",
     pValue: i.p,
@@ -77,6 +103,9 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
     gap: i.gap,
     timeLimitSec: i.timeLimitSec,
     singleSource: i.singleSource,
+    addedWarehouses,
+    addedCustomers: i.addedCustomers,
+    distanceOverrides: i.distanceOverrides,
   };
 }
 

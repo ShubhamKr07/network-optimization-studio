@@ -189,6 +189,118 @@ describe("buildPayload()", () => {
     expect(buildPayload(input).customerDemands).toEqual({ C1: 42 });
   });
 
+  // Task 24: wire addedWarehouses/addedCustomers/distanceOverrides through to
+  // solve.py — merge_inputs.py already reads these by B1.1's exact schema
+  // names off `inp.get(..., [])`, so absent/empty is byte-identical to
+  // today's behavior; this pins the exact payload shape so a future change
+  // can't silently regress the empty/absent case (DD-8's rollback-safety
+  // story depends on this staying true).
+  it("byte-identical no-regression: full payload for baseInput (empty added*/distanceOverrides) matches the pre-existing shape exactly", () => {
+    expect(buildPayload(baseInput)).toEqual({
+      modelType: "p_median",
+      pValue: 3,
+      distanceBands: [200, 400, 800, 1600],
+      uniformCapacity: null,
+      warehouseCapacity: undefined,
+      warehouseCapacities: {},
+      customerDemands: {},
+      warehouseStatuses: [],
+      excludedCustomerIds: [],
+      gap: 0,
+      timeLimitSec: 120,
+      singleSource: undefined,
+      addedWarehouses: [],
+      addedCustomers: [],
+      distanceOverrides: [],
+    });
+  });
+
+  it("forwards populated addedWarehouses/addedCustomers/distanceOverrides through unchanged (same array contents, same field names)", () => {
+    const addedWarehouses = [
+      { id: "NEW1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, capacity: 100000, status: "active" as const },
+    ];
+    const addedCustomers = [
+      { id: "NEWC1", city: "Boise", lat: 43.6, lng: -116.2, demand: 5000 },
+    ];
+    const distanceOverrides = [{ fromId: "CHI", toId: "C1", distance: 123.4 }];
+    const input: SolveInput = {
+      ...baseInput,
+      // capacityMode "per_wh" (not baseInput's default "none") so this test
+      // exercises plain passthrough, independent of the capacityMode/
+      // added-warehouse-capacity interaction covered by its own dedicated
+      // tests below.
+      inputs: {
+        ...baseInput.inputs,
+        capacityMode: "per_wh",
+        addedWarehouses,
+        addedCustomers,
+        distanceOverrides,
+      },
+    };
+    const payload = buildPayload(input);
+    expect(payload.addedWarehouses).toEqual(addedWarehouses);
+    expect(payload.addedCustomers).toEqual(addedCustomers);
+    expect(payload.distanceOverrides).toEqual(distanceOverrides);
+  });
+
+  it("also forwards addedWarehouses/addedCustomers/distanceOverrides for p-median-brazil (harmless today, ready for B6.3)", () => {
+    const addedCustomers = [{ id: "NEWC1", city: "Boise", lat: 43.6, lng: -116.2, demand: 5000 }];
+    const input: SolveInput = {
+      modelId: "p-median-brazil",
+      inputs: {
+        p: 5,
+        distanceBands: [500, 1000, 2000, 4000],
+        capacityMode: "uniform",
+        uniformCapacity: 20000000,
+        warehouseOverrides: [],
+        customerOverrides: [],
+        gap: 0,
+        timeLimitSec: 120,
+        singleSource: true,
+        addedWarehouses: [],
+        addedCustomers,
+        distanceOverrides: [],
+      },
+    };
+    const payload = buildPayload(input);
+    expect(payload.addedCustomers).toEqual(addedCustomers);
+  });
+
+  // Product decision (this task): capacityMode is a scenario-wide toggle —
+  // "none" strips capacity from BASE warehouses already (see the
+  // "capacityMode 'none' sends null capacity..." test above). An added
+  // warehouse's own `capacity` field binding regardless of that toggle
+  // would make "none" mean "no capacity constraints, except the ones a
+  // student just added" — silently inconsistent with the mental model the
+  // toggle sells. buildPayload strips added-warehouse capacity to null
+  // under capacityMode "none" so the toggle is a real, uniform switch
+  // across base AND added warehouses; capacityMode "uniform"/"per_wh" leave
+  // it exactly as the student authored it (a warehouse-level fact, not
+  // something implied by the global mode).
+  it("capacityMode 'none' strips capacity from addedWarehouses before forwarding (consistent with base-warehouse behavior)", () => {
+    const addedWarehouses = [
+      { id: "NEW1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, capacity: 100000, status: "active" as const },
+    ];
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: { ...baseInput.inputs, capacityMode: "none", addedWarehouses },
+    };
+    const payload = buildPayload(input);
+    expect(payload.addedWarehouses).toEqual([{ ...addedWarehouses[0], capacity: null }]);
+  });
+
+  it("capacityMode 'per_wh' forwards addedWarehouses capacity as-authored", () => {
+    const addedWarehouses = [
+      { id: "NEW1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, capacity: 100000, status: "active" as const },
+    ];
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: { ...baseInput.inputs, capacityMode: "per_wh", addedWarehouses },
+    };
+    const payload = buildPayload(input);
+    expect(payload.addedWarehouses).toEqual(addedWarehouses);
+  });
+
   it("buildPayload forwards two-echelon-gold-au inputs to the solver payload", () => {
     const payload = buildPayload({
       modelId: "two-echelon-gold-au",
