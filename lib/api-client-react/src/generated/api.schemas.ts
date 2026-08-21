@@ -514,6 +514,10 @@ export const ListScenariosModelId = {
 export type ExportScenarioParams = {
 entity: ExportScenarioEntity;
 format: ExportScenarioFormat;
+/**
+ * entity=distances only (SCN v0.3 B4.3). Id of a warehouse or customer (base dataset or this scenario's added entities) to generate a blank fill-in-the-blanks distance template for — one row per active counterpart (distance omitted) — instead of exporting the scenario's existing distanceOverrides.
+ */
+stubFor?: string;
 };
 
 export type ExportScenarioEntity = typeof ExportScenarioEntity[keyof typeof ExportScenarioEntity];

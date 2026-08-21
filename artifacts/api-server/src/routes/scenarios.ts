@@ -14,11 +14,14 @@ import {
   applyStationOverrides,
   applyRefineryOverrides,
   applyGoldCustomerOverrides,
+  applyDistanceOverrides,
+  buildDistanceStubRows,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
   stationRowsToCsv,
   refineryRowsToCsv,
+  distanceRowsToCsv,
 } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
@@ -381,13 +384,23 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const entity = req.query.entity as string | undefined;
   const format = req.query.format as string | undefined;
+  // B4.3 — entity=distances only. Id of a warehouse or customer (base or
+  // added) to generate a blank fill-in-the-blanks distance template for,
+  // instead of exporting the scenario's existing distanceOverrides. See
+  // services/templates.ts's header comment on buildDistanceStubRows for why
+  // this lives on the same endpoint rather than a new route.
+  const stubFor = req.query.stubFor as string | undefined;
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', or 'refineries'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', or 'distances'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
     res.status(422).json({ error: "format must be 'csv' or 'json'" });
+    return;
+  }
+  if (stubFor && entity !== "distances") {
+    res.status(422).json({ error: "stubFor is only supported for entity=distances" });
     return;
   }
 
@@ -396,15 +409,16 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   // Each model is scoped to its own entity pair: p-median-us exports
-  // warehouses/customers, transport-coal exports mines/stations,
+  // warehouses/customers/distances, transport-coal exports mines/stations,
   // two-echelon-gold-au exports refineries/customers. Any mismatch 422s —
   // same anti-cross-model-confusion boundary the original D4.1 gate had,
-  // widened to a third model.
-  const entityIsPMedian = entity === "warehouses" || entity === "customers";
+  // widened to a third model (distances is p-median-us only, same boundary
+  // as import — B4.1).
+  const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers";
   if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
-    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers export" });
+    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers/distances export" });
     return;
   }
   if (scenario.modelId === "transport-coal" && !entityIsCoal) {
@@ -467,10 +481,54 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
 
   // p-median-us: export reads solvers/p-median-us's own warehouse/customer
   // dataset directly (via services/templates.ts).
-  const inputs = scenario.inputs as { warehouseOverrides?: unknown[]; customerOverrides?: unknown[] };
+  const inputs = scenario.inputs as {
+    warehouseOverrides?: unknown[];
+    customerOverrides?: unknown[];
+    addedWarehouses?: Parameters<typeof applyWarehouseOverrides>[1];
+    addedCustomers?: Parameters<typeof applyCustomerOverrides>[1];
+    distanceOverrides?: Parameters<typeof applyDistanceOverrides>[0];
+  };
+
+  // B4.3 — distances is a wholly different shape (composite-keyed, no fixed
+  // baseline to enumerate) from warehouses/customers below, so it's handled
+  // as its own branch before the shared warehouses/customers code.
+  if (entity === "distances") {
+    if (stubFor) {
+      const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1]);
+      if (stubRows === null) {
+        res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known warehouse or customer (base dataset or this scenario's added entities)` });
+        return;
+      }
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format, stub_for: stubFor },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(distanceRowsToCsv(stubRows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+      return;
+    }
+
+    const distanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
+    if (format === "csv") {
+      res.type("text/csv").send(distanceRowsToCsv(distanceRows));
+      return;
+    }
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: distanceRows });
+    return;
+  }
+
   const rows = entity === "warehouses"
-    ? applyWarehouseOverrides((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0])
-    : applyCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyCustomerOverrides>[0]);
+    ? applyWarehouseOverrides((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0], inputs.addedWarehouses ?? [])
+    : applyCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyCustomerOverrides>[0], inputs.addedCustomers ?? []);
 
   posthog?.capture({
     distinctId: req.userId!,

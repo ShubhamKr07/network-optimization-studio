@@ -654,7 +654,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,capacity,status");
+    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity,status");
     expect(lines.length).toBe(27); // header + 26 warehouses
   });
 
@@ -783,6 +783,121 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     const res = await request(app).get("/api/scenarios/1/export?entity=refineries&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  // B4.3 — warehouse/customer export gains lat/lng + overridden, plus added
+  // entities.
+  it("warehouse export includes lat/lng matching the real dataset coordinates", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const aln = res.body.rows.find((r: { id: string }) => r.id === "ALN");
+    const real = WAREHOUSES.find(w => w.id === "ALN")!;
+    expect(aln.lat).toBeCloseTo(real.lat);
+    expect(aln.lng).toBeCloseTo(real.lng);
+    expect(aln.overridden).toBe(false);
+  });
+
+  it("an added warehouse appears in the export with overridden: true", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...pmedianRow,
+      inputs: { ...pmedianInputs, addedWarehouses: [{ id: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: null, status: "active" }] },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(27);
+    const added = res.body.rows.find((r: { id: string }) => r.id === "WH-NEW1");
+    expect(added).toMatchObject({ city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, overridden: true });
+  });
+
+  it("a base warehouse with an active capacity override exports overridden: true", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...pmedianRow, inputs: { ...pmedianInputs, warehouseOverrides: [{ id: "ALN", status: "active", capacity: 500000 }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "ALN").overridden).toBe(true);
+  });
+
+  // B4.3 — distances export.
+  it("distances export returns only the current distanceOverrides, not the full base matrix", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = {
+      ...pmedianRow,
+      inputs: { ...pmedianInputs, distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 123.4 }] },
+    };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("distances");
+    expect(res.body.rows).toHaveLength(1);
+    expect(res.body.rows[0]).toMatchObject({ fromId: "ALN", toId: "C1", distance: 123.4, overridden: true });
+  });
+
+  it("distances export CSV has the 4-column header, no overridden column", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...pmedianRow, inputs: { ...pmedianInputs, distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 123.4 }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("template_version,from_id,to_id,distance");
+    expect(lines.length).toBe(2);
+  });
+
+  it("returns an empty distances export when the scenario has no distanceOverrides", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toEqual([]);
+  });
+
+  it("rejects entity=distances for a transport-coal scenario (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).get("/api/scenarios/8/export?entity=distances&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  // B4.3 — stub generator (fill-in-the-blanks distance template).
+  it("stubFor a warehouse id emits one blank row per active customer (200 minus excluded)", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...pmedianRow, inputs: { ...pmedianInputs, customerOverrides: [{ id: "C1", status: "excluded" }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=json&stubFor=ALN").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(CUSTOMERS.length - 1);
+    expect(res.body.rows.every((r: { fromId: string; distance: null }) => r.fromId === "ALN" && r.distance === null)).toBe(true);
+    expect(res.body.rows.some((r: { toId: string }) => r.toId === "C1")).toBe(false);
+  });
+
+  it("stubFor a customer id emits one blank row per active warehouse (26 minus excluded)", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...pmedianRow, inputs: { ...pmedianInputs, warehouseOverrides: [{ id: "ALN", status: "inactive" }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=json&stubFor=C1").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(WAREHOUSES.length - 1);
+    expect(res.body.rows.every((r: { toId: string; distance: null }) => r.toId === "C1" && r.distance === null)).toBe(true);
+    expect(res.body.rows.some((r: { fromId: string }) => r.fromId === "ALN")).toBe(false);
+  });
+
+  it("stubFor an unrecognized id returns 422", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=json&stubFor=bogus-id").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("stubFor combined with an entity other than distances returns 422", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json&stubFor=ALN").set("Cookie", cookie);
     expect(res.status).toBe(422);
   });
 });

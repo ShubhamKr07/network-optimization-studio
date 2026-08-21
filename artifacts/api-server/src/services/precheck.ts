@@ -90,6 +90,52 @@ export function buildPMedianIdSpaces(
   return { warehouseIdSpace, customerIdSpace };
 }
 
+/**
+ * Builds the "who's active" id lists (base entities not excluded/inactive
+ * per this scenario's overrides, plus every added entity — addedCustomers
+ * has no status field, so every added customer counts as active) both this
+ * service's own (a) completeness check and B4.3's export stub-generator
+ * need. Exported (alongside buildPMedianIdSpaces above) so callers outside
+ * this file reuse the exact same "active" definition rather than
+ * reimplementing it slightly differently. Parameter shape is a minimal
+ * structural type (not `PMedianInputs` itself) for the same reason
+ * buildPMedianIdSpaces takes one - callers with only override/added-entity
+ * arrays (not a full validated PMedianInputs) can use it too.
+ */
+export function buildActivePMedianIds(
+  inputs: {
+    addedWarehouses?: readonly (PrecheckDatasetEntity & { status?: string })[];
+    addedCustomers?: readonly PrecheckDatasetEntity[];
+    warehouseOverrides?: readonly { id: string; status?: string }[];
+    customerOverrides?: readonly { id: string; status?: string }[];
+  },
+  dataset: PrecheckDataset = DEFAULT_DATASET,
+): { activeWarehouseIds: string[]; activeCustomerIds: string[] } {
+  const warehouseOverrides = inputs.warehouseOverrides ?? [];
+  const customerOverrides = inputs.customerOverrides ?? [];
+  const addedWarehouses = inputs.addedWarehouses ?? [];
+  const addedCustomers = inputs.addedCustomers ?? [];
+
+  const warehouseStatusById = new Map(warehouseOverrides.map((o) => [o.id, o.status]));
+  const customerStatusById = new Map(customerOverrides.map((o) => [o.id, o.status]));
+
+  const activeBaseWarehouseIds = dataset.warehouses
+    .map((w) => w.id)
+    .filter((id) => warehouseStatusById.get(id) !== "inactive");
+  const activeAddedWarehouseIds = addedWarehouses
+    .filter((w) => w.status !== "inactive")
+    .map((w) => w.id);
+  const activeWarehouseIds = [...activeBaseWarehouseIds, ...activeAddedWarehouseIds];
+
+  const activeBaseCustomerIds = dataset.customers
+    .map((c) => c.id)
+    .filter((id) => customerStatusById.get(id) !== "excluded");
+  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
+
+  return { activeWarehouseIds, activeCustomerIds };
+}
+
 export function precheckPMedianInputs(
   inputs: PMedianInputs,
   dataset: PrecheckDataset = DEFAULT_DATASET,
@@ -167,23 +213,14 @@ export function precheckPMedianInputs(
   // this scenario's overrides; for added entities, present in
   // addedWarehouses/addedCustomers (addedCustomers has no status field -
   // v1 has no way to add a customer and mark it excluded in the same
-  // breath - so every added customer counts as active).
-  const warehouseStatusById = new Map(warehouseOverrides.map((o) => [o.id, o.status]));
-  const customerStatusById = new Map(customerOverrides.map((o) => [o.id, o.status]));
-
-  const activeBaseWarehouseIds = dataset.warehouses
-    .map((w) => w.id)
-    .filter((id) => warehouseStatusById.get(id) !== "inactive");
-  const activeAddedWarehouseIds = addedWarehouses
-    .filter((w) => w.status !== "inactive")
-    .map((w) => w.id);
-  const activeWarehouseIds = [...activeBaseWarehouseIds, ...activeAddedWarehouseIds];
-
-  const activeBaseCustomerIds = dataset.customers
-    .map((c) => c.id)
-    .filter((id) => customerStatusById.get(id) !== "excluded");
+  // breath - so every added customer counts as active). Computed via the
+  // shared helper above (identical result to the inline block this
+  // replaced) so B4.3's export stub-generator reuses the same "active"
+  // definition instead of reimplementing it.
+  const { activeWarehouseIds, activeCustomerIds } = buildActivePMedianIds(inputs, dataset);
+  // Every added customer counts as active (addedCustomers has no status
+  // field) — needed separately below for the "vice versa" required set.
   const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
-  const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
 
   const overrideKeys = new Set(distanceOverrides.map((o) => o.fromId + "|" + o.toId));
 

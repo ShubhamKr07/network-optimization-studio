@@ -518,7 +518,8 @@ export const ExportScenarioParams = zod.object({
 
 export const ExportScenarioQueryParams = zod.object({
   "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
-  "format": zod.enum(['csv', 'json'])
+  "format": zod.enum(['csv', 'json']),
+  "stubFor": zod.coerce.string().optional().describe('entity=distances only (SCN v0.3 B4.3). Id of a warehouse or customer (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance template for — one row per active counterpart (distance omitted) — instead of exporting the scenario\'s existing distanceOverrides.')
 })
 
 export const ExportScenarioResponse = zod.object({

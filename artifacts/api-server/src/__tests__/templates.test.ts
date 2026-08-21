@@ -5,9 +5,12 @@ import {
   applyCustomerOverrides,
   applyRefineryOverrides,
   applyGoldCustomerOverrides,
+  applyDistanceOverrides,
+  buildDistanceStubRows,
   warehouseRowsToCsv,
   customerRowsToCsv,
   refineryRowsToCsv,
+  distanceRowsToCsv,
 } from "../services/templates.js";
 
 describe("applyWarehouseOverrides", () => {
@@ -51,27 +54,75 @@ describe("applyCustomerOverrides", () => {
 });
 
 describe("warehouseRowsToCsv / customerRowsToCsv", () => {
-  it("produces a header row plus one line per row, plain columns (no comment line)", () => {
+  it("produces a header row plus one line per row, plain columns (no comment line), lat/lng included, no overridden column", () => {
     const rows = applyWarehouseOverrides([{ id: "ALN", status: "forced_open" }]).slice(0, 2);
     const csv = warehouseRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,capacity,status");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},ALN,Allentown,PA,,forced_open`);
+    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity,status");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},ALN,Allentown,PA,40.602812,-75.470433,,forced_open`);
     expect(lines.length).toBe(3);
   });
 
-  it("customer CSV includes demand as a numeric column", () => {
+  it("customer CSV includes demand as a numeric column, lat/lng included, no overridden column", () => {
     const rows = applyCustomerOverrides([]).slice(0, 1);
     const csv = customerRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,demand,status");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},C1,Akron,OH,205375,active`);
+    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,demand,status");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},C1,Akron,OH,41.08,-81.52,205375,active`);
   });
 
   it("escapes a comma in a city name", () => {
-    const rows = [{ templateVersion: TEMPLATE_VERSION, id: "X1", city: "Springfield, Ohio", state: "OH", capacity: null, status: "active" as const }];
+    const rows = [{ templateVersion: TEMPLATE_VERSION, id: "X1", city: "Springfield, Ohio", state: "OH", lat: 39.9, lng: -83.8, capacity: null, status: "active" as const, overridden: false }];
     const csv = warehouseRowsToCsv(rows);
     expect(csv).toContain('"Springfield, Ohio"');
+  });
+});
+
+describe("B4.3 — lat/lng and overridden column", () => {
+  it("a pristine base warehouse (no override) exports overridden: false, with real dataset coordinates", () => {
+    const rows = applyWarehouseOverrides([]);
+    const atl = rows.find(r => r.id === "ATL")!;
+    expect(atl.overridden).toBe(false);
+    expect(atl.lat).toBeCloseTo(33.753693);
+    expect(atl.lng).toBeCloseTo(-84.389544);
+  });
+
+  it("a base warehouse with an active capacity override exports overridden: true", () => {
+    const rows = applyWarehouseOverrides([{ id: "ALN", status: "active", capacity: 500000 }]);
+    expect(rows.find(r => r.id === "ALN")!.overridden).toBe(true);
+  });
+
+  it("a base warehouse with a status-only override (forced_open) exports overridden: true", () => {
+    const rows = applyWarehouseOverrides([{ id: "ALN", status: "forced_open" }]);
+    expect(rows.find(r => r.id === "ALN")!.overridden).toBe(true);
+  });
+
+  it("a pristine base customer (no override) exports overridden: false", () => {
+    const rows = applyCustomerOverrides([]);
+    expect(rows.find(r => r.id === "C1")!.overridden).toBe(false);
+  });
+
+  it("a base customer with a demand override exports overridden: true", () => {
+    const rows = applyCustomerOverrides([{ id: "C1", status: "active", demand: 999 }]);
+    expect(rows.find(r => r.id === "C1")!.overridden).toBe(true);
+  });
+
+  it("includes one row per added warehouse, appended after the 26 base rows, always overridden: true", () => {
+    const rows = applyWarehouseOverrides([], [
+      { id: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" },
+    ]);
+    expect(rows.length).toBe(27);
+    const added = rows.find(r => r.id === "WH-NEW1")!;
+    expect(added).toMatchObject({ city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active", overridden: true });
+  });
+
+  it("includes one row per added customer, appended after the 200 base rows, always overridden: true", () => {
+    const rows = applyCustomerOverrides([], [
+      { id: "C-NEW1", city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200 },
+    ]);
+    expect(rows.length).toBe(201);
+    const added = rows.find(r => r.id === "C-NEW1")!;
+    expect(added).toMatchObject({ city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200, status: "active", overridden: true });
   });
 });
 
@@ -114,5 +165,106 @@ describe("refineryRowsToCsv", () => {
     expect(lines[0]).toBe("template_version,id,city,state,status");
     expect(lines).toContain(`${TEMPLATE_VERSION},cunnamulla,Cunnamulla,QLD,forced_open`);
     expect(lines.length).toBe(3);
+  });
+});
+
+describe("B4.3 — applyDistanceOverrides / distances export", () => {
+  it("returns only the current distanceOverrides, each with overridden: true — not the full base matrix", () => {
+    const rows = applyDistanceOverrides([
+      { fromId: "ALN", toId: "C1", distance: 123.4 },
+      { fromId: "ATL", toId: "C2", distance: 55.1 },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.every(r => r.overridden === true)).toBe(true);
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "ALN", toId: "C1", distance: 123.4, overridden: true });
+  });
+
+  it("returns an empty array when the scenario has no distanceOverrides", () => {
+    expect(applyDistanceOverrides([])).toEqual([]);
+  });
+});
+
+describe("distanceRowsToCsv", () => {
+  it("produces a header row plus one line per row, 4 columns, no overridden column", () => {
+    const rows = applyDistanceOverrides([{ fromId: "ALN", toId: "C1", distance: 123.4 }]);
+    const csv = distanceRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[0]).toBe("template_version,from_id,to_id,distance");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},ALN,C1,123.4`);
+    expect(lines.length).toBe(2);
+  });
+
+  it("renders a null (stub) distance as an empty column", () => {
+    const csv = distanceRowsToCsv([{ templateVersion: TEMPLATE_VERSION, fromId: "ALN", toId: "C1", distance: null }]);
+    expect(csv.trim().split("\n")[1]).toBe(`${TEMPLATE_VERSION},ALN,C1,`);
+  });
+});
+
+describe("B4.3 — buildDistanceStubRows (distances stub generator)", () => {
+  // Small fake dataset, same testability pattern precheck.test.ts already
+  // uses — service logic is exercised without depending on the real
+  // 26/200-row p-median-us dataset. Real-dataset coverage (26/200-based
+  // counts) is exercised at the route level (routes.test.ts).
+  const DATASET = {
+    warehouses: [{ id: "WH-A" }, { id: "WH-B" }],
+    customers: [{ id: "C-1" }, { id: "C-2" }, { id: "C-3" }],
+  };
+
+  it("given a warehouse id, emits one blank row per active customer", () => {
+    const rows = buildDistanceStubRows("WH-A", {}, DATASET);
+    expect(rows).toHaveLength(3);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-2", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-3", distance: null },
+      ]),
+    );
+  });
+
+  it("given a customer id, emits one blank row per active warehouse", () => {
+    const rows = buildDistanceStubRows("C-1", {}, DATASET);
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-B", toId: "C-1", distance: null },
+      ]),
+    );
+  });
+
+  it("excludes an inactive warehouse from a customer's stub rows", () => {
+    const rows = buildDistanceStubRows("C-1", { warehouseOverrides: [{ id: "WH-B", status: "inactive" }] }, DATASET)!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].fromId).toBe("WH-A");
+  });
+
+  it("excludes an excluded customer from a warehouse's stub rows", () => {
+    const rows = buildDistanceStubRows("WH-A", { customerOverrides: [{ id: "C-2", status: "excluded" }] }, DATASET)!;
+    expect(rows.map(r => r.toId).sort()).toEqual(["C-1", "C-3"]);
+  });
+
+  it("resolves an added warehouse's stub rows against active base customers", () => {
+    const rows = buildDistanceStubRows(
+      "WH-NEW",
+      { addedWarehouses: [{ id: "WH-NEW", city: "X", state: "Y", lat: 1, lng: 2, status: "active" }] },
+      DATASET,
+    )!;
+    expect(rows).toHaveLength(3);
+    expect(rows.every(r => r.fromId === "WH-NEW")).toBe(true);
+  });
+
+  it("resolves an added customer's stub rows against active base warehouses", () => {
+    const rows = buildDistanceStubRows(
+      "C-NEW",
+      { addedCustomers: [{ id: "C-NEW", city: "X", lat: 1, lng: 2 }] },
+      DATASET,
+    )!;
+    expect(rows).toHaveLength(2);
+    expect(rows.every(r => r.toId === "C-NEW")).toBe(true);
+  });
+
+  it("returns null for an id that resolves as neither a known warehouse nor a known customer", () => {
+    expect(buildDistanceStubRows("bogus-id", {}, DATASET)).toBeNull();
   });
 });
