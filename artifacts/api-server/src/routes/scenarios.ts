@@ -575,11 +575,13 @@ function mergeChangesIntoOverrides(
 // dataset and this scenario's existing addedWarehouses/addedCustomers)
 // already rejects any CSV row whose id would collide, so a naive append
 // here can't create a duplicate id. Builds exactly the fields B1.1's
-// addedWarehouseSchema/addedCustomerSchema expect — addedCustomerSchema has
-// no `state` or `status` field at all (v1 has no add-and-exclude, see
-// precheck.ts's header comment), so a customer add-change's `state` is
-// deliberately not carried through here (its `status` is already validated
-// "active"-only in services/import.ts before it can become a change).
+// addedWarehouseSchema/addedCustomerSchema expect. Task 26 —
+// addedCustomerSchema gained a `state` field (matching
+// addedWarehouseSchema's), so a customer add-change's `state` is now
+// carried through here too, same as warehouses; addedCustomerSchema still
+// has no `status` field at all (v1 has no add-and-exclude, see precheck.ts's
+// header comment) — its `status` was already validated "active"-only in
+// services/import.ts before it could become a change, and is not persisted.
 function mergeAddChangesIntoAdded(
   entity: "warehouses" | "customers",
   currentAdded: Array<Record<string, unknown>>,
@@ -588,7 +590,7 @@ function mergeAddChangesIntoAdded(
   const newEntities = addChanges.map(c => (
     entity === "warehouses"
       ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
-      : { id: c.id, city: c.city, lat: c.lat, lng: c.lng, demand: c.after.value }
+      : { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
   ));
   return [...currentAdded, ...newEntities];
 }

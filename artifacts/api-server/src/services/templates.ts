@@ -25,12 +25,15 @@ interface RefineryOverride { id: string; status: "active" | "forced_open" | "ina
 // B1.1's addedWarehouseSchema/addedCustomerSchema shapes (validation/inputs/
 // pMedian.ts) — a brand-new entity's own record is authoritative for every
 // field on its export row, never the sparse override maps (B3.1/B4.2's
-// established convention). addedCustomerSchema deliberately has no
-// `state`/`status` field (v1 has no add-and-exclude, see precheck.ts's
-// header comment) — an added customer's export row gets `state: ""` and
-// `status: "active"` accordingly (see applyCustomerOverrides below).
+// established convention). Task 26 — addedCustomerSchema gained a `state`
+// field (matching addedWarehouseSchema's), so an added customer's export row
+// now sources its real `state` from its own record, same as city/lat/lng.
+// addedCustomerSchema still has no `status` field at all (v1 has no
+// add-and-exclude, see precheck.ts's header comment) — an added customer's
+// export row still gets a hardcoded `status: "active"` (see
+// applyCustomerOverrides below).
 interface AddedWarehouse { id: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
-interface AddedCustomer { id: string; city: string; lat: number; lng: number; demand: number; }
+interface AddedCustomer { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
 
 // B4.3 — lat/lng catch up to B4.2's import COLUMNS (same position: after
 // state, before the value/status columns) — sourced from the real dataset's
@@ -163,9 +166,10 @@ export function applyCustomerOverrides(
     templateVersion: TEMPLATE_VERSION,
     id: c.id,
     city: c.city,
-    // addedCustomerSchema (B1.1) has no `state` field at all — nothing to
-    // source here (see this file's header comment on AddedCustomer).
-    state: "",
+    // Task 26 — addedCustomerSchema now carries a real `state` field; source
+    // it from the added customer's own record (see this file's header
+    // comment on AddedCustomer).
+    state: c.state,
     lat: c.lat,
     lng: c.lng,
     demand: c.demand,

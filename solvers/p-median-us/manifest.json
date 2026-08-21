@@ -66,11 +66,12 @@
           "properties": {
             "id": { "type": "string", "minLength": 1 },
             "city": { "type": "string" },
+            "state": { "type": "string" },
             "lat": { "type": "number" },
             "lng": { "type": "number" },
             "demand": { "type": "number", "minimum": 0 }
           },
-          "required": ["id", "city", "lat", "lng", "demand"]
+          "required": ["id", "city", "state", "lat", "lng", "demand"]
         }
       },
       "distanceOverrides": {

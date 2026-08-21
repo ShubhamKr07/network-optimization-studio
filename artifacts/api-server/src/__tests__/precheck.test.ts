@@ -83,7 +83,7 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
     it("a base warehouse requires a distance to an added active customer (vice-versa direction)", () => {
       const inputs: PMedianInputs = {
         ...BASE,
-        addedCustomers: [{ id: "C-NEW", city: "Fresno", lat: 36.7, lng: -119.7, demand: 500 }],
+        addedCustomers: [{ id: "C-NEW", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 }],
         distanceOverrides: [{ fromId: "WH-A", toId: "C-NEW", distance: 15 }],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
@@ -131,7 +131,7 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
     it("rejects an added customer reusing a real base-dataset ID", () => {
       const inputs: PMedianInputs = {
         ...BASE,
-        addedCustomers: [{ id: "C-1", city: "Fresno", lat: 36.7, lng: -119.7, demand: 500 }],
+        addedCustomers: [{ id: "C-1", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 }],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
       expect(result.ok).toBe(false);
@@ -145,8 +145,8 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
       const inputs: PMedianInputs = {
         ...BASE,
         addedCustomers: [
-          { id: "C-DUP", city: "Fresno", lat: 36.7, lng: -119.7, demand: 500 },
-          { id: "C-DUP", city: "Sacramento", lat: 38.6, lng: -121.5, demand: 300 },
+          { id: "C-DUP", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 },
+          { id: "C-DUP", city: "Sacramento", state: "CA", lat: 38.6, lng: -121.5, demand: 300 },
         ],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
@@ -211,7 +211,7 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
       const inputs: PMedianInputs = {
         ...BASE,
         addedWarehouses: [{ id: "WH-09", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }],
-        addedCustomers: [{ id: "C-NEW", city: "Fresno", lat: 36.7, lng: -119.7, demand: 500 }],
+        addedCustomers: [{ id: "C-NEW", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 }],
         distanceOverrides: [{ fromId: "WH-09", toId: "C-NEW", distance: 5 }],
       };
       const result = precheckPMedianInputs(inputs, DATASET);

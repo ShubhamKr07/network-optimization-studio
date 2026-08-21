@@ -118,11 +118,22 @@ describe("B4.3 — lat/lng and overridden column", () => {
 
   it("includes one row per added customer, appended after the 200 base rows, always overridden: true", () => {
     const rows = applyCustomerOverrides([], [
-      { id: "C-NEW1", city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200 },
+      { id: "C-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 },
     ]);
     expect(rows.length).toBe(201);
     const added = rows.find(r => r.id === "C-NEW1")!;
-    expect(added).toMatchObject({ city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200, status: "active", overridden: true });
+    expect(added).toMatchObject({ city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200, status: "active", overridden: true });
+  });
+
+  // Task 26 — an added customer's export row now shows its real `state`
+  // value (sourced from the addedCustomers record itself, same convention
+  // as city/lat/lng), not the pre-fix placeholder "".
+  it("an added customer's export row shows its real state, not a placeholder", () => {
+    const rows = applyCustomerOverrides([], [
+      { id: "C-NEW2", city: "Fresno", state: "CA", lat: 36.7, lng: -119.8, demand: 900 },
+    ]);
+    const added = rows.find(r => r.id === "C-NEW2")!;
+    expect(added.state).toBe("CA");
   });
 });
 

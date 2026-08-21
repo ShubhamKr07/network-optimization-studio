@@ -34,6 +34,15 @@ const addedWarehouseSchema = z.object({
 const addedCustomerSchema = z.object({
   id: z.string().min(1),
   city: z.string(),
+  // Task 26 — matches addedWarehouseSchema's `state` field exactly (same
+  // required-non-optional shape). Base customers.json already carries a real
+  // `state` per row; this closes the asymmetry where an added customer had
+  // nowhere to store one. Required rather than optional/defaulted: this
+  // feature is brand new (no production scenarios have addedCustomers
+  // populated yet — the frontend that lets students add customers doesn't
+  // exist until B5.2), so there's no old-scenario-data backward-compat case
+  // to protect, and required matches the warehouse precedent.
+  state: z.string(),
   lat: z.number(),
   lng: z.number(),
   demand: z.number().nonnegative(),

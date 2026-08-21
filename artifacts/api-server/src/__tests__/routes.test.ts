@@ -1107,10 +1107,14 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(setArgs.inputs.warehouseOverrides).toEqual([]);
   });
 
-  it("all_or_nothing mode: applies an ADD-classified customer row into addedCustomers (city only, no state/status field)", async () => {
+  // Task 26 — addedCustomerSchema now has a real `state` field, so an
+  // ADD-classified customer row's parsed CSV `state` column value is carried
+  // all the way through to the persisted addedCustomers record (previously
+  // discarded, since the schema had nowhere to put it).
+  it("all_or_nothing mode: applies an ADD-classified customer row into addedCustomers, including state", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedCustomers: [{ id: "C-NEW1", city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200 }] } }]);
+    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedCustomers: [{ id: "C-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 }] } }]);
     mockDb.update.mockReturnValue(chain);
     const addCsv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
     const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
@@ -1119,7 +1123,7 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(res.body.applied).toBe(1);
     expect(res.body.errors).toEqual([]);
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedCustomers: unknown[] } };
-    expect(setArgs.inputs.addedCustomers).toEqual([{ id: "C-NEW1", city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200 }]);
+    expect(setArgs.inputs.addedCustomers).toEqual([{ id: "C-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 }]);
   });
 
   it("returns 404 (not 403) when applying to a scenario owned by a different user", async () => {

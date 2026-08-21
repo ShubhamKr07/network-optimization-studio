@@ -275,7 +275,7 @@ describe("buildPayload()", () => {
       { id: "NEW1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, capacity: 100000, status: "active" as const },
     ];
     const addedCustomers = [
-      { id: "NEWC1", city: "Boise", lat: 43.6, lng: -116.2, demand: 5000 },
+      { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000 },
     ];
     const distanceOverrides = [{ fromId: "CHI", toId: "C1", distance: 123.4 }];
     const input: SolveInput = {
@@ -299,7 +299,7 @@ describe("buildPayload()", () => {
   });
 
   it("also forwards addedWarehouses/addedCustomers/distanceOverrides for p-median-brazil (harmless today, ready for B6.3)", () => {
-    const addedCustomers = [{ id: "NEWC1", city: "Boise", lat: 43.6, lng: -116.2, demand: 5000 }];
+    const addedCustomers = [{ id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000 }];
     const input: SolveInput = {
       modelId: "p-median-brazil",
       inputs: {

@@ -67,15 +67,30 @@ describe("pMedianInputsSchema — B1.1 network-edit fields", () => {
   it("accepts a valid addedCustomers entry", () => {
     const result = pMedianInputsSchema.parse({
       ...BASE,
-      addedCustomers: [{ id: "CUST-NEW-1", city: "Fresno", lat: 36.74, lng: -119.77, demand: 1200 }],
+      addedCustomers: [{ id: "CUST-NEW-1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200 }],
     });
     expect(result.addedCustomers).toHaveLength(1);
+    expect(result.addedCustomers[0]).toMatchObject({ id: "CUST-NEW-1", city: "Fresno", state: "CA" });
+  });
+
+  // Task 26 — addedCustomerSchema gains `state`, matching
+  // addedWarehouseSchema's existing required-non-optional shape exactly.
+  // Required (not optional/defaulted): this feature is brand new (no
+  // production scenarios have addedCustomers populated yet — the frontend
+  // that lets students add customers doesn't exist until B5.2), so there's
+  // no backward-compatibility scenario data to protect.
+  it("rejects addedCustomers entry missing state", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      addedCustomers: [{ id: "CUST-NEW-1", city: "Fresno", lat: 36.74, lng: -119.77, demand: 1200 }],
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejects addedCustomers entry with empty id", () => {
     const result = pMedianInputsSchema.safeParse({
       ...BASE,
-      addedCustomers: [{ id: "", city: "Fresno", lat: 36.74, lng: -119.77, demand: 1200 }],
+      addedCustomers: [{ id: "", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200 }],
     });
     expect(result.success).toBe(false);
   });
@@ -83,7 +98,7 @@ describe("pMedianInputsSchema — B1.1 network-edit fields", () => {
   it("rejects addedCustomers entry with negative demand", () => {
     const result = pMedianInputsSchema.safeParse({
       ...BASE,
-      addedCustomers: [{ id: "CUST-X", city: "Fresno", lat: 36.74, lng: -119.77, demand: -1 }],
+      addedCustomers: [{ id: "CUST-X", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: -1 }],
     });
     expect(result.success).toBe(false);
   });
