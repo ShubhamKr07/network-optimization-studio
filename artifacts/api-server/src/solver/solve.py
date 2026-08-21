@@ -5,6 +5,7 @@ import sys, json, time, math, os
 from pulp import (LpProblem, LpMinimize, LpVariable, lpSum,
                   LpConstraint, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
                   LpStatus, value, PULP_CBC_CMD)
+from merge_inputs import build_merged_pmedian_dataset
 
 # ---------------------------------------------------------------------------
 # Canonical datasets live in solvers/<model-id>/dataset/*.json (C1.1/C1.2).
@@ -159,25 +160,54 @@ def solve_pmedian(inp):
     wh_statuses = {ws['warehouseId']: ws['status'] for ws in inp.get('warehouseStatuses', [])}
     excluded_ids = set(inp.get('excludedCustomerIds', []))
 
-    warehouses = list(WAREHOUSES.keys())
-    customers_list = [k for k in CUSTOMERS.keys() if CUSTOMERS[k]['id'] not in excluded_ids]
+    # B3.1: per-call merge of the base dataset with this scenario's
+    # scenario-local network edits (addedWarehouses/addedCustomers/
+    # distanceOverrides, B1.1) — never mutates the module-level WAREHOUSES/
+    # CUSTOMERS/DISTANCE globals, so concurrent solves for other scenarios
+    # never see one scenario's added entities. Empty inputs (the default)
+    # produce a merged dataset that is a plain equal copy of the globals,
+    # so this is a no-op for every scenario that doesn't use the feature.
+    merged = build_merged_pmedian_dataset(inp, WAREHOUSES, CUSTOMERS, DISTANCE)
+    wh_data = merged['warehouses']
+    cust_data = merged['customers']
+    dist_data = merged['distance']
+    # Added entities carry their own capacity/status/demand directly on
+    # their addedWarehouses/addedCustomers record (B1.1's schema) — distinct
+    # from base entities, whose capacity/status/demand come from the sparse
+    # warehouseCapacities/wh_statuses/customer_demands override maps above.
+    # Mirrors precheckPMedianInputs' (B2.1) own precedent: an added entity's
+    # active/inactive status and demand are resolved solely from its own
+    # added-entity record, never layered with the base-entity sparse
+    # override maps.
+    added_warehouses_by_id = merged['addedWarehousesById']
+    added_customers_by_id = merged['addedCustomersById']
+
+    warehouses = list(wh_data.keys())
+    customers_list = [k for k in cust_data.keys() if cust_data[k]['id'] not in excluded_ids]
 
     def get_bounds(wid):
-        sid = WAREHOUSES[wid]['id']
-        s = wh_statuses.get(sid, 'potential')
+        sid = wh_data[wid]['id']
+        added = added_warehouses_by_id.get(sid)
+        s = added['status'] if added is not None else wh_statuses.get(sid, 'potential')
         if s == 'forced_open': return (1, 1)
         if s == 'inactive':    return (0, 0)
         return (0, 1)
 
     def get_capacity(wid):
-        sid = WAREHOUSES[wid]['id']
+        sid = wh_data[wid]['id']
+        added = added_warehouses_by_id.get(sid)
+        if added is not None:
+            return added.get('capacity')
         if sid in warehouse_capacities:
             return warehouse_capacities[sid]
         return uniform_capacity
 
     def get_demand(c):
-        cid = CUSTOMERS[c]['id']
-        return customer_demands.get(cid, CUSTOMERS[c]['demand'])
+        cid = cust_data[c]['id']
+        added = added_customers_by_id.get(cid)
+        if added is not None:
+            return added['demand']
+        return customer_demands.get(cid, cust_data[c]['demand'])
 
     start = time.time()
 
@@ -186,7 +216,7 @@ def solve_pmedian(inp):
     assign_vars   = LpVariable.dicts("A",    [(w, c) for w in warehouses for c in customers_list], 0, 1, cat='Binary')
     facility_vars = LpVariable.dicts("Open", warehouses, 0, 1, cat='Binary')
 
-    prob += lpSum(get_demand(c) * DISTANCE.get((w, c), 9999) * assign_vars[w, c]
+    prob += lpSum(get_demand(c) * dist_data.get((w, c), 9999) * assign_vars[w, c]
                   for w in warehouses for c in customers_list)
 
     for c in customers_list:
@@ -236,7 +266,7 @@ def solve_pmedian(inp):
                           {"openWarehouseIds": [], "assignments": []}, reason)
 
     open_wh_nums = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
-    open_wh_ids  = [WAREHOUSES[w]['id'] for w in open_wh_nums]
+    open_wh_ids  = [wh_data[w]['id'] for w in open_wh_nums]
 
     assignments = []
     edges = []
@@ -251,14 +281,17 @@ def solve_pmedian(inp):
                 assigned_w = w
                 break
         if assigned_w is None:
-            assigned_w = min(open_wh_nums, key=lambda w: DISTANCE.get((w, c), 9999))
+            assigned_w = min(open_wh_nums, key=lambda w: dist_data.get((w, c), 9999))
 
-        dist   = DISTANCE.get((assigned_w, c), 0)
+        dist   = dist_data.get((assigned_w, c), 0)
         demand = get_demand(c)
         wh_demand[assigned_w] += demand
         total_demand_assigned += demand
         band_idx = next((i for i, b in enumerate(distance_bands) if dist <= b), len(distance_bands) - 1)
-        wh_id, c_id = WAREHOUSES[assigned_w]['id'], f"C{c}"
+        # cust_data[c]['id'] (not a synthetic f"C{c}") — base dataset customer
+        # ids already happen to equal f"C{index}", but an added customer's id
+        # is whatever the student named it, so this must read the real id.
+        wh_id, c_id = wh_data[assigned_w]['id'], cust_data[c]['id']
         assignments.append({"customerId": c_id, "warehouseId": wh_id,
                              "distanceMi": dist, "band": band_idx})
         edges.append({"fromId": wh_id, "toId": c_id, "flow": round(demand), "distance": dist, "band": band_idx})
@@ -275,7 +308,7 @@ def solve_pmedian(inp):
     for w in open_wh_nums:
         cap = get_capacity(w)
         cap_for_util = cap if (cap and cap < active_demand) else avg_demand_per_wh
-        utilization.append({"warehouseId": WAREHOUSES[w]['id'], "city": WAREHOUSES[w]['city'],
+        utilization.append({"warehouseId": wh_data[w]['id'], "city": wh_data[w]['city'],
                              "utilization": min(100, round(wh_demand[w] * 100 / cap_for_util))})
 
     return _envelope("optimal", status_str, round(obj_val), run_time, edges,

@@ -15,6 +15,13 @@ entities into `WAREHOUSES`/`CUSTOMERS` - that's B3.1's job
 (`load_dataset -> apply overrides -> append added entities`), which will
 import `resolve_pmedian_ids_to_indices` from here rather than re-deriving
 id<->index resolution itself.
+
+B3.1 adds `build_merged_pmedian_dataset` below: the actual merge pipeline
+(`apply distance overrides -> append added entities`, on top of a caller-
+supplied base dataset - "load_dataset" itself stays solve.py's job, since
+that's already handled by its own module-level load block). Consumed by
+`solve_pmedian` in `solve.py` as a per-call, non-mutating drop-in for its
+`WAREHOUSES`/`CUSTOMERS`/`DISTANCE` module globals.
 """
 from __future__ import annotations
 
@@ -140,4 +147,119 @@ def resolve_pmedian_ids_to_indices(
         "addedWarehouseIndices": added_warehouse_indices,
         "addedCustomerIndices": added_customer_indices,
         "distanceOverridesByIndex": distance_overrides_by_index,
+    }
+
+
+def build_merged_pmedian_dataset(
+    inputs: dict[str, Any],
+    warehouses: dict[int, dict],
+    customers: dict[int, dict],
+    distance: dict[tuple[int, int], float],
+) -> dict[str, Any]:
+    """B3.1: `load_dataset -> apply distance overrides -> append added
+    entities`, producing merged WAREHOUSES-shaped, CUSTOMERS-shaped, and
+    DISTANCE-shaped structures `solve_pmedian` can use as drop-in
+    replacements for its module-level globals.
+
+    Per-call, non-mutating: `warehouses`/`customers`/`distance` (the caller's
+    base dataset - solve.py's own module-level WAREHOUSES/CUSTOMERS/DISTANCE
+    globals) are never written to. Every scenario's `inputs` gets its own
+    fresh merged copy, so concurrent solves for other scenarios never see
+    one scenario's added entities or distance overrides.
+
+    Args:
+        inputs: the validated `inputs` blob (or any dict exposing the same
+            keys) containing `addedWarehouses`, `addedCustomers`,
+            `distanceOverrides` (B1.1's schema). All three optional, missing
+            keys treated as empty lists (same contract as
+            `resolve_pmedian_ids_to_indices`, which this calls internally).
+        warehouses: base dataset, `solve.py`'s `WAREHOUSES`-shaped
+            `{int_index: {"id": str, "city": str, "state": str, "lat":
+            float, "lng": float}}`. Never mutated.
+        customers: base dataset, `solve.py`'s `CUSTOMERS`-shaped
+            `{int_index: {"id": str, "city": str, "state": str, "lat":
+            float, "lng": float, "demand": float}}`. Never mutated.
+        distance: base dataset, `solve.py`'s `DISTANCE`-shaped
+            `{(int_wh_index, int_cust_index): float}`. Never mutated.
+
+    Returns a dict:
+        warehouses: `{**warehouses}` plus one entry per `addedWarehouses`
+            item at its synthetic index, shaped like an existing
+            `warehouses` value (`id`/`city`/`state`/`lat`/`lng` - no
+            `capacity`/`status` key, matching the base shape exactly; those
+            live in `addedWarehousesById` below instead, since base
+            warehouses don't carry them in this dict either - they come
+            from solve_pmedian's separate sparse `warehouseCapacities`/
+            `warehouseStatuses` override maps).
+        customers: same pattern for `addedCustomers`, shaped like an
+            existing `customers` value including `demand` (added customers
+            DO carry `demand` directly on this dict, unlike warehouses -
+            matches B1.1's schema, where `addedCustomerSchema` has no
+            separate status/capacity-style sparse-override sibling for
+            demand the way warehouses do).
+        distance: `{**distance, **<resolved distanceOverridesByIndex>}` -
+            the override pairs simply overlay the base dict. This is also
+            how an added entity gets ANY distance at all (L4: no
+            auto-haversine for added entities - an override IS the
+            mechanism, not a separate one).
+        addedWarehousesById: `{id: <raw addedWarehouses entry>}` - lets
+            `solve_pmedian` resolve an added warehouse's OWN `capacity`/
+            `status` (present directly on its `addedWarehouses` record,
+            per B1.1's schema) without conflating it with the sparse
+            `warehouseCapacities`/`warehouseStatuses` override maps that
+            apply to BASE warehouses only. Mirrors B2.1's `precheckPMedianInputs`
+            precedent exactly: its own completeness check already treats an
+            added warehouse's active/inactive status as coming solely from
+            `addedWarehouses[].status`, never layered with
+            `warehouseOverrides` - there is no design for a base-style
+            override to also apply on top of an added entity's own record.
+        addedCustomersById: `{id: <raw addedCustomers entry>}` - same
+            reasoning for `demand`, mirroring `precheckPMedianInputs`'s own
+            `activeAddedCustomerIds` (unconditionally every added customer,
+            never filtered by `customerOverrides`).
+
+    Raises:
+        UnresolvableIdError: propagated from `resolve_pmedian_ids_to_indices`
+            - a `distanceOverrides` entry references an id that isn't a
+            known warehouse (fromId) or customer (toId), base or added.
+    """
+    bridge = resolve_pmedian_ids_to_indices(inputs, warehouses, customers)
+
+    added_warehouses = inputs.get("addedWarehouses", []) or []
+    added_customers = inputs.get("addedCustomers", []) or []
+
+    merged_warehouses = dict(warehouses)
+    added_warehouses_by_id: dict[str, dict] = {}
+    for wh in added_warehouses:
+        idx = bridge["addedWarehouseIndices"][wh["id"]]
+        merged_warehouses[idx] = {
+            "id": wh["id"],
+            "city": wh["city"],
+            "state": wh["state"],
+            "lat": wh["lat"],
+            "lng": wh["lng"],
+        }
+        added_warehouses_by_id[wh["id"]] = wh
+
+    merged_customers = dict(customers)
+    added_customers_by_id: dict[str, dict] = {}
+    for c in added_customers:
+        idx = bridge["addedCustomerIndices"][c["id"]]
+        merged_customers[idx] = {
+            "id": c["id"],
+            "city": c["city"],
+            "lat": c["lat"],
+            "lng": c["lng"],
+            "demand": c["demand"],
+        }
+        added_customers_by_id[c["id"]] = c
+
+    merged_distance = {**distance, **bridge["distanceOverridesByIndex"]}
+
+    return {
+        "warehouses": merged_warehouses,
+        "customers": merged_customers,
+        "distance": merged_distance,
+        "addedWarehousesById": added_warehouses_by_id,
+        "addedCustomersById": added_customers_by_id,
     }
