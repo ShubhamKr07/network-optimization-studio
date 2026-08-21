@@ -21,6 +21,9 @@ const baseInput: SolveInput = {
     customerOverrides: [],
     gap: 0,
     timeLimitSec: 120,
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
   },
 };
 
@@ -56,6 +59,9 @@ describe("buildPayload()", () => {
         gap: 0,
         timeLimitSec: 120,
         singleSource: true,
+        addedWarehouses: [],
+        addedCustomers: [],
+        distanceOverrides: [],
       },
     };
     const payload = buildPayload(input);
@@ -104,6 +110,9 @@ describe("buildPayload()", () => {
         customerOverrides: [],
         gap: 0.01,
         timeLimitSec: 60,
+        addedWarehouses: [],
+        addedCustomers: [],
+        distanceOverrides: [],
       },
     };
 

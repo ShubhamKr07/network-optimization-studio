@@ -68,6 +68,7 @@ const baseInput = {
   inputs: {
     p: 3, distanceBands: [200], capacityMode: "none" as const, uniformCapacity: null,
     warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 1,
+    addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
 };
 

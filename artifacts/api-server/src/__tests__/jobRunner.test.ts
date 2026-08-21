@@ -41,6 +41,7 @@ const baseInput: SolveInput = {
   inputs: {
     p: 3, distanceBands: [200], capacityMode: "none", uniformCapacity: null,
     warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 1,
+    addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
 };
 

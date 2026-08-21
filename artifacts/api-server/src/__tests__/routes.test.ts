@@ -89,6 +89,9 @@ const pmedianInputs = {
   customerOverrides: [],
   gap: 0,
   timeLimitSec: 120,
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
 };
 
 const pmedianRow = {
@@ -134,6 +137,9 @@ const brazilInputs = {
   gap: 0,
   timeLimitSec: 120,
   singleSource: true,
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
 };
 
 const brazilRow = {
