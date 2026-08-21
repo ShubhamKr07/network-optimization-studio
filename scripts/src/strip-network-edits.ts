@@ -24,8 +24,15 @@ export const MODEL_IDS = ["p-median-us"];
 
 export const NETWORK_EDIT_KEYS = ["addedWarehouses", "addedCustomers", "distanceOverrides"] as const;
 
+// DD-8's .default([]) means these keys are present (but empty) on nearly
+// every scenario saved after B1.1 lands — routes/scenarios.ts persists the
+// Zod *output*, not the raw input, so `addedWarehouses: []` etc. get written
+// even when the student made zero network edits. Checking key presence
+// alone would make --dry-run's count meaningless and false-stale nearly
+// every scenario on a real strip run. Check that the array actually has
+// content instead.
 export function hasNetworkEdits(inputs: Record<string, unknown>): boolean {
-  return NETWORK_EDIT_KEYS.some((key) => key in inputs);
+  return NETWORK_EDIT_KEYS.some((key) => Array.isArray(inputs[key]) && (inputs[key] as unknown[]).length > 0);
 }
 
 export function stripNetworkEdits(inputs: Record<string, unknown>): Record<string, unknown> {

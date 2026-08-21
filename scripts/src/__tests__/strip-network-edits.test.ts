@@ -54,6 +54,27 @@ const EDITED_SCENARIO = {
   },
 };
 
+// The case that slipped through review: DD-8's .default([]) means
+// routes/scenarios.ts persists these keys present-but-empty on nearly every
+// scenario saved after B1.1 lands, even when the student made zero network
+// edits. hasNetworkEdits must treat this exactly like OLD_SCENARIO (keys
+// fully absent), not like EDITED_SCENARIO (keys with real content).
+const PRESENT_BUT_EMPTY_SCENARIO = {
+  id: 4,
+  userId: "user-a",
+  modelId: "p-median-us",
+  inputs: {
+    p: 3,
+    capacityMode: "none",
+    distanceBands: [200, 400],
+    gap: 0,
+    timeLimitSec: 60,
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  },
+};
+
 const PARTIALLY_EDITED_SCENARIO = {
   id: 3,
   userId: "user-b",
@@ -75,6 +96,10 @@ describe("strip-network-edits — pure helpers", () => {
 
   it("hasNetworkEdits is true when at least one of the three keys is present", () => {
     expect(hasNetworkEdits(PARTIALLY_EDITED_SCENARIO.inputs)).toBe(true);
+  });
+
+  it("hasNetworkEdits is false when the keys are present but empty (DD-8's .default([]) persisted with no real edits)", () => {
+    expect(hasNetworkEdits(PRESENT_BUT_EMPTY_SCENARIO.inputs)).toBe(false);
   });
 
   it("stripNetworkEdits removes exactly the three keys and preserves everything else", () => {
@@ -139,6 +164,26 @@ describe("strip-network-edits — run()", () => {
 
     await run({ dryRun: false });
 
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("a scenario with the three keys present but empty is not counted by dry-run", async () => {
+    mockDb.select.mockReturnValueOnce(
+      makeChain([PRESENT_BUT_EMPTY_SCENARIO, EDITED_SCENARIO]),
+    );
+
+    const summary = await run({ dryRun: true });
+
+    expect(summary.affectedCount).toBe(1);
+    expect(summary.byUserModel.get("user-a / p-median-us")).toBe(1);
+  });
+
+  it("a scenario with the three keys present but empty is left untouched by a real run (no inputsUpdatedAt bump, inputs unchanged)", async () => {
+    mockDb.select.mockReturnValueOnce(makeChain([PRESENT_BUT_EMPTY_SCENARIO]));
+
+    const summary = await run({ dryRun: false });
+
+    expect(summary.affectedCount).toBe(0);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
