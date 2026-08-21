@@ -216,10 +216,197 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
   });
 
-  it("mines/stations/refineries are out of scope — an unrecognized id is still a plain 'unknown id' error", () => {
-    const csv = "template_version,id,city,state,capacity\n1,ZZ-NEW,Nowhere,XX,1000\n";
-    const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
+  it("refineries are still out of scope — an unrecognized id is a plain 'unknown id' error, not add-mode", () => {
+    const csv = "template_version,id,city,state,status\n1,ZZ-NEW,Nowhere,XX,active\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
+  });
+});
+
+// Task 30 (B6.1 stage 4) — mines/stations join warehouses/customers'
+// add-mode set. Same rules, transport-coal vocabulary: mines have no status
+// field (never required, never checked) and capacity stays nullable/
+// optional on an add-row (blank capacity means unconstrained — see
+// solve.py's get_base_capacity), while stations require demand exactly like
+// customers do.
+describe("parseAndValidateImport — add-mode (mines/stations)", () => {
+  it("mines: an unrecognized id with valid full data (including capacity) produces an ADD-classified change", () => {
+    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
+    const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "MN-NEW",
+      line: 2,
+      before: { status: "not_present", value: null },
+      after: { status: "active", value: 5000000 },
+      changeType: "add",
+      city: "Bristol",
+      state: "VA",
+      lat: 36.6,
+      lng: -82.19,
+    }]);
+  });
+
+  it("mines: an unrecognized id with a BLANK capacity still produces an ADD-classified change — blank capacity means unconstrained, not an error", () => {
+    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,36.6,-82.19,\n";
+    const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "MN-NEW",
+      line: 2,
+      before: { status: "not_present", value: null },
+      after: { status: "active", value: null },
+      changeType: "add",
+      city: "Bristol",
+      state: "VA",
+      lat: 36.6,
+      lng: -82.19,
+    }]);
+  });
+
+  it("mines: missing lat/lng on an unrecognized id is a clear error", () => {
+    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,,,5000000\n";
+    const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/lat\/lng/i);
+  });
+
+  it("mines: an id that's already a previously-added mine is rejected, not silently downgraded to an update", () => {
+    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
+    const result = parseAndValidateImport("mines", csv, { addedMines: [{ id: "MN-NEW" }] }, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/already exists/i);
+  });
+
+  it("mines: an id colliding with a real base-dataset mine is a normal capacity UPDATE, not add-mode", () => {
+    const csv = "template_version,id,city,state,lat,lng,capacity\n1,KY,Pikeville,KY,,,1000000\n";
+    const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0].changeType).toBeUndefined();
+    expect(result.changes[0]).toMatchObject({ id: "KY", after: { value: 1000000 } });
+  });
+
+  it("stations: an unrecognized id with valid full data produces an ADD-classified change", () => {
+    const csv = "template_version,id,city,state,lat,lng,demand\n1,ST-NEW,Newtown,NC,35.5,-80.2,900000\n";
+    const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "ST-NEW",
+      line: 2,
+      before: { status: "not_present", value: null },
+      after: { status: "active", value: 900000 },
+      changeType: "add",
+      city: "Newtown",
+      state: "NC",
+      lat: 35.5,
+      lng: -80.2,
+    }]);
+  });
+
+  it("stations: a blank demand on an add-candidate row is rejected — demand is required, unlike mine capacity", () => {
+    const csv = "template_version,id,city,state,lat,lng,demand\n1,ST-NEW,Newtown,NC,35.5,-80.2,\n";
+    const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/demand is required/i);
+  });
+
+  it("stations: missing city/state on an unrecognized id is a clear error", () => {
+    const csv = "template_version,id,city,state,lat,lng,demand\n1,ST-NEW,,NC,35.5,-80.2,900000\n";
+    const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/city and state/i);
+  });
+});
+
+// Task 30 (B6.1 stage 4) — laneCosts is composite-keyed (from_id,to_id),
+// mirroring B4.1's distances entity test coverage exactly, transport-coal
+// vocabulary (mine/station, cost).
+describe("parseAndValidateImport — laneCosts (composite key)", () => {
+  it("valid lane cost rows parse correctly as a real change", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,KY,CHI,123.4\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "KY|CHI",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 123.4 },
+      fromId: "KY",
+      toId: "CHI",
+    }]);
+  });
+
+  it("rejects a row with an unresolvable from_id (unknown mine) as a logic error", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,ZZZ,CHI,100\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/from_id/i);
+  });
+
+  it("rejects a row with an unresolvable to_id (unknown station) as a logic error", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,KY,ZZZ,100\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/to_id/i);
+  });
+
+  it("rejects a backwards row (from_id=a real station, to_id=a real mine), not silently accepted", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,CHI,KY,100\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/from_id/i);
+  });
+
+  it("rejects a duplicate (from_id,to_id) pair within one file", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,KY,CHI,100\n1,KY,CHI,200\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/duplicate/i);
+    expect(result.changes).toHaveLength(1);
+  });
+
+  it("resolves a valid override against an added mine and added station, not just base dataset entities", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,MN-NEW,ST-NEW,55\n";
+    const result = parseAndValidateImport(
+      "laneCosts",
+      csv,
+      { addedMines: [{ id: "MN-NEW" }], addedStations: [{ id: "ST-NEW" }] },
+      0,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ fromId: "MN-NEW", toId: "ST-NEW", after: { value: 55 } });
+  });
+
+  it("diffs against an existing laneCostOverrides entry, not just a null baseline", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,KY,CHI,999\n";
+    const result = parseAndValidateImport(
+      "laneCosts",
+      csv,
+      { laneCostOverrides: [{ fromId: "KY", toId: "CHI", cost: 111 }] },
+      0,
+    );
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ before: { value: 111 }, after: { value: 999 } });
+  });
+
+  it("rejects a non-positive cost as a logic error", () => {
+    const csv = "template_version,from_id,to_id,cost\n1,KY,CHI,0\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/positive/i) }]);
+  });
+
+  it("still enforces the shared header-check machinery (wrong columns -> single format error)", () => {
+    const csv = "template_version,id,city,state,capacity\n1,KY,Pikeville,KY,1000000\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
   });
 });
 

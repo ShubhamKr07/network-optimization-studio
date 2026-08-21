@@ -382,6 +382,7 @@ export const ImportRequestEntity = {
   stations: 'stations',
   refineries: 'refineries',
   distances: 'distances',
+  laneCosts: 'laneCosts',
 } as const;
 
 export interface ImportRequest {
@@ -432,6 +433,7 @@ export const ImportApplyRequestEntity = {
   stations: 'stations',
   refineries: 'refineries',
   distances: 'distances',
+  laneCosts: 'laneCosts',
 } as const;
 
 export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
@@ -464,6 +466,7 @@ export const ExportEnvelopeEntity = {
   stations: 'stations',
   refineries: 'refineries',
   distances: 'distances',
+  laneCosts: 'laneCosts',
 } as const;
 
 export type ExportEnvelopeRowsItem = { [key: string]: unknown };
@@ -515,7 +518,7 @@ export type ExportScenarioParams = {
 entity: ExportScenarioEntity;
 format: ExportScenarioFormat;
 /**
- * entity=distances only (SCN v0.3 B4.3). Id of a warehouse or customer (base dataset or this scenario's added entities) to generate a blank fill-in-the-blanks distance template for — one row per active counterpart (distance omitted) — instead of exporting the scenario's existing distanceOverrides.
+ * entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse/mine or customer/station (base dataset or this scenario's added entities) to generate a blank fill-in-the-blanks distance/cost template for — one row per counterpart (distance/cost omitted) — instead of exporting the scenario's existing distanceOverrides/laneCostOverrides.
  */
 stubFor?: string;
 };
@@ -530,6 +533,7 @@ export const ExportScenarioEntity = {
   stations: 'stations',
   refineries: 'refineries',
   distances: 'distances',
+  laneCosts: 'laneCosts',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];

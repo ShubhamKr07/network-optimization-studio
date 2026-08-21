@@ -1,7 +1,7 @@
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
-import { buildPMedianIdSpaces, buildActivePMedianIds } from "./precheck.js";
+import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, TRANSPORT_DATASET } from "./precheck.js";
 import type { PrecheckDataset } from "./precheck.js";
 
 // D4.1 export. CSV format choice: plain columns with template_version
@@ -34,6 +34,13 @@ interface RefineryOverride { id: string; status: "active" | "forced_open" | "ina
 // applyCustomerOverrides below).
 interface AddedWarehouse { id: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface AddedCustomer { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
+
+// Task 30 (B6.1 stage 4) — addedMineSchema/addedStationSchema shapes
+// (validation/inputs/transportLp.ts). Mirrors AddedWarehouse/AddedCustomer
+// above, minus the `status` field mines have none of (same reasoning
+// MineOverride/StationOverride above already document).
+interface AddedMine { id: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; }
+interface AddedStation { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
 
 // B4.3 — lat/lng catch up to B4.2's import COLUMNS (same position: after
 // state, before the value/status columns) — sourced from the real dataset's
@@ -69,12 +76,23 @@ export interface CustomerTemplateRow {
   overridden: boolean;
 }
 
+// Task 30 (B6.1 stage 4) — gained lat/lng (catching up to import.ts's new
+// COLUMNS.mines/stations shape, positioned after state, before the value
+// column — same B4.2 precedent) and `overridden` (B4.3's convention, see
+// WarehouseTemplateRow's header comment above): true for any added mine/
+// station (doesn't exist in the baseline at all) or a base one whose current
+// capacity/demand differs from the pristine no-override default (null for
+// mines — there is no base capacity in the dataset to compare against, only
+// override-or-not; the base demand value for stations, same as customers).
 export interface MineTemplateRow {
   templateVersion: number;
   id: string;
   city: string;
   state: string;
+  lat: number;
+  lng: number;
   capacity: number | null;
+  overridden: boolean;
 }
 
 export interface StationTemplateRow {
@@ -82,7 +100,10 @@ export interface StationTemplateRow {
   id: string;
   city: string;
   state: string;
+  lat: number;
+  lng: number;
   demand: number;
+  overridden: boolean;
 }
 
 export interface RefineryTemplateRow {
@@ -183,36 +204,75 @@ export function applyCustomerOverrides(
 // (null = no override) — there is no base capacity on the in-memory
 // TRANSPORT_COAL_WAREHOUSES row (WarehouseCandidate carries geometry only),
 // matching how the MineTable UI renders an empty input as "no override".
-export function applyMineOverrides(overrides: MineOverride[]): MineTemplateRow[] {
+// Task 30 (B6.1 stage 4) — gained an `addedMines` second param, mirroring
+// applyWarehouseOverrides' own second param exactly: appends one row per
+// scenario-local added mine after the base rows, always overridden: true
+// (it doesn't exist in the baseline at all). `overridden` for a base row is
+// simply "does it have a capacity override" — mines have no status column to
+// factor in, unlike applyWarehouseOverrides' `capacity !== null || status
+// !== "active"`.
+export function applyMineOverrides(overrides: MineOverride[], addedMines: AddedMine[] = []): MineTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
-  return TRANSPORT_COAL_WAREHOUSES.map(w => {
+  const baseRows: MineTemplateRow[] = TRANSPORT_COAL_WAREHOUSES.map(w => {
     const o = byId.get(w.id);
+    const capacity = o?.capacity ?? null;
     return {
       templateVersion: TEMPLATE_VERSION,
       id: w.id,
       city: w.city,
       state: w.state,
-      capacity: o?.capacity ?? null,
+      lat: w.lat,
+      lng: w.lng,
+      capacity,
+      overridden: capacity !== null,
     };
   });
+  const addedRows: MineTemplateRow[] = addedMines.map(m => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: m.id,
+    city: m.city,
+    state: m.state,
+    lat: m.lat,
+    lng: m.lng,
+    capacity: m.capacity ?? null,
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
 }
 
 // Stations mirror customers minus the status field: demand defaults to the
 // station's base demand (TRANSPORT_COAL_CUSTOMERS preserves it), so the
 // export shows the full effective demand a student would edit — same
-// "merge base + override" semantics applyCustomerOverrides uses.
-export function applyStationOverrides(overrides: StationOverride[]): StationTemplateRow[] {
+// "merge base + override" semantics applyCustomerOverrides uses. Task 30
+// (B6.1 stage 4) — gained an `addedStations` second param, mirroring
+// applyCustomerOverrides' own second param.
+export function applyStationOverrides(overrides: StationOverride[], addedStations: AddedStation[] = []): StationTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
-  return TRANSPORT_COAL_CUSTOMERS.map(c => {
+  const baseRows: StationTemplateRow[] = TRANSPORT_COAL_CUSTOMERS.map(c => {
     const o = byId.get(c.id);
+    const demand = o?.demand ?? c.demand;
     return {
       templateVersion: TEMPLATE_VERSION,
       id: c.id,
       city: c.city,
       state: c.state,
-      demand: o?.demand ?? c.demand,
+      lat: c.lat,
+      lng: c.lng,
+      demand,
+      overridden: demand !== c.demand,
     };
   });
+  const addedRows: StationTemplateRow[] = addedStations.map(s => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: s.id,
+    city: s.city,
+    state: s.state,
+    lat: s.lat,
+    lng: s.lng,
+    demand: s.demand,
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
 }
 
 // Two-echelon-gold-au's own 10-customer dataset — distinct from
@@ -281,18 +341,21 @@ export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
   return [header, ...lines].join("\n") + "\n";
 }
 
+// Task 30 (B6.1 stage 4) — header catches up to import.ts's new
+// COLUMNS.mines shape (template_version,id,city,state,lat,lng,capacity) —
+// `overridden` stays JSON-only, same as warehouses/customers.
 export function mineRowsToCsv(rows: MineTemplateRow[]): string {
-  const header = "template_version,id,city,state,capacity";
+  const header = "template_version,id,city,state,lat,lng,capacity";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.capacity ?? ""].join(","),
+    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? ""].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
 
 export function stationRowsToCsv(rows: StationTemplateRow[]): string {
-  const header = "template_version,id,city,state,demand";
+  const header = "template_version,id,city,state,lat,lng,demand";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.demand].join(","),
+    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.lat, r.lng, r.demand].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -411,6 +474,102 @@ export function distanceRowsToCsv(
   const header = "template_version,from_id,to_id,distance";
   const lines = rows.map(r =>
     [r.templateVersion, r.fromId, r.toId, r.distance ?? ""].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+// ---------------------------------------------------------------------------
+// Task 30 (B6.1 stage 4) — laneCosts export + stub generator, the
+// transport-coal analogue of the distances block above (see stage 1-3's
+// report follow-up #4: "no TRANSPORT_DATASET-shaped stub-generator yet").
+// Same two-capability split: applyLaneCostOverrides is the merged view of
+// this scenario's CURRENT laneCostOverrides only (composite-keyed, no fixed
+// baseline to enumerate — mirrors DistanceTemplateRow's reasoning exactly);
+// buildLaneCostStubRows emits one blank row per counterpart for a given
+// mine/station id, using buildTransportIdSpaces (precheck.ts) instead of
+// buildPMedianIdSpaces/buildActivePMedianIds — precheckTransportInputs has no
+// status-filtering "active" concept at all (mines/stations have no
+// forced-open/inactive/excluded), so the id-space set itself already IS the
+// "who to generate a stub row for" set, with no separate active/inactive
+// distinction to layer on top.
+// ---------------------------------------------------------------------------
+
+interface LaneCostOverride { fromId: string; toId: string; cost: number; }
+
+export interface LaneCostTemplateRow {
+  templateVersion: number;
+  fromId: string;
+  toId: string;
+  cost: number;
+  overridden: true;
+}
+
+export function applyLaneCostOverrides(overrides: LaneCostOverride[]): LaneCostTemplateRow[] {
+  return overrides.map(o => ({
+    templateVersion: TEMPLATE_VERSION,
+    fromId: o.fromId,
+    toId: o.toId,
+    cost: o.cost,
+    overridden: true,
+  }));
+}
+
+export interface LaneCostStubRow {
+  templateVersion: number;
+  fromId: string;
+  toId: string;
+  cost: null;
+}
+
+// Minimal shape buildLaneCostStubRows needs from a scenario's inputs — the
+// same fields buildTransportIdSpaces (precheck.ts) already takes.
+export interface TransportStubGeneratorInputs {
+  addedMines?: Array<{ id: string; city: string; state: string; lat: number; lng: number }>;
+  addedStations?: Array<{ id: string; city: string; state: string; lat: number; lng: number }>;
+}
+
+// Returns null when `targetId` resolves as neither a known mine nor a known
+// station in this scenario (base dataset or added) — the caller
+// (routes/scenarios.ts) turns that into a 422, same contract as
+// buildDistanceStubRows. `dataset` defaults to the real transport-coal base
+// dataset (precheck.ts's own TRANSPORT_DATASET default).
+export function buildLaneCostStubRows(
+  targetId: string,
+  inputs: TransportStubGeneratorInputs,
+  dataset: PrecheckDataset = TRANSPORT_DATASET,
+): LaneCostStubRow[] | null {
+  const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(inputs, dataset);
+
+  if (mineIdSpace.has(targetId)) {
+    return [...stationIdSpace].map(stationId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: targetId,
+      toId: stationId,
+      cost: null,
+    }));
+  }
+  if (stationIdSpace.has(targetId)) {
+    return [...mineIdSpace].map(mineId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: mineId,
+      toId: targetId,
+      cost: null,
+    }));
+  }
+  return null;
+}
+
+// Shared by both applyLaneCostOverrides' rows (extra `overridden` field,
+// ignored here) and buildLaneCostStubRows' rows (cost: null) — same 4-column
+// shape as import.ts's LANE_COST_COLUMNS, so an exported CSV stays
+// re-importable either way. Mirrors distanceRowsToCsv exactly, field name
+// aside.
+export function laneCostRowsToCsv(
+  rows: Array<{ templateVersion: number; fromId: string; toId: string; cost: number | null }>,
+): string {
+  const header = "template_version,from_id,to_id,cost";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.fromId, r.toId, r.cost ?? ""].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }

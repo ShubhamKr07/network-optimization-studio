@@ -1,7 +1,7 @@
 import Papa from "papaparse";
 import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
-import { buildPMedianIdSpaces } from "./precheck.js";
+import { buildPMedianIdSpaces, buildTransportIdSpaces } from "./precheck.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -48,15 +48,42 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances";
+export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts";
 
-// `distances` is intentionally absent from COLUMNS/ENTITY_HAS_VALUE/
-// VALID_STATUSES below — it doesn't fit the single-id row model those
-// tables describe (composite key, no status column, no baseline "current
-// override list" to diff unknown-ness against). Its column layout is
-// DISTANCES_COLUMNS just below, and it's parsed by a wholly separate
-// function (parseDistancesRows), not this file's generic per-row loop.
+// Entities that fit the generic single-id-row model below — everything
+// EXCEPT the two composite-keyed (fromId,toId) entities (distances,
+// laneCosts), which have their own dedicated parsing functions (see this
+// file's header comment on `distances` and Task 30's laneCosts addition
+// below).
+type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts">;
+
+// `distances`/`laneCosts` are intentionally absent from COLUMNS/
+// ENTITY_HAS_VALUE/VALID_STATUSES below — they don't fit the single-id row
+// model those tables describe (composite key, no status column, no baseline
+// "current override list" to diff unknown-ness against). Their column
+// layouts are DISTANCES_COLUMNS/LANE_COST_COLUMNS just below, and they're
+// each parsed by a wholly separate function (parseDistancesRows/
+// parseLaneCostRows), not this file's generic per-row loop.
 const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
+// Task 30 (B6.1 stage 4) — transport-coal's composite-keyed entity, the
+// laneCostOverrides analogue of p-median-us's distanceOverrides. Named
+// "cost" (not "distance"), matching stage 1-3's own established vocabulary
+// decision for this model (transportLp.ts's laneCostOverrideSchema) even
+// though the underlying values are the same kind of quantity.
+const LANE_COST_COLUMNS = ["template_version", "from_id", "to_id", "cost"];
+
+// Singular display label per entity, used in a handful of free-text error
+// messages below (id-collision, add-mode "lat/lng required"/"city and state
+// required"). Previously these messages were inline `entity === "warehouses"
+// ? "warehouse" : "customer"` ternaries — Task 30 (B6.1 stage 4) generalizes
+// past the 2-way ternary once mines/stations also gain add-mode.
+const ENTITY_SINGULAR_LABEL: Record<SingleIdEntity, string> = {
+  warehouses: "warehouse",
+  customers: "customer",
+  mines: "mine",
+  stations: "station",
+  refineries: "refinery",
+};
 
 // B4.2 — warehouses/customers gain lat/lng columns (positioned after state,
 // before the value column), a binding column-format decision this task made:
@@ -64,36 +91,30 @@ const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
 // for a brand-new entity, which the pre-B4.2 6-column format had no room
 // for. This is a breaking format change (old exported templates no longer
 // header-match) — deliberate, not an oversight; B4.3 updates the template
-// generator to match. mines/stations/refineries are untouched (out of scope
-// — add-mode is warehouses/customers only for this task).
-const COLUMNS: Record<Exclude<ImportEntity, "distances">, string[]> = {
+// generator to match.
+// Task 30 (B6.1 stage 4) — mines/stations get the SAME breaking lat/lng
+// addition, for the same reason: addedMineSchema/addedStationSchema
+// (transportLp.ts) both require real coordinates for a brand-new mine/
+// station, which the pre-Task-30 5-column format had no room for.
+// refineries stays untouched — add-mode remains out of scope for it (no
+// analogous "add a refinery" concept was requested).
+const COLUMNS: Record<SingleIdEntity, string[]> = {
   warehouses: ["template_version", "id", "city", "state", "lat", "lng", "capacity", "status"],
   customers: ["template_version", "id", "city", "state", "lat", "lng", "demand", "status"],
-  mines: ["template_version", "id", "city", "state", "capacity"],
-  stations: ["template_version", "id", "city", "state", "demand"],
+  mines: ["template_version", "id", "city", "state", "lat", "lng", "capacity"],
+  stations: ["template_version", "id", "city", "state", "lat", "lng", "demand"],
   // Refineries have status but no value column at all (two-echelon-gold-au
   // has no per-refinery capacity concept) — the only entity with a status
   // column and no value column.
   refineries: ["template_version", "id", "city", "state", "status"],
 };
 
-// Only warehouses/customers carry lat/lng columns (see COLUMNS' comment
-// above) — used to compute the value/status column offsets below, and to
-// know which entities may run the add-mode branch at all.
-const ENTITY_HAS_LATLNG: Record<Exclude<ImportEntity, "distances">, boolean> = {
-  warehouses: true,
-  customers: true,
-  mines: false,
-  stations: false,
-  refineries: false,
-};
-
-// Whether this entity's rows carry a capacity/demand value column at all.
-// Refineries is the one entity with none. distances isn't here at all — it
-// has a `distance` column but no capacity/demand-style value semantics (see
-// this file's header comment): it's parsed by parseDistancesRows, never by
-// the generic per-row loop below that consults this table.
-const ENTITY_HAS_VALUE: Record<Exclude<ImportEntity, "distances">, boolean> = {
+// Which entities carry lat/lng columns (see COLUMNS' comment above) — used
+// to compute the value/status column offsets below, and to know which
+// entities may run the add-mode branch at all. Task 30 — mines/stations join
+// warehouses/customers here (refineries still doesn't; add-mode stays out of
+// scope for it).
+const ENTITY_HAS_LATLNG: Record<SingleIdEntity, boolean> = {
   warehouses: true,
   customers: true,
   mines: true,
@@ -101,7 +122,21 @@ const ENTITY_HAS_VALUE: Record<Exclude<ImportEntity, "distances">, boolean> = {
   refineries: false,
 };
 
-const VALID_STATUSES: Record<Exclude<ImportEntity, "distances">, string[]> = {
+// Whether this entity's rows carry a capacity/demand value column at all.
+// Refineries is the one entity with none. distances/laneCosts aren't here at
+// all — each has its own value-shaped column but no capacity/demand-style
+// value semantics (see this file's header comment): they're parsed by their
+// own dedicated functions, never by the generic per-row loop below that
+// consults this table.
+const ENTITY_HAS_VALUE: Record<SingleIdEntity, boolean> = {
+  warehouses: true,
+  customers: true,
+  mines: true,
+  stations: true,
+  refineries: false,
+};
+
+const VALID_STATUSES: Record<SingleIdEntity, string[]> = {
   warehouses: ["active", "forced_open", "inactive"],
   customers: ["active", "excluded"],
   // Mines/stations have no status column (no open/close concept) — never
@@ -117,6 +152,9 @@ interface MineOverride { id: string; capacity?: number | null; }
 interface StationOverride { id: string; demand?: number | null; }
 interface RefineryOverride { id: string; status: "active" | "forced_open" | "inactive"; }
 interface DistanceOverride { fromId: string; toId: string; distance: number; }
+// Task 30 (B6.1 stage 4) — laneCostOverrides' element shape (transportLp.ts's
+// laneCostOverrideSchema), mirroring DistanceOverride's role above.
+interface LaneCostOverride { fromId: string; toId: string; cost: number; }
 interface AddedEntityRef { id: string; }
 
 export interface ImportCurrentOverrides {
@@ -133,6 +171,13 @@ export interface ImportCurrentOverrides {
   distanceOverrides?: DistanceOverride[];
   addedWarehouses?: AddedEntityRef[];
   addedCustomers?: AddedEntityRef[];
+  // Task 30 (B6.1 stage 4) — transport-coal's analogues of the above,
+  // needed for mines/stations add-mode's id-space/collision check (via
+  // buildTransportIdSpaces) and laneCosts' reference-integrity check, same
+  // role addedWarehouses/addedCustomers play for the p-median-us pair.
+  laneCostOverrides?: LaneCostOverride[];
+  addedMines?: AddedEntityRef[];
+  addedStations?: AddedEntityRef[];
 }
 
 export function parseAndValidateImport(
@@ -171,7 +216,10 @@ export function parseAndValidateImport(
   }
 
   const rows = parsed.data;
-  const expectedColumns = entity === "distances" ? DISTANCES_COLUMNS : COLUMNS[entity];
+  const expectedColumns =
+    entity === "distances" ? DISTANCES_COLUMNS
+    : entity === "laneCosts" ? LANE_COST_COLUMNS
+    : COLUMNS[entity];
   const header = rows[0]?.map(h => h.trim()) ?? [];
   const headerMatches = header.length === expectedColumns.length && expectedColumns.every((c, i) => header[i] === c);
   if (!headerMatches) {
@@ -199,9 +247,26 @@ export function parseAndValidateImport(
     return { errors: distanceResult.errors, changes: distanceResult.changes, warnings: [] };
   }
 
+  // Task 30 (B6.1 stage 4) — laneCosts is transport-coal's composite-keyed
+  // entity, the exact same shape/reasoning as distances above (see its
+  // header comment) — "unknown" here means reference-integrity against
+  // buildTransportIdSpaces (base mines/stations + this scenario's added
+  // ones), the same rule precheckTransportInputs enforces at solve time.
+  if (entity === "laneCosts") {
+    const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(currentOverrides);
+    const laneCostResult = parseLaneCostRows(rows.slice(1), currentOverrides.laneCostOverrides ?? [], mineIdSpace, stationIdSpace);
+    return { errors: laneCostResult.errors, changes: laneCostResult.changes, warnings: [] };
+  }
+
   // Mines/stations store overrides as sparse dicts (mineCapacities/
   // stationDemands); convert to the array shape the apply* functions take,
-  // same direction Studio's tables do internally.
+  // same direction Studio's tables do internally. Deliberately built from
+  // ONLY the base dataset (via the apply* functions' first param), never
+  // including addedMines/addedStations — same "baseline excludes added
+  // entities" rule warehouses/customers already establish just below (see
+  // the id_collision branch's own comment): a CSV row whose id matches a
+  // previously-added mine/station is rejected as a collision, not silently
+  // treated as an update to it.
   const baseline =
     entity === "warehouses" ? applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
     : entity === "customers" ? (
@@ -228,21 +293,28 @@ export function parseAndValidateImport(
   const valueColIdx = 4 + latLngOffset;
   const statusColIdx = entityHasValue ? 5 + latLngOffset : 4 + latLngOffset;
 
-  // B4.2 — add-mode for warehouses/customers only (mines/stations/refineries
-  // are out of scope for this task; see this file's header comment on
-  // ENTITY_HAS_LATLNG). "customers" is shared with two-echelon-gold-au,
-  // whose schema (twoEchelonInputsSchema) has no addedCustomers field at
-  // all — add-mode there would silently vanish on re-validation, so it's
-  // restricted to p-median-us, matching every other scenario-local
-  // network-edit feature's (B1.1-B4.1) established model boundary.
-  const canAdd = entity === "warehouses" || (entity === "customers" && modelId === "p-median-us");
+  // B4.2 — add-mode for warehouses/customers. "customers" is shared with
+  // two-echelon-gold-au, whose schema (twoEchelonInputsSchema) has no
+  // addedCustomers field at all — add-mode there would silently vanish on
+  // re-validation, so it's restricted to p-median-us, matching every other
+  // scenario-local network-edit feature's (B1.1-B4.1) established model
+  // boundary.
+  // Task 30 (B6.1 stage 4) — mines/stations join the add-mode set
+  // (transportLp.ts's addedMineSchema/addedStationSchema both exist and are
+  // transport-coal's only model, so no cross-model ambiguity to guard
+  // against the way customers needs). refineries stays out of scope — no
+  // addedRefineries field exists anywhere.
+  const canAdd = entity === "warehouses" || (entity === "customers" && modelId === "p-median-us") || entity === "mines" || entity === "stations";
   // Base dataset ids ∪ this scenario's already-added entity ids — the same
   // id-space precheck.ts's own reference-integrity check and B4.1's
   // distances parsing use. Doubles here as the "unknown against base" check
   // (the ADD/UPDATE branch point) and the "already added, this would be a
   // duplicate add" collision check.
   const idSpace = canAdd
-    ? (entity === "warehouses" ? buildPMedianIdSpaces(currentOverrides).warehouseIdSpace : buildPMedianIdSpaces(currentOverrides).customerIdSpace)
+    ? (entity === "warehouses" ? buildPMedianIdSpaces(currentOverrides).warehouseIdSpace
+      : entity === "customers" ? buildPMedianIdSpaces(currentOverrides).customerIdSpace
+      : entity === "mines" ? buildTransportIdSpaces(currentOverrides).mineIdSpace
+      : buildTransportIdSpaces(currentOverrides).stationIdSpace)
     : new Set<string>();
 
   const seenIds = new Set<string>();
@@ -287,7 +359,7 @@ export function parseAndValidateImport(
         errors.push({
           errorClass: "logic",
           line,
-          message: `Id "${id}" already exists as a previously-added ${entity === "warehouses" ? "warehouse" : "customer"} in this scenario — cannot add a duplicate`,
+          message: `Id "${id}" already exists as a previously-added ${ENTITY_SINGULAR_LABEL[entity]} in this scenario — cannot add a duplicate`,
         });
         continue;
       }
@@ -318,7 +390,7 @@ export function parseAndValidateImport(
         errors.push({
           errorClass: "logic",
           line,
-          message: `lat/lng are required to add a new ${entity === "warehouses" ? "warehouse" : "customer"} (unrecognized id "${id}")`,
+          message: `lat/lng are required to add a new ${ENTITY_SINGULAR_LABEL[entity]} (unrecognized id "${id}")`,
         });
         continue;
       }
@@ -342,8 +414,15 @@ export function parseAndValidateImport(
     // addedCustomerSchema (B1.1) requires a plain, non-nullable demand —
     // unlike customerOverrideSchema, which allows a blank/null demand on an
     // UPDATE row. A brand-new customer can't be added with no demand at all.
-    if (isAdd && entity === "customers" && value === null) {
-      errors.push({ errorClass: "logic", line, message: `demand is required to add a new customer (unrecognized id "${id}")` });
+    // Task 30 (B6.1 stage 4) — addedStationSchema has the identical
+    // requirement (transportLp.ts: `demand: z.number().nonnegative()`, no
+    // `.optional()`), so stations joins this check. addedMineSchema's
+    // capacity stays nullable/optional — a blank capacity on an added mine
+    // is a deliberate, valid "unconstrained" state (matches solve.py's
+    // get_base_capacity None-means-unconstrained convention), so mines is
+    // NOT added here.
+    if (isAdd && (entity === "customers" || entity === "stations") && value === null) {
+      errors.push({ errorClass: "logic", line, message: `demand is required to add a new ${ENTITY_SINGULAR_LABEL[entity]} (unrecognized id "${id}")` });
       continue;
     }
 
@@ -372,7 +451,7 @@ export function parseAndValidateImport(
         errors.push({
           errorClass: "logic",
           line,
-          message: `city and state are required to add a new ${entity === "warehouses" ? "warehouse" : "customer"} (unrecognized id "${id}")`,
+          message: `city and state are required to add a new ${ENTITY_SINGULAR_LABEL[entity]} (unrecognized id "${id}")`,
         });
         continue;
       }
@@ -518,6 +597,77 @@ function parseDistancesRows(
         // by every other entity) doesn't need to fork for this one family.
         before: { status: "active", value: beforeValue },
         after: { status: "active", value: parsedDistance },
+        fromId,
+        toId,
+      });
+    }
+  }
+
+  return { errors, changes };
+}
+
+// Task 30 (B6.1 stage 4) — composite-key (from_id,to_id) parsing branch for
+// the laneCosts entity, the exact same structure as parseDistancesRows
+// above, field name aside (`cost` instead of `distance`). Direction matters
+// the same way: from_id must resolve as a mine, to_id must resolve as a
+// station — mirrors merge_inputs.py's build_merged_transport_dataset (a
+// backwards pair is rejected even if the id is valid in the other role).
+function parseLaneCostRows(
+  dataRows: string[][],
+  currentLaneCostOverrides: LaneCostOverride[],
+  mineIdSpace: Set<string>,
+  stationIdSpace: Set<string>,
+): { errors: ImportError[]; changes: ImportRowChange[] } {
+  const errors: ImportError[] = [];
+  const changes: ImportRowChange[] = [];
+  const currentByPairKey = new Map<string, number>(currentLaneCostOverrides.map(o => [`${o.fromId}|${o.toId}`, o.cost]));
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const line = i + 2; // 1-indexed, +1 for header row
+    const cols = dataRows[i];
+
+    if (cols.length !== LANE_COST_COLUMNS.length) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${LANE_COST_COLUMNS.length} columns, got ${cols.length}` });
+      continue;
+    }
+
+    const [tvStr, fromId, toId, costStr] = cols;
+
+    if (Number(tvStr) !== TEMPLATE_VERSION) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+      continue;
+    }
+
+    if (!fromId || !mineIdSpace.has(fromId)) {
+      errors.push({ errorClass: "logic", line, message: `Unknown from_id "${fromId}" — must reference a mine (base dataset or this scenario's added mines)` });
+      continue;
+    }
+    if (!toId || !stationIdSpace.has(toId)) {
+      errors.push({ errorClass: "logic", line, message: `Unknown to_id "${toId}" — must reference a station (base dataset or this scenario's added stations)` });
+      continue;
+    }
+
+    const pairKey = `${fromId}|${toId}`;
+    if (seenPairs.has(pairKey)) {
+      errors.push({ errorClass: "logic", line, message: `Duplicate (from_id,to_id) pair "${pairKey}"` });
+      continue;
+    }
+    seenPairs.add(pairKey);
+
+    const parsedCost = Number(costStr);
+    if (!Number.isFinite(parsedCost) || parsedCost <= 0) {
+      errors.push({ errorClass: "logic", line, message: `cost must be a positive number, got "${costStr}"` });
+      continue;
+    }
+
+    const beforeValue = currentByPairKey.get(pairKey) ?? null;
+    if (beforeValue !== parsedCost) {
+      changes.push({
+        id: pairKey,
+        line,
+        before: { status: "active", value: beforeValue },
+        after: { status: "active", value: parsedCost },
         fromId,
         toId,
       });

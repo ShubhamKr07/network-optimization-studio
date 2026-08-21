@@ -432,7 +432,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers, mines, stations, refineries, distances]
+            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
         - name: format
           in: query
           required: true
@@ -445,11 +445,12 @@ paths:
           schema:
             type: string
           description: >-
-            entity=distances only (SCN v0.3 B4.3). Id of a warehouse or
-            customer (base dataset or this scenario's added entities) to
-            generate a blank fill-in-the-blanks distance template for — one
-            row per active counterpart (distance omitted) — instead of
-            exporting the scenario's existing distanceOverrides.
+            entity=distances or entity=laneCosts only (SCN v0.3 B4.3,
+            extended by Task 30). Id of a warehouse/mine or customer/station
+            (base dataset or this scenario's added entities) to generate a
+            blank fill-in-the-blanks distance/cost template for — one row
+            per counterpart (distance/cost omitted) — instead of exporting
+            the scenario's existing distanceOverrides/laneCostOverrides.
       responses:
         "200":
           description: Export data
@@ -465,7 +466,7 @@ paths:
         "404":
           description: Not found
         "422":
-          description: Invalid entity/format, this scenario's model doesn't support export, stubFor used with an entity other than distances, or stubFor does not reference a known warehouse/customer
+          description: Invalid entity/format, this scenario's model doesn't support export, stubFor used with an entity other than distances/laneCosts, or stubFor does not reference a known warehouse/mine or customer/station
 
   /scenarios/compare:
     post:
@@ -1064,7 +1065,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
         csvText:
           type: string
       required: [entity, csvText]
@@ -1116,7 +1117,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
         csvText:
           type: string
         mode:
@@ -1144,7 +1145,7 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
         rows:
           type: array
           items:

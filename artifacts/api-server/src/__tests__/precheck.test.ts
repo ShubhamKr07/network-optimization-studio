@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { precheckPMedianInputs, precheckTransportInputs, BRAZIL_DATASET, TRANSPORT_DATASET, type PrecheckDataset } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, buildTransportIdSpaces, BRAZIL_DATASET, TRANSPORT_DATASET, type PrecheckDataset } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 
@@ -522,5 +522,34 @@ describe("precheckTransportInputs — B6.1 semantic precheck", () => {
   it("returns ok:true with no errors for a real transport-coal scenario with no network edits", () => {
     const result = precheckTransportInputs(TRANSPORT_BASE, TRANSPORT_DATASET);
     expect(result).toEqual({ ok: true, errors: [] });
+  });
+});
+
+// Task 30 (B6.1 stage 4) — buildTransportIdSpaces, extracted out of
+// precheckTransportInputs so import.ts's new laneCosts entity can reuse the
+// exact same id-space rule (mirrors buildPMedianIdSpaces's own test coverage
+// below... — see that describe block for the p-median analogue).
+describe("buildTransportIdSpaces", () => {
+  it("includes base mine/station ids plus any added mines/stations", () => {
+    const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(
+      {
+        addedMines: [{ id: "MN-NEW" }],
+        addedStations: [{ id: "ST-NEW" }],
+      },
+      TRANSPORT_DATASET_FAKE,
+    );
+    expect(mineIdSpace).toEqual(new Set(["MN-A", "MN-B", "MN-NEW"]));
+    expect(stationIdSpace).toEqual(new Set(["ST-1", "ST-2", "ST-3", "ST-NEW"]));
+  });
+
+  it("defaults to base ids only when no added entities are given", () => {
+    const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces({}, TRANSPORT_DATASET_FAKE);
+    expect(mineIdSpace).toEqual(new Set(["MN-A", "MN-B"]));
+    expect(stationIdSpace).toEqual(new Set(["ST-1", "ST-2", "ST-3"]));
+  });
+
+  it("defaults to the real transport-coal dataset when no dataset argument is given", () => {
+    const { mineIdSpace } = buildTransportIdSpaces({});
+    expect(mineIdSpace.has("KY")).toBe(true);
   });
 });

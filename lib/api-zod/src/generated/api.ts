@@ -351,7 +351,7 @@ export const PreviewScenarioImportParams = zod.object({
 })
 
 export const PreviewScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts']),
   "csvText": zod.string()
 })
 
@@ -383,7 +383,7 @@ export const ApplyScenarioImportParams = zod.object({
 })
 
 export const ApplyScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts']),
   "csvText": zod.string(),
   "mode": zod.enum(['all_or_nothing', 'partial']).optional()
 })
@@ -517,14 +517,14 @@ export const ExportScenarioParams = zod.object({
 })
 
 export const ExportScenarioQueryParams = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts']),
   "format": zod.enum(['csv', 'json']),
-  "stubFor": zod.coerce.string().optional().describe('entity=distances only (SCN v0.3 B4.3). Id of a warehouse or customer (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance template for — one row per active counterpart (distance omitted) — instead of exporting the scenario\'s existing distanceOverrides.')
+  "stubFor": zod.coerce.string().optional().describe('entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse\/mine or customer\/station (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance\/cost template for — one row per counterpart (distance\/cost omitted) — instead of exporting the scenario\'s existing distanceOverrides\/laneCostOverrides.')
 })
 
 export const ExportScenarioResponse = zod.object({
   "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts']),
   "rows": zod.array(zod.object({
 
 }).passthrough())

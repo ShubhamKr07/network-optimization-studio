@@ -303,6 +303,32 @@ export function precheckPMedianInputs(
  * Purely a read/validate operation - never writes to the DB, never mutates
  * `inputs`.
  */
+/**
+ * Task 30 (B6.1 stage 4) — the transport-coal analogue of
+ * buildPMedianIdSpaces above: base mine/station ids + this scenario's added
+ * mines/stations. Extracted (not left inline inside precheckTransportInputs,
+ * where it originally lived — see the prior stage's report follow-up #2) so
+ * `import.ts`'s new `laneCosts` composite-key entity and mines/stations
+ * add-mode logic have one shared source of truth for this id-space set,
+ * instead of recomputing it a third, possibly-divergent way. Parameter is a
+ * minimal structural shape (not `TransportLpInputs` itself), mirroring
+ * buildPMedianIdSpaces's own reasoning — callers that only have `{id}` refs
+ * can use it too.
+ */
+export function buildTransportIdSpaces(
+  addedEntities: {
+    addedMines?: readonly PrecheckDatasetEntity[];
+    addedStations?: readonly PrecheckDatasetEntity[];
+  },
+  dataset: PrecheckDataset = TRANSPORT_DATASET,
+): { mineIdSpace: Set<string>; stationIdSpace: Set<string> } {
+  const mineIdSpace = new Set(dataset.warehouses.map((m) => m.id));
+  for (const m of addedEntities.addedMines ?? []) mineIdSpace.add(m.id);
+  const stationIdSpace = new Set(dataset.customers.map((s) => s.id));
+  for (const s of addedEntities.addedStations ?? []) stationIdSpace.add(s.id);
+  return { mineIdSpace, stationIdSpace };
+}
+
 export function precheckTransportInputs(
   inputs: TransportLpInputs,
   dataset: PrecheckDataset = TRANSPORT_DATASET,
@@ -350,10 +376,10 @@ export function precheckTransportInputs(
   }
 
   // --- (c) reference integrity -----------------------------------------
-  const mineIdSpace = new Set(baseMineIds);
-  for (const m of addedMines) mineIdSpace.add(m.id);
-  const stationIdSpace = new Set(baseStationIds);
-  for (const s of addedStations) stationIdSpace.add(s.id);
+  // Built via the shared helper above (identical result to the inline
+  // `mineIdSpace`/`stationIdSpace` construction this replaced) — see the
+  // helper's own doc comment.
+  const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(inputs, dataset);
 
   for (const o of laneCostOverrides) {
     if (!mineIdSpace.has(o.fromId)) {
