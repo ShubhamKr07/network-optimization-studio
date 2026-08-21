@@ -1,2 +1,2 @@
-template_version,id,city,state,capacity,status
-2,ALN,Allentown,PA,,active
+template_version,id,city,state,lat,lng,capacity,status
+2,ALN,Allentown,PA,,,,active

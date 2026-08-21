@@ -789,8 +789,15 @@ describe("GET /api/scenarios/:id/export", () => {
 
 // ── Import preview + apply ─────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/import", () => {
-  const cleanCsv = "template_version,id,city,state,capacity,status\n1,ATL,Atlanta,GA,500000,forced_open\n";
-  const badCsv = "template_version,id,city,state,capacity,status\n1,ZZZ,Nowhere,XX,,active\n";
+  // B4.2 — 8-column format (lat,lng inserted after state). ATL is an
+  // existing base warehouse id (an UPDATE), so lat/lng are left blank —
+  // allowed on update rows.
+  const cleanCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ATL,Atlanta,GA,,,500000,forced_open\n";
+  // ZZZ is unrecognized (add-mode candidate) but missing lat/lng, which is
+  // required to add a brand-new warehouse — still a genuine logic error
+  // under B4.2, just via the "missing required add-mode field" path
+  // instead of the old blanket "unknown id" path.
+  const badCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ZZZ,Nowhere,XX,,,,active\n";
 
   it("returns 401 without a session", async () => {
     const res = await request(app).post("/api/scenarios/1/import").send({ entity: "warehouses", csvText: cleanCsv });
@@ -821,13 +828,27 @@ describe("POST /api/scenarios/:id/import", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
-  it("returns a preview with a logic error for an unknown id", async () => {
+  it("returns a preview with a logic error for an add-candidate row missing required lat/lng", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: badCsv });
     expect(res.status).toBe(200);
     expect(res.body.errors).toHaveLength(1);
     expect(res.body.errors[0].errorClass).toBe("logic");
+  });
+
+  // B4.2 — an unrecognized id with full valid data (including lat/lng) is
+  // no longer an error at all; it's an ADD-classified change.
+  it("returns a preview with no errors and one ADD-classified change for an unrecognized id with valid full data", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const addCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,WH-NEW1,Newtown,NC,35.5,-80.2,50000,active\n";
+    const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: addCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0]).toMatchObject({ id: "WH-NEW1", changeType: "add", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2 });
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   // Transport-coal mine/station import preview (Task 7).
@@ -876,7 +897,7 @@ describe("POST /api/scenarios/:id/import", () => {
 
   it("previews a two-echelon-gold-au customer import against its own dataset (not p-median's)", async () => {
     const cookie = await loginAs(OWNER);
-    const customerCsv = "template_version,id,city,state,demand,status\n1,sydney,Sydney,NSW,1,active\n";
+    const customerCsv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,,,1,active\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "customers", csvText: customerCsv });
     expect(res.status).toBe(200);
@@ -922,8 +943,8 @@ describe("POST /api/scenarios/:id/import", () => {
 });
 
 describe("POST /api/scenarios/:id/import/apply", () => {
-  const cleanCsv = "template_version,id,city,state,capacity,status\n1,ATL,Atlanta,GA,500000,forced_open\n";
-  const badCsv = "template_version,id,city,state,capacity,status\n1,ZZZ,Nowhere,XX,,active\n";
+  const cleanCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ATL,Atlanta,GA,,,500000,forced_open\n";
+  const badCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ZZZ,Nowhere,XX,,,,active\n";
 
   it("all_or_nothing mode: an import with errors applies nothing (no DB write) and returns 422", async () => {
     const cookie = await loginAs(OWNER);
@@ -945,6 +966,45 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(res.body.applied).toBe(1);
     expect(res.body.errors).toEqual([]);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  // B4.2 — ADD-classified rows write into addedWarehouses/addedCustomers,
+  // not warehouseOverrides/customerOverrides; captures the actual
+  // `.set(...)` payload (not just the mocked return value) to prove the
+  // route computed and persisted the right shape, re-validated against
+  // B1.1's Zod schema.
+  it("all_or_nothing mode: applies an ADD-classified warehouse row into addedWarehouses, re-validated", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedWarehouses: [{ id: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const addCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,WH-NEW1,Newtown,NC,35.5,-80.2,50000,active\n";
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedWarehouses: unknown[]; warehouseOverrides: unknown[] } };
+    expect(setArgs.inputs.addedWarehouses).toEqual([{ id: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" }]);
+    // The ADD row must not also land in warehouseOverrides — the two
+    // arrays are disjoint write targets.
+    expect(setArgs.inputs.warehouseOverrides).toEqual([]);
+  });
+
+  it("all_or_nothing mode: applies an ADD-classified customer row into addedCustomers (city only, no state/status field)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedCustomers: [{ id: "C-NEW1", city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200 }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const addCsv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedCustomers: unknown[] } };
+    expect(setArgs.inputs.addedCustomers).toEqual([{ id: "C-NEW1", city: "Newtown", lat: 35.5, lng: -80.2, demand: 1200 }]);
   });
 
   it("returns 404 (not 403) when applying to a scenario owned by a different user", async () => {
@@ -988,6 +1048,30 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(res.body.errors).toEqual([]);
     expect(res.body.scenario.inputs.refineryOverrides).toEqual([{ id: "cunnamulla", status: "forced_open" }]);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  // B4.2 — two-echelon-gold-au's customer entity also flows through the new
+  // warehouses/customers apply branch (it shares the "customers" entity name
+  // with p-median-us), but add-mode is p-median-us only — this scenario's
+  // modelId means addChanges is always empty here. Confirms the new
+  // re-validation step (validateInputsForModel against
+  // twoEchelonInputsSchema, which has no addedCustomers field at all)
+  // doesn't break this pre-existing, unrelated code path.
+  it("all_or_nothing mode: applies a clean two-echelon-gold-au customer import into customerOverrides (add-mode inapplicable, re-validation is a no-op)", async () => {
+    const cookie = await loginAs(OWNER);
+    const customerCsv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,,,999,active\n";
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const chain = makeChain([{ ...twoEchelonRow, inputs: { ...twoEchelonInputs, customerOverrides: [{ id: "sydney", status: "active", demand: 999 }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/11/import/apply").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: customerCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    expect(setArgs.inputs.customerOverrides).toEqual([{ id: "sydney", status: "active", demand: 999 }]);
+    // No addedCustomers leaks into a model whose schema has no such field.
+    expect(setArgs.inputs.addedCustomers).toBeUndefined();
   });
 
   // B4.1 — distances apply persists into distanceOverrides via the

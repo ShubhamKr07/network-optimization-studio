@@ -24,6 +24,22 @@ export interface ImportRowChange {
   // access to the two halves without parsing that string back apart.
   fromId?: string;
   toId?: string;
+  // B4.2 — add-mode for warehouses/customers. `changeType` distinguishes an
+  // ADD (unrecognized id + valid new-entity data — writes into
+  // scenario.inputs.addedWarehouses/addedCustomers on apply) from the
+  // default "update" (writes into warehouseOverrides/customerOverrides, the
+  // pre-existing behavior). `before` for an ADD row is always
+  // `{status: "not_present", value: null}` — there is nothing to diff
+  // against, the id didn't exist a moment ago. `city`/`state`/`lat`/`lng`
+  // carry the extra structured data an ADD needs that has no home in
+  // before/after's shape; kept as flat optional fields (same additive
+  // pattern as fromId/toId above) rather than a new sibling type — see the
+  // B4.2 report for the full justification.
+  changeType?: "update" | "add";
+  city?: string;
+  state?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface ImportPreview {
@@ -42,15 +58,34 @@ export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "
 // function (parseDistancesRows), not this file's generic per-row loop.
 const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
 
+// B4.2 — warehouses/customers gain lat/lng columns (positioned after state,
+// before the value column), a binding column-format decision this task made:
+// B1.1's addedWarehouses/addedCustomers Zod schema requires real coordinates
+// for a brand-new entity, which the pre-B4.2 6-column format had no room
+// for. This is a breaking format change (old exported templates no longer
+// header-match) — deliberate, not an oversight; B4.3 updates the template
+// generator to match. mines/stations/refineries are untouched (out of scope
+// — add-mode is warehouses/customers only for this task).
 const COLUMNS: Record<Exclude<ImportEntity, "distances">, string[]> = {
-  warehouses: ["template_version", "id", "city", "state", "capacity", "status"],
-  customers: ["template_version", "id", "city", "state", "demand", "status"],
+  warehouses: ["template_version", "id", "city", "state", "lat", "lng", "capacity", "status"],
+  customers: ["template_version", "id", "city", "state", "lat", "lng", "demand", "status"],
   mines: ["template_version", "id", "city", "state", "capacity"],
   stations: ["template_version", "id", "city", "state", "demand"],
   // Refineries have status but no value column at all (two-echelon-gold-au
   // has no per-refinery capacity concept) — the only entity with a status
   // column and no value column.
   refineries: ["template_version", "id", "city", "state", "status"],
+};
+
+// Only warehouses/customers carry lat/lng columns (see COLUMNS' comment
+// above) — used to compute the value/status column offsets below, and to
+// know which entities may run the add-mode branch at all.
+const ENTITY_HAS_LATLNG: Record<Exclude<ImportEntity, "distances">, boolean> = {
+  warehouses: true,
+  customers: true,
+  mines: false,
+  stations: false,
+  refineries: false,
 };
 
 // Whether this entity's rows carry a capacity/demand value column at all.
@@ -184,10 +219,31 @@ export function parseAndValidateImport(
   const entityHasValue = ENTITY_HAS_VALUE[entity];
   const validStatuses = VALID_STATUSES[entity];
   const valueLabel = entity === "warehouses" || entity === "mines" ? "capacity" : "demand";
-  // Value column (when present) is always index 4; status (when present)
-  // follows it at 5, or sits at 4 itself if there's no value column
-  // (refineries).
-  const statusColIdx = entityHasValue ? 5 : 4;
+  // Value/status column positions shift by 2 for warehouses/customers (the
+  // lat,lng columns inserted between state and value/status). Value (when
+  // present) sits right after lat/lng; status (when present) follows the
+  // value column, or takes its slot if there's no value column (refineries).
+  const entityHasLatLng = ENTITY_HAS_LATLNG[entity];
+  const latLngOffset = entityHasLatLng ? 2 : 0;
+  const valueColIdx = 4 + latLngOffset;
+  const statusColIdx = entityHasValue ? 5 + latLngOffset : 4 + latLngOffset;
+
+  // B4.2 — add-mode for warehouses/customers only (mines/stations/refineries
+  // are out of scope for this task; see this file's header comment on
+  // ENTITY_HAS_LATLNG). "customers" is shared with two-echelon-gold-au,
+  // whose schema (twoEchelonInputsSchema) has no addedCustomers field at
+  // all — add-mode there would silently vanish on re-validation, so it's
+  // restricted to p-median-us, matching every other scenario-local
+  // network-edit feature's (B1.1-B4.1) established model boundary.
+  const canAdd = entity === "warehouses" || (entity === "customers" && modelId === "p-median-us");
+  // Base dataset ids ∪ this scenario's already-added entity ids — the same
+  // id-space precheck.ts's own reference-integrity check and B4.1's
+  // distances parsing use. Doubles here as the "unknown against base" check
+  // (the ADD/UPDATE branch point) and the "already added, this would be a
+  // duplicate add" collision check.
+  const idSpace = canAdd
+    ? (entity === "warehouses" ? buildPMedianIdSpaces(currentOverrides).warehouseIdSpace : buildPMedianIdSpaces(currentOverrides).customerIdSpace)
+    : new Set<string>();
 
   const seenIds = new Set<string>();
   const dataRows = rows.slice(1);
@@ -202,18 +258,40 @@ export function parseAndValidateImport(
     }
 
     const [tvStr, id] = cols;
-    const valueStr = entityHasValue ? cols[4] : "";
-    const status = entityHasStatus ? cols[statusColIdx] : "active";
 
     if (Number(tvStr) !== TEMPLATE_VERSION) {
       errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
       continue;
     }
 
-    const baselineRow = id ? baselineById.get(id) : undefined;
-    if (!id || !baselineRow) {
+    if (!id) {
       errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
       continue;
+    }
+
+    const baselineRow = baselineById.get(id);
+    let isAdd = false;
+    if (!baselineRow) {
+      if (!canAdd) {
+        errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
+        continue;
+      }
+      // Recommended-and-implemented collision decision (see B4.2 report):
+      // an "add" row whose id already exists as a previously-added entity is
+      // rejected outright, not silently downgraded to an update — a silent
+      // fallback could surprise a student who believed they were adding
+      // something genuinely new. (A collision against the BASE dataset
+      // can't reach this branch at all — such an id always resolves via
+      // baselineById above and is handled as a plain update instead.)
+      if (idSpace.has(id)) {
+        errors.push({
+          errorClass: "logic",
+          line,
+          message: `Id "${id}" already exists as a previously-added ${entity === "warehouses" ? "warehouse" : "customer"} in this scenario — cannot add a duplicate`,
+        });
+        continue;
+      }
+      isAdd = true;
     }
 
     if (seenIds.has(id)) {
@@ -221,6 +299,35 @@ export function parseAndValidateImport(
       continue;
     }
     seenIds.add(id);
+
+    // ADD rows need real coordinates — an existing base-dataset entity's
+    // coordinates are already fixed by the dataset, so lat/lng may be
+    // blank/ignored on UPDATE rows (this task's binding column-format
+    // decision), but a row claiming a brand-new id has nothing to fall
+    // back to. Checked before value/status so a row that's simultaneously
+    // missing coordinates AND has some other issue reports the
+    // coordinates problem first (the more fundamental one for an add).
+    let lat = 0;
+    let lng = 0;
+    if (isAdd) {
+      const latStr = cols[4];
+      const lngStr = cols[5];
+      const parsedLat = Number(latStr);
+      const parsedLng = Number(lngStr);
+      if (latStr.trim() === "" || lngStr.trim() === "" || !Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+        errors.push({
+          errorClass: "logic",
+          line,
+          message: `lat/lng are required to add a new ${entity === "warehouses" ? "warehouse" : "customer"} (unrecognized id "${id}")`,
+        });
+        continue;
+      }
+      lat = parsedLat;
+      lng = parsedLng;
+    }
+
+    const valueStr = entityHasValue ? cols[valueColIdx] : "";
+    const status = entityHasStatus ? cols[statusColIdx] : "active";
 
     let value: number | null = null;
     if (entityHasValue && valueStr !== "") {
@@ -232,8 +339,54 @@ export function parseAndValidateImport(
       value = parsedValue;
     }
 
+    // addedCustomerSchema (B1.1) requires a plain, non-nullable demand —
+    // unlike customerOverrideSchema, which allows a blank/null demand on an
+    // UPDATE row. A brand-new customer can't be added with no demand at all.
+    if (isAdd && entity === "customers" && value === null) {
+      errors.push({ errorClass: "logic", line, message: `demand is required to add a new customer (unrecognized id "${id}")` });
+      continue;
+    }
+
     if (entityHasStatus && !validStatuses.includes(status)) {
       errors.push({ errorClass: "logic", line, message: `Invalid status "${status}" (expected one of ${validStatuses.join(", ")})` });
+      continue;
+    }
+
+    // addedCustomerSchema has no status field at all — v1 has no way to add
+    // a customer and mark it excluded in the same breath (see precheck.ts's
+    // header comment). Reject rather than silently dropping the student's
+    // explicit "excluded" choice.
+    if (isAdd && entity === "customers" && status !== "active") {
+      errors.push({
+        errorClass: "logic",
+        line,
+        message: `newly added customers must have status "active" (add-and-exclude is not supported)`,
+      });
+      continue;
+    }
+
+    if (isAdd) {
+      const city = cols[2];
+      const state = cols[3];
+      if (!city.trim() || !state.trim()) {
+        errors.push({
+          errorClass: "logic",
+          line,
+          message: `city and state are required to add a new ${entity === "warehouses" ? "warehouse" : "customer"} (unrecognized id "${id}")`,
+        });
+        continue;
+      }
+      changes.push({
+        id,
+        line,
+        before: { status: "not_present", value: null },
+        after: { status, value },
+        changeType: "add",
+        city,
+        state,
+        lat,
+        lng,
+      });
       continue;
     }
 
@@ -259,10 +412,18 @@ export function parseAndValidateImport(
   if (errors.length === 0 && entity === "warehouses") {
     const changeByIdMap = new Map(changes.map(c => [c.id, c]));
     const warehouseBaseline = baseline as unknown as Array<{ id: string; status: "active" | "forced_open" | "inactive"; capacity: number | null }>;
-    const merged = warehouseBaseline.map(row => {
-      const change = changeByIdMap.get(row.id);
-      return change ? { ...row, status: change.after.status as typeof row.status, capacity: change.after.value } : row;
-    });
+    const merged = [
+      ...warehouseBaseline.map(row => {
+        const change = changeByIdMap.get(row.id);
+        return change && change.changeType !== "add" ? { ...row, status: change.after.status as typeof row.status, capacity: change.after.value } : row;
+      }),
+      // B4.2 — a newly-added warehouse isn't in warehouseBaseline (only the
+      // 26 base ids are) but still counts toward "the p highest-capacity
+      // active warehouses" once it exists.
+      ...changes
+        .filter(c => c.changeType === "add")
+        .map(c => ({ id: c.id, status: c.after.status as "active" | "forced_open" | "inactive", capacity: c.after.value })),
+    ];
     const activeCapacities = merged
       .filter(r => r.status !== "inactive")
       .map(r => r.capacity)

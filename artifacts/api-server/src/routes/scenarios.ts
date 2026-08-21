@@ -508,6 +508,33 @@ function mergeChangesIntoOverrides(
   return [...rest, ...applied];
 }
 
+// B4.2 — appends newly-added warehouses/customers (unrecognized id + valid
+// coordinates; services/import.ts's changeType:"add" rows) onto the
+// scenario's addedWarehouses/addedCustomers arrays. Unlike
+// mergeChangesIntoOverrides, there's no existing entry to diff/replace by id
+// — every add-change is a brand-new row, so this always appends.
+// parseAndValidateImport's id_collision check (against both the base
+// dataset and this scenario's existing addedWarehouses/addedCustomers)
+// already rejects any CSV row whose id would collide, so a naive append
+// here can't create a duplicate id. Builds exactly the fields B1.1's
+// addedWarehouseSchema/addedCustomerSchema expect — addedCustomerSchema has
+// no `state` or `status` field at all (v1 has no add-and-exclude, see
+// precheck.ts's header comment), so a customer add-change's `state` is
+// deliberately not carried through here (its `status` is already validated
+// "active"-only in services/import.ts before it can become a change).
+function mergeAddChangesIntoAdded(
+  entity: "warehouses" | "customers",
+  currentAdded: Array<Record<string, unknown>>,
+  addChanges: ImportRowChange[],
+): Array<Record<string, unknown>> {
+  const newEntities = addChanges.map(c => (
+    entity === "warehouses"
+      ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
+      : { id: c.id, city: c.city, lat: c.lat, lng: c.lng, demand: c.after.value }
+  ));
+  return [...currentAdded, ...newEntities];
+}
+
 // Transport-coal's mines/stations persist overrides as sparse dicts
 // (mineCapacities/stationDemands), not arrays. Same "null value = no
 // override, omit the entry" semantics as the array merge above, just keyed
@@ -667,11 +694,42 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const currentDistanceOverrides = inputs.distanceOverrides ?? [];
     const nextDistanceOverrides = mergeDistanceChangesIntoOverrides(currentDistanceOverrides, preview.changes);
     nextInputs = { ...inputs, distanceOverrides: nextDistanceOverrides };
-  } else {
-    const overrideKey = entity === "warehouses" ? "warehouseOverrides" : entity === "refineries" ? "refineryOverrides" : "customerOverrides";
+  } else if (entity === "warehouses" || entity === "customers") {
+    // B4.2 — ADD-classified changes (services/import.ts's changeType:"add",
+    // unrecognized id + valid new-entity data) write into
+    // addedWarehouses/addedCustomers instead of warehouseOverrides/
+    // customerOverrides; ordinary UPDATE changes keep going through the
+    // pre-existing override merge. Two different write targets from one
+    // `preview.changes` array, split by changeType.
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add");
+    const addChanges = preview.changes.filter(c => c.changeType === "add");
+
+    const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
     const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
-    const nextOverrides = mergeChangesIntoOverrides(entity as "warehouses" | "customers" | "refineries", currentOverrides, preview.changes);
-    nextInputs = { ...inputs, [overrideKey]: nextOverrides };
+    const nextOverrides = mergeChangesIntoOverrides(entity, currentOverrides, updateChanges);
+
+    const addedKey = entity === "warehouses" ? "addedWarehouses" : "addedCustomers";
+    const currentAdded = (inputs[addedKey] ?? []) as Array<Record<string, unknown>>;
+    const nextAdded = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+
+    nextInputs = { ...inputs, [overrideKey]: nextOverrides, [addedKey]: nextAdded };
+
+    // Re-validate the merged shape against B1.1's Zod schema before
+    // persisting — never trust a stale preview, same convention as every
+    // other write path in this file (POST/PATCH /scenarios both call
+    // validateInputsForModel before their own db.insert/update). ADD rows
+    // are already shape-checked by parseAndValidateImport above, but this
+    // is the final gate before the DB write.
+    const revalidated = validateInputsForModel(scenario.modelId, nextInputs);
+    if (!revalidated.success) {
+      res.status(422).json({ error: revalidated.error });
+      return;
+    }
+    nextInputs = revalidated.data;
+  } else {
+    const currentOverrides = (inputs.refineryOverrides ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
+    const nextOverrides = mergeChangesIntoOverrides("refineries", currentOverrides, preview.changes);
+    nextInputs = { ...inputs, refineryOverrides: nextOverrides };
   }
 
   const [updated] = await db.update(scenariosTable)
