@@ -38,6 +38,9 @@ const transportInput: SolveInput = {
     capacityInactive: false,
     mineCapacities: {},
     stationDemands: {},
+    addedMines: [],
+    addedStations: [],
+    laneCostOverrides: [],
   },
 };
 
@@ -83,6 +86,9 @@ describe("buildPayload()", () => {
         capacityInactive: false,
         mineCapacities: { KY: 1000000 },
         stationDemands: { CHI: 12000000 },
+        addedMines: [],
+        addedStations: [],
+        laneCostOverrides: [],
       },
     };
     const payload = buildPayload(input);
