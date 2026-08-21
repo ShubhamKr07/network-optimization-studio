@@ -87,6 +87,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   useLogoutUser: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
+  getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
 }));
 
 import { Workspace } from "@/pages/Workspace";

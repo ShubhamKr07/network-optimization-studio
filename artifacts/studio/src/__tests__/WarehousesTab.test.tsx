@@ -157,3 +157,38 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
   });
 });
+
+// A5.3 — two-echelon-gold-au reuses this exact component (WarehouseTable +
+// toolbar) as its Refineries tab via the `entity` prop, rather than forking a
+// new component — `dataset.warehouses` already carries the refinery
+// candidates (the mine-kind row is filtered out above regardless of entity).
+describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
+  it("uses refineries-scoped testids and empty-state copy when entity=refineries", () => {
+    render(<WarehousesTab warehouses={[]} overrides={[]} capacityMode="none" onChange={vi.fn()} entity="refineries" />);
+    expect(screen.getByTestId("refineries-tab-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("warehouses-tab-empty")).not.toBeInTheDocument();
+  });
+
+  it("Download CSV is scoped to entity=refineries, not entity=warehouses", async () => {
+    fetchMock.mockResolvedValue(new Response("id,status\nR1,active", { status: 200, headers: { "content-type": "text/csv" } }));
+    renderWithQueryClient(
+      <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} entity="refineries" />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-export-refineries-csv"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("entity=refineries");
+  });
+
+  it("Upload button opens ImportDialog scoped to entity=refineries", async () => {
+    renderWithQueryClient(
+      <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} entity="refineries" />,
+    );
+    expect(screen.queryByText("Import refineries")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-import-refineries"));
+    expect(screen.getByText("Import refineries")).toBeInTheDocument();
+    expect(screen.getByTestId("input-import-file-refineries")).toBeInTheDocument();
+  });
+});

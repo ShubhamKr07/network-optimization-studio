@@ -37,6 +37,7 @@ export const CHAPTERS: Chapter[] = [
     title: "Coal Transport LP",
     description: "Transportation LP: route coal from mines to power stations at minimum cost.",
     hiddenFromLanding: true,
+    workspace: true,
     labHeaderTitle: "Coal Transport LP · Model Lab",
     labHeaderSubtitle: "Ch 5 · transport LP · coal mines → power stations",
   },

@@ -80,3 +80,66 @@ describe("OptimizationParametersTab", () => {
     expect(screen.getByTestId("distance-bands-empty")).toBeInTheDocument();
   });
 });
+
+// A5.1/A5.3 — model-specific solve parameters (transport-coal's
+// capacityFactor/singleSource/capacityInactive, p-median-brazil's
+// singleSource, two-echelon-gold-au's bomRatio), all gated on presence
+// exactly like `p` already is.
+describe("OptimizationParametersTab — model-specific fields", () => {
+  it("omits every model-specific field when undefined (p-median-us has none of them)", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("slider-capacity-factor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("switch-single-source")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("switch-capacity-inactive")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("slider-bom-ratio")).not.toBeInTheDocument();
+  });
+
+  it("shows bomRatio ONLY for two-echelon (bomRatio defined), not the others", () => {
+    render(<OptimizationParametersTab {...baseProps} p={undefined} bomRatio={1.1} onChange={vi.fn()} />);
+    expect(screen.getByTestId("slider-bom-ratio")).toBeInTheDocument();
+    expect(screen.getByTestId("text-bom-ratio")).toHaveTextContent("1.10");
+    expect(screen.queryByTestId("slider-capacity-factor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("switch-single-source")).not.toBeInTheDocument();
+  });
+
+  // Regression, mirroring Studio.tsx's own equivalent test (Studio.test.tsx):
+  // twoEchelonInputsSchema requires bomRatio strictly > 1 — the slider must
+  // never allow exactly 1.0, which the backend would 422 on.
+  it("bomRatio slider spans 1.05-2.0, never exactly 1.0", () => {
+    render(<OptimizationParametersTab {...baseProps} p={undefined} bomRatio={1.1} onChange={vi.fn()} />);
+    const thumb = screen.getByTestId("slider-bom-ratio").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemin", "1.05");
+    expect(thumb).toHaveAttribute("aria-valuemax", "2");
+  });
+
+  it("shows capacityFactor/singleSource/capacityInactive for transport-coal", () => {
+    render(
+      <OptimizationParametersTab
+        {...baseProps}
+        p={undefined}
+        capacityFactor={1.0}
+        singleSource={false}
+        capacityInactive={false}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("slider-capacity-factor")).toBeInTheDocument();
+    expect(screen.getByTestId("switch-single-source")).toBeInTheDocument();
+    expect(screen.getByTestId("switch-capacity-inactive")).toBeInTheDocument();
+    expect(screen.queryByTestId("slider-bom-ratio")).not.toBeInTheDocument();
+  });
+
+  it("shows ONLY singleSource for p-median-brazil (capacityFactor/capacityInactive stay undefined)", () => {
+    render(<OptimizationParametersTab {...baseProps} singleSource={true} onChange={vi.fn()} />);
+    expect(screen.getByTestId("switch-single-source")).toBeInTheDocument();
+    expect(screen.queryByTestId("slider-capacity-factor")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("switch-capacity-inactive")).not.toBeInTheDocument();
+  });
+
+  it("toggling singleSource calls onChange('singleSource', value)", () => {
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...baseProps} singleSource={false} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("switch-single-source"));
+    expect(onChange).toHaveBeenCalledWith("singleSource", true);
+  });
+});

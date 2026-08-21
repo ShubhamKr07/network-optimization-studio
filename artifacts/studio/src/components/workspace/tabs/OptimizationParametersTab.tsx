@@ -3,9 +3,23 @@ import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 
-export type OptimizationParametersField = "p" | "gap" | "timeLimitSec" | "distanceBands";
+export type OptimizationParametersField =
+  | "p"
+  | "gap"
+  | "timeLimitSec"
+  | "distanceBands"
+  // A5.1/A5.3 — model-specific solve parameters, all gated on presence the
+  // same way `p` already is: undefined when the active model's inputs shape
+  // has no such field (mirrors Studio.tsx's modelId-gated sections,
+  // Studio.tsx:1270-1392, but generic here rather than a hardcoded modelId
+  // check).
+  | "capacityFactor"
+  | "singleSource"
+  | "capacityInactive"
+  | "bomRatio";
 
 interface OptimizationParametersTabProps {
   /** Undefined when the active model has no P concept (transport-coal,
@@ -16,13 +30,26 @@ interface OptimizationParametersTabProps {
   gap: number;
   timeLimitSec: number;
   distanceBands: number[];
+  /** transport-coal only (Studio.tsx:1274-1305). Undefined for every other
+   * model. */
+  capacityFactor?: number;
+  /** transport-coal AND p-median-brazil both have this concept
+   * (Studio.tsx:1288-1292 / 1378-1382) — gated on presence, not a single
+   * hardcoded modelId, so a future sibling model that also has it isn't
+   * regressed the way model-integration-precheck.md's Gate 6 warns against. */
+  singleSource?: boolean;
+  /** transport-coal only (Studio.tsx:1296-1305). */
+  capacityInactive?: boolean;
+  /** two-echelon-gold-au only (Studio.tsx:1349-1371) — the plan's explicit
+   * "BOM ratio in Optimization Parameters" requirement for A5.3. */
+  bomRatio?: number;
   /** A single (field, value) callback rather than per-field callbacks — this
    * composes directly with Workspace.tsx's `updateInputsField(key, value)`,
    * the same localInputs-draft mechanism WarehousesTab/CustomersTab already
    * write through (A1.1). This component holds no save state of its own;
    * every edit is just a draft update, exactly like a keystroke in the
    * Warehouses/Customers tables. */
-  onChange: (field: OptimizationParametersField, value: number | number[]) => void;
+  onChange: (field: OptimizationParametersField, value: number | number[] | boolean) => void;
 }
 
 // A1.2 — grid-style editor over the scalar solve-parameter fields
@@ -35,7 +62,17 @@ interface OptimizationParametersTabProps {
 // persistence: Workspace.tsx owns localInputs/isDirty/handleSaveInputs
 // (the standing manual-Save pattern from A1.1), this component only calls
 // `onChange`.
-export function OptimizationParametersTab({ p, gap, timeLimitSec, distanceBands, onChange }: OptimizationParametersTabProps) {
+export function OptimizationParametersTab({
+  p,
+  gap,
+  timeLimitSec,
+  distanceBands,
+  capacityFactor,
+  singleSource,
+  capacityInactive,
+  bomRatio,
+  onChange,
+}: OptimizationParametersTabProps) {
   const [addingBand, setAddingBand] = useState(false);
   const [newBandValue, setNewBandValue] = useState("");
 
@@ -112,6 +149,76 @@ export function OptimizationParametersTab({ p, gap, timeLimitSec, distanceBands,
           />
         </div>
       </div>
+
+      {/* A5.1 — transport-coal's mine capacity factor (Studio.tsx:1273-1285). */}
+      {capacityFactor != null && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-semibold text-foreground">Mine capacity factor</Label>
+            <span className="text-xs font-mono w-10 text-right">{capacityFactor.toFixed(2)}×</span>
+          </div>
+          <Slider
+            min={0.5}
+            max={2.0}
+            step={0.05}
+            value={[capacityFactor]}
+            onValueChange={([v]) => onChange("capacityFactor", v)}
+            data-testid="slider-capacity-factor"
+            className="my-1"
+          />
+          <p className="text-[10px] text-muted-foreground">1.0 = base capacity. 1.1 = +10% slack allows cheaper routing.</p>
+        </div>
+      )}
+
+      {/* A5.1/A5.2 — transport-coal's "force each station/DC to a single
+          source" toggle AND p-median-brazil's identical concept
+          (Studio.tsx:1286-1295 / 1376-1390) — gated on presence, shared by
+          both models rather than a single hardcoded modelId check. */}
+      {singleSource != null && (
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-semibold text-foreground">Single-source</Label>
+          <Switch
+            checked={singleSource}
+            onCheckedChange={v => onChange("singleSource", v)}
+            data-testid="switch-single-source"
+          />
+        </div>
+      )}
+
+      {/* A5.1 — transport-coal's "ignore mine capacity" toggle (Studio.tsx:1296-1305). */}
+      {capacityInactive != null && (
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-semibold text-foreground">Ignore capacity</Label>
+          <Switch
+            checked={capacityInactive}
+            onCheckedChange={v => onChange("capacityInactive", v)}
+            data-testid="switch-capacity-inactive"
+          />
+        </div>
+      )}
+
+      {/* A5.3 — two-echelon-gold-au's BOM ratio slider (Studio.tsx:1349-1371).
+          min=1.05, not 1.0: twoEchelonInputsSchema requires bomRatio strictly
+          > 1 (see Studio.tsx's own comment on this same constant) — hitting
+          exactly 1.0 would 422 on save. */}
+      {bomRatio != null && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-semibold text-foreground">BOM ratio (raw kg per refined kg)</Label>
+            <span className="text-xs font-mono w-10 text-right" data-testid="text-bom-ratio">{bomRatio.toFixed(2)}×</span>
+          </div>
+          <Slider
+            min={1.05}
+            max={2.0}
+            step={0.05}
+            value={[bomRatio]}
+            onValueChange={([v]) => onChange("bomRatio", Math.round(v * 20) / 20)}
+            data-testid="slider-bom-ratio"
+            className="my-1"
+          />
+          <p className="text-[10px] text-muted-foreground">1.1 favors the customer-adjacent refinery. 2.0 favors the mine-adjacent one — watch which refinery gets selected as you sweep this.</p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">

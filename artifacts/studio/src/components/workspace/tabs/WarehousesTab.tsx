@@ -15,6 +15,15 @@ interface WarehousesTabProps {
   scenarioId?: number;
   /** Fired after a successful import apply, with the updated scenario — the caller (Workspace.tsx) refreshes its inputs draft from it. */
   onImportApplied?: (scenario: Scenario) => void;
+  /** A5.3 — this same component (WarehouseTable + Upload/Download toolbar) is
+   * reused as two-echelon-gold-au's Refineries tab: `dataset.warehouses`
+   * already carries both models' facility candidates (mine rows are filtered
+   * out below regardless of entity), and the backend's import/export routes
+   * already accept `entity=refineries` (routes/scenarios.ts) — only the
+   * entity string threaded through here, the testids, and the ImportDialog
+   * title need to change per model. Defaults to "warehouses" so every
+   * existing p-median-us call site (and its tests) is unaffected. */
+  entity?: "warehouses" | "refineries";
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -30,18 +39,19 @@ interface WarehousesTabProps {
 // fetch function (via lib/exportEntity's shared download helper) — the
 // same components/flow Studio.tsx already uses, replicated here rather than
 // rebuilt.
-export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, scenarioId, onImportApplied }: WarehousesTabProps) {
+export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, scenarioId, onImportApplied, entity = "warehouses" }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
+  const emptyLabel = entity === "refineries" ? "No refinery candidates in this dataset." : "No warehouse candidates in this dataset.";
 
   const toolbar = (
-    <div className="flex items-center gap-1.5 mb-2" data-testid="warehouses-tab-toolbar">
+    <div className="flex items-center gap-1.5 mb-2" data-testid={`${entity}-tab-toolbar`}>
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "warehouses", "csv")}
+        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, entity, "csv")}
         disabled={scenarioId == null}
-        data-testid="button-export-warehouses-csv"
+        data-testid={`button-export-${entity}-csv`}
         className="h-7 text-xs"
       >
         <Download className="w-3.5 h-3.5 mr-1" /> CSV
@@ -49,9 +59,9 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "warehouses", "json")}
+        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, entity, "json")}
         disabled={scenarioId == null}
-        data-testid="button-export-warehouses-json"
+        data-testid={`button-export-${entity}-json`}
         className="h-7 text-xs"
       >
         <Download className="w-3.5 h-3.5 mr-1" /> JSON
@@ -61,7 +71,7 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
         size="sm"
         onClick={() => setImportOpen(true)}
         disabled={scenarioId == null}
-        data-testid="button-import-warehouses"
+        data-testid={`button-import-${entity}`}
         className="h-7 text-xs"
       >
         <Upload className="w-3.5 h-3.5 mr-1" /> Upload
@@ -80,7 +90,7 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
       open={importOpen}
       onOpenChange={setImportOpen}
       scenarioId={scenarioId}
-      entity="warehouses"
+      entity={entity}
       onApplied={onImportApplied}
     />
   );
@@ -89,8 +99,8 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
     return (
       <div>
         {toolbar}
-        <p className="text-sm text-muted-foreground" data-testid="warehouses-tab-empty">
-          No warehouse candidates in this dataset.
+        <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
+          {emptyLabel}
         </p>
         {importDialog}
       </div>
@@ -98,7 +108,7 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
   }
 
   return (
-    <div data-testid="warehouses-tab">
+    <div data-testid={`${entity}-tab`}>
       {toolbar}
       <WarehouseTable warehouses={candidates} overrides={overrides} capacityMode={capacityMode} onChange={onChange} />
       {importDialog}

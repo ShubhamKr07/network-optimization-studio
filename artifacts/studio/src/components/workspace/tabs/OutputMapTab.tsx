@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
+import { BrazilMap } from "@/components/BrazilMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
@@ -16,7 +17,12 @@ interface WarehouseStatusEntry {
 }
 
 interface OutputMapTabProps {
-  dataset: Dataset;
+  // Optional — undefined for p-median-brazil (useBrazilMap=true), which has
+  // no `GET /dataset` support at all (see Workspace.tsx's comment on this
+  // same gap). Required in practice for every other model; enforced by the
+  // `!useBrazilMap && !dataset` loading-guard at Workspace.tsx's call site,
+  // not by this component itself.
+  dataset?: Dataset;
   warehouseStatuses: WarehouseStatusEntry[];
   // Null both pre-solve and whenever this tab isn't the active one — the
   // caller (Workspace.tsx) is responsible for that gating (mirrors Studio.
@@ -31,6 +37,11 @@ interface OutputMapTabProps {
   // display — it is never written back onto the scenario.
   bands: number[];
   countryBounds?: CountryBounds;
+  /** A5.2 — p-median-brazil renders the simplified BrazilMap (result/
+   * showRoutes only, no dataset/markers/band-coloring — see BrazilMap.tsx)
+   * instead of NetworkMap. Mirrors Studio.tsx's own `modelId ===
+   * "p-median-brazil" ? <BrazilMap .../> : ...` branch (Studio.tsx:1542). */
+  useBrazilMap?: boolean;
 }
 
 // A3.1 — Output Map tab: re-homes NetworkMap with independent layer toggles
@@ -44,7 +55,7 @@ interface OutputMapTabProps {
 // NetworkMap change either — passing an empty bands array makes
 // assignBand()/getBandColor() resolve every edge to the same band-0 color,
 // which NetworkMap already does unmodified.
-export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countryBounds }: OutputMapTabProps) {
+export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countryBounds, useBrazilMap }: OutputMapTabProps) {
   const [showWarehouses, setShowWarehouses] = useState(true);
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
@@ -52,6 +63,38 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const mapBands = colorByBand ? effectiveBands : [];
+
+  // A5.2 — p-median-brazil's simplified map: BrazilMap has no marker/lane-
+  // coloring layers of its own (see BrazilMap.tsx), so only the Lanes toggle
+  // (mapped onto its own `showRoutes` prop) applies here — Warehouses/
+  // Customers/Color-by-band controls are omitted rather than shown-but-inert.
+  if (useBrazilMap) {
+    return (
+      <div className="h-full flex flex-col gap-3" data-testid="output-map-tab">
+        <div className="flex items-center gap-5 flex-wrap flex-shrink-0" data-testid="output-map-toggles">
+          <div className="flex items-center gap-1.5">
+            <Checkbox
+              id="output-map-toggle-lanes"
+              checked={showLanes}
+              onCheckedChange={checked => setShowLanes(checked === true)}
+              data-testid="checkbox-toggle-lanes"
+            />
+            <Label htmlFor="output-map-toggle-lanes" className="text-xs">Lanes</Label>
+          </div>
+          {!result && (
+            <span className="text-xs text-muted-foreground" data-testid="output-map-no-result">
+              No solve result yet — showing the input network.
+            </span>
+          )}
+        </div>
+        <div className="flex-1 min-h-0">
+          <BrazilMap result={result} showRoutes={showLanes} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!dataset) return null;
 
   return (
     <div className="h-full flex flex-col gap-3" data-testid="output-map-tab">

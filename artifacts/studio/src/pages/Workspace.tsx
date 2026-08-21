@@ -18,6 +18,7 @@ import {
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
   getGetCurrentAuthUserQueryKey,
+  getGetDatasetQueryKey,
   type GetDatasetModelId,
   type Scenario,
 } from "@workspace/api-client-react";
@@ -37,11 +38,15 @@ import { TabBar } from "@/components/workspace/TabBar";
 import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
 import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
+import { MinesTab } from "@/components/workspace/tabs/MinesTab";
+import { StationsTab } from "@/components/workspace/tabs/StationsTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
+import type { MineOverride } from "@/components/tables/MineTable";
+import type { StationOverride } from "@/components/tables/StationTable";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -51,21 +56,24 @@ import {
 import type { StudioModelType } from "@/lib/chapters";
 import { toast } from "@/hooks/use-toast";
 
-// A4.1 — p-median-us's own default `inputs` shape for a brand-new scenario,
-// copied verbatim from Studio.tsx's handleCreateConfirm (the same switch's
-// final/default branch) rather than invented. Workspace is pilot-only on
-// p-median-us (A0.2) — when a future model flip (A5.1-A5.3) needs this too,
-// extend this the same way Studio.tsx's switch does, don't guess a shape.
-const PMEDIAN_US_DEFAULT_INPUTS: Record<string, unknown> = {
-  p: 3,
-  distanceBands: [200, 400, 800, 1600],
-  capacityMode: "none",
-  uniformCapacity: null,
-  warehouseOverrides: [],
-  customerOverrides: [],
-  gap: 0,
-  timeLimitSec: 120,
-};
+// A5.1-A5.3 — every model's default `inputs` shape for a brand-new scenario,
+// copied verbatim from Studio.tsx's handleCreateConfirm switch
+// (Studio.tsx:681-690) rather than invented — one branch per model, matching
+// that switch's own structure so a future model flip only needs a new case
+// here, not a rewrite.
+function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
+  switch (modelId) {
+    case "transport-coal":
+      return { distanceBands: [500, 1000, 1500, 2000], gap: 0, timeLimitSec: 120, capacityFactor: 1.0, singleSource: false, capacityInactive: false };
+    case "p-median-brazil":
+      return { p: 7, distanceBands: [500, 1000, 2000, 4000], capacityMode: "uniform", uniformCapacity: 20000000, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120, singleSource: true };
+    case "two-echelon-gold-au":
+      return { bomRatio: 1.1, refineryOverrides: [], customerOverrides: [], distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120 };
+    case "p-median-us":
+    default:
+      return { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
+  }
+}
 
 function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
   const raw = inputs?.warehouseOverrides;
@@ -105,31 +113,117 @@ function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number
   return Array.isArray(raw) ? (raw as number[]) : [];
 }
 
-// A3.1 — same derivation Studio.tsx applies at its NetworkMap call site
+// A5.1 — transport-coal's mineCapacities/stationDemands persist as sparse
+// dicts (`Record<string, number>`), not arrays with a status field — unlike
+// warehouseOverrides/customerOverrides/refineryOverrides. Mirrors Studio.tsx's
+// configFromScenario translation (Studio.tsx:127-128) exactly.
+function mineOverridesFromInputs(inputs: Record<string, unknown> | null): MineOverride[] {
+  const raw = inputs?.mineCapacities as Record<string, number> | undefined;
+  return raw ? Object.entries(raw).map(([id, capacity]) => ({ id, capacity })) : [];
+}
+
+function stationOverridesFromInputs(inputs: Record<string, unknown> | null): StationOverride[] {
+  const raw = inputs?.stationDemands as Record<string, number> | undefined;
+  return raw ? Object.entries(raw).map(([id, demand]) => ({ id, demand })) : [];
+}
+
+// A5.3 — two-echelon-gold-au's refineryOverrides is array-shaped exactly
+// like warehouseOverrides ({id, status}, no capacity field in its schema —
+// see solvers/two-echelon-gold-au/manifest.json) — reuse WarehouseOverride's
+// reader/shape rather than inventing a parallel type.
+function refineryOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
+  const raw = inputs?.refineryOverrides;
+  return Array.isArray(raw) ? (raw as WarehouseOverride[]) : [];
+}
+
+// A5.1/A5.3 — model-specific scalar solve parameters, each undefined when
+// the active model's inputs shape has no such field (same convention as
+// `pFromInputs`).
+function capacityFactorFromInputs(inputs: Record<string, unknown> | null): number | undefined {
+  const raw = inputs?.capacityFactor;
+  return typeof raw === "number" ? raw : undefined;
+}
+
+function singleSourceFromInputs(inputs: Record<string, unknown> | null): boolean | undefined {
+  const raw = inputs?.singleSource;
+  return typeof raw === "boolean" ? raw : undefined;
+}
+
+function capacityInactiveFromInputs(inputs: Record<string, unknown> | null): boolean | undefined {
+  const raw = inputs?.capacityInactive;
+  return typeof raw === "boolean" ? raw : undefined;
+}
+
+function bomRatioFromInputs(inputs: Record<string, unknown> | null): number | undefined {
+  const raw = inputs?.bomRatio;
+  return typeof raw === "number" ? raw : undefined;
+}
+
+// A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
 // (`(localConfig?.warehouseOverrides ?? []).filter(o => o.status !==
-// "active").map(...)`), replicated against localInputs instead of
-// localConfig per the task brief. "active" overrides carry no marker-status
-// meaning of their own (NetworkMap's getStatus already falls back to
-// "potential" for anything absent from this list).
+// "active").map(...)`), generalized per model: two-echelon-gold-au's forced-
+// open/inactive concept lives on `refineryOverrides`, not
+// `warehouseOverrides`; transport-coal's mines/stations have no status
+// concept at all (mineCapacities/stationDemands are plain value overrides).
+// "active" overrides carry no marker-status meaning of their own
+// (NetworkMap's getStatus already falls back to "potential" for anything
+// absent from this list).
 function warehouseStatusesFromInputs(
   inputs: Record<string, unknown> | null,
+  modelId: StudioModelType,
 ): { warehouseId: string; status: "forced_open" | "inactive" }[] {
-  return warehouseOverridesFromInputs(inputs)
+  if (modelId === "transport-coal") return [];
+  const overrides = modelId === "two-echelon-gold-au" ? refineryOverridesFromInputs(inputs) : warehouseOverridesFromInputs(inputs);
+  return overrides
     .filter(o => o.status !== "active")
     .map(o => ({ warehouseId: o.id, status: o.status as "forced_open" | "inactive" }));
 }
 
-// A0.1 — pilot Inputs/Outputs entity list, matching the wireframe's example
-// set verbatim (SCN Design.pdf, screen 1a·1). Per-model tab config (A5.1-A5.3)
-// and real tab content (A1.1-A3.1) both come later — this task only needs
-// the sidebar to have something real to list and open.
-const INPUT_ENTRIES: SidebarEntry[] = [
-  { id: "customers", label: "Customers" },
-  { id: "demand", label: "Demand" },
-  { id: "warehouses", label: "Warehouses" },
-  { id: "distances", label: "Distances" },
-  { id: "optimization-parameters", label: "Optimization Parameters" },
-];
+// A5.1-A5.3 — per-model Inputs sidebar entries. p-median-us's original list
+// (A0.1, matching the wireframe's example set verbatim, SCN Design.pdf
+// screen 1a·1) is now one case among four rather than a single constant.
+//
+// p-median-brazil keeps "Warehouses"/"Customers" labels for naming parity
+// with the pilot, but their tab CONTENT stays a placeholder (see
+// renderTabContent below) — confirmed against the real repo state, not
+// invented: `GET /dataset` (openapi.yaml's `modelId` enum) genuinely has no
+// p-median-brazil entry, and Studio.tsx itself has zero warehouse/customer
+// override UI for this model (Studio.tsx:1396's Overrides section is
+// `modelId === "p-median-us"` only). Building a real table here would need a
+// backend dataset endpoint that doesn't exist — out of this task's scope per
+// its own "no lib/db, no api-spec, no api-server/validation changes"
+// guarantee. Documented as a deferred follow-up in the task report, not a
+// silent gap.
+function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
+  switch (modelId) {
+    case "transport-coal":
+      return [
+        { id: "mines", label: "Mines" },
+        { id: "stations", label: "Stations" },
+        { id: "demand", label: "Demand" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+    case "two-echelon-gold-au":
+      return [
+        { id: "refineries", label: "Refineries" },
+        { id: "customers", label: "Customers" },
+        { id: "demand", label: "Demand" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+    case "p-median-brazil":
+    case "p-median-us":
+    default:
+      return [
+        { id: "customers", label: "Customers" },
+        { id: "demand", label: "Demand" },
+        { id: "warehouses", label: "Warehouses" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+  }
+}
 
 // A3.1 builds this tab's real content (re-homed NetworkMap + layer toggles)
 // — A2.1 only needs the sidebar/tab-bar entry to exist so a successful solve
@@ -189,10 +283,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   });
   // The generated hook's `modelId` param is narrower than StudioModelType
   // (it has no "p-median-brazil" value — Brazil has no dataset endpoint
-  // entry). Cast to the hook's own real param type rather than a single
-  // hand-picked literal, so this stays correct if/when a future model flip
-  // (A5.1-A5.3) passes a different modelId through.
-  const { data: dataset } = useGetDataset({ modelId: modelId as GetDatasetModelId | undefined });
+  // entry, confirmed against openapi.yaml's `/dataset` `modelId` enum, not
+  // just the generated type). Cast to the hook's own real param type for the
+  // other three models; disabled entirely for p-median-brazil rather than
+  // firing a request the backend will 400 on (see inputEntriesForModel's
+  // comment on this same gap).
+  const datasetParams = { modelId: modelId as GetDatasetModelId | undefined };
+  const { data: dataset } = useGetDataset(datasetParams, {
+    query: { enabled: modelId !== "p-median-brazil", queryKey: getGetDatasetQueryKey(datasetParams) },
+  });
   const updateScenario = useUpdateScenario();
 
   // A3.1 — Output Map tab's countryBounds, sourced the same way Studio.tsx
@@ -289,13 +388,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     [tabState.tabs, tabState.activeTabId],
   );
 
-  // A1.1 — the Save toolbar (below) shows for any input tab that's actually
-  // wired to `localInputs` today. A1.2/B5.1 add their own entities to this
-  // set as each one is wired up; every other entry stays an inert
-  // placeholder with nothing to save yet.
+  // A1.1/A5.1-A5.3 — the Save toolbar (below) shows for any input tab that's
+  // actually wired to `localInputs` today. Model-aware, not just entity-aware
+  // — p-median-brazil's "warehouses"/"customers" entries share entity ids
+  // with p-median-us but stay placeholder content (no dataset endpoint, see
+  // inputEntriesForModel's comment), so they must NOT be treated as
+  // editable/saveable here even though the entity string matches. Every
+  // other entry stays an inert placeholder with nothing to save yet.
   const isEditableInputTab =
     activeTab?.kind === "input" &&
-    (activeTab.entity === "warehouses" || activeTab.entity === "customers" || activeTab.entity === "optimization-parameters");
+    (activeTab.entity === "optimization-parameters" ||
+      (activeTab.entity === "warehouses" && modelId === "p-median-us") ||
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
+      (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
+      (activeTab.entity === "mines" && modelId === "transport-coal") ||
+      (activeTab.entity === "stations" && modelId === "transport-coal"));
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -332,7 +439,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function handleCreateConfirm() {
     const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
     createScenario.mutate(
-      { data: { name, modelId, inputs: PMEDIAN_US_DEFAULT_INPUTS } },
+      { data: { name, modelId, inputs: defaultInputsForModel(modelId) } },
       {
         onSuccess: created => {
           setShowCreateDialog(false);
@@ -553,7 +660,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses") {
+    // A5.1 — p-median-us's real Warehouses tab. two-echelon-gold-au's
+    // Refineries tab reuses the SAME component below (entity="refineries")
+    // rather than forking one — see WarehousesTab's own comment on why.
+    // p-median-brazil shares this entity id but stays a placeholder (falls
+    // through to the generic placeholder at the bottom — no dataset endpoint
+    // exists for it, see inputEntriesForModel's comment).
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && modelId === "p-median-us") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -567,13 +680,69 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    if (activeTab.kind === "input" && activeTab.entity === "customers") {
+    // A5.3 — two-echelon-gold-au's Refineries tab. `dataset.warehouses`
+    // carries both the fixed mine and the refinery candidates
+    // (WarehouseCandidate.kind) — WarehousesTab already filters out the
+    // mine-kind row regardless of entity, so this is a straight reuse.
+    if (activeTab.kind === "input" && activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <WarehousesTab
+          warehouses={dataset.warehouses}
+          overrides={refineryOverridesFromInputs(localInputs)}
+          capacityMode="none"
+          onChange={next => updateInputsField("refineryOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+          entity="refineries"
+        />
+      );
+    }
+
+    // A1.1/A5.3 — Customers tab, shared by p-median-us AND
+    // two-echelon-gold-au (both use `customerOverrides` and entity
+    // "customers" — the backend disambiguates the shared entity name via the
+    // scenario's own modelId, not a client-side param). p-median-brazil
+    // shares this entity id too but stays a placeholder, same reasoning as
+    // Warehouses above.
+    if (activeTab.kind === "input" && activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CustomersTab
           customers={dataset.customers}
           overrides={customerOverridesFromInputs(localInputs)}
           onChange={next => updateInputsField("customerOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // A5.1 — transport-coal's Mines tab. `dataset.warehouses` carries mine
+    // rows for this model (GET /dataset's own description: "transport-coal's
+    // mines/stations mapped onto the same [warehouse/customer] shape").
+    if (activeTab.kind === "input" && activeTab.entity === "mines" && modelId === "transport-coal") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <MinesTab
+          mines={dataset.warehouses}
+          overrides={mineOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("mineCapacities", Object.fromEntries(next.filter(o => o.capacity != null).map(o => [o.id, o.capacity])))}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // A5.1 — transport-coal's Stations tab. `dataset.customers` carries
+    // station rows for this model.
+    if (activeTab.kind === "input" && activeTab.entity === "stations" && modelId === "transport-coal") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <StationsTab
+          stations={dataset.customers}
+          overrides={stationOverridesFromInputs(localInputs)}
+          onChange={next => updateInputsField("stationDemands", Object.fromEntries(next.filter(o => o.demand != null).map(o => [o.id, o.demand])))}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
         />
@@ -588,6 +757,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           gap={gapFromInputs(localInputs)}
           timeLimitSec={timeLimitSecFromInputs(localInputs)}
           distanceBands={distanceBandsFromInputs(localInputs)}
+          capacityFactor={capacityFactorFromInputs(localInputs)}
+          singleSource={singleSourceFromInputs(localInputs)}
+          capacityInactive={capacityInactiveFromInputs(localInputs)}
+          bomRatio={bomRatioFromInputs(localInputs)}
           onChange={(field, value) => updateInputsField(field, value)}
         />
       );
@@ -609,14 +782,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!hasFreshSolvedRun) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
-      if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      // A5.2 — p-median-brazil renders BrazilMap, which needs no `dataset`
+      // at all (it only reads `result`/`showRoutes` — see BrazilMap.tsx;
+      // Studio.tsx's own render branch checks `modelId === "p-median-brazil"`
+      // BEFORE ever touching `dataset` for the exact same reason, Studio.tsx:
+      // 1542). Every other model genuinely needs the dataset query to
+      // resolve first.
+      const useBrazilMap = modelId === "p-median-brazil";
+      if (!useBrazilMap && !dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <OutputMapTab
           dataset={dataset}
-          warehouseStatuses={warehouseStatusesFromInputs(localInputs)}
+          warehouseStatuses={warehouseStatusesFromInputs(localInputs, modelId)}
           result={activeTab.entity === "output-map" ? (currentScenario?.result ?? null) : null}
           bands={distanceBandsFromInputs(localInputs)}
           countryBounds={activeModelManifest?.countryBounds}
+          useBrazilMap={useBrazilMap}
         />
       );
     }
@@ -695,7 +876,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           activeScenarioId={currentScenario?.id ?? null}
           onSelectScenario={handleSelectScenario}
           onCreateScenario={handleCreateScenario}
-          inputs={INPUT_ENTRIES}
+          inputs={inputEntriesForModel(modelId)}
           outputs={OUTPUT_ENTRIES}
           hasSolvedRun={hasFreshSolvedRun}
           activeEntityId={activeTab?.entity ?? null}

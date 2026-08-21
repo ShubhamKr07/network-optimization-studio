@@ -78,7 +78,7 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
   });
 
   it("shows Studio at a non-workspace chapter path when authenticated", () => {
-    renderAt("/chapter-5/transport", { email: "student@example.com" });
+    renderAt("/chapter-5/brazil", { email: "student@example.com" });
     expect(screen.getByText("StudioPage")).toBeInTheDocument();
   });
 
@@ -111,7 +111,7 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
     expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
   });
 
-  it.each(["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"])(
+  it.each(["/chapter-5/brazil", "/chapter-10/gold-refinery"])(
     "still shows Studio inside AppShell at %s (fast-follow flip is a later task)",
     (path) => {
       renderAt(path, { email: "student@example.com" });
@@ -120,4 +120,23 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
       expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
     },
   );
+});
+
+describe("Gate routing — A5.1 fast-follow flip: /chapter-5/transport renders Workspace, not Studio", () => {
+  it("shows Workspace (not Studio) at /chapter-5/transport when authenticated", () => {
+    renderAt("/chapter-5/transport", { email: "student@example.com" });
+    expect(screen.getByText("WorkspacePage")).toBeInTheDocument();
+    expect(screen.queryByText("StudioPage")).not.toBeInTheDocument();
+  });
+
+  it("does NOT wrap Workspace in AppShell at /chapter-5/transport", () => {
+    renderAt("/chapter-5/transport", { email: "student@example.com" });
+    expect(screen.queryByTestId("app-shell")).not.toBeInTheDocument();
+  });
+
+  it("redirects to /login at /chapter-5/transport when unauthenticated", () => {
+    renderAt("/chapter-5/transport", null);
+    expect(screen.getByText("LoginPage")).toBeInTheDocument();
+    expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
+  });
 });
