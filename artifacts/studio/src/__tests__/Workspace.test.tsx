@@ -453,6 +453,241 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
   });
 });
 
+// Task 30 (B6.1 stage 4) — transport-coal's Mines/Stations tabs' add/delete
+// wiring, and the new Lane costs tab, mirroring the p-median-us "add/delete
+// added warehouses & customers (B5.2)" and "Distances tab (B5.1)" blocks
+// above exactly. MinesTab.test.tsx/StationsTab.test.tsx/LaneCostsTab.test.tsx
+// already cover component-level behavior in isolation — these tests cover
+// Workspace.tsx's OWN wiring: the cross-array laneCostOverrides purge on
+// delete, the precheck query reaching the tab, and that the sidebar/render
+// gates actually route to these components for modelId="transport-coal".
+describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)", () => {
+  const transportInputs = {
+    distanceBands: [500, 1000, 1500, 2000],
+    gap: 0,
+    timeLimitSec: 120,
+    capacityFactor: 1.0,
+    singleSource: false,
+    capacityInactive: false,
+    mineCapacities: {},
+    stationDemands: {},
+    addedMines: [],
+    addedStations: [],
+    laneCostOverrides: [],
+  };
+
+  const transportScenario = {
+    id: 8,
+    name: "Coal Base Case",
+    modelId: "transport-coal",
+    inputs: transportInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-02T00:00:00Z",
+    updatedAt: "2026-01-02T00:00:00Z",
+  };
+
+  function renderTransportWorkspace() {
+    return render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+  }
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as unknown as ReturnType<typeof useGetScenario>);
+  });
+
+  it("sidebar shows a 'Lane costs' entry (not 'Distances') for transport-coal", () => {
+    renderTransportWorkspace();
+    expect(screen.getByTestId("sidebar-input-laneCosts")).toHaveTextContent("Lane costs");
+    expect(screen.queryByTestId("sidebar-input-distances")).not.toBeInTheDocument();
+  });
+
+  it("opening the Mines sidebar entry renders the real MineTable, not a placeholder", () => {
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("mines-tab")).toBeInTheDocument();
+  });
+
+  it("adding a mine and saving PATCHes the new entry into inputs.addedMines", () => {
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+    fireEvent.click(screen.getByTestId("button-add-mine-row"));
+    fireEvent.change(screen.getByTestId("input-new-mine-id"), { target: { value: "MNEW" } });
+    fireEvent.change(screen.getByTestId("input-new-mine-city"), { target: { value: "Bristol" } });
+    fireEvent.change(screen.getByTestId("input-new-mine-state"), { target: { value: "VA" } });
+    fireEvent.change(screen.getByTestId("input-new-mine-lat"), { target: { value: "36.6" } });
+    fireEvent.change(screen.getByTestId("input-new-mine-lng"), { target: { value: "-82.19" } });
+    fireEvent.click(screen.getByTestId("button-add-mine-confirm"));
+
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 8,
+      data: {
+        inputs: expect.objectContaining({
+          addedMines: [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null }],
+        }),
+      },
+    });
+  });
+
+  it("deleting an added mine removes it from addedMines AND purges any laneCostOverrides referencing it, in the SAME save", () => {
+    mockUseGetScenario.mockReturnValue({
+      data: {
+        ...transportScenario,
+        inputs: {
+          ...transportInputs,
+          addedMines: [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null }],
+          laneCostOverrides: [
+            { fromId: "MNEW", toId: "CHI", cost: 250 },
+            { fromId: "KY", toId: "CHI", cost: 100 },
+          ],
+        },
+      },
+    } as unknown as ReturnType<typeof useGetScenario>);
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+
+    expect(screen.getByTestId("row-added-mine-MNEW")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-delete-added-mine-MNEW"));
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 8,
+      data: {
+        inputs: expect.objectContaining({
+          addedMines: [],
+          // The KY->CHI override (unrelated to MNEW) survives; only the
+          // MNEW->CHI override (referencing the deleted mine) is gone.
+          laneCostOverrides: [{ fromId: "KY", toId: "CHI", cost: 100 }],
+        }),
+      },
+    });
+  });
+
+  it("adding a station and saving PATCHes the new entry into inputs.addedStations", () => {
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-stations"));
+    fireEvent.click(screen.getByTestId("button-add-station-row"));
+    fireEvent.change(screen.getByTestId("input-new-station-id"), { target: { value: "SNEW" } });
+    fireEvent.change(screen.getByTestId("input-new-station-city"), { target: { value: "Newtown" } });
+    fireEvent.change(screen.getByTestId("input-new-station-state"), { target: { value: "NC" } });
+    fireEvent.change(screen.getByTestId("input-new-station-lat"), { target: { value: "35.5" } });
+    fireEvent.change(screen.getByTestId("input-new-station-lng"), { target: { value: "-80.2" } });
+    fireEvent.change(screen.getByTestId("input-new-station-demand"), { target: { value: "900000" } });
+    fireEvent.click(screen.getByTestId("button-add-station-confirm"));
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 8,
+      data: {
+        inputs: expect.objectContaining({
+          addedStations: [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }],
+        }),
+      },
+    });
+  });
+
+  it("deleting an added station removes it from addedStations AND purges any laneCostOverrides referencing it", () => {
+    mockUseGetScenario.mockReturnValue({
+      data: {
+        ...transportScenario,
+        inputs: {
+          ...transportInputs,
+          addedStations: [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }],
+          laneCostOverrides: [
+            { fromId: "KY", toId: "SNEW", cost: 250 },
+            { fromId: "KY", toId: "CHI", cost: 100 },
+          ],
+        },
+      },
+    } as unknown as ReturnType<typeof useGetScenario>);
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-stations"));
+
+    fireEvent.click(screen.getByTestId("button-delete-added-station-SNEW"));
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 8,
+      data: {
+        inputs: expect.objectContaining({
+          addedStations: [],
+          laneCostOverrides: [{ fromId: "KY", toId: "CHI", cost: 100 }],
+        }),
+      },
+    });
+  });
+
+  it("the precheck query result reaches the Mines tab as a per-row warning chip", () => {
+    mockUseGetScenario.mockReturnValue({
+      data: {
+        ...transportScenario,
+        inputs: {
+          ...transportInputs,
+          addedMines: [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null }],
+        },
+      },
+    } as unknown as ReturnType<typeof useGetScenario>);
+    mockUsePrecheckScenario.mockReturnValue({
+      data: { ok: false, errors: [{ code: "completeness", message: "MNEW missing lane costs to 1 station: C1" }] },
+    } as unknown as ReturnType<typeof usePrecheckScenario>);
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+
+    expect(screen.getByTestId("warning-precheck-added-mine-MNEW")).toHaveTextContent("1");
+  });
+
+  it("opening the Lane costs sidebar entry renders the real grid, not a placeholder", () => {
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-laneCosts"));
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("lanecosts-tab-empty")).toBeInTheDocument();
+  });
+
+  it("shows a Save toolbar for the Lane costs tab (isEditableInputTab includes it)", () => {
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-laneCosts"));
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+
+  it("adding a lane cost row and saving PATCHes the new entry into inputs.laneCostOverrides", () => {
+    renderTransportWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-laneCosts"));
+    fireEvent.click(screen.getByTestId("button-add-lanecost-row"));
+    fireEvent.change(screen.getByTestId("input-new-lanecost-from"), { target: { value: "CHI" } });
+    fireEvent.change(screen.getByTestId("input-new-lanecost-to"), { target: { value: "C1" } });
+    fireEvent.change(screen.getByTestId("input-new-lanecost-value"), { target: { value: "250" } });
+    fireEvent.click(screen.getByTestId("button-add-lanecost-confirm"));
+
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 8,
+      data: {
+        inputs: expect.objectContaining({
+          laneCostOverrides: [{ fromId: "CHI", toId: "C1", cost: 250 }],
+        }),
+      },
+    });
+  });
+});
+
 describe("Workspace — Optimization Parameters tab", () => {
   it("opening the sidebar entry renders the real form with the scenario's values, not a placeholder", () => {
     renderWorkspace();

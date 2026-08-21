@@ -100,3 +100,113 @@ describe("MinesTab — Upload/Download (A5.1)", () => {
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
   });
 });
+
+// Task 30 (B6.1 stage 4) — add/delete added mines, mirroring
+// WarehousesTab.test.tsx's own "add/delete added warehouses (B5.2)" block.
+describe("MinesTab — add/delete added mines (Task 30)", () => {
+  it("does not render an Added mines section when onAddedMinesChange is not wired", () => {
+    render(<MinesTab mines={mines} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("added-mines-section")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty message when there are no added mines yet", () => {
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={[]} onAddedMinesChange={vi.fn()} onDeleteMine={vi.fn()} />,
+    );
+    expect(screen.getByTestId("added-mines-empty")).toBeInTheDocument();
+  });
+
+  it("filling the add-row form (with a capacity) and confirming calls onAddedMinesChange with the new entity appended, matching addedMineSchema's shape", async () => {
+    const onAddedMinesChange = vi.fn();
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={[]} onAddedMinesChange={onAddedMinesChange} onDeleteMine={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-mine-row"));
+    await userEvent.type(screen.getByTestId("input-new-mine-id"), "MNEW");
+    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Bristol");
+    await userEvent.type(screen.getByTestId("input-new-mine-state"), "VA");
+    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "36.6");
+    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-82.19");
+    await userEvent.type(screen.getByTestId("input-new-mine-capacity"), "5000000");
+    await userEvent.click(screen.getByTestId("button-add-mine-confirm"));
+
+    expect(onAddedMinesChange).toHaveBeenCalledWith([
+      { id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 },
+    ]);
+  });
+
+  it("filling the add-row form with a BLANK capacity is accepted — blank means unconstrained, not an error", async () => {
+    const onAddedMinesChange = vi.fn();
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={[]} onAddedMinesChange={onAddedMinesChange} onDeleteMine={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-mine-row"));
+    await userEvent.type(screen.getByTestId("input-new-mine-id"), "MNEW");
+    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Bristol");
+    await userEvent.type(screen.getByTestId("input-new-mine-state"), "VA");
+    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "36.6");
+    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-82.19");
+    // Capacity left blank on purpose.
+    await userEvent.click(screen.getByTestId("button-add-mine-confirm"));
+
+    expect(onAddedMinesChange).toHaveBeenCalledWith([
+      { id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null },
+    ]);
+    expect(screen.queryByTestId("text-add-mine-error")).not.toBeInTheDocument();
+  });
+
+  it("rejects an add-row whose id collides with an existing base mine, without calling onAddedMinesChange", async () => {
+    const onAddedMinesChange = vi.fn();
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={[]} onAddedMinesChange={onAddedMinesChange} onDeleteMine={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-mine-row"));
+    await userEvent.type(screen.getByTestId("input-new-mine-id"), "M1");
+    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Bristol");
+    await userEvent.type(screen.getByTestId("input-new-mine-state"), "VA");
+    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "36.6");
+    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-82.19");
+    await userEvent.click(screen.getByTestId("button-add-mine-confirm"));
+
+    expect(onAddedMinesChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-mine-error")).toBeInTheDocument();
+  });
+
+  it("renders an added mine row with a delete button, and clicking it calls onDeleteMine with its id", async () => {
+    const onDeleteMine = vi.fn();
+    const added = [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 }];
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={added} onAddedMinesChange={vi.fn()} onDeleteMine={onDeleteMine} />,
+    );
+
+    expect(screen.getByTestId("row-added-mine-MNEW")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-delete-added-mine-MNEW"));
+    expect(onDeleteMine).toHaveBeenCalledWith("MNEW");
+  });
+
+  it("base-dataset mine rows have NO delete affordance", () => {
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={[]} onAddedMinesChange={vi.fn()} onDeleteMine={vi.fn()} />,
+    );
+    expect(screen.queryAllByTestId(/^button-delete-added-mine-/).length).toBe(0);
+  });
+
+  it("shows a precheck warning chip on an added mine with incomplete lane-cost coverage", () => {
+    const added = [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 }];
+    render(
+      <MinesTab
+        mines={mines}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedMines={added}
+        onAddedMinesChange={vi.fn()}
+        onDeleteMine={vi.fn()}
+        precheckErrors={[{ code: "completeness", message: "MNEW missing lane costs to 2 stations: ST1, ST2" }]}
+      />,
+    );
+    expect(screen.getByTestId("warning-precheck-added-mine-MNEW")).toHaveTextContent("2");
+  });
+});

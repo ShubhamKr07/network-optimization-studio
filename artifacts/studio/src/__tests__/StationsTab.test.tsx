@@ -100,3 +100,113 @@ describe("StationsTab — Upload/Download (A5.1)", () => {
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
   });
 });
+
+// Task 30 (B6.1 stage 4) — add/delete added stations, mirroring
+// CustomersTab.test.tsx's own add/delete block (demand required, no status
+// column) rather than MinesTab's (capacity optional).
+describe("StationsTab — add/delete added stations (Task 30)", () => {
+  it("does not render an Added stations section when onAddedStationsChange is not wired", () => {
+    render(<StationsTab stations={stations} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("added-stations-section")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty message when there are no added stations yet", () => {
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={[]} onAddedStationsChange={vi.fn()} onDeleteStation={vi.fn()} />,
+    );
+    expect(screen.getByTestId("added-stations-empty")).toBeInTheDocument();
+  });
+
+  it("filling the add-row form and confirming calls onAddedStationsChange with the new entity appended, matching addedStationSchema's shape", async () => {
+    const onAddedStationsChange = vi.fn();
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={[]} onAddedStationsChange={onAddedStationsChange} onDeleteStation={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-station-row"));
+    await userEvent.type(screen.getByTestId("input-new-station-id"), "SNEW");
+    await userEvent.type(screen.getByTestId("input-new-station-city"), "Newtown");
+    await userEvent.type(screen.getByTestId("input-new-station-state"), "NC");
+    await userEvent.type(screen.getByTestId("input-new-station-lat"), "35.5");
+    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-80.2");
+    await userEvent.type(screen.getByTestId("input-new-station-demand"), "900000");
+    await userEvent.click(screen.getByTestId("button-add-station-confirm"));
+
+    expect(onAddedStationsChange).toHaveBeenCalledWith([
+      { id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 },
+    ]);
+  });
+
+  it("rejects an add-row with a blank demand — demand is required, unlike mine capacity", async () => {
+    const onAddedStationsChange = vi.fn();
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={[]} onAddedStationsChange={onAddedStationsChange} onDeleteStation={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-station-row"));
+    await userEvent.type(screen.getByTestId("input-new-station-id"), "SNEW");
+    await userEvent.type(screen.getByTestId("input-new-station-city"), "Newtown");
+    await userEvent.type(screen.getByTestId("input-new-station-state"), "NC");
+    await userEvent.type(screen.getByTestId("input-new-station-lat"), "35.5");
+    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-80.2");
+    // Demand left blank on purpose.
+    await userEvent.click(screen.getByTestId("button-add-station-confirm"));
+
+    expect(onAddedStationsChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-station-error")).toBeInTheDocument();
+  });
+
+  it("rejects an add-row whose id collides with an existing base station, without calling onAddedStationsChange", async () => {
+    const onAddedStationsChange = vi.fn();
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={[]} onAddedStationsChange={onAddedStationsChange} onDeleteStation={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-station-row"));
+    await userEvent.type(screen.getByTestId("input-new-station-id"), "S1");
+    await userEvent.type(screen.getByTestId("input-new-station-city"), "Newtown");
+    await userEvent.type(screen.getByTestId("input-new-station-state"), "NC");
+    await userEvent.type(screen.getByTestId("input-new-station-lat"), "35.5");
+    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-80.2");
+    await userEvent.type(screen.getByTestId("input-new-station-demand"), "900000");
+    await userEvent.click(screen.getByTestId("button-add-station-confirm"));
+
+    expect(onAddedStationsChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-station-error")).toBeInTheDocument();
+  });
+
+  it("renders an added station row with a delete button, and clicking it calls onDeleteStation with its id", async () => {
+    const onDeleteStation = vi.fn();
+    const added = [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }];
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={added} onAddedStationsChange={vi.fn()} onDeleteStation={onDeleteStation} />,
+    );
+
+    expect(screen.getByTestId("row-added-station-SNEW")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-delete-added-station-SNEW"));
+    expect(onDeleteStation).toHaveBeenCalledWith("SNEW");
+  });
+
+  it("base-dataset station rows have NO delete affordance", () => {
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={[]} onAddedStationsChange={vi.fn()} onDeleteStation={vi.fn()} />,
+    );
+    expect(screen.queryAllByTestId(/^button-delete-added-station-/).length).toBe(0);
+  });
+
+  it("shows a precheck warning chip on an added station missing a lane cost from a mine", () => {
+    const added = [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }];
+    render(
+      <StationsTab
+        stations={stations}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedStations={added}
+        onAddedStationsChange={vi.fn()}
+        onDeleteStation={vi.fn()}
+        precheckErrors={[{ code: "completeness", message: "M1 missing lane costs to 1 station: SNEW" }]}
+      />,
+    );
+    expect(screen.getByTestId("warning-precheck-added-station-SNEW")).toHaveTextContent("1");
+  });
+});

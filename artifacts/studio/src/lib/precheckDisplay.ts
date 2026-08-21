@@ -83,3 +83,70 @@ export function idCollisionMessageForCustomer(
   const hit = errors.find((e) => e.code === "id_collision" && e.message.includes(needle));
   return hit ? hit.message : null;
 }
+
+// Task 30 (B6.1 stage 4) — transport-coal analogues of the four helpers
+// above, parsing precheckTransportInputs' own literal template strings
+// (services/precheck.ts):
+//   completeness:   `${mineId} missing lane costs to ${n} station(s): ${csv}`
+//   id_collision:   `Added mine id '${id}' ...` / `Added station id '${id}' ...`
+// Same "degrade quietly" posture — a wording change silently stops matching
+// rather than throwing.
+
+/**
+ * How many stations a given (base or added) mine is missing a lane cost to,
+ * per precheckTransportInputs' completeness check — null when there's no
+ * completeness finding for this id at all.
+ */
+export function completenessCountForMine(
+  errors: readonly PrecheckErrorLike[],
+  mineId: string,
+): number | null {
+  const prefix = `${mineId} missing lane costs to `;
+  const hit = errors.find((e) => e.code === "completeness" && e.message.startsWith(prefix));
+  if (!hit) return null;
+  const match = hit.message.match(/^\S+ missing lane costs to (\d+) station/);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * How many DIFFERENT mines are missing a lane cost to this station — the
+ * reverse direction of completenessCountForMine, mirroring
+ * completenessCountForCustomer's own reasoning.
+ */
+export function completenessCountForStation(
+  errors: readonly PrecheckErrorLike[],
+  stationId: string,
+): number {
+  let count = 0;
+  for (const e of errors) {
+    if (e.code !== "completeness") continue;
+    const idx = e.message.indexOf(": ");
+    if (idx === -1) continue;
+    const ids = e.message
+      .slice(idx + 2)
+      .split(",")
+      .map((s) => s.trim());
+    if (ids.includes(stationId)) count += 1;
+  }
+  return count;
+}
+
+/** The full id_collision message for this added mine id, or null. */
+export function idCollisionMessageForMine(
+  errors: readonly PrecheckErrorLike[],
+  mineId: string,
+): string | null {
+  const needle = `Added mine id '${mineId}'`;
+  const hit = errors.find((e) => e.code === "id_collision" && e.message.includes(needle));
+  return hit ? hit.message : null;
+}
+
+/** The full id_collision message for this added station id, or null. */
+export function idCollisionMessageForStation(
+  errors: readonly PrecheckErrorLike[],
+  stationId: string,
+): string | null {
+  const needle = `Added station id '${stationId}'`;
+  const hit = errors.find((e) => e.code === "id_collision" && e.message.includes(needle));
+  return hit ? hit.message : null;
+}

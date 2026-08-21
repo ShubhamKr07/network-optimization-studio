@@ -40,10 +40,11 @@ import { TabBar } from "@/components/workspace/TabBar";
 import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
 import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
-import { MinesTab } from "@/components/workspace/tabs/MinesTab";
-import { StationsTab } from "@/components/workspace/tabs/StationsTab";
+import { MinesTab, type AddedMine } from "@/components/workspace/tabs/MinesTab";
+import { StationsTab, type AddedStation } from "@/components/workspace/tabs/StationsTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
+import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
@@ -51,6 +52,7 @@ import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
 import type { StationOverride } from "@/components/tables/StationTable";
 import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
+import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -189,6 +191,21 @@ function knownCustomerIds(dataset: { customers: { id: string }[] } | undefined, 
   return [...(dataset?.customers ?? []).map(c => c.id), ...added.map(c => c.id)];
 }
 
+// Task 30 (B6.1 stage 4) — transport-coal analogues of the two helpers
+// above, for the new Lane costs tab's client-side existence check.
+// `dataset.warehouses`/`dataset.customers` carry transport-coal's mine/
+// station rows (GET /dataset's own description — see the Mines/Stations
+// render branches below).
+function knownMineIds(dataset: { warehouses: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = Array.isArray(inputs?.addedMines) ? (inputs!.addedMines as { id: string }[]) : [];
+  return [...(dataset?.warehouses ?? []).map(m => m.id), ...added.map(m => m.id)];
+}
+
+function knownStationIds(dataset: { customers: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = Array.isArray(inputs?.addedStations) ? (inputs!.addedStations as { id: string }[]) : [];
+  return [...(dataset?.customers ?? []).map(s => s.id), ...added.map(s => s.id)];
+}
+
 // B5.2 — readers for the add/delete grids, same convention as
 // warehouseOverridesFromInputs/customerOverridesFromInputs above.
 function addedWarehousesFromInputs(inputs: Record<string, unknown> | null): AddedWarehouse[] {
@@ -199,6 +216,24 @@ function addedWarehousesFromInputs(inputs: Record<string, unknown> | null): Adde
 function addedCustomersFromInputs(inputs: Record<string, unknown> | null): AddedCustomer[] {
   const raw = inputs?.addedCustomers;
   return Array.isArray(raw) ? (raw as AddedCustomer[]) : [];
+}
+
+// Task 30 (B6.1 stage 4) — transport-coal analogues.
+function addedMinesFromInputs(inputs: Record<string, unknown> | null): AddedMine[] {
+  const raw = inputs?.addedMines;
+  return Array.isArray(raw) ? (raw as AddedMine[]) : [];
+}
+
+function addedStationsFromInputs(inputs: Record<string, unknown> | null): AddedStation[] {
+  const raw = inputs?.addedStations;
+  return Array.isArray(raw) ? (raw as AddedStation[]) : [];
+}
+
+// Task 30 — laneCostOverrides has no fixed baseline to enumerate, same
+// reasoning distanceOverridesFromInputs already documents for p-median-us.
+function laneCostOverridesFromInputs(inputs: Record<string, unknown> | null): LaneCostOverride[] {
+  const raw = inputs?.laneCostOverrides;
+  return Array.isArray(raw) ? (raw as LaneCostOverride[]) : [];
 }
 
 // A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
@@ -243,7 +278,12 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         { id: "mines", label: "Mines" },
         { id: "stations", label: "Stations" },
         { id: "demand", label: "Demand" },
-        { id: "distances", label: "Distances" },
+        // Task 30 — was a "distances" placeholder entry (B6.1 stages 1-3
+        // shipped the backend; this task builds the tab). Named "Lane
+        // costs" (its own entity id, not the shared "distances" one),
+        // matching stage 1-3's established vocabulary for this model — see
+        // laneCostOverrideSchema's own naming comment.
+        { id: "laneCosts", label: "Lane costs" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
     case "two-echelon-gold-au":
@@ -360,9 +400,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // the "after save" half of the plan's "after save (or on-demand)" choice;
   // there's no separate manual "Check completeness" button (my call — see
   // task-22-report.md).
+  // Task 30 (B6.1 stage 4) — transport-coal joins this query: stage 3 built
+  // precheckTransportInputs and wired it into this same GET .../precheck
+  // endpoint, but nothing fetched it from the frontend until MinesTab/
+  // StationsTab's added-row precheck chips (this task) needed it.
   const { data: precheck } = usePrecheckScenario(currentScenario?.id ?? 0, {
     query: {
-      enabled: !!currentScenario?.id && modelId === "p-median-us",
+      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal"),
       queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
     },
   });
@@ -436,6 +480,28 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     });
   }
 
+  // Task 30 (B6.1 stage 4) — transport-coal analogue of the function above:
+  // deleting an added mine/station must ALSO purge any laneCostOverrides
+  // referencing its id, in the SAME atomic localInputs update. A separate
+  // function (not a generalized `arrayKey`/`overridesKey` parameterization
+  // of the one above) — kept as a close, explicit mirror rather than a
+  // shared abstraction, matching how this codebase already treats
+  // p-median-us and transport-coal's network-edit machinery as parallel but
+  // independent (precheckTransportInputs is its own function, not a call
+  // into precheckPMedianInputs, for the same reasoning).
+  function deleteAddedTransportEntityAndOverrides(arrayKey: "addedMines" | "addedStations", id: string) {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const arr = Array.isArray(prev[arrayKey]) ? (prev[arrayKey] as { id: string }[]) : [];
+      const overrides = Array.isArray(prev.laneCostOverrides) ? (prev.laneCostOverrides as LaneCostOverride[]) : [];
+      return {
+        ...prev,
+        [arrayKey]: arr.filter(e => e.id !== id),
+        laneCostOverrides: overrides.filter(o => o.fromId !== id && o.toId !== id),
+      };
+    });
+  }
+
   function handleSaveInputs() {
     if (!currentScenario || !localInputs || !isDirty) return;
     const scenarioId = currentScenario.id;
@@ -495,9 +561,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
       // B5.1 — Distances grid, p-median-us only: dataset.warehouses/customers
       // (needed for the client-side reference-existence check) don't exist
-      // for p-median-brazil, and transport-coal/two-echelon-gold-au's
-      // distances are B6.1-B6.3's fast-follow, not this task.
-      (activeTab.entity === "distances" && modelId === "p-median-us"));
+      // for p-median-brazil, and two-echelon-gold-au's distances are a
+      // still-open fast-follow, not this task.
+      (activeTab.entity === "distances" && modelId === "p-median-us") ||
+      // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
+      (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -833,6 +901,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // A5.1 — transport-coal's Mines tab. `dataset.warehouses` carries mine
     // rows for this model (GET /dataset's own description: "transport-coal's
     // mines/stations mapped onto the same [warehouse/customer] shape").
+    // Task 30 (B6.1 stage 4) — addedMines/onAddedMinesChange/onDeleteMine/
+    // precheckErrors join the props, mirroring WarehousesTab's own added-* wiring.
     if (activeTab.kind === "input" && activeTab.entity === "mines" && modelId === "transport-coal") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
@@ -842,12 +912,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("mineCapacities", Object.fromEntries(next.filter(o => o.capacity != null).map(o => [o.id, o.capacity])))}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          addedMines={addedMinesFromInputs(localInputs)}
+          onAddedMinesChange={next => updateInputsField("addedMines", next)}
+          onDeleteMine={id => deleteAddedTransportEntityAndOverrides("addedMines", id)}
+          precheckErrors={precheck?.errors}
         />
       );
     }
 
     // A5.1 — transport-coal's Stations tab. `dataset.customers` carries
-    // station rows for this model.
+    // station rows for this model. Task 30 — addedStations/
+    // onAddedStationsChange/onDeleteStation/precheckErrors join the props.
     if (activeTab.kind === "input" && activeTab.entity === "stations" && modelId === "transport-coal") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
@@ -857,6 +932,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("stationDemands", Object.fromEntries(next.filter(o => o.demand != null).map(o => [o.id, o.demand])))}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          addedStations={addedStationsFromInputs(localInputs)}
+          onAddedStationsChange={next => updateInputsField("addedStations", next)}
+          onDeleteStation={id => deleteAddedTransportEntityAndOverrides("addedStations", id)}
+          precheckErrors={precheck?.errors}
         />
       );
     }
@@ -897,6 +976,25 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           warehouseIds={knownWarehouseIds(dataset, localInputs)}
           customerIds={knownCustomerIds(dataset, localInputs)}
           onChange={next => updateInputsField("distanceOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // Task 30 (B6.1 stage 4) — Lane costs grid tab, transport-coal only —
+    // the mine/station analogue of the Distances tab immediately above.
+    // `dataset.warehouses`/`dataset.customers` carry transport-coal's mine/
+    // station rows (same dataset the Mines/Stations tabs above already use).
+    if (activeTab.kind === "input" && activeTab.entity === "laneCosts" && modelId === "transport-coal") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <LaneCostsTab
+          laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
+          savedLaneCostOverrides={laneCostOverridesFromInputs(savedInputsRef.current)}
+          mineIds={knownMineIds(dataset, localInputs)}
+          stationIds={knownStationIds(dataset, localInputs)}
+          onChange={next => updateInputsField("laneCostOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
         />
@@ -955,10 +1053,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // Every other entry (Demand, transport-coal/two-echelon-gold-au/
-    // p-median-brazil's Distances — B6.1-B6.3's fast-follow, not this task —
-    // and every remaining Output grid) is a later task (B6.1-C6.1) —
-    // unchanged placeholder.
+    // Every other entry (Demand, two-echelon-gold-au/p-median-brazil's
+    // Distances — still an open fast-follow — and every remaining Output
+    // grid) is a later task (C1.1-C6.1) — unchanged placeholder. Task 30
+    // closed transport-coal's own Distances gap (now the Lane costs tab,
+    // handled above, not this fallback).
     return (
       <span className="text-muted-foreground" data-testid="tab-content-placeholder">
         {activeTab.label} — content wired in a later task (A1.2-A3.1).

@@ -4,6 +4,10 @@ import {
   completenessCountForCustomer,
   idCollisionMessageForWarehouse,
   idCollisionMessageForCustomer,
+  completenessCountForMine,
+  completenessCountForStation,
+  idCollisionMessageForMine,
+  idCollisionMessageForStation,
 } from "@/lib/precheckDisplay";
 
 // Message shapes copied verbatim from artifacts/api-server/src/services/precheck.ts
@@ -82,5 +86,66 @@ describe("idCollisionMessageForWarehouse / idCollisionMessageForCustomer", () =>
 
   it("returns null for an empty errors array", () => {
     expect(idCollisionMessageForCustomer([], "C001")).toBeNull();
+  });
+});
+
+// Task 30 (B6.1 stage 4) — transport-coal analogues, message shapes copied
+// verbatim from precheckTransportInputs (precheck.ts).
+describe("completenessCountForMine", () => {
+  it("parses the missing-lane-cost count for a mine with a completeness finding", () => {
+    const errors = [
+      { code: "completeness", message: "MN-NEW missing lane costs to 2 stations: ST-1, ST-2" },
+    ];
+    expect(completenessCountForMine(errors, "MN-NEW")).toBe(2);
+  });
+
+  it("handles the singular 'station' wording (1 missing)", () => {
+    const errors = [{ code: "completeness", message: "MN-NEW missing lane costs to 1 station: ST-1" }];
+    expect(completenessCountForMine(errors, "MN-NEW")).toBe(1);
+  });
+
+  it("returns null when there's no completeness finding for this id", () => {
+    const errors = [{ code: "completeness", message: "KY missing lane costs to 1 station: ST-1" }];
+    expect(completenessCountForMine(errors, "MN-NEW")).toBeNull();
+  });
+});
+
+describe("completenessCountForStation", () => {
+  it("counts how many mines' missing-lists include this station id", () => {
+    const errors = [
+      { code: "completeness", message: "KY missing lane costs to 1 station: ST-NEW" },
+      { code: "completeness", message: "WY missing lane costs to 2 stations: ST-NEW, ST-2" },
+    ];
+    expect(completenessCountForStation(errors, "ST-NEW")).toBe(2);
+  });
+
+  it("returns 0 when the station id never appears", () => {
+    const errors = [{ code: "completeness", message: "KY missing lane costs to 1 station: ST-1" }];
+    expect(completenessCountForStation(errors, "ST-NEW")).toBe(0);
+  });
+});
+
+describe("idCollisionMessageForMine / idCollisionMessageForStation", () => {
+  it("finds the id_collision message for a mine id", () => {
+    const errors = [{ code: "id_collision", message: "Added mine id 'KY' collides with an existing base-dataset mine id" }];
+    expect(idCollisionMessageForMine(errors, "KY")).toBe(
+      "Added mine id 'KY' collides with an existing base-dataset mine id",
+    );
+  });
+
+  it("returns null when there's no collision for this mine id", () => {
+    const errors = [{ code: "id_collision", message: "Added mine id 'MN-02' is duplicated across addedMines" }];
+    expect(idCollisionMessageForMine(errors, "MN-01")).toBeNull();
+  });
+
+  it("finds the id_collision message for a station id", () => {
+    const errors = [{ code: "id_collision", message: "Added station id 'ST-01' is duplicated across addedStations" }];
+    expect(idCollisionMessageForStation(errors, "ST-01")).toBe(
+      "Added station id 'ST-01' is duplicated across addedStations",
+    );
+  });
+
+  it("returns null for an empty errors array", () => {
+    expect(idCollisionMessageForStation([], "ST-01")).toBeNull();
   });
 });
