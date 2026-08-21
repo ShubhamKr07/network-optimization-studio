@@ -393,11 +393,31 @@ describe("buildPayload()", () => {
         refineryOverrides: [{ id: "daggar-hills", status: "inactive" }],
         customerOverrides: [{ id: "sydney", demand: 3000000, status: "active" }],
         distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120,
+        addedRefineries: [], addedCustomers: [], distanceOverrides: [],
       },
     });
     expect(payload.modelType).toBe("two_echelon");
     expect(payload.bomRatio).toBe(1.5);
     expect(payload.refineryStatuses).toEqual([{ refineryId: "daggar-hills", status: "inactive" }]);
     expect(payload.customerDemands).toEqual({ sydney: 3000000 });
+  });
+
+  it("forwards addedRefineries/addedCustomers/distanceOverrides for two-echelon-gold-au (B6.2)", () => {
+    const input: SolveInput = {
+      modelId: "two-echelon-gold-au",
+      inputs: {
+        bomRatio: 1.1,
+        refineryOverrides: [],
+        customerOverrides: [],
+        distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120,
+        addedRefineries: [{ id: "ref-new-1", city: "Kalgoorlie West", state: "WA", lat: -30.8, lng: 121.3, status: "active" }],
+        addedCustomers: [{ id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000 }],
+        distanceOverrides: [{ fromId: "kalgoorlie", toId: "ref-new-1", distance: 123.4 }],
+      },
+    };
+    const payload = buildPayload(input);
+    expect(payload.addedRefineries).toEqual(input.inputs.addedRefineries);
+    expect(payload.addedCustomers).toEqual(input.inputs.addedCustomers);
+    expect(payload.distanceOverrides).toEqual(input.inputs.distanceOverrides);
   });
 });

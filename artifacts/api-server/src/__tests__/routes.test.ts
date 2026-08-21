@@ -1172,11 +1172,12 @@ describe("POST /api/scenarios/:id/import/apply", () => {
 
   // B4.2 — two-echelon-gold-au's customer entity also flows through the new
   // warehouses/customers apply branch (it shares the "customers" entity name
-  // with p-median-us), but add-mode is p-median-us only — this scenario's
-  // modelId means addChanges is always empty here. Confirms the new
-  // re-validation step (validateInputsForModel against
-  // twoEchelonInputsSchema, which has no addedCustomers field at all)
-  // doesn't break this pre-existing, unrelated code path.
+  // with p-median-us), but CSV add-mode (services/import.ts's changeType:
+  // "add") is p-median-us only — this scenario's modelId means addChanges is
+  // always empty here. B6.2 gave twoEchelonInputsSchema its own real
+  // addedCustomers field (default []), so re-validation now fills it in as
+  // an empty array rather than leaving it absent — updated from this test's
+  // pre-B6.2 premise ("no addedCustomers field at all").
   it("all_or_nothing mode: applies a clean two-echelon-gold-au customer import into customerOverrides (add-mode inapplicable, re-validation is a no-op)", async () => {
     const cookie = await loginAs(OWNER);
     const customerCsv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,,,999,active\n";
@@ -1190,8 +1191,9 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(res.body.errors).toEqual([]);
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
     expect(setArgs.inputs.customerOverrides).toEqual([{ id: "sydney", status: "active", demand: 999 }]);
-    // No addedCustomers leaks into a model whose schema has no such field.
-    expect(setArgs.inputs.addedCustomers).toBeUndefined();
+    // No ADD-classified change ever reached addedCustomers (still empty) —
+    // the CSV row was a plain update to an existing base customer.
+    expect(setArgs.inputs.addedCustomers).toEqual([]);
   });
 
   // B4.1 — distances apply persists into distanceOverrides via the

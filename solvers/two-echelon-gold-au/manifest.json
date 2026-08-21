@@ -39,7 +39,49 @@
         "default": [500, 1000, 1500, 2000, 2600]
       },
       "gap": { "type": "number", "minimum": 0 },
-      "timeLimitSec": { "type": "integer", "minimum": 1 }
+      "timeLimitSec": { "type": "integer", "minimum": 1 },
+      "addedRefineries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "city", "state", "lat", "lng", "status"]
+        }
+      },
+      "addedCustomers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "demand": { "type": "number", "minimum": 0 }
+          },
+          "required": ["id", "city", "state", "lat", "lng", "demand"]
+        }
+      },
+      "distanceOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "fromId": { "type": "string", "minLength": 1 },
+            "toId": { "type": "string", "minLength": 1 },
+            "distance": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "required": ["fromId", "toId", "distance"]
+        }
+      }
     },
     "required": ["bomRatio", "distanceBands", "gap", "timeLimitSec"]
   }

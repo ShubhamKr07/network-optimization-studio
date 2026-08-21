@@ -53,6 +53,16 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       distanceBands: i.distanceBands,
       gap: i.gap,
       timeLimitSec: i.timeLimitSec,
+      // B6.2: pass twoEchelon.ts's scenario-local network-edit arrays
+      // straight through by their exact schema names — merge_inputs.py's
+      // build_merged_two_echelon_dataset reads them via inp.get(
+      // "addedRefineries"/"addedCustomers"/"distanceOverrides", []), so
+      // absent/empty here is byte-identical to today's behavior (mirrors
+      // transport-coal's addedMines/addedStations/laneCostOverrides
+      // passthrough above).
+      addedRefineries: i.addedRefineries,
+      addedCustomers: i.addedCustomers,
+      distanceOverrides: i.distanceOverrides,
     };
   }
 
