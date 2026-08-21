@@ -24,6 +24,10 @@ function baseProps() {
     activeEntityId: null as string | null,
     onOpenInput: vi.fn(),
     onOpenOutput: vi.fn(),
+    onRenameScenario: vi.fn(),
+    onCloneScenario: vi.fn(),
+    onDeleteScenario: vi.fn(),
+    onResetScenario: vi.fn(),
   };
 }
 
@@ -88,5 +92,93 @@ describe("SidebarTree", () => {
   it("shows a placeholder when there are no scenarios yet", () => {
     render(<SidebarTree {...baseProps()} scenarios={[]} activeScenarioId={null} />);
     expect(screen.getByText(/no scenarios yet/i)).toBeInTheDocument();
+  });
+});
+
+// A4.1 — scenario row operations: rename, clone, delete, reset-to-baseline.
+describe("SidebarTree — scenario row operations", () => {
+  it("clicking Rename turns the row into an editable input pre-filled with the current name", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    const input = screen.getByTestId("input-rename-scenario-1");
+    expect(input).toHaveValue("Baseline");
+  });
+
+  it("pressing Enter in the rename input commits via onRenameScenario with the trimmed new name", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    const input = screen.getByTestId("input-rename-scenario-1");
+    await userEvent.clear(input);
+    await userEvent.type(input, "  Renamed Baseline  {Enter}");
+    expect(props.onRenameScenario).toHaveBeenCalledWith(1, "Renamed Baseline");
+    // the row exits edit mode
+    expect(screen.queryByTestId("input-rename-scenario-1")).not.toBeInTheDocument();
+  });
+
+  it("pressing Escape in the rename input cancels without calling onRenameScenario", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    const input = screen.getByTestId("input-rename-scenario-1");
+    await userEvent.type(input, " edit{Escape}");
+    expect(props.onRenameScenario).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("input-rename-scenario-1")).not.toBeInTheDocument();
+  });
+
+  it("renaming to a blank name does not call onRenameScenario", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    const input = screen.getByTestId("input-rename-scenario-1");
+    await userEvent.clear(input);
+    await userEvent.type(input, "   {Enter}");
+    expect(props.onRenameScenario).not.toHaveBeenCalled();
+  });
+
+  it("clicking Clone calls onCloneScenario immediately, with no confirm step", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-clone-scenario-2"));
+    expect(props.onCloneScenario).toHaveBeenCalledWith(2);
+  });
+
+  it("clicking Delete requires an explicit confirm before onDeleteScenario fires", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-delete-scenario-2"));
+    expect(props.onDeleteScenario).not.toHaveBeenCalled();
+    expect(screen.getByTestId("button-confirm-delete-2")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-confirm-delete-2"));
+    expect(props.onDeleteScenario).toHaveBeenCalledWith(2);
+  });
+
+  it("cancelling the delete confirm does not call onDeleteScenario", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-delete-scenario-2"));
+    await userEvent.click(screen.getByTestId("button-cancel-delete-2"));
+    expect(props.onDeleteScenario).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("button-confirm-delete-2")).not.toBeInTheDocument();
+  });
+
+  it("clicking Reset to baseline requires an explicit confirm before onResetScenario fires", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-reset-scenario-1"));
+    expect(props.onResetScenario).not.toHaveBeenCalled();
+    expect(screen.getByTestId("button-confirm-reset-1")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-confirm-reset-1"));
+    expect(props.onResetScenario).toHaveBeenCalledWith(1);
+  });
+
+  it("cancelling the reset confirm does not call onResetScenario", async () => {
+    const props = baseProps();
+    render(<SidebarTree {...props} />);
+    await userEvent.click(screen.getByTestId("button-reset-scenario-1"));
+    await userEvent.click(screen.getByTestId("button-cancel-reset-1"));
+    expect(props.onResetScenario).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("button-confirm-reset-1")).not.toBeInTheDocument();
   });
 });

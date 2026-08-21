@@ -7,6 +7,10 @@ import {
   useGetDataset,
   useUpdateScenario,
   useSolveScenario,
+  useCreateScenario,
+  useCloneScenario,
+  useDeleteScenario,
+  useResetScenarioToBaseline,
   useGetSolveJob,
   useListModels,
   getGetScenarioQueryKey,
@@ -17,6 +21,15 @@ import {
 } from "@workspace/api-client-react";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
 import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
@@ -35,6 +48,22 @@ import {
 } from "@/lib/workspaceTabs";
 import type { StudioModelType } from "@/lib/chapters";
 import { toast } from "@/hooks/use-toast";
+
+// A4.1 — p-median-us's own default `inputs` shape for a brand-new scenario,
+// copied verbatim from Studio.tsx's handleCreateConfirm (the same switch's
+// final/default branch) rather than invented. Workspace is pilot-only on
+// p-median-us (A0.2) — when a future model flip (A5.1-A5.3) needs this too,
+// extend this the same way Studio.tsx's switch does, don't guess a shape.
+const PMEDIAN_US_DEFAULT_INPUTS: Record<string, unknown> = {
+  p: 3,
+  distanceBands: [200, 400, 800, 1600],
+  capacityMode: "none",
+  uniformCapacity: null,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+};
 
 function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): WarehouseOverride[] {
   const raw = inputs?.warehouseOverrides;
@@ -122,7 +151,10 @@ interface WorkspaceProps {
 
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const search = useSearch();
-  const [, navigate] = useLocation();
+  // A4.1 — `chapterPath` (was discarded) is needed as the "clear the
+  // ?scenario= param" navigation target once the last scenario is deleted,
+  // mirroring Studio.tsx's `navigate(chapterPath)`.
+  const [chapterPath, navigate] = useLocation();
   const queryClient = useQueryClient();
   const scenarioIdStr = new URLSearchParams(search).get("scenario");
   const scenarioIdFromUrl = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
@@ -249,11 +281,132 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     navigate(`?scenario=${id}`);
   }
 
+  // A4.1 — sidebar scenario operations: create, rename, clone, delete,
+  // reset-to-baseline. Create/clone/delete all replicate Studio.tsx's
+  // documented cache-write-before-navigate fix (CLAUDE.md, "post-migration
+  // bug audit," Task 2 finding): `queryClient.setQueryData` writes the
+  // mutation's own response into the scenarios-list cache SYNCHRONOUSLY,
+  // strictly BEFORE `navigate(...)`, so the destination renders against
+  // fresh data instead of racing `invalidateQueries`' async refetch (which
+  // is moved to strictly after navigate, as a non-blocking background
+  // refresh). Do not reorder these — see Studio.tsx's handleClone/
+  // handleDelete/handleCreateConfirm for the original fix and the bug it
+  // replaced.
+  const createScenario = useCreateScenario();
+  const cloneScenario = useCloneScenario();
+  const deleteScenario = useDeleteScenario();
+  const resetToBaseline = useResetScenarioToBaseline();
+
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newScenarioName, setNewScenarioName] = useState("");
+
   function handleCreateScenario() {
-    // TODO(A4.1): real scenario creation (name prompt + per-model default
-    // inputs via useCreateScenario). Out of scope for A0.1's shell — this
-    // task only needs the "+" affordance to exist and be wired to a
-    // callback, per the brief.
+    setNewScenarioName(`Scenario ${(scenarios?.length ?? 0) + 1}`);
+    setShowCreateDialog(true);
+  }
+
+  function handleCreateConfirm() {
+    const name = newScenarioName.trim() || `Scenario ${(scenarios?.length ?? 0) + 1}`;
+    createScenario.mutate(
+      { data: { name, modelId, inputs: PMEDIAN_US_DEFAULT_INPUTS } },
+      {
+        onSuccess: created => {
+          setShowCreateDialog(false);
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? [...prev, created] : [created],
+          );
+          navigate(`?scenario=${created.id}`);
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+      },
+    );
+  }
+
+  function handleCloneScenario(id: number) {
+    cloneScenario.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: cloned => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? [...prev, cloned] : [cloned],
+          );
+          navigate(`?scenario=${cloned.id}`);
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+      },
+    );
+  }
+
+  function handleDeleteScenario(id: number) {
+    deleteScenario.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: () => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? prev.filter(s => s.id !== id) : prev,
+          );
+          if (id === currentScenario?.id) {
+            const remaining = (scenarios ?? []).filter(s => s.id !== id);
+            if (remaining.length > 0) {
+              navigate(`?scenario=${remaining[0].id}`);
+            } else {
+              navigate(chapterPath);
+            }
+          }
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+        },
+      },
+    );
+  }
+
+  // Rename — resolved design nuance (see task-9-brief.md): SidebarTree lists
+  // EVERY scenario, not just the active one, so a sibling row's rename
+  // cannot defer to the active scenario's input-editing Save button (that
+  // button is scoped to `localInputs`, which has no meaning for a scenario
+  // that isn't currently open). Rename fires its own immediate,
+  // isolated `{name}`-only PATCH via useUpdateScenario — independent of
+  // A1.1/A1.2's manual-Save-toolbar flow, and it deliberately never touches
+  // `localInputs`/`savedInputsRef` (even when renaming the ACTIVE scenario)
+  // so an in-progress unsaved input edit is never disturbed by a rename.
+  function handleRenameScenario(id: number, name: string) {
+    updateScenario.mutate(
+      { scenarioId: id, data: { name } },
+      {
+        onSuccess: updated => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
+          );
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
+        },
+      },
+    );
+  }
+
+  // Reset-to-baseline — same D6.1 endpoint Studio.tsx uses, now reachable
+  // per-row (any scenario, not just the active one) since SidebarTree lists
+  // all of them. Only resync `localInputs`/`savedInputsRef` when the RESET
+  // scenario is the currently ACTIVE one — resetting a sibling must not
+  // clobber an in-progress unsaved edit on the scenario actually open in the
+  // tabs (handleImportApplied's unconditional resync is correct for it, but
+  // would be wrong reused verbatim here for an arbitrary sidebar row).
+  function handleResetScenario(id: number) {
+    resetToBaseline.mutate(
+      { scenarioId: id },
+      {
+        onSuccess: updated => {
+          if (id === currentScenario?.id) {
+            setLocalInputs(updated.inputs);
+            savedInputsRef.current = updated.inputs;
+          }
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
+          );
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
+        },
+      },
+    );
   }
 
   // A2.1 — Run Optimizer / Solve dialog. Solve is async (G3.1): POST /solve
@@ -505,6 +658,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
+          onRenameScenario={handleRenameScenario}
+          onCloneScenario={handleCloneScenario}
+          onDeleteScenario={handleDeleteScenario}
+          onResetScenario={handleResetScenario}
         />
 
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
@@ -557,6 +714,52 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         errorMessage={solveError}
         onSolve={handleSolve}
       />
+
+      {/* A4.1 — create-scenario dialog, triggered by SidebarTree's "+".
+          Workspace.tsx has a single unconditional return (no early-return
+          branches like Studio.tsx's empty-scenarios states), so — unlike
+          Studio.tsx's documented Dialog-in-an-unreachable-branch bug
+          (CLAUDE.md's gotchas) — there's only one place this needs to be
+          rendered, and it's always reachable. */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New scenario</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Scenario name</Label>
+              <Input
+                value={newScenarioName}
+                onChange={e => setNewScenarioName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") handleCreateConfirm();
+                }}
+                placeholder="e.g. 5 Warehouses – West Coast"
+                className="text-sm"
+                autoFocus
+                data-testid="input-new-scenario-name"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Starts with P = 3, CBC solver, default settings. You can change everything in the configure panel.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreateConfirm}
+              disabled={createScenario.isPending}
+              data-testid="button-create-confirm"
+            >
+              {createScenario.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

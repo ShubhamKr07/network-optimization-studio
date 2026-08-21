@@ -6,13 +6,17 @@ const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
 vi.mock("@/hooks/use-toast", () => ({ toast: mockToast }));
 
 // ── Mock wouter ───────────────────────────────────────────────────────────────
+// `mockNavigate` is a single persistent fn (not a fresh vi.fn() per call) so
+// tests can assert on call order/arguments — needed for the
+// cache-write-before-navigate regression tests below.
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 vi.mock("wouter", () => ({
   useSearch: vi.fn(() => "?scenario=1"),
-  useLocation: () => ["/chapter-3", vi.fn()],
+  useLocation: () => ["/chapter-3", mockNavigate],
 }));
 
 // ── Mock React Query ──────────────────────────────────────────────────────────
-const mockQueryClient = { invalidateQueries: vi.fn() };
+const mockQueryClient = { invalidateQueries: vi.fn(), setQueryData: vi.fn() };
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: vi.fn(() => mockQueryClient),
 }));
@@ -45,17 +49,36 @@ const dataset = {
   customers: [{ id: "C1", city: "New York", state: "NY", lat: 40.71, lng: -74.0, demand: 100 }],
 };
 
+const scenario2 = {
+  id: 2,
+  name: "Alt scenario",
+  modelId: "p-median-us",
+  inputs: pmedianInputs,
+  result: null,
+  stale: false,
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z",
+};
+
 // ── Mock the generated API client hooks (mock at the generated-hooks level,
 // per this repo's established convention — see Studio.test.tsx) ─────────────
 const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockCloneScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockResetToBaseline = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
-  useListScenarios: vi.fn(() => ({ data: [scenario] })),
+  useListScenarios: vi.fn(() => ({ data: [scenario, scenario2] })),
   useGetScenario: vi.fn(() => ({ data: scenario })),
   useGetDataset: vi.fn(() => ({ data: dataset })),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => mockSolveScenario),
+  useCreateScenario: vi.fn(() => mockCreateScenario),
+  useCloneScenario: vi.fn(() => mockCloneScenario),
+  useDeleteScenario: vi.fn(() => mockDeleteScenario),
+  useResetScenarioToBaseline: vi.fn(() => mockResetToBaseline),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   useListModels: vi.fn(() => ({ data: [{ id: "p-median-us", countryBounds: { sw: [24, -125], ne: [50, -66] } }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
@@ -64,9 +87,10 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace } from "@/pages/Workspace";
-import { useGetSolveJob } from "@workspace/api-client-react";
+import { useGetSolveJob, useListScenarios } from "@workspace/api-client-react";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
+const mockUseListScenarios = vi.mocked(useListScenarios);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -74,10 +98,30 @@ function renderWorkspace() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // `vi.clearAllMocks()` clears call history but NOT a previously-set
+  // `mockImplementation` (see the existing "mockReset() guards against a
+  // leftover mockImplementation" note on the Solve-dialog tests below) — a
+  // mutate mock's onSuccess/onError implementation set by one test can leak
+  // into a later test that never calls onError/onSuccess, causing an
+  // unrelated later test (e.g. rename's) to crash if the leaked
+  // implementation invokes a callback the later call site never passed.
+  // Full `mockReset()` on every mutate fn, every test, closes that off file-wide.
+  mockUpdateScenario.mutate.mockReset();
+  mockSolveScenario.mutate.mockReset();
+  mockCreateScenario.mutate.mockReset();
+  mockCloneScenario.mutate.mockReset();
+  mockDeleteScenario.mutate.mockReset();
+  mockResetToBaseline.mutate.mockReset();
   mockUpdateScenario.isPending = false;
   mockSolveScenario.isPending = false;
+  mockCreateScenario.isPending = false;
+  mockCloneScenario.isPending = false;
+  mockDeleteScenario.isPending = false;
+  mockResetToBaseline.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
+  mockQueryClient.setQueryData.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
+  mockUseListScenarios.mockReturnValue({ data: [scenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
 });
 
 describe("Workspace — Warehouses tab", () => {
@@ -415,5 +459,244 @@ describe("Workspace — Solve dialog", () => {
       description: "Solver timed out",
     }));
     expect(screen.queryByTestId("tab-output:output-map")).not.toBeInTheDocument();
+  });
+});
+
+// ── A4.1 — sidebar scenario operations ───────────────────────────────────────
+const pmedianDefaultInputs = {
+  p: 3,
+  distanceBands: [200, 400, 800, 1600],
+  capacityMode: "none",
+  uniformCapacity: null,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+};
+
+describe("Workspace — create scenario", () => {
+  it("clicking + in the sidebar opens a create-scenario dialog, pre-filled with a sequential default name", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-create-scenario"));
+    expect(screen.getByTestId("input-new-scenario-name")).toHaveValue("Scenario 3");
+  });
+
+  it("confirming create calls useCreateScenario with the p-median-us default inputs shape (Studio.tsx's own default, not invented)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-create-scenario"));
+    fireEvent.change(screen.getByTestId("input-new-scenario-name"), { target: { value: "New Scenario" } });
+    fireEvent.click(screen.getByTestId("button-create-confirm"));
+
+    expect(mockCreateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockCreateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      data: {
+        name: "New Scenario",
+        modelId: "p-median-us",
+        inputs: pmedianDefaultInputs,
+      },
+    });
+  });
+
+  // CRITICAL — the one regression this task must not reintroduce (CLAUDE.md's
+  // "post-migration bug audit," Task 2 finding, already fixed once in
+  // Studio.tsx's handleCreateConfirm/handleClone/handleDelete).
+  it("CRITICAL — writes the created scenario into the scenarios-list cache BEFORE navigating, then refreshes in the background", () => {
+    const callOrder: string[] = [];
+    mockQueryClient.setQueryData.mockImplementation(() => callOrder.push("setQueryData"));
+    mockNavigate.mockImplementation(() => callOrder.push("navigate"));
+    const created = { id: 99, name: "New Scenario", modelId: "p-median-us", inputs: pmedianDefaultInputs, result: null, stale: false, createdAt: "x", updatedAt: "x" };
+    mockCreateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof created) => void }) => {
+      opts.onSuccess(created);
+    });
+
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-create-scenario"));
+    fireEvent.change(screen.getByTestId("input-new-scenario-name"), { target: { value: "New Scenario" } });
+    fireEvent.click(screen.getByTestId("button-create-confirm"));
+
+    expect(callOrder).toEqual(["setQueryData", "navigate"]);
+    expect(mockNavigate).toHaveBeenCalledWith("?scenario=99");
+    // background consistency refresh — non-blocking, strictly after navigate.
+    expect(mockQueryClient.invalidateQueries).toHaveBeenCalled();
+  });
+
+  it("closes the dialog after a successful create", () => {
+    const created = { id: 99, name: "New Scenario", modelId: "p-median-us", inputs: pmedianDefaultInputs, result: null, stale: false, createdAt: "x", updatedAt: "x" };
+    mockCreateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof created) => void }) => {
+      opts.onSuccess(created);
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-create-scenario"));
+    fireEvent.click(screen.getByTestId("button-create-confirm"));
+    expect(screen.queryByTestId("input-new-scenario-name")).not.toBeInTheDocument();
+  });
+});
+
+describe("Workspace — clone scenario", () => {
+  it("clicking Clone on a sidebar row clones that scenario", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-clone-scenario-2"));
+    expect(mockCloneScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockCloneScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 2 });
+  });
+
+  it("CRITICAL — writes the cloned scenario into the scenarios-list cache BEFORE navigating, then refreshes in the background", () => {
+    const callOrder: string[] = [];
+    mockQueryClient.setQueryData.mockImplementation(() => callOrder.push("setQueryData"));
+    mockNavigate.mockImplementation(() => callOrder.push("navigate"));
+    const cloned = { id: 42, name: "Alt scenario (copy)", modelId: "p-median-us", inputs: pmedianInputs, result: null, stale: false, createdAt: "x", updatedAt: "x" };
+    mockCloneScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof cloned) => void }) => {
+      opts.onSuccess(cloned);
+    });
+
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-clone-scenario-2"));
+
+    expect(callOrder).toEqual(["setQueryData", "navigate"]);
+    expect(mockNavigate).toHaveBeenCalledWith("?scenario=42");
+    expect(mockQueryClient.invalidateQueries).toHaveBeenCalled();
+  });
+});
+
+describe("Workspace — delete scenario", () => {
+  it("delete requires an explicit sidebar confirm before useDeleteScenario fires", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-delete-scenario-2"));
+    expect(mockDeleteScenario.mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("button-confirm-delete-2"));
+    expect(mockDeleteScenario.mutate).toHaveBeenCalledWith({ scenarioId: 2 }, expect.anything());
+  });
+
+  // CRITICAL — same cache-write-before-navigate ordering as create/clone.
+  it("CRITICAL — deleting the currently active scenario writes the trimmed list into cache BEFORE navigating to the next remaining scenario", () => {
+    const callOrder: string[] = [];
+    mockQueryClient.setQueryData.mockImplementation(() => callOrder.push("setQueryData"));
+    mockNavigate.mockImplementation(() => callOrder.push("navigate"));
+    mockDeleteScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+
+    renderWorkspace(); // active scenario is id=1 (mocked ?scenario=1)
+    fireEvent.click(screen.getByTestId("button-delete-scenario-1"));
+    fireEvent.click(screen.getByTestId("button-confirm-delete-1"));
+
+    expect(mockDeleteScenario.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
+    expect(callOrder).toEqual(["setQueryData", "navigate"]);
+    expect(mockNavigate).toHaveBeenCalledWith("?scenario=2");
+    expect(mockQueryClient.invalidateQueries).toHaveBeenCalled();
+  });
+
+  it("deleting a scenario that is NOT the active one removes it from the sidebar cache but does not navigate", () => {
+    mockDeleteScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-delete-scenario-2"));
+    fireEvent.click(screen.getByTestId("button-confirm-delete-2"));
+
+    expect(mockDeleteScenario.mutate).toHaveBeenCalledWith({ scenarioId: 2 }, expect.anything());
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockQueryClient.setQueryData).toHaveBeenCalled();
+  });
+
+  it("deleting the last remaining scenario navigates back to the bare chapter path", () => {
+    mockUseListScenarios.mockReturnValue({ data: [scenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockDeleteScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-delete-scenario-1"));
+    fireEvent.click(screen.getByTestId("button-confirm-delete-1"));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/chapter-3");
+  });
+});
+
+// The design nuance this task's brief calls out explicitly: rename fires its
+// own immediate {name}-only PATCH, independent of the active scenario's
+// input-editing Save flow (A1.1/A1.2) — a sibling row's rename has no
+// "active scenario Save" context to defer to.
+describe("Workspace — rename scenario", () => {
+  it("renaming a SIBLING (non-active) scenario fires its own immediate name-only PATCH, independent of the active scenario's unsaved tab-editing state", () => {
+    renderWorkspace();
+    // Dirty the ACTIVE scenario's (id=1) unsaved input state first.
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+
+    // Rename scenario 2 — a sibling, not the active one.
+    fireEvent.click(screen.getByTestId("button-rename-scenario-2"));
+    fireEvent.change(screen.getByTestId("input-rename-scenario-2"), { target: { value: "Renamed sibling" } });
+    fireEvent.keyDown(screen.getByTestId("input-rename-scenario-2"), { key: "Enter" });
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 2,
+      data: { name: "Renamed sibling" },
+    });
+
+    // The active scenario's dirty editing state (a wholly separate concern)
+    // is untouched by the sibling's rename.
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("10");
+  });
+
+  it("renaming the active scenario also fires the same immediate name-only PATCH (not bundled with inputs)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-rename-scenario-1"));
+    fireEvent.change(screen.getByTestId("input-rename-scenario-1"), { target: { value: "Renamed active" } });
+    fireEvent.keyDown(screen.getByTestId("input-rename-scenario-1"), { key: "Enter" });
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: { name: "Renamed active" },
+    });
+  });
+});
+
+describe("Workspace — reset to baseline", () => {
+  it("requires an explicit confirm before calling useResetScenarioToBaseline", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-reset-scenario-1"));
+    expect(mockResetToBaseline.mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("button-confirm-reset-1"));
+    expect(mockResetToBaseline.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
+  });
+
+  it("on success for the ACTIVE scenario, resyncs the local inputs draft from the response (same mechanism as import-apply)", () => {
+    const updated = { ...scenario, inputs: { ...pmedianInputs, p: 7 } };
+    mockResetToBaseline.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof updated) => void }) => {
+      opts.onSuccess(updated);
+    });
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-reset-scenario-1"));
+    fireEvent.click(screen.getByTestId("button-confirm-reset-1"));
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("7");
+    expect(mockQueryClient.invalidateQueries).toHaveBeenCalled();
+  });
+
+  it("resetting a SIBLING scenario's baseline does not clobber the active scenario's local input draft", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+
+    const updatedSibling = { ...scenario2, inputs: { ...pmedianInputs, p: 99 } };
+    mockResetToBaseline.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof updatedSibling) => void }) => {
+      opts.onSuccess(updatedSibling);
+    });
+
+    fireEvent.click(screen.getByTestId("button-reset-scenario-2"));
+    fireEvent.click(screen.getByTestId("button-confirm-reset-2"));
+
+    // active scenario (id=1)'s dirty p=10 edit is untouched by scenario 2's reset
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("10");
   });
 });
