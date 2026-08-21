@@ -64,6 +64,32 @@ export interface PrecheckDataset {
 // rewrite. No multi-model dispatch is built here - that's still B6.x's job.
 const DEFAULT_DATASET: PrecheckDataset = { warehouses: WAREHOUSES, customers: CUSTOMERS };
 
+/**
+ * Builds the strict per-role id spaces (base dataset + this scenario's added
+ * entities) that both this service's own reference-integrity check and
+ * B4.1's `import.ts` distances-entity parsing need: fromId must resolve as a
+ * warehouse, toId must resolve as a customer - never "whichever role happens
+ * to contain it" (see this file's header comment on (c) reference
+ * integrity). Exported so `import.ts` doesn't re-implement this rule with
+ * different semantics - same category of check, one source of truth.
+ * Parameter is a minimal structural shape (not `PMedianInputs` itself) so
+ * callers that only have `{id}` refs (not full added-entity rows) can use it
+ * too.
+ */
+export function buildPMedianIdSpaces(
+  addedEntities: {
+    addedWarehouses?: readonly PrecheckDatasetEntity[];
+    addedCustomers?: readonly PrecheckDatasetEntity[];
+  },
+  dataset: PrecheckDataset = DEFAULT_DATASET,
+): { warehouseIdSpace: Set<string>; customerIdSpace: Set<string> } {
+  const warehouseIdSpace = new Set(dataset.warehouses.map((w) => w.id));
+  for (const w of addedEntities.addedWarehouses ?? []) warehouseIdSpace.add(w.id);
+  const customerIdSpace = new Set(dataset.customers.map((c) => c.id));
+  for (const c of addedEntities.addedCustomers ?? []) customerIdSpace.add(c.id);
+  return { warehouseIdSpace, customerIdSpace };
+}
+
 export function precheckPMedianInputs(
   inputs: PMedianInputs,
   dataset: PrecheckDataset = DEFAULT_DATASET,
@@ -115,9 +141,11 @@ export function precheckPMedianInputs(
   // --- (c) reference integrity -----------------------------------------
   // Strict per-role sets: fromId must resolve as a warehouse id, toId must
   // resolve as a customer id - never "whichever role happens to contain
-  // it" (that would silently accept a backwards pair).
-  const warehouseIdSpace = new Set([...baseWarehouseIds, ...addedWarehouseIds]);
-  const customerIdSpace = new Set([...baseCustomerIds, ...addedCustomerIds]);
+  // it" (that would silently accept a backwards pair). Built via the shared
+  // helper above (identical result to the inline union this replaced: base
+  // ids + every added id, collisions included - collisions are already
+  // reported by the id_collision loop, not silently dropped here).
+  const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(inputs, dataset);
 
   for (const o of distanceOverrides) {
     if (!warehouseIdSpace.has(o.fromId)) {

@@ -535,12 +535,31 @@ function mergeChangesIntoDict(
   return result;
 }
 
+// B4.1 — distances persists overrides as an array keyed by the composite
+// (fromId, toId) pair, not a single `id` like every other entity's override
+// array. Reads `c.fromId`/`c.toId` (populated only for distances rows by
+// services/import.ts's parseDistancesRows) rather than parsing `c.id`'s
+// composite display string back apart. Unlike mergeChangesIntoOverrides,
+// there is no "active/null is the no-op default" case to filter out here —
+// every distances change already carries a validated positive distance
+// (parseDistancesRows never emits a change with a null value), so every
+// change is a real override to keep.
+function mergeDistanceChangesIntoOverrides(
+  currentOverrides: Array<{ fromId: string; toId: string; distance: number }>,
+  changes: ImportRowChange[],
+): Array<{ fromId: string; toId: string; distance: number }> {
+  const changedKeys = new Set(changes.map(c => `${c.fromId}|${c.toId}`));
+  const rest = currentOverrides.filter(o => !changedKeys.has(`${o.fromId}|${o.toId}`));
+  const applied = changes.map(c => ({ fromId: c.fromId!, toId: c.toId!, distance: c.after.value! }));
+  return [...rest, ...applied];
+}
+
 router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText } = req.body as { entity?: string; csvText?: string };
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', or 'refineries'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', or 'distances'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -553,13 +572,15 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   // Same model↔entity pairing the export route enforces: p-median-us imports
-  // warehouses/customers, transport-coal imports mines/stations,
-  // two-echelon-gold-au imports refineries/customers.
-  const entityIsPMedian = entity === "warehouses" || entity === "customers";
+  // warehouses/customers/distances, transport-coal imports mines/stations,
+  // two-echelon-gold-au imports refineries/customers. distances (B4.1) is
+  // p-median-us only — it's the scenario-local network-edits pilot model
+  // (B1.1-B3.1); no other model's inputs schema has distanceOverrides.
+  const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers";
   if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
-    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers import" });
+    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers/distances import" });
     return;
   }
   if (scenario.modelId === "transport-coal" && !entityIsCoal) {
@@ -575,13 +596,14 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     return;
   }
 
-  // inputs carries warehouseOverrides/customerOverrides (p-median),
-  // mineCapacities/stationDemands (transport-coal), or
-  // refineryOverrides/customerOverrides (two-echelon-gold-au);
-  // parseAndValidateImport reads whichever matches `entity`, disambiguating
-  // the shared "customers" entity name by modelId. p is p-median-only —
-  // pass 0 otherwise (its p-driven warning branch never fires for other entities).
-  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: unknown[] };
+  // inputs carries warehouseOverrides/customerOverrides/distanceOverrides/
+  // addedWarehouses/addedCustomers (p-median), mineCapacities/stationDemands
+  // (transport-coal), or refineryOverrides/customerOverrides
+  // (two-echelon-gold-au); parseAndValidateImport reads whichever matches
+  // `entity`, disambiguating the shared "customers" entity name by modelId.
+  // p is p-median-only — pass 0 otherwise (its p-driven warning branch never
+  // fires for other entities).
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: unknown[]; distanceOverrides?: unknown[]; addedWarehouses?: unknown[]; addedCustomers?: unknown[] };
   const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
   res.json(preview);
 });
@@ -590,8 +612,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText, mode } = req.body as { entity?: string; csvText?: string; mode?: string };
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', or 'refineries'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', or 'distances'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -604,11 +626,12 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
-  const entityIsPMedian = entity === "warehouses" || entity === "customers";
+  // distances (B4.1) is p-median-us only — see the /import route's comment.
+  const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers";
   if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
-    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers import" });
+    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers/distances import" });
     return;
   }
   if (scenario.modelId === "transport-coal" && !entityIsCoal) {
@@ -626,7 +649,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
   // Always re-validate against the live scenario state — never trust a
   // client-held preview, which may be stale by the time apply is called.
-  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: Array<{ id: string; status: string }> };
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: Array<{ id: string; status: string }>; distanceOverrides?: Array<{ fromId: string; toId: string; distance: number }>; addedWarehouses?: Array<{ id: string }>; addedCustomers?: Array<{ id: string }> };
   const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
 
   if (applyMode === "all_or_nothing" && preview.errors.length > 0) {
@@ -640,6 +663,10 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const currentDict = inputs[overrideKey] ?? {};
     const nextDict = mergeChangesIntoDict(currentDict, preview.changes);
     nextInputs = { ...inputs, [overrideKey]: nextDict };
+  } else if (entity === "distances") {
+    const currentDistanceOverrides = inputs.distanceOverrides ?? [];
+    const nextDistanceOverrides = mergeDistanceChangesIntoOverrides(currentDistanceOverrides, preview.changes);
+    nextInputs = { ...inputs, distanceOverrides: nextDistanceOverrides };
   } else {
     const overrideKey = entity === "warehouses" ? "warehouseOverrides" : entity === "refineries" ? "refineryOverrides" : "customerOverrides";
     const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;

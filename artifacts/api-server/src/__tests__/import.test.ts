@@ -181,3 +181,124 @@ describe("parseAndValidateImport — 'customers' entity disambiguated by modelId
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
   });
 });
+
+// B4.1 — distances is composite-keyed (from_id,to_id), not single-id like
+// every other entity: real base ids ALN (warehouse) and C1 (customer) are
+// used directly rather than a fixture file, since "unknown" here means
+// reference-integrity against the id spaces (base + added), not a status
+// baseline diff.
+describe("parseAndValidateImport — distances (composite key, DD-2 long format)", () => {
+  it("valid distance rows parse correctly as a real change", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "ALN|C1",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 123.4 },
+      fromId: "ALN",
+      toId: "C1",
+    }]);
+  });
+
+  it("rejects a row with an unresolvable from_id (unknown warehouse) as a logic error", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ZZZ,C1,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/from_id/i);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("rejects a row with an unresolvable to_id (unknown customer) as a logic error", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,ZZZ,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/to_id/i);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("rejects a backwards row (from_id=a real customer, to_id=a real warehouse), not silently accepted", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,C1,ALN,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/from_id/i);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("rejects a duplicate (from_id,to_id) pair within one file — first occurrence still registers as a change", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,100\n1,ALN,C1,200\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 3 });
+    expect(result.errors[0].message).toMatch(/duplicate/i);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ fromId: "ALN", toId: "C1", after: { value: 100 } });
+  });
+
+  it("resolves a valid override against an added warehouse and added customer, not just base dataset entities", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,WH-NEW,CUST-NEW,55\n";
+    const result = parseAndValidateImport(
+      "distances",
+      csv,
+      { addedWarehouses: [{ id: "WH-NEW" }], addedCustomers: [{ id: "CUST-NEW" }] },
+      0,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ fromId: "WH-NEW", toId: "CUST-NEW", after: { value: 55 } });
+  });
+
+  it("diffs against an existing distanceOverrides entry, not just a null baseline", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,999\n";
+    const result = parseAndValidateImport(
+      "distances",
+      csv,
+      { distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 111 }] },
+      0,
+    );
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ before: { value: 111 }, after: { value: 999 } });
+  });
+
+  it("produces no change when the row matches an existing override exactly", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,111\n";
+    const result = parseAndValidateImport(
+      "distances",
+      csv,
+      { distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 111 }] },
+      0,
+    );
+    expect(result.changes).toEqual([]);
+  });
+
+  it("rejects a non-positive distance as a logic error", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,0\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/positive/i) }]);
+  });
+
+  it("still enforces the shared header-check machinery (wrong columns -> single format error)", () => {
+    const csv = "template_version,id,city,state,capacity,status\n1,ALN,Allentown,PA,,active\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
+    expect(result.changes).toEqual([]);
+  });
+
+  it("still enforces the shared bad-encoding format check", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,�100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
+  });
+
+  it("still enforces the shared template_version mismatch check", () => {
+    const csv = "template_version,from_id,to_id,distance\n2,ALN,C1,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/template_version/) }]);
+  });
+});

@@ -891,6 +891,34 @@ describe("POST /api/scenarios/:id/import", () => {
     const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: cleanCsv });
     expect(res.status).toBe(422);
   });
+
+  // B4.1 — distances is p-median-us only (composite key, uses real
+  // WAREHOUSES/CUSTOMERS ids ALN/C1 via mocked scenario 1).
+  it("previews a p-median-us distances import with one composite-keyed change", async () => {
+    const cookie = await loginAs(OWNER);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "distances", csvText: distancesCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toEqual([{
+      id: "ALN|C1",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 123.4 },
+      fromId: "ALN",
+      toId: "C1",
+    }]);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects entity=distances for a transport-coal import (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "distances", csvText: distancesCsv });
+    expect(res.status).toBe(422);
+  });
 });
 
 describe("POST /api/scenarios/:id/import/apply", () => {
@@ -960,6 +988,34 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     expect(res.body.errors).toEqual([]);
     expect(res.body.scenario.inputs.refineryOverrides).toEqual([{ id: "cunnamulla", status: "forced_open" }]);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  // B4.1 — distances apply persists into distanceOverrides via the
+  // composite-key merge (mergeDistanceChangesIntoOverrides), not the
+  // single-id mergeChangesIntoOverrides every other array-shaped entity uses.
+  it("all_or_nothing mode: applies a clean p-median-us distances import into distanceOverrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const updatedRow = { ...pmedianRow, inputs: { ...pmedianInputs, distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 123.4 }] } };
+    mockDb.update.mockReturnValue(makeChain([updatedRow]));
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.scenario.inputs.distanceOverrides).toEqual([{ fromId: "ALN", toId: "C1", distance: 123.4 }]);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("all_or_nothing mode: a distances import with an unresolvable from_id applies nothing (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    const badDistancesCsv = "template_version,from_id,to_id,distance\n1,ZZZ,C1,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: badDistancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(422);
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 });
 

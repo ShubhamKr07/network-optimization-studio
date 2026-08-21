@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
+import { buildPMedianIdSpaces } from "./precheck.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -15,6 +16,14 @@ export interface ImportRowChange {
   line: number;
   before: { status: string; value: number | null };
   after: { status: string; value: number | null };
+  // Populated only for the composite-keyed `distances` entity (B4.1) —
+  // `(fromId, toId)` together identify a row, unlike every other entity's
+  // single `id`. `.id` still carries a composite display string
+  // (`${fromId}|${toId}`) so entity-agnostic UI rendering (ImportDialog)
+  // doesn't need a special case; these give the apply route structured
+  // access to the two halves without parsing that string back apart.
+  fromId?: string;
+  toId?: string;
 }
 
 export interface ImportPreview {
@@ -23,9 +32,17 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries";
+export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances";
 
-const COLUMNS: Record<ImportEntity, string[]> = {
+// `distances` is intentionally absent from COLUMNS/ENTITY_HAS_VALUE/
+// VALID_STATUSES below — it doesn't fit the single-id row model those
+// tables describe (composite key, no status column, no baseline "current
+// override list" to diff unknown-ness against). Its column layout is
+// DISTANCES_COLUMNS just below, and it's parsed by a wholly separate
+// function (parseDistancesRows), not this file's generic per-row loop.
+const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
+
+const COLUMNS: Record<Exclude<ImportEntity, "distances">, string[]> = {
   warehouses: ["template_version", "id", "city", "state", "capacity", "status"],
   customers: ["template_version", "id", "city", "state", "demand", "status"],
   mines: ["template_version", "id", "city", "state", "capacity"],
@@ -37,8 +54,11 @@ const COLUMNS: Record<ImportEntity, string[]> = {
 };
 
 // Whether this entity's rows carry a capacity/demand value column at all.
-// Refineries is the one entity with none.
-const ENTITY_HAS_VALUE: Record<ImportEntity, boolean> = {
+// Refineries is the one entity with none. distances isn't here at all — it
+// has a `distance` column but no capacity/demand-style value semantics (see
+// this file's header comment): it's parsed by parseDistancesRows, never by
+// the generic per-row loop below that consults this table.
+const ENTITY_HAS_VALUE: Record<Exclude<ImportEntity, "distances">, boolean> = {
   warehouses: true,
   customers: true,
   mines: true,
@@ -46,7 +66,7 @@ const ENTITY_HAS_VALUE: Record<ImportEntity, boolean> = {
   refineries: false,
 };
 
-const VALID_STATUSES: Record<ImportEntity, string[]> = {
+const VALID_STATUSES: Record<Exclude<ImportEntity, "distances">, string[]> = {
   warehouses: ["active", "forced_open", "inactive"],
   customers: ["active", "excluded"],
   // Mines/stations have no status column (no open/close concept) — never
@@ -61,6 +81,8 @@ interface CustomerOverride { id: string; demand?: number | null; status: "active
 interface MineOverride { id: string; capacity?: number | null; }
 interface StationOverride { id: string; demand?: number | null; }
 interface RefineryOverride { id: string; status: "active" | "forced_open" | "inactive"; }
+interface DistanceOverride { fromId: string; toId: string; distance: number; }
+interface AddedEntityRef { id: string; }
 
 export interface ImportCurrentOverrides {
   warehouseOverrides?: WarehouseOverride[];
@@ -68,6 +90,14 @@ export interface ImportCurrentOverrides {
   mineCapacities?: Record<string, number>;
   stationDemands?: Record<string, number>;
   refineryOverrides?: RefineryOverride[];
+  // B4.1 (distances entity) — a scenario's existing distanceOverrides
+  // (composite-keyed diff baseline) plus its addedWarehouses/addedCustomers
+  // (reference-integrity id spaces, via precheck.ts's buildPMedianIdSpaces).
+  // distances is p-median-us only for this phase, so these are the only
+  // entity family that reads them.
+  distanceOverrides?: DistanceOverride[];
+  addedWarehouses?: AddedEntityRef[];
+  addedCustomers?: AddedEntityRef[];
 }
 
 export function parseAndValidateImport(
@@ -106,7 +136,7 @@ export function parseAndValidateImport(
   }
 
   const rows = parsed.data;
-  const expectedColumns = COLUMNS[entity];
+  const expectedColumns = entity === "distances" ? DISTANCES_COLUMNS : COLUMNS[entity];
   const header = rows[0]?.map(h => h.trim()) ?? [];
   const headerMatches = header.length === expectedColumns.length && expectedColumns.every((c, i) => header[i] === c);
   if (!headerMatches) {
@@ -116,6 +146,22 @@ export function parseAndValidateImport(
       message: `Expected columns "${expectedColumns.join(",")}", got "${header.join(",")}". Rows must be keyed by id, not city — city names are not unique.`,
     });
     return { errors, changes, warnings };
+  }
+
+  // distances is composite-keyed (from_id,to_id) and has no baseline
+  // "current override list" to diff unknown-ness against (a scenario's
+  // distanceOverrides normally starts empty) — it does not fit the
+  // single-id row model the rest of this function implements below, so it
+  // gets its own function rather than being forced through COLUMNS/
+  // ENTITY_HAS_VALUE/VALID_STATUSES/the Map<id,row> baseline logic.
+  // "Unknown" for a distances row means reference-integrity against the id
+  // spaces (base dataset + this scenario's added entities) — the same rule
+  // B2.1's precheck.ts enforces at solve time, via its shared
+  // buildPMedianIdSpaces helper (not re-implemented differently here).
+  if (entity === "distances") {
+    const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(currentOverrides);
+    const distanceResult = parseDistancesRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], warehouseIdSpace, customerIdSpace);
+    return { errors: distanceResult.errors, changes: distanceResult.changes, warnings: [] };
   }
 
   // Mines/stations store overrides as sparse dicts (mineCapacities/
@@ -234,4 +280,88 @@ export function parseAndValidateImport(
   }
 
   return { errors, changes, warnings };
+}
+
+// B4.1 — composite-key (from_id,to_id) parsing branch for the distances
+// entity, deliberately separate from the generic single-id loop above (see
+// this file's header comment). `dataRows` excludes the header row (already
+// consumed/validated by the caller). No cross-field warning: the
+// capacity-vs-demand warning above is warehouses-only and has no distances
+// analogue.
+function parseDistancesRows(
+  dataRows: string[][],
+  currentDistanceOverrides: DistanceOverride[],
+  warehouseIdSpace: Set<string>,
+  customerIdSpace: Set<string>,
+): { errors: ImportError[]; changes: ImportRowChange[] } {
+  const errors: ImportError[] = [];
+  const changes: ImportRowChange[] = [];
+  const currentByPairKey = new Map<string, number>(currentDistanceOverrides.map(o => [`${o.fromId}|${o.toId}`, o.distance]));
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const line = i + 2; // 1-indexed, +1 for header row
+    const cols = dataRows[i];
+
+    if (cols.length !== DISTANCES_COLUMNS.length) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${DISTANCES_COLUMNS.length} columns, got ${cols.length}` });
+      continue;
+    }
+
+    const [tvStr, fromId, toId, distanceStr] = cols;
+
+    if (Number(tvStr) !== TEMPLATE_VERSION) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+      continue;
+    }
+
+    // Direction matters (B1.3's fix, applied at solve time): from_id must
+    // resolve as a warehouse, to_id must resolve as a customer — never
+    // "whichever role happens to contain it". A backwards row (fromId is a
+    // real customer id, toId is a real warehouse id) is caught here as a
+    // plain unknown-from_id error, since customer/warehouse id namespaces
+    // don't overlap in this dataset.
+    if (!fromId || !warehouseIdSpace.has(fromId)) {
+      errors.push({ errorClass: "logic", line, message: `Unknown from_id "${fromId}" — must reference a warehouse (base dataset or this scenario's added warehouses)` });
+      continue;
+    }
+    if (!toId || !customerIdSpace.has(toId)) {
+      errors.push({ errorClass: "logic", line, message: `Unknown to_id "${toId}" — must reference a customer (base dataset or this scenario's added customers)` });
+      continue;
+    }
+
+    const pairKey = `${fromId}|${toId}`;
+    if (seenPairs.has(pairKey)) {
+      errors.push({ errorClass: "logic", line, message: `Duplicate (from_id,to_id) pair "${pairKey}"` });
+      continue;
+    }
+    seenPairs.add(pairKey);
+
+    const parsedDistance = Number(distanceStr);
+    if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) {
+      errors.push({ errorClass: "logic", line, message: `distance must be a positive number, got "${distanceStr}"` });
+      continue;
+    }
+
+    // Unlike every other entity, distances has no meaningful "baseline of
+    // existing rows" to diff against by default — a scenario's
+    // distanceOverrides normally starts empty, so "before" is null (no
+    // override yet) rather than looked up from a full base-dataset row.
+    const beforeValue = currentByPairKey.get(pairKey) ?? null;
+    if (beforeValue !== parsedDistance) {
+      changes.push({
+        id: pairKey,
+        line,
+        // No status concept for distances (no active/inactive) — "active"
+        // is a constant placeholder so the shared before/after shape (used
+        // by every other entity) doesn't need to fork for this one family.
+        before: { status: "active", value: beforeValue },
+        after: { status: "active", value: parsedDistance },
+        fromId,
+        toId,
+      });
+    }
+  }
+
+  return { errors, changes };
 }
