@@ -18,7 +18,12 @@ interface SidebarTreeProps {
   onCreateScenario: () => void;
   inputs: SidebarEntry[];
   outputs: SidebarEntry[];
-  /** Outputs entries are greyed out/disabled until this is true (A0.1 brief: "until a solved run exists for the active scenario"). */
+  /**
+   * Outputs entries are greyed out/disabled until this is true (A0.1 brief:
+   * "until a solved run exists for the active scenario"). A3.2: the caller
+   * combines `result != null` with `!stale` before passing this down — a
+   * solved-but-stale scenario also greys Outputs, not just an unsolved one.
+   */
   hasSolvedRun: boolean;
   /** Currently-open/active tab's entity id, for highlighting. */
   activeEntityId?: string | null;

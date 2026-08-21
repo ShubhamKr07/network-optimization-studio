@@ -24,6 +24,7 @@ import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
+import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import {
@@ -148,7 +149,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const activeModelManifest = models?.find(m => m.id === modelId);
 
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
-  const hasSolvedRun = currentScenario?.result != null;
+
+  // A3.2 — `result != null` (A0.1's `hasSolvedRun`) is necessary but not
+  // sufficient: a scenario can have a non-null `result` and still be
+  // `stale` (X1.1's `Scenario.stale` — derived server-side, always false
+  // when `result` is null). The correct "outputs are fresh and viewable"
+  // condition combines both; this drives BOTH the sidebar's Outputs
+  // greying (SidebarTree's `hasSolvedRun` prop) AND, per-tab, whether
+  // output-kind tab content renders for real or gets blanked behind
+  // StaleOutputBanner (see renderTabContent's output-map branch below).
+  const hasFreshSolvedRun = currentScenario?.result != null && !currentScenario?.stale;
 
   // A1.1 — local draft of the active scenario's `inputs` blob, decoupled
   // from the persisted row so an in-progress edit (e.g. a warehouse status
@@ -413,6 +423,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // and suspenders so a stale result can never bleed into an unrelated
     // tab if this component's mounting rules ever change.
     if (activeTab.kind === "output" && activeTab.entity === "output-map") {
+      // A3.2 — blank this tab's real content behind the stale banner
+      // whenever the scenario's outputs aren't trustworthy (unsolved or
+      // stale), even if the tab was already open+active from before the
+      // scenario transitioned to stale (e.g. solved once, then an input was
+      // edited+saved again without re-solving). Checked before the dataset
+      // loading guard so the banner never has to wait on the map's own data.
+      if (!hasFreshSolvedRun) {
+        return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
+      }
       if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <OutputMapTab
@@ -482,7 +501,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onCreateScenario={handleCreateScenario}
           inputs={INPUT_ENTRIES}
           outputs={OUTPUT_ENTRIES}
-          hasSolvedRun={hasSolvedRun}
+          hasSolvedRun={hasFreshSolvedRun}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
