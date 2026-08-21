@@ -180,7 +180,24 @@ export function CustomersTab({
   // affordance untouched; only entries actually present in addedCustomers
   // ever get a delete button. No status column here — addedCustomerSchema
   // has no status field (see the AddedCustomer type comment above).
-  const addedSection = (
+  //
+  // Fix (code review) — gated on `onAddedCustomersChange != null`, mirroring
+  // WarehousesTab's own `entity === "warehouses"` gate. CustomersTab has no
+  // `entity` prop to key off (it's shared as-is by p-median-us AND
+  // two-echelon-gold-au, unlike WarehousesTab's warehouses/refineries
+  // split), so the added-entity capability itself — whether the caller
+  // actually wired onAddedCustomersChange — is the correct signal:
+  // Workspace.tsx already omits ALL THREE added-* props together for
+  // two-echelon-gold-au (addedCustomers is a p-median-us-only field on
+  // PMedianInputs), so this is equivalent to "only p-median-us" today
+  // without hardcoding a model check here. Without this gate, two-echelon
+  // rendered a live-looking "+ Add customer" button whose Add click called
+  // an undefined onAddedCustomersChange (silently no-op'd) while
+  // resetAddForm() still cleared the form unconditionally — the student saw
+  // no error and nothing was added. Exactly this repo's most-documented
+  // recurring bug class (CLAUDE.md's Rounds 1-5): a per-model gate added on
+  // one branch (WarehousesTab) but not its sibling (CustomersTab).
+  const addedSection = onAddedCustomersChange != null && (
     <div className="mt-4" data-testid="added-customers-section">
       <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">Added customers</h3>
       {addedCustomers.length === 0 ? (

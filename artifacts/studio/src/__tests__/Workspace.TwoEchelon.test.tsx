@@ -162,6 +162,19 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 
+  // B5.2 fix — CustomersTab's "Added customers" add-row section is a
+  // p-median-us-only capability (addedCustomers has no meaning on
+  // twoEchelonInputsSchema); Workspace.tsx omits the added-* props entirely
+  // for this model, and CustomersTab itself must not render the section (or
+  // its "+ Add customer" button) when they're absent — otherwise a student
+  // sees a live-looking affordance that silently does nothing on Add.
+  it("does NOT render the Added customers section or its add-row button for two-echelon-gold-au", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    expect(screen.queryByTestId("added-customers-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-customer-row")).not.toBeInTheDocument();
+  });
+
   it("Optimization Parameters shows bomRatio only for two-echelon, no P field", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
