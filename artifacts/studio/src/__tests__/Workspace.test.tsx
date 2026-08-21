@@ -68,6 +68,9 @@ const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: f
 const mockCloneScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockResetToBaseline = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+// Task 10 — logout mutation, mocked the same way as every other generated
+// mutation hook in this file (mock at the generated-hooks level).
+const mockLogoutUser = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario, scenario2] })),
@@ -84,6 +87,8 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
+  useLogoutUser: vi.fn(() => mockLogoutUser),
+  getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
 }));
 
 import { Workspace } from "@/pages/Workspace";
@@ -112,6 +117,7 @@ beforeEach(() => {
   mockCloneScenario.mutate.mockReset();
   mockDeleteScenario.mutate.mockReset();
   mockResetToBaseline.mutate.mockReset();
+  mockLogoutUser.mutate.mockReset();
   mockUpdateScenario.isPending = false;
   mockSolveScenario.isPending = false;
   mockCreateScenario.isPending = false;
@@ -698,5 +704,50 @@ describe("Workspace — reset to baseline", () => {
     // active scenario (id=1)'s dirty p=10 edit is untouched by scenario 2's reset
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
     expect(screen.getByTestId("text-p-value")).toHaveTextContent("10");
+  });
+});
+
+// Task 10 — Workspace's self-contained header (chosen instead of wrapping in
+// AppShell, to avoid a double-header — see A0.2's review) had no logout
+// button and no way back to Landing, leaving the pilot route (/chapter-3)
+// with zero logout affordance. Fixed by reusing AppShell.tsx's exact logout
+// pattern (see AppShell.test.tsx) and Studio.tsx's exact page-back
+// convention (button-page-back, navigate("/")) rather than inventing new UX.
+describe("Workspace — logout / back to Landing", () => {
+  it("the back-to-Landing control navigates to \"/\", matching Studio.tsx's page-back convention", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-page-back"));
+    expect(mockNavigate).toHaveBeenCalledWith("/");
+  });
+
+  it("clicking logout calls the logout mutation and, on success, writes the auth-user cache to { user: null } BEFORE navigating to /login — mirroring AppShell.tsx's documented race fix", () => {
+    const callOrder: string[] = [];
+    mockQueryClient.setQueryData.mockImplementation(() => callOrder.push("setQueryData"));
+    mockNavigate.mockImplementation(() => callOrder.push("navigate"));
+    mockLogoutUser.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-logout"));
+
+    expect(mockLogoutUser.mutate).toHaveBeenCalledTimes(1);
+    // Same race this repo already documented and fixed once in AppShell.tsx:
+    // navigating to "/login" before the auth-user cache is updated used to
+    // race Gate()'s auth-gated render against an async invalidate+refetch,
+    // producing a 404. The synchronous cache write must happen strictly
+    // before navigate, not merely "eventually" via invalidateQueries.
+    expect(callOrder).toEqual(["setQueryData", "navigate"]);
+    expect(mockQueryClient.setQueryData).toHaveBeenCalledWith(["getCurrentAuthUser"], { user: null });
+    expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+  });
+
+  it("does not navigate to /login if the logout mutation never succeeds", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-logout"));
+
+    expect(mockLogoutUser.mutate).toHaveBeenCalledTimes(1);
+    expect(mockQueryClient.setQueryData).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

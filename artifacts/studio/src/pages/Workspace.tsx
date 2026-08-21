@@ -13,13 +13,15 @@ import {
   useResetScenarioToBaseline,
   useGetSolveJob,
   useListModels,
+  useLogoutUser,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
+  getGetCurrentAuthUserQueryKey,
   type GetDatasetModelId,
   type Scenario,
 } from "@workspace/api-client-react";
-import { Save } from "lucide-react";
+import { ArrowLeft, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -158,6 +160,28 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const queryClient = useQueryClient();
   const scenarioIdStr = new URLSearchParams(search).get("scenario");
   const scenarioIdFromUrl = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
+
+  // Task 10 — logout. Workspace renders its own self-contained header
+  // (deliberately not wrapped in AppShell, to avoid a double-header — see
+  // App.tsx's A0.2 comment), so it needs its own logout affordance rather
+  // than inheriting AppShell's. Reuses AppShell.tsx's exact pattern verbatim
+  // rather than reinventing it: navigating to "/login" immediately after the
+  // logout mutation used to race Gate()'s auth-gated render against an async
+  // cache invalidate+refetch (same bug class as the Login.tsx/Register.tsx/
+  // Gate() race documented in this repo's CLAUDE.md), producing a 404. The
+  // fix is writing { user: null } into the auth-user query cache
+  // SYNCHRONOUSLY in onSuccess, strictly BEFORE navigate — not relying on
+  // invalidateQueries alone before leaving an authed route.
+  const logoutUser = useLogoutUser();
+
+  function handleLogout() {
+    logoutUser.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), { user: null });
+        navigate("/login", { replace: true });
+      },
+    });
+  }
 
   const { data: scenarios } = useListScenarios({ modelId });
   const { data: scenarioFromApi } = useGetScenario(scenarioIdFromUrl!, {
@@ -609,6 +633,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   return (
     <div className="h-screen flex flex-col overflow-hidden" data-testid="workspace-page">
       <header className="h-14 border-b flex items-center px-4 gap-4 flex-shrink-0 bg-background">
+        {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
+            convention verbatim (same testid/icon/onClick target) rather than
+            inventing new UX: Workspace was the only authed page with no way
+            back to "/" other than the browser's own back button. */}
+        <button
+          onClick={() => navigate("/")}
+          data-testid="button-page-back"
+          title="Back to models"
+          className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
         <span className="font-semibold text-sm" data-testid="text-app-name">
           Network Optimization Studio
         </span>
@@ -632,9 +668,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         </div>
         <div className="flex-1" />
         <div className="flex flex-col items-end gap-1">
-          <span className="text-sm text-muted-foreground" data-testid="text-user-email">
-            {userEmail}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground" data-testid="text-user-email">
+              {userEmail}
+            </span>
+            {/* Task 10 — logout, reusing AppShell.tsx's exact handleLogout
+                pattern (see the comment on that function above). */}
+            <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
+              Log out
+            </Button>
+          </div>
           <Button
             size="sm"
             disabled={!currentScenario}
