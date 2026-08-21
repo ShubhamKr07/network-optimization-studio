@@ -16,7 +16,7 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scenarioId: number;
-  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries";
+  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances";
   onApplied?: (scenario: Scenario) => void;
 }
 

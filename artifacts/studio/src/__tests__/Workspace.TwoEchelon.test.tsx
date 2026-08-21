@@ -143,6 +143,16 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
     expect(screen.queryByTestId("button-export-warehouses-csv")).not.toBeInTheDocument();
   });
 
+  // B5.1 — the real Distances grid is p-median-us only; two-echelon-gold-au's
+  // own distances entity (mine->refinery + refinery->customer legs) is
+  // B6.1-B6.3's fast-follow, not this task.
+  it("Distances stays a placeholder for two-echelon-gold-au (real grid is p-median-us only)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("tab-content-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+  });
+
   it("opening the Customers tab renders the real CustomerTable (reused as-is)", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-customers"));

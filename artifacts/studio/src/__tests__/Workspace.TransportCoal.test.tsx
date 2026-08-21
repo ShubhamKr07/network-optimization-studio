@@ -148,6 +148,16 @@ describe("Workspace — transport-coal (A5.1)", () => {
     expect(screen.queryByTestId("solve-dialog-slider-p")).not.toBeInTheDocument();
   });
 
+  // B5.1 — the real Distances grid is p-median-us only (isEditableInputTab's
+  // gating comment); transport-coal's own distances entity is B6.1's
+  // fast-follow, not this task, so it must stay the generic placeholder.
+  it("Distances stays a placeholder for transport-coal (real grid is p-median-us only)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("tab-content-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+  });
+
   it("create-scenario uses Studio.tsx's own transport-coal default inputs verbatim", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-create-scenario"));

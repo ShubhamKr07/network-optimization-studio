@@ -111,6 +111,16 @@ describe("Workspace — p-median-brazil (A5.2)", () => {
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 
+  // B5.1 — the real Distances grid is p-median-us only (needs
+  // dataset.warehouses/customers, which p-median-brazil has no endpoint
+  // for); this model must keep falling through to the generic placeholder.
+  it("Distances stays a placeholder for p-median-brazil (real grid is p-median-us only)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("tab-content-placeholder")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+  });
+
   it("Optimization Parameters shows P and singleSource, but no capacityFactor/capacityInactive/bomRatio", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));

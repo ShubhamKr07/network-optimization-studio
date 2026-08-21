@@ -224,10 +224,66 @@ describe("Workspace — Customers tab", () => {
 });
 
 describe("Workspace — placeholder tabs", () => {
+  // B5.1 — Distances is no longer a placeholder for p-median-us (it now has
+  // real DistancesTab content, see the "Distances tab" describe block below)
+  // — Demand remains genuinely unbuilt, so it's the placeholder example now.
   it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    fireEvent.click(screen.getByTestId("sidebar-input-demand"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+  });
+});
+
+describe("Workspace — Distances tab (B5.1)", () => {
+  it("opening the Distances sidebar entry renders the real grid with the scenario's distanceOverrides, not a placeholder", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("distances-tab-empty")).toBeInTheDocument();
+  });
+
+  it("shows a Save toolbar for the Distances tab (isEditableInputTab now includes it)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeDisabled();
+  });
+
+  it("adding a row and saving PATCHes the new entry into inputs.distanceOverrides", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    fireEvent.click(screen.getByTestId("button-add-distance-row"));
+    fireEvent.change(screen.getByTestId("input-new-distance-from"), { target: { value: "CHI" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-to"), { target: { value: "C1" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-value"), { target: { value: "250" } });
+    fireEvent.click(screen.getByTestId("button-add-distance-confirm"));
+
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          distanceOverrides: [{ fromId: "CHI", toId: "C1", distance: 250 }],
+        }),
+      },
+    });
+  });
+
+  it("the grid's known-ids existence check is sourced from the loaded dataset (CHI/C1 resolve, no warning)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    fireEvent.click(screen.getByTestId("button-add-distance-row"));
+    fireEvent.change(screen.getByTestId("input-new-distance-from"), { target: { value: "CHI" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-to"), { target: { value: "C1" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-value"), { target: { value: "250" } });
+    fireEvent.click(screen.getByTestId("button-add-distance-confirm"));
+
+    expect(screen.queryByTestId("warning-unknown-from-CHI-C1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("warning-unknown-to-CHI-C1")).not.toBeInTheDocument();
   });
 });
 

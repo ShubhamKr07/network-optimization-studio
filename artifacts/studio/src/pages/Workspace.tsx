@@ -41,12 +41,14 @@ import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
 import { MinesTab } from "@/components/workspace/tabs/MinesTab";
 import { StationsTab } from "@/components/workspace/tabs/StationsTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
 import type { StationOverride } from "@/components/tables/StationTable";
+import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -157,6 +159,32 @@ function capacityInactiveFromInputs(inputs: Record<string, unknown> | null): boo
 function bomRatioFromInputs(inputs: Record<string, unknown> | null): number | undefined {
   const raw = inputs?.bomRatio;
   return typeof raw === "number" ? raw : undefined;
+}
+
+// B5.1 — Distances tab. `distanceOverrides` (B1.1) has no fixed baseline to
+// enumerate (same reasoning B4.3 already applied to the distances export) —
+// unlike warehouseOverridesFromInputs/customerOverridesFromInputs, there's no
+// merged-with-dataset counterpart, just this array read straight off inputs.
+function distanceOverridesFromInputs(inputs: Record<string, unknown> | null): DistanceOverride[] {
+  const raw = inputs?.distanceOverrides;
+  return Array.isArray(raw) ? (raw as DistanceOverride[]) : [];
+}
+
+// B5.1 — cheap client-side existence check for DistancesTab's inline
+// reference-integrity warning: base dataset ids plus any scenario-local
+// addedWarehouses/addedCustomers (B1.1) the student has already created
+// (B5.2 builds the UI for creating them; read here defensively in case any
+// already exist, e.g. from an import). The authoritative check stays B2.1's
+// server-side precheck, gating the Solve flow — this is a non-blocking
+// early warning only.
+function knownWarehouseIds(dataset: { warehouses: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = Array.isArray(inputs?.addedWarehouses) ? (inputs!.addedWarehouses as { id: string }[]) : [];
+  return [...(dataset?.warehouses ?? []).map(w => w.id), ...added.map(w => w.id)];
+}
+
+function knownCustomerIds(dataset: { customers: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = Array.isArray(inputs?.addedCustomers) ? (inputs!.addedCustomers as { id: string }[]) : [];
+  return [...(dataset?.customers ?? []).map(c => c.id), ...added.map(c => c.id)];
 }
 
 // A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
@@ -402,7 +430,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
-      (activeTab.entity === "stations" && modelId === "transport-coal"));
+      (activeTab.entity === "stations" && modelId === "transport-coal") ||
+      // B5.1 — Distances grid, p-median-us only: dataset.warehouses/customers
+      // (needed for the client-side reference-existence check) don't exist
+      // for p-median-brazil, and transport-coal/two-echelon-gold-au's
+      // distances are B6.1-B6.3's fast-follow, not this task.
+      (activeTab.entity === "distances" && modelId === "p-median-us"));
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -766,6 +799,31 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
+    // B5.1 — Distances grid tab, p-median-us only (same boundary as
+    // Warehouses/Customers — see isEditableInputTab's comment). Long-format
+    // `{fromId, toId, distance}` rows read straight off
+    // localInputs.distanceOverrides (no fixed baseline to enumerate, unlike
+    // Warehouses/Customers — B4.3's same reasoning). `savedDistanceOverrides`
+    // is read from savedInputsRef.current (not localInputs) purely to drive
+    // the changed-row highlight — reading a ref during render is safe here
+    // because it's only ever mutated inside handlers that themselves trigger
+    // a re-render (handleSaveInputs/handleImportApplied/the scenario-switch
+    // effect), so this value is never stale at paint time.
+    if (activeTab.kind === "input" && activeTab.entity === "distances" && modelId === "p-median-us") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <DistancesTab
+          distanceOverrides={distanceOverridesFromInputs(localInputs)}
+          savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
+          warehouseIds={knownWarehouseIds(dataset, localInputs)}
+          customerIds={knownCustomerIds(dataset, localInputs)}
+          onChange={next => updateInputsField("distanceOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
     // A3.1 — Output Map tab. `result` is passed only while this tab is
     // actually the active one (mirrors Studio.tsx's `activeTab === "output"
     // ? result : null` guard, Studio.tsx:1544/1554) even though
@@ -818,8 +876,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // Every other entry (Demand, Distances, and every remaining Output grid)
-    // is a later task (B5.1-C6.1) — unchanged placeholder.
+    // Every other entry (Demand, transport-coal/two-echelon-gold-au/
+    // p-median-brazil's Distances — B6.1-B6.3's fast-follow, not this task —
+    // and every remaining Output grid) is a later task (B6.1-C6.1) —
+    // unchanged placeholder.
     return (
       <span className="text-muted-foreground" data-testid="tab-content-placeholder">
         {activeTab.label} — content wired in a later task (A1.2-A3.1).
