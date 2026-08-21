@@ -79,6 +79,8 @@ vi.mock("@workspace/api-client-react", () => ({
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
+  usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
+  getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
   useLogoutUser: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
 }));

@@ -84,19 +84,27 @@ vi.mock("@workspace/api-client-react", () => ({
   useResetScenarioToBaseline: vi.fn(() => mockResetToBaseline),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   useListModels: vi.fn(() => ({ data: [{ id: "p-median-us", countryBounds: { sw: [24, -125], ne: [50, -66] } }] })),
+  // B5.2 — precheck query. Defaults to ok:true/no errors so every existing
+  // test in this file (none of which care about precheck chips) is
+  // unaffected; the dedicated "Workspace — precheck (B5.2)" describe block
+  // below overrides this per-test.
+  usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
   useLogoutUser: vi.fn(() => mockLogoutUser),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
+  getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
 import { Workspace } from "@/pages/Workspace";
-import { useGetSolveJob, useListScenarios } from "@workspace/api-client-react";
+import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario } from "@workspace/api-client-react";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 const mockUseListScenarios = vi.mocked(useListScenarios);
+const mockUsePrecheckScenario = vi.mocked(usePrecheckScenario);
+const mockUseGetScenario = vi.mocked(useGetScenario);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -129,6 +137,8 @@ beforeEach(() => {
   mockQueryClient.setQueryData.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
   mockUseListScenarios.mockReturnValue({ data: [scenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+  mockUsePrecheckScenario.mockReturnValue({ data: { ok: true, errors: [] } } as unknown as ReturnType<typeof usePrecheckScenario>);
+  mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
 });
 
 describe("Workspace — Warehouses tab", () => {
@@ -284,6 +294,162 @@ describe("Workspace — Distances tab (B5.1)", () => {
 
     expect(screen.queryByTestId("warning-unknown-from-CHI-C1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("warning-unknown-to-CHI-C1")).not.toBeInTheDocument();
+  });
+});
+
+// B5.2 — add/delete row for scenario-local addedWarehouses/addedCustomers
+// (B1.1), wired end-to-end through Workspace.tsx (deleteAddedEntityAndOverrides,
+// the precheck query). WarehousesTab.test.tsx/CustomersTab.test.tsx already
+// cover the component-level add/delete/precheck-chip behavior in isolation —
+// these tests cover Workspace.tsx's OWN wiring: the cross-array
+// distanceOverrides purge on delete, and that the precheck query result
+// actually reaches the tab.
+describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
+  it("adding a warehouse and saving PATCHes the new entry into inputs.addedWarehouses", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    fireEvent.change(screen.getByTestId("input-new-warehouse-id"), { target: { value: "NEWWH" } });
+    fireEvent.change(screen.getByTestId("input-new-warehouse-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("input-new-warehouse-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("input-new-warehouse-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("input-new-warehouse-lng"), { target: { value: "-104.99" } });
+    fireEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          addedWarehouses: [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" }],
+        }),
+      },
+    });
+  });
+
+  it("deleting an added warehouse removes it from addedWarehouses AND purges any distanceOverrides referencing it, in the SAME save", () => {
+    mockUseGetScenario.mockReturnValue({
+      data: {
+        ...scenario,
+        inputs: {
+          ...pmedianInputs,
+          addedWarehouses: [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" }],
+          distanceOverrides: [
+            { fromId: "NEWWH", toId: "C1", distance: 250 },
+            { fromId: "CHI", toId: "C1", distance: 100 },
+          ],
+        },
+      },
+    } as unknown as ReturnType<typeof useGetScenario>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+
+    expect(screen.getByTestId("row-added-warehouse-NEWWH")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-delete-added-warehouse-NEWWH"));
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          addedWarehouses: [],
+          // The CHI->C1 override (unrelated to NEWWH) survives; only the
+          // NEWWH->C1 override (referencing the deleted warehouse) is gone.
+          distanceOverrides: [{ fromId: "CHI", toId: "C1", distance: 100 }],
+        }),
+      },
+    });
+  });
+
+  it("base-dataset warehouse rows have no delete affordance in the real Workspace tab (only the status toggle)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    expect(screen.queryByTestId("button-delete-added-warehouse-CHI")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-wh-CHI-forced_open")).toBeInTheDocument();
+  });
+
+  it("adding a customer and saving PATCHes the new entry into inputs.addedCustomers", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    fireEvent.click(screen.getByTestId("button-add-customer-row"));
+    fireEvent.change(screen.getByTestId("input-new-customer-id"), { target: { value: "NEWC" } });
+    fireEvent.change(screen.getByTestId("input-new-customer-city"), { target: { value: "Denver" } });
+    fireEvent.change(screen.getByTestId("input-new-customer-state"), { target: { value: "CO" } });
+    fireEvent.change(screen.getByTestId("input-new-customer-lat"), { target: { value: "39.74" } });
+    fireEvent.change(screen.getByTestId("input-new-customer-lng"), { target: { value: "-104.99" } });
+    fireEvent.change(screen.getByTestId("input-new-customer-demand"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          addedCustomers: [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }],
+        }),
+      },
+    });
+  });
+
+  it("deleting an added customer removes it from addedCustomers AND purges any distanceOverrides referencing it", () => {
+    mockUseGetScenario.mockReturnValue({
+      data: {
+        ...scenario,
+        inputs: {
+          ...pmedianInputs,
+          addedCustomers: [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }],
+          distanceOverrides: [
+            { fromId: "CHI", toId: "NEWC", distance: 250 },
+            { fromId: "CHI", toId: "C1", distance: 100 },
+          ],
+        },
+      },
+    } as unknown as ReturnType<typeof useGetScenario>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+
+    fireEvent.click(screen.getByTestId("button-delete-added-customer-NEWC"));
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      scenarioId: 1,
+      data: {
+        inputs: expect.objectContaining({
+          addedCustomers: [],
+          distanceOverrides: [{ fromId: "CHI", toId: "C1", distance: 100 }],
+        }),
+      },
+    });
+  });
+
+  it("the precheck query result reaches the Warehouses tab as a per-row warning chip", () => {
+    mockUseGetScenario.mockReturnValue({
+      data: {
+        ...scenario,
+        inputs: {
+          ...pmedianInputs,
+          addedWarehouses: [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" }],
+        },
+      },
+    } as unknown as ReturnType<typeof useGetScenario>);
+    mockUsePrecheckScenario.mockReturnValue({
+      data: { ok: false, errors: [{ code: "completeness", message: "NEWWH missing distances to 1 customer: C1" }] },
+    } as unknown as ReturnType<typeof usePrecheckScenario>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+
+    expect(screen.getByTestId("warning-precheck-added-warehouse-NEWWH")).toHaveTextContent("1");
   });
 });
 

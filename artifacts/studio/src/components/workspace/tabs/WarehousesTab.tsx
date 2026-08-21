@@ -3,8 +3,39 @@ import type { WarehouseCandidate, Scenario } from "@workspace/api-client-react";
 import { WarehouseTable, type WarehouseOverride } from "@/components/tables/WarehouseTable";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
-import { Download, Upload } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import {
+  completenessCountForWarehouse,
+  idCollisionMessageForWarehouse,
+  type PrecheckErrorLike,
+} from "@/lib/precheckDisplay";
+
+// B5.2 — matches `addedWarehouseSchema` in
+// artifacts/api-server/src/validation/inputs/pMedian.ts exactly (server-side
+// source of truth for this shape).
+export interface AddedWarehouse {
+  id: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+  capacity?: number | null;
+  status: "active" | "forced_open" | "inactive";
+}
+
+const ADDED_STATUSES = ["active", "forced_open", "inactive"] as const;
+// Duplicated (not imported) from WarehouseTable.tsx's own STATUS_LABEL —
+// deliberate, per this task's composition decision: WarehouseTable.tsx is
+// shared with Studio.tsx and stays untouched, not even to export a
+// constant. Three string literals is cheap enough to keep in sync by hand.
+const ADDED_STATUS_LABEL: Record<(typeof ADDED_STATUSES)[number], string> = {
+  active: "Potential",
+  forced_open: "Fixed-Open",
+  inactive: "Inactive",
+};
 
 interface WarehousesTabProps {
   warehouses: WarehouseCandidate[];
@@ -24,6 +55,17 @@ interface WarehousesTabProps {
    * title need to change per model. Defaults to "warehouses" so every
    * existing p-median-us call site (and its tests) is unaffected. */
   entity?: "warehouses" | "refineries";
+  /** B5.2 — scenario-local addedWarehouses (B1.1). `addedWarehouses` is a
+   * p-median-us-only concept on `PMedianInputs` (two-echelon-gold-au has no
+   * analogous "add a facility" field) — this section only renders when
+   * `entity === "warehouses"`, never for the Refineries reuse. */
+  addedWarehouses?: AddedWarehouse[];
+  /** Fired on both add (append) and in-row edits (status/capacity) — full replacement array, same `onChange`-out convention as every other tab. */
+  onAddedWarehousesChange?: (next: AddedWarehouse[]) => void;
+  /** Fired on delete only — kept separate from onAddedWarehousesChange because the caller (Workspace.tsx) also needs to purge any distanceOverrides referencing this id in the SAME atomic inputs update, which a generic "here's the new array" diff can't express cleanly. */
+  onDeleteWarehouse?: (id: string) => void;
+  /** B2.1's precheck errors for the current scenario — drives the inline "missing N distances" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
+  precheckErrors?: PrecheckErrorLike[];
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -39,10 +81,84 @@ interface WarehousesTabProps {
 // fetch function (via lib/exportEntity's shared download helper) — the
 // same components/flow Studio.tsx already uses, replicated here rather than
 // rebuilt.
-export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, scenarioId, onImportApplied, entity = "warehouses" }: WarehousesTabProps) {
+export function WarehousesTab({
+  warehouses,
+  overrides,
+  capacityMode,
+  onChange,
+  scenarioId,
+  onImportApplied,
+  entity = "warehouses",
+  addedWarehouses = [],
+  onAddedWarehousesChange,
+  onDeleteWarehouse,
+  precheckErrors = [],
+}: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
   const emptyLabel = entity === "refineries" ? "No refinery candidates in this dataset." : "No warehouse candidates in this dataset.";
+
+  // B5.2 — add-row form draft state, mirroring DistancesTab.tsx's own
+  // addingRow/newX/addError pattern verbatim.
+  const [addingRow, setAddingRow] = useState(false);
+  const [newId, setNewId] = useState("");
+  const [newCity, setNewCity] = useState("");
+  const [newState, setNewState] = useState("");
+  const [newLat, setNewLat] = useState("");
+  const [newLng, setNewLng] = useState("");
+  const [newCapacity, setNewCapacity] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const knownWarehouseIds = new Set([...candidates.map(w => w.id), ...addedWarehouses.map(w => w.id)]);
+
+  function upsertAdded(id: string, patch: Partial<AddedWarehouse>) {
+    if (!onAddedWarehousesChange) return;
+    onAddedWarehousesChange(addedWarehouses.map(w => (w.id === id ? { ...w, ...patch } : w)));
+  }
+
+  function resetAddForm() {
+    setAddingRow(false);
+    setNewId("");
+    setNewCity("");
+    setNewState("");
+    setNewLat("");
+    setNewLng("");
+    setNewCapacity("");
+    setAddError(null);
+  }
+
+  function handleAddRow() {
+    const id = newId.trim();
+    const city = newCity.trim();
+    const state = newState.trim();
+    const lat = parseFloat(newLat);
+    const lng = parseFloat(newLng);
+
+    if (!id || !city || !state) {
+      setAddError("ID, city, and state are all required.");
+      return;
+    }
+    if (knownWarehouseIds.has(id)) {
+      setAddError(`ID '${id}' is already in use by another warehouse in this scenario.`);
+      return;
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setAddError("Latitude and longitude must both be numbers.");
+      return;
+    }
+    let capacity: number | null = null;
+    if (newCapacity.trim() !== "") {
+      const parsed = parseFloat(newCapacity);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        setAddError("Capacity must be a positive number, or left blank.");
+        return;
+      }
+      capacity = parsed;
+    }
+
+    onAddedWarehousesChange?.([...addedWarehouses, { id, city, state, lat, lng, capacity, status: "active" }]);
+    resetAddForm();
+  }
 
   const toolbar = (
     <div className="flex items-center gap-1.5 mb-2" data-testid={`${entity}-tab-toolbar`}>
@@ -95,6 +211,139 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
     />
   );
 
+  // B5.2 — the "Added warehouses" section (add-row form + delete/precheck
+  // per row). Per this task's composition decision, this is a self-contained
+  // additional section next to WarehouseTable, NOT a fork of it — base
+  // dataset rows (WarehouseTable, above) keep their existing
+  // status-toggle-only affordance untouched; only entries actually present
+  // in addedWarehouses ever get a delete button. Only rendered for
+  // entity="warehouses" — addedWarehouses has no meaning for the
+  // entity="refineries" reuse (two-echelon-gold-au's own inputs schema has
+  // no addedWarehouses/addedCustomers field at all).
+  const addedSection = entity === "warehouses" && (
+    <div className="mt-4" data-testid="added-warehouses-section">
+      <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">Added warehouses</h3>
+      {addedWarehouses.length === 0 ? (
+        <p className="text-xs text-muted-foreground mb-2" data-testid="added-warehouses-empty">
+          No added warehouses yet — use "+ Add warehouse" below to create one.
+        </p>
+      ) : (
+        <div className="max-h-[40vh] overflow-y-auto mb-2">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>City, State</TableHead>
+                {capacityMode === "per_wh" && <TableHead>Capacity</TableHead>}
+                <TableHead>Status</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {addedWarehouses.map(w => {
+                const missing = completenessCountForWarehouse(precheckErrors, w.id);
+                const collision = idCollisionMessageForWarehouse(precheckErrors, w.id);
+                return (
+                  <TableRow key={w.id} data-testid={`row-added-warehouse-${w.id}`}>
+                    <TableCell className="font-mono text-xs">
+                      <div className="flex items-center gap-1">
+                        {w.id}
+                        {(missing != null || collision) && (
+                          <span
+                            title={collision ?? `Missing distances to ${missing} customer${missing === 1 ? "" : "s"} — see the Distances tab, or download/upload a template.`}
+                            data-testid={`warning-precheck-added-warehouse-${w.id}`}
+                            className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            {collision ? "ID collision" : `Missing ${missing} distance${missing === 1 ? "" : "s"}`}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">{w.city}, {w.state}</TableCell>
+                    {capacityMode === "per_wh" && (
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={w.capacity ?? ""}
+                          onChange={e => {
+                            const raw = e.target.value;
+                            upsertAdded(w.id, { capacity: raw === "" ? null : Math.max(0, parseFloat(raw) || 0) });
+                          }}
+                          className="h-7 text-xs w-28"
+                          placeholder="uniform"
+                          data-testid={`input-added-wh-capacity-${w.id}`}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
+                        {ADDED_STATUSES.map(s => (
+                          <button
+                            key={s}
+                            data-testid={`button-added-wh-${w.id}-${s}`}
+                            onClick={() => upsertAdded(w.id, { status: s })}
+                            className={`px-2 py-1 transition-colors whitespace-nowrap ${
+                              w.status === s
+                                ? s === "forced_open" ? "bg-primary text-white" : s === "inactive" ? "bg-destructive text-white" : "bg-slate-200 text-foreground"
+                                : "bg-white text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            {ADDED_STATUS_LABEL[s]}
+                          </button>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        aria-label={`Delete added warehouse ${w.id}`}
+                        onClick={() => onDeleteWarehouse?.(w.id)}
+                        data-testid={`button-delete-added-warehouse-${w.id}`}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {addingRow ? (
+        <div className="flex items-start gap-1.5 flex-wrap" data-testid="add-warehouse-row-form">
+          <Input placeholder="ID" value={newId} onChange={e => setNewId(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-warehouse-id" />
+          <Input placeholder="City" value={newCity} onChange={e => setNewCity(e.target.value)} className="h-7 text-xs w-28" data-testid="input-new-warehouse-city" />
+          <Input placeholder="State" value={newState} onChange={e => setNewState(e.target.value)} className="h-7 text-xs w-16" data-testid="input-new-warehouse-state" />
+          <Input type="number" placeholder="Lat" value={newLat} onChange={e => setNewLat(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-warehouse-lat" />
+          <Input type="number" placeholder="Lng" value={newLng} onChange={e => setNewLng(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-warehouse-lng" />
+          {capacityMode === "per_wh" && (
+            <Input type="number" placeholder="Capacity" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-warehouse-capacity" />
+          )}
+          <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-warehouse-confirm">
+            Add
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={resetAddForm} data-testid="button-add-warehouse-cancel">
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAddingRow(true)} data-testid="button-add-warehouse-row">
+          + Add warehouse
+        </Button>
+      )}
+      {addError && (
+        <p className="text-[11px] text-destructive mt-1" data-testid="text-add-warehouse-error">
+          {addError}
+        </p>
+      )}
+    </div>
+  );
+
   if (candidates.length === 0) {
     return (
       <div>
@@ -102,6 +351,7 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
         <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
           {emptyLabel}
         </p>
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -111,6 +361,7 @@ export function WarehousesTab({ warehouses, overrides, capacityMode, onChange, s
     <div data-testid={`${entity}-tab`}>
       {toolbar}
       <WarehouseTable warehouses={candidates} overrides={overrides} capacityMode={capacityMode} onChange={onChange} />
+      {addedSection}
       {importDialog}
     </div>
   );

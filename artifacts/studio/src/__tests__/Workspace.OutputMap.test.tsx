@@ -82,6 +82,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useLogoutUser: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
+  usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
+  getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
 import { Workspace } from "@/pages/Workspace";

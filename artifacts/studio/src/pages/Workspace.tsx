@@ -14,11 +14,13 @@ import {
   useGetSolveJob,
   useListModels,
   useLogoutUser,
+  usePrecheckScenario,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
   getGetCurrentAuthUserQueryKey,
   getGetDatasetQueryKey,
+  getPrecheckScenarioQueryKey,
   type GetDatasetModelId,
   type Scenario,
 } from "@workspace/api-client-react";
@@ -36,8 +38,8 @@ import {
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
 import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
-import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
-import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
+import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/WarehousesTab";
+import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
 import { MinesTab } from "@/components/workspace/tabs/MinesTab";
 import { StationsTab } from "@/components/workspace/tabs/StationsTab";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
@@ -187,6 +189,18 @@ function knownCustomerIds(dataset: { customers: { id: string }[] } | undefined, 
   return [...(dataset?.customers ?? []).map(c => c.id), ...added.map(c => c.id)];
 }
 
+// B5.2 — readers for the add/delete grids, same convention as
+// warehouseOverridesFromInputs/customerOverridesFromInputs above.
+function addedWarehousesFromInputs(inputs: Record<string, unknown> | null): AddedWarehouse[] {
+  const raw = inputs?.addedWarehouses;
+  return Array.isArray(raw) ? (raw as AddedWarehouse[]) : [];
+}
+
+function addedCustomersFromInputs(inputs: Record<string, unknown> | null): AddedCustomer[] {
+  const raw = inputs?.addedCustomers;
+  return Array.isArray(raw) ? (raw as AddedCustomer[]) : [];
+}
+
 // A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
 // (`(localConfig?.warehouseOverrides ?? []).filter(o => o.status !==
 // "active").map(...)`), generalized per model: two-echelon-gold-au's forced-
@@ -333,6 +347,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
 
+  // B5.2 — B2.1's semantic precheck (completeness/id-collision/reference-
+  // integrity), fetched whenever a p-median-us scenario is active (auto,
+  // not gated to "only while the Warehouses/Customers tab is open" — a
+  // single component-level query is simpler than per-tab fetching, and this
+  // endpoint is cheap/read-only). Other models trivially get {ok:true,
+  // errors:[]} server-side (B2.1's own doc note), so this is a no-op query
+  // for them beyond the wasted round trip — narrowed to p-median-us here to
+  // skip even that. Refetched after Save/import-apply (see
+  // handleSaveInputs/handleImportApplied below) so the chips reflect the
+  // scenario's just-persisted state, not a stale pre-save snapshot — this is
+  // the "after save" half of the plan's "after save (or on-demand)" choice;
+  // there's no separate manual "Check completeness" button (my call — see
+  // task-22-report.md).
+  const { data: precheck } = usePrecheckScenario(currentScenario?.id ?? 0, {
+    query: {
+      enabled: !!currentScenario?.id && modelId === "p-median-us",
+      queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
+    },
+  });
+
   // A3.2 — `result != null` (A0.1's `hasSolvedRun`) is necessary but not
   // sufficient: a scenario can have a non-null `result` and still be
   // `stale` (X1.1's `Scenario.stale` — derived server-side, always false
@@ -379,6 +413,29 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
   }
 
+  // B5.2 — deleting an added warehouse/customer must ALSO purge any
+  // distanceOverrides referencing its id, in the SAME localInputs update
+  // (not two separate setLocalInputs calls, which would both read the same
+  // stale closure and the second could clobber the first — same hazard
+  // Round 3's map-multi-select bulk-action fix already documents elsewhere
+  // in this file's history). A deleted id is checked against BOTH fromId
+  // and toId even though a real warehouse id only ever appears as fromId
+  // (and a customer id only as toId) in a VALID override — defensive/
+  // symmetric so one function serves both callers without needing to know
+  // which role its id plays.
+  function deleteAddedEntityAndOverrides(arrayKey: "addedWarehouses" | "addedCustomers", id: string) {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const arr = Array.isArray(prev[arrayKey]) ? (prev[arrayKey] as { id: string }[]) : [];
+      const overrides = Array.isArray(prev.distanceOverrides) ? (prev.distanceOverrides as DistanceOverride[]) : [];
+      return {
+        ...prev,
+        [arrayKey]: arr.filter(e => e.id !== id),
+        distanceOverrides: overrides.filter(o => o.fromId !== id && o.toId !== id),
+      };
+    });
+  }
+
   function handleSaveInputs() {
     if (!currentScenario || !localInputs || !isDirty) return;
     const scenarioId = currentScenario.id;
@@ -390,6 +447,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           savedInputsRef.current = inputs;
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+          // B5.2 — refetch precheck against the just-saved inputs (see the
+          // usePrecheckScenario call site's comment above).
+          queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(scenarioId) });
         },
       },
     );
@@ -408,6 +468,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     savedInputsRef.current = updated.inputs;
     queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
+    // B5.2 — same reasoning as handleSaveInputs's precheck invalidation.
+    queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(updated.id) });
   }
 
   const [tabState, dispatch] = useReducer(workspaceTabsReducer, initialWorkspaceTabState);
@@ -709,6 +771,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("warehouseOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          addedWarehouses={addedWarehousesFromInputs(localInputs)}
+          onAddedWarehousesChange={next => updateInputsField("addedWarehouses", next)}
+          onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedWarehouses", id)}
+          precheckErrors={precheck?.errors}
         />
       );
     }
@@ -747,6 +813,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("customerOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          // B5.2 — addedCustomers is a p-median-us-only concept
+          // (twoEchelonInputsSchema has no such field) — omitted entirely
+          // for two-echelon-gold-au rather than passed as empty/no-op, so
+          // this call site can't silently drift if that model ever grows
+          // its own add-a-customer field with different semantics.
+          {...(modelId === "p-median-us"
+            ? {
+                addedCustomers: addedCustomersFromInputs(localInputs),
+                onAddedCustomersChange: (next: AddedCustomer[]) => updateInputsField("addedCustomers", next),
+                onDeleteCustomer: (id: string) => deleteAddedEntityAndOverrides("addedCustomers", id),
+                precheckErrors: precheck?.errors,
+              }
+            : {})}
         />
       );
     }

@@ -158,6 +158,167 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
   });
 });
 
+// B5.2 — add/delete row for scenario-local addedWarehouses (B1.1), plus
+// inline precheck warning chips (B2.1's GET /scenarios/:id/precheck).
+describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
+  it("does not render an Added warehouses section for entity=refineries (addedWarehouses is p-median-us only)", () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        entity="refineries"
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("added-warehouses-section")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty message when there are no added warehouses yet", () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("added-warehouses-empty")).toBeInTheDocument();
+  });
+
+  it("filling the add-row form and confirming calls onAddedWarehousesChange with the new entity appended, matching addedWarehouseSchema's shape", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-id"), "NEWWH");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "-104.99");
+    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(onAddedWarehousesChange).toHaveBeenCalledWith([
+      { id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" },
+    ]);
+  });
+
+  it("rejects an add-row whose id collides with an existing base warehouse, without calling onAddedWarehousesChange", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-id"), "CHI");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "-104.99");
+    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(onAddedWarehousesChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-warehouse-error")).toBeInTheDocument();
+  });
+
+  it("renders an added warehouse row with a delete button, and clicking it calls onDeleteWarehouse with its id", async () => {
+    const onDeleteWarehouse = vi.fn();
+    const added = [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" as const }];
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={added}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={onDeleteWarehouse}
+      />,
+    );
+
+    expect(screen.getByTestId("row-added-warehouse-NEWWH")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-delete-added-warehouse-NEWWH"));
+    expect(onDeleteWarehouse).toHaveBeenCalledWith("NEWWH");
+  });
+
+  it("base-dataset warehouse rows have NO delete affordance — only the status toggle", () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("button-delete-added-warehouse-CHI")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-delete-added-warehouse-LA")).not.toBeInTheDocument();
+    // The only "delete"-shaped affordance anywhere is scoped to entities
+    // actually present in addedWarehouses — none exist here.
+    expect(screen.queryAllByTestId(/^button-delete-added-warehouse-/).length).toBe(0);
+  });
+
+  it("shows a precheck warning chip on an added warehouse with incomplete distance coverage", () => {
+    const added = [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" as const }];
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={added}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+        precheckErrors={[{ code: "completeness", message: "NEWWH missing distances to 2 customers: C1, C2" }]}
+      />,
+    );
+    expect(screen.getByTestId("warning-precheck-added-warehouse-NEWWH")).toHaveTextContent("2");
+  });
+
+  it("does not show a precheck warning chip on a complete added warehouse", () => {
+    const added = [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" as const }];
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={added}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+        precheckErrors={[]}
+      />,
+    );
+    expect(screen.queryByTestId("warning-precheck-added-warehouse-NEWWH")).not.toBeInTheDocument();
+  });
+});
+
 // A5.3 — two-echelon-gold-au reuses this exact component (WarehouseTable +
 // toolbar) as its Refineries tab via the `entity` prop, rather than forking a
 // new component — `dataset.warehouses` already carries the refinery

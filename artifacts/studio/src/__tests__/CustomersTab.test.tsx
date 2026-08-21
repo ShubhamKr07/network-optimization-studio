@@ -60,6 +60,145 @@ describe("CustomersTab", () => {
   });
 });
 
+// B5.2 — add/delete row for scenario-local addedCustomers (B1.1), plus
+// inline precheck warning chips (B2.1's GET /scenarios/:id/precheck).
+// addedCustomerSchema has no `status` field (see precheck.ts's own comment:
+// "v1 has no way to add a customer and mark it excluded in the same
+// breath") — an added customer row has no status toggle, only demand.
+describe("CustomersTab — add/delete added customers (B5.2)", () => {
+  it("shows an empty message when there are no added customers yet", () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("added-customers-empty")).toBeInTheDocument();
+  });
+
+  it("filling the add-row form and confirming calls onAddedCustomersChange with the new entity appended, matching addedCustomerSchema's shape", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-id"), "NEWC");
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).toHaveBeenCalledWith([
+      { id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 },
+    ]);
+  });
+
+  it("rejects an add-row whose id collides with an existing base customer, without calling onAddedCustomersChange", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-id"), "C1");
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-customer-error")).toBeInTheDocument();
+  });
+
+  it("renders an added customer row with a delete button, and clicking it calls onDeleteCustomer with its id", async () => {
+    const onDeleteCustomer = vi.fn();
+    const added = [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }];
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={added}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={onDeleteCustomer}
+      />,
+    );
+
+    expect(screen.getByTestId("row-added-customer-NEWC")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-delete-added-customer-NEWC"));
+    expect(onDeleteCustomer).toHaveBeenCalledWith("NEWC");
+  });
+
+  it("base-dataset customer rows have NO delete affordance — only the status toggle", () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    expect(screen.queryAllByTestId(/^button-delete-added-customer-/).length).toBe(0);
+  });
+
+  it("shows a precheck warning chip on an added customer with incomplete distance coverage", () => {
+    const added = [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }];
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={added}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+        precheckErrors={[{ code: "completeness", message: "CHI missing distances to 1 customer: NEWC" }]}
+      />,
+    );
+    expect(screen.getByTestId("warning-precheck-added-customer-NEWC")).toHaveTextContent("1");
+  });
+
+  it("does not show a precheck warning chip on a complete added customer", () => {
+    const added = [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }];
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={added}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+        precheckErrors={[]}
+      />,
+    );
+    expect(screen.queryByTestId("warning-precheck-added-customer-NEWC")).not.toBeInTheDocument();
+  });
+});
+
 describe("CustomersTab — Upload/Download (A1.3)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
