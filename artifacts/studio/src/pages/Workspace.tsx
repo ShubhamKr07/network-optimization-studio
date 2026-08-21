@@ -802,6 +802,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
+    // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids
+    // with p-median-us for naming parity (inputEntriesForModel's comment)
+    // but have no real content: `GET /dataset` genuinely has no
+    // p-median-brazil entry (openapi.yaml's modelId enum), and Studio.tsx
+    // itself has never had override-editing UI for this model either. A
+    // distinct message rather than the generic "later task" copy below,
+    // since this isn't simply unbuilt yet — it's blocked on a backend
+    // capability this task's scope explicitly excludes adding.
+    if (activeTab.kind === "input" && (activeTab.entity === "warehouses" || activeTab.entity === "customers") && modelId === "p-median-brazil") {
+      return (
+        <span className="text-muted-foreground" data-testid="tab-content-placeholder">
+          {activeTab.label} — not available for this model yet (no per-row dataset endpoint exists for p-median-brazil).
+        </span>
+      );
+    }
+
     // Every other entry (Demand, Distances, and every remaining Output grid)
     // is a later task (B5.1-C6.1) — unchanged placeholder.
     return (

@@ -48,6 +48,7 @@ export const CHAPTERS: Chapter[] = [
     title: "Brazil Capacity — Capacitated P-Median",
     description: "Capacitated facility location: open warehouses under per-site capacity limits.",
     hiddenFromLanding: true,
+    workspace: true,
     labHeaderTitle: "Brazil Capacity · Model Lab",
     labHeaderSubtitle: "Ch 5 · capacitated p-median · Brazil",
   },
