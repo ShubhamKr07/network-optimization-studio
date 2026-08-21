@@ -15,4 +15,5 @@ export const ExportScenarioEntity = {
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
+  distances: 'distances',
 } as const;

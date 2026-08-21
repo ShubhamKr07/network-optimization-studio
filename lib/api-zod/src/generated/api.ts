@@ -335,7 +335,7 @@ export const PreviewScenarioImportParams = zod.object({
 })
 
 export const PreviewScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
   "csvText": zod.string()
 })
 
@@ -367,7 +367,7 @@ export const ApplyScenarioImportParams = zod.object({
 })
 
 export const ApplyScenarioImportBody = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
   "csvText": zod.string(),
   "mode": zod.enum(['all_or_nothing', 'partial']).optional()
 })
@@ -501,13 +501,13 @@ export const ExportScenarioParams = zod.object({
 })
 
 export const ExportScenarioQueryParams = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
   "format": zod.enum(['csv', 'json'])
 })
 
 export const ExportScenarioResponse = zod.object({
   "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances']),
   "rows": zod.array(zod.object({
 
 }).passthrough())

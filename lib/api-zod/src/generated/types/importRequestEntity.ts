@@ -15,4 +15,5 @@ export const ImportRequestEntity = {
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
+  distances: 'distances',
 } as const;

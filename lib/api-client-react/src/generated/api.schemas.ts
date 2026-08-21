@@ -356,6 +356,7 @@ export const ImportRequestEntity = {
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
+  distances: 'distances',
 } as const;
 
 export interface ImportRequest {
@@ -405,6 +406,7 @@ export const ImportApplyRequestEntity = {
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
+  distances: 'distances',
 } as const;
 
 export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
@@ -436,6 +438,7 @@ export const ExportEnvelopeEntity = {
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
+  distances: 'distances',
 } as const;
 
 export type ExportEnvelopeRowsItem = { [key: string]: unknown };
@@ -497,6 +500,7 @@ export const ExportScenarioEntity = {
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
+  distances: 'distances',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];
