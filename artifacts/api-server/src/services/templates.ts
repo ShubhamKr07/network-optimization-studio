@@ -1,8 +1,8 @@
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
-import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, TRANSPORT_DATASET } from "./precheck.js";
-import type { PrecheckDataset } from "./precheck.js";
+import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET } from "./precheck.js";
+import type { PrecheckDataset, TwoEchelonPrecheckDataset } from "./precheck.js";
 
 // D4.1 export. CSV format choice: plain columns with template_version
 // repeated on every row (not a leading comment line) — simpler for D5's
@@ -572,4 +572,83 @@ export function laneCostRowsToCsv(
     [r.templateVersion, r.fromId, r.toId, r.cost ?? ""].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// ---------------------------------------------------------------------------
+// B6.2 stage 4 — two-echelon-gold-au's "legDistances" entity. The merged-view
+// export (`entity=legDistances` with no `stubFor`) reuses applyDistanceOverrides/
+// distanceRowsToCsv/DistanceTemplateRow AS-IS (routes/scenarios.ts calls
+// them directly, no new wrapper needed here) — this model's
+// distanceOverrides shares p-median-us's exact {fromId, toId, distance}
+// element shape (a deliberate B6.2 stage 1 naming choice), so those
+// functions are already 100% reusable, not p-median-specific despite living
+// in the "distances" section of this file. Only the STUB generator needs a
+// dedicated function: unlike p-median-us's two-role (warehouse/customer)
+// buildDistanceStubRows or transport-coal's two-role buildLaneCostStubRows,
+// a two-echelon refinery sits in the MIDDLE of two adjacent legs — stubs
+// for it must cover BOTH the mine->refinery leg (from the fixed mine) AND
+// the refinery->customer leg (to every active customer), not just one
+// direction.
+// ---------------------------------------------------------------------------
+
+// Minimal shape buildLegDistanceStubRows needs from a scenario's inputs —
+// the same fields buildTwoEchelonIdSpaces/buildActiveTwoEchelonIds
+// (precheck.ts) already take.
+export interface TwoEchelonStubGeneratorInputs {
+  addedRefineries?: Array<{ id: string; city: string; state: string; lat: number; lng: number; status?: string }>;
+  addedCustomers?: Array<{ id: string; city: string; lat: number; lng: number }>;
+  refineryOverrides?: Array<{ id: string; status?: string }>;
+  customerOverrides?: Array<{ id: string; status?: string }>;
+}
+
+// Returns null when `targetId` resolves as neither a known mine, refinery,
+// nor customer in this scenario (base dataset or added) — the caller
+// (routes/scenarios.ts) turns that into a 422, same contract as
+// buildDistanceStubRows/buildLaneCostStubRows. `dataset` defaults to the
+// real two-echelon-gold-au base dataset (precheck.ts's own
+// TWO_ECHELON_DATASET default).
+export function buildLegDistanceStubRows(
+  targetId: string,
+  inputs: TwoEchelonStubGeneratorInputs,
+  dataset: TwoEchelonPrecheckDataset = TWO_ECHELON_DATASET,
+): DistanceStubRow[] | null {
+  const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(inputs, dataset);
+  const { activeRefineryIds, activeCustomerIds } = buildActiveTwoEchelonIds(inputs, dataset);
+
+  if (mineIdSpace.has(targetId)) {
+    // Mine -> every active refinery.
+    return activeRefineryIds.map(refId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: targetId,
+      toId: refId,
+      distance: null,
+    }));
+  }
+  if (refineryIdSpace.has(targetId)) {
+    // A refinery is adjacent to BOTH legs — every mine (mine->refinery) AND
+    // every active customer (refinery->customer), not just one direction.
+    const mineRows = [...mineIdSpace].map(mineId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: mineId,
+      toId: targetId,
+      distance: null,
+    }));
+    const customerRows = activeCustomerIds.map(custId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: targetId,
+      toId: custId,
+      distance: null,
+    }));
+    return [...mineRows, ...customerRows];
+  }
+  if (customerIdSpace.has(targetId)) {
+    // Every active refinery -> this customer.
+    return activeRefineryIds.map(refId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: refId,
+      toId: targetId,
+      distance: null,
+    }));
+  }
+  return null;
 }

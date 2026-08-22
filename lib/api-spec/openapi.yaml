@@ -432,7 +432,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
+            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
         - name: format
           in: query
           required: true
@@ -1065,7 +1065,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
         csvText:
           type: string
       required: [entity, csvText]
@@ -1117,7 +1117,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
         csvText:
           type: string
         mode:
@@ -1145,7 +1145,7 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
         rows:
           type: array
           items:

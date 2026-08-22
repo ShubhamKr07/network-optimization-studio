@@ -1,7 +1,7 @@
 import Papa from "papaparse";
 import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
-import { buildPMedianIdSpaces, buildTransportIdSpaces } from "./precheck.js";
+import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces } from "./precheck.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -48,22 +48,23 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts";
+export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances";
 
 // Entities that fit the generic single-id-row model below — everything
-// EXCEPT the two composite-keyed (fromId,toId) entities (distances,
-// laneCosts), which have their own dedicated parsing functions (see this
-// file's header comment on `distances` and Task 30's laneCosts addition
-// below).
-type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts">;
+// EXCEPT the three composite-keyed (fromId,toId) entities (distances,
+// laneCosts, legDistances), which have their own dedicated parsing
+// functions (see this file's header comment on `distances`, Task 30's
+// laneCosts addition, and B6.2's legDistances addition below).
+type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances">;
 
-// `distances`/`laneCosts` are intentionally absent from COLUMNS/
-// ENTITY_HAS_VALUE/VALID_STATUSES below — they don't fit the single-id row
-// model those tables describe (composite key, no status column, no baseline
-// "current override list" to diff unknown-ness against). Their column
-// layouts are DISTANCES_COLUMNS/LANE_COST_COLUMNS just below, and they're
-// each parsed by a wholly separate function (parseDistancesRows/
-// parseLaneCostRows), not this file's generic per-row loop.
+// `distances`/`laneCosts`/`legDistances` are intentionally absent from
+// COLUMNS/ENTITY_HAS_VALUE/VALID_STATUSES below — they don't fit the
+// single-id row model those tables describe (composite key, no status
+// column, no baseline "current override list" to diff unknown-ness
+// against). Their column layouts are DISTANCES_COLUMNS/LANE_COST_COLUMNS
+// just below, and they're each parsed by a wholly separate function
+// (parseDistancesRows/parseLaneCostRows/parseLegDistanceRows), not this
+// file's generic per-row loop.
 const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
 // Task 30 (B6.1 stage 4) — transport-coal's composite-keyed entity, the
 // laneCostOverrides analogue of p-median-us's distanceOverrides. Named
@@ -71,6 +72,10 @@ const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
 // decision for this model (transportLp.ts's laneCostOverrideSchema) even
 // though the underlying values are the same kind of quantity.
 const LANE_COST_COLUMNS = ["template_version", "from_id", "to_id", "cost"];
+// B6.2 stage 4 — two-echelon-gold-au's composite-keyed entity. Same 4-column
+// shape as DISTANCES_COLUMNS (this model's own vocabulary is "distance",
+// not "cost" — B6.2 stage 1's naming decision) — reuses DISTANCES_COLUMNS
+// directly rather than a duplicate constant with the identical header.
 
 // Singular display label per entity, used in a handful of free-text error
 // messages below (id-collision, add-mode "lat/lng required"/"city and state
@@ -178,6 +183,13 @@ export interface ImportCurrentOverrides {
   laneCostOverrides?: LaneCostOverride[];
   addedMines?: AddedEntityRef[];
   addedStations?: AddedEntityRef[];
+  // B6.2 stage 4 — two-echelon-gold-au's own added-entity id space, needed
+  // for legDistances' reference-integrity check (via precheck.ts's
+  // buildTwoEchelonIdSpaces). `distanceOverrides`/`addedCustomers` above are
+  // ALREADY reused directly for this model — both share p-median-us's exact
+  // field name/shape (a deliberate B6.2 stage 1 naming choice) — only
+  // addedRefineries is genuinely new here.
+  addedRefineries?: AddedEntityRef[];
 }
 
 export function parseAndValidateImport(
@@ -219,6 +231,9 @@ export function parseAndValidateImport(
   const expectedColumns =
     entity === "distances" ? DISTANCES_COLUMNS
     : entity === "laneCosts" ? LANE_COST_COLUMNS
+    // B6.2 stage 4 — legDistances reuses DISTANCES_COLUMNS' identical header
+    // (this model's own vocabulary is "distance", not "cost").
+    : entity === "legDistances" ? DISTANCES_COLUMNS
     : COLUMNS[entity];
   const header = rows[0]?.map(h => h.trim()) ?? [];
   const headerMatches = header.length === expectedColumns.length && expectedColumns.every((c, i) => header[i] === c);
@@ -256,6 +271,18 @@ export function parseAndValidateImport(
     const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(currentOverrides);
     const laneCostResult = parseLaneCostRows(rows.slice(1), currentOverrides.laneCostOverrides ?? [], mineIdSpace, stationIdSpace);
     return { errors: laneCostResult.errors, changes: laneCostResult.changes, warnings: [] };
+  }
+
+  // B6.2 stage 4 — legDistances is two-echelon-gold-au's composite-keyed
+  // entity, structurally different from distances/laneCosts above: THREE id
+  // spaces (mine/refinery/customer), not two — "unknown" means a pair that
+  // doesn't cleanly resolve as EITHER a mine->refinery leg OR a refinery->
+  // customer leg, the same rule precheckTwoEchelonInputs/merge_inputs.py's
+  // build_merged_two_echelon_dataset both enforce.
+  if (entity === "legDistances") {
+    const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(currentOverrides);
+    const legDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], mineIdSpace, refineryIdSpace, customerIdSpace);
+    return { errors: legDistanceResult.errors, changes: legDistanceResult.changes, warnings: [] };
   }
 
   // Mines/stations store overrides as sparse dicts (mineCapacities/
@@ -668,6 +695,82 @@ function parseLaneCostRows(
         line,
         before: { status: "active", value: beforeValue },
         after: { status: "active", value: parsedCost },
+        fromId,
+        toId,
+      });
+    }
+  }
+
+  return { errors, changes };
+}
+
+// B6.2 stage 4 — composite-key (from_id,to_id) parsing branch for the
+// legDistances entity, structurally different from parseDistancesRows/
+// parseLaneCostRows above: THREE id spaces (mine/refinery/customer), not
+// two. A pair must resolve as EITHER a mine->refinery leg OR a refinery->
+// customer leg — direction/leg is resolved purely by which id-space each
+// side belongs to (mirrors merge_inputs.py's build_merged_two_echelon_
+// dataset exactly, never a string-prefix convention). `dataRows` excludes
+// the header row (already consumed/validated by the caller).
+function parseLegDistanceRows(
+  dataRows: string[][],
+  currentDistanceOverrides: { fromId: string; toId: string; distance: number }[],
+  mineIdSpace: Set<string>,
+  refineryIdSpace: Set<string>,
+  customerIdSpace: Set<string>,
+): { errors: ImportError[]; changes: ImportRowChange[] } {
+  const errors: ImportError[] = [];
+  const changes: ImportRowChange[] = [];
+  const currentByPairKey = new Map<string, number>(currentDistanceOverrides.map(o => [`${o.fromId}|${o.toId}`, o.distance]));
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const line = i + 2; // 1-indexed, +1 for header row
+    const cols = dataRows[i];
+
+    if (cols.length !== DISTANCES_COLUMNS.length) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${DISTANCES_COLUMNS.length} columns, got ${cols.length}` });
+      continue;
+    }
+
+    const [tvStr, fromId, toId, distanceStr] = cols;
+
+    if (Number(tvStr) !== TEMPLATE_VERSION) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+      continue;
+    }
+
+    const isMineToRefinery = !!fromId && mineIdSpace.has(fromId) && !!toId && refineryIdSpace.has(toId);
+    const isRefineryToCustomer = !!fromId && refineryIdSpace.has(fromId) && !!toId && customerIdSpace.has(toId);
+    if (!isMineToRefinery && !isRefineryToCustomer) {
+      errors.push({
+        errorClass: "logic",
+        line,
+        message: `Pair (from_id "${fromId}", to_id "${toId}") does not resolve as a mine->refinery leg or a refinery->customer leg (base dataset or this scenario's added refineries/customers)`,
+      });
+      continue;
+    }
+
+    const pairKey = `${fromId}|${toId}`;
+    if (seenPairs.has(pairKey)) {
+      errors.push({ errorClass: "logic", line, message: `Duplicate (from_id,to_id) pair "${pairKey}"` });
+      continue;
+    }
+    seenPairs.add(pairKey);
+
+    const parsedDistance = Number(distanceStr);
+    if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) {
+      errors.push({ errorClass: "logic", line, message: `distance must be a positive number, got "${distanceStr}"` });
+      continue;
+    }
+
+    const beforeValue = currentByPairKey.get(pairKey) ?? null;
+    if (beforeValue !== parsedDistance) {
+      changes.push({
+        id: pairKey,
+        line,
+        before: { status: "active", value: beforeValue },
+        after: { status: "active", value: parsedDistance },
         fromId,
         toId,
       });

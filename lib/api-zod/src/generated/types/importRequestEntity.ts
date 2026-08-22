@@ -17,4 +17,5 @@ export const ImportRequestEntity = {
   refineries: 'refineries',
   distances: 'distances',
   laneCosts: 'laneCosts',
+  legDistances: 'legDistances',
 } as const;

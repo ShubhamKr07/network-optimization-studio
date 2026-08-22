@@ -316,6 +316,51 @@ export function buildTwoEchelonIdSpaces(
 }
 
 /**
+ * SCN v0.3 Phase B, task B6.2 — the two-echelon-gold-au analogue of
+ * buildActivePMedianIds above: base refineries not inactive per
+ * refineryOverrides, plus added refineries not inactive per their own
+ * status; base customers not excluded per customerOverrides, plus every
+ * added customer (addedCustomerSchema has no status field, same precedent
+ * as p-median's own added customers — every added customer counts as
+ * active). Extracted so precheckTwoEchelonInputs' own completeness check
+ * AND templates.ts's B6.2 leg-distance stub generator (a later part of this
+ * task) share the exact same "active" definition, mirroring
+ * buildActivePMedianIds' own reuse across precheck.ts and templates.ts.
+ */
+export function buildActiveTwoEchelonIds(
+  inputs: {
+    addedRefineries?: readonly (PrecheckDatasetEntity & { status?: string })[];
+    addedCustomers?: readonly PrecheckDatasetEntity[];
+    refineryOverrides?: readonly { id: string; status?: string }[];
+    customerOverrides?: readonly { id: string; status?: string }[];
+  },
+  dataset: TwoEchelonPrecheckDataset = TWO_ECHELON_DATASET,
+): { activeRefineryIds: string[]; activeCustomerIds: string[] } {
+  const refineryOverrides = inputs.refineryOverrides ?? [];
+  const customerOverrides = inputs.customerOverrides ?? [];
+  const addedRefineries = inputs.addedRefineries ?? [];
+  const addedCustomers = inputs.addedCustomers ?? [];
+
+  const refineryStatusById = new Map(refineryOverrides.map((o) => [o.id, o.status]));
+  const activeBaseRefineryIds = dataset.refineries
+    .map((r) => r.id)
+    .filter((id) => refineryStatusById.get(id) !== "inactive");
+  const activeAddedRefineryIds = addedRefineries
+    .filter((r) => r.status !== "inactive")
+    .map((r) => r.id);
+  const activeRefineryIds = [...activeBaseRefineryIds, ...activeAddedRefineryIds];
+
+  const customerStatusById = new Map(customerOverrides.map((o) => [o.id, o.status]));
+  const activeBaseCustomerIds = dataset.customers
+    .map((c) => c.id)
+    .filter((id) => customerStatusById.get(id) !== "excluded");
+  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
+
+  return { activeRefineryIds, activeCustomerIds };
+}
+
+/**
  * SCN v0.3 Phase B, task B6.2 — semantic precheck for two-echelon-gold-au
  * scenario-local network edits (addedRefineries/addedCustomers/
  * distanceOverrides, twoEchelon.ts's B6.2 schema). Own function, NOT a call
@@ -367,8 +412,6 @@ export function precheckTwoEchelonInputs(
   const addedRefineries = inputs.addedRefineries ?? [];
   const addedCustomers = inputs.addedCustomers ?? [];
   const distanceOverrides = inputs.distanceOverrides ?? [];
-  const refineryOverrides = inputs.refineryOverrides ?? [];
-  const customerOverrides = inputs.customerOverrides ?? [];
 
   // --- (b) ID collision -----------------------------------------------
   const addedRefineryIds = new Set<string>();
@@ -432,15 +475,12 @@ export function precheckTwoEchelonInputs(
   // not excluded per customerOverrides, plus every added customer
   // (addedCustomerSchema has no status field, same precedent as p-median's
   // own added customers).
-  const refineryStatusById = new Map(refineryOverrides.map((o) => [o.id, o.status]));
-  const activeBaseRefineryIds = [...baseRefineryIds].filter((id) => refineryStatusById.get(id) !== "inactive");
-  const activeAddedRefineryIds = addedRefineries.filter((r) => r.status !== "inactive").map((r) => r.id);
-  const activeRefineryIds = [...activeBaseRefineryIds, ...activeAddedRefineryIds];
-
-  const customerStatusById = new Map(customerOverrides.map((o) => [o.id, o.status]));
-  const activeBaseCustomerIds = [...baseCustomerIds].filter((id) => customerStatusById.get(id) !== "excluded");
+  const { activeRefineryIds, activeCustomerIds } = buildActiveTwoEchelonIds(inputs, dataset);
+  // Every added customer counts as active (addedCustomerSchema has no
+  // status field) — needed separately below for the "vice versa" required
+  // set, same distinction buildActivePMedianIds' own caller (
+  // precheckPMedianInputs) already draws.
   const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
-  const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
 
   const overrideKeys = new Set(distanceOverrides.map((o) => o.fromId + "|" + o.toId));
 

@@ -11,6 +11,7 @@ import {
   applyLaneCostOverrides,
   buildDistanceStubRows,
   buildLaneCostStubRows,
+  buildLegDistanceStubRows,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -456,5 +457,83 @@ describe("Task 30 — buildLaneCostStubRows (laneCosts stub generator)", () => {
     const rows = buildLaneCostStubRows("KY", {})!;
     expect(rows).not.toBeNull();
     expect(rows.length).toBe(15); // one row per real base station
+  });
+});
+
+// B6.2 stage 4 — buildLegDistanceStubRows (two-echelon-gold-au's own
+// legDistances stub generator). Structurally different from
+// buildDistanceStubRows/buildLaneCostStubRows above: THREE roles (mine/
+// refinery/customer), and a refinery — the middle role — needs stubs for
+// BOTH adjacent legs at once, not just one direction.
+describe("B6.2 — buildLegDistanceStubRows (legDistances stub generator)", () => {
+  // Small fake dataset, same testability pattern the sibling stub
+  // generators' own tests use — real-dataset coverage is exercised at the
+  // route level.
+  const DATASET = {
+    mines: [{ id: "MINE-A" }],
+    refineries: [{ id: "REF-A" }, { id: "REF-B" }],
+    customers: [{ id: "C-1" }, { id: "C-2" }, { id: "C-3" }],
+  };
+
+  it("given the mine id, emits one blank row per active refinery", () => {
+    const rows = buildLegDistanceStubRows("MINE-A", {}, DATASET)!;
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { templateVersion: TEMPLATE_VERSION, fromId: "MINE-A", toId: "REF-A", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "MINE-A", toId: "REF-B", distance: null },
+      ]),
+    );
+  });
+
+  it("given a refinery id, emits stub rows for BOTH legs: from every mine AND to every active customer", () => {
+    const rows = buildLegDistanceStubRows("REF-A", {}, DATASET)!;
+    expect(rows).toHaveLength(1 + 3); // 1 mine + 3 customers
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "MINE-A", toId: "REF-A", distance: null });
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-1", distance: null });
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-2", distance: null });
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-3", distance: null });
+  });
+
+  it("given a customer id, emits one blank row per active refinery", () => {
+    const rows = buildLegDistanceStubRows("C-1", {}, DATASET)!;
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-1", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "REF-B", toId: "C-1", distance: null },
+      ]),
+    );
+  });
+
+  it("resolves an added refinery's stub rows against the mine and every customer", () => {
+    const rows = buildLegDistanceStubRows(
+      "REF-NEW",
+      { addedRefineries: [{ id: "REF-NEW", city: "X", state: "Y", lat: 1, lng: 2, status: "active" }] },
+      DATASET,
+    )!;
+    expect(rows).toHaveLength(1 + 3);
+    expect(rows.some(r => r.fromId === "MINE-A" && r.toId === "REF-NEW")).toBe(true);
+    expect(rows.filter(r => r.fromId === "REF-NEW").length).toBe(3);
+  });
+
+  it("resolves an added customer's stub rows against every refinery", () => {
+    const rows = buildLegDistanceStubRows(
+      "C-NEW",
+      { addedCustomers: [{ id: "C-NEW", city: "X", lat: 1, lng: 2 }] },
+      DATASET,
+    )!;
+    expect(rows).toHaveLength(2);
+    expect(rows.every(r => r.toId === "C-NEW")).toBe(true);
+  });
+
+  it("returns null for an id that resolves as neither a known mine, refinery, nor customer", () => {
+    expect(buildLegDistanceStubRows("bogus-id", {}, DATASET)).toBeNull();
+  });
+
+  it("defaults to the real two-echelon-gold-au dataset when no dataset argument is given", () => {
+    const rows = buildLegDistanceStubRows("kalgoorlie", {})!;
+    expect(rows).not.toBeNull();
+    expect(rows.length).toBe(2); // one row per real base refinery
   });
 });

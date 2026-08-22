@@ -609,3 +609,119 @@ describe("parseAndValidateImport — distances (composite key, DD-2 long format)
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/template_version/) }]);
   });
 });
+
+// B6.2 stage 4 — legDistances is two-echelon-gold-au's own composite-keyed
+// entity (from_id,to_id), the exact same DISTANCES_COLUMNS header as the
+// distances entity above but validated against THREE id spaces (mine/
+// refinery/customer), not two — real base ids kalgoorlie (mine), cunnamulla/
+// daggar-hills (refineries), sydney (customer) are used directly, same
+// convention the distances describe block above already establishes.
+describe("parseAndValidateImport — legDistances (composite key, three id spaces)", () => {
+  it("valid mine->refinery rows parse correctly as a real change", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,kalgoorlie,cunnamulla,1464.5\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "kalgoorlie|cunnamulla",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 1464.5 },
+      fromId: "kalgoorlie",
+      toId: "cunnamulla",
+    }]);
+  });
+
+  it("valid refinery->customer rows parse correctly as a real change", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,cunnamulla,sydney,610.5\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ fromId: "cunnamulla", toId: "sydney", after: { value: 610.5 } });
+  });
+
+  it("rejects a pair that skips a leg entirely (mine -> customer directly)", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,kalgoorlie,sydney,999\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/does not resolve as a mine->refinery leg or a refinery->customer leg/);
+  });
+
+  it("rejects a backwards row (from_id=a real customer, to_id=a real refinery)", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,sydney,cunnamulla,999\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+  });
+
+  it("rejects a row with an unresolvable from_id", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ZZZ,sydney,100\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+  });
+
+  it("rejects a duplicate (from_id,to_id) pair within one file", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,kalgoorlie,cunnamulla,100\n1,kalgoorlie,cunnamulla,200\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/duplicate/i);
+    expect(result.changes).toHaveLength(1);
+  });
+
+  it("resolves a valid override against an added refinery and added customer, not just base dataset entities", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ref-new,cust-new,55\n";
+    const result = parseAndValidateImport(
+      "legDistances",
+      csv,
+      { addedRefineries: [{ id: "ref-new" }], addedCustomers: [{ id: "cust-new" }] },
+      0,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ fromId: "ref-new", toId: "cust-new", after: { value: 55 } });
+  });
+
+  it("resolves a valid override against the real mine and an added refinery", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,kalgoorlie,ref-new,42\n";
+    const result = parseAndValidateImport(
+      "legDistances",
+      csv,
+      { addedRefineries: [{ id: "ref-new" }] },
+      0,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+  });
+
+  it("diffs against an existing distanceOverrides entry, not just a null baseline", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,cunnamulla,sydney,999\n";
+    const result = parseAndValidateImport(
+      "legDistances",
+      csv,
+      { distanceOverrides: [{ fromId: "cunnamulla", toId: "sydney", distance: 610.5 }] },
+      0,
+    );
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ before: { value: 610.5 }, after: { value: 999 } });
+  });
+
+  it("rejects a non-positive distance as a logic error", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,cunnamulla,sydney,0\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/positive/i) }]);
+  });
+
+  it("still enforces the shared header-check machinery (wrong columns -> single format error)", () => {
+    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,active\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
+  });
+
+  it("still enforces the shared template_version mismatch check", () => {
+    const csv = "template_version,from_id,to_id,distance\n2,kalgoorlie,cunnamulla,100\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/template_version/) }]);
+  });
+});

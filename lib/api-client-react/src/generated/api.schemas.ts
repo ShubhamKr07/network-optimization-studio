@@ -383,6 +383,7 @@ export const ImportRequestEntity = {
   refineries: 'refineries',
   distances: 'distances',
   laneCosts: 'laneCosts',
+  legDistances: 'legDistances',
 } as const;
 
 export interface ImportRequest {
@@ -434,6 +435,7 @@ export const ImportApplyRequestEntity = {
   refineries: 'refineries',
   distances: 'distances',
   laneCosts: 'laneCosts',
+  legDistances: 'legDistances',
 } as const;
 
 export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
@@ -467,6 +469,7 @@ export const ExportEnvelopeEntity = {
   refineries: 'refineries',
   distances: 'distances',
   laneCosts: 'laneCosts',
+  legDistances: 'legDistances',
 } as const;
 
 export type ExportEnvelopeRowsItem = { [key: string]: unknown };
@@ -534,6 +537,7 @@ export const ExportScenarioEntity = {
   refineries: 'refineries',
   distances: 'distances',
   laneCosts: 'laneCosts',
+  legDistances: 'legDistances',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];
