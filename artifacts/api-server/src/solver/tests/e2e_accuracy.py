@@ -537,8 +537,12 @@ def test_cross_model() -> None:
         _check(f"{label}: solverUsed contains 'CBC'",
                "CBC" in r.get("solverUsed", ""),
                r.get("solverUsed", ""))
-        _check(f"{label}: runtime 0 < t < 300s",
-               0 < r.get("runTimeSec", -1) < 300,
+        # runTimeSec is round(elapsed, 2) in solve.py — a tiny model (e.g. the
+        # 4-mine/15-station transport LP) can solve in well under 5ms on fast
+        # hardware, which rounds to exactly 0.00. That's a legitimate solve,
+        # not a missing/negative timing field (-1 is the actual absent sentinel).
+        _check(f"{label}: runtime 0 <= t < 300s",
+               0 <= r.get("runTimeSec", -1) < 300,
                f"{r.get('runTimeSec', -1):.2f}s")
         if r.get("status") == "optimal":
             _check(f"{label}: objective > 0", (r.get("objective") or 0) > 0)
@@ -562,7 +566,6 @@ def main() -> None:
     if filter_arg == "all":
         for fn in sections.values():
             fn()
-        test_cross_model()
     elif filter_arg in sections:
         sections[filter_arg]()
     else:
