@@ -68,16 +68,18 @@ describe("CustomersTab", () => {
 describe("CustomersTab — add/delete added customers (B5.2)", () => {
   // Fix — code review found WarehousesTab's addedSection is gated
   // (`entity === "warehouses"`) but CustomersTab's had no equivalent gate,
-  // so two-echelon-gold-au (which reuses CustomersTab without the added-*
-  // props — see Workspace.tsx's conditional prop spread) silently rendered
-  // a live-looking "+ Add customer" affordance that did nothing: clicking
-  // Add called `onAddedCustomersChange?.(...)` (undefined there, so it
-  // short-circuited) but `resetAddForm()` still ran unconditionally
-  // afterward, clearing the form as if the add had succeeded — the student
-  // sees no error and nothing was added. This test renders CustomersTab
-  // exactly the way Workspace.tsx renders it for two-echelon (no
-  // addedCustomers/onAddedCustomersChange/onDeleteCustomer props at all).
-  it("renders NO Added customers section when the added-customers capability isn't wired for this model (matches how two-echelon-gold-au renders this tab)", () => {
+  // so two-echelon-gold-au (which at the time reused CustomersTab without
+  // the added-* props — see Workspace.tsx's conditional prop spread)
+  // silently rendered a live-looking "+ Add customer" affordance that did
+  // nothing: clicking Add called `onAddedCustomersChange?.(...)` (undefined
+  // there, so it short-circuited) but `resetAddForm()` still ran
+  // unconditionally afterward, clearing the form as if the add had
+  // succeeded — the student sees no error and nothing was added. B6.2 gave
+  // two-echelon-gold-au its own real addedCustomers field and Workspace.tsx
+  // now wires these props for it too (this capability is no longer
+  // p-median-us-only) — this test now covers the generic "capability not
+  // wired at all" case, not a specific model.
+  it("renders NO Added customers section when the added-customers capability isn't wired at all (capability-gated, not model-gated)", () => {
     render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
     expect(screen.queryByTestId("added-customers-section")).not.toBeInTheDocument();
     expect(screen.queryByTestId("added-customers-empty")).not.toBeInTheDocument();

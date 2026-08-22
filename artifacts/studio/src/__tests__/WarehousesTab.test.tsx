@@ -161,20 +161,17 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
 // B5.2 — add/delete row for scenario-local addedWarehouses (B1.1), plus
 // inline precheck warning chips (B2.1's GET /scenarios/:id/precheck).
 describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
-  it("does not render an Added warehouses section for entity=refineries (addedWarehouses is p-median-us only)", () => {
+  it("does not render an Added warehouses section when the added-entity capability isn't wired (matches how any model without addedWarehouses/addedRefineries wired renders this tab)", () => {
     render(
       <WarehousesTab
         warehouses={warehouses}
         overrides={[]}
         capacityMode="none"
         onChange={vi.fn()}
-        entity="refineries"
-        addedWarehouses={[]}
-        onAddedWarehousesChange={vi.fn()}
-        onDeleteWarehouse={vi.fn()}
       />,
     );
     expect(screen.queryByTestId("added-warehouses-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-warehouse-row")).not.toBeInTheDocument();
   });
 
   it("shows an empty message when there are no added warehouses yet", () => {
@@ -351,5 +348,80 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
     await userEvent.click(screen.getByTestId("button-import-refineries"));
     expect(screen.getByText("Import refineries")).toBeInTheDocument();
     expect(screen.getByTestId("input-import-file-refineries")).toBeInTheDocument();
+  });
+
+  // B6.2 — the Refineries tab now gains the SAME add/delete-row UX
+  // p-median-us's Warehouses tab already has, since TwoEchelonInputs gained
+  // its own addedRefineries field. Workspace.tsx binds this same
+  // addedWarehouses/onAddedWarehousesChange/onDeleteWarehouse prop trio to
+  // inputs.addedRefineries for this reuse — capacityMode stays "none" for
+  // refineries (this model has no per-refinery capacity concept), so the
+  // capacity column/input never renders regardless of entity.
+  it("renders the Added refineries section with refinery-worded copy when onAddedWarehousesChange is wired for entity=refineries", () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        entity="refineries"
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
+    expect(screen.getByText("Added refineries")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-warehouse-row")).toHaveTextContent("+ Add refinery");
+  });
+
+  it("adding a refinery row calls onAddedWarehousesChange with a status but no capacity field set (capacityMode=none)", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        entity="refineries"
+        addedWarehouses={[]}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-id"), "ref-new-1");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Kalgoorlie West");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "WA");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "-30.8");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "121.3");
+    // No capacity input rendered at all under capacityMode="none".
+    expect(screen.queryByTestId("input-new-warehouse-capacity")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(onAddedWarehousesChange).toHaveBeenCalledWith([
+      { id: "ref-new-1", city: "Kalgoorlie West", state: "WA", lat: -30.8, lng: 121.3, capacity: null, status: "active" },
+    ]);
+  });
+
+  it("deleting an added refinery row calls onDeleteWarehouse with its id", async () => {
+    const onDeleteWarehouse = vi.fn();
+    const added = [{ id: "ref-new-1", city: "Kalgoorlie West", state: "WA", lat: -30.8, lng: 121.3, capacity: null, status: "active" as const }];
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        entity="refineries"
+        addedWarehouses={added}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={onDeleteWarehouse}
+      />,
+    );
+    expect(screen.getByTestId("row-added-warehouse-ref-new-1")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("button-delete-added-warehouse-ref-new-1"));
+    expect(onDeleteWarehouse).toHaveBeenCalledWith("ref-new-1");
   });
 });

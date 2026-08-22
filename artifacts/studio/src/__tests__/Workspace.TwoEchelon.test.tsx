@@ -145,14 +145,17 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
     expect(screen.queryByTestId("button-export-warehouses-csv")).not.toBeInTheDocument();
   });
 
-  // B5.1 — the real Distances grid is p-median-us only; two-echelon-gold-au's
-  // own distances entity (mine->refinery + refinery->customer legs) is
-  // B6.1-B6.3's fast-follow, not this task.
-  it("Distances stays a placeholder for two-echelon-gold-au (real grid is p-median-us only)", () => {
+  // B6.2 stage 4 — two-echelon-gold-au's own leg distances entity (mine->
+  // refinery + refinery->customer legs, one flat array) now has a real tab
+  // (LegDistancesTab), not a placeholder — B6.1-B6.3's earlier "fast-follow,
+  // not this task" note is exactly what this task closes.
+  it("Distances renders the real LegDistancesTab for two-echelon-gold-au, not a placeholder", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-distances"));
-    expect(screen.getByTestId("tab-content-placeholder")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+    expect(screen.getByTestId("legdistances-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("legdistances-tab-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
   });
 
   it("opening the Customers tab renders the real CustomerTable (reused as-is)", () => {
@@ -162,17 +165,26 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 
-  // B5.2 fix — CustomersTab's "Added customers" add-row section is a
-  // p-median-us-only capability (addedCustomers has no meaning on
-  // twoEchelonInputsSchema); Workspace.tsx omits the added-* props entirely
-  // for this model, and CustomersTab itself must not render the section (or
-  // its "+ Add customer" button) when they're absent — otherwise a student
-  // sees a live-looking affordance that silently does nothing on Add.
-  it("does NOT render the Added customers section or its add-row button for two-echelon-gold-au", () => {
+  // B6.2 — twoEchelonInputsSchema gained its own real addedCustomers field
+  // (mirroring addedWarehouseSchema's shape), and Workspace.tsx now wires
+  // CustomersTab's added-* props for this model too — supersedes B5.2's
+  // "p-median-us only" note above (that was true before this task).
+  it("renders the Added customers section and its add-row button for two-echelon-gold-au", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-customers"));
-    expect(screen.queryByTestId("added-customers-section")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-add-customer-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("added-customers-section")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-customer-row")).toBeInTheDocument();
+  });
+
+  // B6.2 — the Refineries tab (WarehousesTab reused via entity="refineries")
+  // now gets the SAME add/delete-row UX p-median-us's Warehouses tab has,
+  // since twoEchelonInputsSchema gained a real addedRefineries field.
+  it("renders the Added refineries section on the Refineries tab", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-refineries"));
+    expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
+    expect(screen.getByText("Added refineries")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-warehouse-row")).toHaveTextContent("+ Add refinery");
   });
 
   it("Optimization Parameters shows bomRatio only for two-echelon, no P field", () => {

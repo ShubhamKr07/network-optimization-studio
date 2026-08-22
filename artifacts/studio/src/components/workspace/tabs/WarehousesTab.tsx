@@ -55,12 +55,23 @@ interface WarehousesTabProps {
    * title need to change per model. Defaults to "warehouses" so every
    * existing p-median-us call site (and its tests) is unaffected. */
   entity?: "warehouses" | "refineries";
-  /** B5.2 — scenario-local addedWarehouses (B1.1). `addedWarehouses` is a
-   * p-median-us-only concept on `PMedianInputs` (two-echelon-gold-au has no
-   * analogous "add a facility" field) — this section only renders when
-   * `entity === "warehouses"`, never for the Refineries reuse. */
+  /** B5.2/B6.2 — scenario-local addedWarehouses (`PMedianInputs`) or
+   * addedRefineries (`TwoEchelonInputs`, B6.2 — Workspace.tsx binds this
+   * same prop name to `inputs.addedRefineries` for the entity="refineries"
+   * reuse; the shape happens to match exactly, `capacity` simply stays
+   * unset/ignored since capacityMode is always "none" for refineries). This
+   * section renders whenever the caller actually wires
+   * `onAddedWarehousesChange` — capability-gated (see that prop's own
+   * comment), not `entity`-gated, so it's a no-op unless a model has this
+   * concept wired at all. */
   addedWarehouses?: AddedWarehouse[];
-  /** Fired on both add (append) and in-row edits (status/capacity) — full replacement array, same `onChange`-out convention as every other tab. */
+  /** Fired on both add (append) and in-row edits (status/capacity) — full
+   * replacement array, same `onChange`-out convention as every other tab.
+   * Whether this is wired at all is the actual gate on rendering the
+   * "Added ..." section below (see `addedSection`'s own comment — fix,
+   * mirroring CustomersTab.tsx's B5.2 gating bug fix: a per-model gate on
+   * `entity` alone silently missed the next reuse, exactly this repo's
+   * most-recurring bug class per CLAUDE.md's Rounds 1-5). */
   onAddedWarehousesChange?: (next: AddedWarehouse[]) => void;
   /** Fired on delete only — kept separate from onAddedWarehousesChange because the caller (Workspace.tsx) also needs to purge any distanceOverrides referencing this id in the SAME atomic inputs update, which a generic "here's the new array" diff can't express cleanly. */
   onDeleteWarehouse?: (id: string) => void;
@@ -97,6 +108,10 @@ export function WarehousesTab({
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
   const emptyLabel = entity === "refineries" ? "No refinery candidates in this dataset." : "No warehouse candidates in this dataset.";
+  // B6.2 — singular label for the "Added ..." section's copy (heading,
+  // empty message, button, id-collision error), entity-aware the same way
+  // `emptyLabel` already is.
+  const addedEntityLabel = entity === "refineries" ? "refinery" : "warehouse";
 
   // B5.2 — add-row form draft state, mirroring DistancesTab.tsx's own
   // addingRow/newX/addError pattern verbatim.
@@ -139,7 +154,7 @@ export function WarehousesTab({
       return;
     }
     if (knownWarehouseIds.has(id)) {
-      setAddError(`ID '${id}' is already in use by another warehouse in this scenario.`);
+      setAddError(`ID '${id}' is already in use by another ${addedEntityLabel} in this scenario.`);
       return;
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -211,21 +226,33 @@ export function WarehousesTab({
     />
   );
 
-  // B5.2 — the "Added warehouses" section (add-row form + delete/precheck
-  // per row). Per this task's composition decision, this is a self-contained
-  // additional section next to WarehouseTable, NOT a fork of it — base
-  // dataset rows (WarehouseTable, above) keep their existing
-  // status-toggle-only affordance untouched; only entries actually present
-  // in addedWarehouses ever get a delete button. Only rendered for
-  // entity="warehouses" — addedWarehouses has no meaning for the
-  // entity="refineries" reuse (two-echelon-gold-au's own inputs schema has
-  // no addedWarehouses/addedCustomers field at all).
-  const addedSection = entity === "warehouses" && (
+  // B5.2/B6.2 — the "Added warehouses"/"Added refineries" section (add-row
+  // form + delete/precheck per row). Per this task's composition decision,
+  // this is a self-contained additional section next to WarehouseTable, NOT
+  // a fork of it — base dataset rows (WarehouseTable, above) keep their
+  // existing status-toggle-only affordance untouched; only entries actually
+  // present in addedWarehouses ever get a delete button.
+  //
+  // Gated on `onAddedWarehousesChange != null` (capability-based), NOT
+  // `entity === "warehouses"` — B6.2 fix, mirroring CustomersTab.tsx's own
+  // B5.2 review fix exactly: two-echelon-gold-au's Refineries tab (this
+  // component reused via entity="refineries") now HAS a real addedRefineries
+  // concept on TwoEchelonInputs, so gating on the entity string alone would
+  // have silently kept blocking it here too — the same recurring "gate
+  // added on one branch, not its sibling reuse" bug class (CLAUDE.md's
+  // Rounds 1-5). The label/testids below stay "warehouses"-worded
+  // (WarehousesTab doesn't thread `entity` into this section) since neither
+  // call site's students would be confused by it in context — Refineries is
+  // this component's only OTHER reuse and there's no ambiguity about which
+  // section is being edited.
+  const addedSection = onAddedWarehousesChange != null && (
     <div className="mt-4" data-testid="added-warehouses-section">
-      <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">Added warehouses</h3>
+      <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">
+        {entity === "refineries" ? "Added refineries" : "Added warehouses"}
+      </h3>
       {addedWarehouses.length === 0 ? (
         <p className="text-xs text-muted-foreground mb-2" data-testid="added-warehouses-empty">
-          No added warehouses yet — use "+ Add warehouse" below to create one.
+          No added {addedEntityLabel}s yet — use "+ Add {addedEntityLabel}" below to create one.
         </p>
       ) : (
         <div className="max-h-[40vh] overflow-y-auto mb-2">
@@ -333,7 +360,7 @@ export function WarehousesTab({
         </div>
       ) : (
         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAddingRow(true)} data-testid="button-add-warehouse-row">
-          + Add warehouse
+          + Add {addedEntityLabel}
         </Button>
       )}
       {addError && (

@@ -45,6 +45,7 @@ import { StationsTab, type AddedStation } from "@/components/workspace/tabs/Stat
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
+import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
@@ -53,6 +54,7 @@ import type { MineOverride } from "@/components/tables/MineTable";
 import type { StationOverride } from "@/components/tables/StationTable";
 import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
+import type { LegDistanceOverride } from "@/components/workspace/tabs/LegDistancesTab";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -206,6 +208,28 @@ function knownStationIds(dataset: { customers: { id: string }[] } | undefined, i
   return [...(dataset?.customers ?? []).map(s => s.id), ...added.map(s => s.id)];
 }
 
+// B6.2 — two-echelon-gold-au analogues for the new Leg distances tab's
+// client-side existence check and leg-type badge. `dataset.warehouses`
+// carries BOTH the fixed mine and the refinery candidates (same
+// WarehouseCandidate.kind field WarehousesTab's own mine-filter already
+// reads) — split by kind rather than reusing knownWarehouseIds/
+// knownMineIds, since neither of those existing helpers distinguishes a
+// third role the way this model needs. No addedMines concept (the mine is
+// fixed) so mine ids are base-dataset-only.
+function knownGoldMineIds(dataset: { warehouses: { id: string; kind?: string }[] } | undefined): string[] {
+  return (dataset?.warehouses ?? []).filter(w => w.kind === "mine").map(w => w.id);
+}
+
+function knownGoldRefineryIds(dataset: { warehouses: { id: string; kind?: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = Array.isArray(inputs?.addedRefineries) ? (inputs!.addedRefineries as { id: string }[]) : [];
+  return [...(dataset?.warehouses ?? []).filter(w => w.kind !== "mine").map(w => w.id), ...added.map(r => r.id)];
+}
+
+function knownGoldCustomerIds(dataset: { customers: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = Array.isArray(inputs?.addedCustomers) ? (inputs!.addedCustomers as { id: string }[]) : [];
+  return [...(dataset?.customers ?? []).map(c => c.id), ...added.map(c => c.id)];
+}
+
 // B5.2 — readers for the add/delete grids, same convention as
 // warehouseOverridesFromInputs/customerOverridesFromInputs above.
 function addedWarehousesFromInputs(inputs: Record<string, unknown> | null): AddedWarehouse[] {
@@ -216,6 +240,16 @@ function addedWarehousesFromInputs(inputs: Record<string, unknown> | null): Adde
 function addedCustomersFromInputs(inputs: Record<string, unknown> | null): AddedCustomer[] {
   const raw = inputs?.addedCustomers;
   return Array.isArray(raw) ? (raw as AddedCustomer[]) : [];
+}
+
+// B6.2 — two-echelon-gold-au's addedRefineries reader. Reuses
+// WarehousesTab's own AddedWarehouse type (its shape — id/city/state/lat/
+// lng/status, optional capacity — matches addedRefinerySchema exactly minus
+// the never-set capacity field, see WarehousesTab.tsx's own comment on this
+// reuse) rather than inventing a parallel AddedRefinery type.
+function addedRefineriesFromInputs(inputs: Record<string, unknown> | null): AddedWarehouse[] {
+  const raw = inputs?.addedRefineries;
+  return Array.isArray(raw) ? (raw as AddedWarehouse[]) : [];
 }
 
 // Task 30 (B6.1 stage 4) — transport-coal analogues.
@@ -404,9 +438,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // precheckTransportInputs and wired it into this same GET .../precheck
   // endpoint, but nothing fetched it from the frontend until MinesTab/
   // StationsTab's added-row precheck chips (this task) needed it.
+  // B6.2 stage 4 — two-echelon-gold-au joins too, same reasoning: stage 3
+  // built precheckTwoEchelonInputs, this task's Refineries/Customers
+  // added-row precheck chips are the first frontend consumer.
   const { data: precheck } = usePrecheckScenario(currentScenario?.id ?? 0, {
     query: {
-      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal"),
+      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au"),
       queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
     },
   });
@@ -457,17 +494,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
   }
 
-  // B5.2 — deleting an added warehouse/customer must ALSO purge any
-  // distanceOverrides referencing its id, in the SAME localInputs update
-  // (not two separate setLocalInputs calls, which would both read the same
-  // stale closure and the second could clobber the first — same hazard
-  // Round 3's map-multi-select bulk-action fix already documents elsewhere
-  // in this file's history). A deleted id is checked against BOTH fromId
-  // and toId even though a real warehouse id only ever appears as fromId
-  // (and a customer id only as toId) in a VALID override — defensive/
-  // symmetric so one function serves both callers without needing to know
-  // which role its id plays.
-  function deleteAddedEntityAndOverrides(arrayKey: "addedWarehouses" | "addedCustomers", id: string) {
+  // B5.2/B6.2 — deleting an added warehouse/customer/refinery must ALSO
+  // purge any distanceOverrides referencing its id, in the SAME localInputs
+  // update (not two separate setLocalInputs calls, which would both read
+  // the same stale closure and the second could clobber the first — same
+  // hazard Round 3's map-multi-select bulk-action fix already documents
+  // elsewhere in this file's history). A deleted id is checked against BOTH
+  // fromId and toId even though a real warehouse/refinery id only ever
+  // appears as fromId (and a customer id only as toId, and for two-echelon
+  // a refinery id can be EITHER side — the toId of a mine leg or the fromId
+  // of a customer leg) in a VALID override — defensive/symmetric so one
+  // function serves every caller without needing to know which role its id
+  // plays. `"addedRefineries"` (B6.2) reuses this SAME function unmodified —
+  // two-echelon-gold-au's `distanceOverrides` field shares the exact name
+  // and `{fromId, toId, distance}` shape p-median-us's does (a deliberate
+  // naming choice made in this task's stage 1, specifically so this
+  // function would generalize without a third near-duplicate).
+  function deleteAddedEntityAndOverrides(arrayKey: "addedWarehouses" | "addedCustomers" | "addedRefineries", id: string) {
     setLocalInputs(prev => {
       if (!prev) return prev;
       const arr = Array.isArray(prev[arrayKey]) ? (prev[arrayKey] as { id: string }[]) : [];
@@ -559,11 +602,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
-      // B5.1 — Distances grid, p-median-us only: dataset.warehouses/customers
-      // (needed for the client-side reference-existence check) don't exist
-      // for p-median-brazil, and two-echelon-gold-au's distances are a
-      // still-open fast-follow, not this task.
-      (activeTab.entity === "distances" && modelId === "p-median-us") ||
+      // B5.1/B6.2 — Distances grid. p-median-us renders DistancesTab;
+      // two-echelon-gold-au shares the same sidebar entity id ("distances")
+      // but renders LegDistancesTab instead (a structurally different
+      // three-id-space/two-leg component — see renderTabContent's own
+      // branch below) — p-median-brazil's dataset.warehouses/customers
+      // still don't exist, so it stays excluded.
+      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
 
@@ -847,10 +892,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // A5.3 — two-echelon-gold-au's Refineries tab. `dataset.warehouses`
+    // A5.3/B6.2 — two-echelon-gold-au's Refineries tab. `dataset.warehouses`
     // carries both the fixed mine and the refinery candidates
     // (WarehouseCandidate.kind) — WarehousesTab already filters out the
     // mine-kind row regardless of entity, so this is a straight reuse.
+    // B6.2: addedRefineries/onAddedRefineriesChange/onDeleteRefinery/
+    // precheckErrors join the props (WarehousesTab's addedSection is
+    // capability-gated on onAddedWarehousesChange being wired, not on
+    // `entity` — see that component's own comment), reusing
+    // deleteAddedEntityAndOverrides unmodified since twoEchelonInputsSchema's
+    // distanceOverrides shares p-median-us's exact field name/shape.
     if (activeTab.kind === "input" && activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
@@ -862,6 +913,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           entity="refineries"
+          addedWarehouses={addedRefineriesFromInputs(localInputs)}
+          onAddedWarehousesChange={next => updateInputsField("addedRefineries", next)}
+          onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}
+          precheckErrors={precheck?.errors}
         />
       );
     }
@@ -881,12 +936,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("customerOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
-          // B5.2 — addedCustomers is a p-median-us-only concept
-          // (twoEchelonInputsSchema has no such field) — omitted entirely
-          // for two-echelon-gold-au rather than passed as empty/no-op, so
-          // this call site can't silently drift if that model ever grows
-          // its own add-a-customer field with different semantics.
-          {...(modelId === "p-median-us"
+          // B5.2/B6.2 — addedCustomers used to be a p-median-us-only concept
+          // (twoEchelonInputsSchema had no such field); B6.2 gave
+          // two-echelon-gold-au its own real addedCustomers field with the
+          // exact same shape, so it joins this spread too now — both models
+          // read/write `addedCustomers` and `distanceOverrides` under their
+          // own exact field names, so `addedCustomersFromInputs`/
+          // `deleteAddedEntityAndOverrides` need no per-model branching here.
+          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au"
             ? {
                 addedCustomers: addedCustomersFromInputs(localInputs),
                 onAddedCustomersChange: (next: AddedCustomer[]) => updateInputsField("addedCustomers", next),
@@ -975,6 +1032,32 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
           warehouseIds={knownWarehouseIds(dataset, localInputs)}
           customerIds={knownCustomerIds(dataset, localInputs)}
+          onChange={next => updateInputsField("distanceOverrides", next)}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+        />
+      );
+    }
+
+    // B6.2 stage 4 — Leg distances grid tab, two-echelon-gold-au only.
+    // Shares the sidebar's "distances" entity id with p-median-us's own
+    // Distances tab (inputEntriesForModel already lists it per-model, no
+    // change needed there) but renders a DIFFERENT component — this
+    // model's `distanceOverrides` spans two structurally different legs
+    // (mine->refinery, refinery->customer) sharing one flat array, not one
+    // single warehouse/customer role pairing. `distanceOverridesFromInputs`
+    // is reused as-is (not a new reader) — twoEchelonInputsSchema's
+    // distanceOverrides shares p-median-us's exact field name/shape
+    // ({fromId, toId, distance}), a deliberate stage-1 naming choice.
+    if (activeTab.kind === "input" && activeTab.entity === "distances" && modelId === "two-echelon-gold-au") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <LegDistancesTab
+          distanceOverrides={distanceOverridesFromInputs(localInputs)}
+          savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
+          mineIds={knownGoldMineIds(dataset)}
+          refineryIds={knownGoldRefineryIds(dataset, localInputs)}
+          customerIds={knownGoldCustomerIds(dataset, localInputs)}
           onChange={next => updateInputsField("distanceOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
