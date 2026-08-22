@@ -1294,7 +1294,7 @@ describe("POST /api/scenarios/:id/reset-to-baseline", () => {
     expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 
-  it("clears warehouseOverrides and customerOverrides, leaving other inputs untouched", async () => {
+  it("clears warehouseOverrides, customerOverrides, addedWarehouses, addedCustomers, and distanceOverrides, leaving other inputs untouched", async () => {
     const cookie = await loginAs(OWNER);
     const dirtyRow = {
       ...pmedianRow,
@@ -1302,10 +1302,16 @@ describe("POST /api/scenarios/:id/reset-to-baseline", () => {
         ...pmedianInputs,
         warehouseOverrides: [{ id: "ATL", status: "forced_open", capacity: 500000 }],
         customerOverrides: [{ id: "C1", status: "excluded" }],
+        addedWarehouses: [{ id: "WH-NEW", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }],
+        addedCustomers: [{ id: "C-NEW", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 100 }],
+        distanceOverrides: [{ fromId: "ATL", toId: "C1", distance: 1 }],
       },
     };
     mockDb.select.mockReturnValue(makeChain([dirtyRow]));
-    const clearedRow = { ...dirtyRow, inputs: { ...pmedianInputs, warehouseOverrides: [], customerOverrides: [] } };
+    const clearedRow = {
+      ...dirtyRow,
+      inputs: { ...pmedianInputs, warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [] },
+    };
     mockDb.update.mockReturnValue(makeChain([clearedRow]));
 
     const res = await request(app).post("/api/scenarios/1/reset-to-baseline").set("Cookie", cookie);
@@ -1313,6 +1319,9 @@ describe("POST /api/scenarios/:id/reset-to-baseline", () => {
     expect(res.status).toBe(200);
     expect(res.body.inputs.warehouseOverrides).toEqual([]);
     expect(res.body.inputs.customerOverrides).toEqual([]);
+    expect(res.body.inputs.addedWarehouses).toEqual([]);
+    expect(res.body.inputs.addedCustomers).toEqual([]);
+    expect(res.body.inputs.distanceOverrides).toEqual([]);
     expect(res.body.inputs.p).toBe(pmedianInputs.p);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
   });

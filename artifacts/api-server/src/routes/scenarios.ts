@@ -1028,7 +1028,11 @@ router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
     // the four route-pairing checks a new entity needs).
     nextInputs = { ...inputs, mineCapacities: {}, stationDemands: {}, addedMines: [], addedStations: [], laneCostOverrides: [] };
   } else if (scenario.modelId === "p-median-us") {
-    nextInputs = { ...inputs, warehouseOverrides: [], customerOverrides: [] };
+    // Task #25 — addedWarehouses/addedCustomers/distanceOverrides (B1.1) join
+    // the reset alongside the pre-existing warehouseOverrides/customerOverrides
+    // pair, matching the precedent transport-coal and two-echelon-gold-au
+    // already got above (Gate 1.9's reset-to-baseline route-pairing check).
+    nextInputs = { ...inputs, warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [] };
   } else if (scenario.modelId === "two-echelon-gold-au") {
     // B6.2 — addedRefineries/addedCustomers/distanceOverrides join the reset
     // alongside the pre-existing refineryOverrides/customerOverrides pair,
