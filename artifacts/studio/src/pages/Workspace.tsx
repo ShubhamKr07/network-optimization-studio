@@ -47,6 +47,10 @@ import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
+import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
+import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
+import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
+import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
@@ -1118,6 +1122,34 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           useBrazilMap={useBrazilMap}
         />
       );
+    }
+
+    // Phase C, Task 3 — Open Warehouses/Customer Assignments/Cost Summary/
+    // Service Stats output grid tabs. p-median-us only for this pilot (same
+    // boundary as Warehouses/Customers/Distances — see this task's own plan
+    // doc's Global Constraints); every other model falls through to the
+    // generic placeholder below. "Flows" (OUTPUT_ENTRIES' remaining
+    // unhandled entry) is genuinely N/A for p-median-us and stays on that
+    // same placeholder fallback — not built here, deferred to C6.1.
+    if (
+      activeTab.kind === "output" &&
+      ["open-warehouses", "customer-assignments", "cost-summary", "service-stats"].includes(activeTab.entity)
+    ) {
+      if (!hasFreshSolvedRun) {
+        return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
+      }
+      if (modelId !== "p-median-us") {
+        return (
+          <span className="text-muted-foreground" data-testid="tab-content-placeholder">
+            {activeTab.label} — not available for this model yet.
+          </span>
+        );
+      }
+      const result = currentScenario?.result ?? null;
+      if (activeTab.entity === "open-warehouses") return <OpenWarehousesTab result={result} scenarioId={currentScenario!.id} />;
+      if (activeTab.entity === "customer-assignments") return <AssignmentsTab result={result} scenarioId={currentScenario!.id} />;
+      if (activeTab.entity === "cost-summary") return <CostSummaryTab result={result} scenarioId={currentScenario!.id} />;
+      return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} />;
     }
 
     // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids

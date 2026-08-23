@@ -244,6 +244,36 @@ describe("Workspace — placeholder tabs", () => {
   });
 });
 
+describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
+  const solvedScenario = {
+    ...scenario,
+    result: {
+      status: "optimal" as const,
+      objective: 29873735731,
+      runTimeSec: 0.45,
+      quality: "Proven optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 100, distance: 42.1, band: 0 }],
+      metrics: { weightedAvgDistance: 42.1, utilizationByNode: [{ warehouseId: "CHI", city: "Chicago", utilization: 0.5 }] },
+      details: {},
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+  };
+
+  it("renders the Customer Assignments grid when its sidebar entry is opened on a solved p-median-us scenario", async () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-customer-assignments"));
+    // "Customer Assignments" text alone is ambiguous (sidebar entry + tab
+    // bar + AssignmentsTab's own header all render it) — assert on the
+    // actual grid content instead, which only exists once the real
+    // AssignmentsTab component (not a placeholder) is mounted.
+    expect(await screen.findByTestId("assignment-row-C1")).toHaveTextContent("CHI");
+  });
+});
+
 describe("Workspace — Distances tab (B5.1)", () => {
   it("opening the Distances sidebar entry renders the real grid with the scenario's distanceOverrides, not a placeholder", () => {
     renderWorkspace();
