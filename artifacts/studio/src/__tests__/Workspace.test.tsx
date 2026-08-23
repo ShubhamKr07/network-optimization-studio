@@ -274,6 +274,61 @@ describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
   });
 });
 
+describe("Workspace — Reports tab (Phase C, Task 4)", () => {
+  const baselineScenario = {
+    ...scenario,
+    id: 1,
+    name: "Baseline",
+    createdAt: "2026-01-01T00:00:00Z",
+    result: {
+      status: "optimal" as const,
+      objective: 100,
+      runTimeSec: 0.5,
+      quality: "Proven optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 100, distance: 100 }],
+      metrics: { weightedAvgDistance: 100, utilizationByNode: [{ warehouseId: "CHI", city: "Chicago", utilization: 0.5 }] },
+      details: {},
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+  };
+
+  const currentSolvedScenario = {
+    ...scenario2,
+    id: 2,
+    name: "Current",
+    createdAt: "2026-02-01T00:00:00Z",
+    result: {
+      status: "optimal" as const,
+      objective: 80,
+      runTimeSec: 0.4,
+      quality: "Proven optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 100, distance: 50 }],
+      metrics: { weightedAvgDistance: 50, utilizationByNode: [{ warehouseId: "CHI", city: "Chicago", utilization: 0.7 }] },
+      details: {},
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+  };
+
+  it("renders the Reports tab, comparing the picked baseline against the current scenario", async () => {
+    mockUseGetScenario.mockReturnValue({ data: currentSolvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [baselineScenario, currentSolvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-report-reports"));
+    expect(await screen.findByTestId("reports-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("report-objective-baseline")).toHaveTextContent("100");
+    expect(screen.getByTestId("report-objective-current")).toHaveTextContent("80");
+  });
+
+  it("disables the Reports sidebar entry (matching Outputs) when the active scenario has no fresh solved run", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-report-reports")).toBeDisabled();
+  });
+});
+
 describe("Workspace — Distances tab (B5.1)", () => {
   it("opening the Distances sidebar entry renders the real grid with the scenario's distanceOverrides, not a placeholder", () => {
     renderWorkspace();

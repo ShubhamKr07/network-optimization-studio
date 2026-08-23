@@ -51,7 +51,9 @@ import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
+import { ReportsTab } from "@/components/workspace/tabs/ReportsTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
+import { pickBaseline } from "@/lib/pickBaseline";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
@@ -358,6 +360,11 @@ const OUTPUT_ENTRIES: SidebarEntry[] = [
   { id: "cost-summary", label: "Cost Summary" },
   { id: "service-stats", label: "Service Stats" },
 ];
+
+// Phase C, Task 4 — Reports sidebar section, a single entry for now (C3.1's
+// compare fold-in, Task 8, extends this SAME tab's content — not a second
+// entry).
+const REPORT_ENTRIES: SidebarEntry[] = [{ id: "reports", label: "Reports" }];
 
 interface WorkspaceProps {
   modelId: StudioModelType;
@@ -1152,6 +1159,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} />;
     }
 
+    // Phase C, Task 4 — Reports tab: baseline (DD-3's pickBaseline) vs.
+    // current scenario cost/service/utilization comparison. Not scoped to
+    // p-median-us in the placeholder sense the output grids are — ReportsTab
+    // itself degrades gracefully (baseline?.result can be null, e.g. an
+    // unsolved baseline) — but it still needs a fresh solved CURRENT run,
+    // same StaleOutputBanner gate every output-kind tab already uses.
+    if (activeTab.kind === "report" && activeTab.entity === "reports") {
+      if (!hasFreshSolvedRun) {
+        return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
+      }
+      const baseline = pickBaseline((scenarios ?? []).filter(s => s.modelId === modelId));
+      return (
+        <ReportsTab
+          baseline={baseline}
+          current={currentScenario ?? null}
+          bands={distanceBandsFromInputs(localInputs)}
+        />
+      );
+    }
+
     // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids
     // with p-median-us for naming parity (inputEntriesForModel's comment)
     // but have no real content: `GET /dataset` genuinely has no
@@ -1247,10 +1274,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onCreateScenario={handleCreateScenario}
           inputs={inputEntriesForModel(modelId)}
           outputs={OUTPUT_ENTRIES}
+          reports={REPORT_ENTRIES}
           hasSolvedRun={hasFreshSolvedRun}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
+          onOpenReport={entry => openTab("report", entry)}
           onRenameScenario={handleRenameScenario}
           onCloneScenario={handleCloneScenario}
           onDeleteScenario={handleDeleteScenario}

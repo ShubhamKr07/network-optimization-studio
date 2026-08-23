@@ -19,6 +19,13 @@ interface SidebarTreeProps {
   inputs: SidebarEntry[];
   outputs: SidebarEntry[];
   /**
+   * Phase C, Task 4 — Reports section, a parallel list alongside Inputs/
+   * Outputs (same disabled-until-solved gating as Outputs, reusing
+   * `hasSolvedRun` unchanged — a report is only trustworthy once a fresh
+   * solved run exists, same reasoning as every output grid tab).
+   */
+  reports: SidebarEntry[];
+  /**
    * Outputs entries are greyed out/disabled until this is true (A0.1 brief:
    * "until a solved run exists for the active scenario"). A3.2: the caller
    * combines `result != null` with `!stale` before passing this down — a
@@ -29,6 +36,7 @@ interface SidebarTreeProps {
   activeEntityId?: string | null;
   onOpenInput: (entry: SidebarEntry) => void;
   onOpenOutput: (entry: SidebarEntry) => void;
+  onOpenReport: (entry: SidebarEntry) => void;
 
   // A4.1 — per-scenario-row operations. Rename fires immediately (its own
   // isolated `{name}`-only PATCH) rather than deferring to any tab's Save
@@ -54,10 +62,12 @@ export function SidebarTree({
   onCreateScenario,
   inputs,
   outputs,
+  reports,
   hasSolvedRun,
   activeEntityId = null,
   onOpenInput,
   onOpenOutput,
+  onOpenReport,
   onRenameScenario,
   onCloneScenario,
   onDeleteScenario,
@@ -128,6 +138,30 @@ export function SidebarTree({
                 aria-disabled={!hasSolvedRun}
                 aria-current={entry.id === activeEntityId}
                 onClick={() => onOpenOutput(entry)}
+                className={
+                  !hasSolvedRun
+                    ? "w-full text-left px-3 py-1.5 truncate text-muted-foreground/40 cursor-not-allowed"
+                    : rowClass(entry.id === activeEntityId)
+                }
+              >
+                {entry.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </SidebarSection>
+
+      <SidebarSection title="Reports" testid="sidebar-section-reports">
+        <ul>
+          {reports.map(entry => (
+            <li key={entry.id}>
+              <button
+                type="button"
+                data-testid={`sidebar-report-${entry.id}`}
+                disabled={!hasSolvedRun}
+                aria-disabled={!hasSolvedRun}
+                aria-current={entry.id === activeEntityId}
+                onClick={() => onOpenReport(entry)}
                 className={
                   !hasSolvedRun
                     ? "w-full text-left px-3 py-1.5 truncate text-muted-foreground/40 cursor-not-allowed"
