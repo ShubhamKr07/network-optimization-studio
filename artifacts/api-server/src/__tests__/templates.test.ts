@@ -12,6 +12,10 @@ import {
   buildDistanceStubRows,
   buildLaneCostStubRows,
   buildLegDistanceStubRows,
+  buildAssignmentRows,
+  buildOpenWarehouseRows,
+  buildCostSummaryRows,
+  buildServiceStatsRows,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -19,7 +23,12 @@ import {
   refineryRowsToCsv,
   distanceRowsToCsv,
   laneCostRowsToCsv,
+  assignmentRowsToCsv,
+  openWarehouseRowsToCsv,
+  costSummaryRowsToCsv,
+  serviceStatsRowsToCsv,
 } from "../services/templates.js";
+import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 
 describe("applyWarehouseOverrides", () => {
   it("returns one row per baseline warehouse with default status 'active' and null capacity when no override exists", () => {
@@ -535,5 +544,148 @@ describe("B6.2 — buildLegDistanceStubRows (legDistances stub generator)", () =
     const rows = buildLegDistanceStubRows("kalgoorlie", {})!;
     expect(rows).not.toBeNull();
     expect(rows.length).toBe(2); // one row per real base refinery
+  });
+});
+
+function makeResult(overrides: Partial<ResultEnvelope> = {}): ResultEnvelope {
+  return {
+    status: "optimal",
+    objective: 29873735731,
+    runTimeSec: 0.45,
+    quality: "Proven optimal",
+    edges: [
+      { fromId: "ALN", toId: "C1", flow: 205375, distance: 42.1, band: 0 },
+      { fromId: "DAL", toId: "C2", flow: 150000, distance: 812.4, band: 3 },
+    ],
+    metrics: {
+      utilizationByNode: [
+        { warehouseId: "ALN", city: "Allentown", utilization: 0.41 },
+        { warehouseId: "DAL", city: "Dallas", utilization: 0.6 },
+      ],
+      bandCoverage: [{ band: 200, percent: 30 }, { band: 400, percent: 45 }],
+      weightedAvgDistance: 382.9,
+    },
+    details: {},
+    solverUsed: "CBC",
+    infeasibilityReason: null,
+    ...overrides,
+  };
+}
+
+describe("buildAssignmentRows", () => {
+  it("returns one row per edge, mapping fromId/toId to warehouseId/customerId", () => {
+    const rows = buildAssignmentRows(makeResult());
+    expect(rows).toEqual([
+      { templateVersion: TEMPLATE_VERSION, customerId: "C1", warehouseId: "ALN", distanceMi: 42.1, band: 0, flow: 205375 },
+      { templateVersion: TEMPLATE_VERSION, customerId: "C2", warehouseId: "DAL", distanceMi: 812.4, band: 3, flow: 150000 },
+    ]);
+  });
+
+  it("uses null for band when the edge has no band", () => {
+    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 5 }] });
+    expect(buildAssignmentRows(result)[0].band).toBeNull();
+  });
+});
+
+describe("assignmentRowsToCsv", () => {
+  it("emits the template_version,customer_id,warehouse_id,distance_mi,band,flow header and one line per row", () => {
+    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult()));
+    const lines = csv.trim().split("\n");
+    expect(lines[0]).toBe("template_version,customer_id,warehouse_id,distance_mi,band,flow");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},C1,ALN,42.1,0,205375`);
+  });
+});
+
+describe("buildOpenWarehouseRows", () => {
+  it("returns one row per distinct fromId with total flow and utilization joined by warehouseId", () => {
+    const rows = buildOpenWarehouseRows(makeResult());
+    expect(rows).toEqual([
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "ALN", city: "Allentown", totalFlow: 205375, utilization: 0.41 },
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "DAL", city: "Dallas", totalFlow: 150000, utilization: 0.6 },
+    ]);
+  });
+
+  it("sums flow across multiple edges from the same warehouse", () => {
+    const result = makeResult({
+      edges: [
+        { fromId: "ALN", toId: "C1", flow: 100, distance: 1 },
+        { fromId: "ALN", toId: "C2", flow: 50, distance: 2 },
+      ],
+      metrics: { utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 0.3 }] },
+    });
+    expect(buildOpenWarehouseRows(result)).toEqual([
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "ALN", city: "Allentown", totalFlow: 150, utilization: 0.3 },
+    ]);
+  });
+
+  it("skips mine_to_refinery edges (not a facility-open edge for this model shape)", () => {
+    const result = makeResult({
+      edges: [{ fromId: "kalgoorlie", toId: "daggar-hills", flow: 100, distance: 293.66, leg: "mine_to_refinery" }],
+      metrics: {},
+    });
+    expect(buildOpenWarehouseRows(result)).toEqual([]);
+  });
+
+  it("defaults city to empty string and utilization to null when no matching utilizationByNode entry exists", () => {
+    const result = makeResult({
+      edges: [{ fromId: "BAL", toId: "C1", flow: 10, distance: 5 }],
+      metrics: {},
+    });
+    expect(buildOpenWarehouseRows(result)).toEqual([
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "BAL", city: "", totalFlow: 10, utilization: null },
+    ]);
+  });
+});
+
+describe("openWarehouseRowsToCsv", () => {
+  it("emits the template_version,warehouse_id,city,total_flow,utilization header", () => {
+    const csv = openWarehouseRowsToCsv(buildOpenWarehouseRows(makeResult()));
+    expect(csv.trim().split("\n")[0]).toBe("template_version,warehouse_id,city,total_flow,utilization");
+  });
+});
+
+describe("buildCostSummaryRows", () => {
+  it("returns exactly one row with the result's objective/weightedAvgDistance/runTimeSec/quality/solverUsed", () => {
+    expect(buildCostSummaryRows(makeResult())).toEqual([{
+      templateVersion: TEMPLATE_VERSION,
+      objective: 29873735731,
+      weightedAvgDistance: 382.9,
+      runTimeSec: 0.45,
+      quality: "Proven optimal",
+      solverUsed: "CBC",
+    }]);
+  });
+
+  it("uses null for weightedAvgDistance when metrics doesn't have it", () => {
+    const result = makeResult({ metrics: {} });
+    expect(buildCostSummaryRows(result)[0].weightedAvgDistance).toBeNull();
+  });
+});
+
+describe("costSummaryRowsToCsv", () => {
+  it("emits exactly one data line (plus header)", () => {
+    const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult())).trim().split("\n");
+    expect(lines.length).toBe(2);
+    expect(lines[0]).toBe("template_version,objective,weighted_avg_distance,run_time_sec,quality,solver_used");
+  });
+});
+
+describe("buildServiceStatsRows", () => {
+  it("returns one row per bandCoverage entry", () => {
+    expect(buildServiceStatsRows(makeResult())).toEqual([
+      { templateVersion: TEMPLATE_VERSION, band: 200, percent: 30 },
+      { templateVersion: TEMPLATE_VERSION, band: 400, percent: 45 },
+    ]);
+  });
+
+  it("returns an empty array when metrics has no bandCoverage", () => {
+    expect(buildServiceStatsRows(makeResult({ metrics: {} }))).toEqual([]);
+  });
+});
+
+describe("serviceStatsRowsToCsv", () => {
+  it("emits the template_version,band,percent header", () => {
+    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult()));
+    expect(csv.trim().split("\n")[0]).toBe("template_version,band,percent");
   });
 });

@@ -3,6 +3,7 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset } from "./precheck.js";
+import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 
 // D4.1 export. CSV format choice: plain columns with template_version
 // repeated on every row (not a leading comment line) — simpler for D5's
@@ -651,4 +652,141 @@ export function buildLegDistanceStubRows(
     }));
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase C, Task 1 — output-entity export. Unlike every entity above (which
+// derive rows from scenario.inputs — base dataset + sparse overrides), these
+// four derive rows from scenario.result (a solved ResultEnvelope). No base
+// dataset to enumerate, no overrides to merge — just a read of the already-
+// solved edges/metrics. p-median-us only for this pilot; other models
+// fast-follow in a later plan once this pattern is proven (see this file's
+// own Phase C plan doc for the full rationale).
+// ---------------------------------------------------------------------------
+
+export interface AssignmentTemplateRow {
+  templateVersion: number;
+  customerId: string;
+  warehouseId: string;
+  distanceMi: number;
+  band: number | null;
+  flow: number;
+}
+
+export function buildAssignmentRows(result: ResultEnvelope): AssignmentTemplateRow[] {
+  return result.edges.map(e => ({
+    templateVersion: TEMPLATE_VERSION,
+    customerId: e.toId,
+    warehouseId: e.fromId,
+    distanceMi: e.distance,
+    band: e.band ?? null,
+    flow: e.flow,
+  }));
+}
+
+export function assignmentRowsToCsv(rows: AssignmentTemplateRow[]): string {
+  const header = "template_version,customer_id,warehouse_id,distance_mi,band,flow";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.customerId, r.warehouseId, r.distanceMi, r.band ?? "", r.flow].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+export interface OpenWarehouseTemplateRow {
+  templateVersion: number;
+  warehouseId: string;
+  city: string;
+  totalFlow: number;
+  utilization: number | null;
+}
+
+// Sums flow per distinct fromId across edges. Skips mine_to_refinery edges
+// (two-echelon's own leg type, not a facility-open edge for the "which
+// warehouse-equivalent node is open" question this entity answers) — a
+// no-op for p-median-us today (its edges never carry `leg`), kept so this
+// function is already correct if C6.1 later reuses it for two-echelon's
+// refinery_to_customer leg.
+export function buildOpenWarehouseRows(result: ResultEnvelope): OpenWarehouseTemplateRow[] {
+  const flowByWarehouse = new Map<string, number>();
+  for (const e of result.edges) {
+    if (e.leg === "mine_to_refinery") continue;
+    flowByWarehouse.set(e.fromId, (flowByWarehouse.get(e.fromId) ?? 0) + e.flow);
+  }
+  const utilByWarehouse = new Map((result.metrics.utilizationByNode ?? []).map(u => [u.warehouseId, u]));
+  return [...flowByWarehouse.entries()].map(([warehouseId, totalFlow]) => {
+    const u = utilByWarehouse.get(warehouseId);
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      warehouseId,
+      city: u?.city ?? "",
+      totalFlow,
+      utilization: u?.utilization ?? null,
+    };
+  });
+}
+
+export function openWarehouseRowsToCsv(rows: OpenWarehouseTemplateRow[]): string {
+  const header = "template_version,warehouse_id,city,total_flow,utilization";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.warehouseId, csvEscape(r.city), r.totalFlow, r.utilization ?? ""].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+export interface CostSummaryTemplateRow {
+  templateVersion: number;
+  objective: number;
+  weightedAvgDistance: number | null;
+  runTimeSec: number;
+  quality: string;
+  solverUsed: string;
+}
+
+// Always exactly one row — a scenario has one current result, not a
+// baseline/current pair (the Reports tab, Task 7, is where baseline
+// comparison happens; this entity is a plain export of the current solve).
+export function buildCostSummaryRows(result: ResultEnvelope): CostSummaryTemplateRow[] {
+  return [{
+    templateVersion: TEMPLATE_VERSION,
+    objective: result.objective,
+    weightedAvgDistance: result.metrics.weightedAvgDistance ?? null,
+    runTimeSec: result.runTimeSec,
+    quality: result.quality,
+    solverUsed: result.solverUsed,
+  }];
+}
+
+export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
+  const header = "template_version,objective,weighted_avg_distance,run_time_sec,quality,solver_used";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.objective, r.weightedAvgDistance ?? "", r.runTimeSec, csvEscape(r.quality), csvEscape(r.solverUsed)].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+export interface ServiceStatsTemplateRow {
+  templateVersion: number;
+  band: number;
+  percent: number;
+}
+
+// Reads the solver's own metrics.bandCoverage directly (server-computed at
+// solve time) rather than recomputing client-side-style from edges+bands —
+// deliberately simpler than the Reports tab's (Task 7) interactive band
+// display, which DOES recompute client-side from lib/bands.ts because a
+// student can edit bands post-solve without re-solving (E1.1's existing
+// design). This export entity is a point-in-time snapshot of the actual
+// solved result, so reading the stored metrics field is correct here.
+export function buildServiceStatsRows(result: ResultEnvelope): ServiceStatsTemplateRow[] {
+  return (result.metrics.bandCoverage ?? []).map(b => ({
+    templateVersion: TEMPLATE_VERSION,
+    band: b.band,
+    percent: b.percent,
+  }));
+}
+
+export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
+  const header = "template_version,band,percent";
+  const lines = rows.map(r => [r.templateVersion, r.band, r.percent].join(","));
+  return [header, ...lines].join("\n") + "\n";
 }
