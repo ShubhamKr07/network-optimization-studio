@@ -538,6 +538,10 @@ export const ExportScenarioEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  assignments: 'assignments',
+  openWarehouses: 'openWarehouses',
+  costSummary: 'costSummary',
+  serviceStats: 'serviceStats',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];

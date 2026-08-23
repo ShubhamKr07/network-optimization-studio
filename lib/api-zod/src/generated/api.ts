@@ -517,7 +517,7 @@ export const ExportScenarioParams = zod.object({
 })
 
 export const ExportScenarioQueryParams = zod.object({
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats']),
   "format": zod.enum(['csv', 'json']),
   "stubFor": zod.coerce.string().optional().describe('entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse\/mine or customer\/station (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance\/cost template for — one row per counterpart (distance\/cost omitted) — instead of exporting the scenario\'s existing distanceOverrides\/laneCostOverrides.')
 })

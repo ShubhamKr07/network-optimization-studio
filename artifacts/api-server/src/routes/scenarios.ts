@@ -5,6 +5,7 @@ import { posthog } from "../lib/posthog.js";
 import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
+import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import {
   TEMPLATE_VERSION,
@@ -19,6 +20,10 @@ import {
   buildDistanceStubRows,
   buildLaneCostStubRows,
   buildLegDistanceStubRows,
+  buildAssignmentRows,
+  buildOpenWarehouseRows,
+  buildCostSummaryRows,
+  buildServiceStatsRows,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -26,7 +31,12 @@ import {
   refineryRowsToCsv,
   distanceRowsToCsv,
   laneCostRowsToCsv,
+  assignmentRowsToCsv,
+  openWarehouseRowsToCsv,
+  costSummaryRowsToCsv,
+  serviceStatsRowsToCsv,
 } from "../services/templates.js";
+import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
@@ -416,8 +426,14 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // lives on the same endpoint rather than a new route.
   const stubFor = req.query.stubFor as string | undefined;
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', or 'legDistances'" });
+  // Phase C, Task 2 — output-entity export (assignments/openWarehouses/
+  // costSummary/serviceStats), derived from the scenario's stored result
+  // rather than its inputs. p-median-us only for this pilot.
+  const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats"] as const;
+  type OutputEntity = typeof OUTPUT_ENTITIES[number];
+
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', or 'serviceStats'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -432,6 +448,53 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+
+  if (OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
+    // Phase C pilot — p-median-us only; other models fast-follow in a later
+    // plan once this pattern is proven (mirrors every other entity's
+    // per-model scoping in this route).
+    if (scenario.modelId !== "p-median-us") {
+      res.status(422).json({ error: "Output export is only supported for p-median-us scenarios right now" });
+      return;
+    }
+    if (stubFor) {
+      res.status(422).json({ error: "stubFor is not supported for output entities" });
+      return;
+    }
+    if (scenario.result == null || isStale(scenario)) {
+      res.status(422).json({ error: "Scenario must be solved and not stale to export output data" });
+      return;
+    }
+    const parsed = ResultEnvelopeSchema.safeParse(scenario.result);
+    if (!parsed.success) {
+      res.status(422).json({ error: "Stored result is not a valid result envelope" });
+      return;
+    }
+    const result = parsed.data;
+
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
+
+    const rows: AssignmentTemplateRow[] | OpenWarehouseTemplateRow[] | CostSummaryTemplateRow[] | ServiceStatsTemplateRow[] =
+      entity === "assignments" ? buildAssignmentRows(result)
+      : entity === "openWarehouses" ? buildOpenWarehouseRows(result)
+      : entity === "costSummary" ? buildCostSummaryRows(result)
+      : buildServiceStatsRows(result);
+
+    if (format === "csv") {
+      const csv = entity === "assignments" ? assignmentRowsToCsv(rows as AssignmentTemplateRow[])
+        : entity === "openWarehouses" ? openWarehouseRowsToCsv(rows as OpenWarehouseTemplateRow[])
+        : entity === "costSummary" ? costSummaryRowsToCsv(rows as CostSummaryTemplateRow[])
+        : serviceStatsRowsToCsv(rows as ServiceStatsTemplateRow[]);
+      res.type("text/csv").send(csv);
+      return;
+    }
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    return;
+  }
 
   // Each model is scoped to its own entity pair: p-median-us exports
   // warehouses/customers/distances, transport-coal exports

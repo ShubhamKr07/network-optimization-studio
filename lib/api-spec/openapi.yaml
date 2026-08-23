@@ -432,7 +432,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
+            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats]
         - name: format
           in: query
           required: true

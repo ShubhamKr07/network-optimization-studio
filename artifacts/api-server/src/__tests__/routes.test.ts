@@ -902,6 +902,85 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json&stubFor=ALN").set("Cookie", cookie);
     expect(res.status).toBe(422);
   });
+
+  // Phase C, Task 2 — output-entity export (assignments/openWarehouses/
+  // costSummary/serviceStats), derived from the scenario's stored result
+  // rather than its inputs.
+  it("exports assignments as JSON, derived from the scenario's stored result", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("assignments");
+    expect(res.body.rows).toEqual([{ templateVersion: 1, customerId: "C1", warehouseId: "ALN", distanceMi: 42.1, band: 0, flow: 50 }]);
+  });
+
+  it("exports openWarehouses/costSummary/serviceStats as CSV", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: { bandCoverage: [{ band: 200, percent: 100 }] }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+
+    for (const entity of ["openWarehouses", "costSummary", "serviceStats"]) {
+      const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=csv`).set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/text\/csv/);
+      expect(res.text).toContain("template_version");
+    }
+  });
+
+  it("422s an output-entity export when the scenario is unsolved (result is null)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: null }]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/solved and not stale/i);
+  });
+
+  it("422s an output-entity export when the scenario is stale", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([{
+      ...pmedianRow,
+      result: { status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x", edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null },
+      inputsUpdatedAt: new Date("2099-01-01"),
+      solvedAt: new Date("2000-01-01"),
+    }]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/solved and not stale/i);
+  });
+
+  it("422s an output-entity export for a non-p-median-us scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([{ ...transportRow, result: { status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x", edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null }, solvedAt: new Date("2026-01-01T00:00:00Z") }]));
+
+    const res = await request(app).get("/api/scenarios/8/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/p-median-us/i);
+  });
 });
 
 // ── Import preview + apply ─────────────────────────────────────────────────
