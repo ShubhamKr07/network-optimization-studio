@@ -23,6 +23,7 @@ import {
   getPrecheckScenarioQueryKey,
   type GetDatasetModelId,
   type Scenario,
+  type SolveResult,
 } from "@workspace/api-client-react";
 import { ArrowLeft, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -372,6 +373,15 @@ interface WorkspaceProps {
   userEmail: string;
 }
 
+// Task 6 (C5.1) — mirrors Studio.tsx:48's `ResultHistoryEntry` exactly (same
+// shape, module-scope declaration), adapted to Workspace.tsx's own
+// `localInputs`-equivalent type (a plain `Record<string, unknown>`, not
+// Studio.tsx's `LocalConfig`).
+interface ResultHistoryEntry {
+  result: SolveResult;
+  inputs: Record<string, unknown>;
+}
+
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const search = useSearch();
   // A4.1 — `chapterPath` (was discarded) is needed as the "clear the
@@ -495,6 +505,97 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       savedInputsRef.current = currentScenario.inputs;
     }
   }, [currentScenario?.id]);
+
+  // Task 6 (C5.1) — result-history stepper. Session-local, non-persisted
+  // history of this scenario's solve results AND the exact inputs that
+  // produced each one (mirrors Studio.tsx:48/248/443-473's proven pattern,
+  // ported here since Workspace.tsx had none — see the plan's own note that
+  // this is real groundwork, not optional polish). This is deliberately a
+  // THIRD, separate effect from BOTH the id-keyed localInputs-reset effect
+  // immediately above (left untouched — see its own comment) and the
+  // jobStatus-effect below (which only triggers the refetch; it has no
+  // access to the fresh result itself — POST /solve's response is just
+  // {jobId}, and the actual new `result` only becomes visible once
+  // useGetScenario's query re-resolves and `currentScenario` gets a NEW
+  // object with a new `.result` on a LATER render).
+  //
+  // Distinguishing "this result is new because the scenario switched"
+  // (reseed to exactly one entry) from "this result is new because a solve
+  // just completed on the SAME scenario" (append one entry) needs a ref
+  // tracking which scenario id the history currently reflects, compared by
+  // VALUE (id), not object identity — `currentScenario` itself is
+  // recomputed each render from multiple possibly-changing sources
+  // (scenarioFromApi ?? scenarios?.find(...) ?? scenarios?.[0]) and can
+  // produce a new object reference for the same logical scenario.
+  const [resultHistoryState, setResultHistoryState] = useState<{ items: ResultHistoryEntry[]; index: number }>({
+    items: [],
+    index: -1,
+  });
+  const historyScenarioIdRef = useRef<number | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!currentScenario) return;
+    if (historyScenarioIdRef.current !== currentScenario.id) {
+      // Scenario switched (including the very first render) — reseed to
+      // exactly one entry (the scenario's already-persisted result), or
+      // empty if it's unsolved. Mirrors Studio.tsx:443-450's own seeding
+      // effect.
+      historyScenarioIdRef.current = currentScenario.id;
+      if (currentScenario.result) {
+        setResultHistoryState({
+          items: [{ result: currentScenario.result, inputs: currentScenario.inputs as Record<string, unknown> }],
+          index: 0,
+        });
+      } else {
+        setResultHistoryState({ items: [], index: -1 });
+      }
+      return;
+    }
+    // Same scenario as last time this effect ran — only append if this is a
+    // genuinely NEW, non-null result (not the same one already recorded as
+    // the newest entry). Comparing by object reference is sufficient and
+    // deliberate: TanStack Query's default structural sharing means an
+    // unrelated background refetch that returns byte-identical data keeps
+    // the same `.result` reference, so this also naturally guards against
+    // double-appending on e.g. a window-refocus refetch, not just literal
+    // re-renders.
+    const latest = currentScenario.result;
+    if (!latest) return;
+    setResultHistoryState(prev => {
+      const newest = prev.items[prev.items.length - 1];
+      if (newest && newest.result === latest) return prev;
+      const entry: ResultHistoryEntry = { result: latest, inputs: currentScenario.inputs as Record<string, unknown> };
+      return { items: [...prev.items, entry], index: prev.items.length };
+    });
+  }, [currentScenario?.result, currentScenario?.id]);
+
+  // Stepping through history also restores the exact inputs that produced
+  // that result — savedInputsRef is synced too (not just localInputs), so
+  // navigating alone is never treated as an unsaved edit (mirrors
+  // Studio.tsx's goResultBack/goResultForward, which syncs both localConfig
+  // AND savedConfig for the same reason). Side effects happen in the event
+  // handler body, not inside the setResultHistoryState updater, which must
+  // stay pure.
+  function stepResultBack() {
+    const nextIndex = Math.max(0, resultHistoryState.index - 1);
+    const entry = resultHistoryState.items[nextIndex];
+    if (!entry) return;
+    setResultHistoryState(prev => ({ ...prev, index: nextIndex }));
+    setLocalInputs(entry.inputs);
+    savedInputsRef.current = entry.inputs;
+  }
+
+  function stepResultForward() {
+    const nextIndex = Math.min(resultHistoryState.items.length - 1, resultHistoryState.index + 1);
+    const entry = resultHistoryState.items[nextIndex];
+    if (!entry) return;
+    setResultHistoryState(prev => ({ ...prev, index: nextIndex }));
+    setLocalInputs(entry.inputs);
+    savedInputsRef.current = entry.inputs;
+  }
+
+  const canGoBackResult = resultHistoryState.index > 0;
+  const canGoForwardResult = resultHistoryState.index >= 0 && resultHistoryState.index < resultHistoryState.items.length - 1;
 
   const isDirty =
     localInputs != null &&
@@ -1255,14 +1356,46 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               Log out
             </Button>
           </div>
-          <Button
-            size="sm"
-            disabled={!currentScenario}
-            onClick={openSolveDialog}
-            data-testid="button-run-optimizer"
-          >
-            Run Optimizer
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Task 6 (C5.1) — result-history stepper, only shown once there's
+                at least one result to step through (Studio.tsx's own gate,
+                mirrored here). */}
+            {resultHistoryState.items.length > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <button
+                  type="button"
+                  data-testid="button-result-back"
+                  disabled={!canGoBackResult}
+                  onClick={stepResultBack}
+                  title="Previous result"
+                  className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  ←
+                </button>
+                <span className="text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
+                  {resultHistoryState.index + 1}/{resultHistoryState.items.length}
+                </span>
+                <button
+                  type="button"
+                  data-testid="button-result-forward"
+                  disabled={!canGoForwardResult}
+                  onClick={stepResultForward}
+                  title="Next result"
+                  className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  →
+                </button>
+              </div>
+            )}
+            <Button
+              size="sm"
+              disabled={!currentScenario}
+              onClick={openSolveDialog}
+              data-testid="button-run-optimizer"
+            >
+              Run Optimizer
+            </Button>
+          </div>
         </div>
       </header>
 

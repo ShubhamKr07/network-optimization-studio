@@ -1011,6 +1011,74 @@ describe("Workspace — Solve dialog", () => {
   });
 });
 
+// ── Task 6 (C5.1) — result-history stepper ───────────────────────────────────
+describe("Workspace — result history stepper (Task 6)", () => {
+  it("hides the stepper buttons when there is no result history yet", () => {
+    // Default `scenario` fixture is unsolved (result: null) — no history to step through yet.
+    renderWorkspace();
+    expect(screen.queryByTestId("button-result-back")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-result-forward")).not.toBeInTheDocument();
+  });
+
+  it("accumulates each new solve into history and steps back/forward through both result and inputs", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const resultB = { ...resultA, objective: 222 };
+    const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+
+    // Save (used by the second, dirty-draft solve) and solve both resolve
+    // synchronously via their mocked onSuccess callbacks.
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 7 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+
+    const view = renderWorkspace();
+
+    // First solve: scenario starts unsolved, no unsaved edits — solves
+    // immediately, no save needed. This is the flow that produces
+    // `scenarioWithA` on the wire — simulated here by re-mocking
+    // useGetScenario and forcing a re-render, standing in for the async
+    // useGetScenario refetch that a real invalidateQueries triggers (jobRunner
+    // itself is fully mocked in this test file).
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    // Change P (dirty draft), solve again — handleSolve saves first, then
+    // solves, producing `scenarioWithB` (objective B, p=10) on the wire.
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    // Stepping back restores the RESPECTIVE inputs too (p reverts to 3, the
+    // value that produced resultA), not just the displayed result.
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
+
+    fireEvent.click(screen.getByTestId("button-result-forward"));
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+  });
+});
+
 // ── A4.1 — sidebar scenario operations ───────────────────────────────────────
 const pmedianDefaultInputs = {
   p: 3,
