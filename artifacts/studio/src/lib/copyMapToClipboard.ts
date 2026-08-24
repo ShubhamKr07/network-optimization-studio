@@ -22,8 +22,7 @@ export function isClipboardImageWriteSupported(): boolean {
   );
 }
 
-export async function downloadMapAsPng(node: HTMLElement): Promise<void> {
-  const blob = await captureMapAsBlob(node);
+function downloadBlob(blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -32,16 +31,27 @@ export async function downloadMapAsPng(node: HTMLElement): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export async function downloadMapAsPng(node: HTMLElement): Promise<void> {
+  const blob = await captureMapAsBlob(node);
+  downloadBlob(blob);
+}
+
+// The fallback reuses the SAME capture (blobPromise) the copy attempt already
+// started, rather than re-running toBlob() a second time — a Safari
+// transient-activation failure (the exact case this function's eager-write
+// shape exists for) would otherwise make the user wait through a second full
+// capture before the download even starts.
 export async function copyMapToClipboard(node: HTMLElement): Promise<"copied" | "downloaded"> {
+  const blobPromise = captureMapAsBlob(node);
   try {
     await navigator.clipboard.write([
       new ClipboardItem({
-        "image/png": captureMapAsBlob(node),
+        "image/png": blobPromise,
       }),
     ]);
     return "copied";
   } catch {
-    await downloadMapAsPng(node);
+    downloadBlob(await blobPromise);
     return "downloaded";
   }
 }

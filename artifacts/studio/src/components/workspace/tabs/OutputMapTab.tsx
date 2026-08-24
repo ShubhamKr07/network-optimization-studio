@@ -70,15 +70,34 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
 
   async function handleCopy() {
     if (!mapRef.current) return;
-    const outcome = await copyMapToClipboard(mapRef.current);
-    toast({
-      title: outcome === "copied" ? "Map copied to clipboard" : "Clipboard unavailable — downloaded as PNG instead",
-    });
+    try {
+      const outcome = await copyMapToClipboard(mapRef.current);
+      toast({
+        title: outcome === "copied" ? "Map copied to clipboard" : "Clipboard unavailable — downloaded as PNG instead",
+      });
+    } catch (err) {
+      // Both the clipboard write AND its own download fallback failed
+      // (e.g. the underlying capture itself threw) — surface it rather
+      // than leaving an unhandled rejection.
+      toast({
+        title: "Copy failed",
+        description: err instanceof Error ? err.message : "Could not capture the map.",
+        variant: "destructive",
+      });
+    }
   }
 
   async function handleDownload() {
     if (!mapRef.current) return;
-    await downloadMapAsPng(mapRef.current);
+    try {
+      await downloadMapAsPng(mapRef.current);
+    } catch (err) {
+      toast({
+        title: "Download failed",
+        description: err instanceof Error ? err.message : "Could not capture the map.",
+        variant: "destructive",
+      });
+    }
   }
 
   const copyDownloadButtons = (
