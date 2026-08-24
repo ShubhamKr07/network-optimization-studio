@@ -1079,6 +1079,87 @@ describe("Workspace — result history stepper (Task 6)", () => {
   });
 });
 
+// ── Task 7 (C5.1) — "Save as scenario" from a history entry (DD-7) ──────────
+describe("Workspace — save as scenario from a history entry (Task 7)", () => {
+  it("creates a new scenario from the currently-viewed history entry's inputs and triggers a solve when Save as scenario is clicked", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const resultB = { ...resultA, objective: 222 };
+    const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 7 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+
+    const view = renderWorkspace();
+
+    // Build a 2-entry history (same setup as Task 6's own test), then step
+    // back to entry 1 (p=3, resultA) — that's the "currently-viewed" entry
+    // this test asserts Save as scenario reads from, NOT entry 2 (p=10).
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+
+    // Now clicking Save as scenario must create a scenario from entry 1's
+    // inputs (p=3), not entry 2's (p=10).
+    const created = {
+      id: 42,
+      name: "3 Warehouses (saved run)",
+      modelId: "p-median-us",
+      inputs: { ...pmedianInputs, p: 3 },
+      result: null,
+      stale: false,
+      createdAt: "x",
+      updatedAt: "x",
+    };
+    mockCreateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof created) => void }) => {
+      opts.onSuccess(created);
+    });
+
+    fireEvent.click(screen.getByTestId("button-save-as-scenario"));
+
+    expect(mockCreateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockCreateScenario.mutate.mock.calls[0];
+    expect(args).toEqual({
+      data: {
+        name: "3 Warehouses (saved run)",
+        modelId: "p-median-us",
+        inputs: { ...pmedianInputs, p: 3 },
+      },
+    });
+
+    // handleSolve is not called for this path — Save as scenario triggers the
+    // solve mutation directly (a freshly-created scenario is never dirty).
+    expect(mockSolveScenario.mutate).toHaveBeenCalledWith(
+      { scenarioId: 42 },
+      expect.anything(),
+    );
+    expect(mockNavigate).toHaveBeenCalledWith("?scenario=42");
+  });
+});
+
 // ── A4.1 — sidebar scenario operations ───────────────────────────────────────
 const pmedianDefaultInputs = {
   p: 3,

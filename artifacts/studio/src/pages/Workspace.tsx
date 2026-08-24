@@ -977,6 +977,50 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     }
   }, [jobStatus, currentScenario?.id, queryClient]);
 
+  // Task 7 (C5.1) — "Save as scenario" from a history entry (DD-7). Creates a
+  // NEW scenario from the CURRENTLY-VIEWED history entry's inputs (not
+  // necessarily the scenario's latest saved inputs — the whole point of the
+  // stepper is to let a student land on an earlier entry first), then
+  // triggers a solve on it. Reuses the exact same createScenario/
+  // solveScenario mutation hooks and cache-write-before-navigate pattern as
+  // handleCreateConfirm/handleSolve above — no new API surface, no
+  // mutateAsync (this codebase's established style is .mutate + onSuccess/
+  // onError callbacks, see handleCreateConfirm and handleSolve's runSolve).
+  // A freshly-created scenario's inputs are exactly the entry's inputs, so
+  // it's never dirty — safe to call solveScenario directly without
+  // handleSolve's save-before-solve branch.
+  function handleSaveAsScenario() {
+    const entry = resultHistoryState.items[resultHistoryState.index];
+    if (!entry) return;
+    const name = `${currentScenario?.name ?? "Scenario"} (saved run)`;
+    createScenario.mutate(
+      { data: { name, modelId, inputs: entry.inputs } },
+      {
+        onSuccess: created => {
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+            prev ? [...prev, created] : [created],
+          );
+          navigate(`?scenario=${created.id}`);
+          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+          solveScenario.mutate(
+            { scenarioId: created.id },
+            {
+              onSuccess: job => setPollingJobId(job.jobId),
+              onError: err => {
+                const message = err instanceof Error ? err.message : "Could not enqueue the solve. Try again.";
+                toast({
+                  title: "Solve failed to start",
+                  description: message,
+                  variant: "destructive",
+                });
+              },
+            },
+          );
+        },
+      },
+    );
+  }
+
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
@@ -1384,6 +1428,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                 >
                   →
+                </button>
+                {/* Task 7 (C5.1) — "Save as scenario" from the currently-viewed
+                    history entry (DD-7). Same conditional gate as the stepper
+                    itself (both need at least one history entry to make sense). */}
+                <button
+                  type="button"
+                  data-testid="button-save-as-scenario"
+                  onClick={handleSaveAsScenario}
+                  disabled={createScenario.isPending}
+                  className="text-xs border rounded px-2 py-1 hover:bg-muted"
+                >
+                  Save as scenario
                 </button>
               </div>
             )}
