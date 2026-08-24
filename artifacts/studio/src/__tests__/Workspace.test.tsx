@@ -88,7 +88,55 @@ vi.mock("@workspace/api-client-react", () => ({
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
   useResetScenarioToBaseline: vi.fn(() => mockResetToBaseline),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
-  useListModels: vi.fn(() => ({ data: [{ id: "p-median-us", countryBounds: { sw: [24, -125], ne: [50, -66] } }] })),
+  // C6.1, Task 4 — capabilities.outputGrids is now read by Workspace.tsx's
+  // output-grid gating (activeModelManifest?.capabilities.outputGrids), so
+  // every model this test file exercises needs a real capabilities object,
+  // not just id/countryBounds. Values copied verbatim from each model's real
+  // manifest.json (Task 1), not guessed.
+  useListModels: vi.fn(() => ({
+    data: [
+      {
+        id: "p-median-us",
+        countryBounds: { sw: [24, -125], ne: [50, -66] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: ["none", "uniform", "per_wh"],
+          demandEditable: true,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+        },
+      },
+      {
+        id: "p-median-brazil",
+        countryBounds: { sw: [-30.04, -67.82], ne: [0.04, -34.86] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: ["uniform"],
+          demandEditable: false,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+        },
+      },
+      {
+        id: "transport-coal",
+        countryBounds: { sw: [29.76, -122.42], ne: [47.61, -73.61] },
+        capabilities: {
+          supportsP: false,
+          capacityModes: ["per_mine"],
+          demandEditable: true,
+          outputGrids: ["flows", "costSummary", "serviceStats"],
+        },
+      },
+      {
+        id: "two-echelon-gold-au",
+        countryBounds: { sw: [-38.5, 113.0], ne: [-16.0, 154.5] },
+        capabilities: {
+          supportsP: false,
+          capacityModes: [],
+          demandEditable: true,
+          outputGrids: ["openWarehouses", "flows", "assignments", "costSummary", "serviceStats"],
+        },
+      },
+    ],
+  })),
   // B5.2 — precheck query. Defaults to ok:true/no errors so every existing
   // test in this file (none of which care about precheck chips) is
   // unaffected; the dedicated "Workspace — precheck (B5.2)" describe block
@@ -284,6 +332,49 @@ describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
     // actual grid content instead, which only exists once the real
     // AssignmentsTab component (not a placeholder) is mounted.
     expect(await screen.findByTestId("assignment-row-C1")).toHaveTextContent("CHI");
+  });
+
+  // C6.1, Task 4 — capabilities.outputGrids-driven gating replaces the old
+  // hardcoded modelId === "p-median-us" check.
+  it("renders Open Warehouses for a solved two-echelon-gold-au scenario (previously blocked to p-median-us only)", async () => {
+    const twoEchelonScenario = {
+      ...solvedScenario,
+      modelId: "two-echelon-gold-au",
+      result: {
+        ...solvedScenario.result,
+        edges: [{ fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" }],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="two-echelon-gold-au" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    expect(await screen.findByTestId("open-warehouse-row-daggar-hills")).toBeInTheDocument();
+  });
+
+  it("renders the Flows tab for a solved transport-coal scenario", async () => {
+    const transportSolved = {
+      ...solvedScenario,
+      modelId: "transport-coal",
+      result: {
+        ...solvedScenario.result,
+        edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: transportSolved } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [transportSolved] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-output-flows"));
+    expect(await screen.findByTestId("flow-row-KY-CHI")).toBeInTheDocument();
+  });
+
+  it("shows a placeholder for a grid not in the model's outputGrids capability (Open Warehouses for transport-coal)", async () => {
+    const transportSolved = { ...solvedScenario, modelId: "transport-coal" };
+    mockUseGetScenario.mockReturnValue({ data: transportSolved } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [transportSolved] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    expect(await screen.findByTestId("tab-content-placeholder")).toBeInTheDocument();
   });
 });
 

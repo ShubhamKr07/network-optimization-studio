@@ -52,6 +52,7 @@ import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
+import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import { ReportsTab } from "@/components/workspace/tabs/ReportsTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import { pickBaseline } from "@/lib/pickBaseline";
@@ -1290,24 +1291,37 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // Phase C, Task 3 — Open Warehouses/Customer Assignments/Cost Summary/
-    // Service Stats output grid tabs. p-median-us only for this pilot (same
-    // boundary as Warehouses/Customers/Distances — see this task's own plan
-    // doc's Global Constraints); every other model falls through to the
-    // generic placeholder below. "Flows" (OUTPUT_ENTRIES' remaining
-    // unhandled entry) is genuinely N/A for p-median-us and stays on that
-    // same placeholder fallback — not built here, deferred to C6.1.
+    // C6.1, Task 4 — Open Warehouses/Customer Assignments/Flows/Cost Summary/
+    // Service Stats output grid tabs, gated by the active model's real
+    // capabilities.outputGrids (Task 1's manifest field) instead of a
+    // hardcoded modelId === "p-median-us" check — closes the "shared
+    // component's per-model gate updated for one model, forgotten for a
+    // sibling" bug class by construction. Every model×grid combination not
+    // in its own outputGrids list falls through to the generic placeholder.
     if (
       activeTab.kind === "output" &&
-      ["open-warehouses", "customer-assignments", "cost-summary", "service-stats"].includes(activeTab.entity)
+      ["open-warehouses", "customer-assignments", "cost-summary", "service-stats", "flows"].includes(activeTab.entity)
     ) {
       if (!hasFreshSolvedRun) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
-      if (modelId !== "p-median-us") {
+      const outputGrids = activeModelManifest?.capabilities.outputGrids ?? [];
+      // Single translation point between the sidebar's kebab-case entity ids
+      // and the manifest's camelCase capability strings (matching the
+      // export route's own entity vocabulary from C6.1 Task 2) — keep all
+      // sidebar-entity <-> capability-string translation here, not
+      // duplicated elsewhere in this file.
+      const entityToCapability: Record<string, string> = {
+        "open-warehouses": "openWarehouses",
+        "customer-assignments": "assignments",
+        "cost-summary": "costSummary",
+        "service-stats": "serviceStats",
+        "flows": "flows",
+      };
+      if (!outputGrids.includes(entityToCapability[activeTab.entity])) {
         return (
           <span className="text-muted-foreground" data-testid="tab-content-placeholder">
-            {activeTab.label} — not available for this model yet.
+            {activeTab.label} — not available for this model.
           </span>
         );
       }
@@ -1315,6 +1329,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (activeTab.entity === "open-warehouses") return <OpenWarehousesTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "customer-assignments") return <AssignmentsTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "cost-summary") return <CostSummaryTab result={result} scenarioId={currentScenario!.id} />;
+      if (activeTab.entity === "flows") return <FlowsTab result={result} scenarioId={currentScenario!.id} />;
       return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} />;
     }
 
