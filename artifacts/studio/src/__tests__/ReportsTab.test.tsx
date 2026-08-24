@@ -59,6 +59,12 @@ describe("ReportsTab", () => {
     render(<ReportsTab baseline={baselineScenario} current={{ ...currentScenario, result: null }} bands={[50, 150]} />);
     expect(screen.getByTestId("reports-empty")).toBeInTheDocument();
   });
+
+  it("applies font-heading to section headings", () => {
+    render(<ReportsTab baseline={baselineScenario} current={currentScenario} bands={[50, 150]} />);
+    expect(screen.getByText("Cost Breakdown")).toHaveClass("font-heading");
+    expect(screen.getByText("Warehouse Utilization")).toHaveClass("font-heading");
+  });
 });
 
 describe("ReportsTab — compare fold-in (C3.1)", () => {

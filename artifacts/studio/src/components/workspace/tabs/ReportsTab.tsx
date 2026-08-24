@@ -139,7 +139,7 @@ function CompareSection({
 
   return (
     <section>
-      <h3 className="text-sm font-semibold mb-2">Compare Scenarios</h3>
+      <h3 className="text-sm font-semibold mb-2 font-heading">Compare Scenarios</h3>
       {candidates.length === 0 ? (
         <p className="text-sm text-muted-foreground">No other scenarios to compare against yet.</p>
       ) : (
@@ -240,7 +240,7 @@ export function ReportsTab({ baseline, current, bands, availableScenarios, model
   return (
     <div className="p-4 space-y-6 overflow-auto h-full" data-testid="reports-tab">
       <section>
-        <h3 className="text-sm font-semibold mb-2">Cost Breakdown</h3>
+        <h3 className="text-sm font-semibold mb-2 font-heading">Cost Breakdown</h3>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-muted-foreground">
@@ -274,7 +274,7 @@ export function ReportsTab({ baseline, current, bands, availableScenarios, model
       </section>
 
       <section>
-        <h3 className="text-sm font-semibold mb-2">Service Level (cumulative)</h3>
+        <h3 className="text-sm font-semibold mb-2 font-heading">Service Level (cumulative)</h3>
         <div className="space-y-2">
           {cumulative.map(b => (
             <div key={b.band} data-testid={`report-band-${b.band}`} className="flex items-center gap-2 text-sm">
@@ -289,7 +289,7 @@ export function ReportsTab({ baseline, current, bands, availableScenarios, model
       </section>
 
       <section>
-        <h3 className="text-sm font-semibold mb-2">Warehouse Utilization</h3>
+        <h3 className="text-sm font-semibold mb-2 font-heading">Warehouse Utilization</h3>
         <div className="space-y-2">
           {(currentResult.metrics.utilizationByNode ?? []).map(u => (
             <div key={u.warehouseId} data-testid={`report-utilization-${u.warehouseId}`} className="flex items-center gap-2 text-sm">
