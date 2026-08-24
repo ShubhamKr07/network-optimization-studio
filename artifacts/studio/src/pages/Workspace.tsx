@@ -1398,9 +1398,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <span className="font-semibold text-sm font-heading" data-testid="text-app-name">
-          Network Optimization Studio
-        </span>
+        <div className="flex flex-col leading-tight" data-testid="text-app-name">
+          <span className="font-semibold text-sm font-heading">Supply Chain Design</span>
+          <span className="text-xs text-muted-foreground">Prof. Michael Watson</span>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
           <span className="flex-shrink-0">Scenario:</span>
           <select
