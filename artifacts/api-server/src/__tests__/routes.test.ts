@@ -972,14 +972,63 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.body.error).toMatch(/solved and not stale/i);
   });
 
-  it("422s an output-entity export for a non-p-median-us scenario", async () => {
+  it("422s an output-entity export for a model whose outputGrids doesn't include the entity", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([{ ...transportRow, result: { status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x", edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null }, solvedAt: new Date("2026-01-01T00:00:00Z") }]));
 
     const res = await request(app).get("/api/scenarios/8/export?entity=assignments&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(422);
-    expect(res.body.error).toMatch(/p-median-us/i);
+    expect(res.body.error).toMatch(/not supported for this model/i);
+  });
+
+  // C6.1 — generalized to capabilities.outputGrids: flows for transport-coal,
+  // openWarehouses for two-echelon (previously blocked to p-median-us only).
+  it("exports flows as JSON for a solved transport-coal scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...transportRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
+        edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+
+    const res = await request(app).get("/api/scenarios/8/export?entity=flows&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toEqual([{ templateVersion: 1, fromId: "KY", toId: "CHI", distanceMi: 300, band: null, flow: 500 }]);
+  });
+
+  it("exports openWarehouses for a solved two-echelon scenario (previously p-median-us only)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...twoEchelonRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
+        edges: [{ fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+
+    const res = await request(app).get("/api/scenarios/11/export?entity=openWarehouses&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toEqual([{ templateVersion: 1, warehouseId: "daggar-hills", city: "", totalFlow: 80, utilization: null }]);
+  });
+
+  it("422s flows export for p-median-us (not in its outputGrids)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: { status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x", edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null }, stale: false }]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=flows&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(422);
   });
 });
 

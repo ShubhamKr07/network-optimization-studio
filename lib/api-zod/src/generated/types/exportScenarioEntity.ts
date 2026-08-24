@@ -22,4 +22,5 @@ export const ExportScenarioEntity = {
   openWarehouses: 'openWarehouses',
   costSummary: 'costSummary',
   serviceStats: 'serviceStats',
+  flows: 'flows',
 } as const;

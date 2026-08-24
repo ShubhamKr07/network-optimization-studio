@@ -790,3 +790,40 @@ export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
   const lines = rows.map(r => [r.templateVersion, r.band, r.percent].join(","));
   return [header, ...lines].join("\n") + "\n";
 }
+
+export interface FlowTemplateRow {
+  templateVersion: number;
+  fromId: string;
+  toId: string;
+  distanceMi: number;
+  band: number | null;
+  flow: number;
+}
+
+// C6.1 — the transport-coal/two-echelon equivalent of Customer Assignments
+// (genuinely N/A for p-median-us/brazil, which have no multi-leg or
+// facility-less-LP shape). Filters out refinery_to_customer edges (those
+// belong to Customer Assignments) — transport-coal's edges never carry
+// `leg` at all, so they all pass this filter unfiltered; two-echelon's
+// mine_to_refinery edges pass too. Mirrors buildOpenWarehouseRows'
+// existing inverse leg-filter exactly (templates.ts, Phase C).
+export function buildFlowRows(result: ResultEnvelope): FlowTemplateRow[] {
+  return result.edges
+    .filter(e => e.leg !== "refinery_to_customer")
+    .map(e => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: e.fromId,
+      toId: e.toId,
+      distanceMi: e.distance,
+      band: e.band ?? null,
+      flow: e.flow,
+    }));
+}
+
+export function flowRowsToCsv(rows: FlowTemplateRow[]): string {
+  const header = "template_version,from_id,to_id,distance_mi,band,flow";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.fromId, r.toId, r.distanceMi, r.band ?? "", r.flow].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}

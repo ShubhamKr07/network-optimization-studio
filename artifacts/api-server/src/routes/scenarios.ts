@@ -7,6 +7,7 @@ import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
+import { getManifest } from "../registry/modelRegistry.js";
 import {
   TEMPLATE_VERSION,
   applyWarehouseOverrides,
@@ -24,6 +25,8 @@ import {
   buildOpenWarehouseRows,
   buildCostSummaryRows,
   buildServiceStatsRows,
+  buildFlowRows,
+  flowRowsToCsv,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -36,7 +39,7 @@ import {
   costSummaryRowsToCsv,
   serviceStatsRowsToCsv,
 } from "../services/templates.js";
-import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow } from "../services/templates.js";
+import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
@@ -429,11 +432,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // Phase C, Task 2 — output-entity export (assignments/openWarehouses/
   // costSummary/serviceStats), derived from the scenario's stored result
   // rather than its inputs. p-median-us only for this pilot.
-  const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats"] as const;
+  const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats", "flows"] as const;
   type OutputEntity = typeof OUTPUT_ENTITIES[number];
 
   if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', or 'serviceStats'" });
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -450,11 +453,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   if (OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
-    // Phase C pilot — p-median-us only; other models fast-follow in a later
-    // plan once this pattern is proven (mirrors every other entity's
-    // per-model scoping in this route).
-    if (scenario.modelId !== "p-median-us") {
-      res.status(422).json({ error: "Output export is only supported for p-median-us scenarios right now" });
+    // C6.1 — generalized from a hardcoded p-median-us-only check to reading
+    // each model's own manifest-declared capabilities.outputGrids, so a new
+    // model's grid availability is data (the manifest), not a code change
+    // here.
+    const manifest = getManifest(scenario.modelId);
+    if (!manifest || !manifest.capabilities.outputGrids.includes(entity as OutputEntity)) {
+      res.status(422).json({ error: `${entity} export is not supported for this model` });
       return;
     }
     if (stubFor) {
@@ -478,17 +483,19 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
     });
 
-    const rows: AssignmentTemplateRow[] | OpenWarehouseTemplateRow[] | CostSummaryTemplateRow[] | ServiceStatsTemplateRow[] =
+    const rows: AssignmentTemplateRow[] | OpenWarehouseTemplateRow[] | CostSummaryTemplateRow[] | ServiceStatsTemplateRow[] | FlowTemplateRow[] =
       entity === "assignments" ? buildAssignmentRows(result)
       : entity === "openWarehouses" ? buildOpenWarehouseRows(result)
       : entity === "costSummary" ? buildCostSummaryRows(result)
-      : buildServiceStatsRows(result);
+      : entity === "serviceStats" ? buildServiceStatsRows(result)
+      : buildFlowRows(result);
 
     if (format === "csv") {
       const csv = entity === "assignments" ? assignmentRowsToCsv(rows as AssignmentTemplateRow[])
         : entity === "openWarehouses" ? openWarehouseRowsToCsv(rows as OpenWarehouseTemplateRow[])
         : entity === "costSummary" ? costSummaryRowsToCsv(rows as CostSummaryTemplateRow[])
-        : serviceStatsRowsToCsv(rows as ServiceStatsTemplateRow[]);
+        : entity === "serviceStats" ? serviceStatsRowsToCsv(rows as ServiceStatsTemplateRow[])
+        : flowRowsToCsv(rows as FlowTemplateRow[]);
       res.type("text/csv").send(csv);
       return;
     }

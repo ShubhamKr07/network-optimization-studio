@@ -16,6 +16,8 @@ import {
   buildOpenWarehouseRows,
   buildCostSummaryRows,
   buildServiceStatsRows,
+  buildFlowRows,
+  flowRowsToCsv,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -687,5 +689,33 @@ describe("serviceStatsRowsToCsv", () => {
   it("emits the template_version,band,percent header", () => {
     const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult()));
     expect(csv.trim().split("\n")[0]).toBe("template_version,band,percent");
+  });
+});
+
+describe("buildFlowRows", () => {
+  it("includes edges with no leg (transport-coal shape)", () => {
+    const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }] });
+    expect(buildFlowRows(result)).toEqual([
+      { templateVersion: TEMPLATE_VERSION, fromId: "KY", toId: "CHI", distanceMi: 300, band: null, flow: 500 },
+    ]);
+  });
+
+  it("includes mine_to_refinery edges but excludes refinery_to_customer edges (two-echelon shape)", () => {
+    const result = makeResult({
+      edges: [
+        { fromId: "kalgoorlie", toId: "daggar-hills", flow: 100, distance: 293.66, leg: "mine_to_refinery" },
+        { fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" },
+      ],
+    });
+    const rows = buildFlowRows(result);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ fromId: "kalgoorlie", toId: "daggar-hills" });
+  });
+});
+
+describe("flowRowsToCsv", () => {
+  it("emits the template_version,from_id,to_id,distance_mi,band,flow header", () => {
+    const csv = flowRowsToCsv(buildFlowRows(makeResult()));
+    expect(csv.trim().split("\n")[0]).toBe("template_version,from_id,to_id,distance_mi,band,flow");
   });
 });

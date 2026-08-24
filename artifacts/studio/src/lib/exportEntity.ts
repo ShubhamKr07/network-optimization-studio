@@ -1,7 +1,7 @@
 import { exportScenario } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
 
-export type ExportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "assignments" | "openWarehouses" | "costSummary" | "serviceStats";
+export type ExportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "assignments" | "openWarehouses" | "costSummary" | "serviceStats" | "flows";
 
 // A1.3 — shared client-side download logic for the Workspace grid tabs
 // (WarehousesTab, CustomersTab). Extracted rather than duplicated because
