@@ -32,7 +32,10 @@ export function AppShell({ userEmail, children }: AppShellProps) {
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <header className="h-12 border-b flex items-center px-4 gap-3 flex-shrink-0 bg-background">
-        <span className="font-semibold text-sm">Network Optimization Studio</span>
+        <div className="flex flex-col leading-tight">
+          <span className="font-semibold text-sm">Supply Chain Design</span>
+          <span className="text-xs text-muted-foreground">Prof. Michael Watson</span>
+        </div>
         <div className="flex-1" />
         <span className="text-sm text-muted-foreground" data-testid="text-user-email">{userEmail}</span>
         <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
