@@ -14,7 +14,7 @@ const baselineScenario = {
   result: {
     status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
     edges: [{ fromId: "ALN", toId: "C1", flow: 100, distance: 100 }],
-    metrics: { weightedAvgDistance: 100, utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 0.5 }] },
+    metrics: { weightedAvgDistance: 100, utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 50 }] },
     details: {}, solverUsed: "CBC", infeasibilityReason: null,
   },
 };
@@ -24,7 +24,7 @@ const currentScenario = {
   result: {
     status: "optimal" as const, objective: 80, runTimeSec: 0.4, quality: "Proven optimal",
     edges: [{ fromId: "ALN", toId: "C1", flow: 100, distance: 50 }],
-    metrics: { weightedAvgDistance: 50, utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 0.7 }] },
+    metrics: { weightedAvgDistance: 50, utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 70 }] },
     details: {}, solverUsed: "CBC", infeasibilityReason: null,
   },
 };

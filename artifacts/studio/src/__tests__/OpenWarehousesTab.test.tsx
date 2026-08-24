@@ -9,7 +9,7 @@ const result = {
     { fromId: "ALN", toId: "C1", flow: 100, distance: 1 },
     { fromId: "ALN", toId: "C2", flow: 50, distance: 2 },
   ],
-  metrics: { utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 0.41 }] },
+  metrics: { utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 41 }] },
   details: {}, solverUsed: "CBC", infeasibilityReason: null,
 };
 
