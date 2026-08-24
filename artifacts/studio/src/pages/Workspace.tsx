@@ -1384,7 +1384,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" data-testid="workspace-page">
+    <div className="h-screen flex flex-col overflow-hidden scn-theme" data-testid="workspace-page">
       <header className="h-14 border-b flex items-center px-4 gap-4 flex-shrink-0 bg-background">
         {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
             convention verbatim (same testid/icon/onClick target) rather than
@@ -1398,7 +1398,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <span className="font-semibold text-sm" data-testid="text-app-name">
+        <span className="font-semibold text-sm font-heading" data-testid="text-app-name">
           Network Optimization Studio
         </span>
         <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">

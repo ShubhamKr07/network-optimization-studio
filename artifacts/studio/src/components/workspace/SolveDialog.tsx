@@ -68,7 +68,7 @@ export function SolveDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="solve-dialog">
         <DialogHeader>
-          <DialogTitle>Run Optimizer</DialogTitle>
+          <DialogTitle className="font-heading">Run Optimizer</DialogTitle>
           <DialogDescription>
             Same values as the Optimization Parameters tab — editing here or there updates the same scenario.
           </DialogDescription>

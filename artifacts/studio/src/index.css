@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Barlow:wght@400;500;700&family=Barlow+Condensed:wght@400;600&display=swap');
 @import "leaflet/dist/leaflet.css";
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -143,6 +143,52 @@
 .studio-lab .rounded-xl {
   border-color: var(--arc-grat) !important;
 }
+
+/* ===== SCN DESIGN WIREFRAME THEME ===== */
+/* Scoped like .studio-lab above — applies only where the .scn-theme class
+   is set (Workspace.tsx's root shell), never globally. Values converted
+   from /Users/shubhamkr/Downloads/SCN Design Wireframes/styles.css's hex
+   tokens into this app's HSL-triple variable format (see
+   docs/superpowers/specs/2026-08-24-scn-v0.3-phase3.1-design-system-design.md
+   for the source mapping table). */
+.scn-theme {
+  --background: 240 4% 95%;
+  --foreground: 200 5% 12%;
+  --border: 240 1% 82%;
+  --input: 240 1% 82%;
+  --ring: 210 30% 50%;
+
+  --card: 240 2% 92%;
+  --card-foreground: 200 5% 12%;
+  --card-border: 240 1% 82%;
+
+  --popover: 240 2% 92%;
+  --popover-foreground: 200 5% 12%;
+  --popover-border: 240 1% 82%;
+
+  --primary: 210 30% 50%;
+  --primary-foreground: 0 0% 100%;
+
+  --muted: 240 2% 92%;
+  --muted-foreground: 240 1% 48%;
+
+  --accent: 210 25% 56%;
+  --accent-foreground: 0 0% 100%;
+
+  --sidebar: 240 2% 92%;
+  --sidebar-foreground: 200 5% 12%;
+  --sidebar-border: 240 1% 82%;
+  --sidebar-primary: 210 30% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 25% 56%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-ring: 210 30% 50%;
+
+  --radius: 0rem;
+  --app-font-sans: 'Barlow', system-ui, sans-serif;
+  --app-font-heading: 'Barlow Condensed', system-ui, sans-serif;
+}
+
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -202,6 +248,7 @@
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
+  --font-heading: var(--app-font-heading);
 
   --text-xs: 0.75rem;
   --text-xs--line-height: calc(1 / 0.75);
@@ -304,6 +351,7 @@
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
+  --app-font-heading: 'Space Grotesk', system-ui, sans-serif;
   --radius: .5rem; /* 8px */
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00); /*replace with H S L */
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00); /*replace with H S L */
