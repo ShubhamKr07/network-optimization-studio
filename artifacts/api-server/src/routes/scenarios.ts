@@ -430,8 +430,10 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const stubFor = req.query.stubFor as string | undefined;
 
   // Phase C, Task 2 — output-entity export (assignments/openWarehouses/
-  // costSummary/serviceStats), derived from the scenario's stored result
-  // rather than its inputs. p-median-us only for this pilot.
+  // costSummary/serviceStats/flows), derived from the scenario's stored
+  // result rather than its inputs. Availability per model is driven by
+  // each model's manifest.json capabilities.outputGrids (C6.1) — checked
+  // below, not hardcoded to one model.
   const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats", "flows"] as const;
   type OutputEntity = typeof OUTPUT_ENTITIES[number];
 
