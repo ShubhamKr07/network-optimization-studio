@@ -597,6 +597,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const canGoBackResult = resultHistoryState.index > 0;
   const canGoForwardResult = resultHistoryState.index >= 0 && resultHistoryState.index < resultHistoryState.items.length - 1;
 
+  // C5.1 fix — every OUTPUT surface (Output Map, the four output grid tabs,
+  // Reports) must render whatever the stepper is currently pointed at, not
+  // always the scenario's latest solve. Mirrors Studio.tsx:475-478's
+  // `result` derivation exactly: while the stepper is parked on a historical
+  // entry (`resultHistoryState.index >= 0` — it's initialized to -1 only
+  // before the seeding effect above has ever run), read that entry's own
+  // `.result`; otherwise (including the common case where history hasn't
+  // been seeded yet on first render) fall back to the live scenario's
+  // `result`. Deliberately NOT used by `hasFreshSolvedRun` above — staleness
+  // is a property of the scenario's LATEST solve vs. its LATEST saved
+  // inputs, not of whichever historical entry a student happens to be
+  // browsing.
+  const displayedResult =
+    resultHistoryState.index >= 0
+      ? (resultHistoryState.items[resultHistoryState.index]?.result ?? null)
+      : (currentScenario?.result ?? null);
+
   const isDirty =
     localInputs != null &&
     savedInputsRef.current != null &&
@@ -1268,7 +1285,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         <OutputMapTab
           dataset={dataset}
           warehouseStatuses={warehouseStatusesFromInputs(localInputs, modelId)}
-          result={activeTab.entity === "output-map" ? (currentScenario?.result ?? null) : null}
+          result={activeTab.entity === "output-map" ? displayedResult : null}
           bands={distanceBandsFromInputs(localInputs)}
           countryBounds={activeModelManifest?.countryBounds}
           useBrazilMap={useBrazilMap}
@@ -1297,7 +1314,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           </span>
         );
       }
-      const result = currentScenario?.result ?? null;
+      const result = displayedResult;
       if (activeTab.entity === "open-warehouses") return <OpenWarehousesTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "customer-assignments") return <AssignmentsTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "cost-summary") return <CostSummaryTab result={result} scenarioId={currentScenario!.id} />;
@@ -1318,7 +1335,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return (
         <ReportsTab
           baseline={baseline}
-          current={currentScenario ?? null}
+          current={currentScenario ? { ...currentScenario, result: displayedResult } : null}
           bands={distanceBandsFromInputs(localInputs)}
           availableScenarios={(scenarios ?? []).map(s => ({ id: s.id, name: s.name, modelId: s.modelId }))}
           modelId={modelId}

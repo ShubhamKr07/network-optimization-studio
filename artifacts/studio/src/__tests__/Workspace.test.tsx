@@ -1082,6 +1082,68 @@ describe("Workspace — result history stepper (Task 6)", () => {
     fireEvent.click(screen.getByTestId("button-result-forward"));
     expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
   });
+
+  // C5.1 fix — final-whole-branch-review Important finding: stepping through
+  // result history updated `localInputs` (input tabs) but every OUTPUT
+  // surface kept reading `currentScenario.result` (always the LATEST solve),
+  // so the Cost Summary/Assignments/Open Warehouses/Service Stats grids,
+  // Output Map, and Reports tab all silently kept showing the newest result
+  // even while the input tabs showed a stepped-to historical snapshot. This
+  // test proves an output grid tab (Cost Summary — simplest reliable
+  // assertion via its `cost-summary-value-objective` testid) tracks the
+  // stepper, not just the input tabs Task 6's own test already covers.
+  it("wires the stepped-to history entry's result into an output grid tab (Cost Summary), not just the input tabs", async () => {
+    const resultA = {
+      status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    const resultB = { ...resultA, objective: 222 };
+    const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+    const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 7 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+
+    const view = renderWorkspace();
+
+    // Build the same 2-entry history as Task 6's own test (resultA then
+    // resultB, objective 111 then 222).
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    // Currently at entry 2 (objective 222) — the Cost Summary tab should show it.
+    fireEvent.click(screen.getByTestId("sidebar-output-cost-summary"));
+    expect(await screen.findByTestId("cost-summary-value-objective")).toHaveTextContent("222");
+
+    // Step back to entry 1 (objective 111) — the ALREADY-OPEN Cost Summary
+    // tab must update to reflect it, not keep showing 222.
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    expect(await screen.findByTestId("cost-summary-value-objective")).toHaveTextContent("111");
+
+    // Step forward again — restores 222.
+    fireEvent.click(screen.getByTestId("button-result-forward"));
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(await screen.findByTestId("cost-summary-value-objective")).toHaveTextContent("222");
+  });
 });
 
 // ── Task 7 (C5.1) — "Save as scenario" from a history entry (DD-7) ──────────
