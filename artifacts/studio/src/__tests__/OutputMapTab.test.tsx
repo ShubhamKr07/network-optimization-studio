@@ -1,7 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { getBandColor } from "@/lib/bandPalette";
+import * as copyMapToClipboard from "@/lib/copyMapToClipboard";
+
+vi.mock("@/lib/copyMapToClipboard", () => ({
+  copyMapToClipboard: vi.fn(),
+  downloadMapAsPng: vi.fn(),
+  isClipboardImageWriteSupported: vi.fn(),
+}));
 
 // A3.1 — Output Map tab. Renders the REAL NetworkMap (no react-leaflet
 // mocking, same convention NetworkMap.test.tsx already uses) so assertions
@@ -195,5 +202,54 @@ describe("OutputMapTab — result gating", () => {
       <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
     );
     expect(queryByTestId("output-map-no-result")).not.toBeInTheDocument();
+  });
+});
+
+describe("OutputMapTab — copy/download", () => {
+  it("shows the Copy to clipboard button when the Clipboard API is supported", () => {
+    vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(true);
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    expect(screen.getByTestId("button-copy-map-clipboard")).toBeInTheDocument();
+  });
+
+  it("hides the Copy to clipboard button when the Clipboard API is unsupported", () => {
+    vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(false);
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    expect(screen.queryByTestId("button-copy-map-clipboard")).not.toBeInTheDocument();
+  });
+
+  it("always shows the Download PNG button regardless of Clipboard API support", () => {
+    vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(false);
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    expect(screen.getByTestId("button-download-map-png")).toBeInTheDocument();
+  });
+
+  it("calls copyMapToClipboard with the map container node when Copy is clicked", async () => {
+    vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(true);
+    vi.mocked(copyMapToClipboard.copyMapToClipboard).mockResolvedValue("copied");
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    fireEvent.click(screen.getByTestId("button-copy-map-clipboard"));
+    await waitFor(() => expect(copyMapToClipboard.copyMapToClipboard).toHaveBeenCalledTimes(1));
+  });
+
+  it("calls downloadMapAsPng when Download PNG is clicked", async () => {
+    vi.mocked(copyMapToClipboard.downloadMapAsPng).mockResolvedValue(undefined);
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    fireEvent.click(screen.getByTestId("button-download-map-png"));
+    await waitFor(() => expect(copyMapToClipboard.downloadMapAsPng).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the Copy to clipboard and Download PNG buttons on the Brazil (useBrazilMap) branch too", () => {
+    vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(true);
+    render(
+      <OutputMapTab
+        warehouseStatuses={[]}
+        result={result}
+        bands={[250, 500, 750]}
+        useBrazilMap
+      />,
+    );
+    expect(screen.getByTestId("button-copy-map-clipboard")).toBeInTheDocument();
+    expect(screen.getByTestId("button-download-map-png")).toBeInTheDocument();
   });
 });

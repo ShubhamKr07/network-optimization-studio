@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { BrazilMap } from "@/components/BrazilMap";
@@ -6,6 +6,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import type { CountryBounds } from "@/lib/mapBounds";
+import { copyMapToClipboard, downloadMapAsPng, isClipboardImageWriteSupported } from "@/lib/copyMapToClipboard";
+import { toast } from "@/hooks/use-toast";
 
 // Local — mirrors NetworkMap's own (unexported) WarehouseStatusEntry shape;
 // Studio.tsx derives the same inline shape at its call site rather than
@@ -60,9 +62,47 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
   const [colorByBand, setColorByBand] = useState(true);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [clipboardSupported] = useState(() => isClipboardImageWriteSupported());
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const mapBands = colorByBand ? effectiveBands : [];
+
+  async function handleCopy() {
+    if (!mapRef.current) return;
+    const outcome = await copyMapToClipboard(mapRef.current);
+    toast({
+      title: outcome === "copied" ? "Map copied to clipboard" : "Clipboard unavailable — downloaded as PNG instead",
+    });
+  }
+
+  async function handleDownload() {
+    if (!mapRef.current) return;
+    await downloadMapAsPng(mapRef.current);
+  }
+
+  const copyDownloadButtons = (
+    <div className="flex items-center gap-2 ml-auto">
+      <button
+        type="button"
+        data-testid="button-download-map-png"
+        className="text-xs border rounded px-2 py-1 hover:bg-muted"
+        onClick={handleDownload}
+      >
+        Download PNG
+      </button>
+      {clipboardSupported && (
+        <button
+          type="button"
+          data-testid="button-copy-map-clipboard"
+          className="text-xs border rounded px-2 py-1 hover:bg-muted"
+          onClick={handleCopy}
+        >
+          Copy to clipboard
+        </button>
+      )}
+    </div>
+  );
 
   // A5.2 — p-median-brazil's simplified map: BrazilMap has no marker/lane-
   // coloring layers of its own (see BrazilMap.tsx), so only the Lanes toggle
@@ -81,13 +121,14 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
             />
             <Label htmlFor="output-map-toggle-lanes" className="text-xs">Lanes</Label>
           </div>
+          {copyDownloadButtons}
           {!result && (
             <span className="text-xs text-muted-foreground" data-testid="output-map-no-result">
               No solve result yet — showing the input network.
             </span>
           )}
         </div>
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0" ref={mapRef}>
           <BrazilMap result={result} showRoutes={showLanes} />
         </div>
       </div>
@@ -136,6 +177,7 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
           />
           <Label htmlFor="output-map-color-by-band" className="text-xs">Color lanes: Distance band</Label>
         </div>
+        {copyDownloadButtons}
         {!result && (
           <span className="text-xs text-muted-foreground" data-testid="output-map-no-result">
             No solve result yet — showing the input network.
@@ -143,7 +185,7 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
         )}
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0" ref={mapRef}>
         <NetworkMap
           dataset={dataset}
           warehouseStatuses={warehouseStatuses}
