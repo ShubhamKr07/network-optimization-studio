@@ -158,6 +158,7 @@ export const ManifestSchema = z.object({
     supportsP: z.boolean(),
     capacityModes: z.array(z.string()),
     demandEditable: z.boolean(),
+    outputGrids: z.array(z.string()),
   }),
   inputsSchema: z.record(z.string(), z.unknown()),
 });

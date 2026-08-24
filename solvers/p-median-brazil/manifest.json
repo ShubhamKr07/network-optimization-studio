@@ -4,7 +4,7 @@
   "chapter": "Chapter 5",
   "datasetDir": "solvers/p-median-brazil/dataset",
   "countryBounds": { "sw": [-30.04, -67.82], "ne": [0.04, -34.86] },
-  "capabilities": { "supportsP": true, "capacityModes": ["uniform"], "demandEditable": false },
+  "capabilities": { "supportsP": true, "capacityModes": ["uniform"], "demandEditable": false, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"] },
   "inputsSchema": {
     "type": "object",
     "properties": {

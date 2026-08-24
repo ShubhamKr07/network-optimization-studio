@@ -729,7 +729,11 @@ components:
                 type: string
             demandEditable:
               type: boolean
-          required: [supportsP, capacityModes, demandEditable]
+            outputGrids:
+              type: array
+              items:
+                type: string
+          required: [supportsP, capacityModes, demandEditable, outputGrids]
         inputsSchema:
           type: object
           description: JSON Schema describing this model's inputs shape. Opaque to this contract.

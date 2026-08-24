@@ -4,7 +4,7 @@
   "chapter": "Chapter 10",
   "datasetDir": "solvers/two-echelon-gold-au/dataset",
   "countryBounds": { "sw": [-38.5, 113.0], "ne": [-16.0, 154.5] },
-  "capabilities": { "supportsP": false, "capacityModes": [], "demandEditable": true },
+  "capabilities": { "supportsP": false, "capacityModes": [], "demandEditable": true, "outputGrids": ["openWarehouses", "flows", "assignments", "costSummary", "serviceStats"] },
   "inputsSchema": {
     "type": "object",
     "properties": {

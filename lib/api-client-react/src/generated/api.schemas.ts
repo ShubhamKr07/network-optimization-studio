@@ -99,6 +99,7 @@ export type ModelInfoCapabilities = {
   supportsP: boolean;
   capacityModes: string[];
   demandEditable: boolean;
+  outputGrids: string[];
 };
 
 /**

@@ -69,7 +69,8 @@ export const ListModelsResponseItem = zod.object({
   "capabilities": zod.object({
   "supportsP": zod.boolean(),
   "capacityModes": zod.array(zod.string()),
-  "demandEditable": zod.boolean()
+  "demandEditable": zod.boolean(),
+  "outputGrids": zod.array(zod.string())
 }),
   "inputsSchema": zod.object({
 
