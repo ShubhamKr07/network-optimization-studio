@@ -239,12 +239,20 @@ describe("Workspace — Customers tab", () => {
 });
 
 describe("Workspace — placeholder tabs", () => {
-  // B5.1 — Distances is no longer a placeholder for p-median-us (it now has
-  // real DistancesTab content, see the "Distances tab" describe block below)
-  // — Demand remains genuinely unbuilt, so it's the placeholder example now.
+  // Every p-median-us input tab is now real content (Customers, Warehouses,
+  // Distances, Optimization Parameters) — the standalone "Demand" entry that
+  // used to be this test's placeholder example was removed as dead
+  // scaffolding (real demand editing already lives inline in the
+  // Customers/Stations tabs via CustomerOverride.demand/StationOverride.demand).
+  // p-median-brazil's Warehouses/Customers/Distances tabs are still genuine
+  // placeholders (no per-row dataset endpoint exists for this model), so
+  // this test now exercises one of those instead.
   it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-demand"));
+    const brazilScenario = { ...scenario, modelId: "p-median-brazil" };
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 });

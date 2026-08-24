@@ -318,7 +318,6 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
       return [
         { id: "mines", label: "Mines" },
         { id: "stations", label: "Stations" },
-        { id: "demand", label: "Demand" },
         // Task 30 — was a "distances" placeholder entry (B6.1 stages 1-3
         // shipped the backend; this task builds the tab). Named "Lane
         // costs" (its own entity id, not the shared "distances" one),
@@ -331,7 +330,6 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
       return [
         { id: "refineries", label: "Refineries" },
         { id: "customers", label: "Customers" },
-        { id: "demand", label: "Demand" },
         { id: "distances", label: "Distances" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
@@ -340,7 +338,6 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
     default:
       return [
         { id: "customers", label: "Customers" },
-        { id: "demand", label: "Demand" },
         { id: "warehouses", label: "Warehouses" },
         { id: "distances", label: "Distances" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
