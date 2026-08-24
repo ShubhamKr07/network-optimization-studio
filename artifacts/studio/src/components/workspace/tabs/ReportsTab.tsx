@@ -295,9 +295,9 @@ export function ReportsTab({ baseline, current, bands, availableScenarios, model
             <div key={u.warehouseId} data-testid={`report-utilization-${u.warehouseId}`} className="flex items-center gap-2 text-sm">
               <span className="w-28 flex-shrink-0">{u.warehouseId}</span>
               <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
-                <div className="bg-primary h-full" style={{ width: `${Math.min(u.utilization * 100, 100)}%` }} />
+                <div className="bg-primary h-full" style={{ width: `${Math.min(u.utilization, 100)}%` }} />
               </div>
-              <span className="w-10 text-right">{Math.round(u.utilization * 100)}%</span>
+              <span className="w-10 text-right">{Math.round(u.utilization)}%</span>
             </div>
           ))}
         </div>

@@ -62,7 +62,7 @@ export function OpenWarehousesTab({ result, scenarioId }: OpenWarehousesTabProps
               <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">
                 <td className="p-2">{r.warehouseId}</td>
                 <td className="p-2 text-right">{r.totalFlow.toLocaleString()}</td>
-                <td className="p-2 text-right">{r.utilization != null ? `${Math.round(r.utilization * 100)}%` : "—"}</td>
+                <td className="p-2 text-right">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
               </tr>
             ))}
           </tbody>
