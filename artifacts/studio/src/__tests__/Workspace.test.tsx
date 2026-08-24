@@ -78,6 +78,11 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetDataset: vi.fn(() => ({ data: dataset })),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => mockSolveScenario),
+  // C3.1 — ReportsTab's compare fold-in. Defaults to an inert mutate stub;
+  // no existing test in this file exercises the compare picker, so this is
+  // just enough to keep ReportsTab's `useCompareScenarios()` call from
+  // throwing on an unmocked hook.
+  useCompareScenarios: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),

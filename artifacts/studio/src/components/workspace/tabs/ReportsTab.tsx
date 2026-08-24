@@ -1,10 +1,37 @@
-import type { Scenario } from "@workspace/api-client-react";
+import { useState } from "react";
+import { useCompareScenarios } from "@workspace/api-client-react";
+import type { ErrorEnvelope, CompareRejection, Scenario } from "@workspace/api-client-react";
 import { computeBandCoverage, type BandEdge } from "@/lib/bands";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
+import { diffInputs, diffOutputs, type DiffScenarioInputs, type DiffScenarioResult } from "@/lib/compareDiff";
+import { pickBaseline } from "@/lib/pickBaseline";
+
+const MIN_COMPARE = 2;
+const MAX_COMPARE = 4;
+
+export interface ReportsCompareCandidate {
+  id: number;
+  name: string;
+  modelId: string;
+}
 
 interface ReportsTabProps {
   baseline: Pick<Scenario, "id" | "name" | "result"> | null;
   current: Pick<Scenario, "id" | "name" | "result"> | null;
   bands: number[];
+  /**
+   * Candidate scenarios for the "Compare scenarios" picker (C3.1 — folds
+   * F2.1's compare capability into Reports instead of a separate page).
+   * Callers (Workspace.tsx) source this from `useListScenarios({ modelId })`,
+   * which is already model-scoped — `modelId` here is a defensive second
+   * filter so this component doesn't silently rely on the caller always
+   * pre-scoping (Global Constraints: "your UI should filter to the right
+   * model client-side too, not just rely on the 422").
+   */
+  availableScenarios?: ReportsCompareCandidate[];
+  modelId?: string;
 }
 
 function formatDelta(baselineValue: number, currentValue: number): string {
@@ -27,7 +54,179 @@ function cumulativeBandCoverage(exclusive: ReturnType<typeof computeBandCoverage
   });
 }
 
-export function ReportsTab({ baseline, current, bands }: ReportsTabProps) {
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "number") return v.toLocaleString();
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  return String(v);
+}
+
+// C3.1 — folds F2.1's scenario-compare capability into Reports rather than
+// keeping it a separate page. Deliberately simpler than Compare.tsx's own
+// picker: no per-row needs-solving/stale chips (this component's
+// `availableScenarios` prop only carries id/name/modelId, not result/stale
+// — the compare endpoint's own solved-and-not-stale 422 is the guard here,
+// surfaced via a toast), just enough to pick 2-4 scenarios and see a diff.
+function CompareSection({
+  current,
+  availableScenarios,
+  modelId,
+}: {
+  current: { id: number };
+  availableScenarios: ReportsCompareCandidate[];
+  modelId?: string;
+}) {
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [compareScenarios, setCompareScenarios] = useState<Scenario[] | null>(null);
+  const compareMutation = useCompareScenarios();
+
+  const candidates = availableScenarios.filter(
+    s => s.id !== current.id && (modelId == null || s.modelId === modelId),
+  );
+
+  function toggle(id: number) {
+    setSelectedIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= MAX_COMPARE) return prev;
+      return [...prev, id];
+    });
+  }
+
+  function handleRunCompare() {
+    compareMutation.mutate(
+      { data: { scenarioIds: selectedIds } },
+      {
+        onSuccess: (result: { scenarios: Scenario[] }) => setCompareScenarios(result.scenarios),
+        onError: (err: unknown) => {
+          const data = (err as { data?: ErrorEnvelope | CompareRejection | string | null })?.data;
+          const errorMessage = data && typeof data === "object" ? data.error : undefined;
+          toast({
+            title: "Comparison failed",
+            description: errorMessage ?? "Could not compare these scenarios.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  }
+
+  // Compare's own solved-and-not-stale precondition (F1.1) means every
+  // scenario the endpoint returns already has a `result` — the `!= null`
+  // filter here is defense-in-depth, not an expected real filter. Using
+  // this SAME filtered array for both the diff computation and the table's
+  // rendered columns (rather than the raw `compareScenarios`) keeps their
+  // indices/ids in lockstep even in that defensive edge case.
+  const resultScenarios = compareScenarios?.filter(s => s.result != null) ?? null;
+  const diffBaseline = resultScenarios && resultScenarios.length > 0 ? pickBaseline(resultScenarios) : null;
+  const inputDiffRows =
+    resultScenarios &&
+    diffInputs(resultScenarios.map((s): DiffScenarioInputs => ({ id: s.id, name: s.name, inputs: s.inputs })));
+  const outputDiff =
+    resultScenarios && diffBaseline
+      ? diffOutputs(
+          resultScenarios.map(
+            (s): DiffScenarioResult => ({
+              id: s.id,
+              name: s.name,
+              objective: s.result!.objective,
+              edges: s.result!.edges,
+              metrics: s.result!.metrics as Record<string, unknown>,
+            }),
+          ),
+          diffBaseline.id,
+        )
+      : null;
+
+  return (
+    <section>
+      <h3 className="text-sm font-semibold mb-2">Compare Scenarios</h3>
+      {candidates.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No other scenarios to compare against yet.</p>
+      ) : (
+        <>
+          <div className="space-y-1 mb-3" data-testid="compare-scenario-picker">
+            {candidates.map(s => (
+              <div key={s.id} className="flex items-center gap-2">
+                <Checkbox
+                  id={`compare-scenario-${s.id}`}
+                  checked={selectedIds.includes(s.id)}
+                  disabled={!selectedIds.includes(s.id) && selectedIds.length >= MAX_COMPARE}
+                  onCheckedChange={() => toggle(s.id)}
+                  data-testid={`compare-scenario-checkbox-${s.id}`}
+                />
+                <label htmlFor={`compare-scenario-${s.id}`} className="text-sm cursor-pointer">
+                  {s.name}
+                </label>
+              </div>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={selectedIds.length < MIN_COMPARE || selectedIds.length > MAX_COMPARE}
+            onClick={handleRunCompare}
+            data-testid="button-run-compare"
+          >
+            Run compare
+          </Button>
+
+          {resultScenarios && outputDiff && (
+            <table className="w-full text-sm mt-4" data-testid="compare-diff-table">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="p-1">Metric</th>
+                  {resultScenarios.map(s => (
+                    <th key={s.id} className="p-1 text-right">
+                      {s.name}
+                      {s.id === diffBaseline?.id ? " (baseline)" : ""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b">
+                  <td className="p-1">Objective</td>
+                  {outputDiff.objective.values.map((v, i) => (
+                    <td key={resultScenarios[i].id} className="p-1 text-right">
+                      {formatValue(v)}
+                    </td>
+                  ))}
+                </tr>
+                {outputDiff.metrics
+                  .filter(row => row.kind === "numeric")
+                  .map(row => (
+                    <tr key={row.key} className="border-b">
+                      <td className="p-1">{row.key}</td>
+                      {row.values.map((v, i) => (
+                        <td key={resultScenarios[i].id} className="p-1 text-right">
+                          {formatValue(v)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                {inputDiffRows &&
+                  inputDiffRows
+                    .filter(row => row.changed)
+                    .map(row => (
+                      <tr key={`input-${row.key}`} className="border-b">
+                        <td className="p-1 text-muted-foreground">Input: {row.key}</td>
+                        {row.values.map((v, i) => (
+                          <td key={resultScenarios[i].id} className="p-1 text-right">
+                            {formatValue(v)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+export function ReportsTab({ baseline, current, bands, availableScenarios, modelId }: ReportsTabProps) {
   if (!current?.result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="reports-empty">No solved result to report on yet.</div>;
   }
@@ -103,6 +302,8 @@ export function ReportsTab({ baseline, current, bands }: ReportsTabProps) {
           ))}
         </div>
       </section>
+
+      <CompareSection current={current} availableScenarios={availableScenarios ?? []} modelId={modelId} />
     </div>
   );
 }

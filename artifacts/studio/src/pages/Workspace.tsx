@@ -1320,6 +1320,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           baseline={baseline}
           current={currentScenario ?? null}
           bands={distanceBandsFromInputs(localInputs)}
+          availableScenarios={(scenarios ?? []).map(s => ({ id: s.id, name: s.name, modelId: s.modelId }))}
+          modelId={modelId}
         />
       );
     }
