@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 
 export interface StationOverride { id: string; demand?: number | null; }
 
-interface StationRow { id: string; city: string; state: string; }
+interface StationRow { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
 
 interface StationTableProps {
   stations: StationRow[];
@@ -27,7 +27,11 @@ export function StationTable({ stations, overrides, onChange }: StationTableProp
         <TableHeader>
           <TableRow>
             <TableHead>ID</TableHead>
-            <TableHead>City, State</TableHead>
+            <TableHead>City</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Latitude</TableHead>
+            <TableHead>Longitude</TableHead>
+            {stations.some(s => s.zip) && <TableHead>Zip</TableHead>}
             <TableHead>Demand override (tons)</TableHead>
           </TableRow>
         </TableHeader>
@@ -37,7 +41,11 @@ export function StationTable({ stations, overrides, onChange }: StationTableProp
             return (
               <TableRow key={s.id}>
                 <TableCell className="font-mono text-xs">{s.id}</TableCell>
-                <TableCell className="text-xs">{s.city}, {s.state}</TableCell>
+                <TableCell className="text-xs">{s.city}</TableCell>
+                <TableCell className="text-xs">{s.state}</TableCell>
+                <TableCell className="text-xs font-mono">{s.lat.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{s.lng.toFixed(4)}</TableCell>
+                {stations.some(x => x.zip) && <TableCell className="text-xs">{s.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input
                     type="number"

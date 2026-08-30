@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { StationTable } from "@/components/tables/StationTable";
 
 const stations = [
-  { id: "LAX", city: "Los Angeles", state: "CA" },
-  { id: "CHI", city: "Chicago", state: "IL" },
+  { id: "LAX", city: "Los Angeles", state: "CA", lat: 34.0522, lng: -118.2437 },
+  { id: "CHI", city: "Chicago", state: "IL", lat: 41.8781, lng: -87.6298 },
 ];
 
 describe("StationTable", () => {
@@ -27,5 +27,18 @@ describe("StationTable", () => {
     render(<StationTable stations={stations} overrides={[{ id: "LAX", demand: 1000000 }]} onChange={onChange} />);
     await userEvent.clear(screen.getByTestId("input-station-demand-LAX"));
     expect(onChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it("renders City/State/Lat/Lng as separate columns, and Zip only when present", () => {
+    const withZip = [{ id: "S1", city: "Los Angeles", state: "CA", lat: 34.0522, lng: -118.2437, zip: "90001" }];
+    const { rerender } = render(<StationTable stations={withZip} overrides={[]} onChange={() => {}} />);
+    expect(screen.getByText("Los Angeles")).toBeInTheDocument();
+    expect(screen.getByText("CA")).toBeInTheDocument();
+    expect(screen.getByText("34.0522")).toBeInTheDocument();
+    expect(screen.getByText("90001")).toBeInTheDocument();
+
+    const noZip = [{ id: "S2", city: "Chicago", state: "IL", lat: 41.8781, lng: -87.6298 }];
+    rerender(<StationTable stations={noZip} overrides={[]} onChange={() => {}} />);
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });

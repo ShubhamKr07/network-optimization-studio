@@ -13,4 +13,6 @@ export interface Customer {
   lat: number;
   lng: number;
   demand: number;
+  /** US zip or country-appropriate postal code, where available. Display-only — never a solver input. */
+  zip?: string;
 }

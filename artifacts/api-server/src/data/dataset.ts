@@ -41,6 +41,7 @@ export interface WarehouseCandidate {
   lng: number;
   /** Distinguishes non-overridable supply nodes (e.g. two-echelon-gold-au's mine) from overridable ones. Omitted where every row is overridable. */
   kind?: "mine" | "facility";
+  zip?: string;
 }
 
 export interface Customer {
@@ -50,6 +51,7 @@ export interface Customer {
   lat: number;
   lng: number;
   demand: number;
+  zip?: string;
 }
 
 function loadJson(filename: string): Record<string, unknown> {

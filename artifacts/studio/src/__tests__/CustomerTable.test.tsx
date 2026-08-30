@@ -23,6 +23,8 @@ const customers = Array.from({ length: 200 }, (_, i) => ({
   id: `C${i + 1}`,
   city: `City${i + 1}`,
   state: "XX",
+  lat: 40 + i * 0.01,
+  lng: -75 - i * 0.01,
   demand: 1000 + i,
 }));
 
@@ -37,6 +39,19 @@ describe("CustomerTable", () => {
     render(<CustomerTable customers={customers} overrides={[]} onChange={vi.fn()} />);
     expect(screen.getByText("C1")).toBeInTheDocument();
     expect(screen.getByText("C200")).toBeInTheDocument();
+  });
+
+  it("renders City/State/Lat/Lng as separate columns, and Zip only when present", () => {
+    const withZip = [{ id: "ALN", city: "Allentown", state: "PA", lat: 40.6028, lng: -75.4704, zip: "18101", demand: 500 }];
+    const { rerender } = render(<CustomerTable customers={withZip} overrides={[]} onChange={() => {}} />);
+    expect(screen.getByText("Allentown")).toBeInTheDocument();
+    expect(screen.getByText("PA")).toBeInTheDocument();
+    expect(screen.getByText("40.6028")).toBeInTheDocument();
+    expect(screen.getByText("18101")).toBeInTheDocument();
+
+    const noZip = [{ id: "ATL", city: "Atlanta", state: "GA", lat: 33.7537, lng: -84.3895, demand: 500 }];
+    rerender(<CustomerTable customers={noZip} overrides={[]} onChange={() => {}} />);
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 
   it("edit persists: changing demand round-trips through overrides prop", async () => {

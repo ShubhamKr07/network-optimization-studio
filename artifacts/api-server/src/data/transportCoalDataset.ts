@@ -1,8 +1,8 @@
 import { validatePackage, PACKAGE_SPECS } from "@workspace/dataset-schema";
 import type { WarehouseCandidate, Customer } from "./dataset.js";
 
-interface MineEntry { id: string; name: string; city: string; state: string; lat: number; lng: number; capacity: number; }
-interface StationEntry { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
+interface MineEntry { id: string; name: string; city: string; state: string; lat: number; lng: number; capacity: number; zip?: string; }
+interface StationEntry { id: string; city: string; state: string; lat: number; lng: number; demand: number; zip?: string; }
 
 const spec = PACKAGE_SPECS.find((s) => s.modelId === "transport-coal")!;
 const pkg = validatePackage(spec);
@@ -19,6 +19,7 @@ export const TRANSPORT_COAL_WAREHOUSES: WarehouseCandidate[] = Object.values(min
   state: m.state,
   lat: m.lat,
   lng: m.lng,
+  zip: m.zip,
 }));
 
 export const TRANSPORT_COAL_CUSTOMERS: Customer[] = Object.values(stations).map((s) => ({
@@ -28,4 +29,5 @@ export const TRANSPORT_COAL_CUSTOMERS: Customer[] = Object.values(stations).map(
   lat: s.lat,
   lng: s.lng,
   demand: s.demand,
+  zip: s.zip,
 }));

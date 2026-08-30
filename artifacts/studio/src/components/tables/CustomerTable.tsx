@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 
 export interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
 
-interface CustomerRow { id: string; city: string; state: string; demand: number; }
+interface CustomerRow { id: string; city: string; state: string; lat: number; lng: number; zip?: string; demand: number; }
 
 interface CustomerTableProps {
   customers: CustomerRow[];
@@ -56,7 +56,11 @@ export function CustomerTable({ customers, overrides, onChange }: CustomerTableP
         <TableHeader>
           <TableRow>
             <TableHead>ID</TableHead>
-            <TableHead>City, State</TableHead>
+            <TableHead>City</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Latitude</TableHead>
+            <TableHead>Longitude</TableHead>
+            {customers.some(c => c.zip) && <TableHead>Zip</TableHead>}
             <TableHead>Demand</TableHead>
             <TableHead>Status</TableHead>
           </TableRow>
@@ -69,7 +73,11 @@ export function CustomerTable({ customers, overrides, onChange }: CustomerTableP
             return (
               <TableRow key={c.id}>
                 <TableCell className="font-mono text-xs">{c.id}</TableCell>
-                <TableCell className="text-xs">{c.city}, {c.state}</TableCell>
+                <TableCell className="text-xs">{c.city}</TableCell>
+                <TableCell className="text-xs">{c.state}</TableCell>
+                <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
+                {customers.some(x => x.zip) && <TableCell className="text-xs">{c.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input
                     type="number"

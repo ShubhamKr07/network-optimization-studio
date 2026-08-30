@@ -1,9 +1,9 @@
 import { validatePackage, PACKAGE_SPECS } from "@workspace/dataset-schema";
 import type { WarehouseCandidate, Customer } from "./dataset.js";
 
-interface MineEntry { id: string; city: string; state: string; lat: number; lng: number; }
-interface RefineryEntry { id: string; city: string; state: string; lat: number; lng: number; }
-interface GoldCustomerEntry { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
+interface MineEntry { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
+interface RefineryEntry { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
+interface GoldCustomerEntry { id: string; city: string; state: string; lat: number; lng: number; demand: number; zip?: string; }
 
 const spec = PACKAGE_SPECS.find((s) => s.modelId === "two-echelon-gold-au")!;
 const pkg = validatePackage(spec) as {
@@ -20,15 +20,15 @@ const pkg = validatePackage(spec) as {
 // Refineries override table, map multi-select) can filter it out without
 // a second dataset shape.
 export const GOLD_MINES: WarehouseCandidate[] = Object.values(pkg["mines.json"]).map((m) => ({
-  id: m.id, city: m.city, state: m.state, lat: m.lat, lng: m.lng, kind: "mine",
+  id: m.id, city: m.city, state: m.state, lat: m.lat, lng: m.lng, kind: "mine", zip: m.zip,
 }));
 
 export const GOLD_REFINERIES: WarehouseCandidate[] = Object.values(pkg["refineries.json"]).map((r) => ({
-  id: r.id, city: r.city, state: r.state, lat: r.lat, lng: r.lng, kind: "facility",
+  id: r.id, city: r.city, state: r.state, lat: r.lat, lng: r.lng, kind: "facility", zip: r.zip,
 }));
 
 export const GOLD_WAREHOUSES: WarehouseCandidate[] = [...GOLD_MINES, ...GOLD_REFINERIES];
 
 export const GOLD_CUSTOMERS: Customer[] = Object.values(pkg["customers.json"]).map((c) => ({
-  id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.demand,
+  id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.demand, zip: c.zip,
 }));
