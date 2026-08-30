@@ -5,7 +5,8 @@
     "state": "NSW",
     "lat": -33.87,
     "lng": 151.21,
-    "demand": 500000.0
+    "demand": 500000,
+    "zip": "2000"
   },
   "melbourne": {
     "id": "melbourne",
@@ -13,7 +14,8 @@
     "state": "VIC",
     "lat": -37.81,
     "lng": 144.96,
-    "demand": 1000000.0
+    "demand": 1000000,
+    "zip": "3000"
   },
   "brisbane": {
     "id": "brisbane",
@@ -21,7 +23,8 @@
     "state": "QLD",
     "lat": -27.46,
     "lng": 153.02,
-    "demand": 750000.0
+    "demand": 750000,
+    "zip": "4000"
   },
   "adelaide": {
     "id": "adelaide",
@@ -29,7 +32,8 @@
     "state": "SA",
     "lat": -34.93,
     "lng": 138.6,
-    "demand": 850000.0
+    "demand": 850000,
+    "zip": "5000"
   },
   "canberra": {
     "id": "canberra",
@@ -37,7 +41,8 @@
     "state": "ACT",
     "lat": -35.31,
     "lng": 149.13,
-    "demand": 900000.0
+    "demand": 900000,
+    "zip": "2600"
   },
   "newcastle": {
     "id": "newcastle",
@@ -45,7 +50,8 @@
     "state": "NSW",
     "lat": -32.92,
     "lng": 151.75,
-    "demand": 650000.0
+    "demand": 650000,
+    "zip": "2303"
   },
   "sunshine-coast": {
     "id": "sunshine-coast",
@@ -53,7 +59,8 @@
     "state": "QLD",
     "lat": -25.88,
     "lng": 152.56,
-    "demand": 500000.0
+    "demand": 500000,
+    "zip": "4650"
   },
   "townsville": {
     "id": "townsville",
@@ -61,7 +68,8 @@
     "state": "QLD",
     "lat": -19.26,
     "lng": 146.78,
-    "demand": 850000.0
+    "demand": 850000,
+    "zip": "4814"
   },
   "cairns": {
     "id": "cairns",
@@ -69,7 +77,8 @@
     "state": "QLD",
     "lat": -16.92,
     "lng": 145.75,
-    "demand": 650000.0
+    "demand": 650000,
+    "zip": "4870"
   },
   "bendigo": {
     "id": "bendigo",
@@ -77,6 +86,7 @@
     "state": "VIC",
     "lat": -36.76,
     "lng": 144.28,
-    "demand": 750000.0
+    "demand": 750000,
+    "zip": "3550"
   }
 }

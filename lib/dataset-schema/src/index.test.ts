@@ -26,6 +26,6 @@ describe("two-echelon-gold-au registration", () => {
     const spec = PACKAGE_SPECS.find(s => s.modelId === "two-echelon-gold-au");
     expect(spec).toBeDefined();
     const hash = computeSha256(spec!);
-    expect(hash).toBe("b79d16d920712faff854f5da2e72a852783c3fb653cb449ba559154dde37088c");
+    expect(hash).toBe("b6df1a31f6a03e5d57aa7bc92bd1eda5c5d5e691d1f8dfec5fd21ac2f2ac0b94");
   });
 });
