@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -42,6 +42,8 @@ interface LegDistancesTabProps {
   scenarioId?: number;
   /** Fired after a successful import apply, with the updated scenario — the caller (Workspace.tsx) refreshes its inputs draft from it. */
   onImportApplied?: (scenario: Scenario) => void;
+  /** Phase 3.2, Task 4 — when set, scroll/highlight the row(s) referencing this entity id (the post-Save precheck toast's "jump to it" action). Cleared by the consumer after use — this component doesn't clear it itself. */
+  focusEntityId?: string | null;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -67,6 +69,7 @@ export function LegDistancesTab({
   onChange,
   scenarioId,
   onImportApplied,
+  focusEntityId,
 }: LegDistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -77,6 +80,24 @@ export function LegDistancesTab({
   const [newTo, setNewTo] = useState("");
   const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
+  // Reuses this component's own existing `row-legdistance-${fromId}-${toId}`
+  // testid pattern, matched by boundary (either id can itself contain
+  // hyphens, so this isn't a naive split on "-").
+  useEffect(() => {
+    if (!focusEntityId) return;
+    const prefix = "row-legdistance-";
+    const rows = document.querySelectorAll(`[data-testid^="${prefix}"]`);
+    for (const row of Array.from(rows)) {
+      const testid = row.getAttribute("data-testid") ?? "";
+      const suffix = testid.slice(prefix.length);
+      if (suffix.startsWith(`${focusEntityId}-`) || suffix.endsWith(`-${focusEntityId}`)) {
+        row.scrollIntoView({ block: "center" });
+        break;
+      }
+    }
+  }, [focusEntityId]);
 
   const mineIdSet = new Set(mineIds);
   const refineryIdSet = new Set(refineryIds);

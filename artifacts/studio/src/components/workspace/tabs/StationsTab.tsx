@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import { StationTable, type StationOverride } from "@/components/tables/StationTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -44,6 +44,9 @@ interface StationsTabProps {
   onDeleteStation?: (id: string) => void;
   /** B6.1 stage 3's precheck errors for the current scenario — drives the inline "N mines lack a lane cost" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
+  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
+  prefillCoords?: { lat: number; lng: number } | null;
+  onPrefillConsumed?: () => void;
 }
 
 // A5.1 — transport-coal's Stations input tab. Mirrors MinesTab (same file
@@ -67,6 +70,8 @@ export function StationsTab({
   onAddedStationsChange,
   onDeleteStation,
   precheckErrors = [],
+  prefillCoords,
+  onPrefillConsumed,
 }: StationsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -78,6 +83,15 @@ export function StationsTab({
   const [newLng, setNewLng] = useState("");
   const [newDemand, setNewDemand] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
+  useEffect(() => {
+    if (!prefillCoords) return;
+    setAddingRow(true);
+    setNewLat(String(prefillCoords.lat));
+    setNewLng(String(prefillCoords.lng));
+    onPrefillConsumed?.();
+  }, [prefillCoords, onPrefillConsumed]);
 
   const knownStationIds = new Set([...stations.map(s => s.id), ...addedStations.map(s => s.id)]);
 

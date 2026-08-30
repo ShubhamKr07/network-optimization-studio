@@ -224,3 +224,39 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
     expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });
+
+// Phase 3.2, Task 4 — Input Map click-to-place prefill.
+describe("MinesTab — Input Map prefill (Phase 3.2, Task 4)", () => {
+  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <MinesTab
+        mines={[]} overrides={[]} onChange={vi.fn()}
+        addedMines={[]}
+        onAddedMinesChange={vi.fn()}
+        onDeleteMine={vi.fn()}
+        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.getByTestId("input-new-mine-lat")).toHaveValue(40.1234);
+    expect(screen.getByTestId("input-new-mine-lng")).toHaveValue(-75.5678);
+    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <MinesTab
+        mines={mines} overrides={[]} onChange={vi.fn()}
+        addedMines={[]}
+        onAddedMinesChange={vi.fn()}
+        onDeleteMine={vi.fn()}
+        prefillCoords={null}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.queryByTestId("add-mine-row-form")).not.toBeInTheDocument();
+    expect(onPrefillConsumed).not.toHaveBeenCalled();
+  });
+});

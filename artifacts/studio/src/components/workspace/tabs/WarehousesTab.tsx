@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WarehouseCandidate, Scenario } from "@workspace/api-client-react";
 import { WarehouseTable, type WarehouseOverride } from "@/components/tables/WarehouseTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -77,6 +77,9 @@ interface WarehousesTabProps {
   onDeleteWarehouse?: (id: string) => void;
   /** B2.1's precheck errors for the current scenario — drives the inline "missing N distances" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
+  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
+  prefillCoords?: { lat: number; lng: number } | null;
+  onPrefillConsumed?: () => void;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -104,6 +107,8 @@ export function WarehousesTab({
   onAddedWarehousesChange,
   onDeleteWarehouse,
   precheckErrors = [],
+  prefillCoords,
+  onPrefillConsumed,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
@@ -123,6 +128,17 @@ export function WarehousesTab({
   const [newLng, setNewLng] = useState("");
   const [newCapacity, setNewCapacity] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Phase 3.2, Task 4 — Input Map click-to-place prefill. One-shot: opens
+  // the add-row form and pre-fills newLat/newLng, then reports back to
+  // Workspace.tsx so it clears its own pendingPrefill state.
+  useEffect(() => {
+    if (!prefillCoords) return;
+    setAddingRow(true);
+    setNewLat(String(prefillCoords.lat));
+    setNewLng(String(prefillCoords.lng));
+    onPrefillConsumed?.();
+  }, [prefillCoords, onPrefillConsumed]);
 
   const knownWarehouseIds = new Set([...candidates.map(w => w.id), ...addedWarehouses.map(w => w.id)]);
 
