@@ -447,3 +447,39 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
     expect(onDeleteWarehouse).toHaveBeenCalledWith("ref-new-1");
   });
 });
+
+// Phase 3.2, Task 4 — Input Map click-to-place prefill.
+describe("WarehousesTab — Input Map prefill (Phase 3.2, Task 4)", () => {
+  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={[]} overrides={[]} capacityMode="none" onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(40.1234);
+    expect(screen.getByTestId("input-new-warehouse-lng")).toHaveValue(-75.5678);
+    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+        prefillCoords={null}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.queryByTestId("add-warehouse-row-form")).not.toBeInTheDocument();
+    expect(onPrefillConsumed).not.toHaveBeenCalled();
+  });
+});

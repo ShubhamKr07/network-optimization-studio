@@ -313,3 +313,39 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
   });
 });
+
+// Phase 3.2, Task 4 — Input Map click-to-place prefill.
+describe("CustomersTab — Input Map prefill (Phase 3.2, Task 4)", () => {
+  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <CustomersTab
+        customers={[]} overrides={[]} onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(40.1234);
+    expect(screen.getByTestId("input-new-customer-lng")).toHaveValue(-75.5678);
+    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers} overrides={[]} onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+        prefillCoords={null}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.queryByTestId("add-customer-row-form")).not.toBeInTheDocument();
+    expect(onPrefillConsumed).not.toHaveBeenCalled();
+  });
+});

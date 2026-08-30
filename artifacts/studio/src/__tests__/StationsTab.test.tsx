@@ -224,3 +224,39 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });
+
+// Phase 3.2, Task 4 — Input Map click-to-place prefill.
+describe("StationsTab — Input Map prefill (Phase 3.2, Task 4)", () => {
+  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <StationsTab
+        stations={[]} overrides={[]} onChange={vi.fn()}
+        addedStations={[]}
+        onAddedStationsChange={vi.fn()}
+        onDeleteStation={vi.fn()}
+        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.getByTestId("input-new-station-lat")).toHaveValue(40.1234);
+    expect(screen.getByTestId("input-new-station-lng")).toHaveValue(-75.5678);
+    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
+    const onPrefillConsumed = vi.fn();
+    render(
+      <StationsTab
+        stations={stations} overrides={[]} onChange={vi.fn()}
+        addedStations={[]}
+        onAddedStationsChange={vi.fn()}
+        onDeleteStation={vi.fn()}
+        prefillCoords={null}
+        onPrefillConsumed={onPrefillConsumed}
+      />
+    );
+    expect(screen.queryByTestId("add-station-row-form")).not.toBeInTheDocument();
+    expect(onPrefillConsumed).not.toHaveBeenCalled();
+  });
+});

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -35,6 +35,8 @@ interface DistancesTabProps {
   scenarioId?: number;
   /** Fired after a successful import apply, with the updated scenario — the caller (Workspace.tsx) refreshes its inputs draft from it. */
   onImportApplied?: (scenario: Scenario) => void;
+  /** Phase 3.2, Task 4 — when set, scroll/highlight the row(s) referencing this entity id (the post-Save precheck toast's "jump to it" action). Cleared by the consumer after use — this component doesn't clear it itself. */
+  focusEntityId?: string | null;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -57,6 +59,7 @@ export function DistancesTab({
   onChange,
   scenarioId,
   onImportApplied,
+  focusEntityId,
 }: DistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -67,6 +70,27 @@ export function DistancesTab({
   const [newTo, setNewTo] = useState("");
   const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
+  // Rows use this component's own existing `row-distance-${fromId}-${toId}`
+  // testid pattern (reused, not a new one) — matches on either side, since
+  // the newly-added entity could be either fromId (a warehouse) or toId (a
+  // customer).
+  useEffect(() => {
+    if (!focusEntityId) return;
+    const prefix = "row-distance-";
+    const rows = document.querySelectorAll(`[data-testid^="${prefix}"]`);
+    for (const row of Array.from(rows)) {
+      const testid = row.getAttribute("data-testid") ?? "";
+      // "row-distance-${fromId}-${toId}" — matched by boundary, not a naive
+      // split on "-", since either id can itself contain hyphens.
+      const suffix = testid.slice(prefix.length);
+      if (suffix.startsWith(`${focusEntityId}-`) || suffix.endsWith(`-${focusEntityId}`)) {
+        row.scrollIntoView({ block: "center" });
+        break;
+      }
+    }
+  }, [focusEntityId]);
 
   const warehouseIdSet = new Set(warehouseIds);
   const customerIdSet = new Set(customerIds);

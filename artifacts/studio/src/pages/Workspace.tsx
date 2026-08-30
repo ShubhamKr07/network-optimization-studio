@@ -14,6 +14,7 @@ import {
   useListModels,
   useLogoutUser,
   usePrecheckScenario,
+  precheckScenario,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
@@ -35,6 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ToastAction } from "@/components/ui/toast";
 import { SidebarTree, type SidebarEntry } from "@/components/workspace/SidebarTree";
 import { TabBar } from "@/components/workspace/TabBar";
 import { SolveDialog, type SolveDialogPhase } from "@/components/workspace/SolveDialog";
@@ -46,6 +48,7 @@ import { OptimizationParametersTab } from "@/components/workspace/tabs/Optimizat
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
+import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
@@ -68,6 +71,13 @@ import {
 } from "@/lib/workspaceTabs";
 import type { StudioModelType } from "@/lib/chapters";
 import { toast } from "@/hooks/use-toast";
+import {
+  completenessCountForWarehouse,
+  completenessCountForCustomer,
+  completenessCountForMine,
+  completenessCountForStation,
+  type PrecheckErrorLike,
+} from "@/lib/precheckDisplay";
 
 // A5.1-A5.3 — every model's default `inputs` shape for a brand-new scenario,
 // copied verbatim from Studio.tsx's handleCreateConfirm switch
@@ -310,10 +320,18 @@ function warehouseStatusesFromInputs(
 // its own "no lib/db, no api-spec, no api-server/validation changes"
 // guarantee. Documented as a deferred follow-up in the task report, not a
 // silent gap.
+// Phase 3.2, Task 4 — "Input Map" is the first entry in every model's list
+// (per-model placement/pin wiring lives in placementOptionsForModel/
+// pinsForModel below). p-median-brazil shares this array with p-median-us
+// (the switch's default case) so it technically gets a sidebar entry too,
+// but renderTabContent's own branch excludes p-median-brazil from real
+// content (same "no dataset endpoint" boundary every other Brazil input tab
+// already draws) — its entry falls through to the generic placeholder.
 function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
     case "transport-coal":
       return [
+        { id: "input-map", label: "Input Map" },
         { id: "mines", label: "Mines" },
         { id: "stations", label: "Stations" },
         // Task 30 — was a "distances" placeholder entry (B6.1 stages 1-3
@@ -326,6 +344,7 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
       ];
     case "two-echelon-gold-au":
       return [
+        { id: "input-map", label: "Input Map" },
         { id: "refineries", label: "Refineries" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },
@@ -335,12 +354,81 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
     case "p-median-us":
     default:
       return [
+        { id: "input-map", label: "Input Map" },
         { id: "customers", label: "Customers" },
         { id: "warehouses", label: "Warehouses" },
         { id: "distances", label: "Distances" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
   }
+}
+
+// Phase 3.2, Task 4 — per-model placement options for the Input Map's
+// toggle (matches inputEntriesForModel's own entity ids exactly, so
+// handlePlacePoint's openTab(kind, ...) call always resolves a real tab).
+// No "mines" option for two-echelon-gold-au (its mine is fixed, never a
+// placement choice) and no mine/station placement crossover for
+// transport-coal vs. p-median-us's warehouse/customer vocabulary.
+function placementOptionsForModel(modelId: StudioModelType): { key: string; label: string }[] {
+  switch (modelId) {
+    case "transport-coal":
+      return [
+        { key: "mines", label: "Mine" },
+        { key: "stations", label: "Station" },
+      ];
+    case "two-echelon-gold-au":
+      return [
+        { key: "refineries", label: "Refinery" },
+        { key: "customers", label: "Customer" },
+      ];
+    case "p-median-brazil":
+    case "p-median-us":
+    default:
+      return [
+        { key: "warehouses", label: "Warehouse" },
+        { key: "customers", label: "Customer" },
+      ];
+  }
+}
+
+// Phase 3.2, Task 4 — pins shown on the Input Map: base dataset rows +
+// scenario-local added rows, grouped by kind (matches placementOptionsForModel's
+// own key vocabulary). `dataset` can be undefined before GET /dataset
+// resolves — degrades to no pins for that group rather than crashing.
+function pinsForModel(
+  modelId: StudioModelType,
+  dataset: { warehouses: { id: string; city: string; state: string; lat: number; lng: number; kind?: string }[]; customers: { id: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
+  localInputs: Record<string, unknown> | null,
+): { kind: string; entities: { id: string; city: string; state: string; lat: number; lng: number }[] }[] {
+  if (modelId === "transport-coal") {
+    return [
+      { kind: "mines", entities: [...(dataset?.warehouses ?? []), ...addedMinesFromInputs(localInputs)] },
+      { kind: "stations", entities: [...(dataset?.customers ?? []), ...addedStationsFromInputs(localInputs)] },
+    ];
+  }
+  if (modelId === "two-echelon-gold-au") {
+    return [
+      { kind: "refineries", entities: [...(dataset?.warehouses ?? []).filter(w => w.kind !== "mine"), ...addedRefineriesFromInputs(localInputs)] },
+      { kind: "customers", entities: [...(dataset?.customers ?? []), ...addedCustomersFromInputs(localInputs)] },
+    ];
+  }
+  return [
+    { kind: "warehouses", entities: [...(dataset?.warehouses ?? []), ...addedWarehousesFromInputs(localInputs)] },
+    { kind: "customers", entities: [...(dataset?.customers ?? []), ...addedCustomersFromInputs(localInputs)] },
+  ];
+}
+
+// Phase 3.2, Task 4 — dispatches to precheckDisplay.ts's per-entity
+// completeness readers (warehouses/refineries share the same "missing
+// distances to N customers" message shape; mines have their own "missing
+// lane costs" shape; customers/stations are the reverse-direction readers,
+// which return a plain number rather than number|null).
+function missingCountFor(kind: string, errors: PrecheckErrorLike[], id: string): number {
+  if (kind === "warehouses" || kind === "refineries") return completenessCountForWarehouse(errors, id) ?? 0;
+  if (kind === "mines") return completenessCountForMine(errors, id) ?? 0;
+  if (kind === "customers") return completenessCountForCustomer(errors, id);
+  if (kind === "stations") return completenessCountForStation(errors, id);
+  return 0;
 }
 
 // A3.1 builds this tab's real content (re-homed NetworkMap + layer toggles)
@@ -678,6 +766,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // B5.2 — refetch precheck against the just-saved inputs (see the
           // usePrecheckScenario call site's comment above).
           queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(scenarioId) });
+          // Phase 3.2, Task 4 — resolve any pending Input Map precheck
+          // watches for this scenario now that its inputs are persisted.
+          void reportPendingPrecheckWatches(scenarioId);
         },
       },
     );
@@ -733,6 +824,95 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
+  }
+
+  // Phase 3.2, Task 4 — Input Map click-to-place. `pendingPrefill` flows one
+  // shot into whichever *Tab's prefillCoords prop, cleared via
+  // onPrefillConsumed. `pendingPrecheckWatches` tracks every entity we owe a
+  // post-Save precheck toast to, scoped by scenario — a list, not one bare
+  // id, since more than one entity can be added before the next Save, and
+  // scoped so switching scenarios mid-flow can't cross-contaminate.
+  // `focusEntityId` flows one shot into the currently-active Distances/Lane
+  // costs/Leg distances tab (whichever renders for this model) so the
+  // toast's "jump to it" action can scroll to the new entity's row —
+  // cleared here (the consumer), not by those tabs themselves, via a short
+  // timer once set.
+  const [pendingPrefill, setPendingPrefill] = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingPrecheckWatches, setPendingPrecheckWatches] = useState<{ scenarioId: number; kind: string; id: string }[]>([]);
+  const [focusEntityId, setFocusEntityId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusEntityId) return;
+    const t = setTimeout(() => setFocusEntityId(null), 3000);
+    return () => clearTimeout(t);
+  }, [focusEntityId]);
+
+  function handlePlacePoint(lat: number, lng: number, kind: string) {
+    const entry = inputEntriesForModel(modelId).find(e => e.id === kind);
+    openTab("input", { id: kind, label: entry?.label ?? kind });
+    setPendingPrefill({ lat, lng });
+    toast({ description: `Placing a new ${entry?.label.toLowerCase().replace(/s$/, "") ?? kind} at ${lat.toFixed(4)}, ${lng.toFixed(4)} — fill in the remaining fields below.` });
+  }
+
+  function handleEntityAdded(kind: string, id: string) {
+    if (!currentScenario) return;
+    setPendingPrecheckWatches(prev => [...prev, { scenarioId: currentScenario.id, kind, id }]);
+  }
+
+  // Detects a genuine ADD (array grew by one) among the possible edit/add
+  // combinations each *Tab's onAddedXChange callback can carry, and reports
+  // the newly-added id to handleEntityAdded above. An edit (same length) or
+  // a delete (handled via a separate onDeleteX callback, never through this
+  // path) don't register a watch.
+  function handleAddedArrayChange<T extends { id: string }>(kind: string, fieldKey: string, current: T[], next: T[]) {
+    updateInputsField(fieldKey, next);
+    if (next.length > current.length) {
+      const currentIds = new Set(current.map(e => e.id));
+      const added = next.find(e => !currentIds.has(e.id));
+      if (added) handleEntityAdded(kind, added.id);
+    }
+  }
+
+  // Post-Save precheck toast (Input Map, Task 4). Called from
+  // handleSaveInputs's onSuccess, after that handler's own existing
+  // getPrecheckScenarioQueryKey invalidation — awaits a FRESH fetch of the
+  // precheck result rather than trusting whatever's still in the query
+  // cache from before the save, since a same-tick read of a stale closure
+  // would silently show a pre-save (possibly incomplete) picture.
+  async function reportPendingPrecheckWatches(scenarioId: number) {
+    const relevant = pendingPrecheckWatches.filter(w => w.scenarioId === scenarioId);
+    if (relevant.length === 0) return;
+    await queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(scenarioId) });
+    const fresh = await queryClient.fetchQuery({
+      queryKey: getPrecheckScenarioQueryKey(scenarioId),
+      queryFn: () => precheckScenario(scenarioId),
+    });
+    for (const watch of relevant) {
+      const missing = missingCountFor(watch.kind, fresh.errors, watch.id);
+      // Both p-median-us's "distances" and transport-coal's "laneCosts"
+      // sidebar entries exist in inputEntriesForModel(modelId) for their
+      // OWN model only — this lookup naturally resolves to whichever one
+      // this model actually has, no per-kind branching needed.
+      const targetEntityId = watch.kind === "mines" || watch.kind === "stations" ? "laneCosts" : "distances";
+      const label = inputEntriesForModel(modelId).find(e => e.id === "distances" || e.id === "laneCosts")?.label ?? "Distances";
+      if (missing > 0) {
+        toast({
+          description: `${watch.id}: missing ${missing} distance${missing === 1 ? "" : "s"} — see ${label}.`,
+          action: (
+            <ToastAction
+              altText={`Go to ${label}`}
+              onClick={() => {
+                setFocusEntityId(watch.id);
+                openTab("input", { id: targetEntityId, label });
+              }}
+            >
+              {label}
+            </ToastAction>
+          ),
+        });
+      }
+    }
+    setPendingPrecheckWatches(prev => prev.filter(w => w.scenarioId !== scenarioId));
   }
 
   function handleSelectScenario(id: number) {
@@ -1004,6 +1184,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
+    // Phase 3.2, Task 4 — Input Map tab (pre-solve, click-to-place).
+    // p-median-brazil shares this sidebar entry (inputEntriesForModel's own
+    // comment) but has no dataset endpoint — falls through to the generic
+    // placeholder at the bottom, same boundary every other Brazil input tab
+    // already draws, rather than rendering a non-functional map.
+    if (activeTab.kind === "input" && activeTab.entity === "input-map" && modelId !== "p-median-brazil") {
+      if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <InputMapTab
+          countryBounds={activeModelManifest?.countryBounds}
+          pins={pinsForModel(modelId, dataset, localInputs)}
+          placementOptions={placementOptionsForModel(modelId)}
+          onPlacePoint={handlePlacePoint}
+        />
+      );
+    }
+
     // A5.1 — p-median-us's real Warehouses tab. two-echelon-gold-au's
     // Refineries tab reuses the SAME component below (entity="refineries")
     // rather than forking one — see WarehousesTab's own comment on why.
@@ -1021,9 +1218,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           addedWarehouses={addedWarehousesFromInputs(localInputs)}
-          onAddedWarehousesChange={next => updateInputsField("addedWarehouses", next)}
+          onAddedWarehousesChange={next => handleAddedArrayChange("warehouses", "addedWarehouses", addedWarehousesFromInputs(localInputs), next)}
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedWarehouses", id)}
           precheckErrors={precheck?.errors}
+          prefillCoords={pendingPrefill}
+          onPrefillConsumed={() => setPendingPrefill(null)}
         />
       );
     }
@@ -1050,9 +1249,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           entity="refineries"
           addedWarehouses={addedRefineriesFromInputs(localInputs)}
-          onAddedWarehousesChange={next => updateInputsField("addedRefineries", next)}
+          onAddedWarehousesChange={next => handleAddedArrayChange("refineries", "addedRefineries", addedRefineriesFromInputs(localInputs), next)}
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}
           precheckErrors={precheck?.errors}
+          prefillCoords={pendingPrefill}
+          onPrefillConsumed={() => setPendingPrefill(null)}
         />
       );
     }
@@ -1072,6 +1273,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("customerOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          prefillCoords={pendingPrefill}
+          onPrefillConsumed={() => setPendingPrefill(null)}
           // B5.2/B6.2 — addedCustomers used to be a p-median-us-only concept
           // (twoEchelonInputsSchema had no such field); B6.2 gave
           // two-echelon-gold-au its own real addedCustomers field with the
@@ -1082,7 +1285,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au"
             ? {
                 addedCustomers: addedCustomersFromInputs(localInputs),
-                onAddedCustomersChange: (next: AddedCustomer[]) => updateInputsField("addedCustomers", next),
+                onAddedCustomersChange: (next: AddedCustomer[]) => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next),
                 onDeleteCustomer: (id: string) => deleteAddedEntityAndOverrides("addedCustomers", id),
                 precheckErrors: precheck?.errors,
               }
@@ -1106,9 +1309,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           addedMines={addedMinesFromInputs(localInputs)}
-          onAddedMinesChange={next => updateInputsField("addedMines", next)}
+          onAddedMinesChange={next => handleAddedArrayChange("mines", "addedMines", addedMinesFromInputs(localInputs), next)}
           onDeleteMine={id => deleteAddedTransportEntityAndOverrides("addedMines", id)}
           precheckErrors={precheck?.errors}
+          prefillCoords={pendingPrefill}
+          onPrefillConsumed={() => setPendingPrefill(null)}
         />
       );
     }
@@ -1126,9 +1331,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           addedStations={addedStationsFromInputs(localInputs)}
-          onAddedStationsChange={next => updateInputsField("addedStations", next)}
+          onAddedStationsChange={next => handleAddedArrayChange("stations", "addedStations", addedStationsFromInputs(localInputs), next)}
           onDeleteStation={id => deleteAddedTransportEntityAndOverrides("addedStations", id)}
           precheckErrors={precheck?.errors}
+          prefillCoords={pendingPrefill}
+          onPrefillConsumed={() => setPendingPrefill(null)}
         />
       );
     }
@@ -1171,6 +1378,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("distanceOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          focusEntityId={focusEntityId}
         />
       );
     }
@@ -1197,6 +1405,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("distanceOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          focusEntityId={focusEntityId}
         />
       );
     }
@@ -1216,6 +1425,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onChange={next => updateInputsField("laneCostOverrides", next)}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
+          focusEntityId={focusEntityId}
         />
       );
     }

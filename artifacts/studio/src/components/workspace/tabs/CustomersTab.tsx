@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Customer, Scenario } from "@workspace/api-client-react";
 import { CustomerTable, type CustomerOverride } from "@/components/tables/CustomerTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -43,6 +43,9 @@ interface CustomersTabProps {
   onDeleteCustomer?: (id: string) => void;
   /** B2.1's precheck errors for the current scenario — drives the inline "missing N distances" chip on added rows. */
   precheckErrors?: PrecheckErrorLike[];
+  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
+  prefillCoords?: { lat: number; lng: number } | null;
+  onPrefillConsumed?: () => void;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -63,6 +66,8 @@ export function CustomersTab({
   onAddedCustomersChange,
   onDeleteCustomer,
   precheckErrors = [],
+  prefillCoords,
+  onPrefillConsumed,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -76,6 +81,15 @@ export function CustomersTab({
   const [newLng, setNewLng] = useState("");
   const [newDemand, setNewDemand] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
+  useEffect(() => {
+    if (!prefillCoords) return;
+    setAddingRow(true);
+    setNewLat(String(prefillCoords.lat));
+    setNewLng(String(prefillCoords.lng));
+    onPrefillConsumed?.();
+  }, [prefillCoords, onPrefillConsumed]);
 
   const knownCustomerIds = new Set([...customers.map(c => c.id), ...addedCustomers.map(c => c.id)]);
 
