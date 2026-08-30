@@ -324,30 +324,6 @@ export interface ScenarioUpdate {
   inputs?: ScenarioUpdateInputs;
 }
 
-export interface CompareInput {
-  /**
-     * @minItems 2
-     * @maxItems 4
-     */
-  scenarioIds: number[];
-}
-
-/**
- * One entry per requested scenario, in the request's order. Each is the full Scenario shape (opaque inputs + standardized result envelope) — F2.1's frontend diff engine interprets these generically rather than the server pre-flattening comparison metrics.
- */
-export interface CompareResult {
-  scenarios: Scenario[];
-}
-
-/**
- * 422 body when one or more requested scenarios aren't eligible to compare (different models, or unsolved/stale).
- */
-export interface CompareRejection {
-  error: string;
-  /** IDs of scenarios that fail the comparison precondition (present for the unsolved/stale rejection; omitted for the differing-models rejection). */
-  offendingIds?: number[];
-}
-
 export type PrecheckErrorCode = typeof PrecheckErrorCode[keyof typeof PrecheckErrorCode];
 
 

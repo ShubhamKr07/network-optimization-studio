@@ -40,8 +40,8 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Supply Chain Design</CardTitle>
-          <p className="text-xs text-muted-foreground">Prof. Michael Watson</p>
+          <CardTitle>SCND Optimization Studio</CardTitle>
+          <p className="text-xs text-muted-foreground">By Prof. Michael Watson</p>
           <CardDescription>Log in to continue your labs.</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

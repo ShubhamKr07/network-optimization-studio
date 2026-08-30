@@ -21,9 +21,6 @@ import type {
 
 import type {
   AuthUserEnvelope,
-  CompareInput,
-  CompareRejection,
-  CompareResult,
   Dataset,
   ErrorEnvelope,
   ExportEnvelope,
@@ -1132,76 +1129,6 @@ export const useApplyScenarioImport = <TError = ErrorType<void>,
       return useMutation(getApplyScenarioImportMutationOptions(options));
     }
 
-export const getResetScenarioToBaselineUrl = (scenarioId: number,) => {
-
-
-
-
-  return `/api/scenarios/${scenarioId}/reset-to-baseline`
-}
-
-/**
- * @summary Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
- */
-export const resetScenarioToBaseline = async (scenarioId: number, options?: RequestInit): Promise<Scenario> => {
-
-  return customFetch<Scenario>(getResetScenarioToBaselineUrl(scenarioId),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-export const getResetScenarioToBaselineMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetScenarioToBaseline>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof resetScenarioToBaseline>>, TError,{scenarioId: number}, TContext> => {
-
-const mutationKey = ['resetScenarioToBaseline'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetScenarioToBaseline>>, {scenarioId: number}> = (props) => {
-          const {scenarioId} = props ?? {};
-
-          return  resetScenarioToBaseline(scenarioId,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ResetScenarioToBaselineMutationResult = NonNullable<Awaited<ReturnType<typeof resetScenarioToBaseline>>>
-
-    export type ResetScenarioToBaselineMutationError = ErrorType<void>
-
-    /**
- * @summary Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
- */
-export const useResetScenarioToBaseline = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetScenarioToBaseline>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof resetScenarioToBaseline>>,
-        TError,
-        {scenarioId: number},
-        TContext
-      > => {
-      return useMutation(getResetScenarioToBaselineMutationOptions(options));
-    }
-
 export const getCloneScenarioUrl = (scenarioId: number,) => {
 
 
@@ -1360,77 +1287,6 @@ export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenar
 
 
 
-
-export const getCompareScenariosUrl = () => {
-
-
-
-
-  return `/api/scenarios/compare`
-}
-
-/**
- * @summary Compare 2-4 solved scenarios that share a model
- */
-export const compareScenarios = async (compareInput: CompareInput, options?: RequestInit): Promise<CompareResult> => {
-
-  return customFetch<CompareResult>(getCompareScenariosUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      compareInput,)
-  }
-);}
-
-
-
-
-export const getCompareScenariosMutationOptions = <TError = ErrorType<ErrorEnvelope | void | CompareRejection>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext> => {
-
-const mutationKey = ['compareScenarios'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof compareScenarios>>, {data: BodyType<CompareInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  compareScenarios(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CompareScenariosMutationResult = NonNullable<Awaited<ReturnType<typeof compareScenarios>>>
-    export type CompareScenariosMutationBody = BodyType<CompareInput>
-    export type CompareScenariosMutationError = ErrorType<ErrorEnvelope | void | CompareRejection>
-
-    /**
- * @summary Compare 2-4 solved scenarios that share a model
- */
-export const useCompareScenarios = <TError = ErrorType<ErrorEnvelope | void | CompareRejection>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof compareScenarios>>, TError,{data: BodyType<CompareInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof compareScenarios>>,
-        TError,
-        {data: BodyType<CompareInput>},
-        TContext
-      > => {
-      return useMutation(getCompareScenariosMutationOptions(options));
-    }
 
 export const getRegisterUserUrl = () => {
 

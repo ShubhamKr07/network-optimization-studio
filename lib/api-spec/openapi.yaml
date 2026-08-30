@@ -368,31 +368,6 @@ paths:
         "422":
           description: Invalid entity, model unsupported, or (all_or_nothing mode) the import had errors and nothing was applied
 
-  /scenarios/{scenarioId}/reset-to-baseline:
-    post:
-      operationId: resetScenarioToBaseline
-      tags: [scenarios]
-      summary: Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
-      parameters:
-        - name: scenarioId
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Scenario with overrides cleared
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Scenario"
-        "401":
-          description: Not authenticated
-        "404":
-          description: Not found
-        "422":
-          description: This scenario's model doesn't support reset-to-baseline
-
   /scenarios/{scenarioId}/clone:
     post:
       operationId: cloneScenario
@@ -467,45 +442,6 @@ paths:
           description: Not found
         "422":
           description: Invalid entity/format, this scenario's model doesn't support export, stubFor used with an entity other than distances/laneCosts, or stubFor does not reference a known warehouse/mine or customer/station
-
-  /scenarios/compare:
-    post:
-      operationId: compareScenarios
-      tags: [scenarios]
-      summary: Compare 2-4 solved scenarios that share a model
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CompareInput"
-      responses:
-        "200":
-          description: The compared scenarios, each with its opaque inputs and standardized result envelope
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CompareResult"
-        "400":
-          description: scenarioIds must be an array of 2-4 integers
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Not authenticated
-        "404":
-          description: One or more scenario IDs don't exist or aren't owned by the caller
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "422":
-          description: Scenarios don't share the same model, or one or more isn't solved/is stale
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CompareRejection"
 
   /auth/register:
     post:
@@ -1006,40 +942,6 @@ components:
           type: string
         inputs:
           type: object
-
-    CompareInput:
-      type: object
-      properties:
-        scenarioIds:
-          type: array
-          items:
-            type: integer
-          minItems: 2
-          maxItems: 4
-      required: [scenarioIds]
-
-    CompareResult:
-      type: object
-      description: One entry per requested scenario, in the request's order. Each is the full Scenario shape (opaque inputs + standardized result envelope) — F2.1's frontend diff engine interprets these generically rather than the server pre-flattening comparison metrics.
-      properties:
-        scenarios:
-          type: array
-          items:
-            $ref: "#/components/schemas/Scenario"
-      required: [scenarios]
-
-    CompareRejection:
-      type: object
-      description: 422 body when one or more requested scenarios aren't eligible to compare (different models, or unsolved/stale).
-      properties:
-        error:
-          type: string
-        offendingIds:
-          type: array
-          items:
-            type: integer
-          description: IDs of scenarios that fail the comparison precondition (present for the unsolved/stale rejection; omitted for the differing-models rejection).
-      required: [error]
 
     PrecheckError:
       type: object

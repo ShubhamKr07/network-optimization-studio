@@ -20,16 +20,13 @@ function baseProps() {
       { id: "open-warehouses", label: "Open Warehouses" },
       { id: "flows", label: "Flows" },
     ],
-    reports: [{ id: "reports", label: "Reports" }],
     hasSolvedRun: false,
     activeEntityId: null as string | null,
     onOpenInput: vi.fn(),
     onOpenOutput: vi.fn(),
-    onOpenReport: vi.fn(),
     onRenameScenario: vi.fn(),
     onCloneScenario: vi.fn(),
     onDeleteScenario: vi.fn(),
-    onResetScenario: vi.fn(),
   };
 }
 
@@ -97,7 +94,7 @@ describe("SidebarTree", () => {
   });
 });
 
-// A4.1 — scenario row operations: rename, clone, delete, reset-to-baseline.
+// A4.1 — scenario row operations: rename, clone, delete.
 describe("SidebarTree — scenario row operations", () => {
   it("clicking Rename turns the row into an editable input pre-filled with the current name", async () => {
     const props = baseProps();
@@ -163,24 +160,5 @@ describe("SidebarTree — scenario row operations", () => {
     await userEvent.click(screen.getByTestId("button-cancel-delete-2"));
     expect(props.onDeleteScenario).not.toHaveBeenCalled();
     expect(screen.queryByTestId("button-confirm-delete-2")).not.toBeInTheDocument();
-  });
-
-  it("clicking Reset to baseline requires an explicit confirm before onResetScenario fires", async () => {
-    const props = baseProps();
-    render(<SidebarTree {...props} />);
-    await userEvent.click(screen.getByTestId("button-reset-scenario-1"));
-    expect(props.onResetScenario).not.toHaveBeenCalled();
-    expect(screen.getByTestId("button-confirm-reset-1")).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("button-confirm-reset-1"));
-    expect(props.onResetScenario).toHaveBeenCalledWith(1);
-  });
-
-  it("cancelling the reset confirm does not call onResetScenario", async () => {
-    const props = baseProps();
-    render(<SidebarTree {...props} />);
-    await userEvent.click(screen.getByTestId("button-reset-scenario-1"));
-    await userEvent.click(screen.getByTestId("button-cancel-reset-1"));
-    expect(props.onResetScenario).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("button-confirm-reset-1")).not.toBeInTheDocument();
   });
 });

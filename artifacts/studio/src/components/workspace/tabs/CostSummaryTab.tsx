@@ -22,7 +22,7 @@ export function CostSummaryTab({ result, scenarioId }: CostSummaryTabProps) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
-        <span className="text-sm font-medium">Cost Summary</span>
+        <span className="text-sm font-medium">Solution Summary</span>
         <button
           type="button"
           data-testid="button-download-cost-summary-csv"

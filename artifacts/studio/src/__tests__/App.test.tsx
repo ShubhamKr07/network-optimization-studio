@@ -13,7 +13,6 @@ vi.mock("@/pages/auth/Register", () => ({ Register: () => <div>RegisterPage</div
 vi.mock("@/pages/Landing", () => ({ Landing: () => <div>LandingPage</div> }));
 vi.mock("@/pages/Studio", () => ({ Studio: () => <div>StudioPage</div> }));
 vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> }));
-vi.mock("@/pages/Compare", () => ({ Compare: () => <div>ComparePage</div> }));
 vi.mock("@/components/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div data-testid="app-shell">{children}</div>,
 }));
@@ -75,11 +74,6 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
     renderAt("/", { email: "student@example.com" });
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();
     expect(screen.getByText("LandingPage")).toBeInTheDocument();
-  });
-
-  it("shows Compare at /compare when authenticated", () => {
-    renderAt("/compare", { email: "student@example.com" });
-    expect(screen.getByText("ComparePage")).toBeInTheDocument();
   });
 
   it("redirects an unknown path to /login when unauthenticated (not a bare 404)", () => {

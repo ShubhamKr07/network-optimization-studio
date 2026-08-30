@@ -141,7 +141,6 @@ const mockSolveScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: fa
 const mockCloneScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
 const mockCreateScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
-const mockResetToBaseline = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(),
@@ -155,7 +154,6 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
-  useResetScenarioToBaseline: vi.fn(() => mockResetToBaseline),
   exportScenario: vi.fn(),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
@@ -559,11 +557,6 @@ describe("Studio — two-echelon-gold-au left panel", () => {
     expect(screen.getByTestId("button-import-refineries")).toBeInTheDocument();
   });
 
-  it("shows a Reset to baseline button", () => {
-    render(<Studio modelId="two-echelon-gold-au" />);
-    expect(screen.getByTestId("button-reset-baseline")).toBeInTheDocument();
-  });
-
   it("opening the Refineries dialog titles it 'Refineries', not 'Warehouses'", async () => {
     render(<Studio modelId="two-echelon-gold-au" />);
     await userEvent.click(screen.getByTestId("button-open-refinery-table"));
@@ -744,145 +737,6 @@ describe("Studio — New button sends correct modelId", () => {
       }),
       expect.anything()
     );
-  });
-});
-
-// ── Reset to baseline (D6.1) ────────────────────────────────────────────────
-describe("Studio — Reset to baseline", () => {
-  const dirtyScenario = {
-    ...pmedianScenario,
-    inputs: {
-      ...pmedianInputs,
-      warehouseOverrides: [{ id: "CHI", status: "forced_open" }],
-      customerOverrides: [{ id: "C1", status: "excluded" }],
-    },
-  };
-
-  it("is disabled when there are no overrides", () => {
-    mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio();
-    expect(screen.getByTestId("button-reset-baseline")).toBeDisabled();
-  });
-
-  it("is enabled and opens a confirm dialog when overrides exist", async () => {
-    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio();
-    expect(screen.getByTestId("button-reset-baseline")).not.toBeDisabled();
-    await userEvent.click(screen.getByTestId("button-reset-baseline"));
-    expect(screen.getByText("Reset to baseline?")).toBeInTheDocument();
-    expect(mockResetToBaseline.mutate).not.toHaveBeenCalled();
-  });
-
-  it("cancel closes the dialog without calling the mutation", async () => {
-    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio();
-    await userEvent.click(screen.getByTestId("button-reset-baseline"));
-    await userEvent.click(screen.getByTestId("button-reset-cancel"));
-    expect(mockResetToBaseline.mutate).not.toHaveBeenCalled();
-    expect(screen.queryByText("Reset to baseline?")).not.toBeInTheDocument();
-  });
-
-  it("confirm calls the reset mutation with the current scenario id", async () => {
-    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio();
-    await userEvent.click(screen.getByTestId("button-reset-baseline"));
-    await userEvent.click(screen.getByTestId("button-reset-confirm"));
-    expect(mockResetToBaseline.mutate).toHaveBeenCalledWith(
-      { scenarioId: dirtyScenario.id },
-      expect.anything()
-    );
-  });
-
-  it("shows a p-median 'Warehouse and customer overrides cleared' toast on reset success", async () => {
-    mockUseListScenarios.mockReturnValue({ data: [dirtyScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirtyScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio();
-    await userEvent.click(screen.getByTestId("button-reset-baseline"));
-    mockResetToBaseline.mutate.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: (r: typeof dirtyScenario) => void }) =>
-        opts.onSuccess(pmedianScenario),
-    );
-    await userEvent.click(screen.getByTestId("button-reset-confirm"));
-    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Reset to baseline",
-      description: "Warehouse and customer overrides cleared.",
-    }));
-  });
-});
-
-// ── Reset to baseline — transport-coal (Task 7 bugfix) ─────────────────────
-// The button's disabled state and toast must be model-aware: transport-coal's
-// reset clears mineCapacities/stationDemands, not warehouse/customer overrides.
-describe("Studio — Reset to baseline (transport-coal)", () => {
-  it("is disabled when there are no mine/station overrides", () => {
-    mockUseSearch.mockReturnValue("?scenario=8");
-    mockUseListScenarios.mockReturnValue({ data: [transportScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: transportScenario } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport-coal");
-    expect(screen.getByTestId("button-reset-baseline")).toBeDisabled();
-  });
-
-  it("is enabled when mineCapacities overrides exist", () => {
-    const dirty = {
-      ...transportScenario,
-      inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } },
-    };
-    mockUseSearch.mockReturnValue("?scenario=8");
-    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport-coal");
-    expect(screen.getByTestId("button-reset-baseline")).not.toBeDisabled();
-  });
-
-  it("is enabled when stationDemands overrides exist", () => {
-    const dirty = {
-      ...transportScenario,
-      inputs: { ...transportInputs, stationDemands: { CHI: 999 } },
-    };
-    mockUseSearch.mockReturnValue("?scenario=8");
-    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport-coal");
-    expect(screen.getByTestId("button-reset-baseline")).not.toBeDisabled();
-  });
-
-  it("shows a transport-coal 'Mine and station overrides cleared' toast on reset success", async () => {
-    const dirty = {
-      ...transportScenario,
-      inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } },
-    };
-    mockUseSearch.mockReturnValue("?scenario=8");
-    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport-coal");
-    await userEvent.click(screen.getByTestId("button-reset-baseline"));
-    mockResetToBaseline.mutate.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: (r: typeof transportScenario) => void }) =>
-        opts.onSuccess(transportScenario),
-    );
-    await userEvent.click(screen.getByTestId("button-reset-confirm"));
-    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Reset to baseline",
-      description: "Mine and station overrides cleared.",
-    }));
-  });
-
-  it("confirm dialog body references mine/station overrides for transport-coal", async () => {
-    const dirty = {
-      ...transportScenario,
-      inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } },
-    };
-    mockUseSearch.mockReturnValue("?scenario=8");
-    mockUseListScenarios.mockReturnValue({ data: [dirty], isLoading: false } as ReturnType<typeof useListScenarios>);
-    mockUseGetScenario.mockReturnValue({ data: dirty } as ReturnType<typeof useGetScenario>);
-    renderStudio("transport-coal");
-    await userEvent.click(screen.getByTestId("button-reset-baseline"));
-    expect(screen.getByText(/mine capacity and station demand override/i)).toBeInTheDocument();
-    expect(screen.queryByText(/warehouse and customer override/i)).not.toBeInTheDocument();
   });
 });
 
