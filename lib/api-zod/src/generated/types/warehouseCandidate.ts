@@ -17,4 +17,6 @@ export interface WarehouseCandidate {
   lat: number;
   lng: number;
   kind?: WarehouseCandidateKind;
+  /** US zip or country-appropriate postal code, where available. Display-only — never a solver input. */
+  zip?: string;
 }

@@ -35,7 +35,8 @@ describe("WarehousesTab", () => {
   it("renders the real WarehouseTable with the dataset's warehouses (not a placeholder)", () => {
     render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
     expect(screen.getByText("CHI")).toBeInTheDocument();
-    expect(screen.getByText("Chicago, IL")).toBeInTheDocument();
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+    expect(screen.getByText("IL")).toBeInTheDocument();
     expect(screen.getByText("LA")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
@@ -313,6 +314,27 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
       />,
     );
     expect(screen.queryByTestId("warning-precheck-added-warehouse-NEWWH")).not.toBeInTheDocument();
+  });
+
+  it("renders the Added warehouses table with separate City/State/Lat/Lng cells (no Zip column)", () => {
+    const added = [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" as const }];
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={added}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("row-added-warehouse-NEWWH");
+    expect(row).toHaveTextContent("Denver");
+    expect(row).toHaveTextContent("CO");
+    expect(row).toHaveTextContent("39.7400");
+    expect(row).toHaveTextContent("-104.9900");
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });
 

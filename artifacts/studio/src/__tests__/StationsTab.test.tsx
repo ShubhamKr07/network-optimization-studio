@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StationsTab } from "@/components/workspace/tabs/StationsTab";
 
 const stations = [
-  { id: "S1", city: "Chicago", state: "IL" },
-  { id: "S2", city: "Detroit", state: "MI" },
+  { id: "S1", city: "Chicago", state: "IL", lat: 41.8781, lng: -87.6298 },
+  { id: "S2", city: "Detroit", state: "MI", lat: 42.3314, lng: -83.0458 },
 ];
 
 const fetchMock = vi.fn();
@@ -31,7 +31,8 @@ describe("StationsTab", () => {
   it("renders the real StationTable with the dataset's stations (not a placeholder)", () => {
     render(<StationsTab stations={stations} overrides={[]} onChange={vi.fn()} />);
     expect(screen.getByText("S1")).toBeInTheDocument();
-    expect(screen.getByText("Chicago, IL")).toBeInTheDocument();
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+    expect(screen.getByText("IL")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 
@@ -208,5 +209,18 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
       />,
     );
     expect(screen.getByTestId("warning-precheck-added-station-SNEW")).toHaveTextContent("1");
+  });
+
+  it("renders the Added stations table with separate City/State/Lat/Lng cells (no Zip column)", () => {
+    const added = [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }];
+    render(
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={added} onAddedStationsChange={vi.fn()} onDeleteStation={vi.fn()} />,
+    );
+    const row = screen.getByTestId("row-added-station-SNEW");
+    expect(row).toHaveTextContent("Newtown");
+    expect(row).toHaveTextContent("NC");
+    expect(row).toHaveTextContent("35.5000");
+    expect(row).toHaveTextContent("-80.2000");
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });

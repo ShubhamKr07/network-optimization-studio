@@ -596,6 +596,9 @@ components:
         kind:
           type: string
           enum: [mine, facility]
+        zip:
+          type: string
+          description: US zip or country-appropriate postal code, where available. Display-only — never a solver input.
       required: [id, city, state, lat, lng]
 
     Customer:
@@ -613,6 +616,9 @@ components:
           type: number
         demand:
           type: number
+        zip:
+          type: string
+          description: US zip or country-appropriate postal code, where available. Display-only — never a solver input.
       required: [id, city, state, lat, lng, demand]
 
     Dataset:

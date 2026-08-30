@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 
 export interface MineOverride { id: string; capacity?: number | null; }
 
-interface MineRow { id: string; city: string; state: string; }
+interface MineRow { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
 
 interface MineTableProps {
   mines: MineRow[];
@@ -27,7 +27,11 @@ export function MineTable({ mines, overrides, onChange }: MineTableProps) {
         <TableHeader>
           <TableRow>
             <TableHead>ID</TableHead>
-            <TableHead>City, State</TableHead>
+            <TableHead>City</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Latitude</TableHead>
+            <TableHead>Longitude</TableHead>
+            {mines.some(m => m.zip) && <TableHead>Zip</TableHead>}
             <TableHead>Capacity override (tons)</TableHead>
           </TableRow>
         </TableHeader>
@@ -37,7 +41,11 @@ export function MineTable({ mines, overrides, onChange }: MineTableProps) {
             return (
               <TableRow key={m.id}>
                 <TableCell className="font-mono text-xs">{m.id}</TableCell>
-                <TableCell className="text-xs">{m.city}, {m.state}</TableCell>
+                <TableCell className="text-xs">{m.city}</TableCell>
+                <TableCell className="text-xs">{m.state}</TableCell>
+                <TableCell className="text-xs font-mono">{m.lat.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{m.lng.toFixed(4)}</TableCell>
+                {mines.some(x => x.zip) && <TableCell className="text-xs">{m.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input
                     type="number"

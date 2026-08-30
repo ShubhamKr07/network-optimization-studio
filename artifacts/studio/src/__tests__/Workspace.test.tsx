@@ -190,7 +190,8 @@ describe("Workspace — Warehouses tab", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     expect(screen.getByText("CHI")).toBeInTheDocument();
-    expect(screen.getByText("Chicago, IL")).toBeInTheDocument();
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+    expect(screen.getByText("IL")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 
@@ -250,7 +251,8 @@ describe("Workspace — Customers tab", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-customers"));
     expect(screen.getByText("C1")).toBeInTheDocument();
-    expect(screen.getByText("New York, NY")).toBeInTheDocument();
+    expect(screen.getByText("New York")).toBeInTheDocument();
+    expect(screen.getByText("NY")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 

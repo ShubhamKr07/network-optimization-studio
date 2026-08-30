@@ -35,7 +35,8 @@ describe("CustomersTab", () => {
   it("renders the real CustomerTable with the dataset's customers (not a placeholder)", () => {
     render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
     expect(screen.getByText("C1")).toBeInTheDocument();
-    expect(screen.getByText("New York, NY")).toBeInTheDocument();
+    expect(screen.getByText("New York")).toBeInTheDocument();
+    expect(screen.getByText("NY")).toBeInTheDocument();
     expect(screen.getByText("C2")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
@@ -216,6 +217,26 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
       />,
     );
     expect(screen.queryByTestId("warning-precheck-added-customer-NEWC")).not.toBeInTheDocument();
+  });
+
+  it("renders the Added customers table with separate City/State/Lat/Lng cells (no Zip column)", () => {
+    const added = [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }];
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={added}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("row-added-customer-NEWC");
+    expect(row).toHaveTextContent("Denver");
+    expect(row).toHaveTextContent("CO");
+    expect(row).toHaveTextContent("39.7400");
+    expect(row).toHaveTextContent("-104.9900");
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });
 

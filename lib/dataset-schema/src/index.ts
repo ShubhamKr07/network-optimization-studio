@@ -13,6 +13,7 @@ export const WarehouseEntry = z.object({
   state: z.string(),
   lat: z.number(),
   lng: z.number(),
+  zip: z.string().optional(),
 });
 
 export const CustomerEntry = WarehouseEntry.extend({
@@ -29,6 +30,7 @@ export const MineEntry = z.object({
   lat: z.number(),
   lng: z.number(),
   capacity: z.number(),
+  zip: z.string().optional(),
 });
 
 export const StationEntry = z.object({
@@ -38,6 +40,7 @@ export const StationEntry = z.object({
   lat: z.number(),
   lng: z.number(),
   demand: z.number(),
+  zip: z.string().optional(),
 });
 
 export const CostMap = z.record(z.string(), z.number());
@@ -58,6 +61,7 @@ export const RefineryEntry = z.object({
   state: z.string(),
   lat: z.number(),
   lng: z.number(),
+  zip: z.string().optional(),
 });
 export const GoldMineEntry = RefineryEntry;
 export const GoldCustomerEntry = RefineryEntry.extend({ demand: z.number() });

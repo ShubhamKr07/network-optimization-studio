@@ -6,8 +6,8 @@ import { WarehouseTable } from "@/components/tables/WarehouseTable";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 
 const warehouses = [
-  { id: "CHI", city: "Chicago", state: "IL" },
-  { id: "LA", city: "Los Angeles", state: "CA" },
+  { id: "CHI", city: "Chicago", state: "IL", lat: 41.8781, lng: -87.6298 },
+  { id: "LA", city: "Los Angeles", state: "CA", lat: 34.0522, lng: -118.2437 },
 ];
 
 // Simulates real usage (Studio.tsx re-renders with the updated overrides on
@@ -28,8 +28,24 @@ describe("WarehouseTable", () => {
   it("renders one row per warehouse with id and city/state", () => {
     render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} />);
     expect(screen.getByText("CHI")).toBeInTheDocument();
-    expect(screen.getByText("Chicago, IL")).toBeInTheDocument();
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+    expect(screen.getByText("IL")).toBeInTheDocument();
     expect(screen.getByText("LA")).toBeInTheDocument();
+  });
+
+  it("renders City/State/Lat/Lng as separate columns, and Zip only when present", () => {
+    const withZip = [{ id: "ALN", city: "Allentown", state: "PA", lat: 40.6028, lng: -75.4704, zip: "18101" }];
+    const { rerender } = render(
+      <WarehouseTable warehouses={withZip} overrides={[]} capacityMode="none" onChange={() => {}} />
+    );
+    expect(screen.getByText("Allentown")).toBeInTheDocument();
+    expect(screen.getByText("PA")).toBeInTheDocument();
+    expect(screen.getByText("40.6028")).toBeInTheDocument();
+    expect(screen.getByText("18101")).toBeInTheDocument();
+
+    const noZip = [{ id: "ATL", city: "Atlanta", state: "GA", lat: 33.7537, lng: -84.3895 }];
+    rerender(<WarehouseTable warehouses={noZip} overrides={[]} capacityMode="none" onChange={() => {}} />);
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 
   it("does NOT show a Capacity column when capacityMode is not per_wh", () => {

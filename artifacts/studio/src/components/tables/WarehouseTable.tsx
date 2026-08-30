@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 
 export interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 
-interface WarehouseRow { id: string; city: string; state: string; }
+interface WarehouseRow { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
 
 interface WarehouseTableProps {
   warehouses: WarehouseRow[];
@@ -52,7 +52,11 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
         <TableHeader>
           <TableRow>
             <TableHead>ID</TableHead>
-            <TableHead>City, State</TableHead>
+            <TableHead>City</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Latitude</TableHead>
+            <TableHead>Longitude</TableHead>
+            {warehouses.some(w => w.zip) && <TableHead>Zip</TableHead>}
             {capacityMode === "per_wh" && <TableHead>Capacity</TableHead>}
             <TableHead>Status</TableHead>
           </TableRow>
@@ -64,7 +68,11 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
             return (
               <TableRow key={wh.id}>
                 <TableCell className="font-mono text-xs">{wh.id}</TableCell>
-                <TableCell className="text-xs">{wh.city}, {wh.state}</TableCell>
+                <TableCell className="text-xs">{wh.city}</TableCell>
+                <TableCell className="text-xs">{wh.state}</TableCell>
+                <TableCell className="text-xs font-mono">{wh.lat.toFixed(4)}</TableCell>
+                <TableCell className="text-xs font-mono">{wh.lng.toFixed(4)}</TableCell>
+                {warehouses.some(w => w.zip) && <TableCell className="text-xs">{wh.zip ?? "—"}</TableCell>}
                 {capacityMode === "per_wh" && (
                   <TableCell>
                     <Input

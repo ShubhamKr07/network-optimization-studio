@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MinesTab } from "@/components/workspace/tabs/MinesTab";
 
 const mines = [
-  { id: "M1", city: "Gillette", state: "WY" },
-  { id: "M2", city: "Farmington", state: "NM" },
+  { id: "M1", city: "Gillette", state: "WY", lat: 44.2911, lng: -105.5022 },
+  { id: "M2", city: "Farmington", state: "NM", lat: 36.7281, lng: -108.2187 },
 ];
 
 const fetchMock = vi.fn();
@@ -31,7 +31,8 @@ describe("MinesTab", () => {
   it("renders the real MineTable with the dataset's mines (not a placeholder)", () => {
     render(<MinesTab mines={mines} overrides={[]} onChange={vi.fn()} />);
     expect(screen.getByText("M1")).toBeInTheDocument();
-    expect(screen.getByText("Gillette, WY")).toBeInTheDocument();
+    expect(screen.getByText("Gillette")).toBeInTheDocument();
+    expect(screen.getByText("WY")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
   });
 
@@ -208,5 +209,18 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
       />,
     );
     expect(screen.getByTestId("warning-precheck-added-mine-MNEW")).toHaveTextContent("2");
+  });
+
+  it("renders the Added mines table with separate City/State/Lat/Lng cells (no Zip column)", () => {
+    const added = [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 }];
+    render(
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={added} onAddedMinesChange={vi.fn()} onDeleteMine={vi.fn()} />,
+    );
+    const row = screen.getByTestId("row-added-mine-MNEW");
+    expect(row).toHaveTextContent("Bristol");
+    expect(row).toHaveTextContent("VA");
+    expect(row).toHaveTextContent("36.6000");
+    expect(row).toHaveTextContent("-82.1900");
+    expect(screen.queryByText("Zip")).not.toBeInTheDocument();
   });
 });

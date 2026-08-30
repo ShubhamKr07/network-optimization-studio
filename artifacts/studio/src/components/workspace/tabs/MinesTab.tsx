@@ -13,7 +13,7 @@ import {
   type PrecheckErrorLike,
 } from "@/lib/precheckDisplay";
 
-interface MineRow { id: string; city: string; state: string; }
+interface MineRow { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
 
 // Task 30 (B6.1 stage 4) — matches `addedMineSchema` in
 // artifacts/api-server/src/validation/inputs/transportLp.ts exactly. No
@@ -204,7 +204,10 @@ export function MinesTab({
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
-                <TableHead>City, State</TableHead>
+                <TableHead>City</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Latitude</TableHead>
+                <TableHead>Longitude</TableHead>
                 <TableHead>Capacity</TableHead>
                 <TableHead />
               </TableRow>
@@ -230,7 +233,10 @@ export function MinesTab({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs">{m.city}, {m.state}</TableCell>
+                    <TableCell className="text-xs">{m.city}</TableCell>
+                    <TableCell className="text-xs">{m.state}</TableCell>
+                    <TableCell className="text-xs font-mono">{m.lat.toFixed(4)}</TableCell>
+                    <TableCell className="text-xs font-mono">{m.lng.toFixed(4)}</TableCell>
                     <TableCell>
                       <Input
                         type="number"

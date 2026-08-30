@@ -260,7 +260,10 @@ export function WarehousesTab({
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
-                <TableHead>City, State</TableHead>
+                <TableHead>City</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Latitude</TableHead>
+                <TableHead>Longitude</TableHead>
                 {capacityMode === "per_wh" && <TableHead>Capacity</TableHead>}
                 <TableHead>Status</TableHead>
                 <TableHead />
@@ -287,7 +290,10 @@ export function WarehousesTab({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs">{w.city}, {w.state}</TableCell>
+                    <TableCell className="text-xs">{w.city}</TableCell>
+                    <TableCell className="text-xs">{w.state}</TableCell>
+                    <TableCell className="text-xs font-mono">{w.lat.toFixed(4)}</TableCell>
+                    <TableCell className="text-xs font-mono">{w.lng.toFixed(4)}</TableCell>
                     {capacityMode === "per_wh" && (
                       <TableCell>
                         <Input

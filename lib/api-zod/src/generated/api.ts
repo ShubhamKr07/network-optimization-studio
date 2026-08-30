@@ -34,7 +34,8 @@ export const GetDatasetResponse = zod.object({
   "state": zod.string(),
   "lat": zod.number(),
   "lng": zod.number(),
-  "kind": zod.enum(['mine', 'facility']).optional()
+  "kind": zod.enum(['mine', 'facility']).optional(),
+  "zip": zod.string().optional().describe('US zip or country-appropriate postal code, where available. Display-only — never a solver input.')
 }).describe('Generic facility-candidate row, reused across models (warehouses, mines, refineries). `kind` distinguishes non-overridable supply nodes (two-echelon-gold-au\'s single mine) from overridable ones; omitted for models where every row is overridable.')),
   "customers": zod.array(zod.object({
   "id": zod.string(),
@@ -42,7 +43,8 @@ export const GetDatasetResponse = zod.object({
   "state": zod.string(),
   "lat": zod.number(),
   "lng": zod.number(),
-  "demand": zod.number()
+  "demand": zod.number(),
+  "zip": zod.string().optional().describe('US zip or country-appropriate postal code, where available. Display-only — never a solver input.')
 }))
 })
 
