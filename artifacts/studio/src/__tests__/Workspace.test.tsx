@@ -67,7 +67,6 @@ const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: fa
 const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockCloneScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
-const mockResetToBaseline = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 // Task 10 — logout mutation, mocked the same way as every other generated
 // mutation hook in this file (mock at the generated-hooks level).
 const mockLogoutUser = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
@@ -78,15 +77,9 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetDataset: vi.fn(() => ({ data: dataset })),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => mockSolveScenario),
-  // C3.1 — ReportsTab's compare fold-in. Defaults to an inert mutate stub;
-  // no existing test in this file exercises the compare picker, so this is
-  // just enough to keep ReportsTab's `useCompareScenarios()` call from
-  // throwing on an unmocked hook.
-  useCompareScenarios: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
-  useResetScenarioToBaseline: vi.fn(() => mockResetToBaseline),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
   // C6.1, Task 4 — capabilities.outputGrids is now read by Workspace.tsx's
   // output-grid gating (activeModelManifest?.capabilities.outputGrids), so
@@ -178,14 +171,12 @@ beforeEach(() => {
   mockCreateScenario.mutate.mockReset();
   mockCloneScenario.mutate.mockReset();
   mockDeleteScenario.mutate.mockReset();
-  mockResetToBaseline.mutate.mockReset();
   mockLogoutUser.mutate.mockReset();
   mockUpdateScenario.isPending = false;
   mockSolveScenario.isPending = false;
   mockCreateScenario.isPending = false;
   mockCloneScenario.isPending = false;
   mockDeleteScenario.isPending = false;
-  mockResetToBaseline.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
   mockQueryClient.setQueryData.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
@@ -380,61 +371,6 @@ describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
     render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
     expect(await screen.findByTestId("tab-content-placeholder")).toBeInTheDocument();
-  });
-});
-
-describe("Workspace — Reports tab (Phase C, Task 4)", () => {
-  const baselineScenario = {
-    ...scenario,
-    id: 1,
-    name: "Baseline",
-    createdAt: "2026-01-01T00:00:00Z",
-    result: {
-      status: "optimal" as const,
-      objective: 100,
-      runTimeSec: 0.5,
-      quality: "Proven optimal",
-      edges: [{ fromId: "CHI", toId: "C1", flow: 100, distance: 100 }],
-      metrics: { weightedAvgDistance: 100, utilizationByNode: [{ warehouseId: "CHI", city: "Chicago", utilization: 0.5 }] },
-      details: {},
-      solverUsed: "CBC",
-      infeasibilityReason: null,
-    },
-    stale: false,
-  };
-
-  const currentSolvedScenario = {
-    ...scenario2,
-    id: 2,
-    name: "Current",
-    createdAt: "2026-02-01T00:00:00Z",
-    result: {
-      status: "optimal" as const,
-      objective: 80,
-      runTimeSec: 0.4,
-      quality: "Proven optimal",
-      edges: [{ fromId: "CHI", toId: "C1", flow: 100, distance: 50 }],
-      metrics: { weightedAvgDistance: 50, utilizationByNode: [{ warehouseId: "CHI", city: "Chicago", utilization: 0.7 }] },
-      details: {},
-      solverUsed: "CBC",
-      infeasibilityReason: null,
-    },
-    stale: false,
-  };
-
-  it("renders the Reports tab, comparing the picked baseline against the current scenario", async () => {
-    mockUseGetScenario.mockReturnValue({ data: currentSolvedScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [baselineScenario, currentSolvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-report-reports"));
-    expect(await screen.findByTestId("reports-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("report-objective-baseline")).toHaveTextContent("100");
-    expect(screen.getByTestId("report-objective-current")).toHaveTextContent("80");
-  });
-
-  it("disables the Reports sidebar entry (matching Outputs) when the active scenario has no fresh solved run", () => {
-    renderWorkspace();
-    expect(screen.getByTestId("sidebar-report-reports")).toBeDisabled();
   });
 });
 
@@ -1524,49 +1460,6 @@ describe("Workspace — rename scenario", () => {
       scenarioId: 1,
       data: { name: "Renamed active" },
     });
-  });
-});
-
-describe("Workspace — reset to baseline", () => {
-  it("requires an explicit confirm before calling useResetScenarioToBaseline", () => {
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("button-reset-scenario-1"));
-    expect(mockResetToBaseline.mutate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("button-confirm-reset-1"));
-    expect(mockResetToBaseline.mutate).toHaveBeenCalledWith({ scenarioId: 1 }, expect.anything());
-  });
-
-  it("on success for the ACTIVE scenario, resyncs the local inputs draft from the response (same mechanism as import-apply)", () => {
-    const updated = { ...scenario, inputs: { ...pmedianInputs, p: 7 } };
-    mockResetToBaseline.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof updated) => void }) => {
-      opts.onSuccess(updated);
-    });
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("button-reset-scenario-1"));
-    fireEvent.click(screen.getByTestId("button-confirm-reset-1"));
-
-    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    expect(screen.getByTestId("text-p-value")).toHaveTextContent("7");
-    expect(mockQueryClient.invalidateQueries).toHaveBeenCalled();
-  });
-
-  it("resetting a SIBLING scenario's baseline does not clobber the active scenario's local input draft", () => {
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.click(screen.getByTestId("button-p-quick-10"));
-    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
-
-    const updatedSibling = { ...scenario2, inputs: { ...pmedianInputs, p: 99 } };
-    mockResetToBaseline.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (s: typeof updatedSibling) => void }) => {
-      opts.onSuccess(updatedSibling);
-    });
-
-    fireEvent.click(screen.getByTestId("button-reset-scenario-2"));
-    fireEvent.click(screen.getByTestId("button-confirm-reset-2"));
-
-    // active scenario (id=1)'s dirty p=10 edit is untouched by scenario 2's reset
-    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
-    expect(screen.getByTestId("text-p-value")).toHaveTextContent("10");
   });
 });
 

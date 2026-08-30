@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
 import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
@@ -124,67 +124,6 @@ router.post("/scenarios", async (req, res) => {
   });
 
   res.status(201).json(toApiScenario(row));
-});
-
-// Compare accepts 2-4 scenarios that (a) all belong to the caller, (b) share
-// a model, and (c) are all solved and not stale. Response carries each
-// scenario's opaque `inputs` plus its standardized result envelope, unchanged
-// — no server-side flattening/aggregation; F2.1's frontend diff engine reads
-// these generically.
-router.post("/scenarios/compare", async (req, res) => {
-  const ids: unknown = req.body.scenarioIds;
-  if (
-    !Array.isArray(ids) ||
-    ids.length < 2 ||
-    ids.length > 4 ||
-    !ids.every((id) => Number.isInteger(id))
-  ) {
-    res.status(400).json({ error: "Provide 2 to 4 scenario IDs" });
-    return;
-  }
-
-  const rows = await db.select().from(scenariosTable)
-    .where(and(inArray(scenariosTable.id, ids), eq(scenariosTable.userId, req.userId!)));
-
-  // Ownership/existence check first (404, never 403 — avoids ID enumeration):
-  // if any requested ID doesn't resolve to a row owned by this caller, reject
-  // without revealing which ones did or didn't.
-  if (rows.length !== ids.length) {
-    res.status(404).json({ error: "One or more scenarios not found" });
-    return;
-  }
-
-  const rowById = new Map(rows.map((r) => [r.id, r]));
-  const orderedRows = ids.map((id) => rowById.get(id)!);
-
-  const modelIds = new Set(orderedRows.map((r) => r.modelId));
-  if (modelIds.size > 1) {
-    res.status(422).json({
-      error: `Scenarios must share the same model to compare (found: ${[...modelIds].join(", ")})`,
-    });
-    return;
-  }
-
-  const offendingIds = orderedRows.filter((r) => r.result == null || isStale(r)).map((r) => r.id);
-  if (offendingIds.length > 0) {
-    res.status(422).json({
-      error: "All scenarios must be solved and not stale to compare",
-      offendingIds,
-    });
-    return;
-  }
-
-  posthog?.capture({
-    distinctId: req.userId!,
-    event: "scenario compared",
-    properties: {
-      scenario_ids: ids,
-      scenario_count: ids.length,
-      model_id: [...modelIds][0],
-    },
-  });
-
-  res.json({ scenarios: orderedRows.map(toApiScenario) });
 });
 
 router.get("/scenarios/:scenarioId", async (req, res) => {
@@ -1074,70 +1013,6 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   });
 
   res.json({ scenario: toApiScenario(updated), applied: preview.changes.length, errors: preview.errors });
-});
-
-router.post("/scenarios/:scenarioId/reset-to-baseline", async (req, res) => {
-  const id = Number(req.params.scenarioId);
-  const [scenario] = await db.select().from(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
-
-  // D6.1's original reset only knew p-median-us's
-  // warehouseOverrides/customerOverrides. transport-coal's override pair
-  // (mineCapacities/stationDemands) and two-echelon-gold-au's
-  // (refineryOverrides/customerOverrides) were added later — reset must
-  // clear whichever pair belongs to the scenario's modelId. p-median-brazil
-  // (and the newer model variants) carry no resettable overrides on this
-  // route, so they still 422 — same boundary export/import enforce.
-  const inputs = scenario.inputs as Record<string, unknown>;
-  let nextInputs: Record<string, unknown>;
-  if (scenario.modelId === "transport-coal") {
-    // Task 30 (B6.1 stage 4) — addedMines/addedStations/laneCostOverrides
-    // join the reset alongside the pre-existing mineCapacities/
-    // stationDemands pair — a "reset to baseline" that left a student's
-    // scenario-local added mines/stations/lane costs in place would be a
-    // real gap (Gate 1.9 explicitly calls out reset-to-baseline as one of
-    // the four route-pairing checks a new entity needs).
-    nextInputs = { ...inputs, mineCapacities: {}, stationDemands: {}, addedMines: [], addedStations: [], laneCostOverrides: [] };
-  } else if (scenario.modelId === "p-median-us") {
-    // Task #25 — addedWarehouses/addedCustomers/distanceOverrides (B1.1) join
-    // the reset alongside the pre-existing warehouseOverrides/customerOverrides
-    // pair, matching the precedent transport-coal and two-echelon-gold-au
-    // already got above (Gate 1.9's reset-to-baseline route-pairing check).
-    nextInputs = { ...inputs, warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [] };
-  } else if (scenario.modelId === "two-echelon-gold-au") {
-    // B6.2 — addedRefineries/addedCustomers/distanceOverrides join the reset
-    // alongside the pre-existing refineryOverrides/customerOverrides pair,
-    // matching transport-coal's own more-complete precedent above (Gate
-    // 1.9's "reset-to-baseline is one of the four route-pairing checks a new
-    // entity needs") — a "reset to baseline" that left a student's
-    // scenario-local added refineries/customers/leg distances in place would
-    // be a real gap, now that this task gives them a real place to live.
-    nextInputs = { ...inputs, refineryOverrides: [], customerOverrides: [], addedRefineries: [], addedCustomers: [], distanceOverrides: [] };
-  } else {
-    res.status(422).json({ error: "Reset to baseline is only supported for p-median-us, transport-coal, and two-echelon-gold-au scenarios" });
-    return;
-  }
-
-  const [updated] = await db.update(scenariosTable)
-    .set({
-      inputs: nextInputs,
-      inputsUpdatedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
-    .returning();
-
-  posthog?.capture({
-    distinctId: req.userId!,
-    event: "scenario reset to baseline",
-    properties: {
-      scenario_id: id,
-      model_id: scenario.modelId,
-    },
-  });
-
-  res.json(toApiScenario(updated));
 });
 
 router.post("/scenarios/:scenarioId/clone", async (req, res) => {

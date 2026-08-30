@@ -447,62 +447,6 @@ export const ApplyScenarioImportResponse = zod.object({
 
 
 /**
- * @summary Clear a scenario's warehouse and customer overrides, restoring the canonical dataset
- */
-export const ResetScenarioToBaselineParams = zod.object({
-  "scenarioId": zod.coerce.number()
-})
-
-export const ResetScenarioToBaselineResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'max_coverage', 'p_center', 'set_cover']),
-  "inputs": zod.object({
-
-}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
-  "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
-  "objective": zod.number(),
-  "runTimeSec": zod.number(),
-  "quality": zod.string(),
-  "edges": zod.array(zod.object({
-  "fromId": zod.string(),
-  "toId": zod.string(),
-  "flow": zod.number(),
-  "distance": zod.number(),
-  "band": zod.number().optional(),
-  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
-  "metrics": zod.object({
-  "utilizationByNode": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "city": zod.string(),
-  "utilization": zod.number()
-})).optional(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "weightedAvgDistance": zod.number().optional(),
-  "avgDistanceByLeg": zod.array(zod.object({
-  "leg": zod.string(),
-  "avgDistance": zod.number(),
-  "totalFlow": zod.number()
-})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
-}),
-  "details": zod.object({
-
-}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
-  "solverUsed": zod.string(),
-  "infeasibilityReason": zod.string().nullable()
-}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
-})
-
-
-/**
  * @summary Clone a scenario (without result)
  */
 export const CloneScenarioParams = zod.object({
@@ -530,69 +474,6 @@ export const ExportScenarioResponse = zod.object({
 
 }).passthrough())
 })
-
-
-/**
- * @summary Compare 2-4 solved scenarios that share a model
- */
-export const compareScenariosBodyScenarioIdsMin = 2;
-export const compareScenariosBodyScenarioIdsMax = 4;
-
-
-
-export const CompareScenariosBody = zod.object({
-  "scenarioIds": zod.array(zod.number()).min(compareScenariosBodyScenarioIdsMin).max(compareScenariosBodyScenarioIdsMax)
-})
-
-export const CompareScenariosResponse = zod.object({
-  "scenarios": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'max_coverage', 'p_center', 'set_cover']),
-  "inputs": zod.object({
-
-}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
-  "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
-  "objective": zod.number(),
-  "runTimeSec": zod.number(),
-  "quality": zod.string(),
-  "edges": zod.array(zod.object({
-  "fromId": zod.string(),
-  "toId": zod.string(),
-  "flow": zod.number(),
-  "distance": zod.number(),
-  "band": zod.number().optional(),
-  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.')
-}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
-  "metrics": zod.object({
-  "utilizationByNode": zod.array(zod.object({
-  "warehouseId": zod.string(),
-  "city": zod.string(),
-  "utilization": zod.number()
-})).optional(),
-  "bandCoverage": zod.array(zod.object({
-  "band": zod.number(),
-  "percent": zod.number()
-})).optional(),
-  "weightedAvgDistance": zod.number().optional(),
-  "avgDistanceByLeg": zod.array(zod.object({
-  "leg": zod.string(),
-  "avgDistance": zod.number(),
-  "totalFlow": zod.number()
-})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.')
-}),
-  "details": zod.object({
-
-}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
-  "solverUsed": zod.string(),
-  "infeasibilityReason": zod.string().nullable()
-}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
-}))
-}).describe('One entry per requested scenario, in the request\'s order. Each is the full Scenario shape (opaque inputs + standardized result envelope) — F2.1\'s frontend diff engine interprets these generically rather than the server pre-flattening comparison metrics.')
 
 
 /**

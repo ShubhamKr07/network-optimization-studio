@@ -8,7 +8,6 @@ import NotFound from "@/pages/not-found";
 import { Landing } from "@/pages/Landing";
 import { Studio } from "@/pages/Studio";
 import { Workspace } from "@/pages/Workspace";
-import { Compare } from "@/pages/Compare";
 import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
 import { AppShell } from "@/components/AppShell";
@@ -59,7 +58,6 @@ export function Gate() {
             : authedOnly(<Studio modelId={c.modelId} />)}
         </Route>
       ))}
-      <Route path="/compare">{authedOnly(<Compare />)}</Route>
       <Route>{authedOnly(<NotFound />)}</Route>
     </Switch>
   );

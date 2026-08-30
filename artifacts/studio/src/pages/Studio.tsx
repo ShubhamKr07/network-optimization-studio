@@ -12,7 +12,6 @@ import {
   useCloneScenario,
   useCreateScenario,
   useDeleteScenario,
-  useResetScenarioToBaseline,
   exportScenario,
   getListScenariosQueryKey,
   getGetScenarioQueryKey,
@@ -43,7 +42,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, ChevronLeft, ArrowLeft, Pencil, Trash2, Save, Download, Upload, RotateCcw } from "lucide-react";
+import { ChevronDown, Plus, X, Check, AlertTriangle, AlertCircle, PlayCircle, Copy, BarChart2, ChevronRight, ChevronLeft, ArrowLeft, Pencil, Trash2, Save, Download, Upload } from "lucide-react";
 
 interface ResultHistoryEntry { result: SolveResult; inputs: LocalConfig }
 
@@ -262,7 +261,6 @@ export function Studio({ modelId }: StudioProps) {
   const [showMineTable, setShowMineTable] = useState(false);
   const [showStationTable, setShowStationTable] = useState(false);
   const [importEntity, setImportEntity] = useState<"warehouses" | "customers" | "mines" | "stations" | "refineries" | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Multi-select (shift/ctrl-click) lifted state — Studio.tsx owns it so the
   // MapBulkEditToolbar rendered outside NetworkMap can act on the selection.
@@ -337,7 +335,6 @@ export function Studio({ modelId }: StudioProps) {
   }
 
   const deleteScenario = useDeleteScenario();
-  const resetToBaseline = useResetScenarioToBaseline();
 
   useEffect(() => {
     if (!scenarios || scenarios.length === 0) return;
@@ -823,25 +820,6 @@ export function Studio({ modelId }: StudioProps) {
     setSavedConfig(cfg);
     queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(updated.id) });
-  };
-
-  const handleResetToBaseline = () => {
-    if (!scenarioId) return;
-    resetToBaseline.mutate(
-      { scenarioId },
-      {
-        onSuccess: (updated) => {
-          handleImportApplied(updated);
-          setShowResetConfirm(false);
-          toast({
-            title: "Reset to baseline",
-            description: activeModelId === "transport-coal"
-              ? "Mine and station overrides cleared."
-              : "Warehouse and customer overrides cleared.",
-          });
-        },
-      }
-    );
   };
 
   const addBand = () => {
@@ -1330,17 +1308,6 @@ export function Studio({ modelId }: StudioProps) {
                     Stations
                     <span className="text-muted-foreground">{localConfig.stationDemands.length > 0 ? `${localConfig.stationDemands.length} overridden` : `${dataset?.customers.length ?? 15}`}</span>
                   </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowResetConfirm(true)}
-                    disabled={!scenarioId || (localConfig.mineCapacities.length === 0 && localConfig.stationDemands.length === 0)}
-                    data-testid="button-reset-baseline"
-                    className="w-full h-7 text-xs justify-center text-muted-foreground"
-                  >
-                    <RotateCcw className="w-3 h-3 mr-1" /> Reset to baseline
-                  </Button>
                 </div>
               )}
 
@@ -1417,17 +1384,6 @@ export function Studio({ modelId }: StudioProps) {
                   Customers
                   <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
                 </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowResetConfirm(true)}
-                  disabled={!scenarioId || (forcedOpenCount + inactiveCount === 0 && localConfig.customerOverrides.length === 0)}
-                  data-testid="button-reset-baseline"
-                  className="w-full h-7 text-xs justify-center text-muted-foreground"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" /> Reset to baseline
-                </Button>
               </div>
               )}
 
@@ -1460,17 +1416,6 @@ export function Studio({ modelId }: StudioProps) {
                 >
                   Customers
                   <span className="text-muted-foreground">{localConfig.customerOverrides.length > 0 ? `${localConfig.customerOverrides.length} overridden` : `${dataset?.customers.length ?? 200}`}</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowResetConfirm(true)}
-                  disabled={!scenarioId || (forcedOpenCount + inactiveCount === 0 && localConfig.customerOverrides.length === 0)}
-                  data-testid="button-reset-baseline"
-                  className="w-full h-7 text-xs justify-center text-muted-foreground"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" /> Reset to baseline
                 </Button>
               </div>
               )}
@@ -1940,34 +1885,6 @@ export function Studio({ modelId }: StudioProps) {
               </DialogContent>
             </Dialog>
           )}
-
-      {/* Reset to baseline confirm dialog (D6.1) */}
-      <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Reset to baseline?</DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground py-2">
-            {activeModelId === "transport-coal"
-              ? "This clears every mine capacity and station demand override on this scenario, restoring the canonical textbook dataset. This cannot be undone."
-              : "This clears every warehouse and customer override on this scenario, restoring the canonical textbook dataset. This cannot be undone."}
-          </p>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setShowResetConfirm(false)} data-testid="button-reset-cancel">
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={handleResetToBaseline}
-              disabled={resetToBaseline.isPending}
-              data-testid="button-reset-confirm"
-            >
-              {resetToBaseline.isPending ? "Resetting…" : "Reset"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Import dialog (D5.2) */}
       {importEntity && scenarioId && (

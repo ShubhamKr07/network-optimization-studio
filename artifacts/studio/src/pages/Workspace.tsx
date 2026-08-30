@@ -10,7 +10,6 @@ import {
   useCreateScenario,
   useCloneScenario,
   useDeleteScenario,
-  useResetScenarioToBaseline,
   useGetSolveJob,
   useListModels,
   useLogoutUser,
@@ -53,9 +52,7 @@ import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
-import { ReportsTab } from "@/components/workspace/tabs/ReportsTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
-import { pickBaseline } from "@/lib/pickBaseline";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
@@ -356,14 +353,9 @@ const OUTPUT_ENTRIES: SidebarEntry[] = [
   { id: "open-warehouses", label: "Open Warehouses" },
   { id: "customer-assignments", label: "Customer Assignments" },
   { id: "flows", label: "Flows" },
-  { id: "cost-summary", label: "Cost Summary" },
+  { id: "cost-summary", label: "Solution Summary" },
   { id: "service-stats", label: "Service Stats" },
 ];
-
-// Phase C, Task 4 — Reports sidebar section, a single entry for now (C3.1's
-// compare fold-in, Task 8, extends this SAME tab's content — not a second
-// entry).
-const REPORT_ENTRIES: SidebarEntry[] = [{ id: "reports", label: "Reports" }];
 
 interface WorkspaceProps {
   modelId: StudioModelType;
@@ -761,7 +753,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const createScenario = useCreateScenario();
   const cloneScenario = useCloneScenario();
   const deleteScenario = useDeleteScenario();
-  const resetToBaseline = useResetScenarioToBaseline();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newScenarioName, setNewScenarioName] = useState("");
@@ -839,32 +830,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id, data: { name } },
       {
         onSuccess: updated => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
-            prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
-          );
-          queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(id) });
-        },
-      },
-    );
-  }
-
-  // Reset-to-baseline — same D6.1 endpoint Studio.tsx uses, now reachable
-  // per-row (any scenario, not just the active one) since SidebarTree lists
-  // all of them. Only resync `localInputs`/`savedInputsRef` when the RESET
-  // scenario is the currently ACTIVE one — resetting a sibling must not
-  // clobber an in-progress unsaved edit on the scenario actually open in the
-  // tabs (handleImportApplied's unconditional resync is correct for it, but
-  // would be wrong reused verbatim here for an arbitrary sidebar row).
-  function handleResetScenario(id: number) {
-    resetToBaseline.mutate(
-      { scenarioId: id },
-      {
-        onSuccess: updated => {
-          if (id === currentScenario?.id) {
-            setLocalInputs(updated.inputs);
-            savedInputsRef.current = updated.inputs;
-          }
           queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
             prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
           );
@@ -1333,28 +1298,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} />;
     }
 
-    // Phase C, Task 4 — Reports tab: baseline (DD-3's pickBaseline) vs.
-    // current scenario cost/service/utilization comparison. Not scoped to
-    // p-median-us in the placeholder sense the output grids are — ReportsTab
-    // itself degrades gracefully (baseline?.result can be null, e.g. an
-    // unsolved baseline) — but it still needs a fresh solved CURRENT run,
-    // same StaleOutputBanner gate every output-kind tab already uses.
-    if (activeTab.kind === "report" && activeTab.entity === "reports") {
-      if (!hasFreshSolvedRun) {
-        return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
-      }
-      const baseline = pickBaseline((scenarios ?? []).filter(s => s.modelId === modelId));
-      return (
-        <ReportsTab
-          baseline={baseline}
-          current={currentScenario ? { ...currentScenario, result: displayedResult } : null}
-          bands={distanceBandsFromInputs(localInputs)}
-          availableScenarios={(scenarios ?? []).map(s => ({ id: s.id, name: s.name, modelId: s.modelId }))}
-          modelId={modelId}
-        />
-      );
-    }
-
     // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids
     // with p-median-us for naming parity (inputEntriesForModel's comment)
     // but have no real content: `GET /dataset` genuinely has no
@@ -1399,8 +1342,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex flex-col leading-tight" data-testid="text-app-name">
-          <span className="font-semibold text-sm font-heading">Supply Chain Design</span>
-          <span className="text-xs text-muted-foreground">Prof. Michael Watson</span>
+          <span className="font-semibold text-sm font-heading">SCND Optimization Studio</span>
+          <span className="text-xs text-muted-foreground">By Prof. Michael Watson</span>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
           <span className="flex-shrink-0">Scenario:</span>
@@ -1495,16 +1438,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onCreateScenario={handleCreateScenario}
           inputs={inputEntriesForModel(modelId)}
           outputs={OUTPUT_ENTRIES}
-          reports={REPORT_ENTRIES}
           hasSolvedRun={hasFreshSolvedRun}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
           onOpenOutput={entry => openTab("output", entry)}
-          onOpenReport={entry => openTab("report", entry)}
           onRenameScenario={handleRenameScenario}
           onCloneScenario={handleCloneScenario}
           onDeleteScenario={handleDeleteScenario}
-          onResetScenario={handleResetScenario}
         />
 
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
