@@ -44,6 +44,7 @@ import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
+import { fillEstimatedDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
@@ -109,7 +110,7 @@ router.post("/scenarios", async (req, res) => {
     name: body.name,
     userId: req.userId!,
     modelId: body.modelId,
-    inputs: validation.data,
+    inputs: normalizePMedianInputs(body.modelId, validation.data),
     result: null,
   }).returning();
 
@@ -154,7 +155,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
       res.status(422).json({ error: validation.error });
       return;
     }
-    updateObj.inputs = validation.data;
+    updateObj.inputs = normalizePMedianInputs(existing.modelId, validation.data);
     updateObj.inputsUpdatedAt = new Date();
   }
   if (body.result !== undefined) updateObj.result = body.result;
@@ -241,6 +242,18 @@ const SOLVE_RETRY_AFTER_SECONDS = 30;
 // already-validated (validateInputsForModel's `.data`), so the casts are
 // safe exactly where they're used, same pattern as this file's existing
 // `as SolveInput` cast below.
+// T1 (Input Map v2) — auto-estimate normalizer, run on every p-median-us
+// persist path (POST create, PATCH, import/apply, below) right before the
+// already-validated inputs are written to the DB row. p-median-us only
+// (not p-median-brazil, which shares the same schema but a different base
+// dataset/geography this task hasn't threaded through yet) — every other
+// modelId falls through unchanged.
+function normalizePMedianInputs(modelId: string, data: Record<string, unknown>): Record<string, unknown> {
+  return modelId === "p-median-us"
+    ? (fillEstimatedDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>)
+    : data;
+}
+
 function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
   if (modelId === "p-median-us") {
     return precheckPMedianInputs(inputs as unknown as PMedianInputs);
@@ -989,6 +1002,12 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const nextOverrides = mergeChangesIntoOverrides("refineries", currentOverrides, preview.changes);
     nextInputs = { ...inputs, refineryOverrides: nextOverrides };
   }
+
+  // T1 (Input Map v2) — an imported "add" row (warehouses/customers/
+  // distances) can leave newly-added entities without a complete distance
+  // set the same way a map-added entity can; run the same normalizer here
+  // too so every persist path stays consistent.
+  nextInputs = normalizePMedianInputs(scenario.modelId, nextInputs);
 
   const [updated] = await db.update(scenariosTable)
     .set({

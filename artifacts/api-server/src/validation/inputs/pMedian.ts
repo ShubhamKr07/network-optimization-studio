@@ -29,6 +29,11 @@ const addedWarehouseSchema = z.object({
   lng: z.number(),
   capacity: z.number().positive().nullable().optional(),
   status: z.enum(["active", "forced_open", "inactive"]),
+  // T1 (Input Map v2) — a short human-facing label distinct from the stable
+  // `id` join key (e.g. an auto-generated code shown in the map/table UI
+  // before a student renames it). Purely cosmetic, never resolved as a join
+  // key anywhere — `id` remains the only stable reference.
+  displayCode: z.string().optional(),
 });
 
 const addedCustomerSchema = z.object({
@@ -46,12 +51,19 @@ const addedCustomerSchema = z.object({
   lat: z.number(),
   lng: z.number(),
   demand: z.number().nonnegative(),
+  // T1 (Input Map v2) — see addedWarehouseSchema's `displayCode` comment.
+  displayCode: z.string().optional(),
 });
 
 const distanceOverrideSchema = z.object({
   fromId: z.string().min(1),
   toId: z.string().min(1),
   distance: z.number().positive(),
+  // T1 (Input Map v2) — true when this row was auto-filled by
+  // services/autoDistance.ts's haversine normalizer rather than entered/
+  // imported by a student. Purely informational (e.g. lets the UI show an
+  // "estimated" badge); never read by the solver or by any validation rule.
+  estimated: z.boolean().optional(),
 });
 
 function distanceOverridePairKey(o: { fromId: string; toId: string }): string {

@@ -477,6 +477,81 @@ describe("PATCH /api/scenarios/:id", () => {
   });
 });
 
+// ── T1 (Input Map v2) — auto-estimate distance normalizer ─────────────────
+// Applied on all three p-median-us persist paths (POST create, PATCH,
+// import/apply) right before the DB write — see routes/scenarios.ts's
+// normalizePMedianInputs / services/autoDistance.ts.
+describe("T1 — auto-estimate distance normalizer (p-median-us persist paths)", () => {
+  const newWarehouse = { id: "WH-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" };
+
+  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer", async () => {
+    const cookie = await loginAs(OWNER);
+    const inputsWithAddedWarehouse = { ...pmedianInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...pmedianRow, inputs: inputsWithAddedWarehouse }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New", modelId: "p-median-us", inputs: inputsWithAddedWarehouse });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "WH-NEW1");
+    expect(fromNew.length).toBe(CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const newInputs = { ...pmedianInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...pmedianRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }> };
+    };
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "WH-NEW1");
+    expect(fromNew.length).toBe(CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const chain = makeChain([{ ...pmedianRow, inputs: pmedianInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const addCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,WH-NEW1,Reno,NV,39.53,-119.81,50000,active\n";
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }> };
+    };
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "WH-NEW1");
+    expect(fromNew.length).toBe(CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: transport-coal inputs pass through the normalizer unchanged (non-p-median model, no fill)", async () => {
+    const cookie = await loginAs(OWNER);
+    const newInputs = { ...transportInputs, capacityFactor: 1.2 };
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const chain = makeChain([{ ...transportRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/8").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    // The persisted capacityFactor edit survived, and the normalizer never
+    // touched this model at all — transportLpInputsSchema has no
+    // `distanceOverrides` field (its own override array is
+    // `laneCostOverrides`), so the p-median-only auto-distance output
+    // (fillEstimatedDistances's `distanceOverrides` key) must be absent.
+    expect(setArgs.inputs.capacityFactor).toBe(1.2);
+    expect(setArgs.inputs).not.toHaveProperty("distanceOverrides");
+  });
+});
+
 // ── Scenario.stale (X1.1) ───────────────────────────────────────────────────
 describe("Scenario.stale", () => {
   it("an unsolved scenario is never stale", async () => {

@@ -153,4 +153,48 @@ describe("pMedianInputsSchema — B1.1 network-edit fields", () => {
     const result = pMedianInputsSchema.safeParse(BASE);
     expect(result.success).toBe(true);
   });
+
+  // T1 (Input Map v2) — auto-distance normalizer's `estimated` flag and the
+  // added-entity `displayCode` label. All three optional: rows/entities
+  // without them still validate (old scenario data, manually-entered rows).
+  it("accepts a distanceOverrides row with estimated:true", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      distanceOverrides: [{ fromId: "ALN", toId: "ATL", distance: 123.4, estimated: true }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.distanceOverrides[0].estimated).toBe(true);
+  });
+
+  it("accepts an added warehouse with a displayCode", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      addedWarehouses: [
+        { id: "WH-NEW-1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active", displayCode: "WH-A1" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.addedWarehouses[0].displayCode).toBe("WH-A1");
+  });
+
+  it("accepts an added customer with a displayCode", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      addedCustomers: [
+        { id: "CUST-NEW-1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200, displayCode: "C-A1" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.addedCustomers[0].displayCode).toBe("C-A1");
+  });
+
+  it("accepts rows/entities without estimated/displayCode (all three fields optional)", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      addedWarehouses: [{ id: "WH-X", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" }],
+      addedCustomers: [{ id: "C-X", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200 }],
+      distanceOverrides: [{ fromId: "WH-X", toId: "C-X", distance: 100 }],
+    });
+    expect(result.success).toBe(true);
+  });
 });
