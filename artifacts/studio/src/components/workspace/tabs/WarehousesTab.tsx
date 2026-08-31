@@ -221,6 +221,17 @@ export function WarehousesTab({
       setAddError("City and state are both required.");
       return;
     }
+    // T9 (team-lead decision) — displayCode is now the user-facing,
+    // collision-checked field (the old "ID" input's role), since `id` is a
+    // hidden uid that can't meaningfully collide. nextDisplayCode already
+    // avoids collisions when it auto-generates one; this only fires if the
+    // student manually typed/edited a displayCode that duplicates an
+    // existing added warehouse's.
+    const displayCode = newDisplayCode.trim() || undefined;
+    if (displayCode && addedWarehouses.some(w => w.displayCode === displayCode)) {
+      setAddError(`Display code '${displayCode}' is already in use by another ${addedEntityLabel} in this scenario.`);
+      return;
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setAddError("Latitude and longitude must both be numbers.");
       return;
@@ -236,7 +247,6 @@ export function WarehousesTab({
     }
 
     const id = newUid("wh");
-    const displayCode = newDisplayCode.trim() || undefined;
     onAddedWarehousesChange?.([...addedWarehouses, { id, city, state, lat, lng, capacity, status: "active", displayCode }]);
     resetAddForm();
   }

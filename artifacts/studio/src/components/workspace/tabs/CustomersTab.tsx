@@ -165,6 +165,15 @@ export function CustomersTab({
       setAddError("City and state are both required.");
       return;
     }
+    // T9 (team-lead decision) — displayCode is now the user-facing,
+    // collision-checked field (the old "ID" input's role), since `id` is a
+    // hidden uid that can't meaningfully collide. Mirrors WarehousesTab's
+    // own T9 comment exactly.
+    const displayCode = newDisplayCode.trim() || undefined;
+    if (displayCode && addedCustomers.some(c => c.displayCode === displayCode)) {
+      setAddError(`Display code '${displayCode}' is already in use by another customer in this scenario.`);
+      return;
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setAddError("Latitude and longitude must both be numbers.");
       return;
@@ -175,7 +184,6 @@ export function CustomersTab({
     }
 
     const id = newUid("cs");
-    const displayCode = newDisplayCode.trim() || undefined;
     onAddedCustomersChange?.([...addedCustomers, { id, city, state, lat, lng, demand, displayCode }]);
     resetAddForm();
   }

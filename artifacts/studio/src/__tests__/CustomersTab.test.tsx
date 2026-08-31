@@ -161,6 +161,36 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     expect(screen.getByTestId("text-add-customer-error")).toBeInTheDocument();
   });
 
+  // T9 (team-lead decision) — mirrors WarehousesTab's own T9 collision test
+  // exactly: `id` is a hidden uid now, displayCode is the collision-checked
+  // user-facing field.
+  it("rejects an add-row whose displayCode collides with an existing added customer's, without calling onAddedCustomersChange", async () => {
+    const onAddedCustomersChange = vi.fn();
+    const existing = [{ id: "ac-existing", city: "Somewhere", state: "TX", lat: 1, lng: 2, demand: 10, displayCode: "DUPE" }];
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={existing}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
+    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+    await userEvent.clear(screen.getByTestId("input-new-customer-display-code"));
+    await userEvent.type(screen.getByTestId("input-new-customer-display-code"), "DUPE");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-customer-error")).toBeInTheDocument();
+  });
+
   it("renders an added customer row with a delete button, and clicking it calls onDeleteCustomer with its id", async () => {
     const onDeleteCustomer = vi.fn();
     const added = [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }];

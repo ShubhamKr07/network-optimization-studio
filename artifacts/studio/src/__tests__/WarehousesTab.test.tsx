@@ -255,6 +255,39 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     expect(screen.getByTestId("text-add-warehouse-error")).toBeInTheDocument();
   });
 
+  // T9 (team-lead decision) — since `id` is now a hidden uid, displayCode
+  // is the collision-checked user-facing field (the old "ID" input's role).
+  // nextDisplayCode's own auto-generation always avoids a collision by
+  // incrementing the suffix, so this only fires when the student manually
+  // overrides the auto-filled displayCode to match an existing one.
+  it("rejects an add-row whose displayCode collides with an existing added warehouse's, without calling onAddedWarehousesChange", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    const existing = [{ id: "aw-existing", city: "Somewhere", state: "TX", lat: 1, lng: 2, capacity: null, status: "active" as const, displayCode: "DUPE" }];
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={existing}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Chicago");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "IL");
+    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+    // Manually override the auto-filled displayCode to collide.
+    await userEvent.clear(screen.getByTestId("input-new-warehouse-display-code"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-display-code"), "DUPE");
+    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(onAddedWarehousesChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-warehouse-error")).toBeInTheDocument();
+  });
+
   it("renders an added warehouse row with a delete button, and clicking it calls onDeleteWarehouse with its id", async () => {
     const onDeleteWarehouse = vi.fn();
     const added = [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" as const }];
