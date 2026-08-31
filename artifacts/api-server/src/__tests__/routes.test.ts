@@ -828,7 +828,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,status");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,status");
     expect(lines.length).toBe(3); // header + 2 refineries, mine not included
     expect(lines.some((l) => l.startsWith("1,cunnamulla,") && l.endsWith("forced_open"))).toBe(true);
   });
@@ -1210,10 +1210,12 @@ describe("POST /api/scenarios/:id/import", () => {
     expect(res.status).toBe(422);
   });
 
-  // Two-echelon-gold-au refinery import preview (Task 7).
+  // Two-echelon-gold-au refinery import preview (Task 7). T11 — header
+  // gained display_code + lat/lng (refineries joined the uid+displayCode
+  // add-mode set); this is a base-id UPDATE row so both are left blank.
   it("previews a two-echelon-gold-au refinery import with one change and no mutation", async () => {
     const cookie = await loginAs(OWNER);
-    const refineryCsv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    const refineryCsv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,forced_open\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "refineries", csvText: refineryCsv });
     expect(res.status).toBe(200);
@@ -1392,7 +1394,7 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   // warehouses array apply above.
   it("all_or_nothing mode: applies a clean two-echelon-gold-au refinery import into refineryOverrides", async () => {
     const cookie = await loginAs(OWNER);
-    const refineryCsv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    const refineryCsv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,forced_open\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const updatedRow = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] } };
     mockDb.update.mockReturnValue(makeChain([updatedRow]));

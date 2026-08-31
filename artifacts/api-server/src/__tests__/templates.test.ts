@@ -198,13 +198,22 @@ describe("applyGoldCustomerOverrides", () => {
 });
 
 describe("refineryRowsToCsv", () => {
-  it("produces a header row plus one line per row, status column, no value column", () => {
+  it("produces a header row plus one line per row, display_code + lat/lng + status columns, no value column", () => {
     const rows = applyRefineryOverrides([{ id: "cunnamulla", status: "forced_open" }]);
     const csv = refineryRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,status");
-    expect(lines).toContain(`${TEMPLATE_VERSION},cunnamulla,Cunnamulla,QLD,forced_open`);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,status");
+    expect(lines.some(l => l.startsWith("1,cunnamulla,,Cunnamulla,QLD,") && l.endsWith(",forced_open"))).toBe(true);
     expect(lines.length).toBe(3);
+  });
+
+  it("an added refinery's displayCode is emitted in the display_code cell", () => {
+    const rows = applyRefineryOverrides([], [
+      { id: "aw-1", displayCode: "REF-WA-NEWTOWN-01", city: "Newtown", state: "WA", lat: 35.5, lng: -80.2, status: "active" },
+    ]);
+    const csv = refineryRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[lines.length - 1]).toBe(`${TEMPLATE_VERSION},aw-1,REF-WA-NEWTOWN-01,Newtown,WA,35.5,-80.2,active`);
   });
 });
 

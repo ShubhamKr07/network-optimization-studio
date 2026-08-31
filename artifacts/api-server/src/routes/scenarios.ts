@@ -559,8 +559,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       refineryOverrides?: Parameters<typeof buildLegDistanceStubRows>[1]["refineryOverrides"];
       customerOverrides?: Parameters<typeof buildLegDistanceStubRows>[1]["customerOverrides"];
       distanceOverrides?: Parameters<typeof applyDistanceOverrides>[0];
-      addedRefineries?: Parameters<typeof buildLegDistanceStubRows>[1]["addedRefineries"];
-      addedCustomers?: Parameters<typeof buildLegDistanceStubRows>[1]["addedCustomers"];
+      // T11 (multi-model expansion) — widened from
+      // buildLegDistanceStubRows's own narrower stub-generator shape (which
+      // only needs `id` for reference-integrity, not the full row) to
+      // applyRefineryOverrides/applyGoldCustomerOverrides' own added-entity
+      // param types, needed for the CSV/JSON export merge just below.
+      addedRefineries?: Parameters<typeof applyRefineryOverrides>[1];
+      addedCustomers?: Parameters<typeof applyGoldCustomerOverrides>[1];
     };
 
     // B6.2 stage 4 — legDistances is a wholly different shape (composite-
@@ -609,16 +614,19 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       event: "scenario data exported",
       properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
     });
+    // T11 (multi-model expansion) — both now take a second addedX param
+    // (mirroring applyWarehouseOverrides/applyCustomerOverrides), since
+    // add-mode is enabled for both entities here now.
     if (format === "csv") {
       const csv = entity === "refineries"
-        ? refineryRowsToCsv(applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0]))
-        : customerRowsToCsv(applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0]));
+        ? refineryRowsToCsv(applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0], inputs.addedRefineries ?? []))
+        : customerRowsToCsv(applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0], inputs.addedCustomers ?? []));
       res.type("text/csv").send(csv);
       return;
     }
     const rows = entity === "refineries"
-      ? applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0])
-      : applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0]);
+      ? applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0], inputs.addedRefineries ?? [])
+      : applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0], inputs.addedCustomers ?? []);
     res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
     return;
   }
@@ -732,12 +740,13 @@ function mergeChangesIntoOverrides(
 // no status field either (mines have no status concept at all, matching
 // templates.ts's own MineOverride) — c.after.status is simply never read for
 // it, mirroring how addedCustomers never reads it today.
-// T11 — warehouses/customers also carry `c.displayCode` now (services/
-// import.ts's uid identity model — see its own header comment), matching
-// pMedian.ts's addedWarehouseSchema/addedCustomerSchema's optional
+// T11 — warehouses/customers/refineries also carry `c.displayCode` now
+// (services/import.ts's uid identity model — see its own header comment),
+// matching pMedian.ts's addedWarehouseSchema/addedCustomerSchema and
+// twoEchelon.ts's addedRefinerySchema/addedCustomerSchema's optional
 // `displayCode` field.
 function mergeAddChangesIntoAdded(
-  entity: "warehouses" | "customers" | "mines" | "stations",
+  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries",
   currentAdded: Array<Record<string, unknown>>,
   addChanges: ImportRowChange[],
 ): Array<Record<string, unknown>> {
@@ -746,6 +755,10 @@ function mergeAddChangesIntoAdded(
       ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
       : entity === "customers"
       ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
+      // Refineries — no capacity field at all (twoEchelon.ts's
+      // addedRefinerySchema has none, see its own header comment).
+      : entity === "refineries"
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, status: c.after.status }
       : entity === "mines"
       ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
       // stations — same demand-only shape, no displayCode (out of T11's
@@ -757,14 +770,15 @@ function mergeAddChangesIntoAdded(
 
 // T11 — merges CSV update_added changes (services/import.ts's
 // `changeType: "update_added"`, an id matching an already-added entity's
-// stable uid) directly into addedWarehouses/addedCustomers, replacing that
-// entity's capacity/status (or demand) in place. Deliberately never touches
-// city/state/lat/lng/displayCode — see import.ts's own comment on
-// isUpdateAdded for the full reasoning (moving/renaming an added entity
-// stays the map's Move/Edit dialogs' job). Warehouses/customers only — no
-// other entity has an addedX array reachable via a CSV update in this task.
+// stable uid) directly into addedWarehouses/addedCustomers/addedRefineries,
+// replacing that entity's capacity/status (or demand) in place. Deliberately
+// never touches city/state/lat/lng/displayCode — see import.ts's own comment
+// on isUpdateAdded for the full reasoning (moving/renaming an added entity
+// stays the map's Move/Edit dialogs' job). Warehouses/customers/refineries
+// only — no other entity has an addedX array reachable via a CSV update in
+// this task.
 function mergeUpdateAddedChanges(
-  entity: "warehouses" | "customers",
+  entity: "warehouses" | "customers" | "refineries",
   currentAdded: Array<Record<string, unknown>>,
   updateAddedChanges: ImportRowChange[],
 ): Array<Record<string, unknown>> {
@@ -774,7 +788,10 @@ function mergeUpdateAddedChanges(
     if (!change) return row;
     return entity === "warehouses"
       ? { ...row, capacity: change.after.value, status: change.after.status }
-      : { ...row, demand: change.after.value };
+      : entity === "customers"
+      ? { ...row, demand: change.after.value }
+      // Refineries — status only, mirroring mergeAddChangesIntoAdded above.
+      : { ...row, status: change.after.status };
   });
 }
 
@@ -1035,9 +1052,33 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const nextDistanceOverrides = mergeDistanceChangesIntoOverrides(currentDistanceOverrides, preview.changes);
     nextInputs = { ...inputs, distanceOverrides: nextDistanceOverrides };
   } else {
+    // entity === "refineries" (the only entity that reaches this final
+    // else). T11 — refineries joins warehouses/customers' 3-way changeType
+    // split (see that branch's own comment): WarehousesTab.tsx already
+    // mints a uid+displayCode for added refineries (reused per B6.2), so
+    // ADD/update_added need the same addedRefineries write target.
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add" && c.changeType !== "update_added");
+    const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const updateAddedChanges = preview.changes.filter(c => c.changeType === "update_added");
+
     const currentOverrides = (inputs.refineryOverrides ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
-    const nextOverrides = mergeChangesIntoOverrides("refineries", currentOverrides, preview.changes);
-    nextInputs = { ...inputs, refineryOverrides: nextOverrides };
+    const nextOverrides = mergeChangesIntoOverrides("refineries", currentOverrides, updateChanges);
+
+    const currentAdded = (inputs.addedRefineries ?? []) as Array<Record<string, unknown>>;
+    const addedAfterAppend = mergeAddChangesIntoAdded("refineries", currentAdded, addChanges);
+    const nextAdded = mergeUpdateAddedChanges("refineries", addedAfterAppend, updateAddedChanges);
+
+    nextInputs = { ...inputs, refineryOverrides: nextOverrides, addedRefineries: nextAdded };
+
+    // Re-validate the merged shape against twoEchelon.ts's Zod schema before
+    // persisting — same convention warehouses/customers/mines/stations
+    // already follow above.
+    const revalidated = validateInputsForModel(scenario.modelId, nextInputs);
+    if (!revalidated.success) {
+      res.status(422).json({ error: revalidated.error });
+      return;
+    }
+    nextInputs = revalidated.data;
   }
 
   // T1 (Input Map v2) — an imported "add" row (warehouses/customers/

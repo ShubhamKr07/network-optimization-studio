@@ -297,16 +297,81 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
     expect(result.errors[0].message).toMatch(/add-and-exclude/i);
   });
 
-  it("customers: add-mode is p-median-us only — a blank id for two-echelon-gold-au is still a plain 'unknown id' error", () => {
+  // T11 (multi-model expansion) — two-echelon-gold-au's addedCustomers field
+  // (twoEchelon.ts, B6.2+T11) means add-mode is no longer p-median-us-only;
+  // a blank id there is now a real ADD candidate, same as p-median-us.
+  it("customers: add-mode also works for two-echelon-gold-au (its own addedCustomers/displayCode field)", () => {
     const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CS-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-gold-au");
-    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: expect.stringMatching(/^ac-/), changeType: "add", displayCode: "CS-NEW1" });
   });
 
-  it("refineries are still out of scope — an unrecognized id is a plain 'unknown id' error, not add-mode (no display_code column, unaffected by T11)", () => {
-    const csv = "template_version,id,city,state,status\n1,ZZ-NEW,Nowhere,XX,active\n";
+  // T11 (multi-model expansion) — refineries joins the uid+displayCode
+  // add-mode set: WarehousesTab.tsx (reused for entity="refineries" per
+  // B6.2) already mints uid+displayCode client-side; this brings the
+  // backend CSV path in line.
+  it("refineries: a blank-id add-candidate row produces an ADD-classified change with a minted uid (aw- prefix, reusing WarehousesTab.tsx's own kind)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,,REF-NEW1,Newtown,WA,35.5,-80.2,active\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
-    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: expect.stringMatching(/^aw-/),
+      line: 2,
+      before: { status: "not_present", value: null },
+      after: { status: "active", value: null },
+      changeType: "add",
+      city: "Newtown",
+      state: "WA",
+      lat: 35.5,
+      lng: -80.2,
+      displayCode: "REF-NEW1",
+    }]);
+  });
+
+  it("refineries: missing lat/lng on a blank-id add row is a clear error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,,REF-NEW1,Newtown,WA,,,active\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
+    expect(result.errors[0].message).toMatch(/lat\/lng/i);
+  });
+
+  it("refineries: a displayCode that already belongs to a previously-added refinery is rejected", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,,REF-NEW1,Newtown,WA,35.5,-80.2,active\n";
+    const result = parseAndValidateImport("refineries", csv, { addedRefineries: [{ id: "aw-existing", displayCode: "REF-NEW1" }] }, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/already in use/i);
+  });
+
+  it("refineries: an id matching an already-added refinery's uid is an update_added change, status only (no value concept)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,aw-existing,,Newtown,WA,35.5,-80.2,forced_open\n";
+    const result = parseAndValidateImport(
+      "refineries",
+      csv,
+      { addedRefineries: [{ id: "aw-existing", displayCode: "REF-NEW1", status: "active" }] },
+      0,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "aw-existing",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "forced_open", value: null },
+      changeType: "update_added",
+      displayCode: "REF-NEW1",
+    }]);
+  });
+
+  it("refineries: a non-blank id that resolves as neither a base nor an already-added refinery is a hard 'Unknown id' error, not an implicit add", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,ZZ-NEW,,Nowhere,XX,35.5,-80.2,active\n";
+    const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/unknown id/i);
+    expect(result.errors[0].message).toMatch(/leave the id column blank/i);
   });
 });
 
@@ -497,9 +562,14 @@ describe("parseAndValidateImport — laneCosts (composite key)", () => {
   });
 });
 
+// T11 (multi-model expansion) — refineries gained display_code + lat/lng
+// columns (COLUMNS.refineries), matching warehouses/customers' own T11
+// column shape. Base-row updates (id = an existing refinery, e.g.
+// "cunnamulla") leave display_code/lat/lng blank — same convention
+// warehouses/customers already established (only ADD rows need them).
 describe("parseAndValidateImport — refineries (no value column, status only)", () => {
   it("clean row: registers a status change, value is always null (refineries have no capacity/demand field)", () => {
-    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,forced_open\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([]);
     expect(result.changes).toEqual([{
@@ -510,33 +580,35 @@ describe("parseAndValidateImport — refineries (no value column, status only)",
     }]);
   });
 
-  it("rejects a row with a stray value column as a format error (wrong column count)", () => {
-    const csv = "template_version,id,city,state,capacity,status\n1,cunnamulla,Cunnamulla,QLD,,forced_open\n";
+  it("rejects a row with a stray extra column as a format error (wrong column count)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,cunnamulla,,Cunnamulla,QLD,,,,forced_open\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("format");
   });
 
   it("rejects an unknown refinery id (the mine's own id is not importable — it's not a refinery)", () => {
-    const csv = "template_version,id,city,state,status\n1,kalgoorlie,Kalgoorlie,WA,forced_open\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,kalgoorlie,,Kalgoorlie,WA,,,forced_open\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
-    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/unknown id/i);
   });
 
   it("rejects an invalid status", () => {
-    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,bogus\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,bogus\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/invalid status/i) }]);
   });
 
   it("produces no change when the row matches the current baseline exactly", () => {
-    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,active\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,active\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
     expect(result.changes).toEqual([]);
   });
 
   it("diffs against an existing refineryOverrides entry, not just the raw baseline", () => {
-    const csv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,inactive\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,inactive\n";
     const result = parseAndValidateImport("refineries", csv, { refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] }, 0);
     expect(result.changes).toHaveLength(1);
     expect(result.changes[0]).toMatchObject({ before: { status: "forced_open" }, after: { status: "inactive" } });

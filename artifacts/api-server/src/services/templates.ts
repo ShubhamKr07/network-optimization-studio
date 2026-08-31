@@ -47,6 +47,11 @@ interface AddedCustomer { id: string; displayCode?: string; city: string; state:
 interface AddedMine { id: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; }
 interface AddedStation { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
 
+// T11 (multi-model expansion) — twoEchelon.ts's addedRefinerySchema shape.
+// Mirrors AddedWarehouse minus the `capacity` field (refineries have no
+// per-facility capacity concept at all, see RefineryOverride's own comment).
+interface AddedRefinery { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; status: "active" | "forced_open" | "inactive"; }
+
 // B4.3 — lat/lng catch up to B4.2's import COLUMNS (same position: after
 // state, before the value/status columns) — sourced from the real dataset's
 // own coordinates (WAREHOUSES/CUSTOMERS/GOLD_CUSTOMERS all already carry
@@ -118,11 +123,20 @@ export interface StationTemplateRow {
   overridden: boolean;
 }
 
+// T11 (multi-model expansion) — gained displayCode/lat/lng, catching up to
+// import.ts's new COLUMNS.refineries shape (refineries joined the
+// uid+displayCode add-mode set — WarehousesTab.tsx, reused for
+// entity="refineries" per B6.2, already mints both client-side). `overridden`
+// was never added for refineries (unlike Warehouse/CustomerTemplateRow) —
+// out of scope here too, no caller reads it for this entity.
 export interface RefineryTemplateRow {
   templateVersion: number;
   id: string;
+  displayCode: string | null;
   city: string;
   state: string;
+  lat: number;
+  lng: number;
   status: "active" | "forced_open" | "inactive";
 }
 
@@ -296,18 +310,24 @@ export function applyStationOverrides(overrides: StationOverride[], addedStation
 // shape (CSV/JSON serialization doesn't care which dataset a row came from).
 // No addedCustomers concept for this model (twoEchelonInputsSchema has no
 // such field) — no second parameter needed, unlike applyCustomerOverrides.
-export function applyGoldCustomerOverrides(overrides: CustomerOverride[]): CustomerTemplateRow[] {
+// T11 (multi-model expansion) — gained an `addedCustomers` second param,
+// mirroring applyCustomerOverrides' own second param exactly: appends one
+// row per scenario-local added customer after the 10 base rows, since
+// twoEchelon.ts's addedCustomerSchema (B6.2+T11) now exists and add-mode is
+// enabled for two-echelon-gold-au's customers entity too (import.ts's
+// `canAdd`). Reuses the same `AddedCustomer` interface as
+// applyCustomerOverrides — twoEchelon.ts's addedCustomerSchema shares its
+// exact shape (id/displayCode/city/state/lat/lng/demand, no status).
+export function applyGoldCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
-  return GOLD_CUSTOMERS.map(c => {
+  const baseRows: CustomerTemplateRow[] = GOLD_CUSTOMERS.map(c => {
     const o = byId.get(c.id);
     const demand = o?.demand ?? c.demand;
     const status = o?.status ?? "active";
     return {
       templateVersion: TEMPLATE_VERSION,
       id: c.id,
-      // T11 — two-echelon-gold-au has no displayCode concept (no
-      // addedCustomers field in twoEchelonInputsSchema at all); always null.
-      displayCode: null,
+      displayCode: null, // base entities have no displayCode concept
       city: c.city,
       state: c.state,
       lat: c.lat,
@@ -317,22 +337,51 @@ export function applyGoldCustomerOverrides(overrides: CustomerOverride[]): Custo
       overridden: demand !== c.demand || status !== "active",
     };
   });
+  const addedRows: CustomerTemplateRow[] = addedCustomers.map(c => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: c.id,
+    displayCode: c.displayCode ?? null,
+    city: c.city,
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: c.demand,
+    status: "active",
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
 }
 
 // GOLD_REFINERIES only — deliberately excludes the mine (GOLD_MINES),
 // which has no status/capacity override concept in the two-echelon model.
-export function applyRefineryOverrides(overrides: RefineryOverride[]): RefineryTemplateRow[] {
+// T11 (multi-model expansion) — gained an `addedRefineries` second param,
+// mirroring applyWarehouseOverrides' own second param exactly: appends one
+// row per scenario-local added refinery after the 2 base rows. `overridden`
+// was never a field on RefineryTemplateRow (unlike Warehouse/
+// CustomerTemplateRow) — kept that way, out of scope here too.
+export function applyRefineryOverrides(overrides: RefineryOverride[], addedRefineries: AddedRefinery[] = []): RefineryTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
-  return GOLD_REFINERIES.map(r => {
-    const o = byId.get(r.id);
-    return {
-      templateVersion: TEMPLATE_VERSION,
-      id: r.id,
-      city: r.city,
-      state: r.state,
-      status: o?.status ?? "active",
-    };
-  });
+  const baseRows: RefineryTemplateRow[] = GOLD_REFINERIES.map(r => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: r.id,
+    displayCode: null, // base entities have no displayCode concept
+    city: r.city,
+    state: r.state,
+    lat: r.lat,
+    lng: r.lng,
+    status: byId.get(r.id)?.status ?? "active",
+  }));
+  const addedRows: RefineryTemplateRow[] = addedRefineries.map(r => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: r.id,
+    displayCode: r.displayCode ?? null,
+    city: r.city,
+    state: r.state,
+    lat: r.lat,
+    lng: r.lng,
+    status: r.status,
+  }));
+  return [...baseRows, ...addedRows];
 }
 
 function csvEscape(value: string): string {
@@ -383,10 +432,14 @@ export function stationRowsToCsv(rows: StationTemplateRow[]): string {
   return [header, ...lines].join("\n") + "\n";
 }
 
+// T11 (multi-model expansion) — header catches up to import.ts's new
+// COLUMNS.refineries shape (gained display_code + lat/lng, refineries
+// joined the uid+displayCode add-mode set) — same blank-cell-when-null
+// convention as warehouseRowsToCsv/customerRowsToCsv above.
 export function refineryRowsToCsv(rows: RefineryTemplateRow[]): string {
-  const header = "template_version,id,city,state,status";
+  const header = "template_version,id,display_code,city,state,lat,lng,status";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.status].join(","),
+    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.status].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }

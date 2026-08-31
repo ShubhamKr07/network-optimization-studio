@@ -24,6 +24,13 @@ const addedRefinerySchema = z.object({
   // solve_two_echelon; the only capacity-like constraint is "exactly one
   // refinery open", unrelated to this task).
   status: z.enum(["active", "forced_open", "inactive"]),
+  // T11 — WarehousesTab.tsx (reused for entity="refineries" per B6.2) has
+  // been minting displayCode on every added refinery since T9 landed; this
+  // schema had nowhere to put it, so it was silently stripped on every
+  // save (not `.strict()`, unknown keys drop rather than reject) until now.
+  // See addedWarehouseSchema's own comment (pMedian.ts) for the full
+  // rationale — same purely-cosmetic, never-a-join-key field.
+  displayCode: z.string().optional(),
 });
 
 const addedCustomerSchema = z.object({
@@ -33,6 +40,8 @@ const addedCustomerSchema = z.object({
   lat: z.number(),
   lng: z.number(),
   demand: z.number().nonnegative(),
+  // T11 — see addedRefinerySchema's own comment above.
+  displayCode: z.string().optional(),
 });
 
 // {fromId, toId, distance} — ONE flat array covering BOTH legs (mine ->
