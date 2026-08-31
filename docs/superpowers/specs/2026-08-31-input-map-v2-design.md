@@ -34,6 +34,10 @@ This spec covers the **p-median-us pilot** in full docs scope. The other three m
 
 Status vocabulary is display-only mapping (DD-6, from Phase B): stored enum `active`/`forced_open`/`inactive` ↔ labels **Potential / Fixed-Open / Inactive**. One mapping constant, already exists in `WarehouseTable.tsx`; reuse it.
 
+> **Review question (blocking):** If stored `active` is displayed as **Potential**, should its triangle be the outlined Potential style, with only `forced_open` filled and `inactive` dashed? The current “filled = Active/Fixed-Open” rule introduces an **Active** input status that does not exist and gives `active` two incompatible styles.
+
+> **Review question:** What is the effective map-view rule for scenario overrides—especially a base customer's `excluded` status? Should excluded customers be hidden, dimmed, or separately symbolized and editable so the map does not show them as ordinary active demand while the solver and distance service exclude them?
+
 ## 4. Interaction model
 
 | Gesture | Behavior |
@@ -47,6 +51,8 @@ Status vocabulary is display-only mapping (DD-6, from Phase B): stored enum `act
 | Drag **added** marker | Move (from action menu) or Copy (drags a ghost). Base markers are not draggable. |
 
 Touch out of scope. Details card and action menu are **React overlays positioned over the Leaflet container**, not Leaflet `Popup`s — a `Popup` nested in a `Marker` stays closed until the marker is clicked (documented repo gotcha), which would break the right-click menu.
+
+> **Review question:** What are the keyboard equivalents for hover, left-click, right-click, and drag (for example, focusable markers, Enter for details, Shift+F10/Menu for actions, and an explicit move/copy mode)? Touch may be out of scope, but making the primary editor mouse-only would also exclude keyboard users and leaves dialog/menu focus, Escape, and focus restoration undefined.
 
 ## 5. Map technology — react-leaflet (D5, in full)
 
@@ -102,6 +108,8 @@ New `artifacts/api-server/src/services/autoDistance.ts`:
 
 **When it runs:** on the scenario-inputs **Save path** (`PATCH /scenarios/:id`, and the map-edit apply paths that already write `inputs`), so the estimated rows are **persisted** and therefore visible/editable in the Distances grid — required by the soft-warn/review decision (D3). Not computed transiently at solve time.
 
+> **Review question (blocking):** Should estimation be one canonical p-median input-normalization step used by every persistence path that can receive added entities (PATCH, create/API, and import-apply), followed by schema revalidation? PATCH-only normalization leaves imported additions incomplete, and coincident or very-near points need an explicit policy because a rounded `0` estimate violates the schema's positive-distance rule.
+
 `precheck.ts` is unchanged in logic but now rarely reports `completeness` errors post-Save (rows are auto-filled). It remains the guard for the pre-Save/edge cases.
 
 ### 6.3 What the backend does NOT do
@@ -117,6 +125,8 @@ No gazetteer, no ID generation (frontend owns both — it already has the added-
   - `lookupCity(city, state) → {lat, lng} | null` — forward, for the grid-mirror flow.
 - `artifacts/studio/src/lib/entityId.ts` — `nextEntityId(kind, state, city, existingIds) → "WH-TX-DALLAS-01"`. `cityCode` = uppercase, non-alpha stripped; seq = lowest 2-digit not colliding with base+added ids for that city (mockup's `mkId`/`nextId`). Base IDs are part of `existingIds` so a new added id never collides with a base id.
 
+> **Review question:** Which exact gazetteer source, version, extraction rule, license, and attribution will be committed through a reproducible script/checksum? Neither cited option is public domain—[SimpleMaps US Cities](https://simplemaps.com/data/us-cities) requires attribution for its free data, and [GeoNames](https://www.geonames.org/export/) is CC-BY—and why use squared-degree “nearest” when a 1,000-row haversine scan is cheap and avoids latitude-dependent longitude distortion?
+
 ### 7.2 Input Map rewrite (`InputMapTab.tsx`)
 
 Absorbs Task 4's pin flow and adds: symbology (§3), layer toggles, legend, hover tooltip, left-click details card, right-click action menus (base vs added, §4), right-click-empty add menu, drag Move/Copy. Consumes the current scenario's `inputs` + base dataset; writes through the existing Workspace manual-Save path.
@@ -128,6 +138,8 @@ Absorbs Task 4's pin flow and adds: symbology (§3), layer toggles, legend, hove
 - `MoveConfirmDialog` (added only) — shows new lat/lng, reverse-geocoded city/state, and the **regenerated ID** (`old → new`). On confirm: mutate the added row (`id/city/state/lat/lng`); its old `distanceOverrides` are **cleared** (stale — location changed) and re-filled as `estimated` on the next Save (§6.2). Any `warehouseOverrides`/`customerOverrides` row keyed to the old id is re-keyed to the new id. Cancel snaps back.
 - `CreateEntityDialog` — pin/copy → auto ID + closest city/state (reverse-geocoded, editable if wrong), lat/lng from pin. Only capacity/status (warehouse) or demand (customer) is typed. Copy prefills the source's capacity/demand as a starting value; **Copy source may be base or added** (Copy never mutates the source; the result is always a new *added* row).
 
+> **Review question (identity safety):** Is a location-derived ID intentionally the mutable primary join key rather than a stable identity plus a derived display code? If it must regenerate, should a same-city move exclude the entity's own current ID from collision checks, and why would move/delete touch `warehouseOverrides` or `customerOverrides` when added-entity values live on the added row and those override arrays can belong to a colliding base entity?
+
 ### 7.4 Grid mirror (Warehouses / Customers tabs)
 
 The "Add row" forms gain the mirror flow: type **City + State** → on blur, `lookupCity` fills lat/lng and `nextEntityId` fills the ID; auto-filled cells render grey until touched, editable on click.
@@ -138,6 +150,8 @@ The "Add row" forms gain the mirror flow: type **City + State** → on blur, `lo
 - **Estimate toast (replaces the old "missing N distances" toast):** after Save, per new/moved entity, toast **"N distances estimated for `<id>` — review"** with a jump-to-Distances action scrolled to those rows. (Post-auto-fill there are no *missing* rows; there are *estimated* rows to review.) Reuses Task 4's two-step precheck timing (toast fires after the awaited post-Save fetch, keyed to the saved state).
 - **Estimated rows in the Distances grid:** tinted/badged "estimated"; editing a row's value clears its `estimated` flag → "confirmed". This is the review affordance the soft-warn decision requires.
 - **Grid parity:** map and input grids are two views of the same `inputs`; an edit on either side is immediately visible on the other.
+
+> **Review question (blocking):** Since Save will now return server-augmented `inputs`, what is the client reconciliation contract? The Workspace must adopt the PATCH response as both its local and saved snapshot, and the estimate toast must count newly returned `estimated:true` rows for explicit create/move watches; post-fill precheck has zero missing-distance errors and cannot supply that `N`.
 
 ## 9. Testing strategy
 
