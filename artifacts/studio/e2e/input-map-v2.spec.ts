@@ -62,6 +62,19 @@ function warehouseMarkers(page: Page): Locator {
   return page.locator('[data-testid="input-map-tab"] .leaflet-marker-icon.wh-marker');
 }
 
+/** A canvas-relative offset guaranteed to be outside the fitted US country
+ * bounds's dense marker field. p-median-us's ~200 customer + 26 warehouse
+ * markers blanket nearly the entire continental-US portion of the canvas
+ * (its fitBounds is deterministic per fresh page load), so a "click empty
+ * map space" position near the CENTER (the naive choice) reliably lands on
+ * an existing marker's own hit area instead — opening that marker's action
+ * menu, not the empty-space "Add on map" menu. The extreme top-right corner
+ * (past the coastline, into open ocean/Canada in every observed screenshot)
+ * is clear in this dataset and far from the top-left zoom controls. */
+function emptyMapOffset(box: { width: number; height: number }): { x: number; y: number } {
+  return { x: box.width * 0.94, y: box.height * 0.06 };
+}
+
 test.describe("Input Map v2 — money path (p-median-us)", () => {
   test("add on map → Save → estimated-distance toast → Distances grid shows it → editing clears the chip → Run Optimizer solves", async ({ page }) => {
     test.setTimeout(120_000);
@@ -74,7 +87,7 @@ test.describe("Input Map v2 — money path (p-median-us)", () => {
       // Right-click empty map space -> "Add warehouse here" -> Create.
       const canvas = mapCanvas(page);
       const box = (await canvas.boundingBox())!;
-      await canvas.click({ position: { x: box.width / 2, y: box.height / 2 }, button: "right" });
+      await canvas.click({ position: emptyMapOffset(box), button: "right" });
       await expect(page.getByTestId("map-add-menu")).toBeVisible();
       await page.getByTestId("map-add-menu-wh").click();
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
@@ -129,7 +142,8 @@ test.describe("Input Map v2 — move + re-estimate (p-median-us)", () => {
     try {
       const canvas = mapCanvas(page);
       const box = (await canvas.boundingBox())!;
-      await canvas.click({ position: { x: box.width / 3, y: box.height / 3 }, button: "right" });
+      await canvas.click({ position: emptyMapOffset(box), button: "right" });
+      await expect(page.getByTestId("map-add-menu")).toBeVisible();
       await page.getByTestId("map-add-menu-wh").click();
       const originalCode = (await page.getByTestId("create-entity-display-code").textContent())!.trim();
       await page.getByTestId("create-entity-submit").click();
@@ -230,7 +244,10 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       await firstMarker.click({ button: "right" });
       await page.getByTestId("map-action-copy").click();
       await expect(page.getByTestId("armed-status-bar")).toBeVisible();
-      const dropPoint = { x: box.x + box.width * 0.7, y: box.y + box.height * 0.3 };
+      // Bottom-left corner: clear of both the dense marker field and the
+      // bottom-right Leaflet attribution control (same rationale as
+      // emptyMapOffset — see its comment).
+      const dropPoint = { x: box.x + box.width * 0.06, y: box.y + box.height * 0.92 };
       await page.mouse.click(dropPoint.x, dropPoint.y);
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
       const lat = Number(await page.getByTestId("create-entity-lat").textContent());
@@ -243,7 +260,8 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       // 5) Move Escape snaps back: arm Move on an added entity, then cancel
       // via Escape before dropping — no dialog opens, marker count/position
       // unaffected.
-      await canvas.click({ position: { x: box.width / 2, y: box.height / 2 }, button: "right" });
+      await canvas.click({ position: emptyMapOffset(box), button: "right" });
+      await expect(page.getByTestId("map-add-menu")).toBeVisible();
       await page.getByTestId("map-add-menu-wh").click();
       await page.getByTestId("create-entity-submit").click();
       await page.getByTestId("button-save").click();
