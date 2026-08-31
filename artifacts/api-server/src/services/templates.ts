@@ -44,8 +44,11 @@ interface AddedCustomer { id: string; displayCode?: string; city: string; state:
 // (validation/inputs/transportLp.ts). Mirrors AddedWarehouse/AddedCustomer
 // above, minus the `status` field mines have none of (same reasoning
 // MineOverride/StationOverride above already document).
-interface AddedMine { id: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; }
-interface AddedStation { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
+// T11 (Step A) — `displayCode` mirrors pMedian.ts's own optional field on
+// addedWarehouseSchema/addedCustomerSchema, now that MinesTab.tsx/
+// StationsTab.tsx mint it client-side too (same identity model migration).
+interface AddedMine { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; }
+interface AddedStation { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; demand: number; }
 
 // T11 (multi-model expansion) — twoEchelon.ts's addedRefinerySchema shape.
 // Mirrors AddedWarehouse minus the `capacity` field (refineries have no
@@ -101,9 +104,14 @@ export interface CustomerTemplateRow {
 // capacity/demand differs from the pristine no-override default (null for
 // mines — there is no base capacity in the dataset to compare against, only
 // override-or-not; the base demand value for stations, same as customers).
+// T11 (Step A) — gained displayCode, catching up to import.ts's new
+// COLUMNS.mines/stations shape (mines/stations joined the uid+displayCode
+// add-mode set — MinesTab.tsx/StationsTab.tsx now mint it client-side, same
+// convention WarehouseTemplateRow's header comment already documents).
 export interface MineTemplateRow {
   templateVersion: number;
   id: string;
+  displayCode: string | null;
   city: string;
   state: string;
   lat: number;
@@ -115,6 +123,7 @@ export interface MineTemplateRow {
 export interface StationTemplateRow {
   templateVersion: number;
   id: string;
+  displayCode: string | null;
   city: string;
   state: string;
   lat: number;
@@ -249,6 +258,7 @@ export function applyMineOverrides(overrides: MineOverride[], addedMines: AddedM
     return {
       templateVersion: TEMPLATE_VERSION,
       id: w.id,
+      displayCode: null, // base entities have no displayCode concept
       city: w.city,
       state: w.state,
       lat: w.lat,
@@ -260,6 +270,7 @@ export function applyMineOverrides(overrides: MineOverride[], addedMines: AddedM
   const addedRows: MineTemplateRow[] = addedMines.map(m => ({
     templateVersion: TEMPLATE_VERSION,
     id: m.id,
+    displayCode: m.displayCode ?? null,
     city: m.city,
     state: m.state,
     lat: m.lat,
@@ -284,6 +295,7 @@ export function applyStationOverrides(overrides: StationOverride[], addedStation
     return {
       templateVersion: TEMPLATE_VERSION,
       id: c.id,
+      displayCode: null, // base entities have no displayCode concept
       city: c.city,
       state: c.state,
       lat: c.lat,
@@ -295,6 +307,7 @@ export function applyStationOverrides(overrides: StationOverride[], addedStation
   const addedRows: StationTemplateRow[] = addedStations.map(s => ({
     templateVersion: TEMPLATE_VERSION,
     id: s.id,
+    displayCode: s.displayCode ?? null,
     city: s.city,
     state: s.state,
     lat: s.lat,
@@ -413,21 +426,24 @@ export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
   return [header, ...lines].join("\n") + "\n";
 }
 
-// Task 30 (B6.1 stage 4) — header catches up to import.ts's new
-// COLUMNS.mines shape (template_version,id,city,state,lat,lng,capacity) —
-// `overridden` stays JSON-only, same as warehouses/customers.
+// Task 30 (B6.1 stage 4) — header catches up to import.ts's own
+// COLUMNS.mines shape. T11 (Step A) — gained `display_code` (right after
+// `id`, mines/stations joined the uid+displayCode add-mode set — same
+// blank-cell-when-null convention as warehouseRowsToCsv/customerRowsToCsv/
+// refineryRowsToCsv above). `overridden` stays JSON-only, same as
+// warehouses/customers.
 export function mineRowsToCsv(rows: MineTemplateRow[]): string {
-  const header = "template_version,id,city,state,lat,lng,capacity";
+  const header = "template_version,id,display_code,city,state,lat,lng,capacity";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? ""].join(","),
+    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? ""].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
 
 export function stationRowsToCsv(rows: StationTemplateRow[]): string {
-  const header = "template_version,id,city,state,lat,lng,demand";
+  const header = "template_version,id,display_code,city,state,lat,lng,demand";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.lat, r.lng, r.demand].join(","),
+    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.demand].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }

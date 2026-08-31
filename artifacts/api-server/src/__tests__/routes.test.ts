@@ -761,7 +761,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,capacity");
     expect(lines.length).toBe(5); // header + 4 mines
     // KY's override must surface on its row.
     expect(lines.some((l) => l.startsWith("1,KY,"))).toBe(true);
@@ -786,7 +786,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,demand");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,demand");
     expect(lines.length).toBe(16); // header + 15 stations
     // CHI's override must surface on its row.
     expect(lines.some((l) => l.startsWith("1,CHI,"))).toBe(true);
@@ -1182,7 +1182,7 @@ describe("POST /api/scenarios/:id/import", () => {
   // Transport-coal mine/station import preview (Task 7).
   it("previews a transport-coal mine import with one change and no mutation", async () => {
     const cookie = await loginAs(OWNER);
-    const mineCsv = "template_version,id,city,state,lat,lng,capacity\n1,KY,Pikeville,KY,,,1000000\n";
+    const mineCsv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,KY,,Pikeville,KY,,,1000000\n";
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "mines", csvText: mineCsv });
     expect(res.status).toBe(200);
@@ -1194,7 +1194,7 @@ describe("POST /api/scenarios/:id/import", () => {
 
   it("previews a transport-coal station import with one change", async () => {
     const cookie = await loginAs(OWNER);
-    const stationCsv = "template_version,id,city,state,lat,lng,demand\n1,CHI,Chicago,IL,,,12000000\n";
+    const stationCsv = "template_version,id,display_code,city,state,lat,lng,demand\n1,CHI,,Chicago,IL,,,12000000\n";
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "stations", csvText: stationCsv });
     expect(res.status).toBe(200);
@@ -1377,7 +1377,7 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   // mineCapacities sparse dict, mirroring the warehouses array apply above.
   it("all_or_nothing mode: applies a clean transport-coal mine import into mineCapacities", async () => {
     const cookie = await loginAs(OWNER);
-    const mineCsv = "template_version,id,city,state,lat,lng,capacity\n1,KY,Pikeville,KY,,,1000000\n";
+    const mineCsv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,KY,,Pikeville,KY,,,1000000\n";
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const updatedRow = { ...transportRow, inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } } };
     mockDb.update.mockReturnValue(makeChain([updatedRow]));

@@ -379,20 +379,29 @@ describe("applyStationOverrides", () => {
 });
 
 describe("mineRowsToCsv / stationRowsToCsv", () => {
-  it("mine CSV header includes lat/lng, no overridden column", () => {
+  it("mine CSV header includes display_code + lat/lng, no overridden column", () => {
     const rows = applyMineOverrides([{ id: "KY", capacity: 1000000 }]).slice(0, 1);
     const csv = mineRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},KY,Pikeville,KY,37.54,-82.75,1000000`);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,capacity");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},KY,,Pikeville,KY,37.54,-82.75,1000000`);
   });
 
-  it("station CSV header includes lat/lng, no overridden column", () => {
+  it("station CSV header includes display_code + lat/lng, no overridden column", () => {
     const rows = applyStationOverrides([]).filter(r => r.id === "CHI");
     const csv = stationRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,demand");
-    expect(lines[1].startsWith(`${TEMPLATE_VERSION},CHI,`)).toBe(true);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,demand");
+    expect(lines[1].startsWith(`${TEMPLATE_VERSION},CHI,,`)).toBe(true);
+  });
+
+  it("an added mine's displayCode is emitted in the display_code cell", () => {
+    const rows = applyMineOverrides([], [
+      { id: "am-1", displayCode: "MN-VA-BRISTOL-01", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 },
+    ]);
+    const csv = mineRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[lines.length - 1]).toBe(`${TEMPLATE_VERSION},am-1,MN-VA-BRISTOL-01,Bristol,VA,36.6,-82.19,5000000`);
   });
 });
 

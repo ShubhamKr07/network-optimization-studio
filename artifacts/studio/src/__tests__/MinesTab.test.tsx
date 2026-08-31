@@ -117,6 +117,10 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
     expect(screen.getByTestId("added-mines-empty")).toBeInTheDocument();
   });
 
+  // T11 (Step A) — `id` is now a hidden T3 stable uid (`am-<uuid>`), never
+  // user-typed; `displayCode` is the human-facing label, auto-filled from
+  // City/State via T2's gazetteer, mirroring WarehousesTab.tsx's own T9
+  // migration exactly.
   it("filling the add-row form (with a capacity) and confirming calls onAddedMinesChange with the new entity appended, matching addedMineSchema's shape", async () => {
     const onAddedMinesChange = vi.fn();
     render(
@@ -124,17 +128,24 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-mine-row"));
-    await userEvent.type(screen.getByTestId("input-new-mine-id"), "MNEW");
-    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Bristol");
-    await userEvent.type(screen.getByTestId("input-new-mine-state"), "VA");
-    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "36.6");
-    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-82.19");
+    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-mine-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-104.99");
     await userEvent.type(screen.getByTestId("input-new-mine-capacity"), "5000000");
     await userEvent.click(screen.getByTestId("button-add-mine-confirm"));
 
-    expect(onAddedMinesChange).toHaveBeenCalledWith([
-      { id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 },
-    ]);
+    expect(onAddedMinesChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedMinesChange.mock.calls[0][0];
+    expect(added).toMatchObject({
+      city: "Denver",
+      state: "CO",
+      lat: 39.74,
+      lng: -104.99,
+      capacity: 5000000,
+      displayCode: "MN-CO-DENVER-01",
+    });
+    expect(added.id).toMatch(/^am-/);
   });
 
   it("filling the add-row form with a BLANK capacity is accepted — blank means unconstrained, not an error", async () => {
@@ -144,32 +155,36 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-mine-row"));
-    await userEvent.type(screen.getByTestId("input-new-mine-id"), "MNEW");
-    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Bristol");
-    await userEvent.type(screen.getByTestId("input-new-mine-state"), "VA");
-    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "36.6");
-    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-82.19");
+    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-mine-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-104.99");
     // Capacity left blank on purpose.
     await userEvent.click(screen.getByTestId("button-add-mine-confirm"));
 
-    expect(onAddedMinesChange).toHaveBeenCalledWith([
-      { id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null },
-    ]);
+    expect(onAddedMinesChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedMinesChange.mock.calls[0][0];
+    expect(added).toMatchObject({ city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null });
+    expect(added.id).toMatch(/^am-/);
     expect(screen.queryByTestId("text-add-mine-error")).not.toBeInTheDocument();
   });
 
-  it("rejects an add-row whose id collides with an existing base mine, without calling onAddedMinesChange", async () => {
+  // T11 (Step A) — displayCode is now the user-facing, collision-checked
+  // field (the old "ID" input's role), since `id` is a hidden uid that
+  // can't meaningfully collide. Mirrors WarehousesTab's own T9 test exactly.
+  it("rejects an add-row whose displayCode collides with an existing added mine's, without calling onAddedMinesChange", async () => {
     const onAddedMinesChange = vi.fn();
+    const existing = [{ id: "am-existing", city: "Somewhere", state: "TX", lat: 1, lng: 2, capacity: null, displayCode: "DUPE" }];
     render(
-      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={[]} onAddedMinesChange={onAddedMinesChange} onDeleteMine={vi.fn()} />,
+      <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} addedMines={existing} onAddedMinesChange={onAddedMinesChange} onDeleteMine={vi.fn()} />,
     );
 
     await userEvent.click(screen.getByTestId("button-add-mine-row"));
-    await userEvent.type(screen.getByTestId("input-new-mine-id"), "M1");
-    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Bristol");
-    await userEvent.type(screen.getByTestId("input-new-mine-state"), "VA");
-    await userEvent.type(screen.getByTestId("input-new-mine-lat"), "36.6");
-    await userEvent.type(screen.getByTestId("input-new-mine-lng"), "-82.19");
+    await userEvent.type(screen.getByTestId("input-new-mine-city"), "Chicago");
+    await userEvent.type(screen.getByTestId("input-new-mine-state"), "IL");
+    fireEvent.blur(screen.getByTestId("input-new-mine-state"));
+    await userEvent.clear(screen.getByTestId("input-new-mine-display-code"));
+    await userEvent.type(screen.getByTestId("input-new-mine-display-code"), "DUPE");
     await userEvent.click(screen.getByTestId("button-add-mine-confirm"));
 
     expect(onAddedMinesChange).not.toHaveBeenCalled();

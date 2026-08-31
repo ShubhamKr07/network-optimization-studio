@@ -740,11 +740,12 @@ function mergeChangesIntoOverrides(
 // no status field either (mines have no status concept at all, matching
 // templates.ts's own MineOverride) — c.after.status is simply never read for
 // it, mirroring how addedCustomers never reads it today.
-// T11 — warehouses/customers/refineries also carry `c.displayCode` now
-// (services/import.ts's uid identity model — see its own header comment),
-// matching pMedian.ts's addedWarehouseSchema/addedCustomerSchema and
-// twoEchelon.ts's addedRefinerySchema/addedCustomerSchema's optional
-// `displayCode` field.
+// T11 — warehouses/customers/refineries/mines/stations all carry
+// `c.displayCode` now (services/import.ts's uid identity model — see its
+// own header comment), matching pMedian.ts's addedWarehouseSchema/
+// addedCustomerSchema, twoEchelon.ts's addedRefinerySchema/
+// addedCustomerSchema, and transportLp.ts's addedMineSchema/
+// addedStationSchema's optional `displayCode` field (Step A).
 function mergeAddChangesIntoAdded(
   entity: "warehouses" | "customers" | "mines" | "stations" | "refineries",
   currentAdded: Array<Record<string, unknown>>,
@@ -760,25 +761,23 @@ function mergeAddChangesIntoAdded(
       : entity === "refineries"
       ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, status: c.after.status }
       : entity === "mines"
-      ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
-      // stations — same demand-only shape, no displayCode (out of T11's
-      // scope, see import.ts's ENTITY_HAS_DISPLAY_CODE).
-      : { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
+      // stations — same demand-only shape as mines, displayCode included.
+      : { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
   ));
   return [...currentAdded, ...newEntities];
 }
 
 // T11 — merges CSV update_added changes (services/import.ts's
 // `changeType: "update_added"`, an id matching an already-added entity's
-// stable uid) directly into addedWarehouses/addedCustomers/addedRefineries,
-// replacing that entity's capacity/status (or demand) in place. Deliberately
-// never touches city/state/lat/lng/displayCode — see import.ts's own comment
-// on isUpdateAdded for the full reasoning (moving/renaming an added entity
-// stays the map's Move/Edit dialogs' job). Warehouses/customers/refineries
-// only — no other entity has an addedX array reachable via a CSV update in
-// this task.
+// stable uid) directly into addedWarehouses/addedCustomers/addedRefineries/
+// addedMines/addedStations, replacing that entity's capacity/status (or
+// demand) in place. Deliberately never touches city/state/lat/lng/
+// displayCode — see import.ts's own comment on isUpdateAdded for the full
+// reasoning (moving/renaming an added entity stays the map's Move/Edit
+// dialogs' job).
 function mergeUpdateAddedChanges(
-  entity: "warehouses" | "customers" | "refineries",
+  entity: "warehouses" | "customers" | "refineries" | "mines" | "stations",
   currentAdded: Array<Record<string, unknown>>,
   updateAddedChanges: ImportRowChange[],
 ): Array<Record<string, unknown>> {
@@ -788,8 +787,12 @@ function mergeUpdateAddedChanges(
     if (!change) return row;
     return entity === "warehouses"
       ? { ...row, capacity: change.after.value, status: change.after.status }
-      : entity === "customers"
+      : entity === "customers" || entity === "stations"
       ? { ...row, demand: change.after.value }
+      // Mines — capacity only, no status field at all (matches
+      // mergeAddChangesIntoAdded above).
+      : entity === "mines"
+      ? { ...row, capacity: change.after.value }
       // Refineries — status only, mirroring mergeAddChangesIntoAdded above.
       : { ...row, status: change.after.status };
   });
@@ -970,9 +973,16 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     // mineCapacities/stationDemands sparse dict; ordinary UPDATE changes keep
     // going through the pre-existing dict merge. Same split
     // warehouses/customers already do below, generalized to the dict-backed
-    // pair.
-    const updateChanges = preview.changes.filter(c => c.changeType !== "add");
+    // pair. T11 (Step A) — a third group, update_added (an id matching an
+    // already-added mine/station's uid), also writes into
+    // addedMines/addedStations — by replacing that entity's own record in
+    // place (mergeUpdateAddedChanges), never through the mineCapacities/
+    // stationDemands dict (which is base-id-keyed only; an added entity's
+    // own record is authoritative for its fields, matching templates.ts's
+    // applyMineOverrides/applyStationOverrides).
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add" && c.changeType !== "update_added");
     const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const updateAddedChanges = preview.changes.filter(c => c.changeType === "update_added");
 
     const overrideKey = entity === "mines" ? "mineCapacities" : "stationDemands";
     const currentDict = inputs[overrideKey] ?? {};
@@ -980,7 +990,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
     const addedKey = entity === "mines" ? "addedMines" : "addedStations";
     const currentAdded = (inputs[addedKey] ?? []) as Array<Record<string, unknown>>;
-    const nextAdded = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const addedAfterAppend = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const nextAdded = mergeUpdateAddedChanges(entity, addedAfterAppend, updateAddedChanges);
 
     nextInputs = { ...inputs, [overrideKey]: nextDict, [addedKey]: nextAdded };
 

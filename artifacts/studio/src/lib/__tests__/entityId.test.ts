@@ -32,6 +32,15 @@ describe("nextDisplayCode", () => {
     expect(nextDisplayCode("cs", "OK", "Tulsa", [])).not.toBe("CS-OK-TULSA-04");
     expect(nextDisplayCode("cs", "OK", "Tulsa", [])).toBe("CS-OK-TULSA-01");
   });
+
+  // T11 (Step A) — mines/stations join the same identity model.
+  it("uses the MN prefix for mines", () => {
+    expect(nextDisplayCode("mn", "KY", "Pikeville", [])).toBe("MN-KY-PIKEVILLE-01");
+  });
+
+  it("uses the ST prefix for stations", () => {
+    expect(nextDisplayCode("st", "IL", "Chicago", [])).toBe("ST-IL-CHICAGO-01");
+  });
 });
 
 describe("newUid", () => {
@@ -45,5 +54,15 @@ describe("newUid", () => {
 
   it("returns ac-prefixed strings for customers", () => {
     expect(newUid("cs").startsWith("ac-")).toBe(true);
+  });
+
+  // T11 (Step A) — mines/stations join the same identity model, prefixes
+  // matching the backend's mintAddedEntityUid convention exactly.
+  it("returns am-prefixed strings for mines", () => {
+    expect(newUid("mn").startsWith("am-")).toBe(true);
+  });
+
+  it("returns as-prefixed strings for stations", () => {
+    expect(newUid("st").startsWith("as-")).toBe(true);
   });
 });

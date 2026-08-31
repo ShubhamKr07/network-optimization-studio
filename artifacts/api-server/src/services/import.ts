@@ -105,14 +105,17 @@ const ENTITY_SINGULAR_LABEL: Record<SingleIdEntity, string> = {
 };
 
 // T11 — mints a stable opaque uid for a brand-new added warehouse/customer/
-// refinery, server-side, matching the frontend's own `newUid` (studio/src/
-// lib/entityId.ts) prefix convention exactly (`aw-`/`ac-`) so ids minted by
-// either side of the app are indistinguishable. Refineries reuse the "aw-"
-// prefix, not a separate one: `WarehousesTab.tsx` is reused as-is for
-// entity="refineries" (B6.2) and calls `newUid("wh")` unconditionally —
-// there is no distinct refinery uid kind on the frontend to mirror.
-function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries"): string {
-  const prefix = entity === "customers" ? "ac" : "aw";
+// refinery/mine/station, server-side, matching the frontend's own `newUid`
+// (studio/src/lib/entityId.ts) prefix convention exactly (`aw-`/`ac-`/
+// `am-`/`as-`) so ids minted by either side of the app are indistinguishable.
+// Refineries reuse the "aw-" prefix, not a separate one: `WarehousesTab.tsx`
+// is reused as-is for entity="refineries" (B6.2) and calls `newUid("wh")`
+// unconditionally — there is no distinct refinery uid kind on the frontend
+// to mirror. Mines/stations (Step A) DO get their own distinct kinds —
+// `MinesTab.tsx`/`StationsTab.tsx` were migrated to `newUid("mn"/"st")` as
+// part of this same pass, unlike refineries' pre-existing reuse.
+function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries" | "mines" | "stations"): string {
+  const prefix = entity === "customers" ? "ac" : entity === "mines" ? "am" : entity === "stations" ? "as" : "aw";
   return `${prefix}-${randomUUID()}`;
 }
 
@@ -129,28 +132,30 @@ function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries"): 
 // station, which the pre-Task-30 5-column format had no room for.
 // refineries stays untouched — add-mode remains out of scope for it (no
 // analogous "add a refinery" concept was requested).
-// T11 (Input Map v2) — warehouses/customers/refineries gain a
-// `display_code` column right after `id`, another breaking format change,
-// following the same precedent as B4.2/Task 30 above: T3 switched
-// added-entity `id` to an opaque server-minted uid (`aw-<uuid>`/
-// `ac-<uuid>`), so a CSV can no longer use the `id` cell as a human-typed
+// T11 (Input Map v2) — every entity below now gains a `display_code`
+// column right after `id`, another breaking format change, following the
+// same precedent as B4.2/Task 30 above: T3 switched added-entity `id` to
+// an opaque server-minted uid (`aw-<uuid>`/`ac-<uuid>`/`am-<uuid>`/
+// `as-<uuid>`), so a CSV can no longer use the `id` cell as a human-typed
 // label the way it used to — displayCode takes over that role (see
-// addedWarehouseSchema/addedCustomerSchema in pMedian.ts, and
-// addedRefinerySchema/addedCustomerSchema in twoEchelon.ts). `id` stays the
+// addedWarehouseSchema/addedCustomerSchema in pMedian.ts,
+// addedRefinerySchema/addedCustomerSchema in twoEchelon.ts, and
+// addedMineSchema/addedStationSchema in transportLp.ts). `id` stays the
 // stable join key: a non-blank `id` cell matches an existing base or added
 // entity for UPDATE; a blank `id` cell (this task's ADD trigger, replacing
 // the old "unrecognized non-blank id" trigger) mints a fresh uid
-// server-side — see `usesUidIdentityModel` below. Refineries also gain lat/
-// lng (they had none at all before — add-mode never existed for them until
-// now, see `canAdd` below). mines/stations are still unaffected — held for
-// a separate decision (see routes/scenarios.ts's own commit history), out
-// of this pass's scope: no displayCode concept exists for them yet, they
-// keep the pre-T11 "unrecognized non-blank id = add" model unchanged.
+// server-side — see `usesUidIdentityModel` below. Refineries gained lat/lng
+// too (they had none at all before — add-mode never existed for them until
+// T11's two-echelon pass). Step A (this pass) — mines/stations join last:
+// the frontend (MinesTab.tsx/StationsTab.tsx) was migrated to
+// newUid/nextDisplayCode first, so this CSV change now matches what those
+// forms already produce, closing the frontend/backend identity-model fork
+// that existed while Step A was still pending.
 const COLUMNS: Record<SingleIdEntity, string[]> = {
   warehouses: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity", "status"],
   customers: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand", "status"],
-  mines: ["template_version", "id", "city", "state", "lat", "lng", "capacity"],
-  stations: ["template_version", "id", "city", "state", "lat", "lng", "demand"],
+  mines: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity"],
+  stations: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand"],
   // Refineries have status but no value column at all (two-echelon-gold-au
   // has no per-refinery capacity concept) — the only entity with a status
   // column and no value column.
@@ -171,14 +176,18 @@ const ENTITY_HAS_LATLNG: Record<SingleIdEntity, boolean> = {
 };
 
 // T11 — which entities carry the display_code column (see COLUMNS' comment
-// above): warehouses/customers/refineries. Used both to compute the
+// above): now every entity in this table. Used both to compute the
 // city/state/lat/lng/value/status column offsets below and to select which
-// identity model a row uses (`usesUidIdentityModel`).
+// identity model a row uses (`usesUidIdentityModel`) — with every entity
+// now `true`, the pre-T11 "unrecognized non-blank id = add" model
+// (`usesUidIdentityModel === false` below) is unreachable in practice, kept
+// in place only as documented history / a safety net for a hypothetical
+// future entity that has add-mode but no displayCode concept.
 const ENTITY_HAS_DISPLAY_CODE: Record<SingleIdEntity, boolean> = {
   warehouses: true,
   customers: true,
-  mines: false,
-  stations: false,
+  mines: true,
+  stations: true,
   refineries: true,
 };
 
@@ -229,6 +238,11 @@ interface AddedCustomerRef { id: string; displayCode?: string; demand?: number; 
 // T11 — two-echelon-gold-au's added-refinery ref, joining the two above.
 // No capacity field (twoEchelon.ts's addedRefinerySchema has none).
 interface AddedRefineryRef { id: string; displayCode?: string; status?: "active" | "forced_open" | "inactive"; }
+// T11 (Step A) — transport-coal's added-mine/station refs. No status field
+// on either (mines/stations have no open/close concept at all, matching
+// MineOverride/StationOverride above).
+interface AddedMineRef { id: string; displayCode?: string; capacity?: number | null; }
+interface AddedStationRef { id: string; displayCode?: string; demand?: number; }
 
 export interface ImportCurrentOverrides {
   warehouseOverrides?: WarehouseOverride[];
@@ -250,10 +264,13 @@ export interface ImportCurrentOverrides {
   // Task 30 (B6.1 stage 4) — transport-coal's analogues of the above,
   // needed for mines/stations add-mode's id-space/collision check (via
   // buildTransportIdSpaces) and laneCosts' reference-integrity check, same
-  // role addedWarehouses/addedCustomers play for the p-median-us pair.
+  // role addedWarehouses/addedCustomers play for the p-median-us pair. T11
+  // (Step A) — upgraded from AddedEntityRef to AddedMineRef/AddedStationRef
+  // (displayCode + capacity/demand), same reason addedWarehouses/
+  // addedCustomers/addedRefineries were upgraded above.
   laneCostOverrides?: LaneCostOverride[];
-  addedMines?: AddedEntityRef[];
-  addedStations?: AddedEntityRef[];
+  addedMines?: AddedMineRef[];
+  addedStations?: AddedStationRef[];
   // B6.2 stage 4 — two-echelon-gold-au's own added-entity id space, needed
   // for legDistances' reference-integrity check (via precheck.ts's
   // buildTwoEchelonIdSpaces). `distanceOverrides`/`addedCustomers` above are
@@ -402,11 +419,11 @@ export function parseAndValidateImport(
   const valueColIdx = 4 + latLngOffset + displayCodeOffset;
   const statusColIdx = entityHasValue ? 5 + latLngOffset + displayCodeOffset : 4 + latLngOffset + displayCodeOffset;
 
-  // B4.2 — add-mode for warehouses/customers/refineries. "customers" is
-  // shared with two-echelon-gold-au, which now has its own real
-  // `addedCustomers` field (twoEchelon.ts, B6.2+T11) — add-mode is enabled
-  // for both models' customers, matching what their schemas actually
-  // support.
+  // B4.2 — add-mode for warehouses/customers/refineries/mines/stations.
+  // "customers" is shared with two-echelon-gold-au, which now has its own
+  // real `addedCustomers` field (twoEchelon.ts, B6.2+T11) — add-mode is
+  // enabled for both models' customers, matching what their schemas
+  // actually support.
   // Task 30 (B6.1 stage 4) — mines/stations join the add-mode set
   // (transportLp.ts's addedMineSchema/addedStationSchema both exist and are
   // transport-coal's only model, so no cross-model ambiguity to guard
@@ -418,34 +435,36 @@ export function parseAndValidateImport(
   const canAdd = entity === "warehouses"
     || (entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au"))
     || entity === "mines" || entity === "stations" || entity === "refineries";
-  // T11 — whether this row uses the new uid+displayCode identity model
-  // (warehouses/customers/refineries: a blank `id` cell means "add a new
-  // one", the server mints a fresh opaque uid, and an already-added entity
-  // can be matched by uid for a real UPDATE) vs. the pre-T11 model
-  // mines/stations keep unchanged (an unrecognized non-blank `id` cell
-  // means "add a new one", using the typed string as the literal id — held
-  // for a separate decision, mines/stations have no displayCode concept at
-  // all yet).
+  // T11 — whether this row uses the uid+displayCode identity model (a blank
+  // `id` cell means "add a new one", the server mints a fresh opaque uid,
+  // and an already-added entity can be matched by uid for a real UPDATE).
+  // Step A brought mines/stations onto this model too (their frontend forms
+  // — MinesTab.tsx/StationsTab.tsx — were migrated to newUid/
+  // nextDisplayCode in the same pass), so every entity in ENTITY_HAS_
+  // DISPLAY_CODE is now `true` here — see that table's own comment on the
+  // pre-T11 model this replaced.
   const usesUidIdentityModel = entityHasDisplayCode;
   // Base dataset ids ∪ this scenario's already-added entity ids — the same
   // id-space precheck.ts's own reference-integrity check and B4.1's
   // distances parsing use. Only still consulted by the OLD identity model
-  // below (mines/stations) — warehouses/customers/refineries replaced this
-  // "duplicate add" collision check with a displayCode-keyed one
+  // below, which no entity reaches anymore (see usesUidIdentityModel's own
+  // comment) — warehouses/customers/refineries/mines/stations all replaced
+  // this "duplicate add" collision check with a displayCode-keyed one
   // (existingDisplayCodes below), since a human can no longer author a
   // colliding uid at all.
   const idSpace = canAdd && !usesUidIdentityModel
     ? (entity === "mines" ? buildTransportIdSpaces(currentOverrides).mineIdSpace
       : buildTransportIdSpaces(currentOverrides).stationIdSpace)
     : new Set<string>();
-  // T11 — added-entity lookup by real uid (warehouses/customers/refineries
-  // only), so a CSV row whose id matches an already-added entity is
-  // recognized as an UPDATE instead of the old "unrecognized id, reject as
-  // duplicate" model.
-  const addedById: Map<string, AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef> =
+  // T11 — added-entity lookup by real uid, so a CSV row whose id matches an
+  // already-added entity is recognized as an UPDATE instead of the old
+  // "unrecognized id, reject as duplicate" model.
+  const addedById: Map<string, AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef> =
     entity === "warehouses" ? new Map((currentOverrides.addedWarehouses ?? []).map(a => [a.id, a] as const))
     : entity === "customers" ? new Map((currentOverrides.addedCustomers ?? []).map(a => [a.id, a] as const))
     : entity === "refineries" ? new Map((currentOverrides.addedRefineries ?? []).map(a => [a.id, a] as const))
+    : entity === "mines" ? new Map((currentOverrides.addedMines ?? []).map(a => [a.id, a] as const))
+    : entity === "stations" ? new Map((currentOverrides.addedStations ?? []).map(a => [a.id, a] as const))
     : new Map();
   // T11 — existing added-entity displayCodes, for the ADD-row collision
   // check (displayCode-keyed now, not uid-keyed — mirrors WarehousesTab/
@@ -480,7 +499,7 @@ export function parseAndValidateImport(
     let isAdd = false;
     let isUpdateAdded = false;
     let baselineRow: (typeof baseline)[number] | undefined;
-    let addedRow: AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | undefined;
+    let addedRow: AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef | undefined;
 
     if (usesUidIdentityModel) {
       // T11 — uid+displayCode identity model (warehouses/customers only).
@@ -612,9 +631,9 @@ export function parseAndValidateImport(
     // capacity stays nullable/optional — a blank capacity on an added mine
     // is a deliberate, valid "unconstrained" state (matches solve.py's
     // get_base_capacity None-means-unconstrained convention), so mines is
-    // NOT added here. T11 — isUpdateAdded is only ever true for customers
-    // (usesUidIdentityModel is false for stations), kept symmetric with the
-    // isAdd check rather than special-cased.
+    // NOT added here. T11 (Step A) — isUpdateAdded can now be true for
+    // stations too (usesUidIdentityModel is true for it), so this check
+    // correctly guards both isAdd and isUpdateAdded rows.
     if ((isAdd || isUpdateAdded) && (entity === "customers" || entity === "stations") && value === null) {
       errors.push({ errorClass: "logic", line, message: `demand is required for a new/added ${ENTITY_SINGULAR_LABEL[entity]}${displayCodeCell ? ` ("${displayCodeCell}")` : ""}` });
       continue;
@@ -654,7 +673,7 @@ export function parseAndValidateImport(
         // always blank (that's the ADD trigger); mint the real stable id
         // here rather than deferring to the apply route, so the preview
         // already reflects the id that will actually be persisted.
-        id: usesUidIdentityModel ? mintAddedEntityUid(entity as "warehouses" | "customers" | "refineries") : id,
+        id: usesUidIdentityModel ? mintAddedEntityUid(entity as "warehouses" | "customers" | "refineries" | "mines" | "stations") : id,
         line,
         before: { status: "not_present", value: null },
         after: { status, value },
@@ -686,12 +705,16 @@ export function parseAndValidateImport(
         ? ((addedRow as AddedWarehouseRef).capacity ?? null)
         : entity === "customers"
         ? ((addedRow as AddedCustomerRef).demand ?? null)
+        : entity === "mines"
+        ? ((addedRow as AddedMineRef).capacity ?? null)
+        : entity === "stations"
+        ? ((addedRow as AddedStationRef).demand ?? null)
         : null; // refineries — no value/capacity concept at all
       const beforeStatus = entity === "warehouses"
         ? ((addedRow as AddedWarehouseRef).status ?? "active")
         : entity === "refineries"
         ? ((addedRow as AddedRefineryRef).status ?? "active")
-        : "active"; // customers — addedCustomerSchema has no status field
+        : "active"; // customers/mines/stations — none of these added-entity schemas has a status field
 
       if (beforeStatus !== status || beforeValue !== value) {
         changes.push({

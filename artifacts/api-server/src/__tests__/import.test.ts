@@ -381,13 +381,19 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
 // optional on an add-row (blank capacity means unconstrained — see
 // solve.py's get_base_capacity), while stations require demand exactly like
 // customers do.
+// T11 (Step A) — mines/stations moved onto the uid+displayCode identity
+// model (MinesTab.tsx/StationsTab.tsx were migrated to newUid/
+// nextDisplayCode in the same pass): blank id is the ADD trigger (replacing
+// "unrecognized non-blank id"), a minted `am-`/`as-` uid is the persisted
+// id, and displayCode (not uid) is what's collision-checked.
 describe("parseAndValidateImport — add-mode (mines/stations)", () => {
-  it("mines: an unrecognized id with valid full data (including capacity) produces an ADD-classified change", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
+  it("mines: a blank id with valid full data (including capacity) produces an ADD-classified change with a minted uid", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
     const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([]);
-    expect(result.changes).toEqual([{
-      id: "MN-NEW",
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^am-/),
       line: 2,
       before: { status: "not_present", value: null },
       after: { status: "active", value: 5000000 },
@@ -396,15 +402,17 @@ describe("parseAndValidateImport — add-mode (mines/stations)", () => {
       state: "VA",
       lat: 36.6,
       lng: -82.19,
-    }]);
+      displayCode: "MN-NEW",
+    });
   });
 
-  it("mines: an unrecognized id with a BLANK capacity still produces an ADD-classified change — blank capacity means unconstrained, not an error", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,36.6,-82.19,\n";
+  it("mines: a blank id with a BLANK capacity still produces an ADD-classified change — blank capacity means unconstrained, not an error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,,MN-NEW,Bristol,VA,36.6,-82.19,\n";
     const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([]);
-    expect(result.changes).toEqual([{
-      id: "MN-NEW",
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^am-/),
       line: 2,
       before: { status: "not_present", value: null },
       after: { status: "active", value: null },
@@ -413,27 +421,28 @@ describe("parseAndValidateImport — add-mode (mines/stations)", () => {
       state: "VA",
       lat: 36.6,
       lng: -82.19,
-    }]);
+      displayCode: "MN-NEW",
+    });
   });
 
-  it("mines: missing lat/lng on an unrecognized id is a clear error", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,,,5000000\n";
+  it("mines: missing lat/lng on a blank-id add row is a clear error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,,MN-NEW,Bristol,VA,,,5000000\n";
     const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
     expect(result.errors[0].message).toMatch(/lat\/lng/i);
   });
 
-  it("mines: an id that's already a previously-added mine is rejected, not silently downgraded to an update", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity\n1,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
-    const result = parseAndValidateImport("mines", csv, { addedMines: [{ id: "MN-NEW" }] }, 0);
+  it("mines: a displayCode that already belongs to a previously-added mine is rejected", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,,MN-NEW,Bristol,VA,36.6,-82.19,5000000\n";
+    const result = parseAndValidateImport("mines", csv, { addedMines: [{ id: "am-existing", displayCode: "MN-NEW" }] }, 0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("logic");
-    expect(result.errors[0].message).toMatch(/already exists/i);
+    expect(result.errors[0].message).toMatch(/already in use/i);
   });
 
   it("mines: an id colliding with a real base-dataset mine is a normal capacity UPDATE, not add-mode", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity\n1,KY,Pikeville,KY,,,1000000\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,KY,,Pikeville,KY,,,1000000\n";
     const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([]);
     expect(result.changes).toHaveLength(1);
@@ -441,12 +450,41 @@ describe("parseAndValidateImport — add-mode (mines/stations)", () => {
     expect(result.changes[0]).toMatchObject({ id: "KY", after: { value: 1000000 } });
   });
 
-  it("stations: an unrecognized id with valid full data produces an ADD-classified change", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand\n1,ST-NEW,Newtown,NC,35.5,-80.2,900000\n";
-    const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
+  it("mines: an id matching an already-added mine's uid is an update_added change, capacity only (no status concept)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,am-existing,,Bristol,VA,36.6,-82.19,7500000\n";
+    const result = parseAndValidateImport(
+      "mines",
+      csv,
+      { addedMines: [{ id: "am-existing", displayCode: "MN-NEW", capacity: 5000000 }] },
+      0,
+    );
     expect(result.errors).toEqual([]);
     expect(result.changes).toEqual([{
-      id: "ST-NEW",
+      id: "am-existing",
+      line: 2,
+      before: { status: "active", value: 5000000 },
+      after: { status: "active", value: 7500000 },
+      changeType: "update_added",
+      displayCode: "MN-NEW",
+    }]);
+  });
+
+  it("mines: a non-blank id that resolves as neither a base nor an already-added mine is a hard 'Unknown id' error, not an implicit add", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,some-typo,,Bristol,VA,36.6,-82.19,5000000\n";
+    const result = parseAndValidateImport("mines", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/unknown id/i);
+    expect(result.errors[0].message).toMatch(/leave the id column blank/i);
+  });
+
+  it("stations: a blank-id add-candidate row produces an ADD-classified change with a minted uid", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand\n1,,ST-NEW,Newtown,NC,35.5,-80.2,900000\n";
+    const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^as-/),
       line: 2,
       before: { status: "not_present", value: null },
       after: { status: "active", value: 900000 },
@@ -455,22 +493,42 @@ describe("parseAndValidateImport — add-mode (mines/stations)", () => {
       state: "NC",
       lat: 35.5,
       lng: -80.2,
-    }]);
+      displayCode: "ST-NEW",
+    });
   });
 
   it("stations: a blank demand on an add-candidate row is rejected — demand is required, unlike mine capacity", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand\n1,ST-NEW,Newtown,NC,35.5,-80.2,\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand\n1,,ST-NEW,Newtown,NC,35.5,-80.2,\n";
     const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("logic");
     expect(result.errors[0].message).toMatch(/demand is required/i);
   });
 
-  it("stations: missing city/state on an unrecognized id is a clear error", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand\n1,ST-NEW,,NC,35.5,-80.2,900000\n";
+  it("stations: missing city/state on a blank-id add row is a clear error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand\n1,,ST-NEW,,NC,35.5,-80.2,900000\n";
     const result = parseAndValidateImport("stations", csv, NO_OVERRIDES, 0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].message).toMatch(/city and state/i);
+  });
+
+  it("stations: an id matching an already-added station's uid is an update_added change, demand only", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand\n1,as-existing,,Newtown,NC,35.5,-80.2,1200000\n";
+    const result = parseAndValidateImport(
+      "stations",
+      csv,
+      { addedStations: [{ id: "as-existing", displayCode: "ST-NEW", demand: 900000 }] },
+      0,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "as-existing",
+      line: 2,
+      before: { status: "active", value: 900000 },
+      after: { status: "active", value: 1200000 },
+      changeType: "update_added",
+      displayCode: "ST-NEW",
+    }]);
   });
 });
 

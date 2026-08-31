@@ -658,7 +658,11 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     renderTransportWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-mines"));
     fireEvent.click(screen.getByTestId("button-add-mine-row"));
-    fireEvent.change(screen.getByTestId("input-new-mine-id"), { target: { value: "MNEW" } });
+    // T11 (Step A, grid-mirror) — the manual "ID" input is gone; `id` is now
+    // a hidden T3 stable uid (`am-<uuid>`) minted by handleAddRow itself,
+    // and `displayCode` (left blank here — never focused, so City/State's
+    // blur auto-fill never fires under `fireEvent.change`) is the optional
+    // human-facing label. Mirrors the equivalent warehouse test exactly.
     fireEvent.change(screen.getByTestId("input-new-mine-city"), { target: { value: "Bristol" } });
     fireEvent.change(screen.getByTestId("input-new-mine-state"), { target: { value: "VA" } });
     fireEvent.change(screen.getByTestId("input-new-mine-lat"), { target: { value: "36.6" } });
@@ -674,7 +678,16 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       scenarioId: 8,
       data: {
         inputs: expect.objectContaining({
-          addedMines: [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null }],
+          addedMines: [
+            expect.objectContaining({
+              id: expect.stringMatching(/^am-/),
+              city: "Bristol",
+              state: "VA",
+              lat: 36.6,
+              lng: -82.19,
+              capacity: null,
+            }),
+          ],
         }),
       },
     });
@@ -720,7 +733,7 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     renderTransportWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-stations"));
     fireEvent.click(screen.getByTestId("button-add-station-row"));
-    fireEvent.change(screen.getByTestId("input-new-station-id"), { target: { value: "SNEW" } });
+    // T11 (Step A, grid-mirror) — mirrors the mine test's own comment above.
     fireEvent.change(screen.getByTestId("input-new-station-city"), { target: { value: "Newtown" } });
     fireEvent.change(screen.getByTestId("input-new-station-state"), { target: { value: "NC" } });
     fireEvent.change(screen.getByTestId("input-new-station-lat"), { target: { value: "35.5" } });
@@ -736,7 +749,16 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       scenarioId: 8,
       data: {
         inputs: expect.objectContaining({
-          addedStations: [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }],
+          addedStations: [
+            expect.objectContaining({
+              id: expect.stringMatching(/^as-/),
+              city: "Newtown",
+              state: "NC",
+              lat: 35.5,
+              lng: -80.2,
+              demand: 900000,
+            }),
+          ],
         }),
       },
     });
