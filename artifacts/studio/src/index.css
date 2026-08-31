@@ -393,6 +393,22 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* T4 (Input Map v2): derived accent shades for map marker SVGs. This
+     token system has no numbered accent scale (300/600/700) anywhere, so
+     these compute off the single --accent token via the same relative-
+     color-syntax pattern used for --accent-border just above. Declared
+     once here (not repeated in .scn-theme/.dark) — CSS custom-property
+     var() references are substituted per-element at used-value time using
+     that element's own cascaded --accent, so a single declaration already
+     re-derives correctly under .scn-theme's overridden --accent. Read by
+     EntityMarkers.tsx/MapLegend.tsx's raw SVG strings. */
+  --accent-300: hsl(var(--accent));
+  --accent-300: hsl(from hsl(var(--accent)) h s calc(l + 20));
+  --accent-600: hsl(var(--accent));
+  --accent-600: hsl(from hsl(var(--accent)) h s calc(l - 6));
+  --accent-700: hsl(var(--accent));
+  --accent-700: hsl(from hsl(var(--accent)) h s calc(l - 12));
 }
 
 .dark {
