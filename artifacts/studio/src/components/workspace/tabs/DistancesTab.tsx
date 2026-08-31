@@ -11,6 +11,12 @@ export interface DistanceOverride {
   fromId: string;
   toId: string;
   distance: number;
+  /** T1 (Input Map v2) — true when this row was auto-filled by the backend's
+   * haversine normalizer (services/autoDistance.ts) rather than entered or
+   * imported by the student. Matches distanceOverrideSchema's own optional
+   * `estimated` field exactly. Purely a display flag — editing the distance
+   * (see `updateDistance`) drops it, treating the edit as a confirmation. */
+  estimated?: boolean;
 }
 
 interface DistancesTabProps {
@@ -112,8 +118,12 @@ export function DistancesTab({
     setDrafts(prev => ({ ...prev, [key]: raw }));
     const parsed = parseFloat(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) return;
+    // Editing an estimated row is a confirm action — it stops being
+    // machine-filled the moment a student vouches for a number themselves.
     onChange(
-      distanceOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, distance: parsed } : o)),
+      distanceOverrides.map(o =>
+        o.fromId === fromId && o.toId === toId ? { ...o, distance: parsed, estimated: undefined } : o,
+      ),
     );
   }
 
@@ -290,7 +300,7 @@ export function DistancesTab({
                   <TableRow
                     key={key}
                     data-testid={`row-distance-${o.fromId}-${o.toId}`}
-                    className={changed ? "bg-amber-50" : undefined}
+                    className={changed ? "bg-amber-50" : o.estimated ? "bg-sky-50" : undefined}
                   >
                     <TableCell className="font-mono text-xs">
                       <div className="flex items-center gap-1">
@@ -328,6 +338,14 @@ export function DistancesTab({
                           className="h-7 text-xs w-24"
                           data-testid={`input-distance-${o.fromId}-${o.toId}`}
                         />
+                        {o.estimated && (
+                          <span
+                            className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
+                            data-testid={`badge-distance-estimated-${o.fromId}-${o.toId}`}
+                          >
+                            Estimated
+                          </span>
+                        )}
                         {changed && (
                           <span
                             className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"

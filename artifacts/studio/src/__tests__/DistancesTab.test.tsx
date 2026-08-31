@@ -304,6 +304,60 @@ describe("DistancesTab — client-side reference validation (nice-to-have)", () 
   });
 });
 
+// T9 — estimated rows: distanceOverrideSchema (pMedian.ts) gained an
+// optional `estimated` flag (T1's autoDistance normalizer) marking a row
+// as machine-filled rather than student-entered/imported. Purely a display
+// concern here — editing the distance is a "confirm" action that drops the
+// flag, so the row becomes a normal (non-estimated) override going forward.
+describe("DistancesTab — estimated rows (T9)", () => {
+  it("shows an Estimated chip on a row flagged estimated:true", () => {
+    const estimatedOverrides = [{ fromId: "WH01", toId: "C001", distance: 120.5, estimated: true }, overrides[1], overrides[2]];
+    render(
+      <DistancesTab
+        distanceOverrides={estimatedOverrides}
+        savedDistanceOverrides={estimatedOverrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("badge-distance-estimated-WH01-C001")).toBeInTheDocument();
+    expect(screen.queryByTestId("badge-distance-estimated-WH01-C002")).not.toBeInTheDocument();
+  });
+
+  it("does not show an Estimated chip on a row with no estimated flag", () => {
+    render(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("badge-distance-estimated-WH01-C001")).not.toBeInTheDocument();
+  });
+
+  it("editing an estimated row's distance drops the estimated flag in the onChange payload (confirm-on-edit)", () => {
+    const onChange = vi.fn();
+    const estimatedOverrides = [{ fromId: "WH01", toId: "C001", distance: 120.5, estimated: true }, overrides[1], overrides[2]];
+    render(
+      <DistancesTab
+        distanceOverrides={estimatedOverrides}
+        savedDistanceOverrides={estimatedOverrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
+    const [updated] = onChange.mock.calls[0];
+    const editedRow = updated.find((o: { fromId: string; toId: string }) => o.fromId === "WH01" && o.toId === "C001");
+    expect(editedRow.distance).toBe(500);
+    expect(editedRow.estimated).toBeFalsy();
+  });
+});
+
 describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     render(

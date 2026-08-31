@@ -190,7 +190,7 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     expect(screen.getByTestId("added-warehouses-empty")).toBeInTheDocument();
   });
 
-  it("filling the add-row form and confirming calls onAddedWarehousesChange with the new entity appended, matching addedWarehouseSchema's shape", async () => {
+  it("filling the add-row form and confirming calls onAddedWarehousesChange with the new entity appended, matching addedWarehouseSchema's shape (id is now a hidden T3 uid, not user-typed)", async () => {
     const onAddedWarehousesChange = vi.fn();
     render(
       <WarehousesTab
@@ -205,19 +205,34 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-id"), "NEWWH");
     await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
     await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
     await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "39.74");
     await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "-104.99");
     await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
 
-    expect(onAddedWarehousesChange).toHaveBeenCalledWith([
-      { id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" },
-    ]);
+    // T9 — Denver/CO is a real gazetteer hit, so the blur off the State
+    // field (triggered by userEvent.type's own focus-shift to the Lat
+    // field) auto-fills a display code alongside lat/lng — the student's
+    // manually-typed lat/lng below still win (see the "grid-mirror" describe
+    // block for the dedicated auto-fill coverage). `id` is a T3 stable uid
+    // (matches CreateEntityDialog's identity model) — asserted by shape,
+    // not an exact string, since it's randomly generated.
+    expect(onAddedWarehousesChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedWarehousesChange.mock.calls[0][0];
+    expect(added).toMatchObject({
+      city: "Denver",
+      state: "CO",
+      lat: 39.74,
+      lng: -104.99,
+      capacity: null,
+      status: "active",
+      displayCode: "WH-CO-DENVER-01",
+    });
+    expect(added.id).toMatch(/^aw-/);
   });
 
-  it("rejects an add-row whose id collides with an existing base warehouse, without calling onAddedWarehousesChange", async () => {
+  it("rejects an add-row missing city or state, without calling onAddedWarehousesChange", async () => {
     const onAddedWarehousesChange = vi.fn();
     render(
       <WarehousesTab
@@ -232,9 +247,6 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-id"), "CHI");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
     await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "39.74");
     await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "-104.99");
     await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
@@ -338,6 +350,85 @@ describe("WarehousesTab — add/delete added warehouses (B5.2)", () => {
   });
 });
 
+// T9 — grid-mirror: the add-row form auto-fills lat/lng + a display code
+// from City+State (T2's gazetteer + T3's nextDisplayCode), mirroring
+// CreateEntityDialog's (T7) map-click flow — but additively, alongside the
+// existing required "ID" input (the real join key), not replacing it.
+describe("WarehousesTab — add-row grid-mirror auto-fill (T9)", () => {
+  it("blurring City+State (both non-empty, a gazetteer hit) auto-fills Lat/Lng and a display code", async () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
+    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+
+    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(39.76185);
+    expect(screen.getByTestId("input-new-warehouse-lng")).toHaveValue(-104.881105);
+    expect(screen.getByTestId("input-new-warehouse-display-code")).toHaveValue("WH-CO-DENVER-01");
+  });
+
+  it("a manual edit to the auto-filled Lat cell sticks — a later City/State blur does not re-overwrite it", async () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "CO");
+    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(39.76185);
+
+    // Manual focus+edit ungreys the cell and stops future auto-fills.
+    await userEvent.clear(screen.getByTestId("input-new-warehouse-lat"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "1.2345");
+    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(1.2345);
+
+    // Re-triggering the City/State blur (e.g. a further edit to State) must
+    // not clobber the student's manual lat value.
+    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(1.2345);
+  });
+
+  it("a gazetteer miss (unknown city/state) leaves Lat/Lng blank for manual entry, and no display code is assigned", async () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={vi.fn()}
+        onDeleteWarehouse={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Nowheresville");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "ZZ");
+    fireEvent.blur(screen.getByTestId("input-new-warehouse-state"));
+
+    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(null);
+    expect(screen.getByTestId("input-new-warehouse-lng")).toHaveValue(null);
+    expect(screen.getByTestId("input-new-warehouse-display-code")).toHaveValue("");
+  });
+});
+
 // A5.3 — two-echelon-gold-au reuses this exact component (WarehouseTable +
 // toolbar) as its Refineries tab via the `entity` prop, rather than forking a
 // new component — `dataset.warehouses` already carries the refinery
@@ -413,7 +504,6 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    await userEvent.type(screen.getByTestId("input-new-warehouse-id"), "ref-new-1");
     await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Kalgoorlie West");
     await userEvent.type(screen.getByTestId("input-new-warehouse-state"), "WA");
     await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "-30.8");
@@ -422,9 +512,22 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
     expect(screen.queryByTestId("input-new-warehouse-capacity")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
 
-    expect(onAddedWarehousesChange).toHaveBeenCalledWith([
-      { id: "ref-new-1", city: "Kalgoorlie West", state: "WA", lat: -30.8, lng: 121.3, capacity: null, status: "active" },
-    ]);
+    // T9 — "Kalgoorlie West"/WA is a gazetteer miss (US-only gazetteer, this
+    // is an Australian city) — no display code gets auto-assigned, and the
+    // student's manually-typed lat/lng are left exactly as entered. `id` is
+    // a T3 stable uid, asserted by shape rather than an exact string.
+    expect(onAddedWarehousesChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedWarehousesChange.mock.calls[0][0];
+    expect(added).toMatchObject({
+      city: "Kalgoorlie West",
+      state: "WA",
+      lat: -30.8,
+      lng: 121.3,
+      capacity: null,
+      status: "active",
+    });
+    expect(added.id).toMatch(/^aw-/);
+    expect(added.displayCode).toBeUndefined();
   });
 
   it("deleting an added refinery row calls onDeleteWarehouse with its id", async () => {
