@@ -732,6 +732,10 @@ function mergeChangesIntoOverrides(
 // no status field either (mines have no status concept at all, matching
 // templates.ts's own MineOverride) — c.after.status is simply never read for
 // it, mirroring how addedCustomers never reads it today.
+// T11 — warehouses/customers also carry `c.displayCode` now (services/
+// import.ts's uid identity model — see its own header comment), matching
+// pMedian.ts's addedWarehouseSchema/addedCustomerSchema's optional
+// `displayCode` field.
 function mergeAddChangesIntoAdded(
   entity: "warehouses" | "customers" | "mines" | "stations",
   currentAdded: Array<Record<string, unknown>>,
@@ -739,13 +743,39 @@ function mergeAddChangesIntoAdded(
 ): Array<Record<string, unknown>> {
   const newEntities = addChanges.map(c => (
     entity === "warehouses"
-      ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
+      : entity === "customers"
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
       : entity === "mines"
       ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
-      // customers | stations — same demand-only shape.
+      // stations — same demand-only shape, no displayCode (out of T11's
+      // scope, see import.ts's ENTITY_HAS_DISPLAY_CODE).
       : { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
   ));
   return [...currentAdded, ...newEntities];
+}
+
+// T11 — merges CSV update_added changes (services/import.ts's
+// `changeType: "update_added"`, an id matching an already-added entity's
+// stable uid) directly into addedWarehouses/addedCustomers, replacing that
+// entity's capacity/status (or demand) in place. Deliberately never touches
+// city/state/lat/lng/displayCode — see import.ts's own comment on
+// isUpdateAdded for the full reasoning (moving/renaming an added entity
+// stays the map's Move/Edit dialogs' job). Warehouses/customers only — no
+// other entity has an addedX array reachable via a CSV update in this task.
+function mergeUpdateAddedChanges(
+  entity: "warehouses" | "customers",
+  currentAdded: Array<Record<string, unknown>>,
+  updateAddedChanges: ImportRowChange[],
+): Array<Record<string, unknown>> {
+  const changeById = new Map(updateAddedChanges.map(c => [c.id, c]));
+  return currentAdded.map(row => {
+    const change = changeById.get(row.id as string);
+    if (!change) return row;
+    return entity === "warehouses"
+      ? { ...row, capacity: change.after.value, status: change.after.status }
+      : { ...row, demand: change.after.value };
+  });
 }
 
 // Transport-coal's mines/stations persist overrides as sparse dicts
@@ -956,13 +986,19 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     nextInputs = { ...inputs, laneCostOverrides: nextLaneCostOverrides };
   } else if (entity === "warehouses" || entity === "customers") {
     // B4.2 — ADD-classified changes (services/import.ts's changeType:"add",
-    // unrecognized id + valid new-entity data) write into
-    // addedWarehouses/addedCustomers instead of warehouseOverrides/
-    // customerOverrides; ordinary UPDATE changes keep going through the
-    // pre-existing override merge. Two different write targets from one
-    // `preview.changes` array, split by changeType.
-    const updateChanges = preview.changes.filter(c => c.changeType !== "add");
+    // blank id + valid new-entity data — T11 changed the trigger from
+    // "unrecognized non-blank id") write into addedWarehouses/
+    // addedCustomers instead of warehouseOverrides/customerOverrides;
+    // ordinary UPDATE changes keep going through the pre-existing override
+    // merge. T11 adds a third group — update_added changes (an id matching
+    // an already-added entity's stable uid) — which also write into
+    // addedWarehouses/addedCustomers, but by replacing that entity's own
+    // record in place (mergeUpdateAddedChanges), never through
+    // warehouseOverrides/customerOverrides. Three different write targets
+    // from one `preview.changes` array, split by changeType.
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add" && c.changeType !== "update_added");
     const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const updateAddedChanges = preview.changes.filter(c => c.changeType === "update_added");
 
     const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
     const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
@@ -970,7 +1006,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
     const addedKey = entity === "warehouses" ? "addedWarehouses" : "addedCustomers";
     const currentAdded = (inputs[addedKey] ?? []) as Array<Record<string, unknown>>;
-    const nextAdded = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const addedAfterAppend = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const nextAdded = mergeUpdateAddedChanges(entity, addedAfterAppend, updateAddedChanges);
 
     nextInputs = { ...inputs, [overrideKey]: nextOverrides, [addedKey]: nextAdded };
 

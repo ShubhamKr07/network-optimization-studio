@@ -74,36 +74,37 @@ describe("parseAndValidateImport — golden fixtures (warehouses)", () => {
 });
 
 describe("parseAndValidateImport — business rules", () => {
-  // B4.2 — an unrecognized id no longer errors on its own (see the
-  // "add-mode" describe block below); this now pins the case where an
-  // unrecognized id is ALSO missing the coordinates add-mode requires.
-  it("rejects an unrecognized warehouse id missing lat/lng as a logic error", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity,status\n1,ZZZ,Nowhere,XX,,,,active\n";
+  // T11 — a blank id (not an unrecognized non-blank id, see the "add-mode"
+  // describe block below for why this changed) is the ADD trigger now; this
+  // still pins the case where an ADD row is ALSO missing the coordinates
+  // add-mode requires.
+  it("rejects a blank-id add row missing lat/lng as a logic error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,ZZZ,Nowhere,XX,,,,active\n";
     const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/lat\/lng/i) }]);
   });
 
   it("customers: rejects a negative demand as a logic error", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,C1,Akron,OH,,,-5,active\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,Akron,OH,,,-5,active\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/non-negative/i) }]);
   });
 
   it("customers: rejects an invalid status as a logic error", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,C1,Akron,OH,,,1000,bogus\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,Akron,OH,,,1000,bogus\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/invalid status/i) }]);
   });
 
   it("produces no change when the imported row matches the current baseline exactly", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity,status\n1,ALN,Allentown,PA,,,,active\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ALN,,Allentown,PA,,,,active\n";
     const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([]);
     expect(result.changes).toEqual([]);
   });
 
   it("diffs against existing overrides, not just the raw baseline", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity,status\n1,ALN,Allentown,PA,,,,inactive\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ALN,,Allentown,PA,,,,inactive\n";
     // ALN is already forced_open via an existing override — importing "inactive" is a real change.
     const result = parseAndValidateImport(
       "warehouses",
@@ -116,7 +117,7 @@ describe("parseAndValidateImport — business rules", () => {
   });
 
   it("warns (non-blocking) when total capacity of the p highest-capacity warehouses is below total demand", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity,status\n1,ALN,Allentown,PA,,,10,active\n1,ATL,Atlanta,GA,,,10,active\n1,BAL,Baltimore,MD,,,10,active\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ALN,,Allentown,PA,,,10,active\n1,ATL,,Atlanta,GA,,,10,active\n1,BAL,,Baltimore,MD,,,10,active\n";
     const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([]);
     expect(result.warnings.length).toBeGreaterThan(0);
@@ -124,18 +125,27 @@ describe("parseAndValidateImport — business rules", () => {
   });
 });
 
-// B4.2 — add-mode: an unrecognized id for warehouses/customers is no longer
+// B4.2 — add-mode: a blank id for warehouses/customers is no longer
 // automatically an error. It becomes an ADD-classified change (writes into
 // scenario.inputs.addedWarehouses/addedCustomers on apply, not
 // warehouseOverrides/customerOverrides) as long as it carries the extra
 // data a brand-new entity needs (lat/lng, city/state) that an UPDATE row
 // doesn't have to.
+// T11 — the ADD trigger changed from "unrecognized non-blank id" to "blank
+// id": added-entity ids are opaque server-minted uids now (aw-<uuid>/
+// ac-<uuid>), so a human can no longer author one at all — the server mints
+// a fresh one on every ADD row, and `id` on the resulting change is that
+// minted uid, not the CSV's own typed value (which now belongs in the
+// display_code column instead). A non-blank id that doesn't resolve as
+// either a base or an already-added entity is now a hard "Unknown id"
+// error, not an implicit add.
 describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
-  it("add-rows.csv: an unrecognized id with valid full data produces an ADD-classified change, not an error", () => {
+  it("add-rows.csv: a blank id with valid full data produces an ADD-classified change with a minted uid, not an error", () => {
     const result = parseAndValidateImport("warehouses", fixture("add-rows.csv"), NO_OVERRIDES, 3);
     expect(result.errors).toEqual([]);
-    expect(result.changes).toEqual([{
-      id: "WH-NEW1",
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^aw-/),
       line: 2,
       before: { status: "not_present", value: null },
       after: { status: "active", value: 50000 },
@@ -144,10 +154,11 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
       state: "NC",
       lat: 35.5,
       lng: -80.2,
-    }]);
+      displayCode: "WH-NEW1",
+    });
   });
 
-  it("add-missing-required-field.csv: missing lat/lng on an unrecognized id is a clear error, not a silent skip", () => {
+  it("add-missing-required-field.csv: missing lat/lng on a blank-id add row is a clear error, not a silent skip", () => {
     const result = parseAndValidateImport("warehouses", fixture("add-missing-required-field.csv"), NO_OVERRIDES, 3);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({ errorClass: "logic", line: 2 });
@@ -155,21 +166,41 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
     expect(result.changes).toEqual([]);
   });
 
-  it("add-with-collision.csv: an id that's already a previously-added warehouse is rejected, not silently downgraded to an update", () => {
+  it("add-with-collision.csv: a displayCode that already belongs to a previously-added warehouse is rejected", () => {
     const result = parseAndValidateImport(
       "warehouses",
-      fixture("add-with-collision.csv"),
-      { addedWarehouses: [{ id: "WH-NEW1" }] },
+      fixture("add-with-collision.csv"), // blank id, display_code "WH-NEW1"
+      { addedWarehouses: [{ id: "aw-existing", displayCode: "WH-NEW1" }] },
       3,
     );
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("logic");
-    expect(result.errors[0].message).toMatch(/already exists/i);
+    expect(result.errors[0].message).toMatch(/already in use/i);
     expect(result.changes).toEqual([]);
   });
 
+  it("a blank displayCode never collides, even against an existing added warehouse with no displayCode", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,,Newtown,NC,35.5,-80.2,50000,active\n";
+    const result = parseAndValidateImport("warehouses", csv, { addedWarehouses: [{ id: "aw-existing" }] }, 3);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0].changeType).toBe("add");
+    expect(result.changes[0].displayCode).toBeUndefined();
+  });
+
+  it("two blank-displayCode add rows in the same file are never flagged as duplicates of each other", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n"
+      + "1,,,Newtown,NC,35.5,-80.2,50000,active\n"
+      + "1,,,Oldtown,SC,36.1,-81.3,60000,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 3);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(2);
+    // Every minted uid is unique.
+    expect(new Set(result.changes.map(c => c.id)).size).toBe(2);
+  });
+
   it("an id that collides with an existing base-dataset warehouse is just a normal update, not add-mode", () => {
-    const csv = "template_version,id,city,state,lat,lng,capacity,status\n1,ALN,Allentown,PA,,,500000,forced_open\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ALN,,Allentown,PA,,,500000,forced_open\n";
     const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([]);
     expect(result.changes).toHaveLength(1);
@@ -177,12 +208,54 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
     expect(result.changes[0]).toMatchObject({ id: "ALN", after: { status: "forced_open", value: 500000 } });
   });
 
-  it("customers: a valid add-candidate row produces an ADD-classified change", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
-    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
+  it("a non-blank id that resolves as neither a base nor an already-added warehouse is a hard 'Unknown id' error, not an implicit add", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,some-typo,,Newtown,NC,35.5,-80.2,50000,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 3);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/unknown id/i);
+    expect(result.errors[0].message).toMatch(/leave the id column blank/i);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("an id matching an already-added warehouse's uid is an update_added change, diffed against its own current capacity/status", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,aw-existing,,Newtown,NC,35.5,-80.2,75000,forced_open\n";
+    const result = parseAndValidateImport(
+      "warehouses",
+      csv,
+      { addedWarehouses: [{ id: "aw-existing", displayCode: "WH-NC-NEWTOWN-01", capacity: 50000, status: "active" }] },
+      3,
+    );
     expect(result.errors).toEqual([]);
     expect(result.changes).toEqual([{
-      id: "C-NEW1",
+      id: "aw-existing",
+      line: 2,
+      before: { status: "active", value: 50000 },
+      after: { status: "forced_open", value: 75000 },
+      changeType: "update_added",
+      displayCode: "WH-NC-NEWTOWN-01",
+    }]);
+  });
+
+  it("an update_added row that matches the added entity's current capacity/status exactly produces no change", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,aw-existing,,Newtown,NC,35.5,-80.2,50000,active\n";
+    const result = parseAndValidateImport(
+      "warehouses",
+      csv,
+      { addedWarehouses: [{ id: "aw-existing", capacity: 50000, status: "active" }] },
+      3,
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("customers: a blank-id add-candidate row produces an ADD-classified change with a minted uid", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CS-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^ac-/),
       line: 2,
       before: { status: "not_present", value: null },
       after: { status: "active", value: 1200 },
@@ -191,11 +264,12 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
       state: "NC",
       lat: 35.5,
       lng: -80.2,
-    }]);
+      displayCode: "CS-NEW1",
+    });
   });
 
   it("customers: a blank demand on an add-candidate row is rejected (addedCustomerSchema requires demand, unlike an override)", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,,active\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CS-NEW1,Newtown,NC,35.5,-80.2,,active\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("logic");
@@ -203,20 +277,33 @@ describe("parseAndValidateImport — add-mode (warehouses/customers)", () => {
   });
 
   it("customers: an add-candidate row with status=excluded is rejected (v1 has no add-and-exclude)", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,1200,excluded\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CS-NEW1,Newtown,NC,35.5,-80.2,1200,excluded\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].errorClass).toBe("logic");
     expect(result.errors[0].message).toMatch(/add-and-exclude/i);
   });
 
-  it("customers: add-mode is p-median-us only — an unrecognized customer id for two-echelon-gold-au is still a plain 'unknown id' error", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
+  it("customers: an update_added row with a non-active status is rejected, same as an add row", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,ac-existing,,Newtown,NC,35.5,-80.2,1200,excluded\n";
+    const result = parseAndValidateImport(
+      "customers",
+      csv,
+      { addedCustomers: [{ id: "ac-existing", demand: 900 }] },
+      3,
+    );
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/add-and-exclude/i);
+  });
+
+  it("customers: add-mode is p-median-us only — a blank id for two-echelon-gold-au is still a plain 'unknown id' error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CS-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-gold-au");
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
   });
 
-  it("refineries are still out of scope — an unrecognized id is a plain 'unknown id' error, not add-mode", () => {
+  it("refineries are still out of scope — an unrecognized id is a plain 'unknown id' error, not add-mode (no display_code column, unaffected by T11)", () => {
     const csv = "template_version,id,city,state,status\n1,ZZ-NEW,Nowhere,XX,active\n";
     const result = parseAndValidateImport("refineries", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/unknown id/i) }]);
@@ -458,25 +545,26 @@ describe("parseAndValidateImport — refineries (no value column, status only)",
 
 describe("parseAndValidateImport — 'customers' entity disambiguated by modelId", () => {
   it("modelId two-echelon-gold-au validates against the 10-row gold dataset, not p-median's 200", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,,,1,active\n";
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,sydney,,Sydney,NSW,,,1,active\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-gold-au");
     expect(result.errors).toEqual([]);
     expect(result.changes).toEqual([{ id: "sydney", line: 2, before: { status: "active", value: 500000 }, after: { status: "active", value: 1 } }]);
   });
 
-  // B4.2 — defaults to p-median-us's dataset when modelId is omitted, so
-  // "sydney" (unknown to the 200-row p-median dataset) now hits add-mode
-  // instead of a plain error; with valid coordinates supplied it's
-  // classified as an ADD, which itself proves the dataset resolved to
-  // p-median-us and not the gold dataset (where "sydney" is a real id and
-  // this same row would have produced a value-500000 UPDATE instead, per
-  // the test above).
-  it("defaults to p-median-us's dataset when modelId is omitted — a gold customer id is genuinely unknown there, so it's an ADD candidate", () => {
-    const csv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,35.5,-80.2,1,active\n";
+  // T11 — defaults to p-median-us's dataset when modelId is omitted, so a
+  // blank-id row (unknown to the 200-row p-median dataset by construction —
+  // blank never matches anything) now hits add-mode instead of a plain
+  // error; with valid coordinates supplied it's classified as an ADD, which
+  // itself proves the dataset resolved to p-median-us and not the gold
+  // dataset (where "sydney" is a real id and a non-blank "sydney" row would
+  // have produced a value-500000 UPDATE instead, per the test above).
+  it("defaults to p-median-us's dataset when modelId is omitted — add-mode is reachable there (unlike two-echelon-gold-au, where it's disabled)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,sydney,Sydney,NSW,35.5,-80.2,1,active\n";
     const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 3);
     expect(result.errors).toEqual([]);
-    expect(result.changes).toEqual([{
-      id: "sydney",
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^ac-/),
       line: 2,
       before: { status: "not_present", value: null },
       after: { status: "active", value: 1 },
@@ -485,7 +573,8 @@ describe("parseAndValidateImport — 'customers' entity disambiguated by modelId
       state: "NSW",
       lat: 35.5,
       lng: -80.2,
-    }]);
+      displayCode: "sydney",
+    });
   });
 });
 

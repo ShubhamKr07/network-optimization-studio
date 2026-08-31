@@ -1,2 +1,2 @@
-template_version,id,city,state,lat,lng,capacity,status
-1,ALN,Allen�town,PA,,,,active
+template_version,id,display_code,city,state,lat,lng,capacity,status
+1,ALN,,Allen�town,PA,,,,active

@@ -1,6 +1,6 @@
-template_version,id,city,state,lat,lng,capacity,status
-1,ALN,Allentown,PA,,,,active
-1,ATL,Atlanta,GA,,,-500,forced_open
-1,BAL,Baltimore,MD,,,100000,bogus_status
-1,BOS,Boston,MA,,,100000
-1,CHI,Chicago,IL,,,200000,active
+template_version,id,display_code,city,state,lat,lng,capacity,status
+1,ALN,,Allentown,PA,,,,active
+1,ATL,,Atlanta,GA,,,-500,forced_open
+1,BAL,,Baltimore,MD,,,100000,bogus_status
+1,BOS,,Boston,MA,,,100000
+1,CHI,,Chicago,IL,,,200000,active

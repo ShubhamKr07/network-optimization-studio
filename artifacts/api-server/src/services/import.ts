@@ -1,4 +1,5 @@
 import Papa from "papaparse";
+import { randomUUID } from "node:crypto";
 import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces } from "./precheck.js";
@@ -25,21 +26,34 @@ export interface ImportRowChange {
   fromId?: string;
   toId?: string;
   // B4.2 — add-mode for warehouses/customers. `changeType` distinguishes an
-  // ADD (unrecognized id + valid new-entity data — writes into
+  // ADD (blank id + valid new-entity data, T11 — writes into
   // scenario.inputs.addedWarehouses/addedCustomers on apply) from the
   // default "update" (writes into warehouseOverrides/customerOverrides, the
-  // pre-existing behavior). `before` for an ADD row is always
-  // `{status: "not_present", value: null}` — there is nothing to diff
-  // against, the id didn't exist a moment ago. `city`/`state`/`lat`/`lng`
-  // carry the extra structured data an ADD needs that has no home in
+  // pre-existing behavior) and T11's "update_added" (an id that matches an
+  // already-added entity's stable uid — writes into
+  // addedWarehouses/addedCustomers directly, never warehouseOverrides/
+  // customerOverrides, since an added entity's own record is authoritative
+  // for its fields, not the sparse override arrays — see templates.ts's
+  // applyWarehouseOverrides/applyCustomerOverrides). `before` for an ADD row
+  // is always `{status: "not_present", value: null}` — there is nothing to
+  // diff against, the id didn't exist a moment ago. `city`/`state`/`lat`/
+  // `lng` carry the extra structured data an ADD needs that has no home in
   // before/after's shape; kept as flat optional fields (same additive
   // pattern as fromId/toId above) rather than a new sibling type — see the
   // B4.2 report for the full justification.
-  changeType?: "update" | "add";
+  changeType?: "update" | "add" | "update_added";
   city?: string;
   state?: string;
   lat?: number;
   lng?: number;
+  // T11 — the added entity's human-facing label (warehouses/customers
+  // only). Populated on ADD rows (from the CSV's own display_code cell,
+  // when non-blank) and on update_added rows (from the already-added
+  // entity's own stored displayCode) so callers can prefer a readable label
+  // over the raw opaque uid in `.id` when surfacing this change to a
+  // student — undefined is a legitimate value (displayCode itself is
+  // optional; see addedWarehouseSchema/addedCustomerSchema).
+  displayCode?: string;
 }
 
 export interface ImportPreview {
@@ -90,6 +104,15 @@ const ENTITY_SINGULAR_LABEL: Record<SingleIdEntity, string> = {
   refineries: "refinery",
 };
 
+// T11 — mints a stable opaque uid for a brand-new added warehouse/customer,
+// server-side, matching the frontend's own `newUid` (studio/src/lib/
+// entityId.ts) prefix convention exactly (`aw-`/`ac-`) so ids minted by
+// either side of the app are indistinguishable.
+function mintAddedEntityUid(entity: "warehouses" | "customers"): string {
+  const prefix = entity === "warehouses" ? "aw" : "ac";
+  return `${prefix}-${randomUUID()}`;
+}
+
 // B4.2 — warehouses/customers gain lat/lng columns (positioned after state,
 // before the value column), a binding column-format decision this task made:
 // B1.1's addedWarehouses/addedCustomers Zod schema requires real coordinates
@@ -103,9 +126,28 @@ const ENTITY_SINGULAR_LABEL: Record<SingleIdEntity, string> = {
 // station, which the pre-Task-30 5-column format had no room for.
 // refineries stays untouched — add-mode remains out of scope for it (no
 // analogous "add a refinery" concept was requested).
+// T11 (Input Map v2) — warehouses/customers gain a `display_code` column
+// right after `id`, another breaking format change, following the same
+// precedent as B4.2/Task 30 above: T3 switched added-entity `id` to an
+// opaque server-minted uid (`aw-<uuid>`/`ac-<uuid>`), so a CSV can no longer
+// use the `id` cell as a human-typed label the way it used to — displayCode
+// takes over that role (see addedWarehouseSchema/addedCustomerSchema's
+// `displayCode` field, pMedian.ts). `id` stays the stable join key: a
+// non-blank `id` cell matches an existing base or added entity for UPDATE; a
+// blank `id` cell (this task's new ADD trigger, replacing the old
+// "unrecognized non-blank id" trigger) mints a fresh uid server-side — see
+// `usesUidIdentityModel` below. mines/stations/refineries are unaffected —
+// out of this task's scope (no displayCode concept exists for them at all;
+// they keep the pre-T11 "unrecognized non-blank id = add" model unchanged).
+// This also affects two-echelon-gold-au's "customers" entity, which shares
+// this same COLUMNS.customers layout (a base-override-only entity there,
+// see ENTITY_HAS_DISPLAY_CODE below) — its display_code cell is simply
+// always blank, since twoEchelonInputsSchema has no addedCustomers/
+// displayCode concept and its own add-mode stays disabled (`canAdd` below
+// is already gated to `modelId === "p-median-us"` for customers).
 const COLUMNS: Record<SingleIdEntity, string[]> = {
-  warehouses: ["template_version", "id", "city", "state", "lat", "lng", "capacity", "status"],
-  customers: ["template_version", "id", "city", "state", "lat", "lng", "demand", "status"],
+  warehouses: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity", "status"],
+  customers: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand", "status"],
   mines: ["template_version", "id", "city", "state", "lat", "lng", "capacity"],
   stations: ["template_version", "id", "city", "state", "lat", "lng", "demand"],
   // Refineries have status but no value column at all (two-echelon-gold-au
@@ -124,6 +166,20 @@ const ENTITY_HAS_LATLNG: Record<SingleIdEntity, boolean> = {
   customers: true,
   mines: true,
   stations: true,
+  refineries: false,
+};
+
+// T11 — which entities carry the display_code column (see COLUMNS' comment
+// above): warehouses/customers only, regardless of modelId (two-echelon's
+// "customers" entity shares the column layout even though it never
+// populates it — see the comment above). Used both to compute the
+// city/state/lat/lng/value/status column offsets below and to select which
+// identity model a row uses (`usesUidIdentityModel`).
+const ENTITY_HAS_DISPLAY_CODE: Record<SingleIdEntity, boolean> = {
+  warehouses: true,
+  customers: true,
+  mines: false,
+  stations: false,
   refineries: false,
 };
 
@@ -161,6 +217,16 @@ interface DistanceOverride { fromId: string; toId: string; distance: number; }
 // laneCostOverrideSchema), mirroring DistanceOverride's role above.
 interface LaneCostOverride { fromId: string; toId: string; cost: number; }
 interface AddedEntityRef { id: string; }
+// T11 — richer added-entity refs for warehouses/customers, needed to
+// support CSV update-of-added-entity matching (diff a row against the
+// added entity's own current capacity/status/demand — see
+// templates.ts's AddedWarehouse/AddedCustomer, which these mirror) and
+// displayCode-based collision checks/messages. Both are structurally
+// compatible with precheck.ts's `PrecheckDatasetEntity` ({id: string}), so
+// passing them through buildPMedianIdSpaces/buildActivePMedianIds still
+// works unchanged.
+interface AddedWarehouseRef { id: string; displayCode?: string; capacity?: number | null; status?: "active" | "forced_open" | "inactive"; }
+interface AddedCustomerRef { id: string; displayCode?: string; demand?: number; }
 
 export interface ImportCurrentOverrides {
   warehouseOverrides?: WarehouseOverride[];
@@ -174,8 +240,11 @@ export interface ImportCurrentOverrides {
   // distances is p-median-us only for this phase, so these are the only
   // entity family that reads them.
   distanceOverrides?: DistanceOverride[];
-  addedWarehouses?: AddedEntityRef[];
-  addedCustomers?: AddedEntityRef[];
+  // T11 — upgraded from AddedEntityRef ({id: string}) to carry displayCode +
+  // current capacity/status/demand, needed for CSV update-of-added matching
+  // (see AddedWarehouseRef/AddedCustomerRef's own comment above).
+  addedWarehouses?: AddedWarehouseRef[];
+  addedCustomers?: AddedCustomerRef[];
   // Task 30 (B6.1 stage 4) — transport-coal's analogues of the above,
   // needed for mines/stations add-mode's id-space/collision check (via
   // buildTransportIdSpaces) and laneCosts' reference-integrity check, same
@@ -289,11 +358,10 @@ export function parseAndValidateImport(
   // stationDemands); convert to the array shape the apply* functions take,
   // same direction Studio's tables do internally. Deliberately built from
   // ONLY the base dataset (via the apply* functions' first param), never
-  // including addedMines/addedStations — same "baseline excludes added
-  // entities" rule warehouses/customers already establish just below (see
-  // the id_collision branch's own comment): a CSV row whose id matches a
-  // previously-added mine/station is rejected as a collision, not silently
-  // treated as an update to it.
+  // including addedMines/addedStations — mines/stations keep the pre-T11
+  // "a CSV row whose id matches a previously-added mine/station is rejected
+  // as a collision" behavior unchanged (see the old-identity-model branch
+  // below); only warehouses/customers gain real update-of-added support.
   const baseline =
     entity === "warehouses" ? applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
     : entity === "customers" ? (
@@ -311,14 +379,24 @@ export function parseAndValidateImport(
   const entityHasValue = ENTITY_HAS_VALUE[entity];
   const validStatuses = VALID_STATUSES[entity];
   const valueLabel = entity === "warehouses" || entity === "mines" ? "capacity" : "demand";
-  // Value/status column positions shift by 2 for warehouses/customers (the
-  // lat,lng columns inserted between state and value/status). Value (when
-  // present) sits right after lat/lng; status (when present) follows the
-  // value column, or takes its slot if there's no value column (refineries).
+  // Column positions, computed from two independent offsets: lat/lng
+  // (warehouses/customers/mines/stations) and, as of T11, display_code
+  // (warehouses/customers only — see COLUMNS' header comment). city/state
+  // always sit right after id(+display_code); lat/lng (when present) follow
+  // state; value (when present) follows lat/lng; status (when present)
+  // follows value, or takes its slot if there's no value column
+  // (refineries).
   const entityHasLatLng = ENTITY_HAS_LATLNG[entity];
+  const entityHasDisplayCode = ENTITY_HAS_DISPLAY_CODE[entity];
+  const displayCodeOffset = entityHasDisplayCode ? 1 : 0;
+  const displayCodeColIdx = 2; // only meaningful when entityHasDisplayCode
+  const cityColIdx = 2 + displayCodeOffset;
+  const stateColIdx = 3 + displayCodeOffset;
+  const latColIdx = 4 + displayCodeOffset; // only meaningful when entityHasLatLng
+  const lngColIdx = 5 + displayCodeOffset; // only meaningful when entityHasLatLng
   const latLngOffset = entityHasLatLng ? 2 : 0;
-  const valueColIdx = 4 + latLngOffset;
-  const statusColIdx = entityHasValue ? 5 + latLngOffset : 4 + latLngOffset;
+  const valueColIdx = 4 + latLngOffset + displayCodeOffset;
+  const statusColIdx = entityHasValue ? 5 + latLngOffset + displayCodeOffset : 4 + latLngOffset + displayCodeOffset;
 
   // B4.2 — add-mode for warehouses/customers. "customers" is shared with
   // two-echelon-gold-au, whose schema (twoEchelonInputsSchema) has no
@@ -332,17 +410,40 @@ export function parseAndValidateImport(
   // against the way customers needs). refineries stays out of scope — no
   // addedRefineries field exists anywhere.
   const canAdd = entity === "warehouses" || (entity === "customers" && modelId === "p-median-us") || entity === "mines" || entity === "stations";
+  // T11 — whether this row uses the new uid+displayCode identity model
+  // (warehouses/customers: a blank `id` cell means "add a new one", the
+  // server mints a fresh opaque uid, and an already-added entity can be
+  // matched by uid for a real UPDATE) vs. the pre-T11 model mines/stations
+  // keep unchanged (an unrecognized non-blank `id` cell means "add a new
+  // one", using the typed string as the literal id — out of this task's
+  // scope, mines/stations have no displayCode concept at all).
+  const usesUidIdentityModel = entityHasDisplayCode;
   // Base dataset ids ∪ this scenario's already-added entity ids — the same
   // id-space precheck.ts's own reference-integrity check and B4.1's
-  // distances parsing use. Doubles here as the "unknown against base" check
-  // (the ADD/UPDATE branch point) and the "already added, this would be a
-  // duplicate add" collision check.
-  const idSpace = canAdd
-    ? (entity === "warehouses" ? buildPMedianIdSpaces(currentOverrides).warehouseIdSpace
-      : entity === "customers" ? buildPMedianIdSpaces(currentOverrides).customerIdSpace
-      : entity === "mines" ? buildTransportIdSpaces(currentOverrides).mineIdSpace
+  // distances parsing use. Only still consulted by the OLD identity model
+  // below (mines/stations) — warehouses/customers replaced this "duplicate
+  // add" collision check with a displayCode-keyed one (existingDisplayCodes
+  // below), since a human can no longer author a colliding uid at all.
+  const idSpace = canAdd && !usesUidIdentityModel
+    ? (entity === "mines" ? buildTransportIdSpaces(currentOverrides).mineIdSpace
       : buildTransportIdSpaces(currentOverrides).stationIdSpace)
     : new Set<string>();
+  // T11 — added-entity lookup by real uid (warehouses/customers only), so a
+  // CSV row whose id matches an already-added entity is recognized as an
+  // UPDATE instead of the old "unrecognized id, reject as duplicate" model.
+  const addedById: Map<string, AddedWarehouseRef | AddedCustomerRef> =
+    entity === "warehouses" ? new Map((currentOverrides.addedWarehouses ?? []).map(a => [a.id, a] as const))
+    : entity === "customers" ? new Map((currentOverrides.addedCustomers ?? []).map(a => [a.id, a] as const))
+    : new Map();
+  // T11 — existing added-entity displayCodes, for the ADD-row collision
+  // check (displayCode-keyed now, not uid-keyed — mirrors WarehousesTab/
+  // CustomersTab's own T9 collision rule exactly: `if (displayCode &&
+  // addedWarehouses.some(w => w.displayCode === displayCode))`). A blank
+  // displayCode never collides.
+  const existingDisplayCodes = new Set(
+    [...addedById.values()].map(a => a.displayCode).filter((c): c is string => !!c),
+  );
+  const seenDisplayCodesInFile = new Set<string>();
 
   const seenIds = new Set<string>();
   const dataRows = rows.slice(1);
@@ -357,67 +458,118 @@ export function parseAndValidateImport(
     }
 
     const [tvStr, id] = cols;
+    const displayCodeCell = entityHasDisplayCode ? (cols[displayCodeColIdx] ?? "").trim() : "";
 
     if (Number(tvStr) !== TEMPLATE_VERSION) {
       errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
       continue;
     }
 
-    if (!id) {
-      errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
-      continue;
-    }
-
-    const baselineRow = baselineById.get(id);
     let isAdd = false;
-    if (!baselineRow) {
-      if (!canAdd) {
-        errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
-        continue;
-      }
-      // Recommended-and-implemented collision decision (see B4.2 report):
-      // an "add" row whose id already exists as a previously-added entity is
-      // rejected outright, not silently downgraded to an update — a silent
-      // fallback could surprise a student who believed they were adding
-      // something genuinely new. (A collision against the BASE dataset
-      // can't reach this branch at all — such an id always resolves via
-      // baselineById above and is handled as a plain update instead.)
-      if (idSpace.has(id)) {
+    let isUpdateAdded = false;
+    let baselineRow: (typeof baseline)[number] | undefined;
+    let addedRow: AddedWarehouseRef | AddedCustomerRef | undefined;
+
+    if (usesUidIdentityModel) {
+      // T11 — uid+displayCode identity model (warehouses/customers only).
+      const idIsBlank = !id || id.trim() === "";
+      if (idIsBlank) {
+        if (!canAdd) {
+          errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
+          continue;
+        }
+        isAdd = true;
+      } else if (baselineById.has(id)) {
+        baselineRow = baselineById.get(id);
+      } else if (addedById.has(id)) {
+        isUpdateAdded = true;
+        addedRow = addedById.get(id);
+      } else {
         errors.push({
           errorClass: "logic",
           line,
-          message: `Id "${id}" already exists as a previously-added ${ENTITY_SINGULAR_LABEL[entity]} in this scenario — cannot add a duplicate`,
+          message: `Unknown id "${id}" — ids are opaque and minted by the server; leave the id column blank to add a new ${ENTITY_SINGULAR_LABEL[entity]}`,
         });
         continue;
       }
-      isAdd = true;
+    } else {
+      // Pre-T11 identity model (mines/stations, refineries, and any entity
+      // with no add-mode at all) — unchanged.
+      if (!id) {
+        errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
+        continue;
+      }
+      baselineRow = baselineById.get(id);
+      if (!baselineRow) {
+        if (!canAdd) {
+          errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
+          continue;
+        }
+        // Recommended-and-implemented collision decision (see B4.2 report):
+        // an "add" row whose id already exists as a previously-added entity
+        // is rejected outright, not silently downgraded to an update — a
+        // silent fallback could surprise a student who believed they were
+        // adding something genuinely new.
+        if (idSpace.has(id)) {
+          errors.push({
+            errorClass: "logic",
+            line,
+            message: `Id "${id}" already exists as a previously-added ${ENTITY_SINGULAR_LABEL[entity]} in this scenario — cannot add a duplicate`,
+          });
+          continue;
+        }
+        isAdd = true;
+      }
     }
 
-    if (seenIds.has(id)) {
-      errors.push({ errorClass: "logic", line, message: `Duplicate id "${id}"` });
-      continue;
+    // In-file duplicate detection, by id. ADD rows under the uid identity
+    // model are never duplicates of each other by id (every one gets a
+    // fresh minted uid on apply) — their uniqueness is checked by
+    // displayCode instead, just below.
+    if (!(isAdd && usesUidIdentityModel)) {
+      if (seenIds.has(id)) {
+        errors.push({ errorClass: "logic", line, message: `Duplicate id "${id}"` });
+        continue;
+      }
+      seenIds.add(id);
     }
-    seenIds.add(id);
 
-    // ADD rows need real coordinates — an existing base-dataset entity's
-    // coordinates are already fixed by the dataset, so lat/lng may be
-    // blank/ignored on UPDATE rows (this task's binding column-format
-    // decision), but a row claiming a brand-new id has nothing to fall
-    // back to. Checked before value/status so a row that's simultaneously
-    // missing coordinates AND has some other issue reports the
-    // coordinates problem first (the more fundamental one for an add).
+    // T11 — displayCode collision check for ADD rows under the uid identity
+    // model, replacing the old uid-collision check above (idSpace) — a
+    // human can no longer author a colliding uid at all, since uids are
+    // always minted server-side now.
+    if (isAdd && usesUidIdentityModel && displayCodeCell) {
+      if (existingDisplayCodes.has(displayCodeCell) || seenDisplayCodesInFile.has(displayCodeCell)) {
+        errors.push({
+          errorClass: "logic",
+          line,
+          message: `Display code "${displayCodeCell}" is already in use by another ${ENTITY_SINGULAR_LABEL[entity]} in this scenario`,
+        });
+        continue;
+      }
+      seenDisplayCodesInFile.add(displayCodeCell);
+    }
+
+    // ADD rows need real coordinates — an existing base-dataset or
+    // already-added entity's coordinates are already fixed, so lat/lng may
+    // be blank/ignored on UPDATE (and update_added) rows (this task's
+    // binding column-format decision), but a row claiming a brand-new
+    // entity has nothing to fall back to. Checked before value/status so a
+    // row that's simultaneously missing coordinates AND has some other
+    // issue reports the coordinates problem first (the more fundamental one
+    // for an add).
     let lat = 0;
     let lng = 0;
     if (isAdd) {
-      const latStr = cols[4];
-      const lngStr = cols[5];
+      const latStr = cols[latColIdx];
+      const lngStr = cols[lngColIdx];
       const parsedLat = Number(latStr);
       const parsedLng = Number(lngStr);
       if (latStr.trim() === "" || lngStr.trim() === "" || !Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
         errors.push({
           errorClass: "logic",
           line,
-          message: `lat/lng are required to add a new ${ENTITY_SINGULAR_LABEL[entity]} (unrecognized id "${id}")`,
+          message: `lat/lng are required to add a new ${ENTITY_SINGULAR_LABEL[entity]}${displayCodeCell ? ` ("${displayCodeCell}")` : ""}`,
         });
         continue;
       }
@@ -440,16 +592,19 @@ export function parseAndValidateImport(
 
     // addedCustomerSchema (B1.1) requires a plain, non-nullable demand —
     // unlike customerOverrideSchema, which allows a blank/null demand on an
-    // UPDATE row. A brand-new customer can't be added with no demand at all.
+    // UPDATE row. A brand-new (or already-added) customer can't have no
+    // demand at all.
     // Task 30 (B6.1 stage 4) — addedStationSchema has the identical
     // requirement (transportLp.ts: `demand: z.number().nonnegative()`, no
     // `.optional()`), so stations joins this check. addedMineSchema's
     // capacity stays nullable/optional — a blank capacity on an added mine
     // is a deliberate, valid "unconstrained" state (matches solve.py's
     // get_base_capacity None-means-unconstrained convention), so mines is
-    // NOT added here.
-    if (isAdd && (entity === "customers" || entity === "stations") && value === null) {
-      errors.push({ errorClass: "logic", line, message: `demand is required to add a new ${ENTITY_SINGULAR_LABEL[entity]} (unrecognized id "${id}")` });
+    // NOT added here. T11 — isUpdateAdded is only ever true for customers
+    // (usesUidIdentityModel is false for stations), kept symmetric with the
+    // isAdd check rather than special-cased.
+    if ((isAdd || isUpdateAdded) && (entity === "customers" || entity === "stations") && value === null) {
+      errors.push({ errorClass: "logic", line, message: `demand is required for a new/added ${ENTITY_SINGULAR_LABEL[entity]}${displayCodeCell ? ` ("${displayCodeCell}")` : ""}` });
       continue;
     }
 
@@ -459,31 +614,35 @@ export function parseAndValidateImport(
     }
 
     // addedCustomerSchema has no status field at all — v1 has no way to add
-    // a customer and mark it excluded in the same breath (see precheck.ts's
-    // header comment). Reject rather than silently dropping the student's
-    // explicit "excluded" choice.
-    if (isAdd && entity === "customers" && status !== "active") {
+    // (or update) a customer and mark it excluded in the same breath (see
+    // precheck.ts's header comment). Reject rather than silently dropping
+    // the student's explicit "excluded" choice.
+    if ((isAdd || isUpdateAdded) && entity === "customers" && status !== "active") {
       errors.push({
         errorClass: "logic",
         line,
-        message: `newly added customers must have status "active" (add-and-exclude is not supported)`,
+        message: `added customers must have status "active" (add-and-exclude is not supported)`,
       });
       continue;
     }
 
     if (isAdd) {
-      const city = cols[2];
-      const state = cols[3];
+      const city = cols[cityColIdx];
+      const state = cols[stateColIdx];
       if (!city.trim() || !state.trim()) {
         errors.push({
           errorClass: "logic",
           line,
-          message: `city and state are required to add a new ${ENTITY_SINGULAR_LABEL[entity]} (unrecognized id "${id}")`,
+          message: `city and state are required to add a new ${ENTITY_SINGULAR_LABEL[entity]}${displayCodeCell ? ` ("${displayCodeCell}")` : ""}`,
         });
         continue;
       }
       changes.push({
-        id,
+        // T11 — under the uid identity model the CSV's own `id` cell is
+        // always blank (that's the ADD trigger); mint the real stable id
+        // here rather than deferring to the apply route, so the preview
+        // already reflects the id that will actually be persisted.
+        id: usesUidIdentityModel ? mintAddedEntityUid(entity as "warehouses" | "customers") : id,
         line,
         before: { status: "not_present", value: null },
         after: { status, value },
@@ -492,7 +651,40 @@ export function parseAndValidateImport(
         state,
         lat,
         lng,
+        ...(usesUidIdentityModel ? { displayCode: displayCodeCell || undefined } : {}),
       });
+      continue;
+    }
+
+    if (isUpdateAdded) {
+      // T11 — an update to an already-added entity writes into
+      // addedWarehouses/addedCustomers directly on apply (see
+      // routes/scenarios.ts's mergeUpdateAddedChanges), never
+      // warehouseOverrides/customerOverrides — the added entity's own
+      // record is authoritative for its fields (templates.ts's
+      // applyWarehouseOverrides/applyCustomerOverrides never resolve an
+      // added entity's data through the override arrays). Deliberately
+      // scoped to value/status only, mirroring plain UPDATE rows below,
+      // which likewise never touch city/state/lat/lng — moving an added
+      // entity's coordinates stays the map's Move dialog's job (T7),
+      // including its "clear this entity's own distanceOverrides for
+      // re-estimation" side effect, which a CSV row has no way to trigger
+      // correctly.
+      const beforeValue = entity === "warehouses"
+        ? ((addedRow as AddedWarehouseRef).capacity ?? null)
+        : ((addedRow as AddedCustomerRef).demand ?? null);
+      const beforeStatus = entity === "warehouses" ? ((addedRow as AddedWarehouseRef).status ?? "active") : "active";
+
+      if (beforeStatus !== status || beforeValue !== value) {
+        changes.push({
+          id,
+          line,
+          before: { status: beforeStatus, value: beforeValue },
+          after: { status, value },
+          changeType: "update_added",
+          displayCode: addedRow?.displayCode,
+        });
+      }
       continue;
     }
 

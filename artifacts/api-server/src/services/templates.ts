@@ -33,8 +33,12 @@ interface RefineryOverride { id: string; status: "active" | "forced_open" | "ina
 // add-and-exclude, see precheck.ts's header comment) — an added customer's
 // export row still gets a hardcoded `status: "active"` (see
 // applyCustomerOverrides below).
-interface AddedWarehouse { id: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
-interface AddedCustomer { id: string; city: string; state: string; lat: number; lng: number; demand: number; }
+// T11 (Input Map v2) — `displayCode` mirrors pMedian.ts's own optional
+// field: legitimately undefined on a row that's never had one assigned
+// (gazetteer miss and the student never typed one) — see
+// warehouseRowsToCsv/customerRowsToCsv below for the export fallback.
+interface AddedWarehouse { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
+interface AddedCustomer { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; demand: number; }
 
 // Task 30 (B6.1 stage 4) — addedMineSchema/addedStationSchema shapes
 // (validation/inputs/transportLp.ts). Mirrors AddedWarehouse/AddedCustomer
@@ -53,9 +57,15 @@ interface AddedStation { id: string; city: string; state: string; lat: number; l
 // deliberately NOT a CSV column (see warehouseRowsToCsv/customerRowsToCsv
 // below) so an exported CSV's header still matches import.ts's COLUMNS
 // exactly and stays re-importable — it's JSON-export-only metadata.
+// T11 — `displayCode` is null for every base row (base entities have no
+// displayCode concept at all, `id` alone is their code) and for an added
+// row that's never had one assigned (undefined `AddedWarehouse.displayCode`
+// collapses to null here — one representation for "no readable label" on
+// the wire, not two).
 export interface WarehouseTemplateRow {
   templateVersion: number;
   id: string;
+  displayCode: string | null;
   city: string;
   state: string;
   lat: number;
@@ -68,6 +78,7 @@ export interface WarehouseTemplateRow {
 export interface CustomerTemplateRow {
   templateVersion: number;
   id: string;
+  displayCode: string | null;
   city: string;
   state: string;
   lat: number;
@@ -137,6 +148,7 @@ export function applyWarehouseOverrides(
     return {
       templateVersion: TEMPLATE_VERSION,
       id: w.id,
+      displayCode: null, // base entities have no displayCode concept
       city: w.city,
       state: w.state,
       lat: w.lat,
@@ -151,6 +163,7 @@ export function applyWarehouseOverrides(
   const addedRows: WarehouseTemplateRow[] = addedWarehouses.map(w => ({
     templateVersion: TEMPLATE_VERSION,
     id: w.id,
+    displayCode: w.displayCode ?? null,
     city: w.city,
     state: w.state,
     lat: w.lat,
@@ -174,6 +187,7 @@ export function applyCustomerOverrides(
     return {
       templateVersion: TEMPLATE_VERSION,
       id: c.id,
+      displayCode: null, // base entities have no displayCode concept
       city: c.city,
       state: c.state,
       lat: c.lat,
@@ -187,6 +201,7 @@ export function applyCustomerOverrides(
   const addedRows: CustomerTemplateRow[] = addedCustomers.map(c => ({
     templateVersion: TEMPLATE_VERSION,
     id: c.id,
+    displayCode: c.displayCode ?? null,
     city: c.city,
     // Task 26 — addedCustomerSchema now carries a real `state` field; source
     // it from the added customer's own record (see this file's header
@@ -290,6 +305,9 @@ export function applyGoldCustomerOverrides(overrides: CustomerOverride[]): Custo
     return {
       templateVersion: TEMPLATE_VERSION,
       id: c.id,
+      // T11 — two-echelon-gold-au has no displayCode concept (no
+      // addedCustomers field in twoEchelonInputsSchema at all); always null.
+      displayCode: null,
       city: c.city,
       state: c.state,
       lat: c.lat,
@@ -321,23 +339,27 @@ function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-// B4.3 — header catches up to B4.2's import COLUMNS exactly
-// (template_version,id,city,state,lat,lng,capacity,status) — `overridden`
-// is deliberately NOT a CSV column (see WarehouseTemplateRow's header
-// comment): keeping the CSV column set identical to what import.ts expects
-// is what makes export→edit→reimport keep working unregressed.
+// B4.3 — header catches up to B4.2's import COLUMNS exactly. T11 — gained
+// `display_code` (right after `id`, matching COLUMNS.warehouses/customers'
+// own T11 addition) — `overridden` is still deliberately NOT a CSV column
+// (see WarehouseTemplateRow's header comment): keeping the CSV column set
+// identical to what import.ts expects is what makes export→edit→reimport
+// keep working unregressed. Blank cell when `displayCode` is null (base
+// rows, or an added row that's never had one assigned) — no synthetic
+// fallback needed here since `city`/`state` are always present as their own
+// columns right alongside it.
 export function warehouseRowsToCsv(rows: WarehouseTemplateRow[]): string {
-  const header = "template_version,id,city,state,lat,lng,capacity,status";
+  const header = "template_version,id,display_code,city,state,lat,lng,capacity,status";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? "", r.status].join(","),
+    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.capacity ?? "", r.status].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
 
 export function customerRowsToCsv(rows: CustomerTemplateRow[]): string {
-  const header = "template_version,id,city,state,lat,lng,demand,status";
+  const header = "template_version,id,display_code,city,state,lat,lng,demand,status";
   const lines = rows.map(r =>
-    [r.templateVersion, r.id, csvEscape(r.city), r.state, r.lat, r.lng, r.demand, r.status].join(","),
+    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.demand, r.status].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
