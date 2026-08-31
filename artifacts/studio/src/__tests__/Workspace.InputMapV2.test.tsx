@@ -176,4 +176,45 @@ describe("Workspace — Input Map v2 Save reconciliation + estimate toast (T8)",
     expect(screen.getByTestId("button-save")).toBeDisabled();
     expect(mockToast).not.toHaveBeenCalled();
   });
+
+  // T10 — bridges this file's own "adopts the RESPONSE inputs" assertion
+  // (checked above only via button-save's disabled state + the toast) with
+  // DistancesTab's own already-tested "Estimated chip" rendering
+  // (DistancesTab.test.tsx) — neither file alone proves the two actually
+  // compose: that the exact distanceOverrides row Save's onSuccess adopts is
+  // what DistancesTab (Workspace.tsx's real prop wiring, not a hand-built
+  // fixture) goes on to render with the chip.
+  it("after Save adopts an estimated-distance response, switching to the Distances tab shows the Estimated chip on that row", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    const mapEl = document.querySelector(".leaflet-container") as HTMLElement;
+    fireEvent.contextMenu(mapEl, { clientX: 30, clientY: 30 });
+    fireEvent.click(screen.getByTestId("map-add-menu-wh"));
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    const [saveArgs, saveOpts] = mockUpdateScenario.mutate.mock.calls[0];
+    const sentAddedWarehouses = (saveArgs.data.inputs as typeof pmedianInputs).addedWarehouses;
+    const newId = sentAddedWarehouses[0].id;
+
+    const updatedScenario = {
+      ...scenario,
+      inputs: {
+        ...pmedianInputs,
+        addedWarehouses: sentAddedWarehouses,
+        distanceOverrides: [{ fromId: newId, toId: "C1", distance: 321.5, estimated: true }],
+      },
+    };
+    act(() => {
+      saveOpts.onSuccess(updatedScenario);
+    });
+
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("distances-tab")).toBeInTheDocument();
+    expect(screen.getByTestId(`badge-distance-estimated-${newId}-C1`)).toBeInTheDocument();
+    // Not flagged "changed" — the saved baseline (savedInputsRef) was synced
+    // to the same response, so this row isn't a pending unsaved edit.
+    expect(screen.queryByTestId(`badge-distance-changed-${newId}-C1`)).not.toBeInTheDocument();
+  });
 });
