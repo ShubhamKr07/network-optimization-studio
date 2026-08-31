@@ -37,10 +37,6 @@ This spec covers the **p-median-us pilot** in full docs scope. The other three m
 
 **One exported presentation mapping.** Stored enum ↔ label ↔ marker style live in a **single exported constant** (e.g. `warehouseStatusPresentation: Record<WhStatus, { label; markerStyle }>`) consumed by `WarehouseTable`, the dialogs, `EntityMarkers`, and `MapLegend`. `WarehouseTable.tsx`'s currently-private `STATUS_LABEL` is extracted into this shared module (label vocabulary unchanged: Potential / Fixed-Open / Inactive).
 
-> **Review question (blocking):** If stored `active` is displayed as **Potential**, should its triangle be the outlined Potential style, with only `forced_open` filled and `inactive` dashed? The current “filled = Active/Fixed-Open” rule introduces an **Active** input status that does not exist and gives `active` two incompatible styles.
-
-> **Review question:** What is the effective map-view rule for scenario overrides—especially a base customer's `excluded` status? Should excluded customers be hidden, dimmed, or separately symbolized and editable so the map does not show them as ordinary active demand while the solver and distance service exclude them?
-
 ## 4. Interaction model
 
 | Gesture | Behavior |
@@ -56,8 +52,6 @@ This spec covers the **p-median-us pilot** in full docs scope. The other three m
 **Overlays, not Leaflet Popups.** Details card, action menu, and dialogs are React overlays in a `position: relative` wrapper over the Leaflet container — never a `<Popup>` nested in a `<Marker>` (repo gotcha: stays closed until marker click). Their coordinate + event contract (§7 / plan T5): marker callbacks pass the Leaflet **`containerPoint`** (not raw viewport/DOM coords); the overlay clamps/flips at the container edges; it **closes (or recomputes) on pan/zoom/remount**; and a marker `contextmenu` **stops propagation** so it does not also trigger the empty-space "add here" menu.
 
 **Keyboard (D9).** Dialogs and action menus are fully keyboard-operable in the pilot: focus moves into the overlay on open, is trapped while open, Escape closes and **restores focus** to the invoker, tab order is defined. Focusable-marker navigation (Tab to markers, Enter = details, Menu/Shift+F10 = actions, keyboard-driven move/copy) is an explicit fast-follow (§10). Touch out of scope.
-
-> **Review question:** What are the keyboard equivalents for hover, left-click, right-click, and drag (for example, focusable markers, Enter for details, Shift+F10/Menu for actions, and an explicit move/copy mode)? Touch may be out of scope, but making the primary editor mouse-only would also exclude keyboard users and leaves dialog/menu focus, Escape, and focus restoration undefined.
 
 ## 5. Map technology — react-leaflet (D5, in full)
 
@@ -138,8 +132,6 @@ No gazetteer, no ID/displayCode generation (frontend owns both). No base-dataset
   - `newUid(kind: "wh"|"cs") → string` — an opaque stable id for a new added entity (e.g. `crypto.randomUUID()`-based, role-prefixed). This is the **join key** (D7); it never changes.
   - `nextDisplayCode(kind, state, city, existingCodes) → "WH-TX-DALLAS-01"` — the human label; `cityCode` = uppercase, non-alpha stripped; seq = lowest 2-digit not colliding with existing **displayCodes**. Cosmetic only.
 
-> **Review question:** Which exact gazetteer source, version, extraction rule, license, and attribution will be committed through a reproducible script/checksum? Neither cited option is public domain—[SimpleMaps US Cities](https://simplemaps.com/data/us-cities) requires attribution for its free data, and [GeoNames](https://www.geonames.org/export/) is CC-BY—and why use squared-degree “nearest” when a 1,000-row haversine scan is cheap and avoids latitude-dependent longitude distortion?
-
 ### 7.2 Input Map rewrite (`InputMapTab.tsx`)
 
 Absorbs Task 4's pin flow and adds: symbology (§3), layer toggles, legend, hover tooltip, left-click details card, right-click action menus (base vs added, §4), right-click-empty add menu, Move/Copy. Consumes an **effective-row projection** (§7.5) of the current scenario's `inputs` + base dataset; writes through the existing Workspace manual-Save path.
@@ -172,8 +164,6 @@ The **`WarehousesTab.tsx` / `CustomersTab.tsx` "Add row" forms** (this is where 
 - **Estimate toast.** After Save, per explicit create/copy/move watch, the toast **counts the newly-returned `estimated:true` rows** for that entity (by **diffing** the saved-response `distanceOverrides` against the pre-save set — *not* from precheck, which now finds **zero** missing-distance errors after auto-fill), and reads **"N distances estimated for `<displayCode>` — review"** with a jump-to-Distances action. Reuses Task 4's two-step timing (fires after the awaited post-Save fetch).
 - **Estimated rows in the Distances grid:** tinted/badged "estimated"; editing a row's value clears its `estimated` flag → "confirmed".
 - **Grid parity:** map and input grids are two views of the same `inputs`; an edit on either side is immediately visible on the other.
-
-> **Review question (blocking):** Since Save will now return server-augmented `inputs`, what is the client reconciliation contract? The Workspace must adopt the PATCH response as both its local and saved snapshot, and the estimate toast must count newly returned `estimated:true` rows for explicit create/move watches; post-fill precheck has zero missing-distance errors and cannot supply that `N`.
 
 ## 9. Testing strategy
 
