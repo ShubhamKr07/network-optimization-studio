@@ -63,6 +63,14 @@ import type { StationOverride } from "@/components/tables/StationTable";
 import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 import type { LegDistanceOverride } from "@/components/workspace/tabs/LegDistancesTab";
+import type {
+  MapWarehouse,
+  MapCustomer,
+  PMedianMapInputs,
+  AddedWarehouseInput,
+  AddedCustomerInput,
+} from "@/components/workspace/map/types";
+import type { WhStatus } from "@/components/workspace/map/statusPresentation";
 import {
   workspaceTabsReducer,
   workspaceTabId,
@@ -255,6 +263,143 @@ function addedWarehousesFromInputs(inputs: Record<string, unknown> | null): Adde
 function addedCustomersFromInputs(inputs: Record<string, unknown> | null): AddedCustomer[] {
   const raw = inputs?.addedCustomers;
   return Array.isArray(raw) ? (raw as AddedCustomer[]) : [];
+}
+
+// T8 (Input Map v2) — added-row readers typed against map/types.ts's own
+// AddedWarehouseInput/AddedCustomerInput (which carry T1's `displayCode`
+// field) rather than WarehousesTab.tsx/CustomersTab.tsx's own AddedWarehouse/
+// AddedCustomer types (addedWarehousesFromInputs/addedCustomersFromInputs
+// above) — those two type families describe the exact same JSON shape from
+// two different call sites' points of view; kept separate rather than
+// widening the *Tab types so this file's map-only surface doesn't force an
+// unrelated prop-type change on WarehousesTab.tsx/CustomersTab.tsx (owned by
+// T9 in this same wave).
+function mapAddedWarehousesFromInputs(inputs: Record<string, unknown> | null): AddedWarehouseInput[] {
+  const raw = inputs?.addedWarehouses;
+  return Array.isArray(raw) ? (raw as AddedWarehouseInput[]) : [];
+}
+
+function mapAddedCustomersFromInputs(inputs: Record<string, unknown> | null): AddedCustomerInput[] {
+  const raw = inputs?.addedCustomers;
+  return Array.isArray(raw) ? (raw as AddedCustomerInput[]) : [];
+}
+
+// T8 — effective-row view models for the p-median-us Input Map tab: base
+// dataset rows with warehouseOverrides/customerOverrides APPLIED (a
+// warehouse's effective status/capacity, a customer's effective demand +
+// excluded flag), UNIONED with scenario-local added rows (isAdded:true).
+// This is the single source of truth EntityMarkers/the map's edit dialogs
+// render from and write back to — mirrors Studio.tsx's own NetworkMap
+// override-application pattern, just producing a MapWarehouse/MapCustomer
+// instead of a color/status prop. A base row's `displayCode` is its id
+// (dataset ids are already human-readable, e.g. "CHI") — only added rows
+// carry a separately-generated display code (T3).
+function pmedianMapWarehouses(
+  dataset: { warehouses: { id: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapWarehouse[] {
+  const overrideById = new Map(warehouseOverridesFromInputs(inputs).map(o => [o.id, o]));
+  const base: MapWarehouse[] = (dataset?.warehouses ?? []).map(w => {
+    const o = overrideById.get(w.id);
+    return {
+      id: w.id,
+      displayCode: w.id,
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity: o?.capacity ?? null,
+      status: (o?.status ?? "active") as WhStatus,
+      isAdded: false,
+    };
+  });
+  const added: MapWarehouse[] = mapAddedWarehousesFromInputs(inputs).map(w => ({
+    id: w.id,
+    displayCode: w.displayCode ?? w.id,
+    city: w.city,
+    state: w.state,
+    lat: w.lat,
+    lng: w.lng,
+    capacity: w.capacity ?? null,
+    status: w.status,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+function pmedianMapCustomers(
+  dataset: { customers: { id: string; city: string; state: string; lat: number; lng: number; demand: number }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapCustomer[] {
+  const overrideById = new Map(customerOverridesFromInputs(inputs).map(o => [o.id, o]));
+  const base: MapCustomer[] = (dataset?.customers ?? []).map(c => {
+    const o = overrideById.get(c.id);
+    return {
+      id: c.id,
+      displayCode: c.id,
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demand: o?.demand ?? c.demand,
+      excluded: o?.status === "excluded",
+      isAdded: false,
+    };
+  });
+  const added: MapCustomer[] = mapAddedCustomersFromInputs(inputs).map(c => ({
+    id: c.id,
+    displayCode: c.displayCode ?? c.id,
+    city: c.city,
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: c.demand,
+    excluded: false,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+// The `inputs` slice InputMapTab's "pmedian" mode actually edits — a typed
+// view over the same raw `localInputs` blob every other tab reads, carrying
+// the extra fields (`[k: string]: unknown`) through untouched so a round
+// trip via `onInputsChange` never silently drops an unrelated field (gap,
+// timeLimitSec, distanceBands, p, ...).
+function pmedianMapInputsSlice(inputs: Record<string, unknown> | null): PMedianMapInputs {
+  return {
+    ...(inputs ?? {}),
+    addedWarehouses: mapAddedWarehousesFromInputs(inputs),
+    addedCustomers: mapAddedCustomersFromInputs(inputs),
+    warehouseOverrides: warehouseOverridesFromInputs(inputs),
+    customerOverrides: customerOverridesFromInputs(inputs),
+    distanceOverrides: distanceOverridesFromInputs(inputs),
+    capacityMode: capacityModeFromInputs(inputs),
+  } as PMedianMapInputs;
+}
+
+// T8 — detects which added rows a map edit CREATED or MOVED (a new id, or an
+// existing id whose lat/lng changed), so handlePMedianMapInputsChange can
+// register a post-Save "N distances estimated" watch for exactly those
+// entities (Workspace.tsx's own `pendingEstimateWatches`, a sibling of the
+// existing `pendingPrecheckWatches` mechanism but answering a different
+// question — see that state's own comment). Edits that only change
+// status/capacity/demand (no coordinate change) and deletes are not watched.
+function detectMapWatches(
+  prevRows: { id: string; lat: number; lng: number; displayCode?: string }[],
+  nextRows: { id: string; lat: number; lng: number; displayCode?: string }[],
+): { id: string; displayCode: string }[] {
+  const prevById = new Map(prevRows.map(r => [r.id, r]));
+  const watched: { id: string; displayCode: string }[] = [];
+  for (const row of nextRows) {
+    const before = prevById.get(row.id);
+    const displayCode = row.displayCode ?? row.id;
+    if (!before) {
+      watched.push({ id: row.id, displayCode });
+    } else if (before.lat !== row.lat || before.lng !== row.lng) {
+      watched.push({ id: row.id, displayCode });
+    }
+  }
+  return watched;
 }
 
 // B6.2 — two-echelon-gold-au's addedRefineries reader. Reuses
@@ -756,11 +901,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (!currentScenario || !localInputs || !isDirty) return;
     const scenarioId = currentScenario.id;
     const inputs = localInputs;
+    // T8 — pre-save snapshot, diffed post-save against the response's own
+    // distanceOverrides to compute the "N distances estimated" toast (see
+    // reportEstimatedDistanceWatches's own comment) — captured here, not
+    // read from `savedInputsRef` inside onSuccess, since by the time
+    // onSuccess runs `inputs` is what was actually SENT.
+    const preSaveDistanceOverrides = distanceOverridesFromInputs(inputs);
     updateScenario.mutate(
       { scenarioId, data: { inputs } },
       {
-        onSuccess: () => {
-          savedInputsRef.current = inputs;
+        onSuccess: updated => {
+          // T8 (Input Map v2) — adopt the RESPONSE inputs, not the pre-send
+          // `inputs`: T1's backend normalizer can add estimated
+          // distanceOverrides rows for any newly-created/moved entity, and
+          // trusting the pre-send value here would mean those rows don't
+          // show up until an unrelated refetch happens to land, AND would
+          // immediately re-flag the scenario dirty (savedInputsRef would
+          // disagree with what the server actually persisted the moment a
+          // background refetch of currentScenario lands).
+          setLocalInputs(updated.inputs);
+          savedInputsRef.current = updated.inputs;
+          queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
           // B5.2 — refetch precheck against the just-saved inputs (see the
@@ -769,6 +930,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // Phase 3.2, Task 4 — resolve any pending Input Map precheck
           // watches for this scenario now that its inputs are persisted.
           void reportPendingPrecheckWatches(scenarioId);
+          // T8 — resolve any pending map create/move estimate watches.
+          reportEstimatedDistanceWatches(scenarioId, preSaveDistanceOverrides, distanceOverridesFromInputs(updated.inputs));
         },
       },
     );
@@ -807,6 +970,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const isEditableInputTab =
     activeTab?.kind === "input" &&
     (activeTab.entity === "optimization-parameters" ||
+      // T8 (Input Map v2) — the map tab's own edits (add/move/copy/delete,
+      // in-place override edits) write into localInputs exactly like every
+      // other editable tab, so it needs the same manual-Save toolbar.
+      // p-median-us only — transport-coal/two-echelon-gold-au's Input Map
+      // stays the read-only Task-4 pin-drop flow (mode="legacy", no
+      // in-place editing), p-median-brazil has no dataset endpoint at all.
+      (activeTab.entity === "input-map" && modelId === "p-median-us") ||
       (activeTab.entity === "warehouses" && modelId === "p-median-us") ||
       (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
@@ -840,6 +1010,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [pendingPrefill, setPendingPrefill] = useState<{ lat: number; lng: number } | null>(null);
   const [pendingPrecheckWatches, setPendingPrecheckWatches] = useState<{ scenarioId: number; kind: string; id: string }[]>([]);
   const [focusEntityId, setFocusEntityId] = useState<string | null>(null);
+  // T8 — entities created/moved via the p-median-us Input Map, watched so
+  // the post-Save toast can report how many of THEIR distanceOverrides rows
+  // came back `estimated:true` from T1's backend normalizer. Deliberately a
+  // SEPARATE list/mechanism from pendingPrecheckWatches above (which reports
+  // *Tab add-row flows' missing-distance PRECHECK errors) — by the time a
+  // Save round-trips, the normalizer has already filled every gap, so
+  // precheck always reports zero missing for a map-created/moved entity;
+  // the useful post-Save signal here is how many of its distances are
+  // estimated (i.e. worth reviewing), computed by diffing pre-/post-Save
+  // distanceOverrides directly, not by re-querying precheck.
+  const [pendingEstimateWatches, setPendingEstimateWatches] = useState<{ scenarioId: number; id: string; displayCode: string }[]>([]);
 
   useEffect(() => {
     if (!focusEntityId) return;
@@ -871,6 +1052,30 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const added = next.find(e => !currentIds.has(e.id));
       if (added) handleEntityAdded(kind, added.id);
     }
+  }
+
+  // T8 — InputMapTab's "pmedian" mode onInputsChange. `next` is already a
+  // full PMedianMapInputs (built by spreading the `inputs` prop it was
+  // handed — see pmedianMapInputsSlice), so it's safe to adopt directly as
+  // the new localInputs (PMedianMapInputs's own `[k: string]: unknown` index
+  // signature makes it structurally a Record<string, unknown>). Before
+  // adopting it, diffs the OLD added-warehouse/added-customer rows against
+  // the NEW ones to detect a create or a coordinate change (move) and
+  // registers a pendingEstimateWatches entry for each — status/capacity/
+  // demand-only edits and deletes are not watched (see detectMapWatches's
+  // own comment).
+  function handlePMedianMapInputsChange(next: PMedianMapInputs) {
+    if (currentScenario) {
+      const scenarioId = currentScenario.id;
+      const watched = [
+        ...detectMapWatches(mapAddedWarehousesFromInputs(localInputs), next.addedWarehouses),
+        ...detectMapWatches(mapAddedCustomersFromInputs(localInputs), next.addedCustomers),
+      ];
+      if (watched.length > 0) {
+        setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
+      }
+    }
+    setLocalInputs(next);
   }
 
   // Post-Save precheck toast (Input Map, Task 4). Called from
@@ -913,6 +1118,44 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       }
     }
     setPendingPrecheckWatches(prev => prev.filter(w => w.scenarioId !== scenarioId));
+  }
+
+  // T8 — post-Save "N distances estimated" toast for entities created/moved
+  // via the Input Map (see pendingEstimateWatches's own comment on why this
+  // is a separate mechanism from reportPendingPrecheckWatches above).
+  // Synchronous (unlike reportPendingPrecheckWatches — no fresh fetch
+  // needed): both the pre- and post-save distanceOverrides arrays are
+  // already in hand from handleSaveInputs's onSuccess.
+  function reportEstimatedDistanceWatches(
+    scenarioId: number,
+    preSaveOverrides: DistanceOverride[],
+    postSaveOverrides: DistanceOverride[],
+  ) {
+    const relevant = pendingEstimateWatches.filter(w => w.scenarioId === scenarioId);
+    if (relevant.length === 0) return;
+    const preEstimatedKeys = new Set(preSaveOverrides.filter(o => o.estimated).map(o => `${o.fromId}|${o.toId}`));
+    for (const watch of relevant) {
+      const newlyEstimated = postSaveOverrides.filter(
+        o => o.estimated && (o.fromId === watch.id || o.toId === watch.id) && !preEstimatedKeys.has(`${o.fromId}|${o.toId}`),
+      ).length;
+      if (newlyEstimated > 0) {
+        toast({
+          description: `${newlyEstimated} distance${newlyEstimated === 1 ? "" : "s"} estimated for ${watch.displayCode} — review.`,
+          action: (
+            <ToastAction
+              altText="Go to Distances"
+              onClick={() => {
+                setFocusEntityId(watch.id);
+                openTab("input", { id: "distances", label: "Distances" });
+              }}
+            >
+              Distances
+            </ToastAction>
+          ),
+        });
+      }
+    }
+    setPendingEstimateWatches(prev => prev.filter(w => w.scenarioId !== scenarioId));
   }
 
   function handleSelectScenario(id: number) {
@@ -1184,19 +1427,42 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
-    // Phase 3.2, Task 4 — Input Map tab (pre-solve, click-to-place).
-    // p-median-brazil shares this sidebar entry (inputEntriesForModel's own
-    // comment) but has no dataset endpoint — falls through to the generic
-    // placeholder at the bottom, same boundary every other Brazil input tab
-    // already draws, rather than rendering a non-functional map.
-    if (activeTab.kind === "input" && activeTab.entity === "input-map" && modelId !== "p-median-brazil") {
-      if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+    // T8 (Input Map v2) — Input Map tab, one of three modes per model:
+    // p-median-brazil has no per-row dataset endpoint at all (same boundary
+    // every other Brazil input tab already draws) so it gets InputMapTab's
+    // placeholder mode; transport-coal/two-echelon-gold-au keep the original
+    // Phase 3.2 Task 4 click-to-place pin map ("legacy" — their Mines/
+    // Stations/Refineries/Customers tabs have no override-projection/
+    // edit-in-place concept the map surface below needs); p-median-us gets
+    // the real map — effective-row warehouses/customers (base dataset +
+    // overrides applied, unioned with added rows) wired to
+    // handlePMedianMapInputsChange so every map edit lands in localInputs
+    // exactly like every other editable tab.
+    if (activeTab.kind === "input" && activeTab.entity === "input-map") {
+      if (modelId === "p-median-brazil") {
+        return <InputMapTab mode="placeholder" />;
+      }
+      if (modelId === "transport-coal" || modelId === "two-echelon-gold-au") {
+        if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+        return (
+          <InputMapTab
+            mode="legacy"
+            countryBounds={activeModelManifest?.countryBounds}
+            pins={pinsForModel(modelId, dataset, localInputs)}
+            placementOptions={placementOptionsForModel(modelId)}
+            onPlacePoint={handlePlacePoint}
+          />
+        );
+      }
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <InputMapTab
+          mode="pmedian"
           countryBounds={activeModelManifest?.countryBounds}
-          pins={pinsForModel(modelId, dataset, localInputs)}
-          placementOptions={placementOptionsForModel(modelId)}
-          onPlacePoint={handlePlacePoint}
+          warehouses={pmedianMapWarehouses(dataset, localInputs)}
+          customers={pmedianMapCustomers(dataset, localInputs)}
+          inputs={pmedianMapInputsSlice(localInputs)}
+          onInputsChange={handlePMedianMapInputsChange}
         />
       );
     }
