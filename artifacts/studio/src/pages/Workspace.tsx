@@ -430,6 +430,33 @@ function laneCostOverridesFromInputs(inputs: Record<string, unknown> | null): La
   return Array.isArray(raw) ? (raw as LaneCostOverride[]) : [];
 }
 
+// Followup — `id -> displayCode` map for the distance-type grids
+// (DistancesTab/LaneCostsTab/LegDistancesTab), so From/To columns show a
+// scenario-local added entity's human-readable displayCode (e.g.
+// "WH-CO-DENVER-01") instead of its opaque uid. Only added entities ever
+// carry a displayCode (T3) — base dataset rows have none and simply have no
+// entry here, so those grids' existing `?? id` fallback keeps showing the
+// textbook id unchanged. Merges across all five added-entity arrays
+// unconditionally rather than switching on modelId — each grid only ever
+// looks up ids that actually appear in its own fromId/toId values, so the
+// unused entries for other models' entity kinds are harmless.
+function displayCodeMapFromInputs(inputs: Record<string, unknown> | null): Record<string, string> {
+  const map: Record<string, string> = {};
+  const sources = [
+    addedWarehousesFromInputs(inputs),
+    addedCustomersFromInputs(inputs),
+    addedMinesFromInputs(inputs),
+    addedStationsFromInputs(inputs),
+    addedRefineriesFromInputs(inputs),
+  ];
+  for (const rows of sources) {
+    for (const row of rows) {
+      if (row.displayCode) map[row.id] = row.displayCode;
+    }
+  }
+  return map;
+}
+
 // A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
 // (`(localConfig?.warehouseOverrides ?? []).filter(o => o.status !==
 // "active").map(...)`), generalized per model: two-echelon-gold-au's forced-
@@ -1645,6 +1672,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
+          displayCodeById={displayCodeMapFromInputs(localInputs)}
         />
       );
     }
@@ -1672,6 +1700,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
+          displayCodeById={displayCodeMapFromInputs(localInputs)}
         />
       );
     }
@@ -1692,6 +1721,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
+          displayCodeById={displayCodeMapFromInputs(localInputs)}
         />
       );
     }

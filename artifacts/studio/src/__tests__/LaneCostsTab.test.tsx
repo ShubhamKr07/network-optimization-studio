@@ -289,6 +289,60 @@ describe("LaneCostsTab — client-side reference validation (nice-to-have)", () 
   });
 });
 
+// Followup — displayCodeById: added-entity uids show their human-readable
+// displayCode in the From/To columns; base ids (never present in the map)
+// keep showing the raw id. The underlying stored row (and what onChange
+// receives on edit) always stays keyed by the uid.
+describe("LaneCostsTab — displayCodeById (Followup)", () => {
+  it("renders an added entity's displayCode instead of its raw uid", () => {
+    const uidOverrides = [{ fromId: "am-5678", toId: "ST001", cost: 55 }];
+    render(
+      <LaneCostsTab
+        laneCostOverrides={uidOverrides}
+        savedLaneCostOverrides={uidOverrides}
+        mineIds={["am-5678"]}
+        stationIds={["ST001"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "am-5678": "MN-CO-DENVER-01" }}
+      />,
+    );
+    const row = screen.getByTestId("row-lanecost-am-5678-ST001");
+    expect(row).toHaveTextContent("MN-CO-DENVER-01");
+    expect(row).not.toHaveTextContent("am-5678");
+  });
+
+  it("falls back to the raw id for a base dataset id with no displayCode entry", () => {
+    render(
+      <LaneCostsTab
+        laneCostOverrides={overrides}
+        savedLaneCostOverrides={overrides}
+        mineIds={["MN01", "MN02"]}
+        stationIds={["ST001", "ST002"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "am-5678": "MN-CO-DENVER-01" }}
+      />,
+    );
+    expect(screen.getByTestId("row-lanecost-MN01-ST001")).toHaveTextContent("MN01");
+  });
+
+  it("editing an added entity's row still writes the uid-keyed row to onChange, not the displayCode", () => {
+    const onChange = vi.fn();
+    const uidOverrides = [{ fromId: "am-5678", toId: "ST001", cost: 55 }];
+    render(
+      <LaneCostsTab
+        laneCostOverrides={uidOverrides}
+        savedLaneCostOverrides={uidOverrides}
+        mineIds={["am-5678"]}
+        stationIds={["ST001"]}
+        onChange={onChange}
+        displayCodeById={{ "am-5678": "MN-CO-DENVER-01" }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-lanecost-am-5678-ST001"), { target: { value: "99" } });
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "am-5678", toId: "ST001", cost: 99 }]);
+  });
+});
+
 describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     render(

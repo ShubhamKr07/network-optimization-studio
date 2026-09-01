@@ -13,7 +13,7 @@ import {
 import { warehouseStatusPresentation, type WhStatus } from "@/components/workspace/map/statusPresentation";
 import type { AddedCustomerInput, AddedWarehouseInput } from "@/components/workspace/map/types";
 import { nearestCity } from "@/lib/gazetteer";
-import { cityCode, newUid, nextDisplayCode } from "@/lib/entityId";
+import { newUid, nextDisplayCode } from "@/lib/entityId";
 
 const STATUS_OPTIONS: WhStatus[] = ["active", "forced_open", "inactive"];
 
@@ -65,7 +65,7 @@ export function CreateEntityDialog({
   const [demand, setDemand] = useState<string>(String(copyDemand ?? medianDemand));
 
   const displayCode = useMemo(
-    () => nextDisplayCode(kind, state, cityCode(city), existingCodes),
+    () => nextDisplayCode(kind, state, city, existingCodes),
     [kind, state, city, existingCodes],
   );
 

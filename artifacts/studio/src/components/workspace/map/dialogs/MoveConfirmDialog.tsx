@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { nearestCity } from "@/lib/gazetteer";
-import { cityCode, nextDisplayCode } from "@/lib/entityId";
+import { nextDisplayCode } from "@/lib/entityId";
 
 interface MoveConfirmDialogProps {
   kind: "wh" | "cs";
@@ -45,7 +45,7 @@ export function MoveConfirmDialog({
   }, [existingCodes, entity.displayCode]);
 
   const displayCode = useMemo(
-    () => nextDisplayCode(kind, nearest.state, cityCode(nearest.city), codesExcludingOwn),
+    () => nextDisplayCode(kind, nearest.state, nearest.city, codesExcludingOwn),
     [kind, nearest, codesExcludingOwn],
   );
 

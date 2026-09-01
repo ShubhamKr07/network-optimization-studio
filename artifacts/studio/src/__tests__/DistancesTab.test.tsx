@@ -358,6 +358,61 @@ describe("DistancesTab — estimated rows (T9)", () => {
   });
 });
 
+// Followup — displayCodeById: added-entity uids show their human-readable
+// displayCode in the From/To columns; base ids (never present in the map)
+// keep showing the raw id. The underlying stored row (and what onChange
+// receives on edit) always stays keyed by the uid — displayCodeById only
+// affects what's rendered.
+describe("DistancesTab — displayCodeById (Followup)", () => {
+  it("renders an added entity's displayCode instead of its raw uid", () => {
+    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
+    render(
+      <DistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-aw-1234-C001");
+    expect(row).toHaveTextContent("WH-CO-DENVER-01");
+    expect(row).not.toHaveTextContent("aw-1234");
+  });
+
+  it("falls back to the raw id for a base dataset id with no displayCode entry", () => {
+    render(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    expect(screen.getByTestId("row-distance-WH01-C001")).toHaveTextContent("WH01");
+  });
+
+  it("editing an added entity's row still writes the uid-keyed row to onChange, not the displayCode", () => {
+    const onChange = vi.fn();
+    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
+    render(
+      <DistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-aw-1234-C001"), { target: { value: "99" } });
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "aw-1234", toId: "C001", distance: 99 }]);
+  });
+});
+
 describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     render(

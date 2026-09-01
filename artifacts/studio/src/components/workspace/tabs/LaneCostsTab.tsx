@@ -37,6 +37,8 @@ interface LaneCostsTabProps {
   onImportApplied?: (scenario: Scenario) => void;
   /** Phase 3.2, Task 4 — when set, scroll/highlight the row(s) referencing this entity id (the post-Save precheck toast's "jump to it" action). Cleared by the consumer after use — this component doesn't clear it itself. */
   focusEntityId?: string | null;
+  /** Followup — scenario-local added entities' `id -> displayCode` map (Workspace.tsx builds this from addedMines/addedStations). From/To cells look up through this for DISPLAY ONLY — the underlying stored fromId/toId (the uuid) stays the join key everywhere else. Base dataset ids have no entry here and fall back to showing the raw id, unchanged. */
+  displayCodeById?: Record<string, string>;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -59,6 +61,7 @@ export function LaneCostsTab({
   scenarioId,
   onImportApplied,
   focusEntityId,
+  displayCodeById,
 }: LaneCostsTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -287,7 +290,7 @@ export function LaneCostsTab({
                   >
                     <TableCell className="font-mono text-xs">
                       <div className="flex items-center gap-1">
-                        {o.fromId}
+                        {displayCodeById?.[o.fromId] ?? o.fromId}
                         {fromUnknown && (
                           <span
                             title="Unknown mine ID — not found in this scenario's mines"
@@ -300,7 +303,7 @@ export function LaneCostsTab({
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       <div className="flex items-center gap-1">
-                        {o.toId}
+                        {displayCodeById?.[o.toId] ?? o.toId}
                         {toUnknown && (
                           <span
                             title="Unknown station ID — not found in this scenario's stations"

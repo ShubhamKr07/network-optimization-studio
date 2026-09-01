@@ -44,6 +44,8 @@ interface LegDistancesTabProps {
   onImportApplied?: (scenario: Scenario) => void;
   /** Phase 3.2, Task 4 — when set, scroll/highlight the row(s) referencing this entity id (the post-Save precheck toast's "jump to it" action). Cleared by the consumer after use — this component doesn't clear it itself. */
   focusEntityId?: string | null;
+  /** Followup — scenario-local added entities' `id -> displayCode` map (Workspace.tsx builds this from addedRefineries/addedCustomers — no addedMines, the mine is fixed). From/To cells look up through this for DISPLAY ONLY — the underlying stored fromId/toId (the uuid) stays the join key everywhere else (existence checks, leg resolution, edits, removal). Base dataset ids have no entry here and fall back to showing the raw id, unchanged. */
+  displayCodeById?: Record<string, string>;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -70,6 +72,7 @@ export function LegDistancesTab({
   scenarioId,
   onImportApplied,
   focusEntityId,
+  displayCodeById,
 }: LegDistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -330,8 +333,8 @@ export function LegDistancesTab({
                         {LEG_LABEL[leg]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{o.fromId}</TableCell>
-                    <TableCell className="font-mono text-xs">{o.toId}</TableCell>
+                    <TableCell className="font-mono text-xs">{displayCodeById?.[o.fromId] ?? o.fromId}</TableCell>
+                    <TableCell className="font-mono text-xs">{displayCodeById?.[o.toId] ?? o.toId}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Input
