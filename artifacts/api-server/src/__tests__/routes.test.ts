@@ -837,6 +837,61 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.body.rows.find((r: { id: string }) => r.id === "C1").demand).toBe(999);
   });
 
+  // T9 — p-median-brazil shares p-median-us's warehouses/customers/
+  // distances export entity set (B6.3/B2-T1), scoped to modelId=
+  // p-median-brazil (scenario id 10, brazilRow) — real Brazil ids (ANP,
+  // SP), not p-median-us's (ALN, C1), proving export resolved Brazil's own
+  // base dataset.
+  it("exports a p-median-brazil scenario's warehouses against its own 25-warehouse dataset, not p-median-us's", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...brazilRow, inputs: { ...brazilInputs, warehouseOverrides: [{ id: "ANP", status: "forced_open" }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/10/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(25);
+    const anp = res.body.rows.find((r: { id: string }) => r.id === "ANP");
+    expect(anp).toMatchObject({ city: "Anápolis", state: "GO", status: "forced_open" });
+    expect(res.body.rows.some((r: { id: string }) => r.id === "ALN")).toBe(false);
+  });
+
+  it("exports a p-median-brazil scenario's customers against its own 25-region dataset, not p-median-us's 200", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...brazilRow, inputs: { ...brazilInputs, customerOverrides: [{ id: "SP", status: "active", demand: 1 }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/10/export?entity=customers&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(25);
+    expect(res.body.rows.find((r: { id: string }) => r.id === "SP").demand).toBe(1);
+    expect(res.body.rows.some((r: { id: string }) => r.id === "C1")).toBe(false);
+  });
+
+  it("exports a p-median-brazil scenario's distanceOverrides as CSV with the shared 4-column header", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...brazilRow, inputs: { ...brazilInputs, distanceOverrides: [{ fromId: "ANP", toId: "SP", distance: 123.4 }] } };
+    mockDb.select.mockReturnValue(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/10/export?entity=distances&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("template_version,from_id,to_id,distance");
+    expect(lines[1]).toBe(`1,ANP,SP,123.4`);
+  });
+
+  it("stubFor a Brazil warehouse id emits one blank row per active Brazil region (not p-median-us's 200)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).get("/api/scenarios/10/export?entity=distances&format=json&stubFor=ANP").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(25);
+    expect(res.body.rows.every((r: { fromId: string; distance: null }) => r.fromId === "ANP" && r.distance === null)).toBe(true);
+  });
+
+  it("rejects entity=mines for a p-median-brazil scenario (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).get("/api/scenarios/10/export?entity=mines&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
   // Transport-coal mine/station export (Task 7) — mirrors the p-median-us
   // warehouses/customers export above, scoped to entity=mines|stations and
   // modelId=transport-coal.
@@ -1330,6 +1385,57 @@ describe("POST /api/scenarios/:id/import", () => {
     expect(res.status).toBe(422);
   });
 
+  // T9 — p-median-brazil import preview, scoped to scenario id 10 (brazilRow)
+  // — real Brazil ids (ANP, SP), proving preview validated against Brazil's
+  // own dataset, not p-median-us's (an ANP/SP row would otherwise be an
+  // "unknown id" error against p-median-us's 26/200 datasets).
+  it("previews a p-median-brazil warehouse import against its own dataset (not p-median-us's)", async () => {
+    const cookie = await loginAs(OWNER);
+    const brazilWarehouseCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ANP,,Anápolis,GO,,,1000000,forced_open\n";
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).post("/api/scenarios/10/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: brazilWarehouseCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0].id).toBe("ANP");
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("previews a p-median-brazil customer import against its own 25-region dataset (not p-median's 200)", async () => {
+    const cookie = await loginAs(OWNER);
+    const brazilCustomerCsv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,SP,,São Paulo Region,SP,,,1,active\n";
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).post("/api/scenarios/10/import").set("Cookie", cookie).send({ entity: "customers", csvText: brazilCustomerCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0].id).toBe("SP");
+  });
+
+  it("rejects entity=mines for a p-median-brazil import (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).post("/api/scenarios/10/import").set("Cookie", cookie).send({ entity: "mines", csvText: cleanCsv });
+    expect(res.status).toBe(422);
+  });
+
+  it("previews a p-median-brazil distances import with real Brazil ids (composite-keyed)", async () => {
+    const cookie = await loginAs(OWNER);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ANP,SP,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).post("/api/scenarios/10/import").set("Cookie", cookie).send({ entity: "distances", csvText: distancesCsv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toEqual([{
+      id: "ANP|SP",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 123.4 },
+      fromId: "ANP",
+      toId: "SP",
+    }]);
+  });
+
   // B4.1 — distances is p-median-us only (composite key, uses real
   // WAREHOUSES/CUSTOMERS ids ALN/C1 via mocked scenario 1).
   it("previews a p-median-us distances import with one composite-keyed change", async () => {
@@ -1543,6 +1649,50 @@ describe("POST /api/scenarios/:id/import/apply", () => {
     const badDistancesCsv = "template_version,from_id,to_id,distance\n1,ZZZ,C1,123.4\n";
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: badDistancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(422);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  // T9 — p-median-brazil apply, scenario id 10 (brazilRow), real Brazil ids
+  // (ANP a warehouse, SP a region/customer). Re-validation
+  // (validateInputsForModel) reuses p-median-us's PMedianInputs schema
+  // (B6.3/B2-T1) — a Brazil scenario's merged inputs must still pass it.
+  it("all_or_nothing mode: applies a clean p-median-brazil warehouse import into warehouseOverrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const brazilWarehouseCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ANP,,Anápolis,GO,,,1000000,forced_open\n";
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const chain = makeChain([{ ...brazilRow, inputs: { ...brazilInputs, warehouseOverrides: [{ id: "ANP", status: "forced_open", capacity: 1000000 }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/10/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: brazilWarehouseCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { warehouseOverrides: Array<{ id: string; status: string; capacity: number }> } };
+    expect(setArgs.inputs.warehouseOverrides).toEqual([{ id: "ANP", status: "forced_open", capacity: 1000000 }]);
+  });
+
+  it("all_or_nothing mode: applies a clean p-median-brazil distances import into distanceOverrides (real Brazil ids)", async () => {
+    const cookie = await loginAs(OWNER);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,ANP,SP,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const updatedRow = { ...brazilRow, inputs: { ...brazilInputs, distanceOverrides: [{ fromId: "ANP", toId: "SP", distance: 123.4 }] } };
+    mockDb.update.mockReturnValue(makeChain([updatedRow]));
+    const res = await request(app).post("/api/scenarios/10/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.scenario.inputs.distanceOverrides).toEqual([{ fromId: "ANP", toId: "SP", distance: 123.4 }]);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("all_or_nothing mode: a p-median-brazil distances import with a p-median-us-only id applies nothing (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    const badDistancesCsv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const res = await request(app).post("/api/scenarios/10/import/apply").set("Cookie", cookie)
       .send({ entity: "distances", csvText: badDistancesCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(422);
     expect(mockDb.update).not.toHaveBeenCalled();

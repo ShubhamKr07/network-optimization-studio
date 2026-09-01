@@ -1,4 +1,5 @@
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET } from "./precheck.js";
@@ -229,6 +230,91 @@ export function applyCustomerOverrides(
     // Task 26 — addedCustomerSchema now carries a real `state` field; source
     // it from the added customer's own record (see this file's header
     // comment on AddedCustomer).
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: c.demand,
+    status: "active",
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+// T9 (Brazil CSV import/export) — p-median-brazil's own warehouse/region
+// dataset, distinct from applyWarehouseOverrides/applyCustomerOverrides'
+// 26-warehouse/200-customer p-median-us dataset — same shape/reasoning as
+// applyGoldCustomerOverrides above (own base dataset, same WarehouseOverride/
+// CustomerOverride/AddedWarehouse/AddedCustomer element shapes and
+// WarehouseTemplateRow/CustomerTemplateRow row shapes, since p-median-brazil
+// reuses p-median-us's schema verbatim — B6.3/B2-T1). BRAZIL_DATASET_
+// WAREHOUSES/BRAZIL_DATASET_CUSTOMERS (data/brazilDataset.js) already adapt
+// the raw warehouses.json/states.json rows to this file's WarehouseCandidate/
+// Customer shape (city=name, state=id for regions), so no further adapting
+// is needed here.
+export function applyBrazilWarehouseOverrides(
+  overrides: WarehouseOverride[],
+  addedWarehouses: AddedWarehouse[] = [],
+): WarehouseTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: WarehouseTemplateRow[] = BRAZIL_DATASET_WAREHOUSES.map(w => {
+    const o = byId.get(w.id);
+    const capacity = o?.capacity ?? null;
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: w.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity,
+      status,
+      overridden: capacity !== null || status !== "active",
+    };
+  });
+  const addedRows: WarehouseTemplateRow[] = addedWarehouses.map(w => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: w.id,
+    displayCode: w.displayCode ?? null,
+    city: w.city,
+    state: w.state,
+    lat: w.lat,
+    lng: w.lng,
+    capacity: w.capacity ?? null,
+    status: w.status,
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+export function applyBrazilCustomerOverrides(
+  overrides: CustomerOverride[],
+  addedCustomers: AddedCustomer[] = [],
+): CustomerTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: CustomerTemplateRow[] = BRAZIL_DATASET_CUSTOMERS.map(c => {
+    const o = byId.get(c.id);
+    const demand = o?.demand ?? c.demand;
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: c.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demand,
+      status,
+      overridden: demand !== c.demand || status !== "active",
+    };
+  });
+  const addedRows: CustomerTemplateRow[] = addedCustomers.map(c => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: c.id,
+    displayCode: c.displayCode ?? null,
+    city: c.city,
     state: c.state,
     lat: c.lat,
     lng: c.lng,

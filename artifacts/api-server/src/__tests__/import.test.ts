@@ -708,6 +708,84 @@ describe("parseAndValidateImport — 'customers' entity disambiguated by modelId
   });
 });
 
+// T9 — p-median-brazil shares p-median-us's "warehouses"/"customers"/
+// "distances" entity set (same schema, B6.3/B2-T1) but resolves against its
+// own 25-warehouse/25-region dataset, not p-median-us's 26/200. Real Brazil
+// ids (ANP a warehouse, SP a region/customer) that don't exist in
+// p-median-us's own datasets prove the baseline genuinely came from Brazil's
+// dataset, not a silent p-median-us fallback.
+describe("parseAndValidateImport — p-median-brazil resolves against its own dataset, not p-median-us's", () => {
+  it("warehouses: a real Brazil warehouse id (ANP) is a known UPDATE, not an unknown-id error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ANP,,Anápolis,GO,,,1000000,forced_open\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "ANP",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "forced_open", value: 1000000 },
+    }]);
+  });
+
+  it("customers: a real Brazil region id (SP) validates against the 25-region dataset, not p-median's 200-customer one", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,SP,,São Paulo Region,SP,,,1,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "SP",
+      line: 2,
+      before: { status: "active", value: 29029226 },
+      after: { status: "active", value: 1 },
+    }]);
+  });
+
+  it("warehouses: add-mode is reachable for p-median-brazil (blank id + valid coordinates)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-BR-NEW1,Newtown,SP,-22.0,-47.0,50000,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: expect.stringMatching(/^aw-/), changeType: "add", city: "Newtown", state: "SP" });
+  });
+
+  it("customers: add-mode is reachable for p-median-brazil (blank id + valid demand)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CUST-BR-NEW1,Newtown,SP,-22.0,-47.0,1,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: expect.stringMatching(/^ac-/), changeType: "add", city: "Newtown", state: "SP" });
+  });
+
+  it("a p-median-us-only id (ALN, not a real Brazil warehouse) is rejected as unknown, proving the dataset actually switched", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ALN,,Allentown,PA,,,500000,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.changes).toEqual([]);
+  });
+
+  it("distances: real Brazil warehouse/region ids (ANP, SP) resolve reference integrity against Brazil's own id space", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ANP,SP,123.4\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "ANP|SP",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 123.4 },
+      fromId: "ANP",
+      toId: "SP",
+    }]);
+  });
+
+  it("distances: p-median-us ids (ALN, C1) are unresolvable against Brazil's id space", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "p-median-brazil");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.changes).toEqual([]);
+  });
+});
+
 // B4.1 — distances is composite-keyed (from_id,to_id), not single-id like
 // every other entity: real base ids ALN (warehouse) and C1 (customer) are
 // used directly rather than a fixture file, since "unknown" here means

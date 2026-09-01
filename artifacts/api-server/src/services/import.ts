@@ -1,8 +1,9 @@
 import Papa from "papaparse";
 import { randomUUID } from "node:crypto";
-import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
-import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces } from "./precheck.js";
+import { BRAZIL_TOTAL_DEMAND } from "../data/brazilDataset.js";
+import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, BRAZIL_DATASET } from "./precheck.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -347,7 +348,10 @@ export function parseAndValidateImport(
   // B2.1's precheck.ts enforces at solve time, via its shared
   // buildPMedianIdSpaces helper (not re-implemented differently here).
   if (entity === "distances") {
-    const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(currentOverrides);
+    // T9 — p-median-brazil shares p-median-us's distances entity/shape but
+    // resolves reference integrity against its own warehouse/region id
+    // space, not p-median-us's (buildPMedianIdSpaces' own dataset param).
+    const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(currentOverrides, modelId === "p-median-brazil" ? BRAZIL_DATASET : undefined);
     const distanceResult = parseDistancesRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], warehouseIdSpace, customerIdSpace);
     return { errors: distanceResult.errors, changes: distanceResult.changes, warnings: [] };
   }
@@ -383,11 +387,21 @@ export function parseAndValidateImport(
   // "a CSV row whose id matches a previously-added mine/station is rejected
   // as a collision" behavior unchanged (see the old-identity-model branch
   // below); only warehouses/customers gain real update-of-added support.
+  // T9 — "warehouses"/"customers" is shared by p-median-us AND
+  // p-median-brazil (same schema, different base dataset — B6.3/B2-T1);
+  // modelId disambiguates which baseline to validate against, same role
+  // modelId already plays for "customers" vs two-echelon-gold-au below.
   const baseline =
-    entity === "warehouses" ? applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+    entity === "warehouses" ? (
+        modelId === "p-median-brazil"
+          ? applyBrazilWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+          : applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+      )
     : entity === "customers" ? (
         modelId === "two-echelon-gold-au"
           ? applyGoldCustomerOverrides(currentOverrides.customerOverrides ?? [])
+          : modelId === "p-median-brazil"
+          ? applyBrazilCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
       )
     : entity === "mines" ? applyMineOverrides(Object.entries(currentOverrides.mineCapacities ?? {}).map(([id, capacity]) => ({ id, capacity })))
@@ -423,7 +437,8 @@ export function parseAndValidateImport(
   // "customers" is shared with two-echelon-gold-au, which now has its own
   // real `addedCustomers` field (twoEchelon.ts, B6.2+T11) — add-mode is
   // enabled for both models' customers, matching what their schemas
-  // actually support.
+  // actually support. T9 — p-median-brazil joins too (reuses p-median-us's
+  // addedCustomerSchema verbatim, B6.3/B2-T1).
   // Task 30 (B6.1 stage 4) — mines/stations join the add-mode set
   // (transportLp.ts's addedMineSchema/addedStationSchema both exist and are
   // transport-coal's only model, so no cross-model ambiguity to guard
@@ -433,7 +448,7 @@ export function parseAndValidateImport(
   // mints uid+displayCode client-side — CSV add-mode brings the backend in
   // line with what the frontend already does.
   const canAdd = entity === "warehouses"
-    || (entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au"))
+    || (entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au"))
     || entity === "mines" || entity === "stations" || entity === "refineries";
   // T11 — whether this row uses the uid+displayCode identity model (a blank
   // `id` cell means "add a new one", the server mints a fresh opaque uid,
@@ -714,7 +729,10 @@ export function parseAndValidateImport(
   // Cross-field warning (non-blocking): total capacity of the p highest-
   // capacity active warehouses vs total customer demand. P-median-only —
   // transport-coal has no P and no aggregate capacity-vs-demand check here.
+  // T9 — p-median-brazil compares against its own ~114M total region demand
+  // (BRAZIL_TOTAL_DEMAND), not p-median-us's 200-customer total.
   if (errors.length === 0 && entity === "warehouses") {
+    const totalDemand = modelId === "p-median-brazil" ? BRAZIL_TOTAL_DEMAND : TOTAL_DEMAND;
     const changeByIdMap = new Map(changes.map(c => [c.id, c]));
     const warehouseBaseline = baseline as unknown as Array<{ id: string; status: "active" | "forced_open" | "inactive"; capacity: number | null }>;
     const merged = [
@@ -736,10 +754,10 @@ export function parseAndValidateImport(
       .sort((a, b) => b - a);
     if (activeCapacities.length >= pValue) {
       const totalCapacityForP = activeCapacities.slice(0, pValue).reduce((s, c) => s + c, 0);
-      if (totalCapacityForP < TOTAL_DEMAND) {
+      if (totalCapacityForP < totalDemand) {
         warnings.push(
           `Total capacity of the ${pValue} highest-capacity active warehouses (${totalCapacityForP.toLocaleString()}) ` +
-          `is less than total customer demand (${TOTAL_DEMAND.toLocaleString()}).`,
+          `is less than total customer demand (${totalDemand.toLocaleString()}).`,
         );
       }
     }
