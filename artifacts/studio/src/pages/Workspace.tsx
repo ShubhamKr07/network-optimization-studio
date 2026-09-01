@@ -2136,6 +2136,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return (
         <OutputMapTab
           dataset={dataset}
+          // B2.1-T2 — the metric overlay resolves its distance unit from the
+          // model's manifest (useListModels), so the tab needs the active id.
+          modelId={modelId}
           // T6 — also displayedInputs, not localInputs: an unsaved
           // forced-open/inactive edit shouldn't retroactively re-style a
           // solve that's already on screen, for the same reason `bands`
