@@ -246,6 +246,17 @@ interface NetworkMapProps {
   // existing caller (Studio.tsx, tests) is unaffected without passing them.
   showWarehouseMarkers?: boolean;
   showCustomerMarkers?: boolean;
+  // T6/R7 (Output Map only) — when true, renders only warehouses the solver
+  // actually opened (getStatus resolves "open"/"forced_open"); every other
+  // candidate's MARKER is omitted. Deliberately narrower than
+  // showWarehouseMarkers: routes/tooltips/popups still resolve against the
+  // full `dataset` regardless (an opened warehouse's route always finds its
+  // endpoint), and closed warehouses never have routes in the first place
+  // (the solver only ever emits edges from opened ones), so this can't
+  // orphan a polyline the way filtering `dataset` itself would. Defaults to
+  // false so every existing caller (Studio.tsx, Input Map, tests) renders
+  // every candidate exactly as before.
+  hideClosedWarehouses?: boolean;
 }
 
 export function NetworkMap({
@@ -253,6 +264,7 @@ export function NetworkMap({
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
+  hideClosedWarehouses = false,
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
@@ -502,6 +514,7 @@ export function NetworkMap({
         {showWarehouseMarkers && dataset.warehouses.map((w) => {
           const status = getStatus(w.id);
           const isOpen = status === "open" || status === "forced_open";
+          if (hideClosedWarehouses && !isOpen) return null;
           const isHighlighted = w.id === selectedWarehouseId;
           const isDimmed = hasWarehouseFilter && !isHighlighted && isOpen;
 

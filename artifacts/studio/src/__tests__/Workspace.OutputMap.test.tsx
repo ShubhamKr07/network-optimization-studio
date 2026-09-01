@@ -87,6 +87,11 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace } from "@/pages/Workspace";
+import { useGetDataset, useGetScenario, useListScenarios } from "@workspace/api-client-react";
+
+const mockUseGetDataset = vi.mocked(useGetDataset);
+const mockUseGetScenario = vi.mocked(useGetScenario);
+const mockUseListScenarios = vi.mocked(useListScenarios);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -140,6 +145,65 @@ describe("Workspace — Output Map tab (real content, not the placeholder)", () 
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
 
     expect(screen.getByTestId("output-map-tab")).toBeInTheDocument();
+    expect(routePathCount(container)).toBe(1);
+  });
+});
+
+// T6/R7 — output map hides closed candidates, over the real Workspace
+// wiring (not just OutputMapTab.test.tsx's own component-level coverage).
+function warehouseMarkerCount(container: HTMLElement): number {
+  return container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon").length;
+}
+
+describe("Workspace — Output Map hides closed warehouses (T6/R7)", () => {
+  it("a closed candidate (never assigned by the solver) is absent from the Output Map", () => {
+    // Dataset has a second warehouse ("SF") the solved result never opens —
+    // solvedScenario/dataset's own CHI is the only entry in
+    // openWarehouseIds. SF must not render at all once Output Map is active.
+    const twoWarehouseDataset = {
+      ...dataset,
+      warehouses: [...dataset.warehouses, { id: "SF", city: "San Francisco", state: "CA", lat: 37.77, lng: -122.42 }],
+    };
+    mockUseGetDataset.mockReturnValue({ data: twoWarehouseDataset } as unknown as ReturnType<typeof useGetDataset>);
+
+    const { container } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+
+    // Only CHI (opened) renders — SF (closed candidate) is hidden.
+    expect(warehouseMarkerCount(container)).toBe(1);
+  });
+
+  it("an added warehouse the solver opened renders, along with its route to an added customer — even though neither exists in the base dataset", () => {
+    const addedScenario = {
+      ...solvedScenario,
+      inputs: {
+        ...pmedianInputs,
+        // Override CHI's own forced_open (this file's base pmedianInputs
+        // fixture) back to plain/unset — otherwise CHI would count as
+        // "open" regardless of openWarehouseIds and this test wouldn't
+        // actually exercise the closed-candidate-hidden path.
+        warehouseOverrides: [],
+        addedWarehouses: [{ id: "WH-ADDED", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, status: "active" }],
+        addedCustomers: [{ id: "C-ADDED", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, demand: 75 }],
+      },
+      result: {
+        ...solvedResult,
+        edges: [{ fromId: "WH-ADDED", toId: "C-ADDED", flow: 75, distance: 500 }],
+        details: { openWarehouseIds: ["WH-ADDED"], assignments: [] },
+      },
+    };
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseGetScenario.mockReturnValue({ data: addedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [addedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+
+    const { container } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+
+    // CHI (base warehouse) is closed under this result — hidden. Only the
+    // added, opened warehouse renders.
+    expect(warehouseMarkerCount(container)).toBe(1);
+    // The route only renders if NetworkMap resolves BOTH endpoints — proof
+    // the added warehouse+customer actually landed in the effective dataset.
     expect(routePathCount(container)).toBe(1);
   });
 });

@@ -205,6 +205,93 @@ describe("OutputMapTab — result gating", () => {
   });
 });
 
+// ── T6/R7 — effective dataset (added entities) + hideClosedWarehouses ─────
+describe("OutputMapTab — R7 output effective dataset + hide closed WHs", () => {
+  const twoWarehouseDataset = {
+    warehouses: [
+      { id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 },
+      { id: "W2", city: "Elsewhere", state: "TS", lat: 42, lng: -92 },
+    ],
+    customers: [{ id: "C1", city: "Nearburg", state: "SB", lat: 40.5, lng: -90.5, demand: 100 }],
+  };
+  const resultOpensW1Only = {
+    ...result,
+    edges: [{ fromId: "W1", toId: "C1", flow: 100, distance: 100 }],
+    details: { openWarehouseIds: ["W1"], assignments: [] },
+  };
+
+  it("hideClosedWarehouses omits the closed candidate's marker but leaves the opened one and its route", () => {
+    const { container } = render(
+      <OutputMapTab
+        dataset={twoWarehouseDataset}
+        warehouseStatuses={[]}
+        result={resultOpensW1Only}
+        bands={[250, 500, 750]}
+        hideClosedWarehouses
+      />,
+    );
+    expect(warehouseMarkerCount(container)).toBe(1);
+    expect(routePathCount(container)).toBe(1);
+  });
+
+  it("without hideClosedWarehouses (default), both warehouses' markers still render — unaffected legacy behavior", () => {
+    const { container } = render(
+      <OutputMapTab
+        dataset={twoWarehouseDataset}
+        warehouseStatuses={[]}
+        result={resultOpensW1Only}
+        bands={[250, 500, 750]}
+      />,
+    );
+    expect(warehouseMarkerCount(container)).toBe(2);
+  });
+
+  it("an added warehouse the solver opened renders on the map, along with its route to an added customer", () => {
+    const addedResult = {
+      ...result,
+      edges: [{ fromId: "W-ADDED", toId: "C-ADDED", flow: 100, distance: 100 }],
+      details: { openWarehouseIds: ["W-ADDED"], assignments: [] },
+    };
+    const { container } = render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={addedResult}
+        bands={[250, 500, 750]}
+        hideClosedWarehouses
+        addedWarehouses={[{ id: "W-ADDED", city: "New Town", state: "NT", lat: 39, lng: -89 }]}
+        addedCustomers={[{ id: "C-ADDED", city: "New Burg", state: "NB", lat: 39.5, lng: -89.5, demand: 50 }]}
+      />,
+    );
+    // Base warehouse W1 is closed (not in openWarehouseIds) so it's hidden;
+    // only the added, opened warehouse renders — exactly one marker.
+    expect(warehouseMarkerCount(container)).toBe(1);
+    // Base customers (C1, C2) plus the added one — customers are never
+    // filtered by open/closed.
+    expect(customerMarkerCount(container)).toBe(3);
+    // The route only renders at all if NetworkMap can resolve BOTH endpoints
+    // (W-ADDED, C-ADDED) via dataset.warehouses.find()/dataset.customers.find()
+    // — proving both added entities actually landed in the effective dataset,
+    // not just that some marker count happens to match.
+    expect(routePathCount(container)).toBe(1);
+  });
+
+  it("an added warehouse that the solver did NOT open stays hidden under hideClosedWarehouses", () => {
+    const { container } = render(
+      <OutputMapTab
+        dataset={twoWarehouseDataset}
+        warehouseStatuses={[]}
+        result={resultOpensW1Only}
+        bands={[250, 500, 750]}
+        hideClosedWarehouses
+        addedWarehouses={[{ id: "W-ADDED-CLOSED", city: "Ghost Town", state: "GT", lat: 39, lng: -89 }]}
+      />,
+    );
+    // Only W1 (opened) shows — W2 (closed, base) and W-ADDED-CLOSED (closed, added) are both hidden.
+    expect(warehouseMarkerCount(container)).toBe(1);
+  });
+});
+
 describe("OutputMapTab — copy/download", () => {
   it("shows the Copy to clipboard button when the Clipboard API is supported", () => {
     vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(true);

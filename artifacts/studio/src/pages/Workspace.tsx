@@ -1779,10 +1779,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // resolve first.
       const useBrazilMap = modelId === "p-median-brazil";
       if (!useBrazilMap && !dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      // T6/R7 — p-median-us only: hide closed candidates, and build the
+      // effective output dataset from THIS solve's own added
+      // warehouses/customers (displayedInputs, not localInputs — same
+      // snapshot principle as `bands` above), so an unsaved add/move or a
+      // stepped-back history result renders the geometry that solve
+      // actually used, not today's draft.
+      const isPMedianOutput = modelId === "p-median-us";
       return (
         <OutputMapTab
           dataset={dataset}
-          warehouseStatuses={warehouseStatusesFromInputs(localInputs, modelId)}
+          // T6 — also displayedInputs, not localInputs: an unsaved
+          // forced-open/inactive edit shouldn't retroactively re-style a
+          // solve that's already on screen, for the same reason `bands`
+          // reads displayedInputs (R5's displayedInputs principle, P1).
+          warehouseStatuses={warehouseStatusesFromInputs(displayedInputs, modelId)}
           result={activeTab.entity === "output-map" ? displayedResult : null}
           // T4 — displayedInputs, not localInputs: editing draft bands (Run
           // Optimizer dialog / Optimization Parameters) must not recolor a
@@ -1790,6 +1801,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           bands={distanceBandsFromInputs(displayedInputs)}
           countryBounds={activeModelManifest?.countryBounds}
           useBrazilMap={useBrazilMap}
+          addedWarehouses={isPMedianOutput ? addedWarehousesFromInputs(displayedInputs) : []}
+          addedCustomers={isPMedianOutput ? addedCustomersFromInputs(displayedInputs) : []}
+          hideClosedWarehouses={isPMedianOutput}
         />
       );
     }

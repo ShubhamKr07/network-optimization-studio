@@ -333,6 +333,84 @@ describe("NetworkMap remounts on countryBounds resolution", () => {
   });
 });
 
+// ── T6/R7 — hideClosedWarehouses (Output Map only) ─────────────────────────
+describe("NetworkMap hideClosedWarehouses", () => {
+  const twoWarehouseDataset = {
+    warehouses: [
+      { id: "W1", city: "Opened", state: "TS", lat: 40, lng: -90 },
+      { id: "W2", city: "Closed", state: "TS", lat: 41, lng: -91 },
+    ],
+    customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 40.5, lng: -90.5, demand: 100 }],
+  };
+  const resultOpensW1 = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [{ fromId: "W1", toId: "C1", flow: 100, distance: 50 }],
+    metrics: { weightedAvgDistance: 50, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["W1"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("renders only the opened warehouse's marker when hideClosedWarehouses is true", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={twoWarehouseDataset}
+        warehouseStatuses={[]}
+        result={resultOpensW1}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        hideClosedWarehouses
+      />,
+    );
+    expect(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")).toHaveLength(1);
+    expect(container.textContent).not.toContain("Closed");
+  });
+
+  it("renders BOTH warehouses' markers when hideClosedWarehouses is false (default) — unchanged legacy behavior", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={twoWarehouseDataset}
+        warehouseStatuses={[]}
+        result={resultOpensW1}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    expect(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")).toHaveLength(2);
+  });
+
+  it("still renders the opened warehouse's route and the (unaffected) customer marker when hideClosedWarehouses is true", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={twoWarehouseDataset}
+        warehouseStatuses={[]}
+        result={resultOpensW1}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        hideClosedWarehouses
+      />,
+    );
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    expect((routeHtml.match(/<path/g) ?? []).length).toBe(1);
+    expect(container.querySelectorAll(".leaflet-overlay-pane path.leaflet-interactive")).toHaveLength(1);
+  });
+});
+
 describe("NetworkMap MapContainer boxZoom", () => {
   it("disables Leaflet's boxZoom so it doesn't collide with shift-click multi-select", () => {
     render(

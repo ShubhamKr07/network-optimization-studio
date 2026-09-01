@@ -18,6 +18,23 @@ interface WarehouseStatusEntry {
   status: "forced_open" | "inactive";
 }
 
+// T6/R7 — the minimal shape this tab needs from a scenario's
+// addedWarehouses/addedCustomers (Workspace.tsx's own AddedWarehouse/
+// AddedCustomer types carry extra fields — capacity/status/displayCode —
+// this tab doesn't need any of them; a route/marker only needs id+coords,
+// a customer marker also needs demand).
+interface EffectiveAddedWarehouse {
+  id: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+}
+
+interface EffectiveAddedCustomer extends EffectiveAddedWarehouse {
+  demand: number;
+}
+
 interface OutputMapTabProps {
   // Optional — undefined for p-median-brazil (useBrazilMap=true), which has
   // no `GET /dataset` support at all (see Workspace.tsx's comment on this
@@ -44,6 +61,21 @@ interface OutputMapTabProps {
    * instead of NetworkMap. Mirrors Studio.tsx's own `modelId ===
    * "p-median-brazil" ? <BrazilMap .../> : ...` branch (Studio.tsx:1542). */
   useBrazilMap?: boolean;
+  // T6/R7 — p-median-us only. Workspace.tsx's own addedWarehousesFromInputs/
+  // addedCustomersFromInputs applied to the DISPLAYED solve's inputs
+  // snapshot (displayedInputs), never the editable localInputs draft — so
+  // an unsaved add/move, or stepping the result-history stepper to an older
+  // entry, always shows the geometry that solve actually used. Unioned
+  // onto `dataset` below to build R7's "effective output dataset" (base +
+  // added) — filtering `dataset` alone would silently drop an opened added
+  // warehouse (and its route), since it doesn't exist in the base dataset.
+  addedWarehouses?: EffectiveAddedWarehouse[];
+  addedCustomers?: EffectiveAddedCustomer[];
+  // T6/R7 — when true, the map renders only warehouses the solver actually
+  // opened; closed candidates are omitted. Only ever true for p-median-us
+  // (Workspace.tsx's call site) — every other model's Output Map is
+  // unaffected (defaults to false, same as NetworkMap's own prop).
+  hideClosedWarehouses?: boolean;
 }
 
 // A3.1 — Output Map tab: re-homes NetworkMap with independent layer toggles
@@ -57,7 +89,10 @@ interface OutputMapTabProps {
 // NetworkMap change either — passing an empty bands array makes
 // assignBand()/getBandColor() resolve every edge to the same band-0 color,
 // which NetworkMap already does unmodified.
-export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countryBounds, useBrazilMap }: OutputMapTabProps) {
+export function OutputMapTab({
+  dataset, warehouseStatuses, result, bands, countryBounds, useBrazilMap,
+  addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false,
+}: OutputMapTabProps) {
   const [showWarehouses, setShowWarehouses] = useState(true);
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
@@ -156,6 +191,23 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
 
   if (!dataset) return null;
 
+  // T6/R7 — effective output dataset: base dataset ∪ this solve snapshot's
+  // added warehouses/customers, at THEIR solve-time coordinates
+  // (addedWarehouses/addedCustomers are already sourced from
+  // displayedInputs by the caller — see this prop's own comment). Both
+  // default to [] for every model that doesn't pass them, so this is a
+  // no-op merge (dataset unchanged) everywhere except p-median-us.
+  const effectiveDataset: Dataset = {
+    warehouses: [
+      ...dataset.warehouses,
+      ...addedWarehouses.map(w => ({ id: w.id, city: w.city, state: w.state, lat: w.lat, lng: w.lng })),
+    ],
+    customers: [
+      ...dataset.customers,
+      ...addedCustomers.map(c => ({ id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.demand })),
+    ],
+  };
+
   return (
     <div className="h-full flex flex-col gap-3" data-testid="output-map-tab">
       <div className="flex items-center gap-5 flex-wrap flex-shrink-0" data-testid="output-map-toggles">
@@ -206,7 +258,7 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
 
       <div className="flex-1 min-h-0" ref={mapRef}>
         <NetworkMap
-          dataset={dataset}
+          dataset={effectiveDataset}
           warehouseStatuses={warehouseStatuses}
           result={result}
           showRoutes={showLanes}
@@ -218,6 +270,7 @@ export function OutputMapTab({ dataset, warehouseStatuses, result, bands, countr
           multiSelectedCustomerIds={[]}
           onToggleWarehouseMultiSelect={() => {}}
           onToggleCustomerMultiSelect={() => {}}
+          hideClosedWarehouses={hideClosedWarehouses}
         />
       </div>
     </div>

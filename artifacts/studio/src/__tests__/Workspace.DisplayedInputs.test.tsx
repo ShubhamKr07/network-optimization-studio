@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 // T4/R5 — `displayedInputs` is the inputs snapshot that PRODUCED the
 // currently-displayed solve (mirrors `displayedResult`), never the editable
@@ -100,6 +101,10 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace } from "@/pages/Workspace";
+import { useGetScenario, useGetSolveJob } from "@workspace/api-client-react";
+
+const mockUseGetScenario = vi.mocked(useGetScenario);
+const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -107,6 +112,17 @@ function renderWorkspace() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // `clearAllMocks()` clears call history but not a previously-set
+  // `mockReturnValue` — reset these defensively every test (same convention
+  // Workspace.test.tsx's own beforeEach already uses) so a later test's
+  // scenario-swap (used by the T6 history-stepper tests below) can't leak
+  // into an unrelated earlier-ordered test.
+  mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
+  mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
+  // Same reasoning — a leftover `mockImplementation` from an earlier test
+  // (the T6 history-stepper tests below set one) must not leak forward.
+  mockUpdateScenario.mutate.mockReset();
+  mockSolveScenario.mutate.mockReset();
 });
 
 describe("Workspace — displayedInputs snapshot (T4/R5)", () => {
