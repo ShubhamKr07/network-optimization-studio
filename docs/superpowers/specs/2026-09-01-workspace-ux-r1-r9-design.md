@@ -1,6 +1,6 @@
 # Workspace UX changes (R1–R9) — Design Spec (Bundle 1)
 
-**Date:** 2026-09-01 (rev. 2 — incorporates review round)
+**Date:** 2026-09-01 (rev. 3 — plan-review round: displayedInputs snapshot, capability-driven compare metrics, excluded dim-visible, unit propagation)
 **Status:** Reviewed — ready for planning
 **Context:** Post-Input-Map-v2 UX/bug batch. Nine changes across the p-median-us Input Map symbology, the solve flow, the Solution Summary (compare rebuild), the Output Map, and Service Stats.
 **Execution:** Bundle 1 of 3 → e2e → deploy, then Bundle 2 (multi-model editor extension), then Bundle 3 (new models).
@@ -35,7 +35,7 @@ Map/output items (**R1, R2, R3, R4, R7**) are **p-median-us first**. Solve-flow 
 
 ## R2 — Quintile demand-bubble sizing (p-median-us) — deterministic spec
 
-- **Population:** the current scenario's customers that participate in the map — base customers **not excluded** (per `customerOverrides` status `"excluded"`) plus added customers. **Excluded customers are omitted** from the scale (and not rendered/sized).
+- **Population:** the current scenario's customers that participate in the map — base customers **not excluded** (per `customerOverrides` status `"excluded"`) plus added customers. **Excluded customers are omitted from the quintile scale** but stay **dim-visible at a fixed neutral radius** — the shipped click-to-un-exclude affordance is preserved; they are **not** hidden.
 - **Algorithm:** sort the participating demands ascending; compute the 20/40/60/80th percentile thresholds by **linear interpolation between closest ranks** (the `type=7`/`numpy.percentile` default). Assign a customer to bucket `k` (0–4) by **lower-inclusive, upper-exclusive** bands: bucket 0 = `demand ≤ p20`; bucket `k` = `p_{20k} < demand ≤ p_{20(k+1)}`; bucket 4 = `demand > p80`. (Exactly-on-threshold → the lower bucket.)
 - **Radii:** 5 fixed stepped radii across a widened range (e.g. 5/8/11/14/17px, tuned in-app).
 - **Legend:** 5 reference bubbles labeled with each bucket's demand range (the threshold values). **Repeated thresholds** (e.g. many identical demands) that collapse buckets → collapse the legend to the distinct sizes actually used; never render an empty/degenerate bucket row.
@@ -60,6 +60,7 @@ Correcting the review's P1: Workspace has **no** post-solve band lens (that live
 
 - `SolveDialog` (Run Optimizer) gains a **distance-band range editor**, prefilled from the scenario's current `inputs.distanceBands` (default = the model's manifest default). On solve it writes the edited bands to `inputs.distanceBands` (saved) **before** enqueue — the existing save-then-solve path. The same `inputs.distanceBands` remains editable in the **Optimization Parameters** tab (they're the same field/state — one source of truth, `solveBands`).
 - These bands drive band-coverage, Output Map band coloring, and the next solve. **No** transient `reportBands` / re-band-without-re-solve in Workspace.
+- **`displayedInputs` snapshot (critical):** every OUTPUT surface (Output Map band coloring, band coverage, Service Stats, R7's effective dataset) reads the bands (and coords) of the **displayed solve** — a `displayedInputs` derived alongside the existing `displayedResult` — **never** the editable `localInputs` draft. So editing bands in the dialog / Optimization Parameters, or an unsaved entity move, does **not** recolor or re-geometry the currently-displayed (older) solution. This is what keeps R5 a solve-input rather than a post-solve lens.
 - **Distance unit (review P2):** add a **distance-unit** to the manifest/registry (`"mi"` for US models, `"km"` for two-echelon-gold-au); the bands editor label displays the correct unit. (Optional metadata; existing models default to `"mi"`.)
 - **Acceptance:** editing bands in Run Optimizer → solve uses them; bands persist and match the Optimization Parameters tab; the editor shows the model's unit; band coverage/Output-Map coloring reflect the solved bands.
 
@@ -71,7 +72,7 @@ Rebuilds compare (removed in Phase 3.2), folded into Solution Summary, baseline-
 - **Result source:** compare reads each selected scenario's **latest persisted `result`** (`GET /scenarios/:id`). While the **active** scenario is browsing session **result-history** (a non-latest `displayedResult`), the compare toggles are **disabled** with a hint to return to the latest result — so a historical view never silently becomes a compare column. No new compare endpoint; the deleted `POST /scenarios/compare` is not resurrected (batch-vs-N-fetch decided in planning).
 - **View:**
   - **1 selected** → today's normal single-scenario Solution Summary (unchanged), including its Download CSV.
-  - **2–4 selected** → a side-by-side table: **columns = scenarios** (selection order, no baseline), **rows = scalar metrics**: objective, open-warehouse count, weighted-avg distance, **aggregate warehouse utilization** (one scalar per scenario — e.g. mean utilization across that scenario's open warehouses; NOT per-facility, since open-facility ids differ across columns), and the scalar service-stats numbers. **Per-band coverage** rows appear **only when all selected scenarios share identical band boundaries** (compare their coverage band-for-band); if bands differ (R5 makes them a per-scenario input), those rows are replaced with a short note listing each scenario's own bands — never re-bucketed onto a shared axis. The single-scenario **Download CSV is hidden in compare mode** (compare is a read-only side-by-side; a combined export is a later follow-up, not this bundle).
+  - **2–4 selected** → a side-by-side table: **columns = scenarios** (selection order, no baseline); **rows via a capability-driven metric registry** (do NOT assume facility-location for every model): **always** — objective, weighted-avg distance (with the model's `distanceUnit`), runtime, quality; **facility-location models only** (p-median-us/brazil via a capability flag; NOT transport-coal where every mine is "open", NOR two-echelon whose utilization array holds closed refineries at 0) — **open-facility count** + **aggregate utilization** (mean of `utilizationByNode[].utilization` over **opened** nodes only; empty/no-facility → **N/A**, never a wrong number). **Per-band coverage** rows appear **only when all selected scenarios share identical band boundaries** (compare their coverage band-for-band); if bands differ (R5 makes them a per-scenario input), those rows are replaced with a short note listing each scenario's own bands — never re-bucketed onto a shared axis. The single-scenario **Download CSV is hidden in compare mode** (compare is a read-only side-by-side; a combined export is a later follow-up, not this bundle).
 - **Acceptance:** 2–4 solved same-model scenarios show scalar metrics side by side; an unsolved scenario can't be added; 1 selected shows the normal summary; browsing history disables the compare toggles; cross-model selection impossible.
 
 ## R7 — Output Map hides closed candidates (p-median-us)
@@ -82,7 +83,7 @@ Rebuilds compare (removed in Phase 3.2), folded into Solution Summary, baseline-
 
 ## R9 — Service Stats graph label
 
-- Label the Service Stats chart **"Percent of demand served within the selected distance bands"** (title or y-axis, whichever is clearer on the existing chart). This matches the actual metric: `metrics.bandCoverage[].percent` is **demand/flow-weighted**, not a customer count — the originally-requested "percent of customers" wording would misrepresent the data. **No logic change** (label only); the metric and its solve-time snapshot semantics are unchanged.
+- Label the Service Stats chart **"Percent of demand served within the selected distance bands"** (title or y-axis, whichever is clearer on the existing chart). This matches the actual metric: `metrics.bandCoverage[].percent` is **demand/flow-weighted**, not a customer count — the originally-requested "percent of customers" wording would misrepresent the data. **No metric/logic change** (label only); the metric and its solve-time snapshot semantics are unchanged. The chart's band labels use the model's `distanceUnit` (mi/km) rather than a hardcoded unit. (Unit threading also covers CostSummaryTab's weighted-distance row and the compare cells, which hardcode `mi` today.)
 - **Acceptance:** the corrected, demand-based label is present on the chart.
 
 ---
