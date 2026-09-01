@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
+import { useListModels } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -71,6 +72,11 @@ interface OutputMapTabProps {
   // are omitted. Every other model's Output Map is unaffected (defaults to
   // false, same as NetworkMap's own prop).
   hideClosedWarehouses?: boolean;
+  // B2.1-T2 (item 2) — resolves the metric overlay's distance unit via
+  // useListModels(), same pattern as ServiceStatsTab's own optional
+  // modelId prop. Optional/defaults to "mi" so any call site that hasn't
+  // threaded it through yet keeps compiling unchanged.
+  modelId?: string;
 }
 
 // A3.1 — Output Map tab: re-homes NetworkMap with independent layer toggles
@@ -86,7 +92,7 @@ interface OutputMapTabProps {
 // which NetworkMap already does unmodified.
 export function OutputMapTab({
   dataset, warehouseStatuses, result, bands, countryBounds,
-  addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false,
+  addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false, modelId,
 }: OutputMapTabProps) {
   const [showWarehouses, setShowWarehouses] = useState(true);
   const [showCustomers, setShowCustomers] = useState(true);
@@ -94,6 +100,14 @@ export function OutputMapTab({
   const [colorByBand, setColorByBand] = useState(true);
   const mapRef = useRef<HTMLDivElement>(null);
   const [clipboardSupported] = useState(() => isClipboardImageWriteSupported());
+
+  // B2.1-T2 (item 2) — same distanceUnit-resolution pattern as
+  // ServiceStatsTab.tsx: model manifest (G1.1) via GET /api/models,
+  // defaulting to "mi" both when the field is absent and while
+  // models/modelId haven't resolved yet.
+  const { data: models } = useListModels();
+  const activeModel = models?.find(m => m.id === modelId) as { distanceUnit?: string } | undefined;
+  const distanceUnit = activeModel?.distanceUnit ?? "mi";
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const mapBands = colorByBand ? effectiveBands : [];
@@ -219,7 +233,30 @@ export function OutputMapTab({
         )}
       </div>
 
-      <div className="flex-1 min-h-0" ref={mapRef}>
+      <div className="flex-1 min-h-0 relative" ref={mapRef}>
+        {/* B2.1-T2 (item 2) — floating objective/weighted-avg-distance card.
+            `result` here is `displayedResult` at the Workspace.tsx call
+            site, so this follows the result-history stepper automatically.
+            pointer-events-none so it never blocks map pan/zoom/click;
+            top-right is otherwise unused (NetworkMap's own legend is
+            bottom-right, Leaflet's zoom control is top-left). */}
+        {result && (
+          <div
+            data-testid="output-map-metric-overlay"
+            className="absolute top-2 right-2 z-[1000] pointer-events-none bg-background/80 backdrop-blur rounded-md border shadow px-2.5 py-1.5 text-xs leading-tight"
+          >
+            <div>
+              <span className="text-muted-foreground">Objective: </span>
+              <span className="font-medium">{result.objective.toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Weighted avg distance: </span>
+              <span className="font-medium">
+                {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
+              </span>
+            </div>
+          </div>
+        )}
         <NetworkMap
           dataset={effectiveDataset}
           warehouseStatuses={warehouseStatuses}
