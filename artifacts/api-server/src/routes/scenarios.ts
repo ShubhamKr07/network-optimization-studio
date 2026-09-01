@@ -44,6 +44,7 @@ import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
+import { fillEstimatedDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
@@ -109,7 +110,7 @@ router.post("/scenarios", async (req, res) => {
     name: body.name,
     userId: req.userId!,
     modelId: body.modelId,
-    inputs: validation.data,
+    inputs: normalizePMedianInputs(body.modelId, validation.data),
     result: null,
   }).returning();
 
@@ -154,7 +155,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
       res.status(422).json({ error: validation.error });
       return;
     }
-    updateObj.inputs = validation.data;
+    updateObj.inputs = normalizePMedianInputs(existing.modelId, validation.data);
     updateObj.inputsUpdatedAt = new Date();
   }
   if (body.result !== undefined) updateObj.result = body.result;
@@ -241,6 +242,18 @@ const SOLVE_RETRY_AFTER_SECONDS = 30;
 // already-validated (validateInputsForModel's `.data`), so the casts are
 // safe exactly where they're used, same pattern as this file's existing
 // `as SolveInput` cast below.
+// T1 (Input Map v2) — auto-estimate normalizer, run on every p-median-us
+// persist path (POST create, PATCH, import/apply, below) right before the
+// already-validated inputs are written to the DB row. p-median-us only
+// (not p-median-brazil, which shares the same schema but a different base
+// dataset/geography this task hasn't threaded through yet) — every other
+// modelId falls through unchanged.
+function normalizePMedianInputs(modelId: string, data: Record<string, unknown>): Record<string, unknown> {
+  return modelId === "p-median-us"
+    ? (fillEstimatedDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>)
+    : data;
+}
+
 function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
   if (modelId === "p-median-us") {
     return precheckPMedianInputs(inputs as unknown as PMedianInputs);
@@ -546,8 +559,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       refineryOverrides?: Parameters<typeof buildLegDistanceStubRows>[1]["refineryOverrides"];
       customerOverrides?: Parameters<typeof buildLegDistanceStubRows>[1]["customerOverrides"];
       distanceOverrides?: Parameters<typeof applyDistanceOverrides>[0];
-      addedRefineries?: Parameters<typeof buildLegDistanceStubRows>[1]["addedRefineries"];
-      addedCustomers?: Parameters<typeof buildLegDistanceStubRows>[1]["addedCustomers"];
+      // T11 (multi-model expansion) — widened from
+      // buildLegDistanceStubRows's own narrower stub-generator shape (which
+      // only needs `id` for reference-integrity, not the full row) to
+      // applyRefineryOverrides/applyGoldCustomerOverrides' own added-entity
+      // param types, needed for the CSV/JSON export merge just below.
+      addedRefineries?: Parameters<typeof applyRefineryOverrides>[1];
+      addedCustomers?: Parameters<typeof applyGoldCustomerOverrides>[1];
     };
 
     // B6.2 stage 4 — legDistances is a wholly different shape (composite-
@@ -596,16 +614,19 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       event: "scenario data exported",
       properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
     });
+    // T11 (multi-model expansion) — both now take a second addedX param
+    // (mirroring applyWarehouseOverrides/applyCustomerOverrides), since
+    // add-mode is enabled for both entities here now.
     if (format === "csv") {
       const csv = entity === "refineries"
-        ? refineryRowsToCsv(applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0]))
-        : customerRowsToCsv(applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0]));
+        ? refineryRowsToCsv(applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0], inputs.addedRefineries ?? []))
+        : customerRowsToCsv(applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0], inputs.addedCustomers ?? []));
       res.type("text/csv").send(csv);
       return;
     }
     const rows = entity === "refineries"
-      ? applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0])
-      : applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0]);
+      ? applyRefineryOverrides((inputs.refineryOverrides ?? []) as Parameters<typeof applyRefineryOverrides>[0], inputs.addedRefineries ?? [])
+      : applyGoldCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyGoldCustomerOverrides>[0], inputs.addedCustomers ?? []);
     res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
     return;
   }
@@ -719,20 +740,62 @@ function mergeChangesIntoOverrides(
 // no status field either (mines have no status concept at all, matching
 // templates.ts's own MineOverride) — c.after.status is simply never read for
 // it, mirroring how addedCustomers never reads it today.
+// T11 — warehouses/customers/refineries/mines/stations all carry
+// `c.displayCode` now (services/import.ts's uid identity model — see its
+// own header comment), matching pMedian.ts's addedWarehouseSchema/
+// addedCustomerSchema, twoEchelon.ts's addedRefinerySchema/
+// addedCustomerSchema, and transportLp.ts's addedMineSchema/
+// addedStationSchema's optional `displayCode` field (Step A).
 function mergeAddChangesIntoAdded(
-  entity: "warehouses" | "customers" | "mines" | "stations",
+  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries",
   currentAdded: Array<Record<string, unknown>>,
   addChanges: ImportRowChange[],
 ): Array<Record<string, unknown>> {
   const newEntities = addChanges.map(c => (
     entity === "warehouses"
-      ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value, status: c.after.status }
+      : entity === "customers"
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
+      // Refineries — no capacity field at all (twoEchelon.ts's
+      // addedRefinerySchema has none, see its own header comment).
+      : entity === "refineries"
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, status: c.after.status }
       : entity === "mines"
-      ? { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
-      // customers | stations — same demand-only shape.
-      : { id: c.id, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
+      // stations — same demand-only shape as mines, displayCode included.
+      : { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
   ));
   return [...currentAdded, ...newEntities];
+}
+
+// T11 — merges CSV update_added changes (services/import.ts's
+// `changeType: "update_added"`, an id matching an already-added entity's
+// stable uid) directly into addedWarehouses/addedCustomers/addedRefineries/
+// addedMines/addedStations, replacing that entity's capacity/status (or
+// demand) in place. Deliberately never touches city/state/lat/lng/
+// displayCode — see import.ts's own comment on isUpdateAdded for the full
+// reasoning (moving/renaming an added entity stays the map's Move/Edit
+// dialogs' job).
+function mergeUpdateAddedChanges(
+  entity: "warehouses" | "customers" | "refineries" | "mines" | "stations",
+  currentAdded: Array<Record<string, unknown>>,
+  updateAddedChanges: ImportRowChange[],
+): Array<Record<string, unknown>> {
+  const changeById = new Map(updateAddedChanges.map(c => [c.id, c]));
+  return currentAdded.map(row => {
+    const change = changeById.get(row.id as string);
+    if (!change) return row;
+    return entity === "warehouses"
+      ? { ...row, capacity: change.after.value, status: change.after.status }
+      : entity === "customers" || entity === "stations"
+      ? { ...row, demand: change.after.value }
+      // Mines — capacity only, no status field at all (matches
+      // mergeAddChangesIntoAdded above).
+      : entity === "mines"
+      ? { ...row, capacity: change.after.value }
+      // Refineries — status only, mirroring mergeAddChangesIntoAdded above.
+      : { ...row, status: change.after.status };
+  });
 }
 
 // Transport-coal's mines/stations persist overrides as sparse dicts
@@ -910,9 +973,16 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     // mineCapacities/stationDemands sparse dict; ordinary UPDATE changes keep
     // going through the pre-existing dict merge. Same split
     // warehouses/customers already do below, generalized to the dict-backed
-    // pair.
-    const updateChanges = preview.changes.filter(c => c.changeType !== "add");
+    // pair. T11 (Step A) — a third group, update_added (an id matching an
+    // already-added mine/station's uid), also writes into
+    // addedMines/addedStations — by replacing that entity's own record in
+    // place (mergeUpdateAddedChanges), never through the mineCapacities/
+    // stationDemands dict (which is base-id-keyed only; an added entity's
+    // own record is authoritative for its fields, matching templates.ts's
+    // applyMineOverrides/applyStationOverrides).
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add" && c.changeType !== "update_added");
     const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const updateAddedChanges = preview.changes.filter(c => c.changeType === "update_added");
 
     const overrideKey = entity === "mines" ? "mineCapacities" : "stationDemands";
     const currentDict = inputs[overrideKey] ?? {};
@@ -920,7 +990,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
     const addedKey = entity === "mines" ? "addedMines" : "addedStations";
     const currentAdded = (inputs[addedKey] ?? []) as Array<Record<string, unknown>>;
-    const nextAdded = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const addedAfterAppend = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const nextAdded = mergeUpdateAddedChanges(entity, addedAfterAppend, updateAddedChanges);
 
     nextInputs = { ...inputs, [overrideKey]: nextDict, [addedKey]: nextAdded };
 
@@ -943,13 +1014,19 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     nextInputs = { ...inputs, laneCostOverrides: nextLaneCostOverrides };
   } else if (entity === "warehouses" || entity === "customers") {
     // B4.2 — ADD-classified changes (services/import.ts's changeType:"add",
-    // unrecognized id + valid new-entity data) write into
-    // addedWarehouses/addedCustomers instead of warehouseOverrides/
-    // customerOverrides; ordinary UPDATE changes keep going through the
-    // pre-existing override merge. Two different write targets from one
-    // `preview.changes` array, split by changeType.
-    const updateChanges = preview.changes.filter(c => c.changeType !== "add");
+    // blank id + valid new-entity data — T11 changed the trigger from
+    // "unrecognized non-blank id") write into addedWarehouses/
+    // addedCustomers instead of warehouseOverrides/customerOverrides;
+    // ordinary UPDATE changes keep going through the pre-existing override
+    // merge. T11 adds a third group — update_added changes (an id matching
+    // an already-added entity's stable uid) — which also write into
+    // addedWarehouses/addedCustomers, but by replacing that entity's own
+    // record in place (mergeUpdateAddedChanges), never through
+    // warehouseOverrides/customerOverrides. Three different write targets
+    // from one `preview.changes` array, split by changeType.
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add" && c.changeType !== "update_added");
     const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const updateAddedChanges = preview.changes.filter(c => c.changeType === "update_added");
 
     const overrideKey = entity === "warehouses" ? "warehouseOverrides" : "customerOverrides";
     const currentOverrides = (inputs[overrideKey] ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
@@ -957,7 +1034,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
     const addedKey = entity === "warehouses" ? "addedWarehouses" : "addedCustomers";
     const currentAdded = (inputs[addedKey] ?? []) as Array<Record<string, unknown>>;
-    const nextAdded = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const addedAfterAppend = mergeAddChangesIntoAdded(entity, currentAdded, addChanges);
+    const nextAdded = mergeUpdateAddedChanges(entity, addedAfterAppend, updateAddedChanges);
 
     nextInputs = { ...inputs, [overrideKey]: nextOverrides, [addedKey]: nextAdded };
 
@@ -985,10 +1063,40 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     const nextDistanceOverrides = mergeDistanceChangesIntoOverrides(currentDistanceOverrides, preview.changes);
     nextInputs = { ...inputs, distanceOverrides: nextDistanceOverrides };
   } else {
+    // entity === "refineries" (the only entity that reaches this final
+    // else). T11 — refineries joins warehouses/customers' 3-way changeType
+    // split (see that branch's own comment): WarehousesTab.tsx already
+    // mints a uid+displayCode for added refineries (reused per B6.2), so
+    // ADD/update_added need the same addedRefineries write target.
+    const updateChanges = preview.changes.filter(c => c.changeType !== "add" && c.changeType !== "update_added");
+    const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const updateAddedChanges = preview.changes.filter(c => c.changeType === "update_added");
+
     const currentOverrides = (inputs.refineryOverrides ?? []) as Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>;
-    const nextOverrides = mergeChangesIntoOverrides("refineries", currentOverrides, preview.changes);
-    nextInputs = { ...inputs, refineryOverrides: nextOverrides };
+    const nextOverrides = mergeChangesIntoOverrides("refineries", currentOverrides, updateChanges);
+
+    const currentAdded = (inputs.addedRefineries ?? []) as Array<Record<string, unknown>>;
+    const addedAfterAppend = mergeAddChangesIntoAdded("refineries", currentAdded, addChanges);
+    const nextAdded = mergeUpdateAddedChanges("refineries", addedAfterAppend, updateAddedChanges);
+
+    nextInputs = { ...inputs, refineryOverrides: nextOverrides, addedRefineries: nextAdded };
+
+    // Re-validate the merged shape against twoEchelon.ts's Zod schema before
+    // persisting — same convention warehouses/customers/mines/stations
+    // already follow above.
+    const revalidated = validateInputsForModel(scenario.modelId, nextInputs);
+    if (!revalidated.success) {
+      res.status(422).json({ error: revalidated.error });
+      return;
+    }
+    nextInputs = revalidated.data;
   }
+
+  // T1 (Input Map v2) — an imported "add" row (warehouses/customers/
+  // distances) can leave newly-added entities without a complete distance
+  // set the same way a map-added entity can; run the same normalizer here
+  // too so every persist path stays consistent.
+  nextInputs = normalizePMedianInputs(scenario.modelId, nextInputs);
 
   const [updated] = await db.update(scenariosTable)
     .set({

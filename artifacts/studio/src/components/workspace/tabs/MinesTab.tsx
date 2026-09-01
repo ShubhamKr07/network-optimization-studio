@@ -12,6 +12,8 @@ import {
   idCollisionMessageForMine,
   type PrecheckErrorLike,
 } from "@/lib/precheckDisplay";
+import { lookupCity } from "@/lib/gazetteer";
+import { newUid, nextDisplayCode } from "@/lib/entityId";
 
 interface MineRow { id: string; city: string; state: string; lat: number; lng: number; zip?: string; }
 
@@ -24,6 +26,10 @@ interface MineRow { id: string; city: string; state: string; lat: number; lng: n
 // nullable/optional — a blank capacity on an added mine is a deliberate,
 // valid "unconstrained" state (matches solve.py's get_base_capacity
 // None-means-unconstrained convention), NOT a required field.
+// T11 (Input Map v2 identity model, Step A) — `id` is now a hidden T3
+// stable uid (`am-<uuid>`, minted via `newUid("mn")`), never typed;
+// `displayCode` is the human-facing, collision-checked label, matching
+// WarehousesTab.tsx's own T9 migration exactly.
 export interface AddedMine {
   id: string;
   city: string;
@@ -31,6 +37,7 @@ export interface AddedMine {
   lat: number;
   lng: number;
   capacity?: number | null;
+  displayCode?: string;
 }
 
 interface MinesTabProps {
@@ -84,13 +91,56 @@ export function MinesTab({
 
   // B5.2-mirrored add-row form draft state.
   const [addingRow, setAddingRow] = useState(false);
-  const [newId, setNewId] = useState("");
   const [newCity, setNewCity] = useState("");
   const [newState, setNewState] = useState("");
   const [newLat, setNewLat] = useState("");
   const [newLng, setNewLng] = useState("");
   const [newCapacity, setNewCapacity] = useState("");
+  const [newDisplayCode, setNewDisplayCode] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // T11 (Step A) — grid-mirror, mirroring WarehousesTab.tsx's own T9
+  // migration exactly: `id` is a hidden T3 stable uid minted at commit time
+  // (never typed, never shown), `displayCode` (T3's nextDisplayCode) is the
+  // human-facing label auto-filled from City/State via T2's gazetteer, same
+  // "touched" tracking as WarehousesTab. There is no more manual "ID" input
+  // or id-collision check — a random uid can't meaningfully collide.
+  const [latTouched, setLatTouched] = useState(false);
+  const [lngTouched, setLngTouched] = useState(false);
+  const [displayCodeTouched, setDisplayCodeTouched] = useState(false);
+
+  function touchLat() {
+    if (!latTouched) {
+      setLatTouched(true);
+      setNewLat("");
+    }
+  }
+  function touchLng() {
+    if (!lngTouched) {
+      setLngTouched(true);
+      setNewLng("");
+    }
+  }
+  function touchDisplayCode() {
+    if (!displayCodeTouched) {
+      setDisplayCodeTouched(true);
+      setNewDisplayCode("");
+    }
+  }
+
+  function handleCityStateBlur() {
+    const city = newCity.trim();
+    const state = newState.trim();
+    if (!city || !state) return;
+    const hit = lookupCity(city, state);
+    if (!hit) return;
+    if (!latTouched) setNewLat(String(hit.lat));
+    if (!lngTouched) setNewLng(String(hit.lng));
+    if (!displayCodeTouched) {
+      const existingCodes = addedMines.map(m => m.displayCode).filter((c): c is string => !!c);
+      setNewDisplayCode(nextDisplayCode("mn", state, city, existingCodes));
+    }
+  }
 
   // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
   useEffect(() => {
@@ -101,8 +151,6 @@ export function MinesTab({
     onPrefillConsumed?.();
   }, [prefillCoords, onPrefillConsumed]);
 
-  const knownMineIds = new Set([...mines.map(m => m.id), ...addedMines.map(m => m.id)]);
-
   function upsertAdded(id: string, patch: Partial<AddedMine>) {
     if (!onAddedMinesChange) return;
     onAddedMinesChange(addedMines.map(m => (m.id === id ? { ...m, ...patch } : m)));
@@ -110,28 +158,35 @@ export function MinesTab({
 
   function resetAddForm() {
     setAddingRow(false);
-    setNewId("");
     setNewCity("");
     setNewState("");
     setNewLat("");
     setNewLng("");
     setNewCapacity("");
+    setNewDisplayCode("");
+    setLatTouched(false);
+    setLngTouched(false);
+    setDisplayCodeTouched(false);
     setAddError(null);
   }
 
   function handleAddRow() {
-    const id = newId.trim();
     const city = newCity.trim();
     const state = newState.trim();
     const lat = parseFloat(newLat);
     const lng = parseFloat(newLng);
 
-    if (!id || !city || !state) {
-      setAddError("ID, city, and state are all required.");
+    if (!city || !state) {
+      setAddError("City and state are both required.");
       return;
     }
-    if (knownMineIds.has(id)) {
-      setAddError(`ID '${id}' is already in use by another mine in this scenario.`);
+    // T11 (Step A) — displayCode is now the user-facing, collision-checked
+    // field (the old "ID" input's role), since `id` is a hidden uid that
+    // can't meaningfully collide. Mirrors WarehousesTab's own T9 comment
+    // exactly.
+    const displayCode = newDisplayCode.trim() || undefined;
+    if (displayCode && addedMines.some(m => m.displayCode === displayCode)) {
+      setAddError(`Display code '${displayCode}' is already in use by another mine in this scenario.`);
       return;
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -151,7 +206,8 @@ export function MinesTab({
       capacity = parsed;
     }
 
-    onAddedMinesChange?.([...addedMines, { id, city, state, lat, lng, capacity }]);
+    const id = newUid("mn");
+    onAddedMinesChange?.([...addedMines, { id, city, state, lat, lng, capacity, displayCode }]);
     resetAddForm();
   }
 
@@ -234,7 +290,12 @@ export function MinesTab({
                   <TableRow key={m.id} data-testid={`row-added-mine-${m.id}`}>
                     <TableCell className="font-mono text-xs">
                       <div className="flex items-center gap-1">
-                        {m.id}
+                        {/* T11 (Step A) — `id` is now a hidden T3 stable uid
+                          * (see the grid-mirror comment above);
+                          * `displayCode` is the human-facing label. Falls
+                          * back to `id` only for pre-Step-A data that never
+                          * got one. */}
+                        {m.displayCode ?? m.id}
                         {(missing != null || collision) && (
                           <span
                             title={collision ?? `Missing lane costs to ${missing} station${missing === 1 ? "" : "s"} — see the Lane costs tab, or download/upload a template.`}
@@ -286,11 +347,48 @@ export function MinesTab({
 
       {addingRow ? (
         <div className="flex items-start gap-1.5 flex-wrap" data-testid="add-mine-row-form">
-          <Input placeholder="ID" value={newId} onChange={e => setNewId(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-mine-id" />
-          <Input placeholder="City" value={newCity} onChange={e => setNewCity(e.target.value)} className="h-7 text-xs w-28" data-testid="input-new-mine-city" />
-          <Input placeholder="State" value={newState} onChange={e => setNewState(e.target.value)} className="h-7 text-xs w-16" data-testid="input-new-mine-state" />
-          <Input type="number" placeholder="Lat" value={newLat} onChange={e => setNewLat(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-mine-lat" />
-          <Input type="number" placeholder="Lng" value={newLng} onChange={e => setNewLng(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-mine-lng" />
+          <Input
+            placeholder="City"
+            value={newCity}
+            onChange={e => setNewCity(e.target.value)}
+            onBlur={handleCityStateBlur}
+            className="h-7 text-xs w-28"
+            data-testid="input-new-mine-city"
+          />
+          <Input
+            placeholder="State"
+            value={newState}
+            onChange={e => setNewState(e.target.value)}
+            onBlur={handleCityStateBlur}
+            className="h-7 text-xs w-16"
+            data-testid="input-new-mine-state"
+          />
+          <Input
+            type="number"
+            placeholder="Lat"
+            value={newLat}
+            onChange={e => setNewLat(e.target.value)}
+            onFocus={touchLat}
+            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-mine-lat"
+          />
+          <Input
+            type="number"
+            placeholder="Lng"
+            value={newLng}
+            onChange={e => setNewLng(e.target.value)}
+            onFocus={touchLng}
+            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-mine-lng"
+          />
+          <Input
+            placeholder="Display code (auto)"
+            value={newDisplayCode}
+            onChange={e => setNewDisplayCode(e.target.value)}
+            onFocus={touchDisplayCode}
+            className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-mine-display-code"
+          />
           <Input type="number" placeholder="Capacity (optional)" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-32" data-testid="input-new-mine-capacity" />
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-mine-confirm">
             Add

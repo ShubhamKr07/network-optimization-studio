@@ -23,6 +23,11 @@ import { z } from "zod";
 //     objective), the model's own vocabulary (costs.json, "lane cost")
 //     is what students see in this chapter's exercise, so the override
 //     field is named `cost`, not `distance`.
+// T11 (Step A) — `displayCode` mirrors pMedian.ts's own optional field on
+// addedWarehouseSchema/addedCustomerSchema: a short human-facing label
+// distinct from the stable `id` join key (MinesTab.tsx/StationsTab.tsx now
+// mint it via T3's nextDisplayCode, same identity model as warehouses/
+// customers). Purely cosmetic, never resolved as a join key anywhere.
 const addedMineSchema = z.object({
   id: z.string().min(1),
   city: z.string(),
@@ -30,6 +35,7 @@ const addedMineSchema = z.object({
   lat: z.number(),
   lng: z.number(),
   capacity: z.number().positive().nullable().optional(),
+  displayCode: z.string().optional(),
 });
 
 const addedStationSchema = z.object({
@@ -39,6 +45,7 @@ const addedStationSchema = z.object({
   lat: z.number(),
   lng: z.number(),
   demand: z.number().nonnegative(),
+  displayCode: z.string().optional(),
 });
 
 const laneCostOverrideSchema = z.object({

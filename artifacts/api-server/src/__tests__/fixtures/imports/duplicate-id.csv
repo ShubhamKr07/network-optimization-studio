@@ -1,3 +1,3 @@
-template_version,id,city,state,lat,lng,capacity,status
-1,ALN,Allentown,PA,,,,active
-1,ALN,Allentown,PA,,,300000,forced_open
+template_version,id,display_code,city,state,lat,lng,capacity,status
+1,ALN,,Allentown,PA,,,,active
+1,ALN,,Allentown,PA,,,300000,forced_open

@@ -12,6 +12,8 @@ import {
   idCollisionMessageForCustomer,
   type PrecheckErrorLike,
 } from "@/lib/precheckDisplay";
+import { lookupCity } from "@/lib/gazetteer";
+import { newUid, nextDisplayCode } from "@/lib/entityId";
 
 // B5.2 — matches `addedCustomerSchema` in
 // artifacts/api-server/src/validation/inputs/pMedian.ts exactly (server-side
@@ -25,6 +27,8 @@ export interface AddedCustomer {
   lat: number;
   lng: number;
   demand: number;
+  /** T9 — grid-mirror's auto-computed cosmetic label (T3's nextDisplayCode), same optional field CreateEntityDialog's map-click flow already writes. */
+  displayCode?: string;
 }
 
 interface CustomersTabProps {
@@ -74,13 +78,54 @@ export function CustomersTab({
   // B5.2 — add-row form draft state, mirroring WarehousesTab.tsx/
   // DistancesTab.tsx's own addingRow/newX/addError pattern verbatim.
   const [addingRow, setAddingRow] = useState(false);
-  const [newId, setNewId] = useState("");
   const [newCity, setNewCity] = useState("");
   const [newState, setNewState] = useState("");
   const [newLat, setNewLat] = useState("");
   const [newLng, setNewLng] = useState("");
   const [newDemand, setNewDemand] = useState("");
+  const [newDisplayCode, setNewDisplayCode] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // T9 — grid-mirror: matches WarehousesTab.tsx's own T9 comment exactly —
+  // `id` is now a hidden T3 stable uid minted at commit time (never typed),
+  // `displayCode` is the human-facing label, auto-filled from City/State
+  // via T2's gazetteer, same "touched" tracking as WarehousesTab.
+  const [latTouched, setLatTouched] = useState(false);
+  const [lngTouched, setLngTouched] = useState(false);
+  const [displayCodeTouched, setDisplayCodeTouched] = useState(false);
+
+  function touchLat() {
+    if (!latTouched) {
+      setLatTouched(true);
+      setNewLat("");
+    }
+  }
+  function touchLng() {
+    if (!lngTouched) {
+      setLngTouched(true);
+      setNewLng("");
+    }
+  }
+  function touchDisplayCode() {
+    if (!displayCodeTouched) {
+      setDisplayCodeTouched(true);
+      setNewDisplayCode("");
+    }
+  }
+
+  function handleCityStateBlur() {
+    const city = newCity.trim();
+    const state = newState.trim();
+    if (!city || !state) return;
+    const hit = lookupCity(city, state);
+    if (!hit) return;
+    if (!latTouched) setNewLat(String(hit.lat));
+    if (!lngTouched) setNewLng(String(hit.lng));
+    if (!displayCodeTouched) {
+      const existingCodes = addedCustomers.map(c => c.displayCode).filter((c): c is string => !!c);
+      setNewDisplayCode(nextDisplayCode("cs", state, city, existingCodes));
+    }
+  }
 
   // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
   useEffect(() => {
@@ -91,37 +136,42 @@ export function CustomersTab({
     onPrefillConsumed?.();
   }, [prefillCoords, onPrefillConsumed]);
 
-  const knownCustomerIds = new Set([...customers.map(c => c.id), ...addedCustomers.map(c => c.id)]);
-
   function upsertAddedDemand(id: string, demand: number) {
     onAddedCustomersChange?.(addedCustomers.map(c => (c.id === id ? { ...c, demand } : c)));
   }
 
   function resetAddForm() {
     setAddingRow(false);
-    setNewId("");
     setNewCity("");
     setNewState("");
     setNewLat("");
     setNewLng("");
     setNewDemand("");
+    setNewDisplayCode("");
+    setLatTouched(false);
+    setLngTouched(false);
+    setDisplayCodeTouched(false);
     setAddError(null);
   }
 
   function handleAddRow() {
-    const id = newId.trim();
     const city = newCity.trim();
     const state = newState.trim();
     const lat = parseFloat(newLat);
     const lng = parseFloat(newLng);
     const demand = parseFloat(newDemand);
 
-    if (!id || !city || !state) {
-      setAddError("ID, city, and state are all required.");
+    if (!city || !state) {
+      setAddError("City and state are both required.");
       return;
     }
-    if (knownCustomerIds.has(id)) {
-      setAddError(`ID '${id}' is already in use by another customer in this scenario.`);
+    // T9 (team-lead decision) — displayCode is now the user-facing,
+    // collision-checked field (the old "ID" input's role), since `id` is a
+    // hidden uid that can't meaningfully collide. Mirrors WarehousesTab's
+    // own T9 comment exactly.
+    const displayCode = newDisplayCode.trim() || undefined;
+    if (displayCode && addedCustomers.some(c => c.displayCode === displayCode)) {
+      setAddError(`Display code '${displayCode}' is already in use by another customer in this scenario.`);
       return;
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -133,7 +183,8 @@ export function CustomersTab({
       return;
     }
 
-    onAddedCustomersChange?.([...addedCustomers, { id, city, state, lat, lng, demand }]);
+    const id = newUid("cs");
+    onAddedCustomersChange?.([...addedCustomers, { id, city, state, lat, lng, demand, displayCode }]);
     resetAddForm();
   }
 
@@ -240,7 +291,11 @@ export function CustomersTab({
                   <TableRow key={c.id} data-testid={`row-added-customer-${c.id}`}>
                     <TableCell className="font-mono text-xs">
                       <div className="flex items-center gap-1">
-                        {c.id}
+                        {/* T9 — `id` is now a hidden T3 stable uid (see the
+                          * grid-mirror comment above); `displayCode` is the
+                          * human-facing label. Falls back to `id` only for
+                          * pre-T9 data that never got one. */}
+                        {c.displayCode ?? c.id}
                         {(missing > 0 || collision) && (
                           <span
                             title={collision ?? `${missing} warehouse${missing === 1 ? " lacks" : "s lack"} a distance to this customer — see the Distances tab, or download/upload a template.`}
@@ -291,11 +346,48 @@ export function CustomersTab({
 
       {addingRow ? (
         <div className="flex items-start gap-1.5 flex-wrap" data-testid="add-customer-row-form">
-          <Input placeholder="ID" value={newId} onChange={e => setNewId(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-customer-id" />
-          <Input placeholder="City" value={newCity} onChange={e => setNewCity(e.target.value)} className="h-7 text-xs w-28" data-testid="input-new-customer-city" />
-          <Input placeholder="State" value={newState} onChange={e => setNewState(e.target.value)} className="h-7 text-xs w-16" data-testid="input-new-customer-state" />
-          <Input type="number" placeholder="Lat" value={newLat} onChange={e => setNewLat(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-customer-lat" />
-          <Input type="number" placeholder="Lng" value={newLng} onChange={e => setNewLng(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-customer-lng" />
+          <Input
+            placeholder="City"
+            value={newCity}
+            onChange={e => setNewCity(e.target.value)}
+            onBlur={handleCityStateBlur}
+            className="h-7 text-xs w-28"
+            data-testid="input-new-customer-city"
+          />
+          <Input
+            placeholder="State"
+            value={newState}
+            onChange={e => setNewState(e.target.value)}
+            onBlur={handleCityStateBlur}
+            className="h-7 text-xs w-16"
+            data-testid="input-new-customer-state"
+          />
+          <Input
+            type="number"
+            placeholder="Lat"
+            value={newLat}
+            onChange={e => setNewLat(e.target.value)}
+            onFocus={touchLat}
+            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-customer-lat"
+          />
+          <Input
+            type="number"
+            placeholder="Lng"
+            value={newLng}
+            onChange={e => setNewLng(e.target.value)}
+            onFocus={touchLng}
+            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-customer-lng"
+          />
+          <Input
+            placeholder="Display code (auto)"
+            value={newDisplayCode}
+            onChange={e => setNewDisplayCode(e.target.value)}
+            onFocus={touchDisplayCode}
+            className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-customer-display-code"
+          />
           <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-customer-demand" />
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-customer-confirm">
             Add

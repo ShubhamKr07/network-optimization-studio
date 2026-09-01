@@ -477,6 +477,89 @@ describe("PATCH /api/scenarios/:id", () => {
   });
 });
 
+// ── T1 (Input Map v2) — auto-estimate distance normalizer ─────────────────
+// Applied on all three p-median-us persist paths (POST create, PATCH,
+// import/apply) right before the DB write — see routes/scenarios.ts's
+// normalizePMedianInputs / services/autoDistance.ts.
+describe("T1 — auto-estimate distance normalizer (p-median-us persist paths)", () => {
+  const newWarehouse = { id: "WH-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" };
+
+  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer", async () => {
+    const cookie = await loginAs(OWNER);
+    const inputsWithAddedWarehouse = { ...pmedianInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...pmedianRow, inputs: inputsWithAddedWarehouse }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New", modelId: "p-median-us", inputs: inputsWithAddedWarehouse });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "WH-NEW1");
+    expect(fromNew.length).toBe(CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const newInputs = { ...pmedianInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...pmedianRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }> };
+    };
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "WH-NEW1");
+    expect(fromNew.length).toBe(CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
+    const chain = makeChain([{ ...pmedianRow, inputs: pmedianInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    // T11 — blank id is the ADD trigger now; "WH-NEW1" goes in display_code
+    // instead. The persisted id is a server-minted uid, unknown ahead of
+    // time — look it up via displayCode rather than hardcoding it.
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Reno,NV,39.53,-119.81,50000,active\n";
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: {
+        distanceOverrides: Array<{ fromId: string; estimated?: boolean }>;
+        addedWarehouses: Array<{ id: string; displayCode?: string }>;
+      };
+    };
+    const addedId = setArgs.inputs.addedWarehouses.find((w) => w.displayCode === "WH-NEW1")!.id;
+    expect(addedId).toMatch(/^aw-/);
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === addedId);
+    expect(fromNew.length).toBe(CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: transport-coal inputs pass through the normalizer unchanged (non-p-median model, no fill)", async () => {
+    const cookie = await loginAs(OWNER);
+    const newInputs = { ...transportInputs, capacityFactor: 1.2 };
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const chain = makeChain([{ ...transportRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/8").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    // The persisted capacityFactor edit survived, and the normalizer never
+    // touched this model at all — transportLpInputsSchema has no
+    // `distanceOverrides` field (its own override array is
+    // `laneCostOverrides`), so the p-median-only auto-distance output
+    // (fillEstimatedDistances's `distanceOverrides` key) must be absent.
+    expect(setArgs.inputs.capacityFactor).toBe(1.2);
+    expect(setArgs.inputs).not.toHaveProperty("distanceOverrides");
+  });
+});
+
 // ── Scenario.stale (X1.1) ───────────────────────────────────────────────────
 describe("Scenario.stale", () => {
   it("an unsolved scenario is never stale", async () => {
@@ -653,7 +736,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity,status");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,capacity,status");
     expect(lines.length).toBe(27); // header + 26 warehouses
   });
 
@@ -678,7 +761,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,capacity");
     expect(lines.length).toBe(5); // header + 4 mines
     // KY's override must surface on its row.
     expect(lines.some((l) => l.startsWith("1,KY,"))).toBe(true);
@@ -703,7 +786,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,demand");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,demand");
     expect(lines.length).toBe(16); // header + 15 stations
     // CHI's override must surface on its row.
     expect(lines.some((l) => l.startsWith("1,CHI,"))).toBe(true);
@@ -745,7 +828,7 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,status");
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,status");
     expect(lines.length).toBe(3); // header + 2 refineries, mine not included
     expect(lines.some((l) => l.startsWith("1,cunnamulla,") && l.endsWith("forced_open"))).toBe(true);
   });
@@ -1031,15 +1114,16 @@ describe("GET /api/scenarios/:id/export", () => {
 
 // ── Import preview + apply ─────────────────────────────────────────────────
 describe("POST /api/scenarios/:id/import", () => {
-  // B4.2 — 8-column format (lat,lng inserted after state). ATL is an
-  // existing base warehouse id (an UPDATE), so lat/lng are left blank —
-  // allowed on update rows.
-  const cleanCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ATL,Atlanta,GA,,,500000,forced_open\n";
-  // ZZZ is unrecognized (add-mode candidate) but missing lat/lng, which is
-  // required to add a brand-new warehouse — still a genuine logic error
-  // under B4.2, just via the "missing required add-mode field" path
-  // instead of the old blanket "unknown id" path.
-  const badCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ZZZ,Nowhere,XX,,,,active\n";
+  // B4.2 — 9-column format (T11 added display_code after id, lat/lng
+  // inserted after state). ATL is an existing base warehouse id (an
+  // UPDATE), so display_code/lat/lng are left blank — allowed on update
+  // rows.
+  const cleanCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ATL,,Atlanta,GA,,,500000,forced_open\n";
+  // T11 — blank id (the ADD trigger) but missing lat/lng, which is required
+  // to add a brand-new warehouse — still a genuine logic error, just via
+  // the "missing required add-mode field" path instead of the old blanket
+  // "unknown id" path.
+  const badCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,ZZZ,Nowhere,XX,,,,active\n";
 
   it("returns 401 without a session", async () => {
     const res = await request(app).post("/api/scenarios/1/import").send({ entity: "warehouses", csvText: cleanCsv });
@@ -1079,24 +1163,26 @@ describe("POST /api/scenarios/:id/import", () => {
     expect(res.body.errors[0].errorClass).toBe("logic");
   });
 
-  // B4.2 — an unrecognized id with full valid data (including lat/lng) is
-  // no longer an error at all; it's an ADD-classified change.
-  it("returns a preview with no errors and one ADD-classified change for an unrecognized id with valid full data", async () => {
+  // B4.2 — a blank id with full valid data (including lat/lng) is no
+  // longer an error at all; it's an ADD-classified change with a
+  // server-minted uid (T11 — the trigger changed from "unrecognized
+  // non-blank id" to "blank id").
+  it("returns a preview with no errors and one ADD-classified change for a blank id with valid full data", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const addCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,WH-NEW1,Newtown,NC,35.5,-80.2,50000,active\n";
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Newtown,NC,35.5,-80.2,50000,active\n";
     const res = await request(app).post("/api/scenarios/1/import").set("Cookie", cookie).send({ entity: "warehouses", csvText: addCsv });
     expect(res.status).toBe(200);
     expect(res.body.errors).toEqual([]);
     expect(res.body.changes).toHaveLength(1);
-    expect(res.body.changes[0]).toMatchObject({ id: "WH-NEW1", changeType: "add", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2 });
+    expect(res.body.changes[0]).toMatchObject({ id: expect.stringMatching(/^aw-/), changeType: "add", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, displayCode: "WH-NEW1" });
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   // Transport-coal mine/station import preview (Task 7).
   it("previews a transport-coal mine import with one change and no mutation", async () => {
     const cookie = await loginAs(OWNER);
-    const mineCsv = "template_version,id,city,state,lat,lng,capacity\n1,KY,Pikeville,KY,,,1000000\n";
+    const mineCsv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,KY,,Pikeville,KY,,,1000000\n";
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "mines", csvText: mineCsv });
     expect(res.status).toBe(200);
@@ -1108,7 +1194,7 @@ describe("POST /api/scenarios/:id/import", () => {
 
   it("previews a transport-coal station import with one change", async () => {
     const cookie = await loginAs(OWNER);
-    const stationCsv = "template_version,id,city,state,lat,lng,demand\n1,CHI,Chicago,IL,,,12000000\n";
+    const stationCsv = "template_version,id,display_code,city,state,lat,lng,demand\n1,CHI,,Chicago,IL,,,12000000\n";
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const res = await request(app).post("/api/scenarios/8/import").set("Cookie", cookie).send({ entity: "stations", csvText: stationCsv });
     expect(res.status).toBe(200);
@@ -1124,10 +1210,12 @@ describe("POST /api/scenarios/:id/import", () => {
     expect(res.status).toBe(422);
   });
 
-  // Two-echelon-gold-au refinery import preview (Task 7).
+  // Two-echelon-gold-au refinery import preview (Task 7). T11 — header
+  // gained display_code + lat/lng (refineries joined the uid+displayCode
+  // add-mode set); this is a base-id UPDATE row so both are left blank.
   it("previews a two-echelon-gold-au refinery import with one change and no mutation", async () => {
     const cookie = await loginAs(OWNER);
-    const refineryCsv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    const refineryCsv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,forced_open\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "refineries", csvText: refineryCsv });
     expect(res.status).toBe(200);
@@ -1139,7 +1227,7 @@ describe("POST /api/scenarios/:id/import", () => {
 
   it("previews a two-echelon-gold-au customer import against its own dataset (not p-median's)", async () => {
     const cookie = await loginAs(OWNER);
-    const customerCsv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,,,1,active\n";
+    const customerCsv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,sydney,,Sydney,NSW,,,1,active\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const res = await request(app).post("/api/scenarios/11/import").set("Cookie", cookie).send({ entity: "customers", csvText: customerCsv });
     expect(res.status).toBe(200);
@@ -1185,8 +1273,8 @@ describe("POST /api/scenarios/:id/import", () => {
 });
 
 describe("POST /api/scenarios/:id/import/apply", () => {
-  const cleanCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ATL,Atlanta,GA,,,500000,forced_open\n";
-  const badCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,ZZZ,Nowhere,XX,,,,active\n";
+  const cleanCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,ATL,,Atlanta,GA,,,500000,forced_open\n";
+  const badCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,ZZZ,Nowhere,XX,,,,active\n";
 
   it("all_or_nothing mode: an import with errors applies nothing (no DB write) and returns 422", async () => {
     const cookie = await loginAs(OWNER);
@@ -1218,19 +1306,40 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   it("all_or_nothing mode: applies an ADD-classified warehouse row into addedWarehouses, re-validated", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedWarehouses: [{ id: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" }] } }]);
+    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedWarehouses: [{ id: "aw-mocked", displayCode: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" }] } }]);
     mockDb.update.mockReturnValue(chain);
-    const addCsv = "template_version,id,city,state,lat,lng,capacity,status\n1,WH-NEW1,Newtown,NC,35.5,-80.2,50000,active\n";
+    // T11 — blank id (ADD trigger), "WH-NEW1" moves to display_code.
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Newtown,NC,35.5,-80.2,50000,active\n";
     const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
       .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(200);
     expect(res.body.applied).toBe(1);
     expect(res.body.errors).toEqual([]);
     expect(mockDb.update).toHaveBeenCalledTimes(1);
-    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedWarehouses: unknown[]; warehouseOverrides: unknown[] } };
-    expect(setArgs.inputs.addedWarehouses).toEqual([{ id: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" }]);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedWarehouses: Array<{ id: string; displayCode?: string }>; warehouseOverrides: unknown[] } };
+    expect(setArgs.inputs.addedWarehouses).toHaveLength(1);
+    expect(setArgs.inputs.addedWarehouses[0]).toMatchObject({ id: expect.stringMatching(/^aw-/), displayCode: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" });
     // The ADD row must not also land in warehouseOverrides — the two
     // arrays are disjoint write targets.
+    expect(setArgs.inputs.warehouseOverrides).toEqual([]);
+  });
+
+  // T11 — an id matching an already-added warehouse's uid updates that
+  // entity's own record directly (never warehouseOverrides).
+  it("all_or_nothing mode: applies an update_added warehouse row into addedWarehouses in place, not warehouseOverrides", async () => {
+    const cookie = await loginAs(OWNER);
+    const existingAdded = { id: "aw-existing", displayCode: "WH-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" as const };
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedWarehouses: [existingAdded] } }]));
+    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedWarehouses: [{ ...existingAdded, capacity: 75000, status: "forced_open" }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const updateCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,aw-existing,,Newtown,NC,,,75000,forced_open\n";
+    const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: updateCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    expect(res.body.errors).toEqual([]);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedWarehouses: Array<{ id: string; capacity: number; status: string }>; warehouseOverrides: unknown[] } };
+    expect(setArgs.inputs.addedWarehouses).toEqual([{ ...existingAdded, capacity: 75000, status: "forced_open" }]);
     expect(setArgs.inputs.warehouseOverrides).toEqual([]);
   });
 
@@ -1241,16 +1350,18 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   it("all_or_nothing mode: applies an ADD-classified customer row into addedCustomers, including state", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedCustomers: [{ id: "C-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 }] } }]);
+    const chain = makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, addedCustomers: [{ id: "ac-mocked", displayCode: "CS-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 }] } }]);
     mockDb.update.mockReturnValue(chain);
-    const addCsv = "template_version,id,city,state,lat,lng,demand,status\n1,C-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
+    // T11 — blank id (ADD trigger), "CS-NEW1" moves to display_code.
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CS-NEW1,Newtown,NC,35.5,-80.2,1200,active\n";
     const res = await request(app).post("/api/scenarios/1/import/apply").set("Cookie", cookie)
       .send({ entity: "customers", csvText: addCsv, mode: "all_or_nothing" });
     expect(res.status).toBe(200);
     expect(res.body.applied).toBe(1);
     expect(res.body.errors).toEqual([]);
-    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedCustomers: unknown[] } };
-    expect(setArgs.inputs.addedCustomers).toEqual([{ id: "C-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 }]);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: { addedCustomers: Array<{ id: string; displayCode?: string }> } };
+    expect(setArgs.inputs.addedCustomers).toHaveLength(1);
+    expect(setArgs.inputs.addedCustomers[0]).toMatchObject({ id: expect.stringMatching(/^ac-/), displayCode: "CS-NEW1", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 1200 });
   });
 
   it("returns 404 (not 403) when applying to a scenario owned by a different user", async () => {
@@ -1266,7 +1377,7 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   // mineCapacities sparse dict, mirroring the warehouses array apply above.
   it("all_or_nothing mode: applies a clean transport-coal mine import into mineCapacities", async () => {
     const cookie = await loginAs(OWNER);
-    const mineCsv = "template_version,id,city,state,lat,lng,capacity\n1,KY,Pikeville,KY,,,1000000\n";
+    const mineCsv = "template_version,id,display_code,city,state,lat,lng,capacity\n1,KY,,Pikeville,KY,,,1000000\n";
     mockDb.select.mockReturnValue(makeChain([transportRow]));
     const updatedRow = { ...transportRow, inputs: { ...transportInputs, mineCapacities: { KY: 1000000 } } };
     mockDb.update.mockReturnValue(makeChain([updatedRow]));
@@ -1283,7 +1394,7 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   // warehouses array apply above.
   it("all_or_nothing mode: applies a clean two-echelon-gold-au refinery import into refineryOverrides", async () => {
     const cookie = await loginAs(OWNER);
-    const refineryCsv = "template_version,id,city,state,status\n1,cunnamulla,Cunnamulla,QLD,forced_open\n";
+    const refineryCsv = "template_version,id,display_code,city,state,lat,lng,status\n1,cunnamulla,,Cunnamulla,QLD,,,forced_open\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const updatedRow = { ...twoEchelonRow, inputs: { ...twoEchelonInputs, refineryOverrides: [{ id: "cunnamulla", status: "forced_open" }] } };
     mockDb.update.mockReturnValue(makeChain([updatedRow]));
@@ -1306,7 +1417,7 @@ describe("POST /api/scenarios/:id/import/apply", () => {
   // pre-B6.2 premise ("no addedCustomers field at all").
   it("all_or_nothing mode: applies a clean two-echelon-gold-au customer import into customerOverrides (add-mode inapplicable, re-validation is a no-op)", async () => {
     const cookie = await loginAs(OWNER);
-    const customerCsv = "template_version,id,city,state,lat,lng,demand,status\n1,sydney,Sydney,NSW,,,999,active\n";
+    const customerCsv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,sydney,,Sydney,NSW,,,999,active\n";
     mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
     const chain = makeChain([{ ...twoEchelonRow, inputs: { ...twoEchelonInputs, customerOverrides: [{ id: "sydney", status: "active", demand: 999 }] } }]);
     mockDb.update.mockReturnValue(chain);

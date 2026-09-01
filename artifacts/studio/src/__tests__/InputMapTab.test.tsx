@@ -28,19 +28,19 @@ const placementOptions = [{ key: "warehouses", label: "Warehouse" }, { key: "cus
 
 describe("InputMapTab", () => {
   it("renders a placement toggle defaulting to the first option", () => {
-    render(<InputMapTab countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={vi.fn()} />);
+    render(<InputMapTab mode="legacy" countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={vi.fn()} />);
     expect(screen.getByTestId("button-input-map-place-warehouses")).toHaveClass("bg-primary");
   });
 
   it("switches the active placement kind on toggle click", () => {
-    render(<InputMapTab countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={vi.fn()} />);
+    render(<InputMapTab mode="legacy" countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={vi.fn()} />);
     fireEvent.click(screen.getByTestId("button-input-map-place-customers"));
     expect(screen.getByTestId("button-input-map-place-customers")).toHaveClass("bg-primary");
   });
 
   it("drops a draft marker on click but does not call onPlacePoint until Confirm", () => {
     const onPlacePoint = vi.fn();
-    render(<InputMapTab countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={onPlacePoint} />);
+    render(<InputMapTab mode="legacy" countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={onPlacePoint} />);
     act(() => capturedClickHandler!({ latlng: { lat: 40.1, lng: -75.2 } }));
     expect(screen.getByTestId("input-map-draft-panel")).toBeInTheDocument();
     expect(onPlacePoint).not.toHaveBeenCalled();
@@ -50,7 +50,7 @@ describe("InputMapTab", () => {
 
   it("Cancel removes the draft marker without calling onPlacePoint", () => {
     const onPlacePoint = vi.fn();
-    render(<InputMapTab countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={onPlacePoint} />);
+    render(<InputMapTab mode="legacy" countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={onPlacePoint} />);
     act(() => capturedClickHandler!({ latlng: { lat: 40.1, lng: -75.2 } }));
     fireEvent.click(screen.getByTestId("button-input-map-cancel"));
     expect(screen.queryByTestId("input-map-draft-panel")).not.toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("InputMapTab", () => {
 
   it("Confirm uses whichever placement kind is active at click time", () => {
     const onPlacePoint = vi.fn();
-    render(<InputMapTab countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={onPlacePoint} />);
+    render(<InputMapTab mode="legacy" countryBounds={countryBounds} pins={[]} placementOptions={placementOptions} onPlacePoint={onPlacePoint} />);
     fireEvent.click(screen.getByTestId("button-input-map-place-customers"));
     act(() => capturedClickHandler!({ latlng: { lat: 10, lng: 20 } }));
     fireEvent.click(screen.getByTestId("button-input-map-confirm"));

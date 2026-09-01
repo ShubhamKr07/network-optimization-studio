@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { warehouseStatusPresentation } from "@/components/workspace/map/statusPresentation";
 
 export interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 
@@ -17,14 +18,11 @@ const STATUSES = ["active", "forced_open", "inactive"] as const;
 // DD-6 (SCN v0.3 plan, `docs/superpowers/plans/2026-08-20-scn-v0.3-workspace.md`):
 // "Status vocabulary is display-only mapping. UI labels Potential /
 // Fixed-Open / Inactive <-> stored enum active / forced_open / inactive.
-// One mapping constant in the frontend; no API or schema change." This is
-// that one constant — the stored/API enum (and every `data-testid`, which
-// still uses the raw enum values below) is untouched.
-const STATUS_LABEL: Record<(typeof STATUSES)[number], string> = {
-  active: "Potential",
-  forced_open: "Fixed-Open",
-  inactive: "Inactive",
-};
+// One mapping constant in the frontend; no API or schema change." That one
+// constant now lives in `map/statusPresentation.ts` (T4, Input Map v2) —
+// shared with EntityMarkers/MapLegend/WarehouseTable so the label vocabulary
+// can't drift between callers. The stored/API enum (and every `data-testid`,
+// which still uses the raw enum values below) is untouched.
 
 export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }: WarehouseTableProps) {
   // Local draft text, keyed by warehouse id — decoupled from the committed
@@ -104,7 +102,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
                             : "bg-white text-muted-foreground hover:bg-muted"
                         }`}
                       >
-                        {STATUS_LABEL[s]}
+                        {warehouseStatusPresentation[s].label}
                       </button>
                     ))}
                   </div>

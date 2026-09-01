@@ -73,25 +73,35 @@ describe("applyCustomerOverrides", () => {
 });
 
 describe("warehouseRowsToCsv / customerRowsToCsv", () => {
-  it("produces a header row plus one line per row, plain columns (no comment line), lat/lng included, no overridden column", () => {
+  it("produces a header row plus one line per row, plain columns (no comment line), display_code + lat/lng included, no overridden column", () => {
     const rows = applyWarehouseOverrides([{ id: "ALN", status: "forced_open" }]).slice(0, 2);
     const csv = warehouseRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity,status");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},ALN,Allentown,PA,40.602812,-75.470433,,forced_open`);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,capacity,status");
+    // Base rows have no displayCode — blank cell.
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},ALN,,Allentown,PA,40.602812,-75.470433,,forced_open`);
     expect(lines.length).toBe(3);
   });
 
-  it("customer CSV includes demand as a numeric column, lat/lng included, no overridden column", () => {
+  it("customer CSV includes demand as a numeric column, display_code + lat/lng included, no overridden column", () => {
     const rows = applyCustomerOverrides([]).slice(0, 1);
     const csv = customerRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,demand,status");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},C1,Akron,OH,41.08,-81.52,205375,active`);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,demand,status");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},C1,,Akron,OH,41.08,-81.52,205375,active`);
+  });
+
+  it("an added warehouse's displayCode is emitted in the display_code cell", () => {
+    const rows = applyWarehouseOverrides([], [
+      { id: "aw-1", displayCode: "WH-NC-NEWTOWN-01", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, capacity: 50000, status: "active" },
+    ]);
+    const csv = warehouseRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[lines.length - 1]).toBe(`${TEMPLATE_VERSION},aw-1,WH-NC-NEWTOWN-01,Newtown,NC,35.5,-80.2,50000,active`);
   });
 
   it("escapes a comma in a city name", () => {
-    const rows = [{ templateVersion: TEMPLATE_VERSION, id: "X1", city: "Springfield, Ohio", state: "OH", lat: 39.9, lng: -83.8, capacity: null, status: "active" as const, overridden: false }];
+    const rows = [{ templateVersion: TEMPLATE_VERSION, id: "X1", displayCode: null, city: "Springfield, Ohio", state: "OH", lat: 39.9, lng: -83.8, capacity: null, status: "active" as const, overridden: false }];
     const csv = warehouseRowsToCsv(rows);
     expect(csv).toContain('"Springfield, Ohio"');
   });
@@ -188,13 +198,22 @@ describe("applyGoldCustomerOverrides", () => {
 });
 
 describe("refineryRowsToCsv", () => {
-  it("produces a header row plus one line per row, status column, no value column", () => {
+  it("produces a header row plus one line per row, display_code + lat/lng + status columns, no value column", () => {
     const rows = applyRefineryOverrides([{ id: "cunnamulla", status: "forced_open" }]);
     const csv = refineryRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,status");
-    expect(lines).toContain(`${TEMPLATE_VERSION},cunnamulla,Cunnamulla,QLD,forced_open`);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,status");
+    expect(lines.some(l => l.startsWith("1,cunnamulla,,Cunnamulla,QLD,") && l.endsWith(",forced_open"))).toBe(true);
     expect(lines.length).toBe(3);
+  });
+
+  it("an added refinery's displayCode is emitted in the display_code cell", () => {
+    const rows = applyRefineryOverrides([], [
+      { id: "aw-1", displayCode: "REF-WA-NEWTOWN-01", city: "Newtown", state: "WA", lat: 35.5, lng: -80.2, status: "active" },
+    ]);
+    const csv = refineryRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[lines.length - 1]).toBe(`${TEMPLATE_VERSION},aw-1,REF-WA-NEWTOWN-01,Newtown,WA,35.5,-80.2,active`);
   });
 });
 
@@ -360,20 +379,29 @@ describe("applyStationOverrides", () => {
 });
 
 describe("mineRowsToCsv / stationRowsToCsv", () => {
-  it("mine CSV header includes lat/lng, no overridden column", () => {
+  it("mine CSV header includes display_code + lat/lng, no overridden column", () => {
     const rows = applyMineOverrides([{ id: "KY", capacity: 1000000 }]).slice(0, 1);
     const csv = mineRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,capacity");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},KY,Pikeville,KY,37.54,-82.75,1000000`);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,capacity");
+    expect(lines[1]).toBe(`${TEMPLATE_VERSION},KY,,Pikeville,KY,37.54,-82.75,1000000`);
   });
 
-  it("station CSV header includes lat/lng, no overridden column", () => {
+  it("station CSV header includes display_code + lat/lng, no overridden column", () => {
     const rows = applyStationOverrides([]).filter(r => r.id === "CHI");
     const csv = stationRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,id,city,state,lat,lng,demand");
-    expect(lines[1].startsWith(`${TEMPLATE_VERSION},CHI,`)).toBe(true);
+    expect(lines[0]).toBe("template_version,id,display_code,city,state,lat,lng,demand");
+    expect(lines[1].startsWith(`${TEMPLATE_VERSION},CHI,,`)).toBe(true);
+  });
+
+  it("an added mine's displayCode is emitted in the display_code cell", () => {
+    const rows = applyMineOverrides([], [
+      { id: "am-1", displayCode: "MN-VA-BRISTOL-01", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: 5000000 },
+    ]);
+    const csv = mineRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[lines.length - 1]).toBe(`${TEMPLATE_VERSION},am-1,MN-VA-BRISTOL-01,Bristol,VA,36.6,-82.19,5000000`);
   });
 });
 

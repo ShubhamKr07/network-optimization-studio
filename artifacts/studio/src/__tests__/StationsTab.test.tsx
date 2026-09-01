@@ -118,6 +118,10 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     expect(screen.getByTestId("added-stations-empty")).toBeInTheDocument();
   });
 
+  // T11 (Step A) — `id` is now a hidden T3 stable uid (`as-<uuid>`), never
+  // user-typed; `displayCode` is the human-facing label, auto-filled from
+  // City/State via T2's gazetteer, mirroring CustomersTab.tsx's own T9
+  // migration exactly.
   it("filling the add-row form and confirming calls onAddedStationsChange with the new entity appended, matching addedStationSchema's shape", async () => {
     const onAddedStationsChange = vi.fn();
     render(
@@ -125,17 +129,24 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    await userEvent.type(screen.getByTestId("input-new-station-id"), "SNEW");
-    await userEvent.type(screen.getByTestId("input-new-station-city"), "Newtown");
-    await userEvent.type(screen.getByTestId("input-new-station-state"), "NC");
-    await userEvent.type(screen.getByTestId("input-new-station-lat"), "35.5");
-    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-80.2");
+    await userEvent.type(screen.getByTestId("input-new-station-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-station-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-station-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-104.99");
     await userEvent.type(screen.getByTestId("input-new-station-demand"), "900000");
     await userEvent.click(screen.getByTestId("button-add-station-confirm"));
 
-    expect(onAddedStationsChange).toHaveBeenCalledWith([
-      { id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 },
-    ]);
+    expect(onAddedStationsChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedStationsChange.mock.calls[0][0];
+    expect(added).toMatchObject({
+      city: "Denver",
+      state: "CO",
+      lat: 39.74,
+      lng: -104.99,
+      demand: 900000,
+      displayCode: "ST-CO-DENVER-01",
+    });
+    expect(added.id).toMatch(/^as-/);
   });
 
   it("rejects an add-row with a blank demand — demand is required, unlike mine capacity", async () => {
@@ -145,11 +156,10 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    await userEvent.type(screen.getByTestId("input-new-station-id"), "SNEW");
-    await userEvent.type(screen.getByTestId("input-new-station-city"), "Newtown");
-    await userEvent.type(screen.getByTestId("input-new-station-state"), "NC");
-    await userEvent.type(screen.getByTestId("input-new-station-lat"), "35.5");
-    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-80.2");
+    await userEvent.type(screen.getByTestId("input-new-station-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-station-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-station-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-104.99");
     // Demand left blank on purpose.
     await userEvent.click(screen.getByTestId("button-add-station-confirm"));
 
@@ -157,19 +167,23 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
     expect(screen.getByTestId("text-add-station-error")).toBeInTheDocument();
   });
 
-  it("rejects an add-row whose id collides with an existing base station, without calling onAddedStationsChange", async () => {
+  // T11 (Step A) — displayCode is now the user-facing, collision-checked
+  // field (the old "ID" input's role), since `id` is a hidden uid that
+  // can't meaningfully collide. Mirrors CustomersTab's own T9 test exactly.
+  it("rejects an add-row whose displayCode collides with an existing added station's, without calling onAddedStationsChange", async () => {
     const onAddedStationsChange = vi.fn();
+    const existing = [{ id: "as-existing", city: "Somewhere", state: "TX", lat: 1, lng: 2, demand: 10, displayCode: "DUPE" }];
     render(
-      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={[]} onAddedStationsChange={onAddedStationsChange} onDeleteStation={vi.fn()} />,
+      <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} addedStations={existing} onAddedStationsChange={onAddedStationsChange} onDeleteStation={vi.fn()} />,
     );
 
     await userEvent.click(screen.getByTestId("button-add-station-row"));
-    await userEvent.type(screen.getByTestId("input-new-station-id"), "S1");
-    await userEvent.type(screen.getByTestId("input-new-station-city"), "Newtown");
-    await userEvent.type(screen.getByTestId("input-new-station-state"), "NC");
-    await userEvent.type(screen.getByTestId("input-new-station-lat"), "35.5");
-    await userEvent.type(screen.getByTestId("input-new-station-lng"), "-80.2");
-    await userEvent.type(screen.getByTestId("input-new-station-demand"), "900000");
+    await userEvent.type(screen.getByTestId("input-new-station-city"), "Chicago");
+    await userEvent.type(screen.getByTestId("input-new-station-state"), "IL");
+    fireEvent.blur(screen.getByTestId("input-new-station-state"));
+    await userEvent.clear(screen.getByTestId("input-new-station-display-code"));
+    await userEvent.type(screen.getByTestId("input-new-station-display-code"), "DUPE");
+    await userEvent.type(screen.getByTestId("input-new-station-demand"), "500");
     await userEvent.click(screen.getByTestId("button-add-station-confirm"));
 
     expect(onAddedStationsChange).not.toHaveBeenCalled();

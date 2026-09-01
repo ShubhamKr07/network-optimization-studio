@@ -12,6 +12,8 @@ import {
   idCollisionMessageForWarehouse,
   type PrecheckErrorLike,
 } from "@/lib/precheckDisplay";
+import { lookupCity } from "@/lib/gazetteer";
+import { newUid, nextDisplayCode } from "@/lib/entityId";
 
 // B5.2 — matches `addedWarehouseSchema` in
 // artifacts/api-server/src/validation/inputs/pMedian.ts exactly (server-side
@@ -24,6 +26,8 @@ export interface AddedWarehouse {
   lng: number;
   capacity?: number | null;
   status: "active" | "forced_open" | "inactive";
+  /** T9 — grid-mirror's auto-computed cosmetic label (T3's nextDisplayCode), same optional field CreateEntityDialog's map-click flow already writes. */
+  displayCode?: string;
 }
 
 const ADDED_STATUSES = ["active", "forced_open", "inactive"] as const;
@@ -121,13 +125,61 @@ export function WarehousesTab({
   // B5.2 — add-row form draft state, mirroring DistancesTab.tsx's own
   // addingRow/newX/addError pattern verbatim.
   const [addingRow, setAddingRow] = useState(false);
-  const [newId, setNewId] = useState("");
   const [newCity, setNewCity] = useState("");
   const [newState, setNewState] = useState("");
   const [newLat, setNewLat] = useState("");
   const [newLng, setNewLng] = useState("");
   const [newCapacity, setNewCapacity] = useState("");
+  const [newDisplayCode, setNewDisplayCode] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // T9 — grid-mirror: this form's identity model now matches
+  // CreateEntityDialog's (T7) map-click flow exactly — `id` is a hidden T3
+  // stable uid minted at commit time (never typed, never shown), and
+  // `displayCode` (T3's nextDisplayCode) is the human-facing label, so a
+  // row added here and a row added via the Input Map end up with the same
+  // shape. There is no more manual "ID" input or id-collision check — a
+  // random uid can't meaningfully collide.
+  //
+  // Auto-fill "touched" tracking: once a field is touched (the student
+  // focused it themselves), it never gets silently overwritten by a later
+  // City/State blur again.
+  const [latTouched, setLatTouched] = useState(false);
+  const [lngTouched, setLngTouched] = useState(false);
+  const [displayCodeTouched, setDisplayCodeTouched] = useState(false);
+
+  function touchLat() {
+    if (!latTouched) {
+      setLatTouched(true);
+      setNewLat("");
+    }
+  }
+  function touchLng() {
+    if (!lngTouched) {
+      setLngTouched(true);
+      setNewLng("");
+    }
+  }
+  function touchDisplayCode() {
+    if (!displayCodeTouched) {
+      setDisplayCodeTouched(true);
+      setNewDisplayCode("");
+    }
+  }
+
+  function handleCityStateBlur() {
+    const city = newCity.trim();
+    const state = newState.trim();
+    if (!city || !state) return;
+    const hit = lookupCity(city, state);
+    if (!hit) return;
+    if (!latTouched) setNewLat(String(hit.lat));
+    if (!lngTouched) setNewLng(String(hit.lng));
+    if (!displayCodeTouched) {
+      const existingCodes = addedWarehouses.map(w => w.displayCode).filter((c): c is string => !!c);
+      setNewDisplayCode(nextDisplayCode("wh", state, city, existingCodes));
+    }
+  }
 
   // Phase 3.2, Task 4 — Input Map click-to-place prefill. One-shot: opens
   // the add-row form and pre-fills newLat/newLng, then reports back to
@@ -140,8 +192,6 @@ export function WarehousesTab({
     onPrefillConsumed?.();
   }, [prefillCoords, onPrefillConsumed]);
 
-  const knownWarehouseIds = new Set([...candidates.map(w => w.id), ...addedWarehouses.map(w => w.id)]);
-
   function upsertAdded(id: string, patch: Partial<AddedWarehouse>) {
     if (!onAddedWarehousesChange) return;
     onAddedWarehousesChange(addedWarehouses.map(w => (w.id === id ? { ...w, ...patch } : w)));
@@ -149,28 +199,37 @@ export function WarehousesTab({
 
   function resetAddForm() {
     setAddingRow(false);
-    setNewId("");
     setNewCity("");
     setNewState("");
     setNewLat("");
     setNewLng("");
     setNewCapacity("");
+    setNewDisplayCode("");
+    setLatTouched(false);
+    setLngTouched(false);
+    setDisplayCodeTouched(false);
     setAddError(null);
   }
 
   function handleAddRow() {
-    const id = newId.trim();
     const city = newCity.trim();
     const state = newState.trim();
     const lat = parseFloat(newLat);
     const lng = parseFloat(newLng);
 
-    if (!id || !city || !state) {
-      setAddError("ID, city, and state are all required.");
+    if (!city || !state) {
+      setAddError("City and state are both required.");
       return;
     }
-    if (knownWarehouseIds.has(id)) {
-      setAddError(`ID '${id}' is already in use by another ${addedEntityLabel} in this scenario.`);
+    // T9 (team-lead decision) — displayCode is now the user-facing,
+    // collision-checked field (the old "ID" input's role), since `id` is a
+    // hidden uid that can't meaningfully collide. nextDisplayCode already
+    // avoids collisions when it auto-generates one; this only fires if the
+    // student manually typed/edited a displayCode that duplicates an
+    // existing added warehouse's.
+    const displayCode = newDisplayCode.trim() || undefined;
+    if (displayCode && addedWarehouses.some(w => w.displayCode === displayCode)) {
+      setAddError(`Display code '${displayCode}' is already in use by another ${addedEntityLabel} in this scenario.`);
       return;
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -187,7 +246,8 @@ export function WarehousesTab({
       capacity = parsed;
     }
 
-    onAddedWarehousesChange?.([...addedWarehouses, { id, city, state, lat, lng, capacity, status: "active" }]);
+    const id = newUid("wh");
+    onAddedWarehousesChange?.([...addedWarehouses, { id, city, state, lat, lng, capacity, status: "active", displayCode }]);
     resetAddForm();
   }
 
@@ -293,7 +353,11 @@ export function WarehousesTab({
                   <TableRow key={w.id} data-testid={`row-added-warehouse-${w.id}`}>
                     <TableCell className="font-mono text-xs">
                       <div className="flex items-center gap-1">
-                        {w.id}
+                        {/* T9 — `id` is now a hidden T3 stable uid (see the
+                          * grid-mirror comment above); `displayCode` is the
+                          * human-facing label. Falls back to `id` only for
+                          * pre-T9 data that never got one. */}
+                        {w.displayCode ?? w.id}
                         {(missing != null || collision) && (
                           <span
                             title={collision ?? `Missing distances to ${missing} customer${missing === 1 ? "" : "s"} — see the Distances tab, or download/upload a template.`}
@@ -365,11 +429,48 @@ export function WarehousesTab({
 
       {addingRow ? (
         <div className="flex items-start gap-1.5 flex-wrap" data-testid="add-warehouse-row-form">
-          <Input placeholder="ID" value={newId} onChange={e => setNewId(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-warehouse-id" />
-          <Input placeholder="City" value={newCity} onChange={e => setNewCity(e.target.value)} className="h-7 text-xs w-28" data-testid="input-new-warehouse-city" />
-          <Input placeholder="State" value={newState} onChange={e => setNewState(e.target.value)} className="h-7 text-xs w-16" data-testid="input-new-warehouse-state" />
-          <Input type="number" placeholder="Lat" value={newLat} onChange={e => setNewLat(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-warehouse-lat" />
-          <Input type="number" placeholder="Lng" value={newLng} onChange={e => setNewLng(e.target.value)} className="h-7 text-xs w-20" data-testid="input-new-warehouse-lng" />
+          <Input
+            placeholder="City"
+            value={newCity}
+            onChange={e => setNewCity(e.target.value)}
+            onBlur={handleCityStateBlur}
+            className="h-7 text-xs w-28"
+            data-testid="input-new-warehouse-city"
+          />
+          <Input
+            placeholder="State"
+            value={newState}
+            onChange={e => setNewState(e.target.value)}
+            onBlur={handleCityStateBlur}
+            className="h-7 text-xs w-16"
+            data-testid="input-new-warehouse-state"
+          />
+          <Input
+            type="number"
+            placeholder="Lat"
+            value={newLat}
+            onChange={e => setNewLat(e.target.value)}
+            onFocus={touchLat}
+            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-warehouse-lat"
+          />
+          <Input
+            type="number"
+            placeholder="Lng"
+            value={newLng}
+            onChange={e => setNewLng(e.target.value)}
+            onFocus={touchLng}
+            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-warehouse-lng"
+          />
+          <Input
+            placeholder="Display code (auto)"
+            value={newDisplayCode}
+            onChange={e => setNewDisplayCode(e.target.value)}
+            onFocus={touchDisplayCode}
+            className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
+            data-testid="input-new-warehouse-display-code"
+          />
           {capacityMode === "per_wh" && (
             <Input type="number" placeholder="Capacity" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-warehouse-capacity" />
           )}

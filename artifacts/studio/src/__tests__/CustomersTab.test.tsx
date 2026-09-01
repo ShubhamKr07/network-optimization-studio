@@ -101,7 +101,7 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     expect(screen.getByTestId("added-customers-empty")).toBeInTheDocument();
   });
 
-  it("filling the add-row form and confirming calls onAddedCustomersChange with the new entity appended, matching addedCustomerSchema's shape", async () => {
+  it("filling the add-row form and confirming calls onAddedCustomersChange with the new entity appended, matching addedCustomerSchema's shape (id is now a hidden T3 uid, not user-typed)", async () => {
     const onAddedCustomersChange = vi.fn();
     render(
       <CustomersTab
@@ -115,7 +115,6 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-id"), "NEWC");
     await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
     await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
     await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
@@ -123,12 +122,23 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
     await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
 
-    expect(onAddedCustomersChange).toHaveBeenCalledWith([
-      { id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 },
-    ]);
+    // T9 — same identity model as WarehousesTab: `id` is a T3 stable uid
+    // (matches CreateEntityDialog), asserted by shape, not an exact string.
+    // Denver/CO is a real gazetteer hit, so a display code auto-fills too.
+    expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedCustomersChange.mock.calls[0][0];
+    expect(added).toMatchObject({
+      city: "Denver",
+      state: "CO",
+      lat: 39.74,
+      lng: -104.99,
+      demand: 500,
+      displayCode: "CS-CO-DENVER-01",
+    });
+    expect(added.id).toMatch(/^ac-/);
   });
 
-  it("rejects an add-row whose id collides with an existing base customer, without calling onAddedCustomersChange", async () => {
+  it("rejects an add-row missing city or state, without calling onAddedCustomersChange", async () => {
     const onAddedCustomersChange = vi.fn();
     render(
       <CustomersTab
@@ -142,11 +152,38 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     );
 
     await userEvent.click(screen.getByTestId("button-add-customer-row"));
-    await userEvent.type(screen.getByTestId("input-new-customer-id"), "C1");
-    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
-    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
     await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
     await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-customer-error")).toBeInTheDocument();
+  });
+
+  // T9 (team-lead decision) — mirrors WarehousesTab's own T9 collision test
+  // exactly: `id` is a hidden uid now, displayCode is the collision-checked
+  // user-facing field.
+  it("rejects an add-row whose displayCode collides with an existing added customer's, without calling onAddedCustomersChange", async () => {
+    const onAddedCustomersChange = vi.fn();
+    const existing = [{ id: "ac-existing", city: "Somewhere", state: "TX", lat: 1, lng: 2, demand: 10, displayCode: "DUPE" }];
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={existing}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
+    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+    await userEvent.clear(screen.getByTestId("input-new-customer-display-code"));
+    await userEvent.type(screen.getByTestId("input-new-customer-display-code"), "DUPE");
     await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
     await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
 
@@ -237,6 +274,78 @@ describe("CustomersTab — add/delete added customers (B5.2)", () => {
     expect(row).toHaveTextContent("39.7400");
     expect(row).toHaveTextContent("-104.9900");
     expect(screen.queryByText("Zip")).not.toBeInTheDocument();
+  });
+});
+
+// T9 — grid-mirror: the add-row form auto-fills lat/lng + a display code
+// from City+State (T2's gazetteer + T3's nextDisplayCode), mirroring
+// WarehousesTab.tsx's own T9 coverage exactly.
+describe("CustomersTab — add-row grid-mirror auto-fill (T9)", () => {
+  it("blurring City+State (both non-empty, a gazetteer hit) auto-fills Lat/Lng and a display code", async () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
+    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+
+    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(42.338551);
+    expect(screen.getByTestId("input-new-customer-lng")).toHaveValue(-71.018253);
+    expect(screen.getByTestId("input-new-customer-display-code")).toHaveValue("CS-MA-BOSTON-01");
+  });
+
+  it("a manual edit to the auto-filled Lat cell sticks — a later City/State blur does not re-overwrite it", async () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Boston");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "MA");
+    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(42.338551);
+
+    await userEvent.clear(screen.getByTestId("input-new-customer-lat"));
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "1.2345");
+    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(1.2345);
+
+    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(1.2345);
+  });
+
+  it("a gazetteer miss (unknown city/state) leaves Lat/Lng blank for manual entry, and no display code is assigned", async () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={vi.fn()}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Nowheresville");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "ZZ");
+    fireEvent.blur(screen.getByTestId("input-new-customer-state"));
+
+    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(null);
+    expect(screen.getByTestId("input-new-customer-lng")).toHaveValue(null);
+    expect(screen.getByTestId("input-new-customer-display-code")).toHaveValue("");
   });
 });
 

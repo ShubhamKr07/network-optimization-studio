@@ -441,7 +441,10 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
     fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
-    fireEvent.change(screen.getByTestId("input-new-warehouse-id"), { target: { value: "NEWWH" } });
+    // T9 (grid-mirror) — the manual "ID" input is gone; `id` is now a hidden
+    // T3 stable uid (`aw-<uuid>`) minted by handleAddRow itself, and
+    // `displayCode` (left blank here — never focused, so City/State's blur
+    // auto-fill never fires) is the optional human-facing label.
     fireEvent.change(screen.getByTestId("input-new-warehouse-city"), { target: { value: "Denver" } });
     fireEvent.change(screen.getByTestId("input-new-warehouse-state"), { target: { value: "CO" } });
     fireEvent.change(screen.getByTestId("input-new-warehouse-lat"), { target: { value: "39.74" } });
@@ -457,7 +460,17 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
       scenarioId: 1,
       data: {
         inputs: expect.objectContaining({
-          addedWarehouses: [{ id: "NEWWH", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, capacity: null, status: "active" }],
+          addedWarehouses: [
+            expect.objectContaining({
+              id: expect.stringMatching(/^aw-/),
+              city: "Denver",
+              state: "CO",
+              lat: 39.74,
+              lng: -104.99,
+              capacity: null,
+              status: "active",
+            }),
+          ],
         }),
       },
     });
@@ -510,7 +523,6 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-customers"));
     fireEvent.click(screen.getByTestId("button-add-customer-row"));
-    fireEvent.change(screen.getByTestId("input-new-customer-id"), { target: { value: "NEWC" } });
     fireEvent.change(screen.getByTestId("input-new-customer-city"), { target: { value: "Denver" } });
     fireEvent.change(screen.getByTestId("input-new-customer-state"), { target: { value: "CO" } });
     fireEvent.change(screen.getByTestId("input-new-customer-lat"), { target: { value: "39.74" } });
@@ -522,14 +534,15 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
 
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
-    expect(args).toEqual({
-      scenarioId: 1,
-      data: {
-        inputs: expect.objectContaining({
-          addedCustomers: [{ id: "NEWC", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }],
-        }),
-      },
-    });
+    expect(args.scenarioId).toBe(1);
+    // Input Map v2 / option A: no manual ID input — id is a minted ac-<uuid>.
+    // displayCode stays undefined here (fireEvent.change fires no City/State
+    // blur, so the auto-fill never runs — its behavior is covered by
+    // CustomersTab.test.tsx with a real blur); assert the wiring + id prefix.
+    const addedC = (args.data.inputs as { addedCustomers: Array<Record<string, unknown>> }).addedCustomers;
+    expect(addedC).toHaveLength(1);
+    expect(addedC[0]).toMatchObject({ city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 });
+    expect(addedC[0].id as string).toMatch(/^ac-/);
   });
 
   it("deleting an added customer removes it from addedCustomers AND purges any distanceOverrides referencing it", () => {
@@ -645,7 +658,11 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     renderTransportWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-mines"));
     fireEvent.click(screen.getByTestId("button-add-mine-row"));
-    fireEvent.change(screen.getByTestId("input-new-mine-id"), { target: { value: "MNEW" } });
+    // T11 (Step A, grid-mirror) — the manual "ID" input is gone; `id` is now
+    // a hidden T3 stable uid (`am-<uuid>`) minted by handleAddRow itself,
+    // and `displayCode` (left blank here — never focused, so City/State's
+    // blur auto-fill never fires under `fireEvent.change`) is the optional
+    // human-facing label. Mirrors the equivalent warehouse test exactly.
     fireEvent.change(screen.getByTestId("input-new-mine-city"), { target: { value: "Bristol" } });
     fireEvent.change(screen.getByTestId("input-new-mine-state"), { target: { value: "VA" } });
     fireEvent.change(screen.getByTestId("input-new-mine-lat"), { target: { value: "36.6" } });
@@ -661,7 +678,16 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       scenarioId: 8,
       data: {
         inputs: expect.objectContaining({
-          addedMines: [{ id: "MNEW", city: "Bristol", state: "VA", lat: 36.6, lng: -82.19, capacity: null }],
+          addedMines: [
+            expect.objectContaining({
+              id: expect.stringMatching(/^am-/),
+              city: "Bristol",
+              state: "VA",
+              lat: 36.6,
+              lng: -82.19,
+              capacity: null,
+            }),
+          ],
         }),
       },
     });
@@ -707,7 +733,7 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
     renderTransportWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-stations"));
     fireEvent.click(screen.getByTestId("button-add-station-row"));
-    fireEvent.change(screen.getByTestId("input-new-station-id"), { target: { value: "SNEW" } });
+    // T11 (Step A, grid-mirror) — mirrors the mine test's own comment above.
     fireEvent.change(screen.getByTestId("input-new-station-city"), { target: { value: "Newtown" } });
     fireEvent.change(screen.getByTestId("input-new-station-state"), { target: { value: "NC" } });
     fireEvent.change(screen.getByTestId("input-new-station-lat"), { target: { value: "35.5" } });
@@ -723,7 +749,16 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       scenarioId: 8,
       data: {
         inputs: expect.objectContaining({
-          addedStations: [{ id: "SNEW", city: "Newtown", state: "NC", lat: 35.5, lng: -80.2, demand: 900000 }],
+          addedStations: [
+            expect.objectContaining({
+              id: expect.stringMatching(/^as-/),
+              city: "Newtown",
+              state: "NC",
+              lat: 35.5,
+              lng: -80.2,
+              demand: 900000,
+            }),
+          ],
         }),
       },
     });
