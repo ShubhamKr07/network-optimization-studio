@@ -1,4 +1,4 @@
-import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { buildActivePMedianIds, buildActiveTwoEchelonIds } from "./precheck.js";
@@ -8,17 +8,19 @@ import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inp
 
 // T1 (Input Map v2) / follow-up item 3 — normalization step run on every
 // persist path (POST create, PATCH, import/apply — see routes/scenarios.ts's
-// normalizeAddedEntityDistances) for p-median-us, transport-coal, and
-// two-echelon-gold-au: a scenario-local added entity has no row in the base
-// distance/cost matrix, and requiring a student to manually key in every
-// missing pairwise distance before the scenario can solve is a real
-// usability wall (each model's own precheck*.ts already flags exactly these
-// gaps as "completeness" errors). This fills them in as estimated haversine
-// distances so the scenario is immediately solvable, while flagging each
-// filled row `estimated: true` so the UI can show it's a stand-in a student
-// may want to replace with a real number. p-median-brazil is NOT covered —
-// same boundary D1.1/D2/D3 already drew (no warehouse/customer table UI, no
-// map wiring, for that model).
+// normalizeAddedEntityDistances) for p-median-us, p-median-brazil,
+// transport-coal, and two-echelon-gold-au: a scenario-local added entity has
+// no row in the base distance/cost matrix, and requiring a student to
+// manually key in every missing pairwise distance before the scenario can
+// solve is a real usability wall (each model's own precheck*.ts already
+// flags exactly these gaps as "completeness" errors). This fills them in as
+// estimated haversine distances so the scenario is immediately solvable,
+// while flagging each filled row `estimated: true` so the UI can show it's a
+// stand-in a student may want to replace with a real number.
+//
+// B2-T2 (Bundle 2) — p-median-brazil gained its own estimator
+// (fillEstimatedBrazilDistances below), closing the boundary this comment
+// used to describe; the map/table UI parity itself lands in T5.
 
 interface Coord {
   lat: number;
@@ -39,16 +41,33 @@ const MIN_DISTANCE_MI = 0.1;
 // great-circle miles — verified against scripts/extract-datasets.py's own
 // docstring ("the source computation (haversine * 1.17) is preserved here")
 // for _transport_distances()'s (and _brazil_distances()'s) precomputed
-// values. two-echelon-gold-au's distances.json carries NO such factor — spot
-// -checked kalgoorlie->daggar-hills (293.664297837559 mi in the dataset) and
-// kalgoorlie->cunnamulla (1464.538208 mi) against plain haversineMiles: both
-// land within ~0.08% of the raw haversine value (rounding-level noise, not a
-// circuity multiplier), confirming solve_two_echelon's own `dist.get((p,r))`
-// / `dist.get((r,c))` reads are used directly in the objective (divided by
-// TRUCKLOAD_KG for the kg->truckload unit conversion, never multiplied by a
-// distance-inflating factor) — so two-echelon's auto-fill below uses plain
-// haversineMiles for both legs, no circuity applied.
+// values.
 const TRANSPORT_CIRCUITY = 1.17;
+
+// B2-T2 (Bundle 2) correction — the mine->refinery leg genuinely has no
+// circuity (spot-checked kalgoorlie->daggar-hills, 293.664297837559 mi in
+// the dataset, and kalgoorlie->cunnamulla, 1464.538208 mi, against plain
+// haversineMiles: both land within ~0.08% of the raw haversine value,
+// rounding-level noise, not a circuity multiplier), but the refinery-
+// >customer leg does NOT share that property — a prior version of this
+// comment wrongly generalized the mine-leg finding to "both legs". Reverse-
+// derived across all 20 base refinery->customer pairs in
+// solvers/two-echelon-gold-au/dataset/distances.json vs this file's own
+// haversineMiles (R_MI=3959): ratio range 1.179101-1.179108, essentially
+// constant, mean ~1.179105. Locked here rounded to 5 decimals; the Step-1
+// test asserts reconstruction of a known base pair within <0.1% tolerance,
+// not bit-exactness.
+const TWO_ECHELON_RC_CIRCUITY = 1.1791;
+
+// B2-T2 (Bundle 2) — Brazil's base warehouse->region distance matrix
+// (solvers/p-median-brazil/dataset/distances.json) also carries a circuity
+// factor, not plain great-circle miles. Reverse-derived across all 615
+// non-zero base pairs vs this file's haversineMiles (R_MI=3959): ratio range
+// 1.16601-1.17091, mean ~1.16992 — coincides with TRANSPORT_CIRCUITY (1.17)
+// well within the <0.1% tolerance used elsewhere in this file (relative gap
+// ~0.007%), so this reuses that constant under a Brazil-specific name rather
+// than introducing a near-duplicate value that would only add noise.
+const BRAZIL_CIRCUITY = TRANSPORT_CIRCUITY;
 
 const rad = (d: number) => (d * Math.PI) / 180;
 
@@ -70,8 +89,18 @@ function clampMi(mi: number): number {
  * `inputs`, always returns a fresh object. Idempotent: a pair that already
  * has an override (manual or previously estimated) is left untouched, so
  * running this twice on the same inputs is a no-op.
+ *
+ * B2-T2 (Bundle 2) — `circuity` is an optional multiplier applied on top of
+ * plain haversineMiles, defaulting to 1 (p-median-us's own base matrix has
+ * no circuity factor, so its callers never pass this). p-median-brazil
+ * shares this exact function (and pMedianInputsSchema) via
+ * fillEstimatedBrazilDistances below, which passes BRAZIL_CIRCUITY.
  */
-export function fillEstimatedDistances(inputs: PMedianInputs, dataset: RoleDataset = DEFAULT): PMedianInputs {
+export function fillEstimatedDistances(
+  inputs: PMedianInputs,
+  dataset: RoleDataset = DEFAULT,
+  circuity: number = 1,
+): PMedianInputs {
   const added = inputs.addedWarehouses ?? [];
   const addedC = inputs.addedCustomers ?? [];
 
@@ -110,13 +139,27 @@ export function fillEstimatedDistances(inputs: PMedianInputs, dataset: RoleDatas
       const a = whCoord.get(whId);
       const b = custCoord.get(custId);
       if (!a || !b) continue;
-      const d = clampMi(haversineMiles(a, b));
+      const d = clampMi(haversineMiles(a, b) * circuity);
       overrides.push({ fromId: whId, toId: custId, distance: d, estimated: true });
       have.add(key);
     }
   }
 
   return pMedianInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
+}
+
+const BRAZIL_DEFAULT: RoleDataset = { warehouses: BRAZIL_WAREHOUSES, customers: BRAZIL_REGIONS };
+
+/**
+ * p-median-brazil analogue of fillEstimatedDistances: identical role
+ * shape/schema (Brazil shares pMedianInputsSchema, `warehouses`/`customers`
+ * — regions are adapted to the `customers` role elsewhere, e.g.
+ * precheck.ts's BRAZIL_DATASET), so this is a thin wrapper rather than a
+ * reimplementation — it just supplies the Brazil base dataset and
+ * BRAZIL_CIRCUITY. See BRAZIL_CIRCUITY's comment above for the derivation.
+ */
+export function fillEstimatedBrazilDistances(inputs: PMedianInputs, dataset: RoleDataset = BRAZIL_DEFAULT): PMedianInputs {
+  return fillEstimatedDistances(inputs, dataset, BRAZIL_CIRCUITY);
 }
 
 interface TransportRoleDataset {
@@ -194,12 +237,16 @@ const TWO_ECHELON_DEFAULT: TwoEchelonRoleDataset = { mines: GOLD_MINES, refineri
  * added-entity-involving legs on BOTH the mine->refinery and refinery->
  * customer legs (`distanceOverrides`, one flat array shared by both legs —
  * mirrors merge_inputs.py's build_merged_two_echelon_dataset's own leg
- * resolution by id-space adjacency, never a string-prefix convention) as
- * estimated plain haversine miles (no circuity — see TRANSPORT_CIRCUITY's
- * comment above for why), then revalidates against twoEchelonInputsSchema.
- * Pure, idempotent — same contract as fillEstimatedDistances. There is no
- * addedMines concept (the mine is fixed, never overridable), so the mine
- * role is always just `dataset.mines` (base only).
+ * resolution by id-space adjacency, never a string-prefix convention), then
+ * revalidates against twoEchelonInputsSchema. Pure, idempotent — same
+ * contract as fillEstimatedDistances. There is no addedMines concept (the
+ * mine is fixed, never overridable), so the mine role is always just
+ * `dataset.mines` (base only).
+ *
+ * B2-T2 (Bundle 2) — the two legs are estimated differently, per
+ * TWO_ECHELON_RC_CIRCUITY's comment above: mine->refinery is plain
+ * haversineMiles (no circuity), refinery->customer is haversineMiles *
+ * TWO_ECHELON_RC_CIRCUITY.
  */
 export function fillEstimatedTwoEchelonDistances(inputs: TwoEchelonInputs, dataset: TwoEchelonRoleDataset = TWO_ECHELON_DEFAULT): TwoEchelonInputs {
   const addedR = inputs.addedRefineries ?? [];
@@ -243,7 +290,7 @@ export function fillEstimatedTwoEchelonDistances(inputs: TwoEchelonInputs, datas
       const a = refCoord.get(refId);
       const b = custCoord.get(custId);
       if (!a || !b) continue;
-      const d = clampMi(haversineMiles(a, b));
+      const d = clampMi(haversineMiles(a, b) * TWO_ECHELON_RC_CIRCUITY);
       overrides.push({ fromId: refId, toId: custId, distance: d, estimated: true });
       have.add(key);
     }
