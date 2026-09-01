@@ -112,6 +112,17 @@ export type ModelInfoCapabilities = {
 export type ModelInfoInputsSchema = { [key: string]: unknown };
 
 /**
+ * Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field.
+ */
+export type ModelInfoDistanceUnit = typeof ModelInfoDistanceUnit[keyof typeof ModelInfoDistanceUnit];
+
+
+export const ModelInfoDistanceUnit = {
+  mi: 'mi',
+  km: 'km',
+} as const;
+
+/**
  * Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers/<model-id>/manifest.json, datasetDir omitted (server-internal filesystem path).
  */
 export interface ModelInfo {
@@ -122,6 +133,8 @@ export interface ModelInfo {
   capabilities: ModelInfoCapabilities;
   /** JSON Schema describing this model's inputs shape. Opaque to this contract. */
   inputsSchema: ModelInfoInputsSchema;
+  /** Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field. */
+  distanceUnit: ModelInfoDistanceUnit;
 }
 
 export interface TransportAssignment {

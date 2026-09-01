@@ -46,6 +46,7 @@ export * from './logoutSuccess';
 export * from './modelInfo';
 export * from './modelInfoCapabilities';
 export * from './modelInfoCountryBounds';
+export * from './modelInfoDistanceUnit';
 export * from './modelInfoInputsSchema';
 export * from './precheckError';
 export * from './precheckErrorCode';

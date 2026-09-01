@@ -679,7 +679,11 @@ components:
         inputsSchema:
           type: object
           description: JSON Schema describing this model's inputs shape. Opaque to this contract.
-      required: [id, name, chapter, countryBounds, capabilities, inputsSchema]
+        distanceUnit:
+          type: string
+          description: Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field.
+          enum: [mi, km]
+      required: [id, name, chapter, countryBounds, capabilities, inputsSchema, distanceUnit]
 
     TransportAssignment:
       type: object

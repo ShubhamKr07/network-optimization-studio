@@ -43,6 +43,20 @@ describe("GET /api/models", () => {
     const ids = res.body.map((m: { id: string }) => m.id).sort();
     expect(ids).toEqual(["p-median-brazil", "p-median-us", "transport-coal", "two-echelon-gold-au"]);
   });
+
+  // R5 (Workspace UX bundle) — every model must always report a
+  // distanceUnit, defaulting absent manifests to "mi" at the public
+  // boundary; two-echelon-gold-au is the sole "km" model (its solve output
+  // and Studio.tsx's leg-distance panel already label distances in km).
+  it("returns the correct distanceUnit per model", () => {
+    const byId: Record<string, string> = Object.fromEntries(
+      listModels().map(m => [m.id, m.distanceUnit]),
+    );
+    expect(byId["p-median-us"]).toBe("mi");
+    expect(byId["p-median-brazil"]).toBe("mi");
+    expect(byId["transport-coal"]).toBe("mi");
+    expect(byId["two-echelon-gold-au"]).toBe("km");
+  });
 });
 
 // DoD (G1.2, literal test from the plan): adding a fourth manifest+dataset

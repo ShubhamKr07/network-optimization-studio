@@ -7,6 +7,7 @@
  */
 import type { ModelInfoCapabilities } from './modelInfoCapabilities';
 import type { ModelInfoCountryBounds } from './modelInfoCountryBounds';
+import type { ModelInfoDistanceUnit } from './modelInfoDistanceUnit';
 import type { ModelInfoInputsSchema } from './modelInfoInputsSchema';
 
 /**
@@ -20,4 +21,6 @@ export interface ModelInfo {
   capabilities: ModelInfoCapabilities;
   /** JSON Schema describing this model's inputs shape. Opaque to this contract. */
   inputsSchema: ModelInfoInputsSchema;
+  /** Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field. */
+  distanceUnit: ModelInfoDistanceUnit;
 }

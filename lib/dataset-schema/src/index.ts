@@ -165,6 +165,11 @@ export const ManifestSchema = z.object({
     outputGrids: z.array(z.string()),
   }),
   inputsSchema: z.record(z.string(), z.unknown()),
+  // R5 (Workspace UX bundle) — the unit distances/bands are reported in for
+  // this model's UI (band editors, Service Stats, Solution Summary). Optional
+  // and absent on manifests written before this field existed; consumers
+  // default absent -> "mi" at the public boundary (registry/modelRegistry.ts).
+  distanceUnit: z.enum(["mi", "km"]).optional(),
 });
 
 export type Manifest = z.infer<typeof ManifestSchema>;

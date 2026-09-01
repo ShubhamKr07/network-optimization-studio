@@ -5,6 +5,7 @@
   "datasetDir": "solvers/transport-coal/dataset",
   "countryBounds": { "sw": [29.76, -122.42], "ne": [47.61, -73.61] },
   "capabilities": { "supportsP": false, "capacityModes": ["per_mine"], "demandEditable": true, "outputGrids": ["flows", "costSummary", "serviceStats"] },
+  "distanceUnit": "mi",
   "inputsSchema": {
     "type": "object",
     "properties": {
