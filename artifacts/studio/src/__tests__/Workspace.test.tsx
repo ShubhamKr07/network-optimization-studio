@@ -291,20 +291,19 @@ describe("Workspace — placeholder tabs", () => {
   // scaffolding (real demand editing already lives inline in the
   // Customers/Stations tabs via CustomerOverride.demand/StationOverride.demand).
   // T5 (Bundle 2, Step 2b) — p-median-brazil's Warehouses/Customers/Distances
-  // tabs are now ALSO real content (same components as p-median-us), so this
-  // test's own example moved to transport-coal's Input Map tab. T6 (Bundle
-  // 2) then gave transport-coal its own full-v2 editor too (mode=
-  // "transport", Save-in-Layers) — moved the example on AGAIN, to
-  // two-echelon-gold-au's Input Map, the only one still on the read-only
-  // Task-4 pin-drop flow ("legacy" mode, no in-place editing) until T7
-  // builds its own full-v2 editor — a genuine "nothing wired to save yet"
-  // tab today.
-  it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
-    const twoEchelonScenario = { ...scenario, modelId: "two-echelon-gold-au" };
-    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="two-echelon-gold-au" userEmail="student@example.com" />);
-    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+  // tabs are now ALSO real content, so this test's own example moved to
+  // transport-coal's Input Map tab; T6 moved it on again to
+  // two-echelon-gold-au's Input Map (the last "legacy" pin-drop model); T7
+  // (Bundle 2) gave two-echelon-gold-au its own full-v2 editor too, closing
+  // the last gap — every INPUT tab, on every model, now has a real Save
+  // affordance somewhere. Retargeted to an OUTPUT tab instead: `isEditableInputTab`
+  // is structurally scoped to `activeTab.kind === "input"` (Workspace.tsx),
+  // so an output-kind tab is a permanent, always-true example of "no Save
+  // toolbar" — not a moving target that the next model fast-follow would
+  // obsolete again.
+  it("does not show a Save toolbar for an output tab (isEditableInputTab is input-only)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 });

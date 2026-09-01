@@ -47,7 +47,7 @@ import { OptimizationParametersTab } from "@/components/workspace/tabs/Optimizat
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
-import { InputMapTab, type TransportMapInputs } from "@/components/workspace/tabs/InputMapTab";
+import { InputMapTab, type TransportMapInputs, type TwoEchelonMapInputs } from "@/components/workspace/tabs/InputMapTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
@@ -474,6 +474,91 @@ function transportMapInputsSlice(inputs: Record<string, unknown> | null): Transp
     mineCapacities: mineCapacitiesRecordFromInputs(inputs),
     stationDemands: stationDemandsRecordFromInputs(inputs),
   } as TransportMapInputs;
+}
+
+// T7 (Bundle 2) — two-echelon-gold-au's added-refinery reader, typed against
+// map/types.ts's own AddedWarehouseInput (T1's displayCode field) rather
+// than WarehousesTab.tsx's AddedWarehouse (addedRefineriesFromInputs
+// above) — same "two type families, one JSON shape" reasoning
+// mapAddedWarehousesFromInputs/mapAddedCustomersFromInputs already document
+// for p-median-us.
+function mapAddedRefineriesFromInputs(inputs: Record<string, unknown> | null): AddedWarehouseInput[] {
+  const raw = inputs?.addedRefineries;
+  return Array.isArray(raw) ? (raw as AddedWarehouseInput[]) : [];
+}
+
+// T7 — effective-row view model for two-echelon-gold-au's Input Map tab: base
+// REFINERY candidates (dataset.warehouses filtered to kind !== "mine", same
+// split knownGoldRefineryIds already uses) with refineryOverrides applied,
+// unioned with scenario-local addedRefineries (isAdded:true). No capacity
+// field at all — refineries have no capacity concept (TwoEchelonMapInputs's
+// own comment). The Customers side reuses pmedianMapCustomers verbatim at
+// the render call site below — customerOverrides/addedCustomers share
+// p-median-us's exact field names/shape for this model too, so a dedicated
+// wrapper here would just be a pass-through.
+function twoEchelonMapRefineries(
+  dataset: { warehouses: { id: string; city: string; state: string; lat: number; lng: number; kind?: string }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapWarehouse[] {
+  const overrideById = new Map(refineryOverridesFromInputs(inputs).map(o => [o.id, o]));
+  const base: MapWarehouse[] = (dataset?.warehouses ?? [])
+    .filter(w => w.kind !== "mine")
+    .map(w => {
+      const o = overrideById.get(w.id);
+      return {
+        id: w.id,
+        displayCode: w.id,
+        city: w.city,
+        state: w.state,
+        lat: w.lat,
+        lng: w.lng,
+        status: (o?.status ?? "active") as WhStatus,
+        isAdded: false,
+      };
+    });
+  const added: MapWarehouse[] = mapAddedRefineriesFromInputs(inputs).map(r => ({
+    id: r.id,
+    displayCode: r.displayCode ?? r.id,
+    city: r.city,
+    state: r.state,
+    lat: r.lat,
+    lng: r.lng,
+    status: r.status,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+// T7 — the dataset's single fixed WarehouseCandidate.kind==="mine" row,
+// translated to MapWarehouse purely for InputMapTab's read-only `mine` prop
+// (displayCode/city/state/lat/lng only — see that prop's own comment on why
+// status/isAdded/capacity are never read for it). Null when the dataset
+// hasn't resolved a mine row yet.
+function twoEchelonMapMine(
+  dataset: { warehouses: { id: string; city: string; state: string; lat: number; lng: number; kind?: string }[] } | undefined,
+): MapWarehouse | null {
+  const mine = (dataset?.warehouses ?? []).find(w => w.kind === "mine");
+  if (!mine) return null;
+  return { id: mine.id, displayCode: mine.id, city: mine.city, state: mine.state, lat: mine.lat, lng: mine.lng, isAdded: false };
+}
+
+// The `inputs` slice InputMapTab's "twoEchelon" mode edits — same role
+// pmedianMapInputsSlice/transportMapInputsSlice play for their own modes,
+// one level down (see TwoEchelonMapInputs's own comment for why the shape
+// genuinely differs from PMedianMapInputs). Every reader here (
+// refineryOverridesFromInputs/customerOverridesFromInputs/
+// distanceOverridesFromInputs) already exists and is already generic enough
+// to read two-echelon-gold-au's own field names verbatim — no new readers
+// needed beyond mapAddedRefineriesFromInputs above.
+function twoEchelonMapInputsSlice(inputs: Record<string, unknown> | null): TwoEchelonMapInputs {
+  return {
+    ...(inputs ?? {}),
+    addedRefineries: mapAddedRefineriesFromInputs(inputs),
+    addedCustomers: mapAddedCustomersFromInputs(inputs),
+    refineryOverrides: refineryOverridesFromInputs(inputs),
+    customerOverrides: customerOverridesFromInputs(inputs),
+    distanceOverrides: distanceOverridesFromInputs(inputs),
+  } as TwoEchelonMapInputs;
 }
 
 // T8 — detects which added rows a map edit CREATED or MOVED (a new id, or an
@@ -1109,15 +1194,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // T5 (Bundle 2) — p-median-brazil joins p-median-us here: it shares
       // the exact same PMedianMapInputs shape (T1's manifest parity) and got
       // its own GET /dataset endpoint (T3), so it gets the real editor too.
-      // two-echelon-gold-au's Input Map stays the read-only Task-4 pin-drop
-      // flow (mode="legacy", no in-place editing) until T7 builds its own
-      // full-v2 editor.
       (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
       // T6 (Bundle 2) — transport-coal's own full-v2 editor
       // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
       // folded into the pmedian check above: TransportLpInputs isn't
       // PMedianMapInputs-shaped (see TransportMapInputs's own comment).
       (activeTab.entity === "input-map" && modelId === "transport-coal") ||
+      // T7 (Bundle 2) — two-echelon-gold-au's own full-v2 editor
+      // (mode="twoEchelon", InputMapTab.tsx) — a THIRD, separate condition
+      // for the same reason: TwoEchelonMapInputs isn't PMedianMapInputs-
+      // shaped either (refineryOverrides not warehouseOverrides, no
+      // capacityMode/capacity concept at all — see TwoEchelonMapInputs's
+      // own comment).
+      (activeTab.entity === "input-map" && modelId === "two-echelon-gold-au") ||
       // T5 (Bundle 2, Step 2b) — p-median-brazil joins p-median-us: same
       // WarehousesTab/CustomersTab components, same entity shapes (T1's
       // manifest parity), same T3 GET /dataset entry.
@@ -1139,9 +1228,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
   // toolbar below; T5 — p-median-brazil joins it (same real editor, same
-  // relocated Save). two-echelon-gold-au's legacy Input Map has no
-  // override-editing concept and is never in isEditableInputTab to begin
-  // with, so it's unaffected either way.
+  // relocated Save).
   const saveInLayersRow =
     activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
@@ -1150,6 +1237,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // structurally different component (InputMapTab.tsx's TransportInputMap),
   // just reusing the same relocated-Save UX/testids.
   const saveInLayersRowTransport = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "transport-coal";
+  // T7 (Bundle 2) — two-echelon-gold-au's own Save-in-Layers gate, same
+  // reasoning as saveInLayersRowTransport above (InputMapTab.tsx's
+  // TwoEchelonInputMap is its own structurally-different Layers row).
+  const saveInLayersRowTwoEchelon = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "two-echelon-gold-au";
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -1249,6 +1340,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const watched = [
         ...detectMapWatches(addedMinesFromInputs(localInputs), next.addedMines),
         ...detectMapWatches(addedStationsFromInputs(localInputs), next.addedStations),
+      ];
+      if (watched.length > 0) {
+        setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
+      }
+    }
+    setLocalInputs(next);
+  }
+
+  // T7 (Bundle 2) — InputMapTab's "twoEchelon" mode onInputsChange, the
+  // refinery/customer analogue of handlePMedianMapInputsChange/
+  // handleTransportMapInputsChange above. Watches addedRefineries/
+  // addedCustomers for a create/move the same way — the mine is never
+  // watched, since it can't be created/moved at all (it's never in either
+  // array — see InputMapTab.tsx's own `mine` prop comment).
+  function handleTwoEchelonMapInputsChange(next: TwoEchelonMapInputs) {
+    if (currentScenario) {
+      const scenarioId = currentScenario.id;
+      const watched = [
+        ...detectMapWatches(mapAddedRefineriesFromInputs(localInputs), next.addedRefineries),
+        ...detectMapWatches(mapAddedCustomersFromInputs(localInputs), next.addedCustomers),
       ];
       if (watched.length > 0) {
         setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
@@ -1650,27 +1761,40 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
-    // T8 (Input Map v2) — Input Map tab, one of three modes per model now:
-    // two-echelon-gold-au keeps the original Phase 3.2 Task 4 click-to-place
-    // pin map ("legacy" — its Refineries/Customers tabs have no
-    // override-projection/edit-in-place concept the map surface below needs,
-    // until T7 builds its own full-v2 editor); transport-coal (T6, Bundle 2)
-    // and p-median-us/p-median-brazil (T5, Bundle 2 — same PMedianMapInputs
-    // shape, T1's manifest parity + T3's own GET /dataset entry) each get a
-    // real full-v2 map — effective-row mines/stations or warehouses/
-    // customers (base dataset + overrides applied, unioned with added rows)
-    // wired to their own onInputsChange so every map edit lands in
-    // localInputs exactly like every other editable tab.
+    // T8 (Input Map v2) — Input Map tab. Every model now gets a real full-v2
+    // map (T5/T6, Bundle 2, and T7 closing the last gap for
+    // two-echelon-gold-au): effective-row refineries/mines/stations or
+    // warehouses/customers (base dataset + overrides applied, unioned with
+    // added rows) wired to their own onInputsChange so every map edit lands
+    // in localInputs exactly like every other editable tab. The original
+    // Phase 3.2 Task 4 click-to-place "legacy" pin map (`pinsForModel`/
+    // `placementOptionsForModel`/`handlePlacePoint` below) has no remaining
+    // caller in this branch — kept only because handlePlacePoint's
+    // openTab+prefill flow is still reachable from the Warehouses/Customers/
+    // Refineries/Mines/Stations *Tab's own "add on map" affordance.
     if (activeTab.kind === "input" && activeTab.entity === "input-map") {
       if (modelId === "two-echelon-gold-au") {
-        if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+        if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
         return (
           <InputMapTab
-            mode="legacy"
+            mode="twoEchelon"
             countryBounds={activeModelManifest?.countryBounds}
-            pins={pinsForModel(modelId, dataset, localInputs)}
-            placementOptions={placementOptionsForModel(modelId)}
-            onPlacePoint={handlePlacePoint}
+            mine={twoEchelonMapMine(dataset)}
+            refineries={twoEchelonMapRefineries(dataset, localInputs)}
+            // Two-echelon's customers share p-median-us's exact
+            // customerOverrides/addedCustomers field names/shape — reused
+            // directly rather than a pass-through wrapper (see
+            // twoEchelonMapRefineries's own comment).
+            customers={pmedianMapCustomers(dataset, localInputs)}
+            inputs={twoEchelonMapInputsSlice(localInputs)}
+            onInputsChange={handleTwoEchelonMapInputsChange}
+            // R4 — Save moves into this tab's own Layers row for
+            // two-echelon-gold-au too; saveInLayersRowTwoEchelon (below)
+            // suppresses the shared toolbar Save exactly when this prop is
+            // wired, so there is never a duplicate.
+            isDirty={isDirty}
+            onSave={handleSaveInputs}
+            saving={updateScenario.isPending}
           />
         );
       }
@@ -1983,21 +2107,27 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // unsaved add/move or a stepped-back history result renders the
       // geometry that solve actually used, not today's draft.
       //
-      // T6 (Bundle 2) — these are now TWO separate booleans, not one:
+      // T6 (Bundle 2) — these are TWO separate booleans, not one:
       // `projectsAddedEntities` (fold this solve's added rows into the
       // effective dataset so NetworkMap can resolve edges whose endpoints
       // are scenario-local — every model that HAS an added-entity concept
-      // needs this, transport-coal included) vs `hidesClosedFacilities`
-      // (R7's own hide-closed-candidates behavior, meaningful only for
-      // models with a real facility open/close concept —
-      // capabilities.supportsFacilityStatus's target group. transport-coal
-      // is R7 N/A: solve_transport's openWarehouseIds is always "all
-      // mines", so hiding "closed" ones would be a no-op at best and a
-      // misleading concept at worst — stays false for it. T7 adds
-      // two-echelon-gold-au to `hidesClosedFacilities` only, never to a
-      // combined flag, for the same reason.)
-      const projectsAddedEntities = modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "transport-coal";
-      const hidesClosedFacilities = modelId === "p-median-us" || modelId === "p-median-brazil";
+      // needs this) vs `hidesClosedFacilities` (R7's own hide-closed-
+      // candidates behavior, meaningful only for models with a real facility
+      // open/close concept — capabilities.supportsFacilityStatus's target
+      // group. transport-coal is R7 N/A: solve_transport's openWarehouseIds
+      // is always "all mines", so hiding "closed" ones would be a no-op at
+      // best and a misleading concept at worst — stays false for it.
+      // T7 (Bundle 2) — two-echelon-gold-au joins BOTH flags: it needs
+      // added-entity projection for BOTH legs (an added refinery's
+      // mine->refinery AND refinery->customer routes both need their
+      // endpoints in the effective dataset — see NetworkMap.tsx's own
+      // isMineLeg lookup comment) AND R7 hide-closed on refineries
+      // (supportsFacilityStatus:true, same target group as p-median-us/
+      // brazil — the fixed mine is retained regardless, via NetworkMap's
+      // own `kind === "mine"` guard, T4 Step 2).
+      const projectsAddedEntities =
+        modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "transport-coal" || modelId === "two-echelon-gold-au";
+      const hidesClosedFacilities = modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au";
       return (
         <OutputMapTab
           dataset={dataset}
@@ -2017,7 +2147,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               ? []
               : modelId === "transport-coal"
                 ? addedMinesFromInputs(displayedInputs)
-                : addedWarehousesFromInputs(displayedInputs)
+                : modelId === "two-echelon-gold-au"
+                  ? addedRefineriesFromInputs(displayedInputs)
+                  : addedWarehousesFromInputs(displayedInputs)
           }
           addedCustomers={
             !projectsAddedEntities
@@ -2231,14 +2363,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onActivate={id => dispatch({ type: "activate", id })}
             onClose={id => dispatch({ type: "close", id })}
           />
-          {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && (
+          {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && (
             // A1.1 (fix) — explicit Save, replacing the earlier debounced
             // auto-save. Mirrors Studio.tsx's toolbar Save button
             // (isDirty-gated, useUpdateScenario on click) rather than
             // writing on every edit. R4 — suppressed for p-median-us's/
-            // transport-coal's Input Map tabs, which each render this same
-            // Save control inline in their own Layers row instead (see
-            // saveInLayersRow/saveInLayersRowTransport above).
+            // transport-coal's/two-echelon-gold-au's Input Map tabs, which
+            // each render this same Save control inline in their own Layers
+            // row instead (see saveInLayersRow/saveInLayersRowTransport/
+            // saveInLayersRowTwoEchelon above).
             <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
               {isDirty && (
                 <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
