@@ -108,7 +108,7 @@ vi.mock("@workspace/api-client-react", () => ({
   // are geographically miles (notebook-mislabeled km), so this model now
   // advertises "mi" like the other three. The band-editor label
   // fallback every other fixture file already covers.
-  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "mi" }] })),
+  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "mi", capabilities: { supportsFacilityStatus: true } }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),

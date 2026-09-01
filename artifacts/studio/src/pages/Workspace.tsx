@@ -2127,7 +2127,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // own `kind === "mine"` guard, T4 Step 2).
       const projectsAddedEntities =
         modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "transport-coal" || modelId === "two-echelon-gold-au";
-      const hidesClosedFacilities = modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au";
+      // R7 gate is capability-driven, NOT a hardcoded model list — a 5th
+      // facility-status model must inherit hide-closed with zero changes
+      // here (plan Global Constraint; the exact bug class this repo keeps
+      // hitting). supportsFacilityStatus is true for p-median-us/brazil +
+      // two-echelon (refineries), false for transport-coal (no open/close).
+      const hidesClosedFacilities = activeModelManifest?.capabilities?.supportsFacilityStatus ?? false;
       return (
         <OutputMapTab
           dataset={dataset}
