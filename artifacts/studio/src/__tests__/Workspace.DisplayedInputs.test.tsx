@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // T4/R5 — `displayedInputs` is the inputs snapshot that PRODUCED the
@@ -32,6 +32,19 @@ vi.mock("@/components/workspace/tabs/OutputMapTab", () => ({
   OutputMapTab: (props: unknown) => {
     outputMapTabSpy(props);
     return <div data-testid="output-map-tab-stub" />;
+  },
+}));
+
+// T7 QA backfill — same stub-and-spy convention as OutputMapTab above, used
+// by the two T6/R7 tests at the bottom of this file to reach Workspace.tsx's
+// real `handleAddedArrayChange` glue (the production code path an unsaved
+// added-warehouse coordinate edit actually goes through) without needing to
+// simulate a real Leaflet drag gesture in jsdom.
+const warehousesTabSpy = vi.fn();
+vi.mock("@/components/workspace/tabs/WarehousesTab", () => ({
+  WarehousesTab: (props: unknown) => {
+    warehousesTabSpy(props);
+    return <div data-testid="warehouses-tab-stub" />;
   },
 }));
 
@@ -156,5 +169,95 @@ describe("Workspace — displayedInputs snapshot (T4/R5)", () => {
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
 
     expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600] }));
+  });
+});
+
+// T6/R7 backfill (T7 QA) — the other real OUTPUT surface `displayedInputs`
+// covers besides bands: added-warehouse/added-customer GEOMETRY. Workspace.tsx
+// passes `addedWarehousesFromInputs(displayedInputs)`/
+// `addedCustomersFromInputs(displayedInputs)` into OutputMapTab's props (see
+// that call site's own comment) — never `localInputs`, the editable draft.
+// These two tests prove that wiring directly, mirroring the bands tests
+// above's stub-and-spy convention rather than asserting on real Leaflet DOM
+// (Workspace.OutputMap.test.tsx already proves the real map renders real
+// geometry; this file only needs to prove WHICH snapshot's geometry reaches
+// OutputMapTab's props).
+describe("Workspace — Output Map added-entity geometry reads displayedInputs, not the draft (T6/R7)", () => {
+  it("an unsaved coordinate edit of an added warehouse does NOT move the Output Map's rendered geometry — it still reflects the displayed solve's own snapshot", () => {
+    const addedWarehouse = { id: "WH-ADD", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, status: "active" as const };
+    const scenarioWithAdded = {
+      ...scenario,
+      inputs: { ...pmedianInputs, addedWarehouses: [addedWarehouse] },
+    };
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithAdded } as unknown as ReturnType<typeof useGetScenario>);
+
+    renderWorkspace();
+
+    // Confirm the Output Map starts out showing the solve-time coordinates.
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(outputMapTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ addedWarehouses: [expect.objectContaining({ id: "WH-ADD", lat: 39.74, lng: -104.99 })] }),
+    );
+
+    // Draft-edit the added warehouse's coordinates through the real
+    // Workspace.tsx wiring (handleAddedArrayChange, the same glue a real
+    // drag-and-confirm move would call) WITHOUT saving or re-solving —
+    // simulates exactly the "unsaved coordinate edit" this test is for.
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    const lastWarehousesTabProps = warehousesTabSpy.mock.calls.at(-1)?.[0] as {
+      onAddedWarehousesChange: (next: unknown[]) => void;
+    };
+    act(() => lastWarehousesTabProps.onAddedWarehousesChange([{ ...addedWarehouse, lat: 10, lng: 10 }]));
+
+    outputMapTabSpy.mockClear();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+
+    // Output Map still shows the ORIGINAL solve-time coordinates, not the
+    // unsaved draft edit.
+    expect(outputMapTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ addedWarehouses: [expect.objectContaining({ id: "WH-ADD", lat: 39.74, lng: -104.99 })] }),
+    );
+  });
+
+  it("stepping the result-history stepper back renders that OLDER entry's own added-entity geometry, not the latest solve's", () => {
+    const addedWarehouseOld = { id: "WH-ADD", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, status: "active" as const };
+    const addedWarehouseNew = { id: "WH-ADD", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const };
+
+    const scenarioOld = {
+      ...scenario,
+      inputs: { ...pmedianInputs, addedWarehouses: [addedWarehouseOld] },
+      // A distinct object reference from the shared `solvedResult` fixture —
+      // resultHistoryState's seeding/append effect compares result objects
+      // by reference (see Workspace.tsx's own comment on why).
+      result: { ...solvedResult },
+    };
+    mockUseGetScenario.mockReturnValue({ data: scenarioOld } as unknown as ReturnType<typeof useGetScenario>);
+
+    const { rerender } = renderWorkspace();
+
+    const scenarioNew = {
+      ...scenario,
+      inputs: { ...pmedianInputs, addedWarehouses: [addedWarehouseNew] },
+      result: { ...solvedResult, objective: 99999 },
+    };
+    mockUseGetScenario.mockReturnValue({ data: scenarioNew } as unknown as ReturnType<typeof useGetScenario>);
+    rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+
+    // A fresh solve landed on the SAME scenario (same id, new result
+    // reference) — the history effect appends rather than reseeding, so the
+    // stepper now has 2 entries and defaults to the newest (index 1).
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(outputMapTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ addedWarehouses: [expect.objectContaining({ id: "WH-ADD", lat: 39.53, lng: -119.81 })] }),
+    );
+
+    outputMapTabSpy.mockClear();
+    fireEvent.click(screen.getByTestId("button-result-back"));
+
+    // Stepped back to the OLDER entry — Output Map renders THAT entry's own
+    // snapshot geometry, not the latest solve's.
+    expect(outputMapTabSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ addedWarehouses: [expect.objectContaining({ id: "WH-ADD", lat: 39.74, lng: -104.99 })] }),
+    );
   });
 });
