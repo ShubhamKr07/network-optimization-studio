@@ -244,10 +244,11 @@ test.describe("Input Map v2 — Leaflet-only interaction risks (real browser, no
       await firstMarker.click({ button: "right" });
       await page.getByTestId("map-action-copy").click();
       await expect(page.getByTestId("armed-status-bar")).toBeVisible();
-      // Bottom-left corner: clear of both the dense marker field and the
-      // bottom-right Leaflet attribution control (same rationale as
-      // emptyMapOffset — see its comment).
-      const dropPoint = { x: box.x + box.width * 0.06, y: box.y + box.height * 0.92 };
+      // Top-right corner (same safe zone as emptyMapOffset): clear of the
+      // dense marker field, the bottom-right Leaflet attribution control, AND
+      // the bottom-left MapLegend overlay. (MapLegend is now pointer-events:none
+      // too, but keep the drop in the established empty zone regardless.)
+      const dropPoint = { x: box.x + box.width * 0.94, y: box.y + box.height * 0.06 };
       await page.mouse.click(dropPoint.x, dropPoint.y);
       await expect(page.getByTestId("create-entity-dialog")).toBeVisible();
       const lat = Number(await page.getByTestId("create-entity-lat").textContent());
