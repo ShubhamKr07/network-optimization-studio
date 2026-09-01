@@ -370,11 +370,11 @@ describe("Studio — Transport scenario (output tab)", () => {
 // ── Studio header labels by active lab ─────────────────────────────────────────
 
 describe("Studio — Header lab name by active lab", () => {
-  it("shows Al's Athletics · Model Lab when active lab is 1 (p-median-us)", () => {
+  it("shows AL's Athletics · Model Lab when active lab is 1 (p-median-us)", () => {
     mockUseListScenarios.mockReturnValue({ data: [pmedianScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: pmedianScenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
-    expect(screen.getByText(/Al's Athletics · Model Lab/)).toBeInTheDocument();
+    expect(screen.getByText(/AL's Athletics · Model Lab/)).toBeInTheDocument();
   });
 
   it("shows Coal Transport LP · Model Lab when active lab is 2 (transport-coal)", () => {
@@ -518,15 +518,15 @@ describe("Studio — Header lab name by active lab (all three labs)", () => {
 
   // Regression guard: the header used to be a hardcoded ternary keyed off
   // activeModelIndex that never got a branch for two-echelon-gold-au, so a
-  // Chapter 10 scenario silently fell through to "Al's Athletics" — now
+  // Chapter 10 scenario silently fell through to "AL's Athletics" — now
   // derived from chapters.ts's CHAPTERS lookup instead.
-  it("shows Gold Refinery Siting · Model Lab (Ch 10), not Al's Athletics, for a two-echelon-gold-au scenario", () => {
+  it("shows Gold Refinery Siting · Model Lab (Ch 10), not AL's Athletics, for a two-echelon-gold-au scenario", () => {
     mockUseSearch.mockReturnValue("?scenario=20");
     mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
     render(<Studio modelId="two-echelon-gold-au" />);
     expect(screen.getByText(/Gold Refinery Siting · Model Lab/)).toBeInTheDocument();
-    expect(screen.queryByText(/Al's Athletics/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
   });
 });
 
@@ -1260,7 +1260,7 @@ describe("Studio — Map bounds per model", () => {
   it("passes the active model's manifest countryBounds through to NetworkMap", () => {
     mockUseListModels.mockReturnValue({
       data: [
-        { id: "p-median-us", name: "Al's Athletics", chapter: "Chapter 3", countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] }, capabilities: { supportsP: true, capacityModes: [], demandEditable: true }, inputsSchema: {} },
+        { id: "p-median-us", name: "AL's Athletics", chapter: "Chapter 3", countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] }, capabilities: { supportsP: true, capacityModes: [], demandEditable: true }, inputsSchema: {} },
       ],
     } as ReturnType<typeof useListModels>);
     renderStudio();

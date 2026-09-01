@@ -20,21 +20,23 @@ function renderLanding() {
 }
 
 describe("Landing", () => {
-  it("lists all three chapter labs", () => {
+  it("lists Chapter 3 and both Chapter 5 labs", () => {
     renderLanding();
-    expect(screen.getByText(/Al's Athletics/)).toBeInTheDocument();
-    // transport-coal and p-median-brazil are hidden from the Landing grid but
-    // still registered as routes; they must NOT appear in the card grid.
-    expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Brazil Capacity/)).not.toBeInTheDocument();
+    expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
+    expect(screen.getByText(/Coal Transport LP/)).toBeInTheDocument();
+    expect(screen.getByText(/Brazil Capacity/)).toBeInTheDocument();
+    // two-echelon-gold-au is hidden from the Landing grid but still
+    // registered as a route; it must NOT appear in the card grid.
+    expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
   });
 
-  it("links each chapter to its route", () => {
+  it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    // Hidden chapters are not rendered in the grid.
-    expect(screen.queryByTestId("link-/chapter-5/transport")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("link-/chapter-5/brazil")).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-/chapter-5/transport")).toHaveAttribute("href", "/chapter-5/transport");
+    expect(screen.getByTestId("link-/chapter-5/brazil")).toHaveAttribute("href", "/chapter-5/brazil");
+    // Hidden chapter is not rendered in the grid.
+    expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
   });
 
   it("shows no Recent solves section when history is empty", () => {
@@ -84,17 +86,17 @@ describe("Landing — Recent solves (G3.2)", () => {
   });
 
   it("a recent solve whose chapter is hidden from the grid still renders and links to its route", () => {
-    // transport-coal is hiddenFromLanding on the card grid, but Recent Solves
-    // must remain unfiltered — a solve for it still renders and links through.
+    // two-echelon-gold-au is hiddenFromLanding on the card grid, but Recent
+    // Solves must remain unfiltered — a solve for it still renders and links through.
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
-        id: 42, scenarioId: 8, scenarioName: "Coal Base Case", modelId: "transport-coal",
+        id: 42, scenarioId: 8, scenarioName: "Refinery Base Case", modelId: "two-echelon-gold-au",
         status: "succeeded", objective: 650000, weightedAvgDistanceMi: null, runTimeSec: 0.9,
         queuedAt: "2026-01-03T00:00:00Z", finishedAt: "2026-01-03T00:00:01Z",
       }],
     });
     renderLanding();
-    expect(screen.getByText("Coal Base Case")).toBeInTheDocument();
-    expect(screen.getByTestId("link-solve-history-42")).toHaveAttribute("href", "/chapter-5/transport?scenario=8");
+    expect(screen.getByText("Refinery Base Case")).toBeInTheDocument();
+    expect(screen.getByTestId("link-solve-history-42")).toHaveAttribute("href", "/chapter-10/gold-refinery?scenario=8");
   });
 });

@@ -18,15 +18,15 @@ const optimalResult: SolveResult = {
 // ── Chapter/title by model (all 4 models) ───────────────────────────────────
 // Regression coverage for the bug this replaced: ObjectiveBar used to be a
 // hardcoded MODEL_TARGETS table with no entry for two-echelon-gold-au, so it
-// silently fell back to "Chapter 3 · Al's Athletics" on every Chapter 10
+// silently fell back to "Chapter 3 · AL's Athletics" on every Chapter 10
 // screen. Now it's sourced from chapters.ts (single source of truth) for
 // every model, so every model gets a real assertion here, not just the ones
 // the old table happened to cover.
 describe("ObjectiveBar — chapter/title by model", () => {
-  it("p-median-us shows Chapter 3 / Al's Athletics", () => {
+  it("p-median-us shows Chapter 3 / AL's Athletics", () => {
     render(<ObjectiveBar result={null} scenarioId={5} modelId="p-median-us" />);
     expect(screen.getByText("Chapter 3")).toBeInTheDocument();
-    expect(screen.getByText(/Al's Athletics/)).toBeInTheDocument();
+    expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
   });
 
   it("transport-coal shows Chapter 5 / Coal Transport LP", () => {
@@ -41,17 +41,17 @@ describe("ObjectiveBar — chapter/title by model", () => {
     expect(screen.getByText(/Brazil Capacity/)).toBeInTheDocument();
   });
 
-  it("two-echelon-gold-au shows Chapter 10 / Gold Refinery Siting, NOT Al's Athletics", () => {
+  it("two-echelon-gold-au shows Chapter 10 / Gold Refinery Siting, NOT AL's Athletics", () => {
     render(<ObjectiveBar result={null} scenarioId={20} modelId="two-echelon-gold-au" />);
     expect(screen.getByText("Chapter 10")).toBeInTheDocument();
     expect(screen.getByText(/Gold Refinery Siting/)).toBeInTheDocument();
-    expect(screen.queryByText(/Al's Athletics/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
   });
 
-  it("shows a neutral 'Model' fallback (not Al's Athletics) when modelId is omitted", () => {
+  it("shows a neutral 'Model' fallback (not AL's Athletics) when modelId is omitted", () => {
     render(<ObjectiveBar result={null} scenarioId={5} />);
     expect(screen.getByText("Model")).toBeInTheDocument();
-    expect(screen.queryByText(/Al's Athletics/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
   });
 });
 
@@ -82,7 +82,7 @@ describe("ObjectiveBar — scenario name", () => {
 
   it("renders without a scenario name (no crash, nothing extra shown)", () => {
     render(<ObjectiveBar result={null} scenarioId={5} modelId="p-median-us" />);
-    expect(screen.getByText(/Al's Athletics/)).toBeInTheDocument();
+    expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
   });
 });
 
