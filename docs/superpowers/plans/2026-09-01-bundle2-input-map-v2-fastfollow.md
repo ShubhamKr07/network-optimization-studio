@@ -184,6 +184,19 @@
 
 ---
 
+## Task T9 — Brazil CSV import/export (folded in, user decision)
+
+**Role:** backend-engineer. **Parallel with T4** (backend files, disjoint from T4's map components). **Depends on:** T3 (Brazil dataset). Frontend import/export BUTTONS for Brazil fold into T5.
+
+**Context:** Phase B (B6.3) shipped Brazil backend/solver-only — its import (`scenarios.ts:901-909`) + export (`484-492`) route gates never list `p-median-brazil`, so Brazil CSV 422s. Brazil shares p-median-us's schema/entities (warehouses/customers/distances) — `import.ts`'s `ImportEntity`, `DISPLAY` labels, and `mintAddedEntityUid` already handle them. The only gaps: the route gates, and validation/export must resolve Brazil's base dataset (`BRAZIL_DATASET` / the T3 adapter), NOT p-median-us's.
+
+**Files:** `artifacts/api-server/src/routes/scenarios.ts` (import + export gates), `artifacts/api-server/src/services/import.ts` (Brazil base-dataset resolution — mirror how p-median-us resolves its dataset, but pick Brazil's when modelId is brazil), `artifacts/api-server/src/services/templates.ts` (export applies overrides onto Brazil's base dataset), tests.
+
+- [ ] **Step 1 — failing tests.** Brazil scenario: `GET /export?entity=warehouses|customers|distances` returns Brazil rows (not p-median-us's); `POST /import` + `/import/apply` for warehouses/customers/distances validate against the BRAZIL base dataset (an id valid in Brazil but not p-median-us passes; a p-median-us-only id fails). Run → fail (422 today).
+- [ ] **Step 2 — open the gates.** Add `p-median-brazil` to the import + export model→entity gates, scoped to warehouses/customers/distances (mirror p-median-us).
+- [ ] **Step 3 — Brazil dataset resolution.** Where `import.ts`/`templates.ts` resolve the base dataset by modelId, add the Brazil branch (use the T3 adapter / `BRAZIL_DATASET`). Confirm added-entity uid minting (`aw-`/`ac-`) is already shared (it is). Run → pass.
+- [ ] **Step 4 — verify + commit.** `DATABASE_URL=... pnpm --filter api-server test import export scenarios templates` + `pnpm run typecheck`. Confirm no `solvers/*/dataset` change. Commit `[B2-T9] open Brazil CSV import/export (warehouses/customers/distances) with Brazil base dataset`. NOTE for T5: add Brazil import/export UI buttons (mirror the p-median-us Overrides toolbar) as part of the Brazil frontend.
+
 ## Controller: final whole-branch review + merge + deploy
 
 - [ ] Dispatch a final whole-branch reviewer (opus) over the full Bundle-2 diff: spec coverage per the matrix; capability gates (no `modelId===` for R3/R7); DD-1/hard-rule-#2 (base data + golden tests untouched); cross-model consistency (Gate 1 + 6.5); `displayedInputs` snapshot in Brazil's NetworkMap migration; estimator circuity correctness.
