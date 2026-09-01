@@ -35,8 +35,8 @@ vi.mock("../solver/jobRunner.js", () => ({
 
 import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES } from "../data/dataset.js";
-import { TRANSPORT_COAL_WAREHOUSES } from "../data/transportCoalDataset.js";
-import { GOLD_REFINERIES } from "../data/twoEchelonDataset.js";
+import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
+import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -477,10 +477,11 @@ describe("PATCH /api/scenarios/:id", () => {
   });
 });
 
-// ── T1 (Input Map v2) — auto-estimate distance normalizer ─────────────────
-// Applied on all three p-median-us persist paths (POST create, PATCH,
-// import/apply) right before the DB write — see routes/scenarios.ts's
-// normalizePMedianInputs / services/autoDistance.ts.
+// ── T1 (Input Map v2) / follow-up item 3 — auto-estimate distance normalizer
+// Applied on every persist path (POST create, PATCH, import/apply) for
+// p-median-us, transport-coal, and two-echelon-gold-au, right before the DB
+// write — see routes/scenarios.ts's normalizeAddedEntityDistances /
+// services/autoDistance.ts.
 describe("T1 — auto-estimate distance normalizer (p-median-us persist paths)", () => {
   const newWarehouse = { id: "WH-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" };
 
@@ -541,7 +542,7 @@ describe("T1 — auto-estimate distance normalizer (p-median-us persist paths)",
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
   });
 
-  it("PATCH /api/scenarios/:id: transport-coal inputs pass through the normalizer unchanged (non-p-median model, no fill)", async () => {
+  it("PATCH /api/scenarios/:id: transport-coal inputs with no added mines/stations pass through the normalizer as a no-op", async () => {
     const cookie = await loginAs(OWNER);
     const newInputs = { ...transportInputs, capacityFactor: 1.2 };
     mockDb.select.mockReturnValue(makeChain([transportRow]));
@@ -550,13 +551,71 @@ describe("T1 — auto-estimate distance normalizer (p-median-us persist paths)",
     const res = await request(app).patch("/api/scenarios/8").set("Cookie", cookie).send({ inputs: newInputs });
     expect(res.status).toBe(200);
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
-    // The persisted capacityFactor edit survived, and the normalizer never
-    // touched this model at all — transportLpInputsSchema has no
-    // `distanceOverrides` field (its own override array is
-    // `laneCostOverrides`), so the p-median-only auto-distance output
-    // (fillEstimatedDistances's `distanceOverrides` key) must be absent.
+    // The normalizer now runs for transport-coal too (follow-up item 3), but
+    // with no addedMines/addedStations there's nothing to fill — the
+    // persisted capacityFactor edit survives and laneCostOverrides stays
+    // empty (transportLpInputsSchema has no `distanceOverrides` field at
+    // all; its own override array is `laneCostOverrides`).
     expect(setArgs.inputs.capacityFactor).toBe(1.2);
     expect(setArgs.inputs).not.toHaveProperty("distanceOverrides");
+    expect(setArgs.inputs.laneCostOverrides).toEqual([]);
+  });
+});
+
+// ── follow-up item 3 — auto-estimate normalizer, transport-coal + two-echelon
+describe("follow-up item 3 — auto-estimate distance normalizer (transport-coal, two-echelon-gold-au)", () => {
+  const newMine = { id: "MINE-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 };
+  const newRefinery = { id: "REF-NEW1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" };
+
+  it("PATCH /api/scenarios/:id: transport-coal — an added mine gets estimated lane costs to every station", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
+    const newInputs = { ...transportInputs, addedMines: [newMine] };
+    const chain = makeChain([{ ...transportRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/8").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { laneCostOverrides: Array<{ fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const fromNew = setArgs.inputs.laneCostOverrides.filter((o) => o.fromId === "MINE-NEW1");
+    expect(fromNew.length).toBe(TRANSPORT_COAL_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: two-echelon-gold-au — an added refinery gets both legs estimated (mine->refinery + refinery->every customer)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
+    const newInputs = { ...twoEchelonInputs, addedRefineries: [newRefinery] };
+    const chain = makeChain([{ ...twoEchelonRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/11").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const mineLeg = setArgs.inputs.distanceOverrides.filter((o) => o.toId === "REF-NEW1");
+    expect(mineLeg.length).toBe(1); // one fixed mine
+    expect(mineLeg[0].estimated).toBe(true);
+    const customerLeg = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "REF-NEW1");
+    expect(customerLeg.length).toBe(GOLD_CUSTOMERS.length);
+    expect(customerLeg.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: p-median-brazil inputs (shares p-median schema) pass through unchanged — not covered by this normalizer", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([brazilRow]));
+    const newInputs = { ...brazilInputs, addedWarehouses: [{ id: "BW-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" }] };
+    const chain = makeChain([{ ...brazilRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/10").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }> };
+    };
+    // p-median-brazil is deliberately out of scope (different base
+    // dataset/geography from p-median-us) — no estimated rows appear.
+    expect(setArgs.inputs.distanceOverrides.some((o) => o.fromId === "BW-NEW1")).toBe(false);
   });
 });
 

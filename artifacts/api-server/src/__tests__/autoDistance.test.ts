@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { haversineMiles, fillEstimatedDistances } from "../services/autoDistance.js";
+import {
+  haversineMiles,
+  fillEstimatedDistances,
+  fillEstimatedLaneCosts,
+  fillEstimatedTwoEchelonDistances,
+} from "../services/autoDistance.js";
 import { pMedianInputsSchema, type PMedianInputs } from "../validation/inputs/pMedian.js";
+import { transportLpInputsSchema, type TransportLpInputs } from "../validation/inputs/transportLp.js";
+import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 
 // T1 (Input Map v2) — a tiny, self-contained coord dataset (2 base
 // warehouses, 2 base customers) passed explicitly as the second arg, so
@@ -148,5 +155,250 @@ describe("fillEstimatedDistances", () => {
     const result = fillEstimatedDistances(inputs as PMedianInputs, DATASET);
     const fromAW1 = result.distanceOverrides.filter((o) => o.fromId === "AW1");
     expect(fromAW1.map((o) => o.toId)).toEqual(["BC2"]);
+  });
+});
+
+// ── follow-up item 3 — transport-coal (haversine * circuity) ───────────────
+const TRANSPORT_CIRCUITY = 1.17;
+
+const TRANSPORT_DATASET = {
+  mines: [
+    { id: "BM1", lat: 32.7813, lng: -96.797 }, // Dallas, TX
+    { id: "BM2", lat: 39.7392, lng: -104.9903 }, // Denver, CO
+  ],
+  stations: [
+    { id: "BS1", lat: 36.154, lng: -95.9928 }, // Tulsa, OK
+    { id: "BS2", lat: 41.8781, lng: -87.6298 }, // Chicago, IL
+  ],
+};
+
+const TRANSPORT_BASE_INPUTS = {
+  distanceBands: [500, 1000, 1500, 2000],
+  gap: 0,
+  timeLimitSec: 120,
+  capacityFactor: 1.0,
+  singleSource: false,
+  capacityInactive: false,
+  mineCapacities: {} as Record<string, number>,
+  stationDemands: {} as Record<string, number>,
+  addedMines: [] as TransportLpInputs["addedMines"],
+  addedStations: [] as TransportLpInputs["addedStations"],
+  laneCostOverrides: [] as TransportLpInputs["laneCostOverrides"],
+};
+
+function laneKey(o: { fromId: string; toId: string }): string {
+  return o.fromId + "|" + o.toId;
+}
+
+describe("fillEstimatedLaneCosts (transport-coal)", () => {
+  it("an added mine with no overrides gets estimated lane costs to every base+added station, at haversine * circuity", () => {
+    const inputs = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+    };
+    const result = fillEstimatedLaneCosts(inputs as TransportLpInputs, TRANSPORT_DATASET);
+    const fromAM1 = result.laneCostOverrides.filter((o) => o.fromId === "AM1");
+    expect(fromAM1.map((o) => o.toId).sort()).toEqual(["BS1", "BS2"]);
+    expect(fromAM1.every((o) => o.estimated === true)).toBe(true);
+    // Hand-checked: AM1 (Reno, NV) -> BS1 (Tulsa, OK) haversine ~ 1231 mi;
+    // the stored value must be that raw distance times the 1.17 circuity
+    // factor, not the plain haversine value.
+    const toBS1 = fromAM1.find((o) => o.toId === "BS1")!;
+    const rawMi = haversineMiles({ lat: 39.53, lng: -119.81 }, { lat: 36.154, lng: -95.9928 });
+    expect(toBS1.cost).toBeCloseTo(Math.round(rawMi * TRANSPORT_CIRCUITY * 10) / 10, 1);
+    expect(toBS1.cost).not.toBeCloseTo(Math.round(rawMi * 10) / 10, 1);
+  });
+
+  it("a base mine gets estimated lane costs to every ADDED station only, never base<->base", () => {
+    const inputs = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+      addedStations: [{ id: "AS1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 500 }],
+    };
+    const result = fillEstimatedLaneCosts(inputs as TransportLpInputs, TRANSPORT_DATASET);
+    const fromBM1 = result.laneCostOverrides.filter((o) => o.fromId === "BM1");
+    const fromBM2 = result.laneCostOverrides.filter((o) => o.fromId === "BM2");
+    expect(fromBM1.map((o) => o.toId)).toEqual(["AS1"]);
+    expect(fromBM2.map((o) => o.toId)).toEqual(["AS1"]);
+    expect(fromBM1[0].estimated).toBe(true);
+  });
+
+  it("a mine id colliding with a station id resolves against its own role's map (no cross-role coord bleed)", () => {
+    const inputs = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+      addedStations: [{ id: "BM1", city: "Elsewhere", state: "ZZ", lat: 10, lng: 10, demand: 100 }],
+    };
+    const result = fillEstimatedLaneCosts(inputs as TransportLpInputs, TRANSPORT_DATASET);
+    const row = result.laneCostOverrides.find((o) => o.fromId === "AM1" && o.toId === "BM1");
+    expect(row).toBeDefined();
+    const expectedCost = Math.max(0.1, Math.round(haversineMiles({ lat: 39.53, lng: -119.81 }, { lat: 10, lng: 10 }) * TRANSPORT_CIRCUITY * 10) / 10);
+    expect(row!.cost).toBeCloseTo(expectedCost, 1);
+  });
+
+  it("two coincident points clamp to MIN_DISTANCE (0.1), never 0, and the result still validates", () => {
+    const inputs = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Same", state: "ZZ", lat: 36.154, lng: -95.9928 }],
+    };
+    const result = fillEstimatedLaneCosts(inputs as TransportLpInputs, TRANSPORT_DATASET);
+    const row = result.laneCostOverrides.find((o) => o.fromId === "AM1" && o.toId === "BS1");
+    expect(row!.cost).toBe(0.1);
+    expect(() => transportLpInputsSchema.parse(result)).not.toThrow();
+  });
+
+  it("a manual row (no estimated flag) is left untouched", () => {
+    const inputs = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+      laneCostOverrides: [{ fromId: "AM1", toId: "BS1", cost: 999 }],
+    };
+    const result = fillEstimatedLaneCosts(inputs as TransportLpInputs, TRANSPORT_DATASET);
+    const row = result.laneCostOverrides.find((o) => o.fromId === "AM1" && o.toId === "BS1");
+    expect(row).toEqual({ fromId: "AM1", toId: "BS1", cost: 999 });
+  });
+
+  it("running fillEstimatedLaneCosts twice is a no-op (idempotent)", () => {
+    const inputs = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+      addedStations: [{ id: "AS1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 500 }],
+    };
+    const once = fillEstimatedLaneCosts(inputs as TransportLpInputs, TRANSPORT_DATASET);
+    const twice = fillEstimatedLaneCosts(once, TRANSPORT_DATASET);
+    expect(twice.laneCostOverrides).toEqual(once.laneCostOverrides);
+    const keys = twice.laneCostOverrides.map(laneKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+// ── follow-up item 3 — two-echelon-gold-au (plain haversine, both legs) ────
+const GOLD_TEST_DATASET = {
+  mines: [{ id: "GM1", lat: -30.7495, lng: 121.4667 }], // Kalgoorlie, WA (fixed, single mine)
+  refineries: [
+    { id: "BR1", lat: -28.15, lng: 117.6 }, // Daggar Hills, WA
+    { id: "BR2", lat: -28.0716, lng: 145.6695 }, // Cunnamulla, QLD
+  ],
+  customers: [
+    { id: "BC1", lat: -33.8688, lng: 151.2093 }, // Sydney, NSW
+    { id: "BC2", lat: -37.8136, lng: 144.9631 }, // Melbourne, VIC
+  ],
+};
+
+const GOLD_BASE_INPUTS = {
+  bomRatio: 1.1,
+  refineryOverrides: [] as { id: string; status: "active" | "forced_open" | "inactive" }[],
+  customerOverrides: [] as { id: string; status: "active" | "excluded"; demand?: number | null }[],
+  distanceBands: [500, 1000, 1500, 2000, 2600],
+  gap: 0,
+  timeLimitSec: 120,
+  addedRefineries: [] as TwoEchelonInputs["addedRefineries"],
+  addedCustomers: [] as TwoEchelonInputs["addedCustomers"],
+  distanceOverrides: [] as TwoEchelonInputs["distanceOverrides"],
+};
+
+function distKey(o: { fromId: string; toId: string }): string {
+  return o.fromId + "|" + o.toId;
+}
+
+describe("fillEstimatedTwoEchelonDistances (two-echelon-gold-au)", () => {
+  it("an added refinery with no overrides gets BOTH legs estimated: mine->refinery AND refinery->every base+added customer, at plain haversine (no circuity)", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const fromMine = result.distanceOverrides.filter((o) => o.fromId === "GM1" && o.toId === "AR1");
+    expect(fromMine.length).toBe(1);
+    expect(fromMine[0].estimated).toBe(true);
+    const fromAR1 = result.distanceOverrides.filter((o) => o.fromId === "AR1");
+    expect(fromAR1.map((o) => o.toId).sort()).toEqual(["BC1", "BC2"]);
+    expect(fromAR1.every((o) => o.estimated === true)).toBe(true);
+    // No circuity — the stored refinery->customer distance must equal plain
+    // haversineMiles, unlike transport-coal's equivalent lane cost.
+    const toBC1 = fromAR1.find((o) => o.toId === "BC1")!;
+    const rawMi = haversineMiles({ lat: -31.9505, lng: 115.8605 }, { lat: -33.8688, lng: 151.2093 });
+    expect(toBC1.distance).toBeCloseTo(Math.round(rawMi * 10) / 10, 1);
+  });
+
+  it("a base refinery gets a refinery->customer leg to every ADDED customer only, never base<->base, and no mine leg (already covered)", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedCustomers: [{ id: "AC1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, demand: 500 }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const fromBR1 = result.distanceOverrides.filter((o) => o.fromId === "BR1");
+    const fromBR2 = result.distanceOverrides.filter((o) => o.fromId === "BR2");
+    expect(fromBR1.map((o) => o.toId)).toEqual(["AC1"]);
+    expect(fromBR2.map((o) => o.toId)).toEqual(["AC1"]);
+    expect(result.distanceOverrides.some((o) => o.toId === "BR1" || o.toId === "BR2")).toBe(false);
+  });
+
+  it("a refinery id colliding with a customer id resolves against its own role's map (no cross-role coord bleed)", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+      addedCustomers: [{ id: "BR1", city: "Elsewhere", state: "ZZ", lat: 10, lng: 10, demand: 100 }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const row = result.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BR1");
+    expect(row).toBeDefined();
+    const expectedDistance = Math.max(0.1, Math.round(haversineMiles({ lat: -31.9505, lng: 115.8605 }, { lat: 10, lng: 10 }) * 10) / 10);
+    expect(row!.distance).toBeCloseTo(expectedDistance, 1);
+  });
+
+  it("an inactive added refinery contributes no rows", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "inactive" as const }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    expect(result.distanceOverrides.some((o) => o.fromId === "AR1" || o.toId === "AR1")).toBe(false);
+  });
+
+  it("an excluded base customer is not a fill target", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      customerOverrides: [{ id: "BC1", status: "excluded" as const }],
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const fromAR1 = result.distanceOverrides.filter((o) => o.fromId === "AR1");
+    expect(fromAR1.map((o) => o.toId)).toEqual(["BC2"]);
+  });
+
+  it("two coincident points clamp to MIN_DISTANCE (0.1), never 0, and the result still validates", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Same", state: "ZZ", lat: -33.8688, lng: 151.2093, status: "active" as const }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const row = result.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BC1");
+    expect(row!.distance).toBe(0.1);
+    expect(() => twoEchelonInputsSchema.parse(result)).not.toThrow();
+  });
+
+  it("a manual row (no estimated flag) is left untouched", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+      distanceOverrides: [{ fromId: "GM1", toId: "AR1", distance: 999 }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const row = result.distanceOverrides.find((o) => o.fromId === "GM1" && o.toId === "AR1");
+    expect(row).toEqual({ fromId: "GM1", toId: "AR1", distance: 999 });
+  });
+
+  it("running fillEstimatedTwoEchelonDistances twice is a no-op (idempotent)", () => {
+    const inputs = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+      addedCustomers: [{ id: "AC1", city: "Adelaide", state: "SA", lat: -34.9285, lng: 138.6007, demand: 300 }],
+    };
+    const once = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const twice = fillEstimatedTwoEchelonDistances(once, GOLD_TEST_DATASET);
+    expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
+    const keys = twice.distanceOverrides.map(distKey);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });

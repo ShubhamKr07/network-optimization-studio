@@ -61,6 +61,13 @@ const distanceOverrideSchema = z.object({
   fromId: z.string().min(1),
   toId: z.string().min(1),
   distance: z.number().positive(),
+  // Follow-up item 3 (auto-estimate normalizer) — true when this row was
+  // auto-filled by services/autoDistance.ts's
+  // fillEstimatedTwoEchelonDistances rather than entered/imported by a
+  // student. Purely informational, same precedent as pMedian.ts's
+  // distanceOverrideSchema.estimated; never read by the solver or by any
+  // validation rule.
+  estimated: z.boolean().optional(),
 });
 
 function distanceOverridePairKey(o: { fromId: string; toId: string }): string {
