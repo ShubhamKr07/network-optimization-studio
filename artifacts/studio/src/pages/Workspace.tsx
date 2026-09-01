@@ -76,7 +76,7 @@ import {
   initialWorkspaceTabState,
   type WorkspaceTab,
 } from "@/lib/workspaceTabs";
-import type { StudioModelType } from "@/lib/chapters";
+import { chapterForModelId, type StudioModelType } from "@/lib/chapters";
 import { toast } from "@/hooks/use-toast";
 import {
   completenessCountForWarehouse,
@@ -2136,6 +2136,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return (
         <OutputMapTab
           dataset={dataset}
+          // B2.1-T2 — the metric overlay resolves its distance unit from the
+          // model's manifest (useListModels), so the tab needs the active id.
+          modelId={modelId}
           // T6 — also displayedInputs, not localInputs: an unsaved
           // forced-open/inactive edit shouldn't retroactively re-style a
           // solve that's already on screen, for the same reason `bands`
@@ -2242,7 +2245,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden scn-theme" data-testid="workspace-page">
-      <header className="h-14 border-b flex items-center px-4 gap-4 flex-shrink-0 bg-background">
+      <header className="min-h-14 border-b flex items-center px-4 py-1.5 gap-4 flex-shrink-0 bg-background relative">
         {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
             convention verbatim (same testid/icon/onClick target) rather than
             inventing new UX: Workspace was the only authed page with no way
@@ -2277,6 +2280,25 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             ))}
           </select>
         </div>
+        {/* Item 4 (B2.1-T3) — centered "Chapter N · <description>" summary,
+            independent of the left/right content widths (absolutely
+            positioned against the now-`relative` header, not a flex child).
+            Renders nothing for an unrecognized modelId. `truncate` +
+            `max-w` keep it from ever overlapping the scenario select or the
+            right-side controls at narrow widths. */}
+        {(() => {
+          const activeChapter = chapterForModelId(modelId);
+          if (!activeChapter) return null;
+          return (
+            <div
+              data-testid="workspace-chapter-summary"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[38%] truncate text-xs text-muted-foreground text-center pointer-events-none"
+              title={`${activeChapter.chapter} · ${activeChapter.description}`}
+            >
+              {activeChapter.chapter} · {activeChapter.description}
+            </div>
+          );
+        })()}
         <div className="flex-1" />
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">

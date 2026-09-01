@@ -10,6 +10,21 @@ vi.mock("@/lib/copyMapToClipboard", () => ({
   isClipboardImageWriteSupported: vi.fn(),
 }));
 
+// B2.1-T2 — distanceUnit is sourced from GET /api/models (via
+// useListModels), same convention ServiceStatsTab.test.tsx already uses.
+// "two-echelon-fake-km" is a fictional entry (no real model uses "km" yet)
+// solely to prove the overlay actually reads the resolved unit rather than
+// hardcoding "mi".
+const mockUseListModels = vi.fn(() => ({
+  data: [
+    { id: "p-median-us", distanceUnit: "mi" },
+    { id: "two-echelon-fake-km", distanceUnit: "km" },
+  ],
+}));
+vi.mock("@workspace/api-client-react", () => ({
+  useListModels: () => mockUseListModels(),
+}));
+
 // A3.1 — Output Map tab. Renders the REAL NetworkMap (no react-leaflet
 // mocking, same convention NetworkMap.test.tsx already uses) so assertions
 // reflect actual rendered Leaflet DOM: warehouse markers land in
@@ -324,5 +339,56 @@ describe("OutputMapTab — copy/download", () => {
     render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
     fireEvent.click(screen.getByTestId("button-download-map-png"));
     await waitFor(() => expect(copyMapToClipboard.downloadMapAsPng).toHaveBeenCalledTimes(1));
+  });
+});
+
+// B2.1-T2, item 2 — floating objective + weighted-avg-distance overlay.
+// `result` here is `displayedResult` at the call site (Workspace.tsx), so
+// this overlay follows the result-history stepper automatically — no extra
+// wiring needed in this component beyond rendering the prop it already has.
+describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
+  it("shows the formatted objective and weighted-avg-distance (with the model's unit) once a result is set", () => {
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={{ ...result, objective: 1234567, metrics: { ...result.metrics, weightedAvgDistance: 412.345 } }}
+        bands={[250, 500, 750]}
+        modelId="p-median-us"
+      />,
+    );
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    expect(overlay).toHaveTextContent("1,234,567");
+    expect(overlay).toHaveTextContent("412.3 mi");
+  });
+
+  it("uses the resolved model's distanceUnit ('km'), not a hardcoded 'mi'", () => {
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={{ ...result, metrics: { ...result.metrics, weightedAvgDistance: 500 } }}
+        bands={[250, 500, 750]}
+        modelId="two-echelon-fake-km"
+      />,
+    );
+    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500.0 km");
+  });
+
+  it("defaults to 'mi' when modelId is not provided", () => {
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={{ ...result, metrics: { ...result.metrics, weightedAvgDistance: 500 } }}
+        bands={[250, 500, 750]}
+      />,
+    );
+    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500.0 mi");
+  });
+
+  it("is absent when result is null (pre-solve / inactive tab)", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[250, 500, 750]} />);
+    expect(screen.queryByTestId("output-map-metric-overlay")).not.toBeInTheDocument();
   });
 });
