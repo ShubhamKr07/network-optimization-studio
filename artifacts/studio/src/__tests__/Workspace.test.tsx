@@ -292,15 +292,18 @@ describe("Workspace — placeholder tabs", () => {
   // Customers/Stations tabs via CustomerOverride.demand/StationOverride.demand).
   // T5 (Bundle 2, Step 2b) — p-median-brazil's Warehouses/Customers/Distances
   // tabs are now ALSO real content (same components as p-median-us), so this
-  // test's own example moved to transport-coal's Input Map tab: it stays the
-  // read-only Task-4 pin-drop flow ("legacy" mode, no in-place editing) until
-  // T6 builds its own full-v2 editor — a genuine "nothing wired to save yet"
+  // test's own example moved to transport-coal's Input Map tab. T6 (Bundle
+  // 2) then gave transport-coal its own full-v2 editor too (mode=
+  // "transport", Save-in-Layers) — moved the example on AGAIN, to
+  // two-echelon-gold-au's Input Map, the only one still on the read-only
+  // Task-4 pin-drop flow ("legacy" mode, no in-place editing) until T7
+  // builds its own full-v2 editor — a genuine "nothing wired to save yet"
   // tab today.
   it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
-    const transportScenario = { ...scenario, modelId: "transport-coal" };
-    mockUseGetScenario.mockReturnValue({ data: transportScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [transportScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    const twoEchelonScenario = { ...scenario, modelId: "two-echelon-gold-au" };
+    mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [twoEchelonScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="two-echelon-gold-au" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });

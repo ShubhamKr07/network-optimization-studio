@@ -47,7 +47,7 @@ import { OptimizationParametersTab } from "@/components/workspace/tabs/Optimizat
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
-import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
+import { InputMapTab, type TransportMapInputs } from "@/components/workspace/tabs/InputMapTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
@@ -374,6 +374,106 @@ function pmedianMapInputsSlice(inputs: Record<string, unknown> | null): PMedianM
     distanceOverrides: distanceOverridesFromInputs(inputs),
     capacityMode: capacityModeFromInputs(inputs),
   } as PMedianMapInputs;
+}
+
+// T6 (Bundle 2) — transport-coal's sparse mineCapacities/stationDemands
+// readers, Record-shaped (not array-of-{id,status,capacity} like
+// warehouseOverrides/customerOverrides) — mirrors
+// mineOverridesFromInputs/stationOverridesFromInputs's own raw-field read,
+// just without the array translation those two do for MineTable/
+// StationTable's own overrides prop (the map's TransportMapInputs slice
+// wants the raw record, since its own mutators — editBaseMineCapacity/
+// editBaseStationDemand in InputMapTab.tsx — operate on it directly, same
+// as MineTable.tsx/StationTable.tsx's own `upsert` does).
+function mineCapacitiesRecordFromInputs(inputs: Record<string, unknown> | null): Record<string, number> {
+  const raw = inputs?.mineCapacities;
+  return raw && typeof raw === "object" ? (raw as Record<string, number>) : {};
+}
+
+function stationDemandsRecordFromInputs(inputs: Record<string, unknown> | null): Record<string, number> {
+  const raw = inputs?.stationDemands;
+  return raw && typeof raw === "object" ? (raw as Record<string, number>) : {};
+}
+
+// T6 — effective-row view models for transport-coal's Input Map tab, the
+// mine/station analogue of pmedianMapWarehouses/pmedianMapCustomers above:
+// base dataset rows (dataset.warehouses = mines, dataset.customers =
+// stations, per this file's own knownMineIds/knownStationIds comment) with
+// mineCapacities/stationDemands overrides APPLIED, unioned with
+// scenario-local addedMines/addedStations (isAdded:true). Mines never carry
+// a `status` (MapWarehouse.status stays undefined — MINE_ROLE's
+// hasStatus:false, see types.ts), and stations have no "excluded" concept
+// at all (transport-coal has no equivalent), so it's always false.
+function transportMapMines(
+  dataset: { warehouses: { id: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapWarehouse[] {
+  const capacities = mineCapacitiesRecordFromInputs(inputs);
+  const base: MapWarehouse[] = (dataset?.warehouses ?? []).map(m => ({
+    id: m.id,
+    displayCode: m.id,
+    city: m.city,
+    state: m.state,
+    lat: m.lat,
+    lng: m.lng,
+    capacity: capacities[m.id] ?? null,
+    isAdded: false,
+  }));
+  const added: MapWarehouse[] = addedMinesFromInputs(inputs).map(m => ({
+    id: m.id,
+    displayCode: m.displayCode ?? m.id,
+    city: m.city,
+    state: m.state,
+    lat: m.lat,
+    lng: m.lng,
+    capacity: m.capacity ?? null,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+function transportMapStations(
+  dataset: { customers: { id: string; city: string; state: string; lat: number; lng: number; demand: number }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapCustomer[] {
+  const demands = stationDemandsRecordFromInputs(inputs);
+  const base: MapCustomer[] = (dataset?.customers ?? []).map(s => ({
+    id: s.id,
+    displayCode: s.id,
+    city: s.city,
+    state: s.state,
+    lat: s.lat,
+    lng: s.lng,
+    demand: demands[s.id] ?? s.demand,
+    excluded: false,
+    isAdded: false,
+  }));
+  const added: MapCustomer[] = addedStationsFromInputs(inputs).map(s => ({
+    id: s.id,
+    displayCode: s.displayCode ?? s.id,
+    city: s.city,
+    state: s.state,
+    lat: s.lat,
+    lng: s.lng,
+    demand: s.demand,
+    excluded: false,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+// The `inputs` slice InputMapTab's "transport" mode edits — same role
+// pmedianMapInputsSlice plays for "pmedian" mode, one level down (see
+// TransportMapInputs's own comment for why the shapes genuinely differ).
+function transportMapInputsSlice(inputs: Record<string, unknown> | null): TransportMapInputs {
+  return {
+    ...(inputs ?? {}),
+    addedMines: addedMinesFromInputs(inputs),
+    addedStations: addedStationsFromInputs(inputs),
+    laneCostOverrides: laneCostOverridesFromInputs(inputs),
+    mineCapacities: mineCapacitiesRecordFromInputs(inputs),
+    stationDemands: stationDemandsRecordFromInputs(inputs),
+  } as TransportMapInputs;
 }
 
 // T8 — detects which added rows a map edit CREATED or MOVED (a new id, or an
@@ -938,6 +1038,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // read from `savedInputsRef` inside onSuccess, since by the time
     // onSuccess runs `inputs` is what was actually SENT.
     const preSaveDistanceOverrides = distanceOverridesFromInputs(inputs);
+    // T6 (Bundle 2) — transport-coal analogue, captured the same way and
+    // for the same reason. A no-op read for every other model
+    // (laneCostOverridesFromInputs on a non-transport `inputs` blob is
+    // always []).
+    const preSaveLaneCostOverrides = laneCostOverridesFromInputs(inputs);
     updateScenario.mutate(
       { scenarioId, data: { inputs } },
       {
@@ -963,6 +1068,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           void reportPendingPrecheckWatches(scenarioId);
           // T8 — resolve any pending map create/move estimate watches.
           reportEstimatedDistanceWatches(scenarioId, preSaveDistanceOverrides, distanceOverridesFromInputs(updated.inputs));
+          // T6 (Bundle 2) — transport-coal's own "N lane costs estimated" watch.
+          reportEstimatedLaneCostWatches(scenarioId, preSaveLaneCostOverrides, laneCostOverridesFromInputs(updated.inputs));
         },
       },
     );
@@ -1002,10 +1109,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // T5 (Bundle 2) — p-median-brazil joins p-median-us here: it shares
       // the exact same PMedianMapInputs shape (T1's manifest parity) and got
       // its own GET /dataset endpoint (T3), so it gets the real editor too.
-      // transport-coal/two-echelon-gold-au's Input Map stays the read-only
-      // Task-4 pin-drop flow (mode="legacy", no in-place editing) until
-      // T6/T7 build their own full-v2 editors.
+      // two-echelon-gold-au's Input Map stays the read-only Task-4 pin-drop
+      // flow (mode="legacy", no in-place editing) until T7 builds its own
+      // full-v2 editor.
       (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
+      // T6 (Bundle 2) — transport-coal's own full-v2 editor
+      // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
+      // folded into the pmedian check above: TransportLpInputs isn't
+      // PMedianMapInputs-shaped (see TransportMapInputs's own comment).
+      (activeTab.entity === "input-map" && modelId === "transport-coal") ||
       // T5 (Bundle 2, Step 2b) — p-median-brazil joins p-median-us: same
       // WarehousesTab/CustomersTab components, same entity shapes (T1's
       // manifest parity), same T3 GET /dataset entry.
@@ -1027,11 +1139,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
   // toolbar below; T5 — p-median-brazil joins it (same real editor, same
-  // relocated Save). Every other editable tab (including transport-coal's/
-  // two-echelon-gold-au's legacy Input Map, which has no override-editing
-  // concept and is never in isEditableInputTab to begin with) is unaffected.
+  // relocated Save). two-echelon-gold-au's legacy Input Map has no
+  // override-editing concept and is never in isEditableInputTab to begin
+  // with, so it's unaffected either way.
   const saveInLayersRow =
     activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
+  // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
+  // condition from the pmedian one above (same reasoning as
+  // isEditableInputTab's own third branch) — its Layers row is a
+  // structurally different component (InputMapTab.tsx's TransportInputMap),
+  // just reusing the same relocated-Save UX/testids.
+  const saveInLayersRowTransport = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "transport-coal";
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -1119,6 +1237,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     setLocalInputs(next);
   }
 
+  // T6 (Bundle 2) — InputMapTab's "transport" mode onInputsChange, the
+  // mine/station analogue of handlePMedianMapInputsChange immediately
+  // above. Watches addedMines/addedStations for a create/move the same way,
+  // registering the SAME pendingEstimateWatches list (it's already
+  // model-agnostic, id-scoped) — reportEstimatedLaneCostWatches (below)
+  // resolves it against laneCostOverrides instead of distanceOverrides.
+  function handleTransportMapInputsChange(next: TransportMapInputs) {
+    if (currentScenario) {
+      const scenarioId = currentScenario.id;
+      const watched = [
+        ...detectMapWatches(addedMinesFromInputs(localInputs), next.addedMines),
+        ...detectMapWatches(addedStationsFromInputs(localInputs), next.addedStations),
+      ];
+      if (watched.length > 0) {
+        setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
+      }
+    }
+    setLocalInputs(next);
+  }
+
   // Post-Save precheck toast (Input Map, Task 4). Called from
   // handleSaveInputs's onSuccess, after that handler's own existing
   // getPrecheckScenarioQueryKey invalidation — awaits a FRESH fetch of the
@@ -1191,6 +1329,50 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               }}
             >
               Distances
+            </ToastAction>
+          ),
+        });
+      }
+    }
+    setPendingEstimateWatches(prev => prev.filter(w => w.scenarioId !== scenarioId));
+  }
+
+  // T6 (Bundle 2) — transport-coal analogue of reportEstimatedDistanceWatches
+  // immediately above, for its own "lane costs" vocabulary. Kept as its own
+  // function (not a generalized merge of the two) — same "close mirror, not
+  // shared abstraction" convention this file already applies to
+  // transport-coal's network-edit machinery (see
+  // deleteAddedTransportEntityAndOverrides's own comment). Typed
+  // structurally rather than against LaneCostsTab.tsx's own exported
+  // LaneCostOverride (which doesn't declare `estimated` — a pre-existing
+  // gap in that component, out of this task's file list) — the real JSON
+  // objects flowing through `inputs.laneCostOverrides` DO carry it
+  // (laneCostOverrideSchema.estimated), this just widens the type enough to
+  // read it here without touching that file.
+  function reportEstimatedLaneCostWatches(
+    scenarioId: number,
+    preSaveOverrides: { fromId: string; toId: string; estimated?: boolean }[],
+    postSaveOverrides: { fromId: string; toId: string; estimated?: boolean }[],
+  ) {
+    const relevant = pendingEstimateWatches.filter(w => w.scenarioId === scenarioId);
+    if (relevant.length === 0) return;
+    const preEstimatedKeys = new Set(preSaveOverrides.filter(o => o.estimated).map(o => `${o.fromId}|${o.toId}`));
+    for (const watch of relevant) {
+      const newlyEstimated = postSaveOverrides.filter(
+        o => o.estimated && (o.fromId === watch.id || o.toId === watch.id) && !preEstimatedKeys.has(`${o.fromId}|${o.toId}`),
+      ).length;
+      if (newlyEstimated > 0) {
+        toast({
+          description: `${newlyEstimated} lane cost${newlyEstimated === 1 ? "" : "s"} estimated for ${watch.displayCode} — review.`,
+          action: (
+            <ToastAction
+              altText="Go to Lane costs"
+              onClick={() => {
+                setFocusEntityId(watch.id);
+                openTab("input", { id: "laneCosts", label: "Lane costs" });
+              }}
+            >
+              Lane costs
             </ToastAction>
           ),
         });
@@ -1468,19 +1650,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
-    // T8 (Input Map v2) — Input Map tab, one of two remaining modes per
-    // model: transport-coal/two-echelon-gold-au keep the original Phase 3.2
-    // Task 4 click-to-place pin map ("legacy" — their Mines/Stations/
-    // Refineries/Customers tabs have no override-projection/edit-in-place
-    // concept the map surface below needs, until T6/T7 build their own
-    // full-v2 editors); p-median-us AND p-median-brazil (T5, Bundle 2 — same
-    // PMedianMapInputs shape, T1's manifest parity + T3's own GET /dataset
-    // entry) get the real map — effective-row warehouses/customers (base
-    // dataset + overrides applied, unioned with added rows) wired to
-    // handlePMedianMapInputsChange so every map edit lands in localInputs
-    // exactly like every other editable tab.
+    // T8 (Input Map v2) — Input Map tab, one of three modes per model now:
+    // two-echelon-gold-au keeps the original Phase 3.2 Task 4 click-to-place
+    // pin map ("legacy" — its Refineries/Customers tabs have no
+    // override-projection/edit-in-place concept the map surface below needs,
+    // until T7 builds its own full-v2 editor); transport-coal (T6, Bundle 2)
+    // and p-median-us/p-median-brazil (T5, Bundle 2 — same PMedianMapInputs
+    // shape, T1's manifest parity + T3's own GET /dataset entry) each get a
+    // real full-v2 map — effective-row mines/stations or warehouses/
+    // customers (base dataset + overrides applied, unioned with added rows)
+    // wired to their own onInputsChange so every map edit lands in
+    // localInputs exactly like every other editable tab.
     if (activeTab.kind === "input" && activeTab.entity === "input-map") {
-      if (modelId === "transport-coal" || modelId === "two-echelon-gold-au") {
+      if (modelId === "two-echelon-gold-au") {
         if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
         return (
           <InputMapTab
@@ -1489,6 +1671,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             pins={pinsForModel(modelId, dataset, localInputs)}
             placementOptions={placementOptionsForModel(modelId)}
             onPlacePoint={handlePlacePoint}
+          />
+        );
+      }
+      if (modelId === "transport-coal") {
+        if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+        return (
+          <InputMapTab
+            mode="transport"
+            countryBounds={activeModelManifest?.countryBounds}
+            mines={transportMapMines(dataset, localInputs)}
+            stations={transportMapStations(dataset, localInputs)}
+            inputs={transportMapInputsSlice(localInputs)}
+            onInputsChange={handleTransportMapInputsChange}
+            // R4 — Save moves into this tab's own Layers row for
+            // transport-coal too; saveInLayersRowTransport (below)
+            // suppresses the shared toolbar Save exactly when this prop is
+            // wired, so there is never a duplicate.
+            isDirty={isDirty}
+            onSave={handleSaveInputs}
+            saving={updateScenario.isPending}
           />
         );
       }
@@ -1780,7 +1982,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // localInputs — same snapshot principle as `bands` above), so an
       // unsaved add/move or a stepped-back history result renders the
       // geometry that solve actually used, not today's draft.
-      const usesEffectiveOutputProjection = modelId === "p-median-us" || modelId === "p-median-brazil";
+      //
+      // T6 (Bundle 2) — these are now TWO separate booleans, not one:
+      // `projectsAddedEntities` (fold this solve's added rows into the
+      // effective dataset so NetworkMap can resolve edges whose endpoints
+      // are scenario-local — every model that HAS an added-entity concept
+      // needs this, transport-coal included) vs `hidesClosedFacilities`
+      // (R7's own hide-closed-candidates behavior, meaningful only for
+      // models with a real facility open/close concept —
+      // capabilities.supportsFacilityStatus's target group. transport-coal
+      // is R7 N/A: solve_transport's openWarehouseIds is always "all
+      // mines", so hiding "closed" ones would be a no-op at best and a
+      // misleading concept at worst — stays false for it. T7 adds
+      // two-echelon-gold-au to `hidesClosedFacilities` only, never to a
+      // combined flag, for the same reason.)
+      const projectsAddedEntities = modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "transport-coal";
+      const hidesClosedFacilities = modelId === "p-median-us" || modelId === "p-median-brazil";
       return (
         <OutputMapTab
           dataset={dataset}
@@ -1795,9 +2012,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // solve that's already displayed (R5's displayedInputs principle).
           bands={distanceBandsFromInputs(displayedInputs)}
           countryBounds={activeModelManifest?.countryBounds}
-          addedWarehouses={usesEffectiveOutputProjection ? addedWarehousesFromInputs(displayedInputs) : []}
-          addedCustomers={usesEffectiveOutputProjection ? addedCustomersFromInputs(displayedInputs) : []}
-          hideClosedWarehouses={usesEffectiveOutputProjection}
+          addedWarehouses={
+            !projectsAddedEntities
+              ? []
+              : modelId === "transport-coal"
+                ? addedMinesFromInputs(displayedInputs)
+                : addedWarehousesFromInputs(displayedInputs)
+          }
+          addedCustomers={
+            !projectsAddedEntities
+              ? []
+              : modelId === "transport-coal"
+                ? addedStationsFromInputs(displayedInputs)
+                : addedCustomersFromInputs(displayedInputs)
+          }
+          hideClosedWarehouses={hidesClosedFacilities}
         />
       );
     }
@@ -2002,13 +2231,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onActivate={id => dispatch({ type: "activate", id })}
             onClose={id => dispatch({ type: "close", id })}
           />
-          {isEditableInputTab && !saveInLayersRow && (
+          {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && (
             // A1.1 (fix) — explicit Save, replacing the earlier debounced
             // auto-save. Mirrors Studio.tsx's toolbar Save button
             // (isDirty-gated, useUpdateScenario on click) rather than
-            // writing on every edit. R4 — suppressed for p-median-us's Input
-            // Map tab, which renders this same Save control inline in its
-            // own Layers row instead (see saveInLayersRow above).
+            // writing on every edit. R4 — suppressed for p-median-us's/
+            // transport-coal's Input Map tabs, which each render this same
+            // Save control inline in their own Layers row instead (see
+            // saveInLayersRow/saveInLayersRowTransport above).
             <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
               {isDirty && (
                 <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">

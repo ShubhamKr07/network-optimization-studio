@@ -13,6 +13,7 @@ import { EditCustomerDialog } from "@/components/workspace/map/dialogs/EditCusto
 import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
 import { MoveConfirmDialog } from "@/components/workspace/map/dialogs/MoveConfirmDialog";
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
+import { MINE_ROLE, STATION_ROLE } from "@/components/workspace/map/types";
 import type {
   MapWarehouse,
   MapCustomer,
@@ -21,6 +22,13 @@ import type {
   AddedWarehouseInput,
   AddedCustomerInput,
 } from "@/components/workspace/map/types";
+// T6 (Bundle 2) — reused verbatim from the *Tab files that already own
+// these shapes (same precedent Workspace.tsx's own B6.2
+// addedRefineriesFromInputs comment documents: reuse an existing *Tab type
+// rather than inventing a third near-identical one), not re-declared here.
+import type { AddedMine } from "@/components/workspace/tabs/MinesTab";
+import type { AddedStation } from "@/components/workspace/tabs/StationsTab";
+import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 
 // ── Legacy (Task 4) pin shapes — unchanged from before this rewrite ────────
 interface PinEntity {
@@ -39,6 +47,24 @@ interface PinGroup {
 interface PlacementOption {
   key: string; // matches inputEntriesForModel()'s own entity id ("warehouses", "customers", "mines", "stations", "refineries")
   label: string;
+}
+
+// T6 (Bundle 2) — the `inputs` slice transport-coal's map mode edits.
+// TransportLpInputs is NOT PMedianMapInputs-shaped: no warehouseOverrides/
+// customerOverrides/capacityMode/distanceOverrides — mines/stations use
+// sparse mineCapacities/stationDemands maps (base-entity capacity/demand
+// overrides) and a laneCostOverrides array (transport's own name for
+// distance-like arcs, see validation/inputs/transportLp.ts's own comment on
+// why it's "cost" not "distance"). Mirrors PMedianMapInputs's shape/role
+// exactly otherwise (an added-row array per rendering role + whatever
+// override mechanism the model actually has), one level down.
+export interface TransportMapInputs {
+  addedMines: AddedMine[];
+  addedStations: AddedStation[];
+  laneCostOverrides: LaneCostOverride[];
+  mineCapacities: Record<string, number>;
+  stationDemands: Record<string, number>;
+  [k: string]: unknown; // distanceBands, gap, timeLimitSec, capacityFactor, singleSource, capacityInactive, … passed through
 }
 
 // T8 (Input Map v2) — discriminated union so p-median's real map surface
@@ -82,11 +108,32 @@ export type InputMapTabProps =
       placementOptions: PlacementOption[];
       onPlacePoint: (lat: number, lng: number, kind: string) => void;
     }
+  | {
+      // T6 (Bundle 2) — transport-coal's full-v2 editor. A separate mode
+      // from "pmedian" (not a third branch reusing PMedianMapInputs) because
+      // TransportLpInputs genuinely isn't PMedianMapInputs-shaped — see
+      // TransportMapInputs's own comment. R3 (status markers) and R7
+      // (hide-closed) are N/A for this model (supportsFacilityStatus:false,
+      // solve_transport has no facility open/close concept) — this mode
+      // never renders that UI at all, rather than rendering it disabled.
+      mode: "transport";
+      countryBounds?: CountryBounds;
+      mines: MapWarehouse[];
+      stations: MapCustomer[];
+      inputs: TransportMapInputs;
+      onInputsChange: (next: TransportMapInputs) => void;
+      /** R4 — Save relocated into this tab's own Layers row, same as
+       * "pmedian" mode's onSave (see that variant's own comment). */
+      isDirty?: boolean;
+      onSave?: () => void;
+      saving?: boolean;
+    }
   | { mode: "placeholder" };
 
 export function InputMapTab(props: InputMapTabProps): ReactNode {
   if (props.mode === "placeholder") return <PlaceholderInputMap />;
   if (props.mode === "legacy") return <LegacyInputMap {...props} />;
+  if (props.mode === "transport") return <TransportInputMap {...props} />;
   return <PMedianInputMap {...props} />;
 }
 
@@ -814,6 +861,449 @@ function PMedianInputMap({
       {moveConfirm && (
         <MoveConfirmDialog
           kind={moveConfirm.entity.kind}
+          entity={{ id: moveConfirm.entity.entity.id, displayCode: moveConfirm.entity.entity.displayCode }}
+          newLat={moveConfirm.newLat}
+          newLng={moveConfirm.newLng}
+          existingCodes={existingCodes}
+          onConfirm={handleMoveConfirm}
+          onCancel={() => setMoveConfirm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── transport-coal real map surface (T6, Bundle 2) — TransportLpInputs is
+// NOT PMedianMapInputs-shaped (no warehouseOverrides/customerOverrides/
+// capacityMode/distanceOverrides; mines/stations use sparse
+// mineCapacities/stationDemands maps and a laneCostOverrides array instead),
+// so this mode gets its own small, closely-mirrored mutator set rather than
+// being forced through "pmedian"'s — matching this codebase's established
+// "close mirror, not shared abstraction" convention for transport-coal's
+// network-edit machinery (see Workspace.tsx's
+// deleteAddedTransportEntityAndOverrides comment). No `status`/`isNoOp`
+// removal semantics here at all (unlike editBaseWarehouseOverride/
+// editBaseCustomerOverride above): mines/stations have no status concept,
+// and mineCapacities/stationDemands are plain sparse value maps — a blank
+// edit simply deletes the key (MineTable.tsx/StationTable.tsx's own
+// `upsert` does the exact same thing). ──
+
+function purgeLaneCostOverridesFor(overrides: LaneCostOverride[], id: string): LaneCostOverride[] {
+  return overrides.filter(o => o.fromId !== id && o.toId !== id);
+}
+
+function transportAddedKeyFor(kind: "wh" | "cs"): "addedMines" | "addedStations" {
+  return kind === "wh" ? "addedMines" : "addedStations";
+}
+
+function deleteAddedTransport(inputs: TransportMapInputs, kind: "wh" | "cs", id: string): TransportMapInputs {
+  const key = transportAddedKeyFor(kind);
+  const arr = inputs[key] as (AddedMine | AddedStation)[];
+  return {
+    ...inputs,
+    [key]: arr.filter(e => e.id !== id),
+    laneCostOverrides: purgeLaneCostOverridesFor(inputs.laneCostOverrides, id),
+  } as TransportMapInputs;
+}
+
+function moveAddedTransport(
+  inputs: TransportMapInputs,
+  kind: "wh" | "cs",
+  id: string,
+  next: { displayCode: string; city: string; state: string; lat: number; lng: number },
+): TransportMapInputs {
+  const key = transportAddedKeyFor(kind);
+  const arr = inputs[key] as (AddedMine | AddedStation)[];
+  return {
+    ...inputs,
+    [key]: arr.map(e => (e.id === id ? { ...e, ...next } : e)),
+    laneCostOverrides: purgeLaneCostOverridesFor(inputs.laneCostOverrides, id),
+  } as TransportMapInputs;
+}
+
+function editAddedMine(inputs: TransportMapInputs, id: string, patch: { capacity?: number | null }): TransportMapInputs {
+  return { ...inputs, addedMines: inputs.addedMines.map(m => (m.id === id ? { ...m, ...patch } : m)) };
+}
+
+function editAddedStation(inputs: TransportMapInputs, id: string, demand: number): TransportMapInputs {
+  return { ...inputs, addedStations: inputs.addedStations.map(s => (s.id === id ? { ...s, demand } : s)) };
+}
+
+// Mirrors MineTable.tsx's `upsert` exactly — a blank/null capacity deletes
+// the key (unconstrained) rather than storing a no-op `0`.
+function editBaseMineCapacity(inputs: TransportMapInputs, id: string, capacity: number | null | undefined): TransportMapInputs {
+  const next = { ...inputs.mineCapacities };
+  if (capacity == null) delete next[id];
+  else next[id] = capacity;
+  return { ...inputs, mineCapacities: next };
+}
+
+// Mirrors StationTable.tsx's `upsert` exactly.
+function editBaseStationDemand(inputs: TransportMapInputs, id: string, demand: number): TransportMapInputs {
+  return { ...inputs, stationDemands: { ...inputs.stationDemands, [id]: demand } };
+}
+
+function addMineRow(inputs: TransportMapInputs, row: AddedMine): TransportMapInputs {
+  return { ...inputs, addedMines: [...inputs.addedMines, row] };
+}
+
+function addStationRow(inputs: TransportMapInputs, row: AddedStation): TransportMapInputs {
+  return { ...inputs, addedStations: [...inputs.addedStations, row] };
+}
+
+// T6 — transport-coal's real Input Map surface: mines render in the "wh"
+// (triangle) rendering role via MINE_ROLE, stations in the "cs" (bubble)
+// role via STATION_ROLE (MapEntity.kind is a RENDERING role, not a
+// per-model entity name — see types.ts's own EntityRoleConfig comment).
+// Place/move/edit/delete/copy all mirror PMedianInputMap's exact state
+// machine (MapEventsBridge/GhostFollower/AddEntityMenu/ToggleChip/
+// CreateState/median are all reused unmodified from above); the only real
+// differences are the data shape (TransportMapInputs, not PMedianMapInputs)
+// and R3/R7 being N/A — no status legend, no "Show inactive" toggle (a mine
+// is never inactive, so that control would be a meaningless no-op here).
+function TransportInputMap({
+  countryBounds,
+  mines,
+  stations,
+  inputs,
+  onInputsChange,
+  isDirty,
+  onSave,
+  saving,
+}: Extract<InputMapTabProps, { mode: "transport" }>) {
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
+  const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
+  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [actionMenu, setActionMenu] = useState<
+    ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
+  >(null);
+  const actionMenuOpenIdRef = useRef(0);
+  const [addMenu, setAddMenu] = useState<({ lat: number; lng: number } & OverlayAnchor) | null>(null);
+  const [editEntity, setEditEntity] = useState<MapEntity | null>(null);
+  const [createState, setCreateState] = useState<CreateState | null>(null);
+  const [armed, setArmed] = useState<{ kind: "move" | "copy"; entity: MapEntity } | null>(null);
+  const [moveConfirm, setMoveConfirm] = useState<{ entity: MapEntity; newLat: number; newLng: number } | null>(null);
+  const [livePreview, setLivePreview] = useState<{ id: string; demand: number } | null>(null);
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const boundsProps = getMapBoundsProps(countryBounds);
+  const mapKey = countryBounds ? `${countryBounds.sw.join(",")}_${countryBounds.ne.join(",")}` : "fallback";
+
+  const existingCodes = useMemo(() => {
+    const codes = new Set<string>();
+    mines.forEach(m => codes.add(m.displayCode));
+    stations.forEach(s => codes.add(s.displayCode));
+    return codes;
+  }, [mines, stations]);
+
+  const medianDemand = useMemo(() => median(stations.map(s => s.demand)), [stations]);
+
+  const draggableIds = useMemo(() => {
+    const ids = new Set<string>();
+    mines.forEach(m => { if (m.isAdded) ids.add(m.id); });
+    stations.forEach(s => { if (s.isAdded) ids.add(s.id); });
+    return ids;
+  }, [mines, stations]);
+
+  // Live-preview bubble resize while EditCustomerDialog is open, same as
+  // PMedianInputMap's displayCustomers.
+  const displayStations = useMemo(
+    () => (livePreview ? stations.map(s => (s.id === livePreview.id ? { ...s, demand: livePreview.demand } : s)) : stations),
+    [stations, livePreview],
+  );
+
+  function getContainerSize() {
+    const el = wrapperRef.current;
+    return el ? { width: el.clientWidth, height: el.clientHeight } : undefined;
+  }
+
+  function closeOverlays() {
+    setSelected(null);
+    setActionMenu(null);
+    setAddMenu(null);
+  }
+
+  useEffect(() => {
+    if (!armed) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setArmed(null);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [armed]);
+
+  const preMouseDownFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    function onMouseDownCapture() {
+      preMouseDownFocusRef.current = document.activeElement as HTMLElement | null;
+    }
+    document.addEventListener("mousedown", onMouseDownCapture, true);
+    return () => document.removeEventListener("mousedown", onMouseDownCapture, true);
+  }, []);
+
+  function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
+    setActionMenu(null);
+    setAddMenu(null);
+    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+  }
+
+  function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
+    const restoreFocusTo = preMouseDownFocusRef.current;
+    setSelected(null);
+    setAddMenu(null);
+    actionMenuOpenIdRef.current += 1;
+    setActionMenu({
+      entity,
+      containerPoint: e.containerPoint,
+      containerSize: getContainerSize(),
+      openId: actionMenuOpenIdRef.current,
+      restoreFocusTo,
+    });
+  }
+
+  function handleEntityDragEnd(entity: MapEntity, latlng: { lat: number; lng: number }) {
+    setMoveConfirm({ entity, newLat: latlng.lat, newLng: latlng.lng });
+  }
+
+  function handleMapClick(e: L.LeafletMouseEvent) {
+    if (armed) {
+      const { kind, entity } = armed.entity;
+      if (armed.kind === "move") {
+        setMoveConfirm({ entity: armed.entity, newLat: e.latlng.lat, newLng: e.latlng.lng });
+      } else {
+        const copyFrom = kind === "wh" ? { capacity: (entity as MapWarehouse).capacity } : { demand: (entity as MapCustomer).demand };
+        setCreateState({ kind, lat: e.latlng.lat, lng: e.latlng.lng, copyFrom });
+      }
+      setArmed(null);
+      return;
+    }
+    if (pinMode) {
+      setCreateState({ kind: pinMode.key, lat: e.latlng.lat, lng: e.latlng.lng });
+      return;
+    }
+    closeOverlays();
+  }
+
+  function handleMapContextMenu(e: L.LeafletMouseEvent) {
+    if (armed) {
+      setArmed(null);
+      return;
+    }
+    setSelected(null);
+    setActionMenu(null);
+    setAddMenu({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+  }
+
+  function handleMenuEdit() {
+    if (!actionMenu) return;
+    setEditEntity(actionMenu.entity);
+    setActionMenu(null);
+  }
+  function handleMenuMove() {
+    if (!actionMenu) return;
+    setArmed({ kind: "move", entity: actionMenu.entity });
+    setActionMenu(null);
+  }
+  function handleMenuCopy() {
+    if (!actionMenu) return;
+    setArmed({ kind: "copy", entity: actionMenu.entity });
+    setActionMenu(null);
+  }
+  function handleMenuDelete() {
+    if (!actionMenu) return;
+    const { kind, entity } = actionMenu.entity;
+    onInputsChange(deleteAddedTransport(inputs, kind, entity.id));
+    setActionMenu(null);
+  }
+
+  // Same union signature PMedianInputMap's handleEditSubmit takes —
+  // EditWarehouseDialog always emits `{status, capacity?}` at the type
+  // level even for a hasStatus:false role (MINE_ROLE), but never actually
+  // POPULATES `.status` at runtime for one (see that dialog's own comment).
+  // Only `.capacity` is ever read here, so no meaningless `status` field
+  // enters a transport PATCH.
+  function handleEditSubmit(patch: { status: WhStatus; capacity?: number | null } | { demand: number }) {
+    if (!editEntity) return;
+    const { kind, entity } = editEntity;
+    if (kind === "wh") {
+      const p = patch as { capacity?: number | null };
+      onInputsChange(entity.isAdded ? editAddedMine(inputs, entity.id, p) : editBaseMineCapacity(inputs, entity.id, p.capacity));
+    } else {
+      const p = patch as { demand: number };
+      onInputsChange(entity.isAdded ? editAddedStation(inputs, entity.id, p.demand) : editBaseStationDemand(inputs, entity.id, p.demand));
+    }
+    setEditEntity(null);
+    setLivePreview(null);
+  }
+
+  function handleCreateSubmit(row: AddedWarehouseInput | AddedCustomerInput) {
+    if (!createState) return;
+    // CreateEntityDialog's onSubmit stays warehouse/customer-shaped at the
+    // type level (see its own props comment) — cast to this model's real
+    // AddedMine/AddedStation shape at this call site, same convention T4's
+    // role config establishes for every non-p-median consumer.
+    onInputsChange(
+      createState.kind === "wh"
+        ? addMineRow(inputs, row as unknown as AddedMine)
+        : addStationRow(inputs, row as unknown as AddedStation),
+    );
+    setCreateState(null);
+  }
+
+  function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
+    if (!moveConfirm) return;
+    const { kind, entity } = moveConfirm.entity;
+    onInputsChange(moveAddedTransport(inputs, kind, entity.id, next));
+    setMoveConfirm(null);
+  }
+
+  return (
+    <div className="h-full flex flex-col gap-2" data-testid="input-map-tab">
+      <div className="flex items-center gap-2 flex-wrap flex-shrink-0" data-testid="transport-map-toolbar">
+        <span className="text-xs text-muted-foreground">Layers:</span>
+        <ToggleChip testId="toggle-layer-mines" active={toggles.warehouses} onClick={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
+          Mines
+        </ToggleChip>
+        <ToggleChip testId="toggle-layer-stations" active={toggles.customers} onClick={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
+          Stations
+        </ToggleChip>
+        {/* R3/R7 N/A for transport-coal (supportsFacilityStatus:false) —
+            deliberately no "Show inactive" toggle here: mines/stations have
+            no status concept at all, so it would be a meaningless no-op
+            control rather than a real gate (see this file's "transport" mode
+            comment above). */}
+        <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
+        <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
+          + Mine
+        </ToggleChip>
+        <ToggleChip testId="button-input-map-place-cs" active={pinMode?.key === "cs"} onClick={() => setPinMode(p => (p?.key === "cs" ? null : { key: "cs" }))}>
+          + Station
+        </ToggleChip>
+        {armed && (
+          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+            <span>
+              Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
+            </span>
+            <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
+              Cancel
+            </Button>
+          </div>
+        )}
+        {/* R4 — Save relocated here, same as PMedianInputMap's Layers row
+            (reuses the exact same button-save/text-unsaved-changes testids). */}
+        {onSave && (
+          <div className="flex items-center gap-2 ml-auto">
+            {isDirty && (
+              <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+                Unsaved changes
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onSave}
+              disabled={!isDirty || saving}
+              data-testid="button-save"
+              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+            >
+              <Save className="w-3.5 h-3.5 mr-1" />
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
+        <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
+          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution="CartoDB" />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
+          <EntityMarkers
+            warehouses={mines}
+            customers={displayStations}
+            toggles={toggles}
+            onLeftClick={handleEntityLeftClick}
+            onRightClick={handleEntityRightClick}
+            onDragEnd={handleEntityDragEnd}
+            draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
+          />
+        </MapContainer>
+        {/* R1/R2 — green station bubbles + quintile sizing come for free from
+            types.ts's demandTone/makeQuintileRadius (shared, unmodified);
+            showStatusLegend=false is R3's N/A gate for this model. */}
+        <MapLegend customers={displayStations} showStatusLegend={false} />
+        {selected && (
+          <MapDetailsCard
+            entity={selected.entity}
+            containerPoint={selected.containerPoint}
+            containerSize={selected.containerSize}
+            onClose={() => setSelected(null)}
+          />
+        )}
+        {actionMenu && (
+          <MapActionMenu
+            key={actionMenu.openId}
+            entity={actionMenu.entity}
+            containerPoint={actionMenu.containerPoint}
+            containerSize={actionMenu.containerSize}
+            restoreFocusTo={actionMenu.restoreFocusTo}
+            onEdit={handleMenuEdit}
+            onMove={handleMenuMove}
+            onCopy={handleMenuCopy}
+            onDelete={handleMenuDelete}
+            onClose={() => setActionMenu(null)}
+          />
+        )}
+        {addMenu && (
+          <AddEntityMenu
+            containerPoint={addMenu.containerPoint}
+            containerSize={addMenu.containerSize}
+            onAdd={kind => {
+              setCreateState({ kind, lat: addMenu.lat, lng: addMenu.lng });
+              setAddMenu(null);
+            }}
+            onClose={() => setAddMenu(null)}
+          />
+        )}
+      </div>
+
+      {editEntity && editEntity.kind === "wh" && (
+        <EditWarehouseDialog
+          entity={editEntity.entity}
+          role={MINE_ROLE}
+          onSubmit={handleEditSubmit}
+          onCancel={() => setEditEntity(null)}
+        />
+      )}
+      {editEntity && editEntity.kind === "cs" && (
+        <EditCustomerDialog
+          entity={editEntity.entity}
+          role={STATION_ROLE}
+          onSubmit={handleEditSubmit}
+          onLivePreview={demand => setLivePreview({ id: editEntity.entity.id, demand })}
+          onCancel={() => {
+            setEditEntity(null);
+            setLivePreview(null);
+          }}
+        />
+      )}
+      {createState && (
+        <CreateEntityDialog
+          kind={createState.kind}
+          role={createState.kind === "wh" ? MINE_ROLE : STATION_ROLE}
+          lat={createState.lat}
+          lng={createState.lng}
+          existingCodes={existingCodes}
+          copyFrom={createState.copyFrom}
+          medianDemand={medianDemand}
+          onSubmit={handleCreateSubmit}
+          onCancel={() => setCreateState(null)}
+        />
+      )}
+      {moveConfirm && (
+        <MoveConfirmDialog
+          kind={moveConfirm.entity.kind}
+          role={moveConfirm.entity.kind === "wh" ? MINE_ROLE : STATION_ROLE}
           entity={{ id: moveConfirm.entity.entity.id, displayCode: moveConfirm.entity.entity.displayCode }}
           newLat={moveConfirm.newLat}
           newLng={moveConfirm.newLng}
