@@ -864,6 +864,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       ? (resultHistoryState.items[resultHistoryState.index]?.result ?? null)
       : (currentScenario?.result ?? null);
 
+  // T4 — `displayedInputs`: the inputs snapshot that PRODUCED
+  // `displayedResult` above (same resultHistoryState index, same fallback to
+  // the live scenario), per R5's `displayedInputs` principle — every OUTPUT
+  // surface (Output Map band coloring today; R7's effective dataset next,
+  // T6) reads THIS, never the editable `localInputs` draft. So editing bands
+  // in the Run Optimizer dialog or Optimization Parameters, or stepping the
+  // result-history stepper, never recolors/re-geometries a solve that's
+  // already on screen — only a fresh solve (which snapshots its own
+  // inputs into a new history entry, see the seeding effect above) changes
+  // what these surfaces show.
+  const displayedInputs: Record<string, unknown> | null =
+    resultHistoryState.index >= 0
+      ? (resultHistoryState.items[resultHistoryState.index]?.inputs ?? null)
+      : ((currentScenario?.inputs as Record<string, unknown> | undefined) ?? null);
+
   const isDirty =
     localInputs != null &&
     savedInputsRef.current != null &&
@@ -1018,6 +1033,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
+
+  // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
+  // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
+  // toolbar below; every other editable tab (including transport-coal's/
+  // two-echelon-gold-au's legacy Input Map, which has no override-editing
+  // concept and is never in isEditableInputTab to begin with) is unaffected.
+  const saveInLayersRow =
+    activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "p-median-us";
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -1490,6 +1513,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           customers={pmedianMapCustomers(dataset, localInputs)}
           inputs={pmedianMapInputsSlice(localInputs)}
           onInputsChange={handlePMedianMapInputsChange}
+          // R4 — Save moves into this tab's own Layers row for p-median-us;
+          // saveInLayersRow (below) suppresses the toolbar Save exactly when
+          // this prop is wired, so there is never a duplicate.
+          isDirty={isDirty}
+          onSave={handleSaveInputs}
+          saving={updateScenario.isPending}
         />
       );
     }
@@ -1755,7 +1784,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           dataset={dataset}
           warehouseStatuses={warehouseStatusesFromInputs(localInputs, modelId)}
           result={activeTab.entity === "output-map" ? displayedResult : null}
-          bands={distanceBandsFromInputs(localInputs)}
+          // T4 — displayedInputs, not localInputs: editing draft bands (Run
+          // Optimizer dialog / Optimization Parameters) must not recolor a
+          // solve that's already displayed (R5's displayedInputs principle).
+          bands={distanceBandsFromInputs(displayedInputs)}
           countryBounds={activeModelManifest?.countryBounds}
           useBrazilMap={useBrazilMap}
         />
@@ -1801,7 +1833,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (activeTab.entity === "customer-assignments") return <AssignmentsTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "cost-summary") return <CostSummaryTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "flows") return <FlowsTab result={result} scenarioId={currentScenario!.id} />;
-      return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} />;
+      // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
+      // unit) but left this call site unwired — closing that gap here.
+      return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} modelId={modelId} />;
     }
 
     // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids
@@ -1960,11 +1994,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onActivate={id => dispatch({ type: "activate", id })}
             onClose={id => dispatch({ type: "close", id })}
           />
-          {isEditableInputTab && (
+          {isEditableInputTab && !saveInLayersRow && (
             // A1.1 (fix) — explicit Save, replacing the earlier debounced
             // auto-save. Mirrors Studio.tsx's toolbar Save button
             // (isDirty-gated, useUpdateScenario on click) rather than
-            // writing on every edit.
+            // writing on every edit. R4 — suppressed for p-median-us's Input
+            // Map tab, which renders this same Save control inline in its
+            // own Layers row instead (see saveInLayersRow above).
             <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
               {isDirty && (
                 <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
@@ -1998,6 +2034,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         p={pFromInputs(localInputs)}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
+        // R5 — the DRAFT bands (localInputs), same as p/gap/timeLimitSec
+        // above: this dialog edits what the NEXT solve will use, not what's
+        // currently displayed (see displayedInputs's own comment).
+        distanceBands={distanceBandsFromInputs(localInputs)}
+        distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
         onChange={(field, value) => updateInputsField(field, value)}
         phase={solvePhase}
         errorMessage={solveError}

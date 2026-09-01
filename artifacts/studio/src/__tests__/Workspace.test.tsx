@@ -954,6 +954,52 @@ describe("Workspace — Solve dialog", () => {
     expect(screen.getByTestId("input-gap")).toHaveValue(0.05);
   });
 
+  // T4/R5 — same "single source of truth" contract as p/gap above, now for
+  // the new distance-band editor: this dialog and the Optimization
+  // Parameters tab both read/write the SAME localInputs.distanceBands draft.
+  it("editing distance bands in the Solve dialog is reflected in the Optimization Parameters tab (single source of truth)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("solve-dialog-cancel"));
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.queryByTestId("button-remove-band-1600")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-remove-band-800")).toBeInTheDocument();
+  });
+
+  // T2's ModelInfo.distanceUnit isn't in this file's useListModels fixture
+  // (unresolved/absent) — the dialog must fall back to "mi", matching the
+  // same default the public API boundary itself applies.
+  it("the Solve dialog's distance-band editor defaults to the 'mi' unit label when the model manifest has no distanceUnit resolved", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
+  });
+
+  // Same save-before-solve contract the test below already proves for `p` —
+  // an edited DRAFT distanceBands must be part of what gets persisted before
+  // the solve is enqueued, not silently discarded (R5: bands are a real
+  // solve input, not a post-solve lens).
+  it("clicking Solve after editing bands in the Solve dialog saves the edited distanceBands before enqueuing the solve", () => {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
+    renderWorkspace();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [saveArgs] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(saveArgs).toEqual({
+      scenarioId: 1,
+      data: { inputs: expect.objectContaining({ distanceBands: [200, 400, 800] }) },
+    });
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+  });
+
   // The one test that must exist per the task brief: this repo already shipped
   // and fixed this exact bug once in Studio.tsx (CLAUDE.md's "Round 2" —
   // handleSolve firing against stale persisted inputs because POST /solve has

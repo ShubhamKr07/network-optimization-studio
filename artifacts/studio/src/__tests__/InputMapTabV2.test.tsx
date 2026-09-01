@@ -67,6 +67,12 @@ function renderPMedian(over: {
   warehouses?: MapWarehouse[];
   customers?: MapCustomer[];
   inputs?: PMedianMapInputs;
+  // T4/R4 — all optional, undefined `onSave` (every existing call site in
+  // this file) means "no Save control wired", matching the codebase's
+  // standing capability-gate convention rather than a mode check.
+  isDirty?: boolean;
+  onSave?: () => void;
+  saving?: boolean;
 } = {}) {
   const onInputsChange = vi.fn();
   const view = render(
@@ -76,6 +82,9 @@ function renderPMedian(over: {
       customers={over.customers ?? [cs()]}
       inputs={over.inputs ?? makeInputs()}
       onInputsChange={onInputsChange}
+      isDirty={over.isDirty}
+      onSave={over.onSave}
+      saving={over.saving}
     />,
   );
   return { ...view, onInputsChange };
@@ -316,5 +325,42 @@ describe("InputMapTab — pmedian mode: copy", () => {
     expect(next.addedWarehouses).toHaveLength(1);
     expect(next.addedWarehouses[0].id).toMatch(/^aw-/);
     expect(next.addedWarehouses[0].id).not.toBe("CHI");
+  });
+});
+
+// T4/R4 — Save relocated into the Layers row, capability-gated on `onSave`
+// being wired (not on `mode` alone) — Workspace.tsx.test coverage proves the
+// end-to-end wiring/gating against a real toolbar suppression; this file
+// proves the component's own contract in isolation.
+describe("InputMapTab — pmedian mode: R4 Save-in-Layers", () => {
+  it("renders no Save control when onSave isn't wired (every other existing caller in this file)", () => {
+    renderPMedian();
+    expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
+  });
+
+  it("renders Save inside the Layers row, disabled, when onSave is wired but nothing is dirty", () => {
+    renderPMedian({ onSave: vi.fn(), isDirty: false });
+    const toolbar = screen.getByTestId("pmedian-map-toolbar");
+    const saveButton = screen.getByTestId("button-save");
+    expect(toolbar).toContainElement(saveButton);
+    expect(saveButton).toBeDisabled();
+    expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
+  });
+
+  it("shows 'Unsaved changes' and an enabled Save while dirty, and calls onSave on click", () => {
+    const onSave = vi.fn();
+    renderPMedian({ onSave, isDirty: true });
+    expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+    const saveButton = screen.getByTestId("button-save");
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Save (and shows 'Saving…') while a save is in flight, even though dirty", () => {
+    renderPMedian({ onSave: vi.fn(), isDirty: true, saving: true });
+    const saveButton = screen.getByTestId("button-save");
+    expect(saveButton).toBeDisabled();
+    expect(saveButton).toHaveTextContent("Saving…");
   });
 });

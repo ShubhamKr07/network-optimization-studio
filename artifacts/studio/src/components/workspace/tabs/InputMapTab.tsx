@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MapContainer, TileLayer, Marker, CircleMarker, useMapEvents } from "react-leaflet";
 import type L from "leaflet";
+import { Save } from "lucide-react";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { Button } from "@/components/ui/button";
 import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
@@ -56,6 +57,17 @@ export type InputMapTabProps =
       customers: MapCustomer[];
       inputs: PMedianMapInputs;
       onInputsChange: (next: PMedianMapInputs) => void;
+      /** R4 — Save relocated into this tab's own `Layers:` row for
+       * p-median-us (Workspace.tsx suppresses its own toolbar Save exactly
+       * when this prop is wired — see that file's `saveInLayersRow`).
+       * Optional/capability-gated on `onSave` being present, not on `mode`
+       * alone, matching this codebase's standing "gate on the callback, not
+       * the entity name" convention (CLAUDE.md's model-integration-precheck
+       * Gate 1) — keeps every existing caller that doesn't pass these
+       * (InputMapTabV2.test.tsx) compiling unchanged. */
+      isDirty?: boolean;
+      onSave?: () => void;
+      saving?: boolean;
     }
   | {
       mode: "legacy";
@@ -438,6 +450,9 @@ function PMedianInputMap({
   customers,
   inputs,
   onInputsChange,
+  isDirty,
+  onSave,
+  saving,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
@@ -661,6 +676,33 @@ function PMedianInputMap({
             </Button>
           </div>
         )}
+        {/* R4 — Save relocated here (out of Workspace.tsx's own toolbar) for
+            p-median-us's Input Map only; reuses the exact same
+            `button-save`/`text-unsaved-changes` testids the toolbar Save
+            used so no existing assertion needs to know WHERE Save lives,
+            only that it's present and behaves the same. `ml-auto` pins it to
+            the row's right edge regardless of how many layer/placement chips
+            precede it. */}
+        {onSave && (
+          <div className="flex items-center gap-2 ml-auto">
+            {isDirty && (
+              <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+                Unsaved changes
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onSave}
+              disabled={!isDirty || saving}
+              data-testid="button-save"
+              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+            >
+              <Save className="w-3.5 h-3.5 mr-1" />
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
@@ -678,7 +720,12 @@ function PMedianInputMap({
             draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
           />
         </MapContainer>
-        <MapLegend />
+        {/* Wave-1 follow-up — real scenario customer population (base +
+            added, T8's own `displayCustomers` — already includes the live
+            EditCustomerDialog preview), not MapLegend's fallback demo
+            population, so the legend's quintile-bucket labels match what's
+            actually rendered on this map. */}
+        <MapLegend customers={displayCustomers} />
         {selected && (
           <MapDetailsCard
             entity={selected.entity}

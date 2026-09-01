@@ -68,7 +68,11 @@ vi.mock("@workspace/api-client-react", () => ({
   useDeleteScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useResetScenarioToBaseline: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
-  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] } }] })),
+  // T4/R5 — distanceUnit: "km" (T2's manifest value for this model, unlike
+  // the other three "mi" models) so the Solve dialog's band-editor label
+  // test below exercises the REAL non-default unit, not just the "mi"
+  // fallback every other fixture file already covers.
+  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "km" }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
@@ -208,6 +212,17 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     expect(screen.queryByTestId("solve-dialog-p-value")).not.toBeInTheDocument();
+  });
+
+  // T4/R5 — this model's real distanceUnit (km, per T2's manifest) reaches
+  // the Solve dialog's band editor via `activeModelManifest?.distanceUnit`,
+  // proving the wiring for the non-default unit (every other fixture file
+  // only exercises the "mi" fallback).
+  it("Solve dialog's distance-band editor shows 'km', matching this model's real distanceUnit", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.getByText("Distance bands (km)")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-band-500")).toBeInTheDocument();
   });
 
   it("create-scenario uses Studio.tsx's own two-echelon-gold-au default inputs verbatim", () => {
