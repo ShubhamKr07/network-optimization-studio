@@ -81,4 +81,25 @@ describe("CustomerTable", () => {
     await userEvent.click(screen.getByTestId("button-customer-C1-excluded"));
     expect(onChange).toHaveBeenCalledWith([{ id: "C1", status: "excluded", demand: undefined }]);
   });
+
+  // T5 (Bundle 2, Step 2b) — demandEditable:false (p-median-brazil's
+  // textbook-fixed region demand) makes every row's demand field read-only
+  // in the grid, mirroring EditCustomerDialog's own Step 1b gate on the
+  // Input Map side — same locked decision, second surface.
+  describe("demandEditable (T5, Bundle 2, Step 2b)", () => {
+    it("omitting demandEditable defaults to editable — today's exact behavior, unchanged", () => {
+      render(<CustomerTable customers={customers.slice(0, 1)} overrides={[]} onChange={vi.fn()} />);
+      expect(screen.getByTestId("input-customer-demand-C1")).toBeEnabled();
+    });
+
+    it("demandEditable=false disables every row's demand field; status stays editable", async () => {
+      const onChange = vi.fn();
+      render(<CustomerTable customers={customers.slice(0, 2)} overrides={[]} onChange={onChange} demandEditable={false} />);
+      expect(screen.getByTestId("input-customer-demand-C1")).toBeDisabled();
+      expect(screen.getByTestId("input-customer-demand-C2")).toBeDisabled();
+
+      await userEvent.click(screen.getByTestId("button-customer-C1-excluded"));
+      expect(onChange).toHaveBeenCalledWith([{ id: "C1", status: "excluded", demand: undefined }]);
+    });
+  });
 });

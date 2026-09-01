@@ -7,6 +7,8 @@ import {
   applyStationOverrides,
   applyRefineryOverrides,
   applyGoldCustomerOverrides,
+  applyBrazilWarehouseOverrides,
+  applyBrazilCustomerOverrides,
   applyDistanceOverrides,
   applyLaneCostOverrides,
   buildDistanceStubRows,
@@ -69,6 +71,48 @@ describe("applyCustomerOverrides", () => {
   it("merges an excluded status override", () => {
     const rows = applyCustomerOverrides([{ id: "C1", status: "excluded" }]);
     expect(rows.find(r => r.id === "C1")!.status).toBe("excluded");
+  });
+});
+
+// T9 (Brazil CSV import/export) — the Brazil analogue of applyGoldCustomerOverrides'
+// own-base-dataset test above: real Brazil ids (ANP a warehouse, SP a
+// region/customer), neither of which exists in p-median-us's own 26/200
+// datasets, proving the row set genuinely comes from Brazil's own dataset.
+describe("applyBrazilWarehouseOverrides", () => {
+  it("returns one row per Brazil warehouse (25, not p-median-us's 26), with real city/state", () => {
+    const rows = applyBrazilWarehouseOverrides([]);
+    expect(rows.length).toBe(25);
+    const anp = rows.find(r => r.id === "ANP")!;
+    expect(anp).toMatchObject({ templateVersion: TEMPLATE_VERSION, city: "Anápolis", state: "GO", capacity: null, status: "active" });
+  });
+
+  it("merges a status override onto its matching row, leaving others untouched", () => {
+    const rows = applyBrazilWarehouseOverrides([{ id: "ANP", status: "forced_open" }]);
+    expect(rows.find(r => r.id === "ANP")!.status).toBe("forced_open");
+    expect(rows.find(r => r.id === "BEL")!.status).toBe("active");
+  });
+
+  it("an added Brazil warehouse appears with overridden: true", () => {
+    const rows = applyBrazilWarehouseOverrides([], [
+      { id: "aw-1", displayCode: "WH-BR-NEW-01", city: "Newtown", state: "SP", lat: -22.0, lng: -47.0, capacity: null, status: "active" },
+    ]);
+    expect(rows).toHaveLength(26);
+    expect(rows.find(r => r.id === "aw-1")).toMatchObject({ city: "Newtown", state: "SP", overridden: true });
+  });
+});
+
+describe("applyBrazilCustomerOverrides", () => {
+  it("returns one row per Brazil region (25, not p-median-us's 200), with region name/id as city/state", () => {
+    const rows = applyBrazilCustomerOverrides([]);
+    expect(rows.length).toBe(25);
+    const sp = rows.find(r => r.id === "SP")!;
+    expect(sp).toMatchObject({ templateVersion: TEMPLATE_VERSION, city: "São Paulo Region", state: "SP", demand: 29029226, status: "active" });
+  });
+
+  it("merges a demand override, leaving other rows at base demand", () => {
+    const rows = applyBrazilCustomerOverrides([{ id: "SP", status: "active", demand: 1 }]);
+    expect(rows.find(r => r.id === "SP")!.demand).toBe(1);
+    expect(rows.find(r => r.id === "RJ")!.demand).toBe(13370786);
   });
 });
 

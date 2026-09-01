@@ -290,15 +290,20 @@ describe("Workspace — placeholder tabs", () => {
   // used to be this test's placeholder example was removed as dead
   // scaffolding (real demand editing already lives inline in the
   // Customers/Stations tabs via CustomerOverride.demand/StationOverride.demand).
-  // p-median-brazil's Warehouses/Customers/Distances tabs are still genuine
-  // placeholders (no per-row dataset endpoint exists for this model), so
-  // this test now exercises one of those instead.
-  it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
-    const brazilScenario = { ...scenario, modelId: "p-median-brazil" };
-    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [brazilScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+  // T5 (Bundle 2, Step 2b) — p-median-brazil's Warehouses/Customers/Distances
+  // tabs are now ALSO real content, so this test's own example moved to
+  // transport-coal's Input Map tab; T6 moved it on again to
+  // two-echelon-gold-au's Input Map (the last "legacy" pin-drop model); T7
+  // (Bundle 2) gave two-echelon-gold-au its own full-v2 editor too, closing
+  // the last gap — every INPUT tab, on every model, now has a real Save
+  // affordance somewhere. Retargeted to an OUTPUT tab instead: `isEditableInputTab`
+  // is structurally scoped to `activeTab.kind === "input"` (Workspace.tsx),
+  // so an output-kind tab is a permanent, always-true example of "no Save
+  // toolbar" — not a moving target that the next model fast-follow would
+  // obsolete again.
+  it("does not show a Save toolbar for an output tab (isEditableInputTab is input-only)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 });

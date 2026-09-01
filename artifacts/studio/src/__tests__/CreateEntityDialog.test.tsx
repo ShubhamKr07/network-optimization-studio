@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
+import { MINE_ROLE, REFINERY_ROLE } from "@/components/workspace/map/types";
 
 // Reno, NV per the real gazetteer entry (lat 39.549097, lng -119.849907) —
 // (39.53, -119.81) is nearest to it, not any other gazetteer city.
@@ -99,5 +100,47 @@ describe("CreateEntityDialog", () => {
     fireEvent.click(screen.getByTestId("create-entity-cancel"));
     expect(onCancel).toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // T4 (Bundle 2, Step 0) — role/editor config.
+  describe("role config", () => {
+    it("a role with hasStatus:false (e.g. MINE_ROLE) renders no status control and persists no status field at all", () => {
+      const { onSubmit } = renderDialog({ role: MINE_ROLE });
+      expect(screen.queryByTestId("create-entity-status")).not.toBeInTheDocument();
+      // Capacity is still a real field for a mine (MINE_ROLE has a valueField).
+      expect(screen.getByTestId("create-entity-capacity")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input).not.toHaveProperty("status");
+    });
+
+    it("a role's uidKind (not the rendering kind) drives the minted id/display-code prefix — a mine gets am-/MN-, not aw-/WH-", () => {
+      const { onSubmit } = renderDialog({ role: MINE_ROLE });
+      expect(screen.getByTestId("create-entity-display-code")).toHaveTextContent(/^MN-/);
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input.id).toMatch(/^am-/);
+      expect(input.displayCode).toMatch(/^MN-/);
+    });
+
+    it("a role's label drives the dialog title", () => {
+      renderDialog({ role: MINE_ROLE });
+      expect(screen.getByTestId("create-entity-dialog")).toHaveTextContent("New mine");
+    });
+
+    it("REFINERY_ROLE keeps status AND the aw-/WH- uid prefix (DD-7: refineries reuse wh, no ar- prefix)", () => {
+      const { onSubmit } = renderDialog({ role: REFINERY_ROLE });
+      expect(screen.getByTestId("create-entity-status")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input.id).toMatch(/^aw-/);
+      expect(input.status).toBe("active");
+    });
+
+    it("omitting role defaults to WAREHOUSE_ROLE/CUSTOMER_ROLE — today's exact p-median-us behavior, unchanged", () => {
+      renderDialog();
+      expect(screen.getByTestId("create-entity-status")).toBeInTheDocument();
+      expect(screen.getByTestId("create-entity-dialog")).toHaveTextContent("New warehouse");
+    });
   });
 });

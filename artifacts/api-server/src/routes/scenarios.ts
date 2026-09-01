@@ -16,6 +16,8 @@ import {
   applyStationOverrides,
   applyRefineryOverrides,
   applyGoldCustomerOverrides,
+  applyBrazilWarehouseOverrides,
+  applyBrazilCustomerOverrides,
   applyDistanceOverrides,
   applyLaneCostOverrides,
   buildDistanceStubRows,
@@ -469,19 +471,20 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
 
-  // Each model is scoped to its own entity pair: p-median-us exports
+  // Each model is scoped to its own entity pair: p-median-us/p-median-brazil
+  // (T9 — Brazil shares p-median-us's exact entity set) export
   // warehouses/customers/distances, transport-coal exports
   // mines/stations/laneCosts, two-echelon-gold-au exports
   // refineries/customers/legDistances (B6.2 stage 4). Any mismatch 422s —
   // same anti-cross-model-confusion boundary the original D4.1 gate had,
-  // widened per new model (distances is p-median-us only, same boundary as
-  // import — B4.1; laneCosts is transport-coal only, Task 30; legDistances
-  // is two-echelon-gold-au only, B6.2).
+  // widened per new model (distances is p-median-us/p-median-brazil only,
+  // same boundary as import — B4.1/T9; laneCosts is transport-coal only,
+  // Task 30; legDistances is two-echelon-gold-au only, B6.2).
   const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
-  if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
-    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers/distances export" });
+  if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
+    res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
   }
   if (scenario.modelId === "transport-coal" && !entityIsCoal) {
@@ -492,7 +495,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers/legDistances export" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
@@ -643,8 +646,12 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
 
-  // p-median-us: export reads solvers/p-median-us's own warehouse/customer
-  // dataset directly (via services/templates.ts).
+  // p-median-us/p-median-brazil: export reads each model's own warehouse/
+  // customer dataset directly (via services/templates.ts). T9 — Brazil
+  // shares p-median-us's exact inputs shape/entity set (B6.3/B2-T1), only
+  // the base dataset (and therefore which apply*/stub-dataset functions run)
+  // differs.
+  const isBrazil = scenario.modelId === "p-median-brazil";
   const inputs = scenario.inputs as {
     warehouseOverrides?: unknown[];
     customerOverrides?: unknown[];
@@ -658,7 +665,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // as its own branch before the shared warehouses/customers code.
   if (entity === "distances") {
     if (stubFor) {
-      const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1]);
+      const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], isBrazil ? BRAZIL_DATASET : undefined);
       if (stubRows === null) {
         res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known warehouse or customer (base dataset or this scenario's added entities)` });
         return;
@@ -691,8 +698,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   }
 
   const rows = entity === "warehouses"
-    ? applyWarehouseOverrides((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0], inputs.addedWarehouses ?? [])
-    : applyCustomerOverrides((inputs.customerOverrides ?? []) as Parameters<typeof applyCustomerOverrides>[0], inputs.addedCustomers ?? []);
+    ? (isBrazil ? applyBrazilWarehouseOverrides : applyWarehouseOverrides)((inputs.warehouseOverrides ?? []) as Parameters<typeof applyWarehouseOverrides>[0], inputs.addedWarehouses ?? [])
+    : (isBrazil ? applyBrazilCustomerOverrides : applyCustomerOverrides)((inputs.customerOverrides ?? []) as Parameters<typeof applyCustomerOverrides>[0], inputs.addedCustomers ?? []);
 
   posthog?.capture({
     distinctId: req.userId!,
@@ -887,18 +894,20 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
-  // Same model↔entity pairing the export route enforces: p-median-us imports
-  // warehouses/customers/distances, transport-coal imports
+  // Same model↔entity pairing the export route enforces: p-median-us/
+  // p-median-brazil (T9 — Brazil shares p-median-us's exact entity set)
+  // import warehouses/customers/distances, transport-coal imports
   // mines/stations/laneCosts, two-echelon-gold-au imports
   // refineries/customers/legDistances (B6.2 stage 4). distances (B4.1) is
-  // p-median-us only — it's the scenario-local network-edits pilot model
-  // (B1.1-B3.1); laneCosts (Task 30) is transport-coal only, legDistances
-  // (B6.2) is two-echelon-gold-au only, same reasoning.
+  // p-median-us/p-median-brazil only — it's the scenario-local network-edits
+  // pilot model (B1.1-B3.1, fast-followed to Brazil by T9); laneCosts
+  // (Task 30) is transport-coal only, legDistances (B6.2) is
+  // two-echelon-gold-au only, same reasoning.
   const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
-  if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
-    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers/distances import" });
+  if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
+    res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
   }
   if (scenario.modelId === "transport-coal" && !entityIsCoal) {
@@ -909,7 +918,7 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers/legDistances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
@@ -945,14 +954,14 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
-  // distances/laneCosts/legDistances (B4.1/Task 30/B6.2) are p-median-us-
-  // only/transport-coal-only/two-echelon-gold-au-only respectively — see
-  // the /import route's comment.
+  // distances/laneCosts/legDistances (B4.1/Task 30/B6.2) are
+  // p-median-us-and-p-median-brazil-only (T9)/transport-coal-only/
+  // two-echelon-gold-au-only respectively — see the /import route's comment.
   const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
-  if (scenario.modelId === "p-median-us" && !entityIsPMedian) {
-    res.status(422).json({ error: "p-median-us scenarios only support warehouses/customers/distances import" });
+  if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
+    res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
   }
   if (scenario.modelId === "transport-coal" && !entityIsCoal) {
@@ -963,7 +972,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers/legDistances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }

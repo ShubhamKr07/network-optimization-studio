@@ -10,13 +10,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { MapCustomer } from "@/components/workspace/map/types";
+import { CUSTOMER_ROLE, type EntityRoleConfig, type MapCustomer } from "@/components/workspace/map/types";
 
 const DEMAND_SLIDER_MAX = 50000;
 const DEMAND_SLIDER_STEP = 100;
 
 interface EditCustomerDialogProps {
   entity: MapCustomer;
+  /** T4 (Bundle 2, Step 0) — defaults to CUSTOMER_ROLE. STATION_ROLE (same
+   * hasStatus/valueField shape, different label) only changes the dialog
+   * title — every field/testid here already applies to both. */
+  role?: EntityRoleConfig;
+  /** T5 (Bundle 2, Step 1b) — false suppresses editing (Input + Slider
+   * become read-only): p-median-brazil's manifest declares
+   * `demandEditable: false` (textbook-fixed region demand). Defaults true —
+   * every other existing call site (p-median-us, and an ADDED entity on any
+   * model — PMedianInputMap always passes true for those, a newly-added row
+   * has no textbook demand to protect) is unaffected. */
+  demandEditable?: boolean;
   onSubmit: (patch: { demand: number }) => void;
   /** Fires on every slider/number change so the parent can resize the map's
    * demand bubble live, before Save commits anything. Cancel is the parent's
@@ -27,7 +38,14 @@ interface EditCustomerDialogProps {
 
 // T6 (Input Map v2) — presentational-only, same contract as
 // EditWarehouseDialog: emits a `{demand}` patch, no inputs-shape knowledge.
-export function EditCustomerDialog({ entity, onSubmit, onLivePreview, onCancel }: EditCustomerDialogProps) {
+export function EditCustomerDialog({
+  entity,
+  role = CUSTOMER_ROLE,
+  demandEditable = true,
+  onSubmit,
+  onLivePreview,
+  onCancel,
+}: EditCustomerDialogProps) {
   const [demand, setDemand] = useState<number>(entity.demand);
 
   const applyDemand = (value: number) => {
@@ -43,7 +61,7 @@ export function EditCustomerDialog({ entity, onSubmit, onLivePreview, onCancel }
     <Dialog open onOpenChange={open => !open && onCancel()}>
       <DialogContent data-testid="edit-customer-dialog">
         <DialogHeader>
-          <DialogTitle className="font-heading">Edit customer</DialogTitle>
+          <DialogTitle className="font-heading">Edit {role.label}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -76,6 +94,7 @@ export function EditCustomerDialog({ entity, onSubmit, onLivePreview, onCancel }
                 min={0}
                 value={demand}
                 onChange={e => applyDemand(Number(e.target.value) || 0)}
+                disabled={!demandEditable}
                 className="h-8 w-28 text-sm"
                 data-testid="edit-customer-demand-input"
               />
@@ -86,8 +105,14 @@ export function EditCustomerDialog({ entity, onSubmit, onLivePreview, onCancel }
               step={DEMAND_SLIDER_STEP}
               value={[demand]}
               onValueChange={([v]) => applyDemand(v)}
+              disabled={!demandEditable}
               data-testid="edit-customer-demand-slider"
             />
+            {!demandEditable && (
+              <p className="text-[11px] text-muted-foreground" data-testid="edit-customer-demand-readonly-note">
+                Demand for this entity is fixed by the textbook dataset and can't be edited.
+              </p>
+            )}
           </div>
         </div>
 

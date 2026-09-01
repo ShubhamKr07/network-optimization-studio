@@ -76,14 +76,18 @@ describe("makeQuintileRadius (R2 discrete quintile demand-bubble sizing)", () =>
   });
 });
 
-describe("demandTone (R1 supply-blue/demand-green)", () => {
+describe("demandTone (R1 fast-follow — green demand for ALL models)", () => {
   it("is green for p-median-us", () => {
     expect(demandTone("p-median-us")).toBe("green");
   });
 
-  it("is blue for every other model", () => {
-    expect(demandTone("transport-coal")).toBe("blue");
-    expect(demandTone("two-echelon-gold-au")).toBe("blue");
-    expect(demandTone("p-median-brazil")).toBe("blue");
+  it("is green for every other model too — the old p-median-us-only branch is gone", () => {
+    expect(demandTone("transport-coal")).toBe("green");
+    expect(demandTone("two-echelon-gold-au")).toBe("green");
+    expect(demandTone("p-median-brazil")).toBe("green");
+  });
+
+  it("is green even with no modelId argument at all", () => {
+    expect(demandTone()).toBe("green");
   });
 });

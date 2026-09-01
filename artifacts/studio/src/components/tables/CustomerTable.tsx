@@ -10,9 +10,17 @@ interface CustomerTableProps {
   customers: CustomerRow[];
   overrides: CustomerOverride[];
   onChange: (next: CustomerOverride[]) => void;
+  /** T5 (Bundle 2, Step 2b) — the active model's `capabilities.demandEditable`.
+   * false (p-median-brazil — textbook-fixed region demand) makes this row's
+   * demand field read-only; status (Active/Excluded) stays editable
+   * regardless. Defaults true — every other existing caller (p-median-us,
+   * two-echelon-gold-au) is unaffected. Mirrors EditCustomerDialog.tsx's own
+   * Step 1b gate on the Input Map side — same locked decision, second
+   * surface. */
+  demandEditable?: boolean;
 }
 
-export function CustomerTable({ customers, overrides, onChange }: CustomerTableProps) {
+export function CustomerTable({ customers, overrides, onChange, demandEditable = true }: CustomerTableProps) {
   // Local draft text, keyed by customer id — decoupled from the committed
   // override so an in-progress invalid keystroke (e.g. typing "-5" one
   // character at a time) isn't snapped back to the last valid value before
@@ -84,6 +92,8 @@ export function CustomerTable({ customers, overrides, onChange }: CustomerTableP
                     min={0}
                     value={drafts[c.id] ?? String(o?.demand ?? c.demand)}
                     onChange={e => handleDemandChange(c.id, e.target.value)}
+                    disabled={!demandEditable}
+                    title={demandEditable ? undefined : "Demand for this row is fixed by the textbook dataset and can't be edited."}
                     className="h-7 text-xs w-28"
                     data-testid={`input-customer-demand-${c.id}`}
                   />

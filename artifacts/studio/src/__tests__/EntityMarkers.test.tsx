@@ -153,6 +153,21 @@ describe("EntityMarkers", () => {
     expect(marker.className).toContain("status-inactive");
   });
 
+  // T4 (Bundle 2) — R3 capability gate seam: a role with no status field
+  // (transport-coal mines) never sets MapWarehouse.status at all. Confirms
+  // this degrades to a plain outline triangle with no status-* class, and
+  // is never hidden by the showInactive filter (which has nothing to key
+  // off) — the seam supportsFacilityStatus:false callers (T6) rely on.
+  it("a warehouse-role row with no status (hasStatus:false role, e.g. a mine) renders a plain outline triangle with no status-* class, and is never hidden by showInactive", () => {
+    const { container } = renderMarkers({
+      warehouses: [wh({ id: "M1", status: undefined })],
+      toggles: { warehouses: true, customers: true, showInactive: false },
+    });
+    const marker = container.querySelector(".leaflet-marker-icon")!;
+    expect(marker.className).toContain("marker-outline");
+    expect(marker.className).not.toMatch(/status-\w/);
+  });
+
   it("an excluded customer carries a distinct dim class but still renders as a marker", () => {
     const { container } = renderMarkers({ customers: [cs({ id: "C1", excluded: true })] });
     const marker = container.querySelector(".leaflet-marker-icon")!;
@@ -246,11 +261,11 @@ describe("EntityMarkers", () => {
       expect(svg.outerHTML).toContain("var(--demand-300)");
     });
 
-    it("customer bubbles are blue (var(--accent-*)) for a non-p-median-us modelId", () => {
+    it("customer bubbles are green (var(--demand-*)) for every other modelId too (R1 fast-follow — no more blue branch)", () => {
       const { container } = renderMarkers({ customers: [cs({ id: "C1" })], modelId: "transport-coal" });
       const svg = container.querySelector(".cs-marker svg")!;
-      expect(svg.outerHTML).toContain("var(--accent-300)");
-      expect(svg.outerHTML).not.toContain("--demand-300");
+      expect(svg.outerHTML).toContain("var(--demand-300)");
+      expect(svg.outerHTML).not.toContain("--accent-300");
     });
 
     it("warehouse triangles stay blue (var(--accent-700)) regardless of modelId", () => {

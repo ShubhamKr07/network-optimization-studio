@@ -97,7 +97,11 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose 
         data-testid="map-details-code"
       >
         <span>{e.displayCode}</span>
-        {kind === "wh" && (
+        {/* T4 (Bundle 2) — kind==="wh" no longer implies a status: a role
+            with hasStatus:false (e.g. a mine) never populates `status` at
+            all (see MapWarehouse's own comment), so this must check for its
+            presence too, not just the marker shape. */}
+        {kind === "wh" && e.status != null && (
           <span className="text-[10px] px-1.5 py-0.5 bg-accent-100 text-accent-800" data-testid="map-details-status">
             {warehouseStatusPresentation[e.status].label}
           </span>

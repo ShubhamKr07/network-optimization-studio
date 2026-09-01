@@ -11,6 +11,18 @@ import { render, screen, fireEvent } from "@testing-library/react";
 // directly at the component level (mine_to_refinery/refinery_to_customer
 // edge coloring, M4.2), and OutputMapTab passes `dataset`/`result` through
 // to NetworkMap unmodified, so nothing new needs proving at this layer.
+//
+// T7 (Bundle 2) — appends two new describe blocks below the original A5.3
+// coverage: the Input Map's full-v2 editor (fixed mine + refineries +
+// customers) and the Output Map's effective-output-dataset projection for
+// BOTH legs (mine->refinery, refinery->customer), mirroring
+// Workspace.Transport.test.tsx/Workspace.Brazil.test.tsx's own structure for
+// their sibling fast-follow tasks. useGetScenario/useListScenarios/
+// useGetDataset are upgraded to overridable `mockUseX.mockReturnValue(...)`
+// mocks (same pattern those two files use) so the new tests can swap in a
+// solved/added-entity scenario per-test — every ORIGINAL A5.3 test below is
+// unaffected (none of them override anything, so the same default
+// scenario/dataset apply as before).
 
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
 
@@ -54,13 +66,37 @@ const dataset = {
   customers: [{ id: "sydney", city: "Sydney", state: "NSW", lat: -33.87, lng: 151.2, demand: 100000 }],
 };
 
+// T7 (Bundle 2) — a solved scenario with the base mine/refinery/customer
+// network, for the Output Map effective-dataset describe block below.
+// mine_to_refinery/refinery_to_customer leg tagging mirrors
+// test_two_echelon.py/resultEnvelope.ts's real Edge.leg values.
+const solvedResult = {
+  status: "optimal" as const,
+  objective: 386577,
+  runTimeSec: 0.8,
+  quality: "Proven optimal",
+  edges: [
+    { fromId: "kalgoorlie", toId: "cunnamulla", flow: 100000, distance: 500, leg: "mine_to_refinery" as const },
+    { fromId: "cunnamulla", toId: "sydney", flow: 100000, distance: 900, leg: "refinery_to_customer" as const },
+  ],
+  metrics: { weightedAvgDistance: 900, bandCoverage: [], utilizationByNode: [], avgDistanceByLeg: [] },
+  details: { openWarehouseIds: ["cunnamulla"], assignments: [] },
+  solverUsed: "CBC (PuLP)",
+  infeasibilityReason: null,
+};
+
+const solvedScenario = { ...scenario, result: solvedResult };
+
 const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockUseGetScenario = vi.fn(() => ({ data: scenario }));
+const mockUseListScenarios = vi.fn(() => ({ data: [scenario] }));
+const mockUseGetDataset = vi.fn(() => ({ data: dataset }));
 
 vi.mock("@workspace/api-client-react", () => ({
-  useListScenarios: vi.fn(() => ({ data: [scenario] })),
-  useGetScenario: vi.fn(() => ({ data: scenario })),
-  useGetDataset: vi.fn(() => ({ data: dataset })),
+  useListScenarios: () => mockUseListScenarios(),
+  useGetScenario: () => mockUseGetScenario(),
+  useGetDataset: () => mockUseGetDataset(),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
   useSolveScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useCreateScenario: vi.fn(() => mockCreateScenario),
@@ -72,7 +108,7 @@ vi.mock("@workspace/api-client-react", () => ({
   // are geographically miles (notebook-mislabeled km), so this model now
   // advertises "mi" like the other three. The band-editor label
   // fallback every other fixture file already covers.
-  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "mi" }] })),
+  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "mi", capabilities: { supportsFacilityStatus: true } }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
@@ -89,10 +125,25 @@ function renderWorkspace() {
   return render(<Workspace modelId="two-echelon-gold-au" userEmail="student@example.com" />);
 }
 
+// T7 (Bundle 2) — same routePathCount/warehouseMarkerCount helpers
+// Workspace.Transport.test.tsx/Workspace.Brazil.test.tsx already establish
+// for their own Output Map effective-dataset assertions.
+function routePathCount(container: HTMLElement): number {
+  const html = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+  return (html.match(/<path/g) ?? []).length;
+}
+
+function warehouseMarkerCount(container: HTMLElement): number {
+  return container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon").length;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockUpdateScenario.mutate.mockReset();
   mockCreateScenario.mutate.mockReset();
+  mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof mockUseGetScenario>);
+  mockUseListScenarios.mockReturnValue({ data: [scenario] } as unknown as ReturnType<typeof mockUseListScenarios>);
+  mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof mockUseGetDataset>);
 });
 
 describe("Workspace — two-echelon-gold-au (A5.3)", () => {
@@ -239,5 +290,179 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
       gap: 0,
       timeLimitSec: 120,
     });
+  });
+});
+
+// T7 (Bundle 2) — Input Map full-v2 editor. Mirrors
+// Workspace.Transport.test.tsx's own "Input Map (T6, Bundle 2)" describe
+// block: mode dispatch off "legacy", R4 Save-in-Layers, add-then-save round
+// trip, R3 status legend present (unlike transport, which suppresses it),
+// PLUS the fixed mine's read-only contract at the Workspace-wiring level
+// (component-level coverage already lives in InputMapTabV2.twoEchelon.test.tsx).
+describe("Workspace — two-echelon-gold-au Input Map (T7, Bundle 2)", () => {
+  it("renders the real two-echelon map surface (toolbar + legend), not the legacy pin-drop flow", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    expect(screen.getByTestId("two-echelon-map-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("map-legend")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-map-placement-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+  });
+
+  it("Save lives inside the Input Map's own Layers row (R4), same relocation as p-median-us/brazil/transport-coal", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    const toolbar = screen.getByTestId("two-echelon-map-toolbar");
+    const saveButton = screen.getByTestId("button-save");
+    expect(toolbar).toContainElement(saveButton);
+    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+  });
+
+  it("R3 — the status legend DOES render (refineries have a real status, unlike transport-coal's mines)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    expect(screen.getByTestId("legend-status-active")).toBeInTheDocument();
+    expect(screen.getByTestId("legend-status-forced_open")).toBeInTheDocument();
+    expect(screen.getByTestId("legend-status-inactive")).toBeInTheDocument();
+  });
+
+  it("renders both the fixed mine and the refinery candidates as markers, with no action menu reachable on the mine", () => {
+    const { container } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    // Mine (kalgoorlie) + 2 refineries (cunnamulla, daggar_hills) + 1
+    // customer (sydney) = 4 markers, matching the fixture dataset.
+    expect(warehouseMarkerCount(container)).toBe(4);
+    const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
+    fireEvent.contextMenu(markers[0]); // kalgoorlie is first (mine, rendered before EntityMarkers)
+    expect(screen.queryByTestId("map-action-menu")).not.toBeInTheDocument();
+  });
+
+  it("adding a refinery via the map registers a new addedRefineries row on Save, minting an 'aw-' uid with a status field", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    const mapEl = document.querySelector(".leaflet-container") as HTMLElement;
+    fireEvent.contextMenu(mapEl, { clientX: 30, clientY: 30 });
+    fireEvent.click(screen.getByTestId("map-add-menu-wh"));
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
+
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [saveArgs] = mockUpdateScenario.mutate.mock.calls[0];
+    const sentInputs = saveArgs.data.inputs as typeof twoEchelonInputs & { addedRefineries: { id: string; status: string }[] };
+    expect(sentInputs.addedRefineries).toHaveLength(1);
+    expect(sentInputs.addedRefineries[0].id).toMatch(/^aw-/);
+    expect(sentInputs.addedRefineries[0].status).toBe("active");
+    // A two-echelon PATCH never carries the p-median-us-only fields.
+    expect(sentInputs).not.toHaveProperty("warehouseOverrides");
+    expect(sentInputs).not.toHaveProperty("capacityMode");
+  });
+
+  it("adding a customer via the map registers a new addedCustomers row on Save", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    const mapEl = document.querySelector(".leaflet-container") as HTMLElement;
+    fireEvent.contextMenu(mapEl, { clientX: 30, clientY: 30 });
+    fireEvent.click(screen.getByTestId("map-add-menu-cs"));
+    fireEvent.change(screen.getByTestId("create-entity-demand"), { target: { value: "50000" } });
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    const [saveArgs] = mockUpdateScenario.mutate.mock.calls[0];
+    const sentCustomers = (saveArgs.data.inputs as typeof twoEchelonInputs & { addedCustomers: { demand: number }[] }).addedCustomers;
+    expect(sentCustomers).toHaveLength(1);
+    expect(sentCustomers[0].demand).toBe(50000);
+  });
+});
+
+// T7 Step 3 (P1) — effective output dataset, BOTH legs: added
+// refineries/customers from displayedInputs project into the Output Map so
+// NetworkMap can resolve a mine->refinery OR refinery->customer edge whose
+// endpoint is scenario-local. Also covers R7 (hide-closed applies to
+// refineries, mine always retained) and the displayedInputs snapshot
+// principle, mirroring Workspace.Brazil.test.tsx's own Output Map describe
+// block structure.
+describe("Workspace — two-echelon-gold-au Output Map effective dataset (T7, Bundle 2, Step 2/3)", () => {
+  it("renders the shared NetworkMap with both the mine->refinery and refinery->customer routes, and both facility markers", () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { container } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+
+    expect(routePathCount(container)).toBe(2);
+    // Mine (kalgoorlie, always retained) + the one OPEN refinery (cunnamulla)
+    // — daggar_hills (closed candidate) is hidden by R7's hideClosedWarehouses.
+    expect(warehouseMarkerCount(container)).toBe(2);
+  });
+
+  it("R7 — a closed refinery candidate is hidden, the fixed mine is retained regardless", () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { container } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+
+    // daggar_hills never appears in solvedResult.details.openWarehouseIds —
+    // confirmed hidden by asserting the total count excludes it (mine +
+    // cunnamulla only, not 3).
+    expect(warehouseMarkerCount(container)).toBe(2);
+  });
+
+  it("an added-and-opened refinery renders, along with its mine->refinery AND refinery->customer routes — even though neither the refinery nor its customer exists in the base dataset", () => {
+    const addedScenario = {
+      ...solvedScenario,
+      inputs: {
+        ...twoEchelonInputs,
+        // Cleared (unlike the base fixture's forced_open on cunnamulla) —
+        // a forced-open refinery always displays as open regardless of
+        // openWarehouseIds, which would otherwise keep it visible here and
+        // defeat this test's own R7 "closed candidates hidden" premise.
+        refineryOverrides: [],
+        addedRefineries: [{ id: "aw-1", city: "Brisbane", state: "QLD", lat: -27.47, lng: 153.03, status: "active" }],
+        addedCustomers: [{ id: "ac-1", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 40000 }],
+      },
+      result: {
+        ...solvedResult,
+        edges: [
+          { fromId: "kalgoorlie", toId: "aw-1", flow: 40000, distance: 300, leg: "mine_to_refinery" as const },
+          { fromId: "aw-1", toId: "ac-1", flow: 40000, distance: 600, leg: "refinery_to_customer" as const },
+        ],
+        details: { openWarehouseIds: ["aw-1"], assignments: [] },
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: addedScenario } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [addedScenario] } as unknown as ReturnType<typeof mockUseListScenarios>);
+
+    const { container } = renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+
+    // Mine (retained) + the added, opened refinery — both base refineries
+    // (cunnamulla/daggar_hills) are closed under this result, hidden by R7.
+    expect(warehouseMarkerCount(container)).toBe(2);
+    // Both legs resolve: mine->addedRefinery, addedRefinery->addedCustomer.
+    expect(routePathCount(container)).toBe(2);
+  });
+
+  it("an unsaved Input Map coordinate edit does NOT move the already-displayed solve (displayedInputs snapshot)", () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof mockUseGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof mockUseListScenarios>);
+    const { container } = renderWorkspace();
+
+    // Add (but do NOT save) a new refinery on the Input Map — an unsaved
+    // draft edit to localInputs.
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+    const mapEl = document.querySelector(".leaflet-container") as HTMLElement;
+    fireEvent.contextMenu(mapEl, { clientX: 30, clientY: 30 });
+    fireEvent.click(screen.getByTestId("map-add-menu-wh"));
+    fireEvent.click(screen.getByTestId("create-entity-submit"));
+    expect(screen.getByTestId("button-save")).toBeEnabled(); // dirty, unsaved
+
+    // The Output Map must still reflect only the SOLVED (displayedInputs)
+    // geometry — the unsaved added refinery must not appear.
+    fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
+    expect(warehouseMarkerCount(container)).toBe(2);
+    expect(routePathCount(container)).toBe(2);
   });
 });

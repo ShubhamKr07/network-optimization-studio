@@ -514,7 +514,12 @@ export function NetworkMap({
         {showWarehouseMarkers && dataset.warehouses.map((w) => {
           const status = getStatus(w.id);
           const isOpen = status === "open" || status === "forced_open";
-          if (hideClosedWarehouses && !isOpen) return null;
+          // R7 (Bundle 2, Task T4) — the fixed mine (two-echelon-gold-au,
+          // kind==="mine") is never a facility-location choice, so it's
+          // never in openWarehouseIds and isOpen is always false for it —
+          // hideClosedWarehouses would otherwise hide it exactly like a
+          // genuinely closed candidate, even though it's not one.
+          if (hideClosedWarehouses && w.kind !== "mine" && !isOpen) return null;
           const isHighlighted = w.id === selectedWarehouseId;
           const isDimmed = hasWarehouseFilter && !isHighlighted && isOpen;
 

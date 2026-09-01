@@ -18,3 +18,10 @@ export const BRAZIL_DATASET_CUSTOMERS: Customer[] = BRAZIL_REGIONS.map((r) => ({
   lng: r.lng,
   demand: r.demand,
 }));
+
+// T9 (Brazil CSV import/export) — the Brazil analogue of data/dataset.ts's
+// TOTAL_DEMAND, needed by services/import.ts's capacity-vs-demand cross-field
+// warning (warehouses entity only) so a Brazil scenario's warning compares
+// against Brazil's own ~114M total region demand, not p-median-us's 200-
+// customer total.
+export const BRAZIL_TOTAL_DEMAND = BRAZIL_DATASET_CUSTOMERS.reduce((sum, c) => sum + c.demand, 0);

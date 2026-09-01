@@ -50,6 +50,11 @@ interface CustomersTabProps {
   /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
   prefillCoords?: { lat: number; lng: number } | null;
   onPrefillConsumed?: () => void;
+  /** T5 (Bundle 2, Step 2b) — threaded straight through to CustomerTable
+   * (see its own comment); the "Added customers" section below is NEVER
+   * gated by this — an added region has no textbook demand to protect.
+   * Defaults true, unaffected for every existing caller. */
+  demandEditable?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -72,6 +77,7 @@ export function CustomersTab({
   precheckErrors = [],
   prefillCoords,
   onPrefillConsumed,
+  demandEditable = true,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -425,7 +431,7 @@ export function CustomersTab({
   return (
     <div data-testid="customers-tab">
       {toolbar}
-      <CustomerTable customers={customers} overrides={overrides} onChange={onChange} />
+      <CustomerTable customers={customers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} />
       {addedSection}
       {importDialog}
     </div>
