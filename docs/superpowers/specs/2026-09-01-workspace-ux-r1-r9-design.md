@@ -1,6 +1,6 @@
 # Workspace UX changes (R1–R9) — Design Spec (Bundle 1)
 
-**Date:** 2026-09-01 (rev. 3 — plan-review round: displayedInputs snapshot, capability-driven compare metrics, excluded dim-visible, unit propagation)
+**Date:** 2026-09-01 (rev. 3 — plan-review round: displayedInputs snapshot, capability-driven compare metrics, excluded dim-visible in-scale, unit propagation)
 **Status:** Reviewed — ready for planning
 **Context:** Post-Input-Map-v2 UX/bug batch. Nine changes across the p-median-us Input Map symbology, the solve flow, the Solution Summary (compare rebuild), the Output Map, and Service Stats.
 **Execution:** Bundle 1 of 3 → e2e → deploy, then Bundle 2 (multi-model editor extension), then Bundle 3 (new models).
@@ -35,7 +35,7 @@ Map/output items (**R1, R2, R3, R4, R7**) are **p-median-us first**. Solve-flow 
 
 ## R2 — Quintile demand-bubble sizing (p-median-us) — deterministic spec
 
-- **Population:** the current scenario's customers that participate in the map — base customers **not excluded** (per `customerOverrides` status `"excluded"`) plus added customers. **Excluded customers are omitted from the quintile scale** but stay **dim-visible at a fixed neutral radius** — the shipped click-to-un-exclude affordance is preserved; they are **not** hidden.
+- **Population:** **all** of the current scenario's customers (base + added), **including excluded ones** — every customer's demand counts toward the p20/p40/p60/p80 thresholds. **Excluded customers are IN the quintile scale** (sized by their own demand's quintile like any other customer) but render **dimmed** — the click-to-un-exclude affordance is preserved. They are neither hidden nor fixed-size.
 - **Algorithm:** sort the participating demands ascending; compute the 20/40/60/80th percentile thresholds by **linear interpolation between closest ranks** (the `type=7`/`numpy.percentile` default). Assign a customer to bucket `k` (0–4) by **lower-inclusive, upper-exclusive** bands: bucket 0 = `demand ≤ p20`; bucket `k` = `p_{20k} < demand ≤ p_{20(k+1)}`; bucket 4 = `demand > p80`. (Exactly-on-threshold → the lower bucket.)
 - **Radii:** 5 fixed stepped radii across a widened range (e.g. 5/8/11/14/17px, tuned in-app).
 - **Legend:** 5 reference bubbles labeled with each bucket's demand range (the threshold values). **Repeated thresholds** (e.g. many identical demands) that collapse buckets → collapse the legend to the distinct sizes actually used; never render an empty/degenerate bucket row.
@@ -90,7 +90,7 @@ Rebuilds compare (removed in Phase 3.2), folded into Solution Summary, baseline-
 
 ## Testing strategy
 
-- **RTL/unit:** R1 (green `var(--demand-*)` consumed on p-median-us bubbles/legend, not other models; correct SVG syntax), R2 (quintile bucketing determinism + threshold boundary + excluded-omitted + degenerate fallback + legend collapse), R3 (SVG string uses `var(--token)`, no nested `hsl(var(...))`), R4 (Save in the Layers row on Input Map, unchanged elsewhere), R5 (Run Optimizer bands editor writes `distanceBands` before solve; unit label from manifest), R6+R8 (only-solved selectable, history disables toggles, 1 vs 2–4 rendering, cross-model impossible, scalar rows incl. aggregate utilization, per-band rows shown when bands identical / a per-scenario note when they differ, CSV hidden in compare), R7 (effective dataset built; closed WHs filtered; added-open-WH retained), R9 (corrected label present).
+- **RTL/unit:** R1 (green `var(--demand-*)` consumed on p-median-us bubbles/legend, not other models; correct SVG syntax), R2 (quintile bucketing determinism + threshold boundary + excluded-in-scale-but-dim + degenerate fallback + legend collapse), R3 (SVG string uses `var(--token)`, no nested `hsl(var(...))`), R4 (Save in the Layers row on Input Map, unchanged elsewhere), R5 (Run Optimizer bands editor writes `distanceBands` before solve; unit label from manifest), R6+R8 (only-solved selectable, history disables toggles, 1 vs 2–4 rendering, cross-model impossible, scalar rows incl. aggregate utilization, per-band rows shown when bands identical / a per-scenario note when they differ, CSV hidden in compare), R7 (effective dataset built; closed WHs filtered; added-open-WH retained), R9 (corrected label present).
 - **Live Playwright (bundle e2e):** money-path still works; **R3 outline + dashed markers actually paint** (computed style/screenshot); R2 buckets distinguishable; R5 pre-solve bands flow; R6+R8 select 2–4 solved scenarios → side-by-side scalar table; R7 output map shows only opened WHs incl. an added one.
 - **Sacred:** no solver/`solve.py` change → `e2e_accuracy.py` stays 87/87 (R5 only writes `inputs.distanceBands`, already consumed; R9 is label-only). Verify.
 - Full gate (typecheck, api-server, studio) green before e2e/deploy.
