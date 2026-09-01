@@ -286,7 +286,7 @@ function LegacyInputMap({
       </div>
       <div className="flex-1 min-h-0">
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution="CartoDB" />
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <ClickCapture onClick={(lat, lng) => setDraft({ lat, lng })} />
           {pins.map(group => group.entities.map(e => (
             <Marker key={`${group.kind}-${e.id}`} position={[e.lat, e.lng]} />
@@ -819,7 +819,7 @@ function PMedianInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution="CartoDB" />
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           <EntityMarkers
@@ -1273,7 +1273,7 @@ function TransportInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution="CartoDB" />
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           <EntityMarkers
@@ -1727,7 +1727,7 @@ function TwoEchelonInputMap({
 
       <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
         <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution="CartoDB" />
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           {/* T7 — the fixed mine: a plain, non-interactive marker (no
