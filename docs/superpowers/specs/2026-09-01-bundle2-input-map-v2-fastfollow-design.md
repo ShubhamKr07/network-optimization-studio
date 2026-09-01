@@ -1,7 +1,7 @@
 # Bundle 2 — Input Map v2 + R1–R9 UX fast-follow to the other 3 models — Design Spec
 
 **Date:** 2026-09-01
-**Status:** Draft rev 2 (post-review; awaiting user decisions on 2 open items)
+**Status:** rev 3 (both open decisions resolved; ready for plan)
 **Predecessors:** Input Map v2 (`docs/superpowers/plans/2026-08-31-input-map-v2.md`, merged `8bfb304`), R1–R9 Workspace UX (`docs/superpowers/specs/2026-09-01-workspace-ux-r1-r9-design.md`, merged `2ee91eb`, deployed). Both are p-median-us pilots; this bundle brings the other three models to parity.
 
 **Rev 2 changes:** incorporates a review pass that found the rev-1 "de-risking" claims materially wrong. Verified against code/data: Brazil and two-echelon **do** need estimator work; Brazil needs an OpenAPI change, a customer-shape adapter, manifest-schema parity, and an output-map architecture decision; the R3/R7 capability must be defined here, not deferred. All corrected below.
@@ -70,9 +70,11 @@ Every model's estimator must replicate its **own base matrix's** distance conven
 
 `solvers/p-median-brazil/manifest.json`'s `inputsSchema` omits `addedWarehouses`, `addedCustomers`, and `distanceOverrides`, even though `GET /models` publishes it — schema-driven consumers get a false contract. Add these to Brazil's manifest `inputsSchema` (matching the p-median-us manifest it otherwise mirrors).
 
-#### Brazil R7 output-map architecture (P1) — **open decision, see below**
+#### Brazil R7 output-map architecture (P1) — **RESOLVED: migrate to NetworkMap**
 
-Swapping the Input Map placeholder does **not** deliver R7 for Brazil. `OutputMapTab` routes Brazil through `BrazilMap`, which takes only `{result, showRoutes}` and renders counts ("N DCs · M demand regions") — it consumes no dataset, `displayedInputs`, added entities, status overrides, or `hideClosedWarehouses`. R7 (and the effective-dataset-from-`displayedInputs` geometry) needs either a **BrazilMap → NetworkMap migration** or a **full BrazilMap upgrade** that builds the solve-time effective dataset and filters closed warehouses without dropping opened added entities/routes. This is a genuine architecture fork — see Open Decisions.
+Swapping the Input Map placeholder does **not** deliver R7 for Brazil. `OutputMapTab` routes Brazil through `BrazilMap`, which takes only `{result, showRoutes}` and renders counts ("N DCs · M demand regions") — it consumes no dataset, `displayedInputs`, added entities, status overrides, or `hideClosedWarehouses`.
+
+**Decision (user):** migrate Brazil output from `BrazilMap` to the shared `NetworkMap`, same as the other models — R7 + effective-dataset-from-`displayedInputs` geometry + all output features come with parity, and the codebase stops maintaining a divergent Brazil output map. `BrazilMap` is retired once the migration is verified. Regression risk to Brazil's currently-working output is covered by per-model RTL + a Brazil live-solve e2e. The migration must honor the `displayedInputs` snapshot principle (output reads the solve-time snapshot, never the draft) and Brazil's `Dataset`-shape adapter (city=name, state=id).
 
 **Frontend, p-median-us-only today, to extend:**
 - `InputMapTab` modes: `pmedian` (full v2, us only), `legacy` (transport/two-echelon pin-drop), `placeholder` (Brazil). Move all three non-pilot models to a full-v2 editor matching each one's own entity shape.
@@ -94,7 +96,11 @@ Three per-model tracks sharing common symbology + capability work:
 
 - **Track B (Brazil):** capability + manifest parity → `GET /dataset` (endpoint + OpenAPI + adapter) → Brazil estimator (×1.17) → frontend full-v2 editor (Brazil shares `PMedianMapInputs`) → R1/R2/R3/R4 → **R7 output-map architecture** (per the open decision). Largest track.
 - **Track T (transport-coal):** full-v2 editor over mines+stations (replaces legacy) → R1/R2 station bubbles → R4. R3/R7 gated off via `supportsFacilityStatus === false`. No estimator work (lane costs already ×1.17).
-- **Track E (two-echelon):** refinery→customer estimator circuity fix → full-v2 editor over refineries+customers with the **fixed mine as read-only context** → R1/R2 customer bubbles → R4 → R3/R7 on refineries only (never the mine). Handles 2-leg geometry in the map.
+- **Track E (two-echelon):** **unit relabel km→mi** (see below) → refinery→customer estimator circuity fix → full-v2 editor over refineries+customers with the **fixed mine as read-only context** → R1/R2 customer bubbles → R4 → R3/R7 on refineries only (never the mine). Handles 2-leg geometry in the map.
+
+#### two-echelon unit relabel (RESOLVED: relabel km→mi)
+
+The two-echelon base numbers are geographically **miles** (mine→refinery plain haversine miles; refinery→customer haversine × ≈1.179 circuity) and are the source notebook's own published values — but `test_two_echelon.py`'s ground-truth objective (`386576.99`) and the notebook itself label them "km". T2 (Bundle 1) set `distanceUnit: "km"` off that mislabel. **Decision (user):** relabel to `"mi"` so the displayed unit matches the actual mile-magnitude data. This is a **one-value change** in `solvers/two-echelon-gold-au/manifest.json` (`distanceUnit: "km" → "mi"`), surfaced through the already-existing `ModelInfo.distanceUnit` "mi"|"km" enum (no schema/codegen change — the enum already has both values). **Zero data change** — the numbers, the objective `386576.99`, and `test_two_echelon.py`'s golden assertions are all untouched, so the notebook-fidelity contract and `e2e_accuracy` 87/87 hold. Update the tests that asserted two-echelon = "km" (T2's `registry.test.ts`, T3's `ServiceStatsTab` km case) to "mi". This reverses a Bundle-1 decision, now grounded in the verified ground-truth reality.
 
 ### Cross-model gate consistency (this repo's most-documented bug class)
 
@@ -127,10 +133,9 @@ A shared component's per-model gate updated for one model but forgotten for a si
 
 - **New models** — Bundle 3.
 - **two-echelon `TRUCKLOAD_KG` non-geometric objective**, base-entity move/delete, keyboard-focusable markers, touch, marker clustering — deferred from Input Map v2's own out-of-scope list.
-- **two-echelon distance-unit display mismatch (pre-existing, flagged):** the two-echelon base numbers are miles (× circuity on the refinery→customer leg), but the model advertises `distanceUnit: "km"`, so Service Stats / band labels display "km" over mile-magnitude numbers. This is a **pre-existing display bug**, independent of Bundle 2's estimator-consistency fix. Bundle 2's estimator fix makes added rows consistent with the base (miles×circuity); it does **not** fix the label. Correcting the label properly means either relabeling two-echelon to "mi" (changes shipped display) or converting the dataset to km (touches the sacred 87/87 baseline) — a separate decision. See Open Decisions.
 - **The 3 Minor R1–R9 follow-ups** — tracked separately.
 
-## Open decisions (need user input before the plan)
+## Resolved decisions (were open in rev 2)
 
-1. **Brazil R7 output-map architecture** — migrate Brazil output from `BrazilMap` to the shared `NetworkMap` (full parity, R7 + effective-dataset geometry "for free", but a larger change with regression risk to Brazil's working output), **or** upgrade `BrazilMap` in place to consume dataset/`displayedInputs`/`hideClosedWarehouses` (narrower, keeps a divergent component). Recommendation: **migrate to NetworkMap** — it's the parity goal and avoids maintaining two output maps.
-2. **two-echelon km/mi label mismatch** — fix in Bundle 2 (and if so, relabel to "mi" or convert data to km), or leave as a flagged pre-existing issue out of Bundle 2 scope. Recommendation: **leave out of scope** (flagged) — it's orthogonal to the input-map work and the data-conversion option risks the 87/87 baseline; handle it as its own task.
+1. **Brazil R7 output-map architecture** — **migrate Brazil output to the shared `NetworkMap`** (retire `BrazilMap`). See the Brazil output-architecture section above.
+2. **two-echelon km/mi label** — **relabel `distanceUnit` km→mi** (one manifest value, zero data change; notebook objective + `test_two_echelon.py` golden values preserved). See the two-echelon unit-relabel section above.
