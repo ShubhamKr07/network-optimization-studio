@@ -17,15 +17,16 @@
 - **Hard rule #2:** `e2e_accuracy.py` must pass **87/87 unmodified**; `test_two_echelon.py` golden values (objective `386576.9929994568`, refinery→customer avg `687.6`) must stay green. No `solve.py`/dataset-numeric change is in scope.
 - **Hard rule #6:** no new solver branches. `solve.py` is untouched.
 - **`displayedInputs` snapshot principle:** every OUTPUT surface reads the solve-time snapshot, never the editable `localInputs` draft. Brazil's NetworkMap migration must honor this.
-- **DD-7 identity:** added entities carry a stable opaque uid (`aw-`/`ac-`/`am-`/`as-`/`ar-`), the `distanceOverrides` join key; never changes on move.
+- **DD-7 identity:** added entities carry a stable opaque uid, the `distanceOverrides` join key; never changes on move. **Prefixes (shipped reality — do NOT change):** warehouses AND refineries `aw-`, customers `ac-`, mines `am-`, stations `as-`. `newUid` has kinds `"wh"|"cs"|"mn"|"st"` only — refineries reuse `newUid("wh")` → `aw-`, and `mintAddedEntityUid("refineries")` maps to `aw-` server-side, locked by e2e tests. T7 keeps `aw-` for refineries; there is NO `ar-` migration in this bundle.
 - **Capability-driven gates only** — never `modelId === "..."` for R3/R7; gate on `capabilities.supportsFacilityStatus`. Fixed mine retained via existing `WarehouseCandidate.kind === "mine"`.
 - **Shared worktree:** each task commits ONLY its own files via explicit `git add <path>` (never `-A`/`.`). Surface any cross-file need to the controller.
 - **Cross-model gate consistency:** run `model-integration-precheck.md` Gate 1 + Gate 6.5 at every new entity/model registration point; every symbology/editor change gets a per-model RTL test asserting the OTHER models are unchanged.
 
 ## Verified facts (use these exact values)
 
-- **two-echelon refinery→customer circuity = 1.17918** (constant across all 20 base pairs; stored ÷ haversineMiles). mine→refinery = plain haversine (ratio 0.9993 ≈ 1.0). Estimator (`fillEstimatedTwoEchelonDistances`) currently writes plain `haversineMiles` for BOTH legs → refinery→customer understated ~15%.
-- **Brazil base matrix circuity = 1.17** (constant across pairs). Brazil has NO estimator branch in `normalizeAddedEntityDistances` (`return data` fall-through).
+- **App `haversineMiles` uses `R_MI = 3959`** (`autoDistance.ts:35`). ALL circuity factors below are `stored ÷ haversineMiles` computed against THIS implementation (not a different Earth radius) — the estimator calls this exact function, so the factor must be derived against it.
+- **two-echelon refinery→customer circuity ≈ 1.17910** (range 1.179101–1.179108 across all 20 base pairs vs `haversineMiles` R=3959; ~constant). mine→refinery = plain haversine (ratio ≈1.0). Estimator (`fillEstimatedTwoEchelonDistances`) currently writes plain `haversineMiles` for BOTH legs → refinery→customer understated ~15%. Lock the constant `1.17910` (or the mean of a fresh derivation) and assert base-pair reconstruction within a tolerance (e.g. `< 0.1%`); do NOT claim bit-exactness.
+- **Brazil base matrix circuity ≈ 1.16993** (vs `haversineMiles` R=3959; ~constant across pairs). Brazil has NO estimator branch in `normalizeAddedEntityDistances` (`return data` fall-through). Derive the exact factor against the app `haversineMiles` and lock with a tolerance (do NOT blindly reuse `TRANSPORT_CIRCUITY=1.17`, which was derived against a different radius; verify whether it coincides within tolerance and use a Brazil-specific constant if not).
 - **`BRAZIL_REGIONS`** (`states.json`) = `{id, name, lat, lng, demand}` — no `city`/`state`. Adapter: `city = name`, `state = id`.
 - **`GET /dataset`** OpenAPI enum = `[p-median-us, transport-coal, two-echelon-gold-au]` (excludes brazil); response is typed `Dataset`; generated `GetDatasetModelId` mirrors it.
 - **`BrazilMap`** takes only `{result, showRoutes}`; renders counts. Being retired → NetworkMap.
@@ -52,7 +53,7 @@
 - Modify: `solvers/{p-median-us,p-median-brazil,transport-coal,two-echelon-gold-au}/manifest.json`
 - Modify: `lib/api-spec/openapi.yaml` + regenerate `lib/api-zod/**`, `lib/api-client-react/**` (via codegen, same commit)
 - Modify: `artifacts/api-server/src/registry/modelRegistry.ts` (`PublicModelInfo` + `toPublic`), `artifacts/api-server/src/__tests__/registry.test.ts`
-- Modify: `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx` (two-echelon km→mi case)
+- Modify (two-echelon km→mi in ALL fixtures — grep first): `artifacts/studio/src/__tests__/ServiceStatsTab.test.tsx`, `artifacts/studio/src/__tests__/CostSummaryTab.test.tsx`, `artifacts/studio/src/__tests__/Workspace.TwoEchelon.test.tsx` (both encode two-echelon as `km` in fixtures/assertions). Grep the whole studio suite for any other two-echelon `km` assertion before finishing.
 
 **Interfaces produced (downstream tasks consume):**
 - `capabilities.supportsFacilityStatus: boolean` on `ManifestSchema` + published `ModelInfo.capabilities`. Values: p-median-us `true`, p-median-brazil `true`, two-echelon-gold-au `true`, transport-coal `false`.
@@ -81,10 +82,11 @@
 **Interfaces produced:** `fillEstimatedBrazilDistances(inputs, dataset?)` (or a parameterized reuse of `fillEstimatedDistances` with a circuity factor); `normalizeAddedEntityDistances("p-median-brazil", …)` now estimates.
 
 - [ ] **Step 1 — failing test: two-echelon refinery→customer circuity.** Add a test: a two-echelon scenario with one added customer at a KNOWN base customer's coords yields a `distanceOverrides` refinery→customer row equal to `clampMi(haversineMiles(ref, cust) * 1.17918)` — NOT plain haversine. Assert the mine→refinery leg (for an added refinery) stays plain haversine. Run → fail (current code writes plain).
-- [ ] **Step 2 — implement two-echelon fix.** In `autoDistance.ts`: add `const TWO_ECHELON_RC_CIRCUITY = 1.17918;` (with a comment: reverse-derived constant, stored ÷ haversineMiles across all 20 base refinery→customer pairs = 1.17917–1.17918). In `fillEstimatedTwoEchelonDistances`, the **refinery→customer** leg computes `clampMi(haversineMiles(a, b) * TWO_ECHELON_RC_CIRCUITY)`; the **mine→refinery** leg stays `clampMi(haversineMiles(a, b))`. Correct the stale header comment ("haversineMiles for both legs, no circuity") to describe the per-leg convention. Run → pass.
-- [ ] **Step 3 — failing test: Brazil estimator.** A p-median-brazil scenario with one added warehouse + zero `distanceOverrides` → after `normalizeAddedEntityDistances`, `distanceOverrides` has `estimated:true` rows to active customers equal to `clampMi(haversineMiles(wh, region) * 1.17)`. Also test POST-create and import-apply paths (mirror the existing p-median-us estimator route tests). Run → fail.
-- [ ] **Step 4 — implement Brazil estimator.** Add `fillEstimatedBrazilDistances` — reuse `fillEstimatedDistances`'s exact structure but multiply by `TRANSPORT_CIRCUITY` (1.17, Brazil's base convention == transport's), sourcing base coords from `BRAZIL_DATASET`'s role dataset (warehouses + customers with the T3 adapter shape, or the raw `BRAZIL_WAREHOUSES`/`BRAZIL_REGIONS` coords — coords are all the estimator needs). In `scenarios.ts` `normalizeAddedEntityDistances`, add `if (modelId === "p-median-brazil") return fillEstimatedBrazilDistances(...)` before the fall-through. Run → pass.
-- [ ] **Step 5 — verify + commit.** `DATABASE_URL=... pnpm --filter api-server test autoDistance scenarios`, `pnpm run typecheck`. Confirm no `solvers/*/dataset` file changed (`git status`). Commit `[B2-T2] estimators: two-echelon refinery→customer circuity 1.17918 + Brazil ×1.17 estimator`.
+- [ ] **Step 2 — implement two-echelon fix.** In `autoDistance.ts`: add `const TWO_ECHELON_RC_CIRCUITY = 1.17910;` (comment: reverse-derived vs this file's `haversineMiles` (R_MI=3959) across all 20 base refinery→customer pairs, range 1.179101–1.179108). In `fillEstimatedTwoEchelonDistances`, the **refinery→customer** leg computes `clampMi(haversineMiles(a, b) * TWO_ECHELON_RC_CIRCUITY)`; the **mine→refinery** leg stays `clampMi(haversineMiles(a, b))`. Correct the stale header comment ("haversineMiles for both legs, no circuity") to describe the per-leg convention. The Step-1 test asserts reconstruction of a KNOWN base refinery→customer pair within `< 0.1%` tolerance (not bit-exact). Run → pass.
+- [ ] **Step 3 — failing test: Brazil estimator.** A p-median-brazil scenario with one added warehouse + zero `distanceOverrides` → after `normalizeAddedEntityDistances`, `distanceOverrides` has `estimated:true` rows to active customers equal to `clampMi(haversineMiles(wh, region) * BRAZIL_CIRCUITY)` within `< 0.1%` of a known base pair. Also test POST-create and import-apply paths (mirror the existing p-median-us estimator route tests). Run → fail.
+- [ ] **Step 4 — implement Brazil estimator.** Add `const BRAZIL_CIRCUITY` reverse-derived vs `haversineMiles` (R=3959) from Brazil's base matrix (≈1.16993 — verify; if it coincides with `TRANSPORT_CIRCUITY` within tolerance, reuse that, else a Brazil-specific constant). Add `fillEstimatedBrazilDistances` reusing `fillEstimatedDistances`'s structure × `BRAZIL_CIRCUITY`, sourcing base coords from `BRAZIL_DATASET` (coords are all the estimator needs). In `scenarios.ts` `normalizeAddedEntityDistances`, add `if (modelId === "p-median-brazil") return fillEstimatedBrazilDistances(...)` before the fall-through. Run → pass.
+- [ ] **Step 5 — move/re-estimation + idempotency tests (P1, all 3 estimators).** Add tests proving, for Brazil (`distanceOverrides`), transport-coal (`laneCostOverrides`), and two-echelon (both-leg `distanceOverrides`): (a) a second `normalizeAddedEntityDistances` pass is **idempotent** (no new/changed rows); (b) after the frontend move-mutator purges an added entity's overrides (rows referencing its stable uid), a PATCH-path normalization **regenerates** those rows from the NEW coordinates (assert the new distance differs and matches the new coords); (c) the normalizer does NOT overwrite a user-supplied non-estimated override (`estimated:false` untouched). This proves move→re-estimate works end-to-end and the normalizer only fills genuinely-missing rows. Run → pass.
+- [ ] **Step 6 — verify + commit.** `DATABASE_URL=... pnpm --filter api-server test autoDistance scenarios`, `pnpm run typecheck`. Confirm no `solvers/*/dataset` file changed (`git status`). Commit `[B2-T2] estimators: two-echelon r→c circuity 1.17910 + Brazil estimator + move/re-estimate coverage`.
 
 ---
 
@@ -112,9 +114,11 @@
 
 **Files:**
 - Modify: `artifacts/studio/src/components/workspace/map/EntityMarkers.tsx`, `map/MapLegend.tsx`, `map/types.ts`
+- Modify: `artifacts/studio/src/components/workspace/map/CreateEntityDialog.tsx` + the edit/move/action-menu components + any role-labeled copy (generalize the entity/editor model — see Step 0)
 - Modify: `artifacts/studio/src/components/NetworkMap.tsx` (R7 fixed-mine retention)
-- Test: `EntityMarkers.test.tsx`, `MapLegend.test.tsx`, `NetworkMap.test.tsx`
+- Test: `EntityMarkers.test.tsx`, `MapLegend.test.tsx`, `NetworkMap.test.tsx` (+ role-config tests)
 
+- [ ] **Step 0 — role/editor configuration (P1, prerequisite for T6/T7).** The shared entity model is p-median-us-shaped: `MapWarehouse` requires a `status`; `CreateEntityDialog` always renders + persists warehouse status; copy is hardcoded "warehouse/customer". transport-coal has NO mine status and uses mines/stations + `laneCostOverrides.cost`; two-echelon has status-bearing refineries + a fixed mine. Introduce a **role/editor config** (in `map/types.ts`) describing, per entity role: display label, whether it has a status field, whether it has a capacity/cost field, and its uid kind. `CreateEntityDialog`/edit/move/action components read this config instead of assuming warehouse-with-status. Default config = today's p-median-us behavior (no regression). Failing tests first: a config with `hasStatus:false` renders no status control and persists no `status`; labels come from the config. Then implement.
 - [ ] **Step 1 — R1 green demand for all models.** In `types.ts`, change `demandTone(modelId)` to return green for ALL models (drop the p-median-us-only branch; green everywhere). Update/adjust the demand-tone tests. (R2 quintile sizing is already model-agnostic — confirm, add no-op test if missing.)
 - [ ] **Step 2 — R7 fixed-mine retention (P1).** In `NetworkMap.tsx`, where `hideClosedWarehouses` filters warehouse-role rows absent from `openWarehouseIds`, add a guard: a row with `kind === "mine"` is ALWAYS retained regardless of open state. Failing test first: with `hideClosedWarehouses` true and a closed refinery + a fixed mine, the closed refinery is removed AND the mine remains. Implement → pass.
 - [ ] **Step 3 — R3/R7 capability gate seam.** Ensure the props that drive R3 status paint + R7 hide-closed are set by callers based on `capabilities.supportsFacilityStatus` (the per-model tracks pass them). Add no cross-model regression: RTL asserts a `supportsFacilityStatus: false` render shows no status/hide-closed treatment.
@@ -128,12 +132,13 @@
 
 **Files:**
 - Modify: `artifacts/studio/src/components/workspace/tabs/InputMapTab.tsx` (replace Brazil `placeholder` with full-v2 `pmedian`-style mode)
-- Modify: `artifacts/studio/src/components/workspace/tabs/OutputMapTab.tsx` (route Brazil through `NetworkMap`, retire the `BrazilMap` branch)
+- Modify: `artifacts/studio/src/components/workspace/tabs/OutputMapTab.tsx` (route Brazil through `NetworkMap` in the WORKSPACE path only, replacing its `BrazilMap` branch)
 - Modify: `artifacts/studio/src/pages/Workspace.tsx` (Brazil dataset query wiring; OutputMapTab props for Brazil)
-- Delete (after migration verified): `artifacts/studio/src/components/BrazilMap.tsx` + its test
-- Test: `InputMapTabV2.test.tsx`, `OutputMapTab.test.tsx`, `Workspace.OutputMap.test.tsx` (+ Brazil cases)
+- Test: `InputMapTabV2.test.tsx`, `OutputMapTab.test.tsx`, `Workspace.OutputMap.test.tsx`, `Workspace.Brazil.test.tsx` (+ Brazil cases)
+- **Do NOT delete `BrazilMap.tsx` (P1):** `pages/Studio.tsx` (legacy page) + `Studio.test.tsx` still import/render it independently of `OutputMapTab`. Deleting it breaks typecheck/build. Retire it from the Workspace `OutputMapTab` path ONLY; `BrazilMap` stays for legacy Studio (a separately-scoped decommission, out of this bundle).
 
-- [ ] **Step 1 — Brazil Input Map full-v2.** Brazil shares `PMedianMapInputs`; wire its `GET /dataset` query (T3) and render the same full-v2 `PMedianInputMap` the pilot uses (place/move/edit/delete added warehouses+customers). Failing test first (Brazil render shows the v2 editor, not the placeholder), then implement. `supportsFacilityStatus` true → R3/R7 apply.
+- [ ] **Step 1 — Brazil Input Map full-v2.** Brazil shares `PMedianMapInputs`; wire its `GET /dataset` query (T3) and render the full-v2 `PMedianInputMap` the pilot uses (place/move/edit/delete added warehouses+customers). Failing test first (Brazil render shows the v2 editor, not the placeholder), then implement. `supportsFacilityStatus` true → R3/R7 apply.
+- [ ] **Step 1b — honor `demandEditable: false` (P2).** Brazil's manifest declares `demandEditable: false` (textbook-fixed region demands), but the reused `PMedianInputMap` exposes base-customer demand editing. Pass the model's `demandEditable` capability into the editor and **suppress base-region demand editing** when false, while STILL collecting a required demand for a newly-**added** customer (an added region has no textbook demand). Do NOT flip Brazil to `demandEditable: true`. Test: base Brazil region demand is read-only; an added Brazil customer requires + accepts a demand value.
 - [ ] **Step 2 — output migration.** Route Brazil through `NetworkMap` in `OutputMapTab` (build the effective dataset from `displayedInputs` + Brazil dataset, honoring the snapshot principle), passing `hideClosedWarehouses` (R7) + `countryBounds` from Brazil's manifest. Failing tests: a closed Brazil warehouse is absent post-solve; an added-and-opened warehouse + its route render; unsaved coord edits don't move the displayed solve (displayedInputs). Then implement; retire `BrazilMap`.
 - [ ] **Step 3 — verify + commit.** `pnpm --filter studio test InputMapTab OutputMap Workspace`, `pnpm run typecheck`. Commit `[B2-T5] Brazil full-v2 input editor + BrazilMap→NetworkMap output migration (R1-R7)`.
 
@@ -143,11 +148,12 @@
 
 **Role:** frontend-engineer. **Wave 2b, SECOND (serial).** **Depends on:** T5 (Workspace.tsx).
 
-**Files:** `InputMapTab.tsx` (transport-coal `legacy` → full-v2 mines/stations), `Workspace.tsx`, tests.
+**Files:** `InputMapTab.tsx` (transport-coal `legacy` → full-v2 mines/stations), `Workspace.tsx`, `OutputMapTab.tsx` (effective dataset), the role-specific mutators for `TransportLpInputs`, and any transport role-config wiring not already landed by T4-Step-0. Tests. (T4-Step-0 provides the generalized entity/dialog model this task consumes.)
 
-- [ ] **Step 1 — full-v2 mines/stations editor.** Replace transport-coal's `legacy` pin-drop with a full-v2 editor over its `TransportLpInputs` (added mines/stations + `laneCostOverrides`), matching the pilot's place/move/edit/delete. R1 green bubbles on **stations** (demand entity); R2 quintile; R4 Save-in-Layers. Failing test → implement.
+- [ ] **Step 1 — full-v2 mines/stations editor.** Replace transport-coal's `legacy` pin-drop with a full-v2 editor over its `TransportLpInputs` (added mines/stations + `laneCostOverrides`), using T4-Step-0's role config (mines: `hasStatus:false`; stations: demand entity). Place/move/edit/delete. R1 green bubbles on **stations**; R2 quintile; R4 Save-in-Layers. Failing test → implement. **Assert no meaningless `status` or `distanceOverrides` fields enter a transport PATCH** (transport uses `laneCostOverrides.cost`, not `distanceOverrides`, and has no status).
 - [ ] **Step 2 — R3/R7 off.** Assert (RTL) that transport-coal renders NO status markers and NO hide-closed control — gated by `supportsFacilityStatus === false`. No regression to brazil/two-echelon.
-- [ ] **Step 3 — verify + commit.** `pnpm --filter studio test InputMapTab Workspace`, `pnpm run typecheck`. Commit `[B2-T6] transport-coal full-v2 editor, R3/R7 gated off (station bubbles + R4)`.
+- [ ] **Step 3 — effective output dataset (P1).** In `Workspace.tsx`/`OutputMapTab.tsx`, project `addedMines`/`addedStations` from **`displayedInputs`** into the Output Map's effective dataset (today the union is p-median-us-only) so `NetworkMap` can resolve result edges whose endpoints are scenario-local additions. RTL: an added transport lane (mine↔station involving an added entity) renders at solve-time coords; an unsaved move does NOT move the displayed solution's endpoints.
+- [ ] **Step 4 — verify + commit.** `pnpm --filter studio test InputMapTab OutputMap Workspace`, `pnpm run typecheck`. Commit `[B2-T6] transport-coal full-v2 editor (station bubbles + R4, R3/R7 off) + effective output dataset`.
 
 ---
 
@@ -155,11 +161,12 @@
 
 **Role:** frontend-engineer. **Wave 2b, THIRD (serial).** **Depends on:** T6 (Workspace.tsx).
 
-**Files:** `InputMapTab.tsx` (two-echelon `legacy` → full-v2), `Workspace.tsx`, tests.
+**Files:** `InputMapTab.tsx` (two-echelon `legacy` → full-v2), `Workspace.tsx`, `OutputMapTab.tsx` (effective dataset), tests.
 
-- [ ] **Step 1 — full-v2 editor + fixed mine.** Replace two-echelon's `legacy` mode with a full-v2 editor over refineries+customers (`addedRefineries`/`addedCustomers`/`distanceOverrides`). The mine is read-only context — NOT placeable/movable/editable/deletable; render it but exclude it from every edit affordance. R1 green customer bubbles; R2 quintile; R4. Failing test (mine has no edit affordances; a refinery/customer does) → implement.
+- [ ] **Step 1 — full-v2 editor + fixed mine.** Replace two-echelon's `legacy` mode with a full-v2 editor over refineries+customers (`addedRefineries`/`addedCustomers`/`distanceOverrides`) via T4-Step-0's role config (refineries: `hasStatus:true`, uid kind → `aw-` per DD-7; customers: demand entity). The mine is read-only context — NOT placeable/movable/editable/deletable; render it but exclude it from every edit affordance. R1 green customer bubbles; R2 quintile; R4. Failing test (mine has no edit affordances; a refinery/customer does) → implement.
 - [ ] **Step 2 — R3/R7 refineries only.** Status markers + hide-closed apply to refineries (`supportsFacilityStatus` true); the fixed mine is retained by T4's `kind==="mine"` guard. RTL: hide-closed removes a closed refinery, keeps the mine; status paint on a forced-open refinery.
-- [ ] **Step 3 — verify + commit.** `pnpm --filter studio test InputMapTab Workspace`, `pnpm run typecheck`. Commit `[B2-T7] two-echelon full-v2 editor: fixed mine read-only + R3/R7 refineries only`.
+- [ ] **Step 3 — effective output dataset (P1).** Project `addedRefineries`/`addedCustomers` from **`displayedInputs`** into the Output Map effective dataset so `NetworkMap` renders BOTH legs (mine→refinery, refinery→customer) whose endpoints are scenario-local additions. RTL: an added refinery opened + its mine→refinery and refinery→customer routes render at solve-time coords; an unsaved move does NOT move the displayed solution.
+- [ ] **Step 4 — verify + commit.** `pnpm --filter studio test InputMapTab OutputMap Workspace`, `pnpm run typecheck`. Commit `[B2-T7] two-echelon full-v2 editor: fixed mine read-only + R3/R7 refineries + effective output dataset (both legs)`.
 
 ---
 
