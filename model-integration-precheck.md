@@ -1,7 +1,7 @@
 # Model integration pre-check
 
 **Use this before integrating any new optimization model.** Generalized from the
-`two-echelon-gold-au` integration; not specific to it.
+`two-echelon-gold-au` integration and the SCN v0.3 Input Map v2 rollout; not specific to either.
 
 Work top to bottom. Each gate must pass before starting the next. The ordering is deliberate —
 gates are sequenced cheapest-first, so a wrong assumption surfaces in minutes rather than after a
@@ -198,6 +198,61 @@ Tick every row.
 
 ---
 
+## Gate 6.5 — Input Map v2 editor (Workspace tabbed surface)
+
+Since SCN v0.3, the `/workspace` surface has a **map-first editor** (`InputMapTab.tsx`) that lets
+students inspect and edit entities directly on the map (symbology, details card, action menus,
+create/edit/move/copy/delete dialogs, drag). It is **p-median-us-complete**; every other model
+either degrades to the legacy Task-4 pin-drop map or a placeholder until these are wired. This is a
+**different component tree** from the Studio-page multi-select (Gate 1.10) — wiring one does not
+wire the other. Several of these registrations are per-model allowlists with the same silent-failure
+signature as Gate 1.9/1.10.
+
+- [ ] **[BLOCKER]** **InputMapTab variant.** `InputMapTab`'s props are a discriminated union
+      (`mode: "pmedian" | "legacy" | "placeholder"`); `Workspace.tsx` picks the variant by
+      `modelId`. A new model not added to the full-editor (`pmedian`-style) branch silently renders
+      the legacy pin map (or the Brazil placeholder) — it solves and lists fine, but has zero
+      symbology/inspect/dialogs. Decide which of the model's entities are **supply (triangles)** vs
+      **demand (bubbles)** before wiring.
+- [ ] **[BLOCKER]** **Symbology.** `map/statusPresentation.ts` (status→marker style) and
+      `map/EntityMarkers.tsx` (triangle/bubble SVG builders) are keyed to the p-median
+      warehouse/customer roles. A model with other roles (mines/stations; mines/refineries/customers)
+      must map each entity to triangle/bubble and fold its status vocabulary (if any) into the shared
+      presentation mapping — never a per-model ternary (same failure mode as the Gate 6 header
+      ternary). Bubble size comes from `types.ts`'s `demandRadius` (or the quantile scale) and needs
+      the model's demand field.
+- [ ] **[BLOCKER]** **Effective-row projection.** `Workspace.tsx` builds `MapWarehouse`/`MapCustomer`
+      view models = base dataset ⊕ this scenario's overrides (status/capacity/demand) ∪ added rows,
+      and passes that — not raw base data — to the map. A new model must build the same projection
+      for its entities, or the map renders base state and ignores every override (an excluded/inactive
+      entity still shows as active).
+- [ ] **[BLOCKER]** **Added-entity identity.** Entities created on the map (or via the grid/CSV
+      add-row) carry a **stable opaque `id`** (`lib/entityId.ts` `newUid` — the distance/lane join
+      key, which **never changes on move**) plus a derived **`displayCode`** (`nextDisplayCode`,
+      `WH-STATE-CITY-SEQ`). `lib/gazetteer.ts` reverse-geocodes the drop point. The model's
+      added-entity Zod schema needs the optional `displayCode` field, and its distance/lane grid must
+      display `displayCode`, not the raw uuid (thread `displayCodeById` from `Workspace.tsx` — see the
+      p-median `DistancesTab`). Missing the schema field = `displayCode` is silently Zod-stripped on
+      every save.
+- [ ] **[BLOCKER]** **Auto-estimate distances.** `normalizeAddedEntityDistances` (`routes/scenarios.ts`)
+      dispatches by `modelId` to fill missing added-entity distance/lane rows as `estimated` haversine
+      on **every** persist path (POST create, PATCH, import/apply). A new model not added to the
+      dispatch leaves added entities with no distances → precheck then blocks the solve. Use
+      **role-scoped** coordinate maps and the model's distance convention: transport-coal = haversine
+      × **circuity 1.17** (the base costs.json factor); two-echelon = **plain haversine per leg**. A
+      unit divisor in the objective (e.g. `TRUCKLOAD_KG`) stays in the solver — never bake it into the
+      input distance.
+- [ ] **[VERIFY]** **Save reconciliation.** Because the normalizer augments `inputs` server-side, the
+      Workspace Save `onSuccess` adopts the **response** `inputs` into `localInputs`/`savedInputsRef`/
+      the query cache (else the scenario immediately re-flags dirty and the new estimated rows hide).
+      Generic across models — confirm it isn't gated to p-median-us.
+- [ ] **[VERIFY]** **Move/delete never re-key.** Move regenerates only `displayCode`/coords (the `id`
+      is not even a parameter of the confirm) and clears **that entity's own** distance rows; delete
+      drops the added row + its own rows. Neither touches the `*Overrides` arrays (those belong to
+      base entities and could hold a colliding id). Any new-model edit path must preserve this.
+
+---
+
 ## Gate 7 — Tests
 
 - [ ] Baseline: each textbook scenario selects the expected facilities
@@ -220,6 +275,13 @@ Tick every row.
       passes a positive-only assertion)
 - [ ] Frontend test: map multi-select props/toolbar actually render for the new model (not just that
       they don't crash)
+- [ ] Frontend test (Input Map v2, Gate 6.5): the Workspace `InputMapTab` renders the full editor
+      (symbology markers + legend) for the new model, not the legacy/placeholder branch; a created
+      added entity mints a role-prefixed uid + `displayCode`; the model's distance/lane grid shows
+      `displayCode` not the raw uuid
+- [ ] API test (Gate 6.5): `normalizeAddedEntityDistances` fills `estimated` rows for the new model on
+      PATCH/POST/import-apply, with the model's distance convention (circuity vs plain haversine), and
+      `e2e_accuracy.py` stays unchanged (the normalizer touches only added-entity rows)
 - [ ] **[BLOCKER]** Existing `e2e_accuracy.py` and `e2e_journey.py` pass **unchanged**
 
 ---
@@ -241,7 +303,7 @@ Tick every row.
 
 ---
 
-## Quick reference — the six silent failures
+## Quick reference — the nine silent failures
 
 Ranked by how long they waste before you find them.
 
@@ -253,5 +315,8 @@ Ranked by how long they waste before you find them.
 | 4 | Coverage chart reads ~100% | Out-of-range distances absorbed into the last band |
 | 5 | Model lists but can't be created | Missing from `VALID_MODEL_IDS` |
 | 6 | Model solves, lists, and renders — but override editing (import/export, multi-select) and/or the header title are just missing/wrong, with zero errors anywhere | Gate 1.9/1.10's hardcoded per-model allowlists (`ImportEntity`, the export/import route pairing checks, `Studio.tsx`'s multi-select props, the header ternary) were never extended for the new model |
+| 7 | Workspace Input Map has no symbology/inspect/dialogs — just the old pin-drop map (or a blank placeholder) | `InputMapTab`'s `mode` was never set to the full editor branch for the new model (Gate 6.5) |
+| 8 | Added entities never get distances; solve is blocked by precheck | `normalizeAddedEntityDistances`'s `modelId` dispatch was never extended (Gate 6.5) |
+| 9 | Added-entity id renders as an opaque `aw-…`/`am-…`/`ar-…` uuid in the distance/lane grid | `displayCode` not on the added-entity schema (Zod-stripped) and/or `displayCodeById` not threaded to the model's grid (Gate 6.5) |
 
-None of these produce an error. All six are cheap to prevent and expensive to diagnose.
+None of these produce an error. All nine are cheap to prevent and expensive to diagnose.
