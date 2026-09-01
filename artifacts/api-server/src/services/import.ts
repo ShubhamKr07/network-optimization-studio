@@ -180,9 +180,9 @@ const ENTITY_HAS_LATLNG: Record<SingleIdEntity, boolean> = {
 // city/state/lat/lng/value/status column offsets below and to select which
 // identity model a row uses (`usesUidIdentityModel`) — with every entity
 // now `true`, the pre-T11 "unrecognized non-blank id = add" model
-// (`usesUidIdentityModel === false` below) is unreachable in practice, kept
-// in place only as documented history / a safety net for a hypothetical
-// future entity that has add-mode but no displayCode concept.
+// (`usesUidIdentityModel === false`) was confirmed unreachable and removed
+// (followup to T11); re-add it if a future entity needs add-mode without a
+// displayCode concept.
 const ENTITY_HAS_DISPLAY_CODE: Record<SingleIdEntity, boolean> = {
   warehouses: true,
   customers: true,
@@ -444,18 +444,6 @@ export function parseAndValidateImport(
   // DISPLAY_CODE is now `true` here — see that table's own comment on the
   // pre-T11 model this replaced.
   const usesUidIdentityModel = entityHasDisplayCode;
-  // Base dataset ids ∪ this scenario's already-added entity ids — the same
-  // id-space precheck.ts's own reference-integrity check and B4.1's
-  // distances parsing use. Only still consulted by the OLD identity model
-  // below, which no entity reaches anymore (see usesUidIdentityModel's own
-  // comment) — warehouses/customers/refineries/mines/stations all replaced
-  // this "duplicate add" collision check with a displayCode-keyed one
-  // (existingDisplayCodes below), since a human can no longer author a
-  // colliding uid at all.
-  const idSpace = canAdd && !usesUidIdentityModel
-    ? (entity === "mines" ? buildTransportIdSpaces(currentOverrides).mineIdSpace
-      : buildTransportIdSpaces(currentOverrides).stationIdSpace)
-    : new Set<string>();
   // T11 — added-entity lookup by real uid, so a CSV row whose id matches an
   // already-added entity is recognized as an UPDATE instead of the old
   // "unrecognized id, reject as duplicate" model.
@@ -501,8 +489,14 @@ export function parseAndValidateImport(
     let baselineRow: (typeof baseline)[number] | undefined;
     let addedRow: AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef | undefined;
 
+    // T11 — uid+displayCode identity model. `usesUidIdentityModel` (=
+    // `entityHasDisplayCode`) is `true` for every entity in `SingleIdEntity`
+    // (see ENTITY_HAS_DISPLAY_CODE's own comment), so this is the only path
+    // reached in practice; the pre-T11 "unrecognized non-blank id = add"
+    // model this replaced (and its `idSpace`-collision check) was removed as
+    // confirmed-dead code by a followup to T11 — see git history if a future
+    // entity genuinely needs add-mode without a displayCode concept.
     if (usesUidIdentityModel) {
-      // T11 — uid+displayCode identity model (warehouses/customers only).
       const idIsBlank = !id || id.trim() === "";
       if (idIsBlank) {
         if (!canAdd) {
@@ -522,34 +516,6 @@ export function parseAndValidateImport(
           message: `Unknown id "${id}" — ids are opaque and minted by the server; leave the id column blank to add a new ${ENTITY_SINGULAR_LABEL[entity]}`,
         });
         continue;
-      }
-    } else {
-      // Pre-T11 identity model (mines/stations, refineries, and any entity
-      // with no add-mode at all) — unchanged.
-      if (!id) {
-        errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
-        continue;
-      }
-      baselineRow = baselineById.get(id);
-      if (!baselineRow) {
-        if (!canAdd) {
-          errors.push({ errorClass: "logic", line, message: `Unknown id "${id}"` });
-          continue;
-        }
-        // Recommended-and-implemented collision decision (see B4.2 report):
-        // an "add" row whose id already exists as a previously-added entity
-        // is rejected outright, not silently downgraded to an update — a
-        // silent fallback could surprise a student who believed they were
-        // adding something genuinely new.
-        if (idSpace.has(id)) {
-          errors.push({
-            errorClass: "logic",
-            line,
-            message: `Id "${id}" already exists as a previously-added ${ENTITY_SINGULAR_LABEL[entity]} in this scenario — cannot add a duplicate`,
-          });
-          continue;
-        }
-        isAdd = true;
       }
     }
 
