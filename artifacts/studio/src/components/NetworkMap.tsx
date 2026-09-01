@@ -405,8 +405,8 @@ export function NetworkMap({
         )}
 
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-          attribution="CartoDB"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="© OpenStreetMap contributors"
         />
 
         {/* Route lines in a dedicated pane below customer circles (z-index 350) */}
