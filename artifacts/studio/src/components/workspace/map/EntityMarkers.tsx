@@ -106,6 +106,14 @@ export function EntityMarkers({
               icon={warehouseIcon(wh.status)}
               draggable={draggableIds.has(wh.id)}
               eventHandlers={bindEventHandlers(entity)}
+              // Warehouses are the primary interaction target (facility-location
+              // choices) — a customer's demand-radius bubble can be large enough
+              // to overlap a warehouse triangle at default zoom, and Leaflet hit-
+              // tests markers by paint order (last-drawn wins) with no z-index of
+              // its own otherwise. This offset keeps every warehouse above every
+              // customer regardless of render order, without touching customers'
+              // own (default 0) zIndexOffset.
+              zIndexOffset={1000}
             >
               <Tooltip direction="top" offset={[0, -10]} opacity={1}>
                 <span className="font-semibold text-xs">{wh.displayCode}</span>

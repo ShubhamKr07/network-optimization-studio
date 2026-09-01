@@ -114,6 +114,12 @@ describe("InputMapTab (pmedian) — Escape / keyboard, no mutation on cancel-by-
     expect(document.activeElement).toBe(toggleButton);
 
     const marker = container.querySelector(".leaflet-marker-icon") as HTMLElement;
+    // A real right-click always fires mousedown before contextmenu — the
+    // component captures "previously focused" from a mousedown listener
+    // (see InputMapTab.tsx's preMouseDownFocusRef comment for why), so the
+    // simulation needs both events, in this order, to match what a real
+    // browser does.
+    fireEvent.mouseDown(marker, { button: 2 });
     fireEvent.contextMenu(marker);
     const menu = screen.getByTestId("map-action-menu");
     expect(menu).toBeInTheDocument();

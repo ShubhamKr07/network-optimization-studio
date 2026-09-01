@@ -11,6 +11,10 @@ export interface MapActionMenuProps {
   entity: MapEntity;
   containerPoint: { x: number; y: number };
   containerSize?: { width: number; height: number };
+  // Captured synchronously by the caller at the moment the menu was opened
+  // (before any state updates), not re-derived here via `document.activeElement`
+  // inside an effect — see the mount-effect comment below for why.
+  restoreFocusTo?: HTMLElement | null;
   onEdit: () => void;
   onMove: () => void;
   onCopy: () => void;
@@ -37,6 +41,7 @@ export function MapActionMenu({
   entity,
   containerPoint,
   containerSize,
+  restoreFocusTo,
   onEdit,
   onMove,
   onCopy,
@@ -45,7 +50,6 @@ export function MapActionMenu({
 }: MapActionMenuProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const previouslyFocused = useRef<HTMLElement | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const isAdded = entity.entity.isAdded;
@@ -73,11 +77,21 @@ export function MapActionMenu({
       ];
 
   useEffect(() => {
-    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    // `restoreFocusTo` must come from the prop (captured by the caller
+    // synchronously at open time), not `document.activeElement` read here:
+    // when this menu re-opens for a fresh right-click while a PREVIOUS
+    // instance is still mounted, React batches that instance's "close"
+    // (from its own outside-mousedown handler) together with this one's
+    // "open" into a single commit — the old instance's unmount cleanup
+    // (which restores focus to *its* previouslyFocused element) can run
+    // before this mount effect fires, so reading `document.activeElement`
+    // here would capture that transient, already-stale focus instead of
+    // whatever was truly focused right before the click that opened us.
     itemRefs.current[0]?.focus();
     return () => {
-      previouslyFocused.current?.focus?.();
+      restoreFocusTo?.focus?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

@@ -137,16 +137,27 @@ describe("MapActionMenu", () => {
     }
   });
 
-  it("restores focus to the previously-focused element on unmount", () => {
+  it("restores focus to the caller-supplied restoreFocusTo element on unmount", () => {
+    // restoreFocusTo is captured by the CALLER (InputMapTab, synchronously
+    // at the click that opened the menu) and passed in as a prop — the
+    // component itself no longer reads `document.activeElement` on mount,
+    // since that read raced with a previous menu instance's own unmount
+    // cleanup when re-opening the menu in quick succession (see
+    // MapActionMenu.tsx's mount-effect comment).
     const trigger = document.createElement("button");
     trigger.textContent = "trigger";
     document.body.appendChild(trigger);
     trigger.focus();
 
-    const { unmount } = renderMenu(addedCs);
+    const { unmount } = renderMenu(addedCs, { restoreFocusTo: trigger });
     expect(document.activeElement).not.toBe(trigger);
     unmount();
     expect(document.activeElement).toBe(trigger);
     trigger.remove();
+  });
+
+  it("does not throw on unmount when restoreFocusTo is not provided", () => {
+    const { unmount } = renderMenu(addedCs);
+    expect(() => unmount()).not.toThrow();
   });
 });

@@ -164,6 +164,29 @@ describe("EntityMarkers", () => {
     expect(container.querySelector(".cs-marker")).not.toBeNull();
   });
 
+  it("warehouse markers get an elevated zIndexOffset so they win hit-testing over overlapping customer bubbles; customers stay at the default", () => {
+    // Defect B regression guard: a customer's demand-radius bubble can
+    // overlap a warehouse triangle at default zoom, and Leaflet hit-tests
+    // by paint order (last-drawn wins) absent an explicit z-index — so
+    // warehouses must always sit above customers regardless of render
+    // order. Leaflet writes the resolved z-index (latitude-based draw
+    // order + zIndexOffset) onto the marker icon element's own inline
+    // style, so we can assert the real, wired-up value here rather than
+    // just the offset we passed in.
+    const { container } = renderMarkers({
+      warehouses: [wh({ id: "W1", lat: 41.8, lng: -87.6 })],
+      customers: [cs({ id: "C1", lat: 41.8, lng: -87.6 })],
+    });
+    const whMarker = container.querySelector(".wh-marker") as HTMLElement;
+    const csMarker = container.querySelector(".cs-marker") as HTMLElement;
+    const whZIndex = Number(whMarker.style.zIndex);
+    const csZIndex = Number(csMarker.style.zIndex);
+    expect(whZIndex).toBeGreaterThan(csZIndex);
+    // The gap should reflect the 1000 offset, not just Leaflet's small
+    // per-marker latitude tiebreak (a handful of units at most).
+    expect(whZIndex - csZIndex).toBeGreaterThanOrEqual(900);
+  });
+
   it("calls onLeftClick with the MapEntity on a plain click", () => {
     const onLeftClick = vi.fn();
     const { container } = renderMarkers({ warehouses: [wh({ id: "W1" })], onLeftClick });

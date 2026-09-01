@@ -442,7 +442,10 @@ function PMedianInputMap({
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
-  const [actionMenu, setActionMenu] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [actionMenu, setActionMenu] = useState<
+    ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
+  >(null);
+  const actionMenuOpenIdRef = useRef(0);
   const [addMenu, setAddMenu] = useState<({ lat: number; lng: number } & OverlayAnchor) | null>(null);
   const [editEntity, setEditEntity] = useState<MapEntity | null>(null);
   const [createState, setCreateState] = useState<CreateState | null>(null);
@@ -505,6 +508,27 @@ function PMedianInputMap({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [armed]);
 
+  // Tracks whatever was truly focused right before the most recent
+  // mousedown, ANYWHERE in the document — captured in the capture phase, so
+  // it always runs before (a) the browser's own default mousedown action
+  // (Leaflet markers get `tabindex="0"` from the map's `keyboard: true`
+  // default, so a real mousedown on one natively steals focus onto the
+  // marker itself, same as clicking any other focusable element) and (b)
+  // any bubble-phase listener, including MapActionMenu's own outside-click
+  // handler. Reading `document.activeElement` directly inside the
+  // `contextmenu` handler below would be too late — by then the native
+  // focus-shift onto the clicked marker has already happened, so the menu
+  // would "restore" focus back onto the marker it was opened from instead
+  // of whatever the student had actually focused beforehand.
+  const preMouseDownFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    function onMouseDownCapture() {
+      preMouseDownFocusRef.current = document.activeElement as HTMLElement | null;
+    }
+    document.addEventListener("mousedown", onMouseDownCapture, true);
+    return () => document.removeEventListener("mousedown", onMouseDownCapture, true);
+  }, []);
+
   function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
     setActionMenu(null);
     setAddMenu(null);
@@ -512,9 +536,17 @@ function PMedianInputMap({
   }
 
   function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
+    const restoreFocusTo = preMouseDownFocusRef.current;
     setSelected(null);
     setAddMenu(null);
-    setActionMenu({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+    actionMenuOpenIdRef.current += 1;
+    setActionMenu({
+      entity,
+      containerPoint: e.containerPoint,
+      containerSize: getContainerSize(),
+      openId: actionMenuOpenIdRef.current,
+      restoreFocusTo,
+    });
   }
 
   function handleEntityDragEnd(entity: MapEntity, latlng: { lat: number; lng: number }) {
@@ -657,9 +689,19 @@ function PMedianInputMap({
         )}
         {actionMenu && (
           <MapActionMenu
+            // Forces a full unmount/remount on every open (even a re-open
+            // for the very same entity+position) so its mount effect always
+            // re-focuses the first menu item and its unmount cleanup always
+            // restores focus to THIS open's own restoreFocusTo — without
+            // this, React can coalesce a "close old / open new" pair (e.g.
+            // right-clicking a marker while another marker's menu is still
+            // open) into a single props update on the SAME instance, and
+            // the effect that captures/restores focus never re-runs.
+            key={actionMenu.openId}
             entity={actionMenu.entity}
             containerPoint={actionMenu.containerPoint}
             containerSize={actionMenu.containerSize}
+            restoreFocusTo={actionMenu.restoreFocusTo}
             onEdit={handleMenuEdit}
             onMove={handleMenuMove}
             onCopy={handleMenuCopy}
