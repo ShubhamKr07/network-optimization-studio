@@ -119,6 +119,32 @@ describe("Workspace — Input Map v2 mode dispatch (T8)", () => {
     expect(screen.getByTestId("button-save")).toBeInTheDocument();
     expect(screen.getByTestId("button-save")).toBeDisabled();
   });
+
+  // T4/R4 — Save relocated INTO the map's own Layers row for p-median-us;
+  // the shared Workspace-level toolbar above the tab content region must be
+  // suppressed for this specific tab so there is exactly one Save control,
+  // not two.
+  it("R4 — Save lives inside the Input Map's own Layers row, not the shared toolbar above it, for p-median-us", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    const toolbar = screen.getByTestId("pmedian-map-toolbar");
+    const saveButton = screen.getByTestId("button-save");
+    expect(toolbar).toContainElement(saveButton);
+    // Exactly one Save control on screen — the shared toolbar's own Save row
+    // did not also render alongside it.
+    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+  });
+
+  // Every OTHER editable tab (Warehouses here) keeps the shared toolbar Save
+  // unchanged — R4's relocation is scoped to the Input Map tab only.
+  it("other editable tabs (Warehouses) keep the shared toolbar Save, unaffected by R4", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+
+    expect(screen.queryByTestId("pmedian-map-toolbar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+  });
 });
 
 describe("Workspace — Input Map v2 Save reconciliation + estimate toast (T8)", () => {

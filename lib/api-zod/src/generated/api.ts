@@ -76,7 +76,8 @@ export const ListModelsResponseItem = zod.object({
 }),
   "inputsSchema": zod.object({
 
-}).passthrough().describe('JSON Schema describing this model\'s inputs shape. Opaque to this contract.')
+}).passthrough().describe('JSON Schema describing this model\'s inputs shape. Opaque to this contract.'),
+  "distanceUnit": zod.enum(['mi', 'km']).describe('Unit this model\'s distances\/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to \"mi\" if the manifest predates this field.')
 }).describe('Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers\/<model-id>\/manifest.json, datasetDir omitted (server-internal filesystem path).')
 export const ListModelsResponse = zod.array(ListModelsResponseItem)
 

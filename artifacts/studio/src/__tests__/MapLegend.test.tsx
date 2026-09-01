@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
-import { demandRadius } from "@/components/workspace/map/types";
+import { makeQuintileRadius, QUINTILE_RADII } from "@/components/workspace/map/types";
 
 describe("MapLegend", () => {
   it("renders the three status labels from the shared statusPresentation mapping", () => {
@@ -11,19 +11,51 @@ describe("MapLegend", () => {
     expect(getByText("Inactive")).toBeInTheDocument();
   });
 
-  it("renders three demand reference bubbles sized by the exact same demandRadius scale EntityMarkers uses", () => {
-    const { container } = render(<MapLegend />);
-    for (const demand of [5000, 15000, 30000]) {
-      const circle = container.querySelector(`[data-testid="legend-demand-${demand}"] circle`);
+  it("renders one demand-bucket row per bucket actually occupied by the given customers, sized off the exact same quintile scale EntityMarkers uses", () => {
+    const customers = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand) => ({ demand }));
+    const scale = makeQuintileRadius(customers.map((c) => c.demand));
+    const { container } = render(<MapLegend customers={customers} />);
+    for (const bucket of scale.usedBuckets) {
+      const circle = container.querySelector(`[data-testid="legend-demand-bucket-${bucket}"] circle`);
       expect(circle).not.toBeNull();
-      expect(Number(circle?.getAttribute("r"))).toBeCloseTo(demandRadius(demand));
+      expect(Number(circle?.getAttribute("r"))).toBeCloseTo(QUINTILE_RADII[bucket]);
     }
   });
 
-  it("shows the 5k/15k/30k reference labels", () => {
-    const { getByText } = render(<MapLegend />);
-    expect(getByText("5,000")).toBeInTheDocument();
-    expect(getByText("15,000")).toBeInTheDocument();
-    expect(getByText("30,000")).toBeInTheDocument();
+  it("collapses to a single row when every customer has identical demand (a degenerate/all-equal population)", () => {
+    const customers = [200, 200, 200, 200].map((demand) => ({ demand }));
+    const { container } = render(<MapLegend customers={customers} />);
+    expect(container.querySelectorAll('[data-testid^="legend-demand-bucket-"]').length).toBe(1);
+    expect(container.querySelector('[data-testid="legend-demand-bucket-0"]')).not.toBeNull();
+  });
+
+  it("never renders a row for a bucket nobody occupies (a small population doesn't produce a padded-out 5-row legend)", () => {
+    // 2 customers, both landing in bucket 0 (a tiny spread near the bottom).
+    const customers = [10, 10].map((demand) => ({ demand }));
+    const { container } = render(<MapLegend customers={customers} />);
+    expect(container.querySelectorAll('[data-testid^="legend-demand-bucket-"]').length).toBe(1);
+  });
+
+  it("falls back to a static demo population (still 5 distinct rows) when no customers prop is supplied", () => {
+    const { container } = render(<MapLegend />);
+    const rows = container.querySelectorAll('[data-testid^="legend-demand-bucket-"]');
+    expect(rows.length).toBeGreaterThan(1);
+  });
+
+  describe("demand tone (R1)", () => {
+    it("demand swatches are green (var(--demand-*)) for p-median-us, the default modelId", () => {
+      const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
+      const { container } = render(<MapLegend customers={customers} />);
+      const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
+      expect(anySwatch.outerHTML).toContain("var(--demand-300)");
+    });
+
+    it("demand swatches are blue (var(--accent-*)) for a non-p-median-us modelId", () => {
+      const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
+      const { container } = render(<MapLegend customers={customers} modelId="transport-coal" />);
+      const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
+      expect(anySwatch.outerHTML).toContain("var(--accent-300)");
+      expect(anySwatch.outerHTML).not.toContain("--demand-300");
+    });
   });
 });

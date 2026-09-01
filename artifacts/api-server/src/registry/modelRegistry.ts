@@ -58,6 +58,10 @@ export interface PublicModelInfo {
   countryBounds: Manifest["countryBounds"];
   capabilities: Manifest["capabilities"];
   inputsSchema: Manifest["inputsSchema"];
+  // R5 (Workspace UX bundle) — the unit this model's distances/bands are
+  // reported in. Optional on the manifest (older manifests predate it), so
+  // it's defaulted here at the public boundary rather than left absent.
+  distanceUnit: "mi" | "km";
 }
 
 function toPublic(manifest: Manifest): PublicModelInfo {
@@ -68,6 +72,7 @@ function toPublic(manifest: Manifest): PublicModelInfo {
     countryBounds: manifest.countryBounds,
     capabilities: manifest.capabilities,
     inputsSchema: manifest.inputsSchema,
+    distanceUnit: manifest.distanceUnit ?? "mi",
   };
 }
 

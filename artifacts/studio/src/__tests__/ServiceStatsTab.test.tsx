@@ -1,7 +1,21 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
 import * as exportEntity from "@/lib/exportEntity";
+
+// R9 — distanceUnit is sourced from GET /api/models (via useListModels),
+// so this suite mocks it the same way other Workspace-tab tests do
+// (e.g. Workspace.OutputMap.test.tsx).
+const mockUseListModels = vi.fn(() => ({
+  data: [
+    { id: "p-median-us", distanceUnit: "mi" },
+    { id: "two-echelon-gold-au", distanceUnit: "km" },
+  ],
+}));
+vi.mock("@workspace/api-client-react", () => ({
+  useListModels: () => mockUseListModels(),
+}));
+
+import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
 
 const result = {
   status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
@@ -11,25 +25,47 @@ const result = {
 
 describe("ServiceStatsTab", () => {
   it("renders one bar per band with its exclusive percent", () => {
-    render(<ServiceStatsTab result={result} scenarioId={1} />);
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
     expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
     expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("45%");
   });
 
   it("shows a no-bands message when bandCoverage is absent", () => {
-    render(<ServiceStatsTab result={{ ...result, metrics: {} }} scenarioId={1} />);
+    render(<ServiceStatsTab result={{ ...result, metrics: {} }} scenarioId={1} modelId="p-median-us" />);
     expect(screen.getByTestId("service-stats-no-bands")).toBeInTheDocument();
   });
 
   it("shows empty state when result is null", () => {
-    render(<ServiceStatsTab result={null} scenarioId={1} />);
+    render(<ServiceStatsTab result={null} scenarioId={1} modelId="p-median-us" />);
     expect(screen.getByTestId("service-stats-empty")).toBeInTheDocument();
   });
 
   it("calls downloadEntityExport with entity=serviceStats on Download click", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
-    render(<ServiceStatsTab result={result} scenarioId={1} />);
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
     fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
     expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv");
+  });
+
+  it("labels the chart as demand-weighted (R9)", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+    expect(
+      screen.getByText("Percent of demand served within the selected distance bands")
+    ).toBeInTheDocument();
+  });
+
+  it("uses the model's distanceUnit ('mi') on p-median-us band labels", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
+  });
+
+  it("uses the model's distanceUnit ('km') on a two-echelon-gold-au render", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="two-echelon-gold-au" />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 km");
+  });
+
+  it("defaults to 'mi' when modelId is not provided (pre-existing call sites)", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} />);
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
 });
