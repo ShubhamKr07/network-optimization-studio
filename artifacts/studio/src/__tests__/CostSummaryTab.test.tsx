@@ -11,7 +11,9 @@ const mockUseListModels = vi.fn(() => ({
     { id: "p-median-us", distanceUnit: "mi", capabilities: { supportsP: true } },
     { id: "p-median-brazil", distanceUnit: "mi", capabilities: { supportsP: true } },
     { id: "transport-coal", distanceUnit: "mi", capabilities: { supportsP: false } },
-    { id: "two-echelon-gold-au", distanceUnit: "km", capabilities: { supportsP: false } },
+    // Bundle 2 (B2-T1) relabels two-echelon-gold-au "km" -> "mi" (its base
+    // numbers are geographically miles; zero data change).
+    { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsP: false } },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -67,9 +69,9 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
     expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv");
   });
 
-  it("uses the model's distanceUnit ('km') for a two-echelon-gold-au render", () => {
+  it("uses the model's distanceUnit ('mi') for a two-echelon-gold-au render", () => {
     render(<CostSummaryTab result={result} scenarioId={1} modelId="two-echelon-gold-au" />);
-    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("382.9 km");
+    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("382.9 mi");
   });
 });
 
@@ -113,11 +115,24 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   });
 
   it("shows the unit in the weighted-distance row heading, not hardcoded", () => {
-    const twoEchelonS1 = withModel(s1, "two-echelon-gold-au");
-    const twoEchelonS2 = withModel(s2, "two-echelon-gold-au");
-    render(<CostSummaryTab result={twoEchelonS1.result} scenarioId={1} modelId="two-echelon-gold-au" scenarios={[twoEchelonS1, twoEchelonS2]} />);
-    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
-    expect(screen.getByText("Weighted avg. distance (km)")).toBeInTheDocument();
+    // Every real model is "mi" post-B2-T1, so to prove the heading reflects
+    // the model's REPORTED distanceUnit (not a hardcoded "mi"), override the
+    // mock with a synthetic "km" model for this test, then restore the
+    // default (no afterEach resets this shared mock).
+    const defaultImpl = mockUseListModels.getMockImplementation();
+    mockUseListModels.mockReturnValue({
+      data: [{ id: "two-echelon-gold-au", distanceUnit: "km", capabilities: { supportsP: false } }],
+    });
+    try {
+      const twoEchelonS1 = withModel(s1, "two-echelon-gold-au");
+      const twoEchelonS2 = withModel(s2, "two-echelon-gold-au");
+      render(<CostSummaryTab result={twoEchelonS1.result} scenarioId={1} modelId="two-echelon-gold-au" scenarios={[twoEchelonS1, twoEchelonS2]} />);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+      expect(screen.getByText("Weighted avg. distance (km)")).toBeInTheDocument();
+    } finally {
+      mockUseListModels.mockReset();
+      if (defaultImpl) mockUseListModels.mockImplementation(defaultImpl);
+    }
   });
 
   it("facility-location rows (open facilities + aggregate utilization, opened nodes only) present for p-median-us", () => {

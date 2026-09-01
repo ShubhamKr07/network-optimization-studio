@@ -152,7 +152,7 @@ export const getGetDatasetUrl = (params?: GetDatasetParams,) => {
 }
 
 /**
- * Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, or transport-coal's mines/stations mapped onto the same shape). Defaults to p-median-us.
+ * Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, transport-coal's mines/stations, or p-median-brazil's warehouses/regions, all mapped onto the same shape). Defaults to p-median-us.
  * @summary Get the dataset for a given model
  */
 export const getDataset = async (params?: GetDatasetParams, options?: RequestInit): Promise<Dataset> => {

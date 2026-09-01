@@ -56,7 +56,7 @@ export interface PublicModelInfo {
   name: string;
   chapter: string;
   countryBounds: Manifest["countryBounds"];
-  capabilities: Manifest["capabilities"];
+  capabilities: Manifest["capabilities"] & { supportsFacilityStatus: boolean };
   inputsSchema: Manifest["inputsSchema"];
   // R5 (Workspace UX bundle) — the unit this model's distances/bands are
   // reported in. Optional on the manifest (older manifests predate it), so
@@ -70,7 +70,14 @@ function toPublic(manifest: Manifest): PublicModelInfo {
     name: manifest.name,
     chapter: manifest.chapter,
     countryBounds: manifest.countryBounds,
-    capabilities: manifest.capabilities,
+    capabilities: {
+      ...manifest.capabilities,
+      // Bundle 2 (B2-T1) — defaulted here too (ManifestSchema's zod default
+      // already guarantees this at parse time), matching the existing
+      // distanceUnit pattern just above: the public boundary should never
+      // trust an upstream default alone.
+      supportsFacilityStatus: manifest.capabilities?.supportsFacilityStatus ?? false,
+    },
     inputsSchema: manifest.inputsSchema,
     distanceUnit: manifest.distanceUnit ?? "mi",
   };

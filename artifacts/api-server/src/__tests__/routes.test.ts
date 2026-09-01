@@ -34,7 +34,7 @@ vi.mock("../solver/jobRunner.js", () => ({
 }));
 
 import app from "../app.js";
-import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES } from "../data/dataset.js";
+import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
@@ -602,7 +602,7 @@ describe("follow-up item 3 — auto-estimate distance normalizer (transport-coal
     expect(customerLeg.every((o) => o.estimated === true)).toBe(true);
   });
 
-  it("PATCH /api/scenarios/:id: p-median-brazil inputs (shares p-median schema) pass through unchanged — not covered by this normalizer", async () => {
+  it("PATCH /api/scenarios/:id: p-median-brazil — an added warehouse gets estimated rows to every region (B2-T2)", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValue(makeChain([brazilRow]));
     const newInputs = { ...brazilInputs, addedWarehouses: [{ id: "BW-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" }] };
@@ -613,10 +613,38 @@ describe("follow-up item 3 — auto-estimate distance normalizer (transport-coal
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }> };
     };
-    // p-median-brazil is deliberately out of scope (different base
-    // dataset/geography from p-median-us) — no estimated rows appear.
-    expect(setArgs.inputs.distanceOverrides.some((o) => o.fromId === "BW-NEW1")).toBe(false);
+    // B2-T2 closed the boundary the old comment described — p-median-brazil
+    // now has its own estimator (fillEstimatedBrazilDistances).
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "BW-NEW1");
+    expect(fromNew.length).toBe(BRAZIL_REGIONS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
   });
+
+  it("POST /api/scenarios: p-median-brazil — an added warehouse with no distanceOverrides gets estimated rows to every region", async () => {
+    const cookie = await loginAs(OWNER);
+    const inputsWithAddedWarehouse = { ...brazilInputs, addedWarehouses: [{ id: "BW-NEW2", city: "Curitiba", state: "PR", lat: -25.43, lng: -49.27, status: "active" }] };
+    const chain = makeChain([{ ...brazilRow, inputs: inputsWithAddedWarehouse }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New Brazil", modelId: "p-median-brazil", inputs: inputsWithAddedWarehouse });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "BW-NEW2");
+    expect(fromNew.length).toBe(BRAZIL_REGIONS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  // NOTE (B2-T2): import/apply for p-median-brazil is NOT covered here —
+  // routes/scenarios.ts's import/apply route still hard-gates
+  // `scenario.modelId !== "p-median-us" && ... !== "transport-coal" && ...
+  // !== "two-echelon-gold-au"` to a flat 422 ("Import is not supported for
+  // this model"), independent of this task's estimator work. Verified live
+  // against this exact test (422 received). Wiring Brazil into the
+  // import/export gate is a real remaining gap for whichever task owns
+  // Brazil's CSV import/export UI (see this task's report to the
+  // controller) — out of scope for T2 (estimators only).
 });
 
 // ── Scenario.stale (X1.1) ───────────────────────────────────────────────────

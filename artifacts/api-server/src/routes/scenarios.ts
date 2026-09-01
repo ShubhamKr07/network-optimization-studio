@@ -44,7 +44,7 @@ import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
-import { fillEstimatedDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances } from "../services/autoDistance.js";
+import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
@@ -244,15 +244,18 @@ const SOLVE_RETRY_AFTER_SECONDS = 30;
 // `as SolveInput` cast below.
 // T1 (Input Map v2) / follow-up item 3 — auto-estimate normalizer, run on
 // every persist path (POST create, PATCH, import/apply, below) right before
-// the already-validated inputs are written to the DB row. Covers
-// p-median-us, transport-coal, and two-echelon-gold-au — NOT
-// p-median-brazil, which shares p-median-us's schema but a different base
-// dataset/geography this normalizer hasn't been threaded through yet (same
-// boundary D1.1/D2/D3 drew: no warehouse/customer table UI, no map wiring,
-// for that model). Every other modelId falls through unchanged.
+// the already-validated inputs are written to the DB row. Covers all 4
+// models. p-median-brazil shares p-median-us's schema but a different base
+// dataset/geography (BRAZIL_CIRCUITY, B2-T2) — this landed alongside T3's
+// GET /dataset endpoint, closing the boundary D1.1/D2/D3 originally drew
+// (no warehouse/customer table UI/map wiring existed for that model until
+// now). Every other modelId falls through unchanged.
 function normalizeAddedEntityDistances(modelId: string, data: Record<string, unknown>): Record<string, unknown> {
   if (modelId === "p-median-us") {
     return fillEstimatedDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>;
+  }
+  if (modelId === "p-median-brazil") {
+    return fillEstimatedBrazilDistances(data as unknown as PMedianInputs) as unknown as Record<string, unknown>;
   }
   if (modelId === "transport-coal") {
     return fillEstimatedLaneCosts(data as unknown as TransportLpInputs) as unknown as Record<string, unknown>;

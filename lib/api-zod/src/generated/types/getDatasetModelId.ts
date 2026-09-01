@@ -13,4 +13,5 @@ export const GetDatasetModelId = {
   'p-median-us': 'p-median-us',
   'transport-coal': 'transport-coal',
   'two-echelon-gold-au': 'two-echelon-gold-au',
+  'p-median-brazil': 'p-median-brazil',
 } as const;

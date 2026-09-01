@@ -163,6 +163,13 @@ export const ManifestSchema = z.object({
     capacityModes: z.array(z.string()),
     demandEditable: z.boolean(),
     outputGrids: z.array(z.string()),
+    // Bundle 2 (B2-T1) — true when the model has open/close + status
+    // facilities that R3 (status paint) and R7 (hide-closed) act on. Never
+    // gate R3/R7 on modelId directly (this repo's most-documented recurring
+    // bug class) — gate on this capability instead. Optional+defaulted so
+    // pre-Bundle-2 manifests (none exist on disk, but any future stale
+    // fixture) still parse.
+    supportsFacilityStatus: z.boolean().optional().default(false),
   }),
   inputsSchema: z.record(z.string(), z.unknown()),
   // R5 (Workspace UX bundle) — the unit distances/bands are reported in for

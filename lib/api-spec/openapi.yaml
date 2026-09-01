@@ -37,14 +37,14 @@ paths:
       operationId: getDataset
       tags: [dataset]
       summary: Get the dataset for a given model
-      description: Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, or transport-coal's mines/stations mapped onto the same shape). Defaults to p-median-us.
+      description: Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, transport-coal's mines/stations, or p-median-brazil's warehouses/regions, all mapped onto the same shape). Defaults to p-median-us.
       parameters:
         - name: modelId
           in: query
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal, two-echelon-gold-au]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil]
             default: p-median-us
       responses:
         "200":
@@ -675,7 +675,10 @@ components:
               type: array
               items:
                 type: string
-          required: [supportsP, capacityModes, demandEditable, outputGrids]
+            supportsFacilityStatus:
+              type: boolean
+              description: True when the model has open/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3/R7 on this, never on modelId.
+          required: [supportsP, capacityModes, demandEditable, outputGrids, supportsFacilityStatus]
         inputsSchema:
           type: object
           description: JSON Schema describing this model's inputs shape. Opaque to this contract.

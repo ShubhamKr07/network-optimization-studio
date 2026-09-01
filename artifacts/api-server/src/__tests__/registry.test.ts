@@ -46,8 +46,9 @@ describe("GET /api/models", () => {
 
   // R5 (Workspace UX bundle) — every model must always report a
   // distanceUnit, defaulting absent manifests to "mi" at the public
-  // boundary; two-echelon-gold-au is the sole "km" model (its solve output
-  // and Studio.tsx's leg-distance panel already label distances in km).
+  // boundary. Bundle 2 (B2-T1) relabels two-echelon-gold-au "km" -> "mi":
+  // its base numbers are geographically miles (the source notebook's own
+  // mislabel), zero data/objective change.
   it("returns the correct distanceUnit per model", () => {
     const byId: Record<string, string> = Object.fromEntries(
       listModels().map(m => [m.id, m.distanceUnit]),
@@ -55,7 +56,19 @@ describe("GET /api/models", () => {
     expect(byId["p-median-us"]).toBe("mi");
     expect(byId["p-median-brazil"]).toBe("mi");
     expect(byId["transport-coal"]).toBe("mi");
-    expect(byId["two-echelon-gold-au"]).toBe("km");
+    expect(byId["two-echelon-gold-au"]).toBe("mi");
+  });
+
+  // Bundle 2 (B2-T1) — supportsFacilityStatus gates R3 (status paint) and
+  // R7 (hide-closed) capability-driven, never on modelId.
+  it("returns the correct supportsFacilityStatus per model", () => {
+    const byId: Record<string, boolean> = Object.fromEntries(
+      listModels().map(m => [m.id, m.capabilities.supportsFacilityStatus]),
+    );
+    expect(byId["p-median-us"]).toBe(true);
+    expect(byId["p-median-brazil"]).toBe(true);
+    expect(byId["two-echelon-gold-au"]).toBe(true);
+    expect(byId["transport-coal"]).toBe(false);
   });
 });
 

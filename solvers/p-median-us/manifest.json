@@ -4,7 +4,7 @@
   "chapter": "Chapter 3",
   "datasetDir": "solvers/p-median-us/dataset",
   "countryBounds": { "sw": [25.78, -123.11], "ne": [47.67, -71.02] },
-  "capabilities": { "supportsP": true, "capacityModes": ["none", "uniform", "per_wh"], "demandEditable": true, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"] },
+  "capabilities": { "supportsP": true, "capacityModes": ["none", "uniform", "per_wh"], "demandEditable": true, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true },
   "distanceUnit": "mi",
   "inputsSchema": {
     "type": "object",

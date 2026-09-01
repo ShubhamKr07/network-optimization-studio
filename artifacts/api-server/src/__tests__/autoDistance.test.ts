@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   haversineMiles,
   fillEstimatedDistances,
+  fillEstimatedBrazilDistances,
   fillEstimatedLaneCosts,
   fillEstimatedTwoEchelonDistances,
 } from "../services/autoDistance.js";
@@ -158,6 +159,71 @@ describe("fillEstimatedDistances", () => {
   });
 });
 
+// ── B2-T2 (Bundle 2) — p-median-brazil (shares pMedianInputsSchema and
+// fillEstimatedDistances' own structure, injected with BRAZIL_CIRCUITY) ────
+// BRAZIL_CIRCUITY reuses the same 1.17 value as TRANSPORT_CIRCUITY below
+// (see autoDistance.ts's BRAZIL_CIRCUITY comment for the derivation/
+// coincidence rationale) — same fixture shape as DATASET/BASE_INPUTS above,
+// since fillEstimatedBrazilDistances is a thin wrapper, not a reimplementation.
+const BRAZIL_CIRCUITY = 1.17;
+
+describe("fillEstimatedBrazilDistances (p-median-brazil)", () => {
+  it("an added warehouse with no overrides gets estimated rows to every active base+added customer, at haversine * BRAZIL_CIRCUITY", () => {
+    const inputs = {
+      ...BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const }],
+      addedCustomers: [{ id: "AC1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 500 }],
+    };
+    const result = fillEstimatedBrazilDistances(inputs as PMedianInputs, DATASET);
+    const fromAW1 = result.distanceOverrides.filter((o) => o.fromId === "AW1");
+    expect(fromAW1.map((o) => o.toId).sort()).toEqual(["AC1", "BC1", "BC2"]);
+    expect(fromAW1.every((o) => o.estimated === true)).toBe(true);
+    // Circuity applied — NOT plain haversine, unlike p-median-us's own
+    // fillEstimatedDistances (which passes no circuity multiplier).
+    const toBC1 = fromAW1.find((o) => o.toId === "BC1")!;
+    const rawMi = haversineMiles({ lat: 39.53, lng: -119.81 }, { lat: 36.154, lng: -95.9928 });
+    expect(toBC1.distance).toBeCloseTo(Math.round(rawMi * BRAZIL_CIRCUITY * 10) / 10, 1);
+    expect(toBC1.distance).not.toBeCloseTo(Math.round(rawMi * 10) / 10, 1);
+  });
+
+  it("a base warehouse gets estimated rows to every ADDED customer only, never base<->base", () => {
+    const inputs = {
+      ...BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const }],
+      addedCustomers: [{ id: "AC1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 500 }],
+    };
+    const result = fillEstimatedBrazilDistances(inputs as PMedianInputs, DATASET);
+    const fromBW1 = result.distanceOverrides.filter((o) => o.fromId === "BW1");
+    const fromBW2 = result.distanceOverrides.filter((o) => o.fromId === "BW2");
+    expect(fromBW1.map((o) => o.toId)).toEqual(["AC1"]);
+    expect(fromBW2.map((o) => o.toId)).toEqual(["AC1"]);
+  });
+
+  it("a manual row with estimated:false is left untouched", () => {
+    const inputs = {
+      ...BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const }],
+      distanceOverrides: [{ fromId: "AW1", toId: "BC1", distance: 999, estimated: false as const }],
+    };
+    const result = fillEstimatedBrazilDistances(inputs as PMedianInputs, DATASET);
+    const row = result.distanceOverrides.find((o) => o.fromId === "AW1" && o.toId === "BC1");
+    expect(row).toEqual({ fromId: "AW1", toId: "BC1", distance: 999, estimated: false });
+  });
+
+  it("running fillEstimatedBrazilDistances twice is a no-op (idempotent)", () => {
+    const inputs = {
+      ...BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const }],
+      addedCustomers: [{ id: "AC1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 500 }],
+    };
+    const once = fillEstimatedBrazilDistances(inputs as PMedianInputs, DATASET);
+    const twice = fillEstimatedBrazilDistances(once, DATASET);
+    expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
+    const keys = twice.distanceOverrides.map(overrideKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
 // ── follow-up item 3 — transport-coal (haversine * circuity) ───────────────
 const TRANSPORT_CIRCUITY = 1.17;
 
@@ -301,8 +367,13 @@ function distKey(o: { fromId: string; toId: string }): string {
   return o.fromId + "|" + o.toId;
 }
 
+// B2-T2 (Bundle 2) — reverse-derived circuity for the refinery->customer
+// leg only (see autoDistance.ts's TWO_ECHELON_RC_CIRCUITY comment for the
+// derivation); the mine->refinery leg has no such factor.
+const TWO_ECHELON_RC_CIRCUITY = 1.1791;
+
 describe("fillEstimatedTwoEchelonDistances (two-echelon-gold-au)", () => {
-  it("an added refinery with no overrides gets BOTH legs estimated: mine->refinery AND refinery->every base+added customer, at plain haversine (no circuity)", () => {
+  it("an added refinery with no overrides gets BOTH legs estimated: mine->refinery at plain haversine, refinery->every base+added customer at haversine * circuity", () => {
     const inputs = {
       ...GOLD_BASE_INPUTS,
       addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
@@ -311,14 +382,28 @@ describe("fillEstimatedTwoEchelonDistances (two-echelon-gold-au)", () => {
     const fromMine = result.distanceOverrides.filter((o) => o.fromId === "GM1" && o.toId === "AR1");
     expect(fromMine.length).toBe(1);
     expect(fromMine[0].estimated).toBe(true);
+    // mine->refinery leg: plain haversine, no circuity.
+    const rawMineMi = haversineMiles({ lat: -30.7495, lng: 121.4667 }, { lat: -31.9505, lng: 115.8605 });
+    expect(fromMine[0].distance).toBeCloseTo(Math.round(rawMineMi * 10) / 10, 1);
+
     const fromAR1 = result.distanceOverrides.filter((o) => o.fromId === "AR1");
     expect(fromAR1.map((o) => o.toId).sort()).toEqual(["BC1", "BC2"]);
     expect(fromAR1.every((o) => o.estimated === true)).toBe(true);
-    // No circuity — the stored refinery->customer distance must equal plain
-    // haversineMiles, unlike transport-coal's equivalent lane cost.
+    // refinery->customer leg: haversine * TWO_ECHELON_RC_CIRCUITY, NOT plain
+    // haversine — this is the B2-T2 fix (the prior estimator wrote plain
+    // haversine for both legs, understating this leg by ~15-18%).
     const toBC1 = fromAR1.find((o) => o.toId === "BC1")!;
     const rawMi = haversineMiles({ lat: -31.9505, lng: 115.8605 }, { lat: -33.8688, lng: 151.2093 });
-    expect(toBC1.distance).toBeCloseTo(Math.round(rawMi * 10) / 10, 1);
+    const expectedMi = Math.round(rawMi * TWO_ECHELON_RC_CIRCUITY * 10) / 10;
+    expect(toBC1.distance).toBeCloseTo(expectedMi, 1);
+    // Reconstructs a KNOWN base refinery->customer pair (BR1 Daggar Hills ->
+    // BC1 Sydney, 2381.786038127133 mi in the real dataset) within <0.1%
+    // tolerance — proves the locked circuity constant, not just internal
+    // self-consistency against haversineMiles.
+    const knownRawMi = haversineMiles({ lat: -28.15, lng: 117.6 }, { lat: -33.8688, lng: 151.2093 });
+    const reconstructed = knownRawMi * TWO_ECHELON_RC_CIRCUITY;
+    const knownStoredMi = 2381.786038127133;
+    expect(Math.abs(reconstructed - knownStoredMi) / knownStoredMi).toBeLessThan(0.001);
   });
 
   it("a base refinery gets a refinery->customer leg to every ADDED customer only, never base<->base, and no mine leg (already covered)", () => {
@@ -343,7 +428,12 @@ describe("fillEstimatedTwoEchelonDistances (two-echelon-gold-au)", () => {
     const result = fillEstimatedTwoEchelonDistances(inputs as TwoEchelonInputs, GOLD_TEST_DATASET);
     const row = result.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BR1");
     expect(row).toBeDefined();
-    const expectedDistance = Math.max(0.1, Math.round(haversineMiles({ lat: -31.9505, lng: 115.8605 }, { lat: 10, lng: 10 }) * 10) / 10);
+    // AR1->BR1 is a refinery->customer leg (BR1 here is the colliding
+    // ADDED customer id, not the base refinery), so it carries circuity.
+    const expectedDistance = Math.max(
+      0.1,
+      Math.round(haversineMiles({ lat: -31.9505, lng: 115.8605 }, { lat: 10, lng: 10 }) * TWO_ECHELON_RC_CIRCUITY * 10) / 10,
+    );
     expect(row!.distance).toBeCloseTo(expectedDistance, 1);
   });
 
@@ -400,5 +490,163 @@ describe("fillEstimatedTwoEchelonDistances (two-echelon-gold-au)", () => {
     expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
     const keys = twice.distanceOverrides.map(distKey);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+// ── B2-T2 Step 5 (P1) — move/re-estimation across persist passes, all 3
+// estimators. Proves the real end-to-end contract T4-T7's frontend move-
+// mutator relies on: when a student drags an added entity to a new spot,
+// the frontend purges that entity's OWN estimated overrides (never touching
+// manual ones — that's a frontend-side responsibility, not this file's), the
+// entity's own coords are updated in place, and the next
+// normalizeAddedEntityDistances pass (a PATCH save) regenerates fresh
+// estimates from the new coordinates — the normalizer only ever fills
+// genuinely-missing rows, so a naive "just re-run the normalizer" is
+// sufficient for the move case as long as the stale rows were purged first.
+describe("B2-T2 Step 5 — move/re-estimation + idempotency (Brazil, transport-coal, two-echelon)", () => {
+  it("Brazil: purging an added warehouse's overrides and moving it, then re-normalizing, regenerates estimates from the NEW coords", () => {
+    const original = {
+      ...BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const }],
+    };
+    const solved = fillEstimatedBrazilDistances(original as PMedianInputs, DATASET);
+    const oldRow = solved.distanceOverrides.find((o) => o.fromId === "AW1" && o.toId === "BC1")!;
+    expect(oldRow.estimated).toBe(true);
+
+    // Simulate the frontend move-mutator: purge AW1's own overrides, move
+    // AW1 to a different location.
+    const moved = {
+      ...solved,
+      addedWarehouses: [{ ...original.addedWarehouses[0], lat: 41.8781, lng: -87.6298 }], // now at BC2's coords
+      distanceOverrides: solved.distanceOverrides.filter((o) => o.fromId !== "AW1" && o.toId !== "AW1"),
+    };
+    const reNormalized = fillEstimatedBrazilDistances(moved as PMedianInputs, DATASET);
+    const newRow = reNormalized.distanceOverrides.find((o) => o.fromId === "AW1" && o.toId === "BC1")!;
+    expect(newRow).toBeDefined();
+    expect(newRow.distance).not.toBeCloseTo(oldRow.distance, 1);
+    const expectedNewMi = Math.round(haversineMiles({ lat: 41.8781, lng: -87.6298 }, { lat: 36.154, lng: -95.9928 }) * BRAZIL_CIRCUITY * 10) / 10;
+    expect(newRow.distance).toBeCloseTo(expectedNewMi, 1);
+  });
+
+  it("Brazil: a second normalization pass after a move is itself idempotent", () => {
+    const original = {
+      ...BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" as const }],
+    };
+    const solved = fillEstimatedBrazilDistances(original as PMedianInputs, DATASET);
+    const moved = {
+      ...solved,
+      addedWarehouses: [{ ...original.addedWarehouses[0], lat: 41.8781, lng: -87.6298 }],
+      distanceOverrides: solved.distanceOverrides.filter((o) => o.fromId !== "AW1" && o.toId !== "AW1"),
+    };
+    const once = fillEstimatedBrazilDistances(moved as PMedianInputs, DATASET);
+    const twice = fillEstimatedBrazilDistances(once, DATASET);
+    expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
+  });
+
+  it("transport-coal: purging an added mine's lane costs and moving it, then re-normalizing, regenerates costs from the NEW coords", () => {
+    const original = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+    };
+    const solved = fillEstimatedLaneCosts(original as TransportLpInputs, TRANSPORT_DATASET);
+    const oldRow = solved.laneCostOverrides.find((o) => o.fromId === "AM1" && o.toId === "BS1")!;
+    expect(oldRow.estimated).toBe(true);
+
+    const moved = {
+      ...solved,
+      addedMines: [{ ...original.addedMines[0], lat: 41.8781, lng: -87.6298 }], // now at BS2's coords
+      laneCostOverrides: solved.laneCostOverrides.filter((o) => o.fromId !== "AM1" && o.toId !== "AM1"),
+    };
+    const reNormalized = fillEstimatedLaneCosts(moved as TransportLpInputs, TRANSPORT_DATASET);
+    const newRow = reNormalized.laneCostOverrides.find((o) => o.fromId === "AM1" && o.toId === "BS1")!;
+    expect(newRow).toBeDefined();
+    expect(newRow.cost).not.toBeCloseTo(oldRow.cost, 1);
+    const expectedNewMi = Math.round(haversineMiles({ lat: 41.8781, lng: -87.6298 }, { lat: 36.154, lng: -95.9928 }) * TRANSPORT_CIRCUITY * 10) / 10;
+    expect(newRow.cost).toBeCloseTo(expectedNewMi, 1);
+  });
+
+  it("transport-coal: a second normalization pass after a move is itself idempotent", () => {
+    const original = {
+      ...TRANSPORT_BASE_INPUTS,
+      addedMines: [{ id: "AM1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }],
+    };
+    const solved = fillEstimatedLaneCosts(original as TransportLpInputs, TRANSPORT_DATASET);
+    const moved = {
+      ...solved,
+      addedMines: [{ ...original.addedMines[0], lat: 41.8781, lng: -87.6298 }],
+      laneCostOverrides: solved.laneCostOverrides.filter((o) => o.fromId !== "AM1" && o.toId !== "AM1"),
+    };
+    const once = fillEstimatedLaneCosts(moved as TransportLpInputs, TRANSPORT_DATASET);
+    const twice = fillEstimatedLaneCosts(once, TRANSPORT_DATASET);
+    expect(twice.laneCostOverrides).toEqual(once.laneCostOverrides);
+  });
+
+  it("two-echelon: purging a moved added refinery's BOTH-leg overrides and re-normalizing regenerates both legs from the NEW coords", () => {
+    const original = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+    };
+    const solved = fillEstimatedTwoEchelonDistances(original as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const oldMineLeg = solved.distanceOverrides.find((o) => o.fromId === "GM1" && o.toId === "AR1")!;
+    const oldCustLeg = solved.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BC1")!;
+    expect(oldMineLeg.estimated).toBe(true);
+    expect(oldCustLeg.estimated).toBe(true);
+
+    const moved = {
+      ...solved,
+      addedRefineries: [{ ...original.addedRefineries[0], lat: -37.8136, lng: 144.9631 }], // now at BC2's (Melbourne) coords
+      // Purge BOTH legs — a real move-mutator must clear every row
+      // referencing the moved entity's uid on either side.
+      distanceOverrides: solved.distanceOverrides.filter((o) => o.fromId !== "AR1" && o.toId !== "AR1"),
+    };
+    const reNormalized = fillEstimatedTwoEchelonDistances(moved as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const newMineLeg = reNormalized.distanceOverrides.find((o) => o.fromId === "GM1" && o.toId === "AR1")!;
+    const newCustLeg = reNormalized.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BC1")!;
+    expect(newMineLeg).toBeDefined();
+    expect(newCustLeg).toBeDefined();
+    expect(newMineLeg.distance).not.toBeCloseTo(oldMineLeg.distance, 1);
+    expect(newCustLeg.distance).not.toBeCloseTo(oldCustLeg.distance, 1);
+
+    const expectedMineMi = Math.round(haversineMiles({ lat: -30.7495, lng: 121.4667 }, { lat: -37.8136, lng: 144.9631 }) * 10) / 10;
+    expect(newMineLeg.distance).toBeCloseTo(expectedMineMi, 1);
+    const expectedCustMi = Math.round(haversineMiles({ lat: -37.8136, lng: 144.9631 }, { lat: -33.8688, lng: 151.2093 }) * TWO_ECHELON_RC_CIRCUITY * 10) / 10;
+    expect(newCustLeg.distance).toBeCloseTo(expectedCustMi, 1);
+  });
+
+  it("two-echelon: a second normalization pass after a move is itself idempotent", () => {
+    const original = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+    };
+    const solved = fillEstimatedTwoEchelonDistances(original as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const moved = {
+      ...solved,
+      addedRefineries: [{ ...original.addedRefineries[0], lat: -37.8136, lng: 144.9631 }],
+      distanceOverrides: solved.distanceOverrides.filter((o) => o.fromId !== "AR1" && o.toId !== "AR1"),
+    };
+    const once = fillEstimatedTwoEchelonDistances(moved as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const twice = fillEstimatedTwoEchelonDistances(once, GOLD_TEST_DATASET);
+    expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
+  });
+
+  it("a user-supplied estimated:false override on an added entity is NOT overwritten by re-normalization even after other rows are purged", () => {
+    const original = {
+      ...GOLD_BASE_INPUTS,
+      addedRefineries: [{ id: "AR1", city: "Perth", state: "WA", lat: -31.9505, lng: 115.8605, status: "active" as const }],
+      // A student manually entered a real refinery->customer distance for
+      // BC1 before ever saving — the normalizer must never touch this row,
+      // even though every OTHER AR1 row (mine leg, BC2 leg) is still
+      // genuinely missing and gets filled.
+      distanceOverrides: [{ fromId: "AR1", toId: "BC1", distance: 555, estimated: false as const }],
+    };
+    const result = fillEstimatedTwoEchelonDistances(original as TwoEchelonInputs, GOLD_TEST_DATASET);
+    const manualRow = result.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BC1")!;
+    expect(manualRow).toEqual({ fromId: "AR1", toId: "BC1", distance: 555, estimated: false });
+    // Every other row for AR1 (mine leg, BC2 leg) still got filled.
+    const mineLeg = result.distanceOverrides.find((o) => o.fromId === "GM1" && o.toId === "AR1");
+    const bc2Leg = result.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BC2");
+    expect(mineLeg?.estimated).toBe(true);
+    expect(bc2Leg?.estimated).toBe(true);
   });
 });
