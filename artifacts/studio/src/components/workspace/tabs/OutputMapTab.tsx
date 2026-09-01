@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
-import { BrazilMap } from "@/components/BrazilMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
@@ -36,12 +35,12 @@ interface EffectiveAddedCustomer extends EffectiveAddedWarehouse {
 }
 
 interface OutputMapTabProps {
-  // Optional — undefined for p-median-brazil (useBrazilMap=true), which has
-  // no `GET /dataset` support at all (see Workspace.tsx's comment on this
-  // same gap). Required in practice for every other model; enforced by the
-  // `!useBrazilMap && !dataset` loading-guard at Workspace.tsx's call site,
-  // not by this component itself.
-  dataset?: Dataset;
+  // T5 (Bundle 2) — required for every model now: p-median-brazil got its
+  // own GET /dataset endpoint (T3) and migrated off the BrazilMap branch
+  // this prop's own optionality used to carve out (see this file's own
+  // NetworkMap-migration comment below). Workspace.tsx's call site still
+  // waits on its own `!dataset` loading guard before rendering this tab.
+  dataset: Dataset;
   warehouseStatuses: WarehouseStatusEntry[];
   // Null both pre-solve and whenever this tab isn't the active one — the
   // caller (Workspace.tsx) is responsible for that gating (mirrors Studio.
@@ -56,25 +55,21 @@ interface OutputMapTabProps {
   // display — it is never written back onto the scenario.
   bands: number[];
   countryBounds?: CountryBounds;
-  /** A5.2 — p-median-brazil renders the simplified BrazilMap (result/
-   * showRoutes only, no dataset/markers/band-coloring — see BrazilMap.tsx)
-   * instead of NetworkMap. Mirrors Studio.tsx's own `modelId ===
-   * "p-median-brazil" ? <BrazilMap .../> : ...` branch (Studio.tsx:1542). */
-  useBrazilMap?: boolean;
-  // T6/R7 — p-median-us only. Workspace.tsx's own addedWarehousesFromInputs/
-  // addedCustomersFromInputs applied to the DISPLAYED solve's inputs
-  // snapshot (displayedInputs), never the editable localInputs draft — so
-  // an unsaved add/move, or stepping the result-history stepper to an older
-  // entry, always shows the geometry that solve actually used. Unioned
-  // onto `dataset` below to build R7's "effective output dataset" (base +
-  // added) — filtering `dataset` alone would silently drop an opened added
-  // warehouse (and its route), since it doesn't exist in the base dataset.
+  // T6/R7 (fast-followed to p-median-brazil by T5) — Workspace.tsx's own
+  // addedWarehousesFromInputs/addedCustomersFromInputs applied to the
+  // DISPLAYED solve's inputs snapshot (displayedInputs), never the editable
+  // localInputs draft — so an unsaved add/move, or stepping the
+  // result-history stepper to an older entry, always shows the geometry
+  // that solve actually used. Unioned onto `dataset` below to build R7's
+  // "effective output dataset" (base + added) — filtering `dataset` alone
+  // would silently drop an opened added warehouse (and its route), since it
+  // doesn't exist in the base dataset.
   addedWarehouses?: EffectiveAddedWarehouse[];
   addedCustomers?: EffectiveAddedCustomer[];
-  // T6/R7 — when true, the map renders only warehouses the solver actually
-  // opened; closed candidates are omitted. Only ever true for p-median-us
-  // (Workspace.tsx's call site) — every other model's Output Map is
-  // unaffected (defaults to false, same as NetworkMap's own prop).
+  // T6/R7 (fast-followed to p-median-brazil by T5) — when true, the map
+  // renders only warehouses the solver actually opened; closed candidates
+  // are omitted. Every other model's Output Map is unaffected (defaults to
+  // false, same as NetworkMap's own prop).
   hideClosedWarehouses?: boolean;
 }
 
@@ -90,7 +85,7 @@ interface OutputMapTabProps {
 // assignBand()/getBandColor() resolve every edge to the same band-0 color,
 // which NetworkMap already does unmodified.
 export function OutputMapTab({
-  dataset, warehouseStatuses, result, bands, countryBounds, useBrazilMap,
+  dataset, warehouseStatuses, result, bands, countryBounds,
   addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false,
 }: OutputMapTabProps) {
   const [showWarehouses, setShowWarehouses] = useState(true);
@@ -158,45 +153,13 @@ export function OutputMapTab({
     </div>
   );
 
-  // A5.2 — p-median-brazil's simplified map: BrazilMap has no marker/lane-
-  // coloring layers of its own (see BrazilMap.tsx), so only the Lanes toggle
-  // (mapped onto its own `showRoutes` prop) applies here — Warehouses/
-  // Customers/Color-by-band controls are omitted rather than shown-but-inert.
-  if (useBrazilMap) {
-    return (
-      <div className="h-full flex flex-col gap-3" data-testid="output-map-tab">
-        <div className="flex items-center gap-5 flex-wrap flex-shrink-0" data-testid="output-map-toggles">
-          <div className="flex items-center gap-1.5">
-            <Checkbox
-              id="output-map-toggle-lanes"
-              checked={showLanes}
-              onCheckedChange={checked => setShowLanes(checked === true)}
-              data-testid="checkbox-toggle-lanes"
-            />
-            <Label htmlFor="output-map-toggle-lanes" className="text-xs">Lanes</Label>
-          </div>
-          {copyDownloadButtons}
-          {!result && (
-            <span className="text-xs text-muted-foreground" data-testid="output-map-no-result">
-              No solve result yet — showing the input network.
-            </span>
-          )}
-        </div>
-        <div className="flex-1 min-h-0" ref={mapRef}>
-          <BrazilMap result={result} showRoutes={showLanes} />
-        </div>
-      </div>
-    );
-  }
-
-  if (!dataset) return null;
-
   // T6/R7 — effective output dataset: base dataset ∪ this solve snapshot's
   // added warehouses/customers, at THEIR solve-time coordinates
   // (addedWarehouses/addedCustomers are already sourced from
   // displayedInputs by the caller — see this prop's own comment). Both
   // default to [] for every model that doesn't pass them, so this is a
-  // no-op merge (dataset unchanged) everywhere except p-median-us.
+  // no-op merge (dataset unchanged) everywhere except p-median-us/
+  // p-median-brazil.
   const effectiveDataset: Dataset = {
     warehouses: [
       ...dataset.warehouses,

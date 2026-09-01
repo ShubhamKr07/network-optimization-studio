@@ -68,6 +68,12 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+      /** T5 (Bundle 2, Step 1b) — the active model's `capabilities.demandEditable`.
+       * Defaults true when absent (p-median-us's own behavior, unchanged).
+       * false (p-median-brazil — textbook-fixed region demand) suppresses
+       * editing a BASE customer's demand; an ADDED customer always stays
+       * editable regardless (see handleEditSubmit's own comment below). */
+      demandEditable?: boolean;
     }
   | {
       mode: "legacy";
@@ -453,6 +459,7 @@ function PMedianInputMap({
   isDirty,
   onSave,
   saving,
+  demandEditable = true,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
@@ -780,6 +787,10 @@ function PMedianInputMap({
       {editEntity && editEntity.kind === "cs" && (
         <EditCustomerDialog
           entity={editEntity.entity}
+          // T5 — an ADDED customer is always editable regardless of the
+          // model's demandEditable capability (a newly-added region has no
+          // textbook demand to protect); only a BASE row is gated.
+          demandEditable={demandEditable || editEntity.entity.isAdded}
           onSubmit={handleEditSubmit}
           onLivePreview={demand => setLivePreview({ id: editEntity.entity.id, demand })}
           onCancel={() => {

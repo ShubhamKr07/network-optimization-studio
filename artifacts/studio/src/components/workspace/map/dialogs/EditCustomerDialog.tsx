@@ -21,6 +21,13 @@ interface EditCustomerDialogProps {
    * hasStatus/valueField shape, different label) only changes the dialog
    * title — every field/testid here already applies to both. */
   role?: EntityRoleConfig;
+  /** T5 (Bundle 2, Step 1b) — false suppresses editing (Input + Slider
+   * become read-only): p-median-brazil's manifest declares
+   * `demandEditable: false` (textbook-fixed region demand). Defaults true —
+   * every other existing call site (p-median-us, and an ADDED entity on any
+   * model — PMedianInputMap always passes true for those, a newly-added row
+   * has no textbook demand to protect) is unaffected. */
+  demandEditable?: boolean;
   onSubmit: (patch: { demand: number }) => void;
   /** Fires on every slider/number change so the parent can resize the map's
    * demand bubble live, before Save commits anything. Cancel is the parent's
@@ -34,6 +41,7 @@ interface EditCustomerDialogProps {
 export function EditCustomerDialog({
   entity,
   role = CUSTOMER_ROLE,
+  demandEditable = true,
   onSubmit,
   onLivePreview,
   onCancel,
@@ -86,6 +94,7 @@ export function EditCustomerDialog({
                 min={0}
                 value={demand}
                 onChange={e => applyDemand(Number(e.target.value) || 0)}
+                disabled={!demandEditable}
                 className="h-8 w-28 text-sm"
                 data-testid="edit-customer-demand-input"
               />
@@ -96,8 +105,14 @@ export function EditCustomerDialog({
               step={DEMAND_SLIDER_STEP}
               value={[demand]}
               onValueChange={([v]) => applyDemand(v)}
+              disabled={!demandEditable}
               data-testid="edit-customer-demand-slider"
             />
+            {!demandEditable && (
+              <p className="text-[11px] text-muted-foreground" data-testid="edit-customer-demand-readonly-note">
+                Demand for this entity is fixed by the textbook dataset and can't be edited.
+              </p>
+            )}
           </div>
         </div>
 

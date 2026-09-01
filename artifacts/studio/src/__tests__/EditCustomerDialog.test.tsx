@@ -78,4 +78,31 @@ describe("EditCustomerDialog", () => {
     renderDialog();
     expect(screen.getByTestId("edit-customer-dialog")).toHaveTextContent("Edit customer");
   });
+
+  // T5 (Bundle 2, Step 1b) — demandEditable:false (p-median-brazil's
+  // textbook-fixed region demand) makes this dialog read-only for a BASE
+  // row. Defaults true — every existing call site above (which never passes
+  // this prop) is unaffected.
+  describe("demandEditable (T5, Bundle 2, Step 1b)", () => {
+    it("omitting demandEditable defaults to editable — today's exact behavior, unchanged", () => {
+      renderDialog();
+      expect(screen.getByTestId("edit-customer-demand-input")).toBeEnabled();
+      expect(screen.queryByTestId("edit-customer-demand-readonly-note")).not.toBeInTheDocument();
+    });
+
+    it("demandEditable=false disables the number input and slider, and shows a read-only note", () => {
+      renderDialog({ demandEditable: false });
+      expect(screen.getByTestId("edit-customer-demand-input")).toBeDisabled();
+      const thumb = screen.getByTestId("edit-customer-demand-slider").querySelector('[role="slider"]');
+      expect(thumb).toHaveAttribute("data-disabled");
+      expect(screen.getByTestId("edit-customer-demand-readonly-note")).toBeInTheDocument();
+    });
+
+    it("demandEditable=false still lets Cancel close the dialog without submitting a change", () => {
+      const { onSubmit, onCancel } = renderDialog({ demandEditable: false });
+      fireEvent.click(screen.getByTestId("edit-customer-cancel"));
+      expect(onCancel).toHaveBeenCalled();
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+  });
 });

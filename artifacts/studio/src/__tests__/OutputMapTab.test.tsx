@@ -325,18 +325,4 @@ describe("OutputMapTab — copy/download", () => {
     fireEvent.click(screen.getByTestId("button-download-map-png"));
     await waitFor(() => expect(copyMapToClipboard.downloadMapAsPng).toHaveBeenCalledTimes(1));
   });
-
-  it("shows the Copy to clipboard and Download PNG buttons on the Brazil (useBrazilMap) branch too", () => {
-    vi.mocked(copyMapToClipboard.isClipboardImageWriteSupported).mockReturnValue(true);
-    render(
-      <OutputMapTab
-        warehouseStatuses={[]}
-        result={result}
-        bands={[250, 500, 750]}
-        useBrazilMap
-      />,
-    );
-    expect(screen.getByTestId("button-copy-map-clipboard")).toBeInTheDocument();
-    expect(screen.getByTestId("button-download-map-png")).toBeInTheDocument();
-  });
 });

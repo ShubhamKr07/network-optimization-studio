@@ -290,15 +290,18 @@ describe("Workspace — placeholder tabs", () => {
   // used to be this test's placeholder example was removed as dead
   // scaffolding (real demand editing already lives inline in the
   // Customers/Stations tabs via CustomerOverride.demand/StationOverride.demand).
-  // p-median-brazil's Warehouses/Customers/Distances tabs are still genuine
-  // placeholders (no per-row dataset endpoint exists for this model), so
-  // this test now exercises one of those instead.
+  // T5 (Bundle 2, Step 2b) — p-median-brazil's Warehouses/Customers/Distances
+  // tabs are now ALSO real content (same components as p-median-us), so this
+  // test's own example moved to transport-coal's Input Map tab: it stays the
+  // read-only Task-4 pin-drop flow ("legacy" mode, no in-place editing) until
+  // T6 builds its own full-v2 editor — a genuine "nothing wired to save yet"
+  // tab today.
   it("does not show a Save toolbar for a tab with nothing wired to save yet", () => {
-    const brazilScenario = { ...scenario, modelId: "p-median-brazil" };
-    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [brazilScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    const transportScenario = { ...scenario, modelId: "transport-coal" };
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
   });
 });

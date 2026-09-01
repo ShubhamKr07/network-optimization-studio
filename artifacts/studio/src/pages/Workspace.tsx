@@ -21,7 +21,6 @@ import {
   getGetCurrentAuthUserQueryKey,
   getGetDatasetQueryKey,
   getPrecheckScenarioQueryKey,
-  type GetDatasetModelId,
   type Scenario,
   type SolveResult,
 } from "@workspace/api-client-react";
@@ -482,23 +481,16 @@ function warehouseStatusesFromInputs(
 // screen 1a·1) is now one case among four rather than a single constant.
 //
 // p-median-brazil keeps "Warehouses"/"Customers" labels for naming parity
-// with the pilot, but their tab CONTENT stays a placeholder (see
-// renderTabContent below) — confirmed against the real repo state, not
-// invented: `GET /dataset` (openapi.yaml's `modelId` enum) genuinely has no
-// p-median-brazil entry, and Studio.tsx itself has zero warehouse/customer
-// override UI for this model (Studio.tsx:1396's Overrides section is
-// `modelId === "p-median-us"` only). Building a real table here would need a
-// backend dataset endpoint that doesn't exist — out of this task's scope per
-// its own "no lib/db, no api-spec, no api-server/validation changes"
-// guarantee. Documented as a deferred follow-up in the task report, not a
-// silent gap.
+// with the pilot. T5 (Bundle 2) gave this model both a real Input Map (T3's
+// own GET /dataset entry + T1's manifest parity) AND real
+// Warehouses/Customers/Distances grid tabs (Step 2b — the SAME
+// WarehousesTab/CustomersTab/DistancesTab components p-median-us already
+// uses, incl. their Upload/Download CSV toolbars, T9's backend gate).
 // Phase 3.2, Task 4 — "Input Map" is the first entry in every model's list
 // (per-model placement/pin wiring lives in placementOptionsForModel/
 // pinsForModel below). p-median-brazil shares this array with p-median-us
-// (the switch's default case) so it technically gets a sidebar entry too,
-// but renderTabContent's own branch excludes p-median-brazil from real
-// content (same "no dataset endpoint" boundary every other Brazil input tab
-// already draws) — its entry falls through to the generic placeholder.
+// (the switch's default case) so it gets the exact same sidebar entries —
+// T5 (Bundle 2) wired every one of them to real content.
 function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
     case "transport-coal":
@@ -668,16 +660,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const { data: scenarioFromApi } = useGetScenario(scenarioIdFromUrl!, {
     query: { enabled: !!scenarioIdFromUrl, queryKey: getGetScenarioQueryKey(scenarioIdFromUrl!) },
   });
-  // The generated hook's `modelId` param is narrower than StudioModelType
-  // (it has no "p-median-brazil" value — Brazil has no dataset endpoint
-  // entry, confirmed against openapi.yaml's `/dataset` `modelId` enum, not
-  // just the generated type). Cast to the hook's own real param type for the
-  // other three models; disabled entirely for p-median-brazil rather than
-  // firing a request the backend will 400 on (see inputEntriesForModel's
-  // comment on this same gap).
-  const datasetParams = { modelId: modelId as GetDatasetModelId | undefined };
+  // T3 (Bundle 2) — `GetDatasetModelId` now includes "p-median-brazil" (its
+  // own GET /dataset entry, openapi.yaml's modelId enum), so this hook's
+  // `modelId` param is structurally identical to StudioModelType again — no
+  // cast, no per-model `enabled` carve-out needed any more.
+  const datasetParams = { modelId };
   const { data: dataset } = useGetDataset(datasetParams, {
-    query: { enabled: modelId !== "p-median-brazil", queryKey: getGetDatasetQueryKey(datasetParams) },
+    query: { queryKey: getGetDatasetQueryKey(datasetParams) },
   });
   const updateScenario = useUpdateScenario();
 
@@ -1003,44 +992,46 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   );
 
   // A1.1/A5.1-A5.3 — the Save toolbar (below) shows for any input tab that's
-  // actually wired to `localInputs` today. Model-aware, not just entity-aware
-  // — p-median-brazil's "warehouses"/"customers" entries share entity ids
-  // with p-median-us but stay placeholder content (no dataset endpoint, see
-  // inputEntriesForModel's comment), so they must NOT be treated as
-  // editable/saveable here even though the entity string matches. Every
-  // other entry stays an inert placeholder with nothing to save yet.
+  // actually wired to `localInputs` today.
   const isEditableInputTab =
     activeTab?.kind === "input" &&
     (activeTab.entity === "optimization-parameters" ||
       // T8 (Input Map v2) — the map tab's own edits (add/move/copy/delete,
       // in-place override edits) write into localInputs exactly like every
       // other editable tab, so it needs the same manual-Save toolbar.
-      // p-median-us only — transport-coal/two-echelon-gold-au's Input Map
-      // stays the read-only Task-4 pin-drop flow (mode="legacy", no
-      // in-place editing), p-median-brazil has no dataset endpoint at all.
-      (activeTab.entity === "input-map" && modelId === "p-median-us") ||
-      (activeTab.entity === "warehouses" && modelId === "p-median-us") ||
-      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
+      // T5 (Bundle 2) — p-median-brazil joins p-median-us here: it shares
+      // the exact same PMedianMapInputs shape (T1's manifest parity) and got
+      // its own GET /dataset endpoint (T3), so it gets the real editor too.
+      // transport-coal/two-echelon-gold-au's Input Map stays the read-only
+      // Task-4 pin-drop flow (mode="legacy", no in-place editing) until
+      // T6/T7 build their own full-v2 editors.
+      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
+      // T5 (Bundle 2, Step 2b) — p-median-brazil joins p-median-us: same
+      // WarehousesTab/CustomersTab components, same entity shapes (T1's
+      // manifest parity), same T3 GET /dataset entry.
+      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
-      // B5.1/B6.2 — Distances grid. p-median-us renders DistancesTab;
+      // B5.1/B6.2/T5 — Distances grid. p-median-us AND p-median-brazil (same
+      // {fromId,toId,distance} shape, T9's backend gate) render DistancesTab;
       // two-echelon-gold-au shares the same sidebar entity id ("distances")
       // but renders LegDistancesTab instead (a structurally different
       // three-id-space/two-leg component — see renderTabContent's own
-      // branch below) — p-median-brazil's dataset.warehouses/customers
-      // still don't exist, so it stays excluded.
-      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) ||
+      // branch below).
+      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
 
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
-  // toolbar below; every other editable tab (including transport-coal's/
+  // toolbar below; T5 — p-median-brazil joins it (same real editor, same
+  // relocated Save). Every other editable tab (including transport-coal's/
   // two-echelon-gold-au's legacy Input Map, which has no override-editing
   // concept and is never in isEditableInputTab to begin with) is unaffected.
   const saveInLayersRow =
-    activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "p-median-us";
+    activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -1477,21 +1468,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function renderTabContent(): ReactNode {
     if (!activeTab) return null;
 
-    // T8 (Input Map v2) — Input Map tab, one of three modes per model:
-    // p-median-brazil has no per-row dataset endpoint at all (same boundary
-    // every other Brazil input tab already draws) so it gets InputMapTab's
-    // placeholder mode; transport-coal/two-echelon-gold-au keep the original
-    // Phase 3.2 Task 4 click-to-place pin map ("legacy" — their Mines/
-    // Stations/Refineries/Customers tabs have no override-projection/
-    // edit-in-place concept the map surface below needs); p-median-us gets
-    // the real map — effective-row warehouses/customers (base dataset +
-    // overrides applied, unioned with added rows) wired to
+    // T8 (Input Map v2) — Input Map tab, one of two remaining modes per
+    // model: transport-coal/two-echelon-gold-au keep the original Phase 3.2
+    // Task 4 click-to-place pin map ("legacy" — their Mines/Stations/
+    // Refineries/Customers tabs have no override-projection/edit-in-place
+    // concept the map surface below needs, until T6/T7 build their own
+    // full-v2 editors); p-median-us AND p-median-brazil (T5, Bundle 2 — same
+    // PMedianMapInputs shape, T1's manifest parity + T3's own GET /dataset
+    // entry) get the real map — effective-row warehouses/customers (base
+    // dataset + overrides applied, unioned with added rows) wired to
     // handlePMedianMapInputsChange so every map edit lands in localInputs
     // exactly like every other editable tab.
     if (activeTab.kind === "input" && activeTab.entity === "input-map") {
-      if (modelId === "p-median-brazil") {
-        return <InputMapTab mode="placeholder" />;
-      }
       if (modelId === "transport-coal" || modelId === "two-echelon-gold-au") {
         if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
         return (
@@ -1513,12 +1501,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           customers={pmedianMapCustomers(dataset, localInputs)}
           inputs={pmedianMapInputsSlice(localInputs)}
           onInputsChange={handlePMedianMapInputsChange}
-          // R4 — Save moves into this tab's own Layers row for p-median-us;
-          // saveInLayersRow (below) suppresses the toolbar Save exactly when
-          // this prop is wired, so there is never a duplicate.
+          // R4 — Save moves into this tab's own Layers row for p-median-us/
+          // p-median-brazil; saveInLayersRow (below) suppresses the toolbar
+          // Save exactly when this prop is wired, so there is never a
+          // duplicate.
           isDirty={isDirty}
           onSave={handleSaveInputs}
           saving={updateScenario.isPending}
+          // T5 (Bundle 2, Step 1b) — p-median-brazil's manifest declares
+          // demandEditable:false (textbook-fixed region demand); every other
+          // model on this branch (only p-median-us today) defaults true.
+          demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
         />
       );
     }
@@ -1526,10 +1519,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // A5.1 — p-median-us's real Warehouses tab. two-echelon-gold-au's
     // Refineries tab reuses the SAME component below (entity="refineries")
     // rather than forking one — see WarehousesTab's own comment on why.
-    // p-median-brazil shares this entity id but stays a placeholder (falls
-    // through to the generic placeholder at the bottom — no dataset endpoint
-    // exists for it, see inputEntriesForModel's comment).
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && modelId === "p-median-us") {
+    // T5 (Bundle 2, Step 2b) — p-median-brazil joins p-median-us here too:
+    // same WarehouseCandidate shape (T3's own GET /dataset entry), same
+    // warehouseOverrides field, same T9 backend import/export gate — no
+    // per-model divergence needed beyond the condition itself.
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -1580,13 +1574,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // A1.1/A5.3 — Customers tab, shared by p-median-us AND
-    // two-echelon-gold-au (both use `customerOverrides` and entity
-    // "customers" — the backend disambiguates the shared entity name via the
-    // scenario's own modelId, not a client-side param). p-median-brazil
-    // shares this entity id too but stays a placeholder, same reasoning as
-    // Warehouses above.
-    if (activeTab.kind === "input" && activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au")) {
+    // A1.1/A5.3 — Customers tab, shared by p-median-us, two-echelon-gold-au,
+    // AND (T5, Bundle 2, Step 2b) p-median-brazil — all three use
+    // `customerOverrides` and entity "customers" (the backend disambiguates
+    // the shared entity name via the scenario's own modelId, not a
+    // client-side param).
+    if (activeTab.kind === "input" && activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CustomersTab
@@ -1597,14 +1590,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           prefillCoords={pendingPrefill}
           onPrefillConsumed={() => setPendingPrefill(null)}
+          // T5 (Step 1b/2b) — p-median-brazil's manifest declares
+          // demandEditable:false (textbook-fixed region demand); every other
+          // model here defaults true. Never applied to the "Added customers"
+          // section below (a new region has no textbook demand to protect).
+          demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
           // B5.2/B6.2 — addedCustomers used to be a p-median-us-only concept
           // (twoEchelonInputsSchema had no such field); B6.2 gave
           // two-echelon-gold-au its own real addedCustomers field with the
-          // exact same shape, so it joins this spread too now — both models
-          // read/write `addedCustomers` and `distanceOverrides` under their
-          // own exact field names, so `addedCustomersFromInputs`/
+          // exact same shape, so it joins this spread too now — all three
+          // models read/write `addedCustomers` and `distanceOverrides` under
+          // their own exact field names, so `addedCustomersFromInputs`/
           // `deleteAddedEntityAndOverrides` need no per-model branching here.
-          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au"
+          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil"
             ? {
                 addedCustomers: addedCustomersFromInputs(localInputs),
                 onAddedCustomersChange: (next: AddedCustomer[]) => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next),
@@ -1679,17 +1677,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // B5.1 — Distances grid tab, p-median-us only (same boundary as
-    // Warehouses/Customers — see isEditableInputTab's comment). Long-format
-    // `{fromId, toId, distance}` rows read straight off
-    // localInputs.distanceOverrides (no fixed baseline to enumerate, unlike
-    // Warehouses/Customers — B4.3's same reasoning). `savedDistanceOverrides`
-    // is read from savedInputsRef.current (not localInputs) purely to drive
-    // the changed-row highlight — reading a ref during render is safe here
+    // B5.1/T5 — Distances grid tab, p-median-us AND p-median-brazil (T5,
+    // Bundle 2, Step 2b — same {fromId,toId,distance} shape, T9's backend
+    // gate). Long-format rows read straight off localInputs.distanceOverrides
+    // (no fixed baseline to enumerate, unlike Warehouses/Customers — B4.3's
+    // same reasoning). `savedDistanceOverrides` is read from
+    // savedInputsRef.current (not localInputs) purely to drive the
+    // changed-row highlight — reading a ref during render is safe here
     // because it's only ever mutated inside handlers that themselves trigger
     // a re-render (handleSaveInputs/handleImportApplied/the scenario-switch
     // effect), so this value is never stale at paint time.
-    if (activeTab.kind === "input" && activeTab.entity === "distances" && modelId === "p-median-us") {
+    if (activeTab.kind === "input" && activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
@@ -1771,21 +1769,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!hasFreshSolvedRun) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
-      // A5.2 — p-median-brazil renders BrazilMap, which needs no `dataset`
-      // at all (it only reads `result`/`showRoutes` — see BrazilMap.tsx;
-      // Studio.tsx's own render branch checks `modelId === "p-median-brazil"`
-      // BEFORE ever touching `dataset` for the exact same reason, Studio.tsx:
-      // 1542). Every other model genuinely needs the dataset query to
-      // resolve first.
-      const useBrazilMap = modelId === "p-median-brazil";
-      if (!useBrazilMap && !dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
-      // T6/R7 — p-median-us only: hide closed candidates, and build the
-      // effective output dataset from THIS solve's own added
-      // warehouses/customers (displayedInputs, not localInputs — same
-      // snapshot principle as `bands` above), so an unsaved add/move or a
-      // stepped-back history result renders the geometry that solve
-      // actually used, not today's draft.
-      const isPMedianOutput = modelId === "p-median-us";
+      // T5 (Bundle 2) — p-median-brazil migrated off BrazilMap (which needed
+      // no `dataset`) onto the shared NetworkMap, same as every other model —
+      // it now genuinely needs the dataset query to resolve first too (T3's
+      // own GET /dataset entry).
+      if (!dataset) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      // T6/R7 (fast-followed to p-median-brazil by T5) — hide closed
+      // candidates, and build the effective output dataset from THIS
+      // solve's own added warehouses/customers (displayedInputs, not
+      // localInputs — same snapshot principle as `bands` above), so an
+      // unsaved add/move or a stepped-back history result renders the
+      // geometry that solve actually used, not today's draft.
+      const usesEffectiveOutputProjection = modelId === "p-median-us" || modelId === "p-median-brazil";
       return (
         <OutputMapTab
           dataset={dataset}
@@ -1800,10 +1795,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // solve that's already displayed (R5's displayedInputs principle).
           bands={distanceBandsFromInputs(displayedInputs)}
           countryBounds={activeModelManifest?.countryBounds}
-          useBrazilMap={useBrazilMap}
-          addedWarehouses={isPMedianOutput ? addedWarehousesFromInputs(displayedInputs) : []}
-          addedCustomers={isPMedianOutput ? addedCustomersFromInputs(displayedInputs) : []}
-          hideClosedWarehouses={isPMedianOutput}
+          addedWarehouses={usesEffectiveOutputProjection ? addedWarehousesFromInputs(displayedInputs) : []}
+          addedCustomers={usesEffectiveOutputProjection ? addedCustomersFromInputs(displayedInputs) : []}
+          hideClosedWarehouses={usesEffectiveOutputProjection}
         />
       );
     }
@@ -1868,27 +1862,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} modelId={modelId} />;
     }
 
-    // A5.2 — p-median-brazil's Warehouses/Customers entries share entity ids
-    // with p-median-us for naming parity (inputEntriesForModel's comment)
-    // but have no real content: `GET /dataset` genuinely has no
-    // p-median-brazil entry (openapi.yaml's modelId enum), and Studio.tsx
-    // itself has never had override-editing UI for this model either. A
-    // distinct message rather than the generic "later task" copy below,
-    // since this isn't simply unbuilt yet — it's blocked on a backend
-    // capability this task's scope explicitly excludes adding.
-    if (activeTab.kind === "input" && (activeTab.entity === "warehouses" || activeTab.entity === "customers") && modelId === "p-median-brazil") {
-      return (
-        <span className="text-muted-foreground" data-testid="tab-content-placeholder">
-          {activeTab.label} — not available for this model yet (no per-row dataset endpoint exists for p-median-brazil).
-        </span>
-      );
-    }
-
-    // Every other entry (Demand, two-echelon-gold-au/p-median-brazil's
-    // Distances — still an open fast-follow — and every remaining Output
-    // grid) is a later task (C1.1-C6.1) — unchanged placeholder. Task 30
+    // Every other entry (every remaining Output grid not already handled
+    // above) is a later task (C1.1-C6.1) — unchanged placeholder. Task 30
     // closed transport-coal's own Distances gap (now the Lane costs tab,
-    // handled above, not this fallback).
+    // handled above, not this fallback); T5 (Bundle 2, Step 2b) closed
+    // p-median-brazil's Warehouses/Customers/Distances gap the same way.
     return (
       <span className="text-muted-foreground" data-testid="tab-content-placeholder">
         {activeTab.label} — content wired in a later task (A1.2-A3.1).

@@ -61,6 +61,41 @@ describe("CustomersTab", () => {
   });
 });
 
+// T5 (Bundle 2, Step 2b) — demandEditable:false (p-median-brazil's
+// textbook-fixed region demand) threaded straight through to CustomerTable;
+// the "Added customers" section is NEVER gated by it (a new region has no
+// textbook demand to protect).
+describe("CustomersTab — demandEditable (T5, Bundle 2, Step 2b)", () => {
+  it("omitting demandEditable defaults to editable — today's exact behavior, unchanged", () => {
+    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.getByTestId("input-customer-demand-C1")).toBeEnabled();
+  });
+
+  it("demandEditable=false disables the BASE-row demand field in the grid", () => {
+    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} demandEditable={false} />);
+    expect(screen.getByTestId("input-customer-demand-C1")).toBeDisabled();
+  });
+
+  it("demandEditable=false still leaves an ADDED customer's demand field editable", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        demandEditable={false}
+        addedCustomers={[{ id: "ac-1", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 500 }]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    const addedDemandInput = screen.getByTestId("input-added-customer-demand-ac-1");
+    expect(addedDemandInput).toBeEnabled();
+    fireEvent.change(addedDemandInput, { target: { value: "600" } });
+    expect(onAddedCustomersChange).toHaveBeenCalledWith([{ id: "ac-1", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 600 }]);
+  });
+});
+
 // B5.2 — add/delete row for scenario-local addedCustomers (B1.1), plus
 // inline precheck warning chips (B2.1's GET /scenarios/:id/precheck).
 // addedCustomerSchema has no `status` field (see precheck.ts's own comment:
