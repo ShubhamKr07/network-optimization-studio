@@ -423,6 +423,24 @@
   --accent-600: hsl(from hsl(var(--accent)) h s calc(l - 6));
   --accent-700: hsl(var(--accent));
   --accent-700: hsl(from hsl(var(--accent)) h s calc(l - 12));
+
+  /* R1 (Workspace UX R1-R9): demand (customer-bubble) color for the
+     p-median-us Input/Output Map — supply stays the blue --accent-* scale
+     above, demand gets its own muted green sibling so the two are visually
+     distinguishable at a glance. --demand is a literal H S% L% triple (same
+     saturation/lightness as --accent's scn-theme value, 25%/56%, only the
+     hue changes to green) rather than derived from --accent itself, since
+     --accent's hue/lightness differ across themes (:root's shadcn --accent
+     is a near-white background utility, not a marker color) and these
+     tokens are only ever consumed inside .scn-theme-scoped Workspace map
+     components anyway. Same relative-color-syntax derivation pattern as
+     --accent-300/600 just above: --demand-300 lightens for bubble fill,
+     --demand-600 darkens for the bubble stroke. */
+  --demand: 145 25% 56%;
+  --demand-300: hsl(var(--demand));
+  --demand-300: hsl(from hsl(var(--demand)) h s calc(l + 20));
+  --demand-600: hsl(var(--demand));
+  --demand-600: hsl(from hsl(var(--demand)) h s calc(l - 6));
 }
 
 .dark {

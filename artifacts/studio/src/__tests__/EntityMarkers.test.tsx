@@ -69,6 +69,48 @@ describe("SVG-string icon builders", () => {
     expect(typeof svg).toBe("string");
     expect(svg).toContain("<circle");
   });
+
+  // R3 regression: --accent-700/--accent-300/--accent-600 (and --demand-*)
+  // are already complete colors (index.css's relative-color-syntax output),
+  // not shadcn H-S-L channel triples — wrapping one again as
+  // `hsl(var(--accent-700))` is an invalid nested color, which SVG silently
+  // falls back from (fill -> black, stroke -> none) instead of erroring.
+  // Assert the generated markup uses the unwrapped `var(--token)` form and
+  // never the invalid nested form, for every marker style/tone.
+  it("warehouseTriangleSvg uses var(--accent-700) unwrapped, never hsl(var(--accent-700))", () => {
+    // outline/filled both use --accent-700 (stroke-only vs fill+stroke);
+    // dashed uses --muted-foreground instead (asserted separately below) —
+    // so only assert the presence of --accent-700 where it's actually used.
+    for (const marker of ["outline", "filled"] as const) {
+      const svg = warehouseTriangleSvg(marker);
+      expect(svg).toContain("var(--accent-700)");
+      expect(svg).not.toContain("hsl(var(--accent-700))");
+    }
+    // Every style, including dashed, must never contain the invalid nested form.
+    for (const marker of ["outline", "filled", "dashed"] as const) {
+      expect(warehouseTriangleSvg(marker)).not.toContain("hsl(var(--accent-700))");
+    }
+  });
+
+  it("warehouseTriangleSvg's dashed stroke keeps --muted-foreground wrapped (it's a genuine H-S-L channel token, not a complete color)", () => {
+    expect(warehouseTriangleSvg("dashed")).toContain("hsl(var(--muted-foreground))");
+  });
+
+  it("customerBubbleSvg uses var(--accent-300)/var(--accent-600) unwrapped for the blue tone (default)", () => {
+    const svg = customerBubbleSvg(6);
+    expect(svg).toContain("var(--accent-300)");
+    expect(svg).toContain("var(--accent-600)");
+    expect(svg).not.toContain("hsl(var(--accent-300))");
+    expect(svg).not.toContain("hsl(var(--accent-600))");
+  });
+
+  it("customerBubbleSvg uses var(--demand-300)/var(--demand-600) unwrapped for the green tone", () => {
+    const svg = customerBubbleSvg(6, "green");
+    expect(svg).toContain("var(--demand-300)");
+    expect(svg).toContain("var(--demand-600)");
+    expect(svg).not.toContain("--accent-300");
+    expect(svg).not.toContain("--accent-600");
+  });
 });
 
 describe("EntityMarkers", () => {
@@ -194,5 +236,88 @@ describe("EntityMarkers", () => {
     fireEvent.click(marker);
     expect(onLeftClick).toHaveBeenCalledTimes(1);
     expect(onLeftClick.mock.calls[0][0]).toEqual({ kind: "wh", entity: wh({ id: "W1" }) });
+  });
+
+  // R1 — supply blue / demand green.
+  describe("demand tone (R1)", () => {
+    it("customer bubbles are green (var(--demand-*)) for p-median-us, the default modelId", () => {
+      const { container } = renderMarkers({ customers: [cs({ id: "C1" })] });
+      const svg = container.querySelector(".cs-marker svg")!;
+      expect(svg.outerHTML).toContain("var(--demand-300)");
+    });
+
+    it("customer bubbles are blue (var(--accent-*)) for a non-p-median-us modelId", () => {
+      const { container } = renderMarkers({ customers: [cs({ id: "C1" })], modelId: "transport-coal" });
+      const svg = container.querySelector(".cs-marker svg")!;
+      expect(svg.outerHTML).toContain("var(--accent-300)");
+      expect(svg.outerHTML).not.toContain("--demand-300");
+    });
+
+    it("warehouse triangles stay blue (var(--accent-700)) regardless of modelId", () => {
+      const { container } = renderMarkers({ warehouses: [wh({ id: "W1" })], modelId: "transport-coal" });
+      const svg = container.querySelector(".wh-marker svg")!;
+      expect(svg.outerHTML).toContain("var(--accent-700)");
+    });
+  });
+
+  // R2 — discrete quintile demand-bubble sizing, computed from the full
+  // `customers` population this component already receives (base + added +
+  // excluded — nothing is filtered out of the array before this loop runs).
+  describe("quintile bubble sizing (R2)", () => {
+    it("two customers in the same quintile bucket render the same bubble size; a customer in a higher bucket renders larger", () => {
+      // 10 customers spanning a wide demand range -> multiple distinct buckets.
+      const population = [100, 500, 1000, 2000, 3000, 5000, 8000, 12000, 20000, 50000].map((demand, i) =>
+        cs({ id: `C${i}`, demand }),
+      );
+      const { container } = renderMarkers({ customers: population });
+      const svgs = Array.from(container.querySelectorAll(".cs-marker svg"));
+      expect(svgs.length).toBe(10);
+      const widths = svgs.map((svg) => Number(svg.getAttribute("width")));
+      // Smallest demand (100) must not be larger than the largest (50000).
+      expect(widths[0]).toBeLessThanOrEqual(widths[widths.length - 1]);
+      // At least two distinct sizes actually appear across this spread.
+      expect(new Set(widths).size).toBeGreaterThan(1);
+    });
+
+    it("an excluded customer is IN the quintile scale (sized by its own bucket, not fixed-size) and still carries the dim class", () => {
+      // The excluded customer has the largest demand in the population — its
+      // bubble must be sized at the top bucket, not some fixed/default size.
+      const population = [
+        cs({ id: "C1", demand: 100, excluded: false }),
+        cs({ id: "C2", demand: 500, excluded: false }),
+        cs({ id: "C3", demand: 50000, excluded: true }),
+      ];
+      const { container } = renderMarkers({ customers: population });
+      const excludedMarker = container.querySelector(".cs-excluded") as HTMLElement;
+      const otherMarkers = Array.from(container.querySelectorAll(".cs-marker:not(.cs-excluded)"));
+      expect(excludedMarker.className).toContain("cs-excluded");
+      const excludedWidth = Number(excludedMarker.querySelector("svg")!.getAttribute("width"));
+      const otherWidths = otherMarkers.map((m) => Number(m.querySelector("svg")!.getAttribute("width")));
+      expect(excludedWidth).toBeGreaterThan(Math.max(...otherWidths));
+    });
+
+    it("an excluded customer's (large) demand shifts the thresholds for everyone else too — the population includes it, unfiltered", () => {
+      // demand=400 sits above p80 (bucket 4) in the 4-customer population,
+      // but drops to bucket 3 once the huge excluded 5th customer is folded
+      // into the threshold math (verified by hand: p80 without the outlier
+      // is 340; with it, p60 is 340 and p80 balloons to ~200320).
+      const withHugeExcluded = [
+        cs({ id: "C1", demand: 100 }),
+        cs({ id: "C2", demand: 200 }),
+        cs({ id: "C3", demand: 300 }),
+        cs({ id: "C4", demand: 400 }),
+        cs({ id: "C5", demand: 1000000, excluded: true }),
+      ];
+      const withoutIt = withHugeExcluded.slice(0, 4);
+      const { container: withHuge } = renderMarkers({ customers: withHugeExcluded });
+      const { container: without } = renderMarkers({ customers: withoutIt });
+      // C4 (demand=400) is the last non-excluded customer in render order in
+      // both populations, so it's the last ".cs-marker" node in each case.
+      const markerWithHuge = Array.from(withHuge.querySelectorAll(".cs-marker"))[3];
+      const markerWithout = Array.from(without.querySelectorAll(".cs-marker"))[3];
+      const widthHuge = Number(markerWithHuge.querySelector("svg")!.getAttribute("width"));
+      const widthNoHuge = Number(markerWithout.querySelector("svg")!.getAttribute("width"));
+      expect(widthHuge).not.toBe(widthNoHuge);
+    });
   });
 });
