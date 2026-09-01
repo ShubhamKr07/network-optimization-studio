@@ -1,8 +1,10 @@
 # Bundle 2 — Input Map v2 + R1–R9 UX fast-follow to the other 3 models — Design Spec
 
 **Date:** 2026-09-01
-**Status:** Draft (awaiting user review)
+**Status:** Draft rev 2 (post-review; awaiting user decisions on 2 open items)
 **Predecessors:** Input Map v2 (`docs/superpowers/plans/2026-08-31-input-map-v2.md`, merged `8bfb304`), R1–R9 Workspace UX (`docs/superpowers/specs/2026-09-01-workspace-ux-r1-r9-design.md`, merged `2ee91eb`, deployed). Both are p-median-us pilots; this bundle brings the other three models to parity.
+
+**Rev 2 changes:** incorporates a review pass that found the rev-1 "de-risking" claims materially wrong. Verified against code/data: Brazil and two-echelon **do** need estimator work; Brazil needs an OpenAPI change, a customer-shape adapter, manifest-schema parity, and an output-map architecture decision; the R3/R7 capability must be defined here, not deferred. All corrected below.
 
 ## Goal
 
@@ -12,85 +14,123 @@ Bring **p-median-brazil**, **transport-coal**, and **two-echelon-gold-au** to fu
 
 1. **All 3 models**, including Brazil (which needs its missing `GET /dataset` endpoint built first).
 2. **Full v2 editor + all p-median-only R1–R9 UX**, scoped per model by capability (below).
-3. **transport-coal:** R3 (status markers) and R7 (hide-closed) are **N/A** — a pure transportation LP has no facility open/close or status concept (`solve_transport` returns `openWarehouseIds = all mines` always; mines/stations carry no status). These are gated off the same way R6+R8 already omits facility rows — not forced into a nonsensical UI. transport-coal still gets the v2 editor, R1/R2 station bubbles, and R4 Save-in-Layers.
-4. **R1 green demand bubbles apply to all 3** — uniform "green = demand" everywhere. This overrides two-echelon's current blue demand tone.
+3. **transport-coal:** R3 (status markers) and R7 (hide-closed) are **N/A** — a pure transportation LP has no facility open/close or status concept (`solve_transport` returns `openWarehouseIds = all mines` always; mines/stations carry no status). Gated off via a capability flag, not forced into a nonsensical UI. transport-coal still gets the v2 editor, R1/R2 station bubbles, and R4.
+4. **R1 green demand bubbles apply to all 3** — uniform "green = demand". Overrides two-echelon's current blue demand tone.
 
 ## Per-model applicability matrix
 
 | Upgrade | p-median-brazil | transport-coal | two-echelon-gold-au |
 |---|---|---|---|
-| v2 editor (place/move/edit/delete added + distance estimates) | ✓ (warehouses + customers) | ✓ (mines + stations; circuity 1.17 in estimate) | ✓ (mine + refineries + customers; 2-leg estimate) |
-| R1 green demand bubbles | ✓ customers | ✓ **stations** (demand-bearing entity) | ✓ customers |
+| v2 editor (place/move/edit/delete added + distance estimates) | ✓ (warehouses + customers) | ✓ (mines + stations) | ✓ (refineries + customers; **mine is fixed, non-editable**) |
+| R1 green demand bubbles | ✓ customers | ✓ **stations** | ✓ customers |
 | R2 quintile bubble sizing | ✓ | ✓ | ✓ |
-| R3 status markers (outline/dashed paint) | ✓ warehouses | ✗ **N/A** | ✓ refineries only (mine is fixed) |
+| R3 status markers (outline/dashed paint) | ✓ warehouses | ✗ **N/A** | ✓ **refineries only** (mine fixed, no status) |
 | R4 Save-in-Layers | ✓ | ✓ | ✓ |
-| R7 hide closed facilities | ✓ warehouses | ✗ **N/A** | ✓ refineries (single-open binary) |
+| R7 hide closed facilities | ✓ warehouses | ✗ **N/A** | ✓ **refineries only** (never the fixed mine) |
 
-The demand-bearing entity per model (R1/R2 target): p-median-brazil → customers (regions); transport-coal → stations; two-echelon → customers.
-The facility entity with status/open-close (R3/R7 target): p-median-brazil → warehouses; transport-coal → none; two-echelon → refineries (the mine is fixed, no status).
+Demand-bearing entity (R1/R2 target): brazil → customers; transport-coal → stations; two-echelon → customers.
+Facility entity with status/open-close (R3/R7 target): brazil → warehouses; transport-coal → none; two-echelon → refineries.
 
-## What already exists (de-risking)
+### two-echelon fixed-mine invariant (P1, must be explicit)
 
-The Input Map v2 **backend is already multi-model** — this bundle is mostly frontend plus one small backend endpoint:
+The two-echelon mine (Kalgoorlie) is **read-only context**: it can never be placed, moved, edited, copied, or deleted, and R7 must **never** filter it out. The existing `WarehouseCandidate.kind` (`"mine" | "facility"`, from Chapter 10) is the join point — R7 filters only **closed `kind: "facility"`** rows and always retains `kind: "mine"`. Today's `NetworkMap` drops every warehouse-role row absent from `openWarehouseIds`; the fixed mine is never in that refinery-only result, so a naive R7 would drop it. Acceptance requires an RTL assertion that hide-closed removes a closed refinery **and preserves the mine**.
 
-- **Added-entity persistence + schemas:** Phase B built `addedWarehouses`/`addedCustomers` (p-median-us, brazil), `addedMines`/`addedStations`/`laneCostOverrides` (transport-coal), `addedRefineries`/`addedCustomers`/`distanceOverrides` (two-echelon) into the validation schemas and solver merge paths for **all 4 models**.
-- **Distance/cost estimators:** `routes/scenarios.ts`'s `normalizeAddedEntityDistances` already dispatches by modelId across POST-create / PATCH / import-apply, calling `fillEstimatedDistances` (p-median-us, and brazil via the shared schema), `fillEstimatedLaneCosts` (transport-coal, circuity 1.17), and `fillEstimatedTwoEchelonDistances` (two-echelon, both legs). No new estimator work is needed.
-- **Prechecks:** `precheckPMedianInputs` / `precheckTransportInputs` / `precheckTwoEchelonInputs` + `BRAZIL_DATASET` all exist.
+## What already exists vs. what this bundle must build (corrected)
 
-What is **p-median-us-only today** and must be extended:
+**Genuinely done (Phase B):**
+- Added-entity **Zod validation schemas + solver merge paths** for all 4 models (`addedWarehouses`/`addedCustomers`, `addedMines`/`addedStations`/`laneCostOverrides`, `addedRefineries`/`addedCustomers`/`distanceOverrides`).
+- Prechecks: `precheckPMedianInputs` / `precheckTransportInputs` / `precheckTwoEchelonInputs` + `BRAZIL_DATASET`.
+- Estimators for **p-median-us** (plain haversine) and **transport-coal** (haversine × 1.17 lane costs).
 
-- **Frontend `InputMapTab` mode.** Three modes exist: `pmedian` (full v2 — p-median-us only), `legacy` (Task-4 pin-drop — transport-coal, two-echelon), `placeholder` (Brazil — no dataset). This bundle moves all three non-pilot models to a full-v2 editor matching each one's own entity shape.
-- **R1–R9 symbology.** `EntityMarkers`/`MapLegend` green-demand + quintile + status paint, `Save-in-Layers`, and `hideClosedWarehouses` are wired for p-median-us; they must be extended per the matrix.
-- **Brazil `GET /dataset`.** `routes/dataset.ts` has branches for p-median-us / transport-coal / two-echelon but **not** p-median-brazil (it 400s). Brazil's base data exists as `BRAZIL_WAREHOUSES` + `BRAZIL_REGIONS` (`data/dataset.ts`) and canonically in `solvers/p-median-brazil/dataset/*.json`.
+**NOT done — must be built (this is the corrected core of the backend work):**
 
-## Architecture
+#### Estimator gaps (P1) — per-leg circuity conventions
 
-### Backend: Brazil `GET /dataset` endpoint
+Every model's estimator must replicate its **own base matrix's** distance convention, reverse-derived from the base data and locked with a test. Verified ratios (stored ÷ plain-haversine-miles):
 
-Add a `p-median-brazil` branch to `routes/dataset.ts` returning `{ warehouses, customers }` for Brazil, mirroring the other three model branches. **Verification requirement (spec-time risk):** the served rows must carry the full map-rendering shape (`id`, `city`, `state`, `lat`, `lng`, and `demand` on customers). Confirm `BRAZIL_WAREHOUSES`/`BRAZIL_REGIONS` carry coords + demand; if they are id-only (they are shaped for precheck), source the endpoint from the canonical `solvers/p-median-brazil/dataset/*.json` instead (the same origin `solve.py` loads), following the existing `data/*Dataset.ts` derivation pattern. No OpenAPI change is expected (the `GET /dataset` response is already an untyped `{warehouses, customers}` passthrough) — confirm during implementation; if a contract change is needed, it goes through openapi.yaml + codegen per hard rule #1/#4.
+| Model / leg | Base convention | `normalizeAddedEntityDistances` today | Required fix |
+|---|---|---|---|
+| p-median-us | plain haversine mi (×1.000) | `fillEstimatedDistances` (plain) | none |
+| transport-coal lanes | haversine × 1.17 | `fillEstimatedLaneCosts` (×1.17) | none |
+| two-echelon mine→refinery | plain haversine mi (×0.999) | `fillEstimatedTwoEchelonDistances` (plain) | none |
+| **two-echelon refinery→customer** | haversine × **≈1.179** | plain haversine | **add circuity ≈1.179 to this leg only** |
+| **p-median-brazil** | haversine × **1.17** | **falls through unchanged (none)** | **add a Brazil estimator (BRAZIL_DATASET + ×1.17)** |
 
-### Frontend: per-model full-v2 Input Map editor
+- **two-echelon:** `fillEstimatedTwoEchelonDistances` writes plain `haversineMiles` for **both** legs; the refinery→customer base leg actually carries a ≈1.179 circuity factor, so added refinery→customer rows are understated ~15% and can wrongly influence which single refinery opens. The estimator must apply the exact factor (reverse-derived from the base matrix, not assumed 1.17) to the refinery→customer leg only; the mine→refinery leg stays plain. The misleading `autoDistance.ts` comment ("haversineMiles for both legs, no circuity") — which only ever spot-checked a mine→refinery pair — must be corrected.
+- **Brazil:** `normalizeAddedEntityDistances` has no `p-median-brazil` branch (`return data` fall-through), so added-entity distances are never estimated; routing Brazil through the US plain-haversine path would also be wrong (Brazil base = ×1.17). Add a Brazil branch: parameterize/clone the estimator to use `BRAZIL_DATASET` and the 1.17 factor, wired on POST-create, PATCH, and import-apply, with idempotency + move/re-estimation tests.
+- **`e2e_accuracy` 87/87 is preserved** by all of the above: base matrices are never edited; only added-entity rows are estimated. The fixes make added rows *consistent* with the untouched base convention. The plan must state this explicitly per model.
 
-Each non-pilot model gets a full-v2 editor variant matching its entity types. The p-median-us `pmedian` mode is the template; the work is generalizing its editor + symbology to the other entity shapes rather than a literal flag flip (the input shapes differ: `PMedianMapInputs` vs `TransportLpInputs` mines/stations vs two-echelon refineries/customers/mine).
+#### Brazil `GET /dataset` — endpoint + contract + adapter (P1)
 
-Decomposition is **per-model (three tracks)** sharing common symbology work:
+- `routes/dataset.ts` has no `p-median-brazil` branch (400s today). Add one returning `{ warehouses, customers }`.
+- **OpenAPI change is mandatory, not conditional.** The `getDataset` query `modelId` enum is `[p-median-us, transport-coal, two-echelon-gold-au]` and the response is the typed `Dataset` schema; generated `GetDatasetModelId` mirrors the narrower enum. Adding Brazil **requires** updating `openapi.yaml` (enum + description) and regenerating `lib/api-zod` + `lib/api-client-react` in the same commit (hard rule #1/#4).
+- **Customer-shape adapter is mandatory.** `BRAZIL_REGIONS` (from canonical `states.json`) is `{id, name, lat, lng, demand}` — it lacks the `city`/`state` fields `Dataset.Customer` requires; `BRAZIL_WAREHOUSES` similarly lacks them. Falling back to the canonical file does **not** fix this. Lock and test a deterministic adapter: **`city = name`, `state = id`** (regions have no separate city/state; the region name is the display label, the region code is the stable id). Applies to both the endpoint output and any frontend consumer that expects `Dataset` shape.
 
-- **Track B (Brazil):** `GET /dataset` endpoint + frontend query wiring, then the full-v2 editor over warehouses+customers (Brazil shares p-median-us's `PMedianMapInputs` schema, so this is the closest to the pilot — mainly swapping the placeholder mode for the real map + dataset). Full R1/R2/R3/R4/R7.
-- **Track T (transport-coal):** full-v2 editor over mines+stations, replacing the legacy pin-drop. R1/R2 station bubbles, R4. **R3/R7 gated off** (N/A).
-- **Track E (two-echelon):** full-v2 editor over mine(fixed)+refineries+customers, replacing legacy pin-drop. R1/R2 customer bubbles, R4, R3/R7 on refineries only. Handles the 2-leg geometry (mine→refinery, refinery→customer) in the map + estimates (estimator already exists).
+#### Brazil manifest-schema parity (P2)
+
+`solvers/p-median-brazil/manifest.json`'s `inputsSchema` omits `addedWarehouses`, `addedCustomers`, and `distanceOverrides`, even though `GET /models` publishes it — schema-driven consumers get a false contract. Add these to Brazil's manifest `inputsSchema` (matching the p-median-us manifest it otherwise mirrors).
+
+#### Brazil R7 output-map architecture (P1) — **open decision, see below**
+
+Swapping the Input Map placeholder does **not** deliver R7 for Brazil. `OutputMapTab` routes Brazil through `BrazilMap`, which takes only `{result, showRoutes}` and renders counts ("N DCs · M demand regions") — it consumes no dataset, `displayedInputs`, added entities, status overrides, or `hideClosedWarehouses`. R7 (and the effective-dataset-from-`displayedInputs` geometry) needs either a **BrazilMap → NetworkMap migration** or a **full BrazilMap upgrade** that builds the solve-time effective dataset and filters closed warehouses without dropping opened added entities/routes. This is a genuine architecture fork — see Open Decisions.
+
+**Frontend, p-median-us-only today, to extend:**
+- `InputMapTab` modes: `pmedian` (full v2, us only), `legacy` (transport/two-echelon pin-drop), `placeholder` (Brazil). Move all three non-pilot models to a full-v2 editor matching each one's own entity shape.
+- `EntityMarkers`/`MapLegend` green-demand + quintile + status paint; `Save-in-Layers`; `hideClosedWarehouses` — extend per the matrix.
+
+## Capability metadata (P2) — defined here, not deferred
+
+The existing capability schema (`supportsP`, `capacityModes`, `demandEditable`, `outputGrids`) cannot distinguish transport-coal's no-status mines from two-echelon's status-bearing refineries + fixed mine. To keep R3/R7 gates capability-driven (never `modelId === "..."`), add one capability:
+
+- **`capabilities.supportsFacilityStatus: boolean`** — true when the model has open/close + status facilities that R3/R7 act on. Values: p-median-us `true`, p-median-brazil `true`, two-echelon-gold-au `true`, transport-coal `false`.
+
+R3 status markers and R7 hide-closed gate on `supportsFacilityStatus`. The two-echelon fixed-mine retention uses the orthogonal existing `WarehouseCandidate.kind` (`"mine"` never filtered), not this flag.
+
+**Change surface for this capability (all in one coherent set):** `lib/dataset-schema` `ManifestSchema`; all 4 `solvers/*/manifest.json`; `openapi.yaml` `ModelInfo.capabilities` + regenerated codegen; `registry/modelRegistry.ts` `toPublic` default (`?? false`); frontend gate call sites; and test fixtures on both the API and frontend sides.
+
+## Architecture & decomposition
+
+Three per-model tracks sharing common symbology + capability work:
+
+- **Track B (Brazil):** capability + manifest parity → `GET /dataset` (endpoint + OpenAPI + adapter) → Brazil estimator (×1.17) → frontend full-v2 editor (Brazil shares `PMedianMapInputs`) → R1/R2/R3/R4 → **R7 output-map architecture** (per the open decision). Largest track.
+- **Track T (transport-coal):** full-v2 editor over mines+stations (replaces legacy) → R1/R2 station bubbles → R4. R3/R7 gated off via `supportsFacilityStatus === false`. No estimator work (lane costs already ×1.17).
+- **Track E (two-echelon):** refinery→customer estimator circuity fix → full-v2 editor over refineries+customers with the **fixed mine as read-only context** → R1/R2 customer bubbles → R4 → R3/R7 on refineries only (never the mine). Handles 2-leg geometry in the map.
 
 ### Cross-model gate consistency (this repo's most-documented bug class)
 
-A shared component's per-model gate updated for one model but forgotten for a sibling has recurred 5+ times (Chapter 10 Rounds 1/2/4, SCN v0.3 Phase B, C6.1). Bundle 2 touches exactly this surface. Mitigations, mandatory:
-
-- Prefer **capability-driven gates** over `modelId === "..."` checks wherever a capability flag expresses the distinction (R3/R7 gate on "has facility open/close + status", not a hardcoded model list). If no clean capability exists, add one to the manifest rather than hardcoding (precedent: R6+R8's `capabilities.supportsP`, C6.1's `capabilities.outputGrids`).
-- Run **`model-integration-precheck.md`'s Gate 1 + Gate 6.5** explicitly at every new entity/model registration point in this bundle.
-- Every symbology/editor change gets an RTL test **per model** (not only the model being added), asserting the others are unchanged — the same pattern R1–R9's T6/T5 tests used.
+A shared component's per-model gate updated for one model but forgotten for a sibling has recurred 5+ times. Mandatory mitigations:
+- **Capability-driven gates** (the new `supportsFacilityStatus`), never hardcoded model lists.
+- Run `model-integration-precheck.md` Gate 1 + Gate 6.5 at every new entity/model registration point.
+- Every symbology/editor change gets an RTL test **per model** asserting the others are unchanged.
 
 ## Testing strategy
 
-- **RTL (per model):** editor place/move/edit/delete for each model's entity shape; R1 green bubbles on the demand entity; R2 quintile sizing; R3 status paint (brazil/two-echelon) and **absence** for transport-coal; R4 Save-in-Layers; R7 hide-closed (brazil/two-echelon) and **absence** for transport-coal. Legacy-behavior-unchanged assertions for any model not being modified by a given change.
-- **Backend:** Brazil `GET /dataset` returns the correct shape (all rows, coords + demand present); estimator normalizer already covered by Phase B tests (re-confirm green, no new estimator work).
-- **Solver gate:** no `solve.py`/dataset-numeric change is in scope. `e2e_accuracy.py` must remain **87/87 unchanged**. If the Brazil endpoint sources from `solvers/p-median-brazil/dataset/*.json`, that is a read, not a mutation — confirm no dataset file is edited.
-- **Live Playwright:** one money-path per model against real dev servers (real solve): place an added entity → save → solve → confirm the v2 editor + symbology render; R3 paint proven via computed style for brazil/two-echelon; transport-coal confirmed to have no status/hide-closed UI. Disposable scenarios/users cleaned up.
+- **RTL (per model):** editor place/move/edit/delete per entity shape; R1 green bubbles on the demand entity; R2 quintile sizing; R3 status paint present (brazil/two-echelon) and **absent** (transport-coal); R4 Save-in-Layers; R7 hide-closed present (brazil/two-echelon, **mine preserved for two-echelon**) and **absent** (transport-coal); "other models unchanged" assertions.
+- **Backend:** Brazil `GET /dataset` returns the correct adapted shape (all rows, `city`/`state`/`lat`/`lng`/`demand` present); Brazil + two-echelon estimators — idempotency, move/re-estimation, and correct per-leg circuity (reverse-derived factor asserted).
+- **Solver gate:** no `solve.py`/dataset-numeric change. `e2e_accuracy.py` **87/87 unchanged**; the plan states per model why each estimator fix leaves base data untouched.
+- **Live Playwright (expanded, P2):** real-solve journeys must exercise **both editable roles** per model, then verify the generated cross rows:
+  - transport-coal: added **mine** + added **station** → verify generated lane costs.
+  - two-echelon: added **refinery** + added **customer** → verify generated mine→refinery **and** refinery→customer rows (correct circuity on the latter).
+  - Brazil: added **warehouse** + added **customer** (one case or split across two).
+  - R3 paint proven via computed style (brazil/two-echelon); transport-coal confirmed to have no status/hide-closed UI. Disposable data cleaned up.
 
-## Hard rules & invariants (must hold)
+## Hard rules & invariants
 
-- **DD-1:** base dataset files under `solvers/*/dataset/*.json` are never mutated; added entities live only in the scenario's `inputs` JSONB.
-- **Hard rule #1/#4:** no hand-edits to generated code; any contract change = openapi.yaml + regenerated codegen in the same commit.
-- **Hard rule #5:** ownership filtering (404 never 403) on any new scenario-scoped surface (none expected here; `GET /dataset` is unauthenticated static data).
-- **Hard rule #6:** no new solver branches — all model behavior is data/bounds; no `solve.py` change is in scope.
-- **`displayedInputs` snapshot principle** (R1–R9): every output surface reads the solve-time snapshot, never the editable draft. Any new per-model output wiring inherits this.
-- **DD-7 identity:** added entities carry a stable opaque uid (`aw-`/`ac-`/`am-`/`as-`/`ar-`) as the distanceOverrides join key; never changes on move. Extended per model in Phase B — Bundle 2's editors must preserve it.
+- **DD-1:** base `solvers/*/dataset/*.json` never mutated; added entities live only in scenario `inputs` JSONB.
+- **Hard rule #1/#4:** no hand-edited generated code; every contract change = `openapi.yaml` + regenerated codegen in the same commit (applies to the `GET /dataset` enum and the `ModelInfo.capabilities` addition).
+- **Hard rule #5:** ownership 404-never-403 on any scenario-scoped surface (`GET /dataset` is unauthenticated static data).
+- **Hard rule #6:** no new solver branches — model behavior stays data/bounds; no `solve.py` change in scope.
+- **`displayedInputs` snapshot principle:** every output surface reads the solve-time snapshot, never the editable draft — Brazil's R7 output work must honor this.
+- **DD-7 identity:** added entities keep their stable opaque uid; never changes on move.
 
 ## Out of scope (explicit)
 
-- **New models** — that is Bundle 3 (the user will name additional models to integrate).
-- **two-echelon `TRUCKLOAD_KG` non-geometric objective handling**, base-entity move/delete, focusable-marker keyboard navigation, touch, marker clustering — all remain deferred from Input Map v2's own out-of-scope list unless a specific one proves necessary for parity.
-- **The 3 Minor R1–R9 follow-ups** (compare stale-recheck, `selectedIds` re-init, EntityMarkers green-default invariant) — tracked separately, not part of this bundle.
+- **New models** — Bundle 3.
+- **two-echelon `TRUCKLOAD_KG` non-geometric objective**, base-entity move/delete, keyboard-focusable markers, touch, marker clustering — deferred from Input Map v2's own out-of-scope list.
+- **two-echelon distance-unit display mismatch (pre-existing, flagged):** the two-echelon base numbers are miles (× circuity on the refinery→customer leg), but the model advertises `distanceUnit: "km"`, so Service Stats / band labels display "km" over mile-magnitude numbers. This is a **pre-existing display bug**, independent of Bundle 2's estimator-consistency fix. Bundle 2's estimator fix makes added rows consistent with the base (miles×circuity); it does **not** fix the label. Correcting the label properly means either relabeling two-echelon to "mi" (changes shipped display) or converting the dataset to km (touches the sacred 87/87 baseline) — a separate decision. See Open Decisions.
+- **The 3 Minor R1–R9 follow-ups** — tracked separately.
 
-## Open questions for user review
+## Open decisions (need user input before the plan)
 
-1. **Decomposition order** — the plan will sequence Track B (Brazil, closest to pilot + one backend piece) first, then T and E. Acceptable, or prioritize differently?
-2. **Two-echelon demand tone** — confirmed green for all 3 in brainstorm; flagging again since it visibly changes an existing shipped model.
-3. **Brazil dataset source** — endpoint serves from `BRAZIL_WAREHOUSES`/`BRAZIL_REGIONS` if they carry coords+demand, else from `solvers/p-median-brazil/dataset/*.json`. The plan will verify and pick; no decision needed unless you want to force one.
+1. **Brazil R7 output-map architecture** — migrate Brazil output from `BrazilMap` to the shared `NetworkMap` (full parity, R7 + effective-dataset geometry "for free", but a larger change with regression risk to Brazil's working output), **or** upgrade `BrazilMap` in place to consume dataset/`displayedInputs`/`hideClosedWarehouses` (narrower, keeps a divergent component). Recommendation: **migrate to NetworkMap** — it's the parity goal and avoids maintaining two output maps.
+2. **two-echelon km/mi label mismatch** — fix in Bundle 2 (and if so, relabel to "mi" or convert data to km), or leave as a flagged pre-existing issue out of Bundle 2 scope. Recommendation: **leave out of scope** (flagged) — it's orthogonal to the input-map work and the data-conversion option risks the 87/87 baseline; handle it as its own task.
