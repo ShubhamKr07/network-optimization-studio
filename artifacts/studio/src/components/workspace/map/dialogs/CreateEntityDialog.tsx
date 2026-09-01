@@ -11,7 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { warehouseStatusPresentation, type WhStatus } from "@/components/workspace/map/statusPresentation";
-import type { AddedCustomerInput, AddedWarehouseInput } from "@/components/workspace/map/types";
+import {
+  WAREHOUSE_ROLE,
+  CUSTOMER_ROLE,
+  type AddedCustomerInput,
+  type AddedWarehouseInput,
+  type EntityRoleConfig,
+} from "@/components/workspace/map/types";
 import { nearestCity } from "@/lib/gazetteer";
 import { newUid, nextDisplayCode } from "@/lib/entityId";
 
@@ -22,8 +28,24 @@ type CopyFrom =
   | AddedCustomerInput
   | { capacity?: number | null; demand?: number };
 
+function valueFromCopy(copyFrom: CopyFrom | undefined, key: "capacity" | "demand"): number | undefined {
+  if (!copyFrom) return undefined;
+  if (key === "capacity" && "capacity" in copyFrom && copyFrom.capacity != null) return copyFrom.capacity;
+  if (key === "demand" && "demand" in copyFrom && copyFrom.demand != null) return copyFrom.demand;
+  return undefined;
+}
+
 interface CreateEntityDialogProps {
+  /** Rendering role — "wh" is a triangle marker (warehouse/mine/refinery),
+   * "cs" is a demand bubble (customer/station). Which fields actually apply
+   * (status, capacity vs demand, uid/display-code prefix) is `role`'s job,
+   * not this. */
   kind: "wh" | "cs";
+  /** T4 (Bundle 2, Step 0) — the entity's real role config. Defaults to
+   * WAREHOUSE_ROLE ("wh") / CUSTOMER_ROLE ("cs") — today's exact
+   * p-median-us behavior, unchanged for every existing call site that
+   * doesn't pass this. */
+  role?: EntityRoleConfig;
   lat: number;
   lng: number;
   existingCodes: Iterable<string>;
@@ -43,6 +65,7 @@ interface CreateEntityDialogProps {
 // the join key mid-edit, which the T3 uid contract forbids.
 export function CreateEntityDialog({
   kind,
+  role = kind === "wh" ? WAREHOUSE_ROLE : CUSTOMER_ROLE,
   lat,
   lng,
   existingCodes,
@@ -54,24 +77,29 @@ export function CreateEntityDialog({
   const nearest = useMemo(() => nearestCity(lat, lng), [lat, lng]);
   const [city, setCity] = useState(nearest.city);
   const [state, setState] = useState(nearest.state);
-  const id = useMemo(() => newUid(kind), [kind]);
+  // DD-7 — the uid/display-code prefix comes from the role's `uidKind`, not
+  // `kind`: a mine (kind="wh", so it renders as a triangle) still mints an
+  // "am-"/"MN-..." id, never "aw-"/"WH-...".
+  const id = useMemo(() => newUid(role.uidKind), [role.uidKind]);
 
-  const copyCapacity =
-    copyFrom && "capacity" in copyFrom && copyFrom.capacity != null ? copyFrom.capacity : undefined;
-  const copyDemand = copyFrom && "demand" in copyFrom && copyFrom.demand != null ? copyFrom.demand : undefined;
+  const copyCapacity = valueFromCopy(copyFrom, "capacity");
+  const copyDemand = valueFromCopy(copyFrom, "demand");
 
   const [status, setStatus] = useState<WhStatus>("active");
   const [capacity, setCapacity] = useState<string>(copyCapacity != null ? String(copyCapacity) : "");
   const [demand, setDemand] = useState<string>(String(copyDemand ?? medianDemand));
 
   const displayCode = useMemo(
-    () => nextDisplayCode(kind, state, city, existingCodes),
-    [kind, state, city, existingCodes],
+    () => nextDisplayCode(role.uidKind, state, city, existingCodes),
+    [role.uidKind, state, city, existingCodes],
   );
 
   const handleSubmit = () => {
     if (kind === "wh") {
-      const input: AddedWarehouseInput = {
+      // role.hasStatus:false (e.g. MINE_ROLE) — status is entirely absent
+      // from the emitted object, not just undefined, so it can never
+      // round-trip into a PATCH payload as a stray no-op field.
+      const input = {
         id,
         displayCode,
         city,
@@ -79,9 +107,9 @@ export function CreateEntityDialog({
         lat,
         lng,
         capacity: capacity === "" ? null : Number(capacity),
-        status,
+        ...(role.hasStatus ? { status } : {}),
       };
-      onSubmit(input);
+      onSubmit(input as unknown as AddedWarehouseInput);
     } else {
       const input: AddedCustomerInput = {
         id,
@@ -96,7 +124,7 @@ export function CreateEntityDialog({
     }
   };
 
-  const title = kind === "wh" ? "New warehouse" : "New customer";
+  const title = `New ${role.label}`;
 
   return (
     <Dialog open onOpenChange={open => !open && onCancel()}>
@@ -152,27 +180,29 @@ export function CreateEntityDialog({
 
           {kind === "wh" ? (
             <>
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground">Status</Label>
-                <RadioGroup
-                  value={status}
-                  onValueChange={v => setStatus(v as WhStatus)}
-                  data-testid="create-entity-status"
-                >
-                  {STATUS_OPTIONS.map(option => (
-                    <div key={option} className="flex items-center gap-2">
-                      <RadioGroupItem
-                        value={option}
-                        id={`create-entity-status-${option}`}
-                        data-testid={`create-entity-status-${option}`}
-                      />
-                      <Label htmlFor={`create-entity-status-${option}`} className="text-sm font-normal">
-                        {warehouseStatusPresentation[option].label}
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
+              {role.hasStatus && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-foreground">Status</Label>
+                  <RadioGroup
+                    value={status}
+                    onValueChange={v => setStatus(v as WhStatus)}
+                    data-testid="create-entity-status"
+                  >
+                    {STATUS_OPTIONS.map(option => (
+                      <div key={option} className="flex items-center gap-2">
+                        <RadioGroupItem
+                          value={option}
+                          id={`create-entity-status-${option}`}
+                          data-testid={`create-entity-status-${option}`}
+                        />
+                        <Label htmlFor={`create-entity-status-${option}`} className="text-sm font-normal">
+                          {warehouseStatusPresentation[option].label}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="create-entity-capacity" className="text-xs font-semibold text-foreground">
                   Capacity

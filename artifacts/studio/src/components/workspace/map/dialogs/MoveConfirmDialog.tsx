@@ -9,9 +9,14 @@ import {
 } from "@/components/ui/dialog";
 import { nearestCity } from "@/lib/gazetteer";
 import { nextDisplayCode } from "@/lib/entityId";
+import { WAREHOUSE_ROLE, CUSTOMER_ROLE, type EntityRoleConfig } from "@/components/workspace/map/types";
 
 interface MoveConfirmDialogProps {
   kind: "wh" | "cs";
+  /** T4 (Bundle 2, Step 0) — defaults to WAREHOUSE_ROLE ("wh") / CUSTOMER_ROLE
+   * ("cs"). Drives the display-code prefix (role.uidKind, DD-7 — a mine
+   * regenerates "MN-..." on move, not "WH-...") and the dialog title. */
+  role?: EntityRoleConfig;
   entity: { id: string; displayCode?: string };
   newLat: number;
   newLng: number;
@@ -30,6 +35,7 @@ interface MoveConfirmDialogProps {
 // it isn't part of `onConfirm` at all.
 export function MoveConfirmDialog({
   kind,
+  role = kind === "wh" ? WAREHOUSE_ROLE : CUSTOMER_ROLE,
   entity,
   newLat,
   newLng,
@@ -45,8 +51,8 @@ export function MoveConfirmDialog({
   }, [existingCodes, entity.displayCode]);
 
   const displayCode = useMemo(
-    () => nextDisplayCode(kind, nearest.state, nearest.city, codesExcludingOwn),
-    [kind, nearest, codesExcludingOwn],
+    () => nextDisplayCode(role.uidKind, nearest.state, nearest.city, codesExcludingOwn),
+    [role.uidKind, nearest, codesExcludingOwn],
   );
 
   const handleConfirm = () => {
@@ -57,7 +63,7 @@ export function MoveConfirmDialog({
     <Dialog open onOpenChange={open => !open && onCancel()}>
       <DialogContent data-testid="move-confirm-dialog">
         <DialogHeader>
-          <DialogTitle className="font-heading">Move {kind === "wh" ? "warehouse" : "customer"}</DialogTitle>
+          <DialogTitle className="font-heading">Move {role.label}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2 text-sm">

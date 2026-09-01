@@ -409,6 +409,51 @@ describe("NetworkMap hideClosedWarehouses", () => {
     expect((routeHtml.match(/<path/g) ?? []).length).toBe(1);
     expect(container.querySelectorAll(".leaflet-overlay-pane path.leaflet-interactive")).toHaveLength(1);
   });
+
+  // R7 (Bundle 2, Task T4) — a fixed mine (kind: "mine") is retained
+  // regardless of open/closed status; a genuinely closed candidate (a
+  // refinery here, standing in for any non-mine warehouse-role row) is
+  // still hidden exactly as before.
+  it("retains a fixed mine's marker even when hideClosedWarehouses is true and the mine is not open, while still hiding a genuinely closed warehouse", () => {
+    const mineDataset = {
+      warehouses: [
+        { id: "MINE1", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const },
+        { id: "W2", city: "Closed", state: "TS", lat: 41, lng: -91 },
+      ],
+      customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 40.5, lng: -90.5, demand: 100 }],
+    };
+    const resultNoOpens = {
+      status: "optimal" as const,
+      objective: 1,
+      runTimeSec: 0.1,
+      quality: "Optimal",
+      edges: [],
+      metrics: { weightedAvgDistance: 0, bandCoverage: [], utilizationByNode: [] },
+      details: { openWarehouseIds: [], assignments: [] },
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={mineDataset}
+        warehouseStatuses={[]}
+        result={resultNoOpens}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        hideClosedWarehouses
+      />,
+    );
+    // Exactly the mine's marker survives — the closed W2 candidate is
+    // filtered out entirely (its Tooltip content, mocked elsewhere in this
+    // file via `tooltipChildren`, never even mounts for a filtered-out
+    // marker, so a count of 1 is the real assertion here, not text content).
+    expect(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")).toHaveLength(1);
+    expect(container.textContent).not.toContain("Closed");
+  });
 });
 
 describe("NetworkMap MapContainer boxZoom", () => {

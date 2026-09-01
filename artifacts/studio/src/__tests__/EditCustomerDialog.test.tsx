@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { EditCustomerDialog } from "@/components/workspace/map/dialogs/EditCustomerDialog";
-import type { MapCustomer } from "@/components/workspace/map/types";
+import { STATION_ROLE, type MapCustomer } from "@/components/workspace/map/types";
 
 const customer: MapCustomer = {
   id: "cs-1",
@@ -65,5 +65,17 @@ describe("EditCustomerDialog", () => {
     const { onCancel } = renderDialog();
     fireEvent.keyDown(screen.getByTestId("edit-customer-dialog"), { key: "Escape", code: "Escape" });
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  // T4 (Bundle 2, Step 0) — role/editor config: STATION_ROLE only changes
+  // the title, every field/testid here already applies unchanged.
+  it("a role's label drives the dialog title (e.g. STATION_ROLE -> 'Edit station')", () => {
+    renderDialog({ role: STATION_ROLE });
+    expect(screen.getByTestId("edit-customer-dialog")).toHaveTextContent("Edit station");
+  });
+
+  it("omitting role defaults to CUSTOMER_ROLE — today's exact title, unchanged", () => {
+    renderDialog();
+    expect(screen.getByTestId("edit-customer-dialog")).toHaveTextContent("Edit customer");
   });
 });

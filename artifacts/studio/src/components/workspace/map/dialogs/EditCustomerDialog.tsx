@@ -10,13 +10,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { MapCustomer } from "@/components/workspace/map/types";
+import { CUSTOMER_ROLE, type EntityRoleConfig, type MapCustomer } from "@/components/workspace/map/types";
 
 const DEMAND_SLIDER_MAX = 50000;
 const DEMAND_SLIDER_STEP = 100;
 
 interface EditCustomerDialogProps {
   entity: MapCustomer;
+  /** T4 (Bundle 2, Step 0) — defaults to CUSTOMER_ROLE. STATION_ROLE (same
+   * hasStatus/valueField shape, different label) only changes the dialog
+   * title — every field/testid here already applies to both. */
+  role?: EntityRoleConfig;
   onSubmit: (patch: { demand: number }) => void;
   /** Fires on every slider/number change so the parent can resize the map's
    * demand bubble live, before Save commits anything. Cancel is the parent's
@@ -27,7 +31,13 @@ interface EditCustomerDialogProps {
 
 // T6 (Input Map v2) — presentational-only, same contract as
 // EditWarehouseDialog: emits a `{demand}` patch, no inputs-shape knowledge.
-export function EditCustomerDialog({ entity, onSubmit, onLivePreview, onCancel }: EditCustomerDialogProps) {
+export function EditCustomerDialog({
+  entity,
+  role = CUSTOMER_ROLE,
+  onSubmit,
+  onLivePreview,
+  onCancel,
+}: EditCustomerDialogProps) {
   const [demand, setDemand] = useState<number>(entity.demand);
 
   const applyDemand = (value: number) => {
@@ -43,7 +53,7 @@ export function EditCustomerDialog({ entity, onSubmit, onLivePreview, onCancel }
     <Dialog open onOpenChange={open => !open && onCancel()}>
       <DialogContent data-testid="edit-customer-dialog">
         <DialogHeader>
-          <DialogTitle className="font-heading">Edit customer</DialogTitle>
+          <DialogTitle className="font-heading">Edit {role.label}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">

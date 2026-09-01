@@ -18,11 +18,9 @@ export interface EntityMarkersProps {
   onRightClick: (entity: MapEntity, e: L.LeafletMouseEvent) => void;
   onDragEnd: (entity: MapEntity, latlng: { lat: number; lng: number }) => void;
   draggableIds: Set<string>;
-  /** R1: drives blue-vs-green customer bubbles (demandTone). Optional —
-   * defaults to "p-median-us", the only model wired to this component today
-   * (LegacyInputMap, the other models' Input Map, doesn't use EntityMarkers
-   * at all), so every existing call site keeps its current (correct) green
-   * behavior without needing to pass this explicitly. */
+  /** Unused since R1's fast-follow (types.ts's demandTone is green for every
+   * model now) — kept only so existing/future call sites that still pass a
+   * modelId don't need to be touched. */
   modelId?: string;
 }
 
@@ -58,11 +56,18 @@ export function customerBubbleSvg(radiusPx: number, tone: DemandTone = "blue"): 
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="${center}" cy="${center}" r="${radiusPx}" fill="var(${fillToken})" fill-opacity="0.55" stroke="var(${strokeToken})" stroke-width="1.5" /></svg>`;
 }
 
-function warehouseIcon(status: WhStatus): L.DivIcon {
-  const { marker } = warehouseStatusPresentation[status];
+// T4 (Bundle 2) — `status` is optional now: a role with `hasStatus: false`
+// (transport-coal mines) never populates MapWarehouse.status at all. There
+// is no meaningful "status" to color-code in that case, so it always
+// renders the plain outline triangle (same shape as p-median-us's own
+// "Potential" default) and carries no `status-*` class — a caller/test can
+// tell "no status" apart from "active status" by the class's absence.
+function warehouseIcon(status: WhStatus | undefined): L.DivIcon {
+  const marker = status ? warehouseStatusPresentation[status].marker : "outline";
+  const statusClass = status ? ` status-${status}` : "";
   return L.divIcon({
     html: warehouseTriangleSvg(marker),
-    className: `wh-marker status-${status} marker-${marker}`,
+    className: `wh-marker${statusClass} marker-${marker}`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });

@@ -49,7 +49,15 @@ export interface MapWarehouse {
   lat: number;
   lng: number;
   capacity?: number | null;
-  status: WhStatus;
+  // T4 (Bundle 2) — optional, not required: a "wh"-kind (triangle-marker)
+  // row is warehouse-shaped for p-median-us/brazil, refinery-shaped for
+  // two-echelon (both HAVE status), but MINE-shaped for transport-coal
+  // (mines have no status concept anywhere in that LP — see MinesTab.tsx's
+  // own AddedMine comment). Every consumer must treat `status == null` as
+  // "this role has no status", not crash on it — see EntityRoleConfig's
+  // `hasStatus` below, which is what actually decides whether a caller
+  // populates this field at all.
+  status?: WhStatus;
   isAdded: boolean;
 }
 
@@ -69,16 +77,87 @@ export type MapEntity =
   | { kind: "wh"; entity: MapWarehouse }
   | { kind: "cs"; entity: MapCustomer };
 
-// R1 (Workspace UX R1-R9): which color ramp a model's customer bubbles use.
-// p-median-us is the only model wired to EntityMarkers/MapLegend today, but
-// this stays a real modelId check (not a hardcoded assumption baked into
-// the SVG builders) so a future non-pmedian caller keeps the blue --accent-*
-// bubble by default rather than silently inheriting green.
+// R1 (Bundle 2, Task T4 Step 1): every model's demand bubbles are green now
+// — the old p-median-us-only branch is gone. `modelId` stays as a parameter
+// (rather than deleting it and every call site) purely so this doesn't
+// force an unrelated signature-cleanup across EntityMarkers/MapLegend; it's
+// unused. `DemandTone`/"blue" stay exported too — customerBubbleSvg's own
+// default param and its existing tests still reference the blue tone as a
+// selectable style, even though no live caller resolves to it anymore.
 export type DemandTone = "green" | "blue";
 
-export function demandTone(modelId: string): DemandTone {
-  return modelId === "p-median-us" ? "green" : "blue";
+export function demandTone(_modelId?: string): DemandTone {
+  return "green";
 }
+
+// T4 (Bundle 2, Step 0) — role/editor configuration. `MapEntity.kind`
+// ("wh"/"cs") only ever means "renders as a triangle marker" vs "renders as
+// a demand bubble" — a RENDERING role, not a per-model entity name.
+// transport-coal's mines are "wh"-shaped (draggable triangles, no status)
+// and its stations are "cs"-shaped (green demand bubbles, required value);
+// two-echelon's refineries are "wh"-shaped WITH status. EntityRoleConfig is
+// the orthogonal axis that actually varies per entity (warehouse / mine /
+// refinery, customer / station): whether it has a status field, whether it
+// has an editable numeric value (and what that value means), and which DD-7
+// uid kind mints its `id`/display code. CreateEntityDialog, EditWarehouseDialog,
+// MoveConfirmDialog, and MapDetailsCard all default to WAREHOUSE_ROLE/
+// CUSTOMER_ROLE when no `role` prop is passed — today's exact p-median-us
+// behavior, unchanged (zero regression for every existing call site).
+export type UidKind = "wh" | "cs" | "mn" | "st";
+
+export interface EntityRoleConfig {
+  /** DD-7 uid-minting kind, consumed by newUid()/nextDisplayCode() (lib/entityId.ts).
+   * Refineries reuse "wh" (locked by DD-7 — no "ar-"/"RF-" prefix exists). */
+  uidKind: UidKind;
+  /** Singular label used in dialog titles/menus ("warehouse", "customer", "mine", "station", "refinery"). */
+  label: string;
+  /** Status (Potential / Fixed-Open / Inactive) field — warehouses/refineries only. */
+  hasStatus: boolean;
+  /** Editable numeric value field in Create/Edit dialogs. Absent = no value field at all. */
+  valueField?: {
+    key: "capacity" | "demand";
+    label: string;
+    /** Demand-like values are required (a station/customer needs a real
+     * number); capacity-like values are optional — blank means
+     * "unconstrained", matching solve.py's get_base_capacity convention. */
+    required: boolean;
+  };
+}
+
+export const WAREHOUSE_ROLE: EntityRoleConfig = {
+  uidKind: "wh",
+  label: "warehouse",
+  hasStatus: true,
+  valueField: { key: "capacity", label: "Capacity", required: false },
+};
+
+export const CUSTOMER_ROLE: EntityRoleConfig = {
+  uidKind: "cs",
+  label: "customer",
+  hasStatus: false,
+  valueField: { key: "demand", label: "Demand", required: true },
+};
+
+export const MINE_ROLE: EntityRoleConfig = {
+  uidKind: "mn",
+  label: "mine",
+  hasStatus: false,
+  valueField: { key: "capacity", label: "Capacity", required: false },
+};
+
+export const STATION_ROLE: EntityRoleConfig = {
+  uidKind: "st",
+  label: "station",
+  hasStatus: false,
+  valueField: { key: "demand", label: "Demand", required: true },
+};
+
+export const REFINERY_ROLE: EntityRoleConfig = {
+  uidKind: "wh", // DD-7: refineries reuse "wh" (aw-), not a new "ar-" prefix.
+  label: "refinery",
+  hasStatus: true,
+  valueField: { key: "capacity", label: "Capacity", required: false },
+};
 
 // R2 (Workspace UX R1-R9): discrete quintile demand-bubble sizing, replacing
 // the old continuous sqrt-scale demandRadius. Population = ALL of the

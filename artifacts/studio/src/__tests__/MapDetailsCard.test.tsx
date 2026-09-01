@@ -42,6 +42,16 @@ describe("MapDetailsCard", () => {
     expect(screen.queryByTestId("map-details-demand")).not.toBeInTheDocument();
   });
 
+  // T4 (Bundle 2) — R3 capability gate seam: a warehouse-role entity with no
+  // status (a role with hasStatus:false, e.g. a mine) shows capacity but no
+  // status badge at all — never crashes on the absent `status` field.
+  it("shows capacity but no status badge for a warehouse-role entity with no status (hasStatus:false role)", () => {
+    const mine: MapEntity = { kind: "wh", entity: { ...wh.entity, status: undefined } };
+    render(<MapDetailsCard entity={mine} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} />);
+    expect(screen.getByTestId("map-details-capacity")).toHaveTextContent("12,000 units");
+    expect(screen.queryByTestId("map-details-status")).not.toBeInTheDocument();
+  });
+
   it("shows demand for a customer entity, no capacity/status fields", () => {
     render(<MapDetailsCard entity={cs} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} />);
     expect(screen.getByTestId("map-details-demand")).toHaveTextContent("5,000 units");

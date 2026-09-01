@@ -28,9 +28,14 @@ export interface MapLegendProps {
    * excluded) — same population EntityMarkers computes its scale from.
    * Optional; falls back to a static demo population when omitted. */
   customers?: { demand: number }[];
-  /** R1: drives blue-vs-green demand swatches. Defaults to "p-median-us"
-   * to match EntityMarkers' own default (see its own prop doc). */
+  /** R1: kept for backward-compatible call sites; demand swatches are green
+   * for every model now (see types.ts's demandTone). */
   modelId?: string;
+  /** T4 (Bundle 2) — capability gate seam (R3): the Potential/Fixed-Open/
+   * Inactive status row only makes sense for a model whose warehouse-role
+   * entity actually has a status field (capabilities.supportsFacilityStatus).
+   * Defaults to true — today's exact p-median-us behavior, unchanged. */
+  showStatusLegend?: boolean;
 }
 
 // Static overlay — status swatches + demand reference bubbles. Reuses the
@@ -41,7 +46,7 @@ export interface MapLegendProps {
 // via the .scn-theme-scoped tokens set on Workspace.tsx's root, same as
 // every other Workspace overlay component) — this component does not
 // re-apply the .scn-theme class itself.
-export function MapLegend({ customers, modelId = "p-median-us" }: MapLegendProps = {}) {
+export function MapLegend({ customers, modelId = "p-median-us", showStatusLegend = true }: MapLegendProps = {}) {
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
   const scale = makeQuintileRadius(demands);
@@ -55,21 +60,23 @@ export function MapLegend({ customers, modelId = "p-median-us" }: MapLegendProps
       className="absolute bottom-4 left-4 bg-card border border-border rounded-md shadow p-2 flex flex-col gap-2 z-10 text-xs pointer-events-none"
       data-testid="map-legend"
     >
-      <div className="flex items-center gap-3">
-        {STATUSES.map((status) => {
-          const { label, marker } = warehouseStatusPresentation[status];
-          return (
-            <div key={status} className="flex items-center gap-1" data-testid={`legend-status-${status}`}>
-              <span
-                className="inline-block w-[18px] h-[18px]"
-                // eslint-disable-next-line react/no-danger -- static, locally-built SVG string, no user input
-                dangerouslySetInnerHTML={{ __html: warehouseTriangleSvg(marker) }}
-              />
-              <span className="text-muted-foreground">{label}</span>
-            </div>
-          );
-        })}
-      </div>
+      {showStatusLegend && (
+        <div className="flex items-center gap-3">
+          {STATUSES.map((status) => {
+            const { label, marker } = warehouseStatusPresentation[status];
+            return (
+              <div key={status} className="flex items-center gap-1" data-testid={`legend-status-${status}`}>
+                <span
+                  className="inline-block w-[18px] h-[18px]"
+                  // eslint-disable-next-line react/no-danger -- static, locally-built SVG string, no user input
+                  dangerouslySetInnerHTML={{ __html: warehouseTriangleSvg(marker) }}
+                />
+                <span className="text-muted-foreground">{label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="flex items-center gap-3 flex-wrap">
         {/* R2: only buckets a real customer actually occupies get a row — a
             collapsed/degenerate population (e.g. every demand identical)

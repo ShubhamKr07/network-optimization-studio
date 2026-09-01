@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MoveConfirmDialog } from "@/components/workspace/map/dialogs/MoveConfirmDialog";
+import { MINE_ROLE } from "@/components/workspace/map/types";
 
 // Real gazetteer coordinates (see CreateEntityDialog.test.tsx's note).
 const DALLAS = { lat: 32.793333, lng: -96.766513 };
@@ -77,5 +78,28 @@ describe("MoveConfirmDialog", () => {
     fireEvent.click(screen.getByTestId("move-confirm-cancel"));
     expect(onCancel).toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  // T4 (Bundle 2, Step 0) — role/editor config.
+  describe("role config", () => {
+    it("a role's uidKind (not the rendering kind) drives the regenerated display-code prefix — a mine gets MN-, not WH-", () => {
+      renderDialog({ role: MINE_ROLE, entity: { id: "am-1", displayCode: "MN-TX-DALLAS-01" }, existingCodes: ["MN-TX-DALLAS-01"] });
+      expect(screen.getByTestId("move-confirm-new-code")).toHaveTextContent(/^MN-/);
+    });
+
+    it("a role's label drives the dialog title", () => {
+      renderDialog({ role: MINE_ROLE });
+      expect(screen.getByTestId("move-confirm-dialog")).toHaveTextContent("Move mine");
+    });
+
+    it("omitting role defaults to WAREHOUSE_ROLE by kind='wh' — today's exact behavior, unchanged", () => {
+      renderDialog();
+      expect(screen.getByTestId("move-confirm-dialog")).toHaveTextContent("Move warehouse");
+    });
+
+    it("omitting role defaults to CUSTOMER_ROLE by kind='cs' — today's exact behavior, unchanged", () => {
+      renderDialog({ kind: "cs" });
+      expect(screen.getByTestId("move-confirm-dialog")).toHaveTextContent("Move customer");
+    });
   });
 });

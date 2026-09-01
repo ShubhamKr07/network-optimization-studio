@@ -50,12 +50,27 @@ describe("MapLegend", () => {
       expect(anySwatch.outerHTML).toContain("var(--demand-300)");
     });
 
-    it("demand swatches are blue (var(--accent-*)) for a non-p-median-us modelId", () => {
+    it("demand swatches are green for every other modelId too (R1 fast-follow — no more blue branch)", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
       const { container } = render(<MapLegend customers={customers} modelId="transport-coal" />);
       const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
-      expect(anySwatch.outerHTML).toContain("var(--accent-300)");
-      expect(anySwatch.outerHTML).not.toContain("--demand-300");
+      expect(anySwatch.outerHTML).toContain("var(--demand-300)");
+      expect(anySwatch.outerHTML).not.toContain("--accent-300");
+    });
+  });
+
+  describe("status legend gate (capability seam — R3)", () => {
+    it("shows the status legend by default (today's p-median-us behavior, unchanged)", () => {
+      const { getByText } = render(<MapLegend />);
+      expect(getByText("Potential")).toBeInTheDocument();
+    });
+
+    it("omits the status legend entirely when showStatusLegend is false (e.g. transport-coal, which has no facility-status concept)", () => {
+      const { queryByText, queryByTestId } = render(<MapLegend showStatusLegend={false} />);
+      expect(queryByText("Potential")).not.toBeInTheDocument();
+      expect(queryByText("Fixed-Open")).not.toBeInTheDocument();
+      expect(queryByText("Inactive")).not.toBeInTheDocument();
+      expect(queryByTestId("legend-status-active")).not.toBeInTheDocument();
     });
   });
 });

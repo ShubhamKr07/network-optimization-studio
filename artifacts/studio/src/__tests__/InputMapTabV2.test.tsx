@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, screen } from "@testing-library/react";
 import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
-import type { MapWarehouse, MapCustomer, PMedianMapInputs } from "@/components/workspace/map/types";
+import type { AddedWarehouseInput, MapWarehouse, MapCustomer, PMedianMapInputs } from "@/components/workspace/map/types";
 
 // T8 (Input Map v2) — the pmedian-mode surface under test here composes T4's
 // EntityMarkers/MapLegend, T5's inspect card/action menu, T6's edit
@@ -35,6 +35,24 @@ const addedWh = (over: Partial<MapWarehouse> = {}): MapWarehouse => ({
   capacity: null,
   status: "active",
   isAdded: true,
+  ...over,
+});
+
+// T4 (Bundle 2) — MapWarehouse.status is optional now (a hasStatus:false
+// role, e.g. a mine, never sets it); AddedWarehouseInput.status stays
+// required (it's the persisted shape, still p-median-us-only here). Kept as
+// a SEPARATE factory (same default values as addedWh) rather than reusing
+// addedWh's return, matching this file's own header-comment distinction
+// between view-model and persisted shapes.
+const addedWhInput = (over: Partial<AddedWarehouseInput> = {}): AddedWarehouseInput => ({
+  id: "aw-1",
+  displayCode: "WH-NV-RENO-01",
+  city: "Reno",
+  state: "NV",
+  lat: 39.5,
+  lng: -119.8,
+  capacity: null,
+  status: "active",
   ...over,
 });
 
@@ -166,7 +184,7 @@ describe("InputMapTab — pmedian mode: create", () => {
 describe("InputMapTab — pmedian mode: delete", () => {
   it("deletes an added warehouse: row AND its distanceOverrides (by id) are gone, override arrays untouched", () => {
     const inputs = makeInputs({
-      addedWarehouses: [addedWh()],
+      addedWarehouses: [addedWhInput()],
       warehouseOverrides: [{ id: "CHI", status: "forced_open", capacity: null }],
       customerOverrides: [{ id: "C1", status: "active", demand: 250 }],
       distanceOverrides: [
@@ -198,7 +216,7 @@ describe("InputMapTab — pmedian mode: delete", () => {
 describe("InputMapTab — pmedian mode: move", () => {
   it("moving an added entity keeps its id unchanged, updates displayCode/coords, clears its own distanceOverrides, and leaves override arrays untouched", () => {
     const inputs = makeInputs({
-      addedWarehouses: [addedWh()],
+      addedWarehouses: [addedWhInput()],
       warehouseOverrides: [{ id: "CHI", status: "inactive", capacity: null }],
       distanceOverrides: [
         { fromId: "aw-1", toId: "C1", distance: 500, estimated: true },
@@ -228,7 +246,7 @@ describe("InputMapTab — pmedian mode: move", () => {
   });
 
   it("Escape cancels an armed Move without calling onInputsChange", () => {
-    const inputs = makeInputs({ addedWarehouses: [addedWh()] });
+    const inputs = makeInputs({ addedWarehouses: [addedWhInput()] });
     const { container, onInputsChange } = renderPMedian({ warehouses: [baseWh(), addedWh()], inputs });
     const markers = container.querySelectorAll(".leaflet-marker-icon");
     fireEvent.contextMenu(markers[1]);
@@ -280,7 +298,7 @@ describe("InputMapTab — pmedian mode: edit", () => {
   });
 
   it("editing an ADDED warehouse's status mutates its own row, not warehouseOverrides", () => {
-    const inputs = makeInputs({ addedWarehouses: [addedWh()] });
+    const inputs = makeInputs({ addedWarehouses: [addedWhInput()] });
     const { container, onInputsChange } = renderPMedian({ warehouses: [addedWh()], inputs });
     const markers = container.querySelectorAll(".leaflet-marker-icon");
     fireEvent.contextMenu(markers[0]);
