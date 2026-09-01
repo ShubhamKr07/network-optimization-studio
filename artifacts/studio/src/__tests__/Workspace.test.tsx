@@ -1595,3 +1595,32 @@ describe("Workspace — logout / back to Landing", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });
+
+describe("Workspace — header centered chapter/summary + divider layout (B2.1-T3, items 4/5)", () => {
+  it("item 4: renders a centered chapter+summary block with the chapter and description for p-median-us", () => {
+    renderWorkspace();
+    const summary = screen.getByTestId("workspace-chapter-summary");
+    expect(summary).toHaveTextContent("Chapter 3");
+    expect(summary).toHaveTextContent(
+      "Facility-location: choose which warehouses to open to minimize weighted distance to customers."
+    );
+  });
+
+  it("item 4: renders the chapter+summary block for transport-coal too (a second model, not just p-median-us)", () => {
+    const transportScenario = { ...scenario, id: 8, modelId: "transport-coal" };
+    mockUseListScenarios.mockReturnValue({ data: [transportScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: transportScenario } as unknown as ReturnType<typeof useGetScenario>);
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    const summary = screen.getByTestId("workspace-chapter-summary");
+    expect(summary).toHaveTextContent("Chapter 5");
+    expect(summary).toHaveTextContent("Transportation LP: route coal from mines to power stations at minimum cost.");
+  });
+
+  it("item 5: header controls (result-history stepper's save-as-scenario, Run Optimizer) still render alongside the centered summary", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("workspace-chapter-summary")).toBeInTheDocument();
+    expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
+    expect(screen.getByTestId("button-logout")).toBeInTheDocument();
+    expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
+  });
+});
