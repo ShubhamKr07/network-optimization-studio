@@ -1831,7 +1831,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const result = displayedResult;
       if (activeTab.entity === "open-warehouses") return <OpenWarehousesTab result={result} scenarioId={currentScenario!.id} />;
       if (activeTab.entity === "customer-assignments") return <AssignmentsTab result={result} scenarioId={currentScenario!.id} />;
-      if (activeTab.entity === "cost-summary") return <CostSummaryTab result={result} scenarioId={currentScenario!.id} />;
+      // T5 — Solution Summary compare (R6+R8). `scenarios` is the same-model
+      // list already fetched at the top of this component
+      // (`useListScenarios({ modelId })`); each row already carries the full
+      // `result`/`stale` envelope (toApiScenario), so no separate
+      // per-scenario fetch is needed. `isBrowsingHistory` reuses
+      // `canGoForwardResult` verbatim — it's already exactly "the stepper is
+      // parked on a non-latest entry" (see that variable's own comment).
+      if (activeTab.entity === "cost-summary")
+        return (
+          <CostSummaryTab
+            result={result}
+            scenarioId={currentScenario!.id}
+            modelId={modelId}
+            scenarios={scenarios ?? []}
+            isBrowsingHistory={canGoForwardResult}
+          />
+        );
       if (activeTab.entity === "flows") return <FlowsTab result={result} scenarioId={currentScenario!.id} />;
       // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
       // unit) but left this call site unwired — closing that gap here.
