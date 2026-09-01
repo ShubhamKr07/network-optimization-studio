@@ -68,11 +68,11 @@ vi.mock("@workspace/api-client-react", () => ({
   useDeleteScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useResetScenarioToBaseline: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
-  // T4/R5 — distanceUnit: "km" (T2's manifest value for this model, unlike
-  // the other three "mi" models) so the Solve dialog's band-editor label
-  // test below exercises the REAL non-default unit, not just the "mi"
+  // B2-T1 — distanceUnit relabeled "km" -> "mi": two-echelon's base numbers
+  // are geographically miles (notebook-mislabeled km), so this model now
+  // advertises "mi" like the other three. The band-editor label
   // fallback every other fixture file already covers.
-  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "km" }] })),
+  useListModels: vi.fn(() => ({ data: [{ id: "two-echelon-gold-au", countryBounds: { sw: [-38.5, 113], ne: [-16, 154.5] }, distanceUnit: "mi" }] })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
@@ -214,14 +214,12 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
     expect(screen.queryByTestId("solve-dialog-p-value")).not.toBeInTheDocument();
   });
 
-  // T4/R5 — this model's real distanceUnit (km, per T2's manifest) reaches
-  // the Solve dialog's band editor via `activeModelManifest?.distanceUnit`,
-  // proving the wiring for the non-default unit (every other fixture file
-  // only exercises the "mi" fallback).
-  it("Solve dialog's distance-band editor shows 'km', matching this model's real distanceUnit", () => {
+  // B2-T1 — this model's distanceUnit ("mi" after the relabel) reaches
+  // the Solve dialog's band editor via `activeModelManifest?.distanceUnit`.
+  it("Solve dialog's distance-band editor shows 'mi', matching this model's distanceUnit", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.getByText("Distance bands (km)")).toBeInTheDocument();
+    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
     expect(screen.getByTestId("solve-dialog-band-500")).toBeInTheDocument();
   });
 

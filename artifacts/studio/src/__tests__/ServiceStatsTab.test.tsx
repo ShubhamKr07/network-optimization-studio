@@ -8,7 +8,9 @@ import * as exportEntity from "@/lib/exportEntity";
 const mockUseListModels = vi.fn(() => ({
   data: [
     { id: "p-median-us", distanceUnit: "mi" },
-    { id: "two-echelon-gold-au", distanceUnit: "km" },
+    // Bundle 2 (B2-T1) relabels two-echelon-gold-au "km" -> "mi" (its base
+    // numbers are geographically miles; zero data change).
+    { id: "two-echelon-gold-au", distanceUnit: "mi" },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -59,9 +61,9 @@ describe("ServiceStatsTab", () => {
     expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
 
-  it("uses the model's distanceUnit ('km') on a two-echelon-gold-au render", () => {
+  it("uses the model's distanceUnit ('mi') on a two-echelon-gold-au render", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="two-echelon-gold-au" />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 km");
+    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
 
   it("defaults to 'mi' when modelId is not provided (pre-existing call sites)", () => {

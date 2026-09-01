@@ -11,4 +11,6 @@ export type ModelInfoCapabilities = {
   capacityModes: string[];
   demandEditable: boolean;
   outputGrids: string[];
+  /** True when the model has open/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3/R7 on this, never on modelId. */
+  supportsFacilityStatus: boolean;
 };

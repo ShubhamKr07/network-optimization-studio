@@ -18,13 +18,13 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, or transport-coal's mines/stations mapped onto the same shape). Defaults to p-median-us.
+ * Returns the warehouse/customer-shaped entities for the requested model (p-median-us's real warehouses/customers, transport-coal's mines/stations, or p-median-brazil's warehouses/regions, all mapped onto the same shape). Defaults to p-median-us.
  * @summary Get the dataset for a given model
  */
 export const getDatasetQueryModelIdDefault = `p-median-us`;
 
 export const GetDatasetQueryParams = zod.object({
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au']).default(getDatasetQueryModelIdDefault)
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au', 'p-median-brazil']).default(getDatasetQueryModelIdDefault)
 })
 
 export const GetDatasetResponse = zod.object({
@@ -72,7 +72,8 @@ export const ListModelsResponseItem = zod.object({
   "supportsP": zod.boolean(),
   "capacityModes": zod.array(zod.string()),
   "demandEditable": zod.boolean(),
-  "outputGrids": zod.array(zod.string())
+  "outputGrids": zod.array(zod.string()),
+  "supportsFacilityStatus": zod.boolean().describe('True when the model has open\/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3\/R7 on this, never on modelId.')
 }),
   "inputsSchema": zod.object({
 

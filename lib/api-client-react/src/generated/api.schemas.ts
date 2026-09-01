@@ -104,6 +104,8 @@ export type ModelInfoCapabilities = {
   capacityModes: string[];
   demandEditable: boolean;
   outputGrids: string[];
+  /** True when the model has open/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3/R7 on this, never on modelId. */
+  supportsFacilityStatus: boolean;
 };
 
 /**
@@ -485,6 +487,7 @@ export const GetDatasetModelId = {
   'p-median-us': 'p-median-us',
   'transport-coal': 'transport-coal',
   'two-echelon-gold-au': 'two-echelon-gold-au',
+  'p-median-brazil': 'p-median-brazil',
 } as const;
 
 export type GetSolveHistoryParams = {

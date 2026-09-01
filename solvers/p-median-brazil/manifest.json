@@ -4,7 +4,7 @@
   "chapter": "Chapter 5",
   "datasetDir": "solvers/p-median-brazil/dataset",
   "countryBounds": { "sw": [-30.04, -67.82], "ne": [0.04, -34.86] },
-  "capabilities": { "supportsP": true, "capacityModes": ["uniform"], "demandEditable": false, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"] },
+  "capabilities": { "supportsP": true, "capacityModes": ["uniform"], "demandEditable": false, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true },
   "distanceUnit": "mi",
   "inputsSchema": {
     "type": "object",
@@ -43,7 +43,50 @@
       },
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
-      "singleSource": { "type": "boolean" }
+      "singleSource": { "type": "boolean" },
+      "addedWarehouses": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "capacity": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "city", "state", "lat", "lng", "status"]
+        }
+      },
+      "addedCustomers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "demand": { "type": "number", "minimum": 0 }
+          },
+          "required": ["id", "city", "state", "lat", "lng", "demand"]
+        }
+      },
+      "distanceOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "fromId": { "type": "string", "minLength": 1 },
+            "toId": { "type": "string", "minLength": 1 },
+            "distance": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "required": ["fromId", "toId", "distance"]
+        }
+      }
     },
     "required": ["p", "capacityMode", "distanceBands", "gap", "timeLimitSec"]
   }
