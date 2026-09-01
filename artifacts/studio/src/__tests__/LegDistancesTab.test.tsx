@@ -295,6 +295,66 @@ describe("LegDistancesTab — add row", () => {
   });
 });
 
+// Followup — displayCodeById: an added refinery's uid shows its human-
+// readable displayCode in the From/To columns; base ids (never present in
+// the map) keep showing the raw id. The underlying stored row (and what
+// onChange receives on edit, and leg resolution) always stays keyed by the
+// uid — displayCodeById only affects what's rendered.
+describe("LegDistancesTab — displayCodeById (Followup)", () => {
+  const addedRefineryIds = [...refineryIds, "ar-9012"];
+
+  it("renders an added refinery's displayCode instead of its raw uid", () => {
+    const uidOverrides = [{ fromId: "ar-9012", toId: "sydney", distance: 55 }];
+    render(
+      <LegDistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        mineIds={mineIds}
+        refineryIds={addedRefineryIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        displayCodeById={{ "ar-9012": "RF-QLD-CUNNAMULLA-02" }}
+      />,
+    );
+    const row = screen.getByTestId("row-legdistance-ar-9012-sydney");
+    expect(row).toHaveTextContent("RF-QLD-CUNNAMULLA-02");
+    expect(row).not.toHaveTextContent("ar-9012");
+  });
+
+  it("falls back to the raw id for a base dataset id with no displayCode entry", () => {
+    render(
+      <LegDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        displayCodeById={{ "ar-9012": "RF-QLD-CUNNAMULLA-02" }}
+      />,
+    );
+    expect(screen.getByTestId("row-legdistance-kalgoorlie-daggar-hills")).toHaveTextContent("kalgoorlie");
+  });
+
+  it("editing an added refinery's row still writes the uid-keyed row to onChange, not the displayCode", () => {
+    const onChange = vi.fn();
+    const uidOverrides = [{ fromId: "ar-9012", toId: "sydney", distance: 55 }];
+    render(
+      <LegDistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        mineIds={mineIds}
+        refineryIds={addedRefineryIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        displayCodeById={{ "ar-9012": "RF-QLD-CUNNAMULLA-02" }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-legdistance-ar-9012-sydney"), { target: { value: "99" } });
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "ar-9012", toId: "sydney", distance: 99 }]);
+  });
+});
+
 describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     render(
