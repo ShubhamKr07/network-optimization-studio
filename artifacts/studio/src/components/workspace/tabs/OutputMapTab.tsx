@@ -271,6 +271,7 @@ export function OutputMapTab({
           onToggleWarehouseMultiSelect={() => {}}
           onToggleCustomerMultiSelect={() => {}}
           hideClosedWarehouses={hideClosedWarehouses}
+          distanceUnit={distanceUnit}
         />
       </div>
     </div>
