@@ -4,6 +4,7 @@ import type L from "leaflet";
 import { Save } from "lucide-react";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { MapDetailsCard } from "@/components/workspace/map/MapDetailsCard";
@@ -296,6 +297,56 @@ function ToggleChip({
   );
 }
 
+// T3 (Bundle 2.2, A1) — layer-visibility toggles (Warehouses/Customers/
+// Mines/Stations/Refineries/Show-inactive/Size-by-demand) render as real
+// shadcn `Checkbox`es now, not `ToggleChip` buttons — only the "Add on map:"
+// place-pin controls stay `ToggleChip`s (they're a mode selector, not a
+// layer-visibility flag). The outer wrapper is a plain `<div role="checkbox">`
+// (deliberately NOT a `<label>`): a `<label>` wrapping a labelable descendant
+// (the inner `Checkbox` renders a real `<button>`, which IS a labelable
+// element per the HTML spec) triggers jsdom's native label-activation
+// forwarding on click, which swallows the label's OWN `onClick` handler
+// entirely (verified empirically — reproduced and confirmed root-caused
+// before choosing this shape) — a `<div>` has no such forwarding behavior,
+// so a click anywhere in the row (text or the box) reliably reaches this
+// component's one `onClick`. `data-testid` sits on that same outer element,
+// so it resolves to a node whose `textContent` includes the visible label
+// (existing two-echelon coverage asserts `toHaveTextContent`). The nested
+// `Checkbox` is a controlled, purely-visual/`aria-hidden` reflection of
+// `checked` (no `onCheckedChange` of its own, `pointer-events-none`), so a
+// direct click on the box can't double-fire the toggle via bubbling.
+function LayerCheckbox({
+  checked,
+  onToggle,
+  testId,
+  children,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-testid={testId}
+      role="checkbox"
+      aria-checked={checked}
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      className="flex items-center gap-1.5 text-[10px] text-muted-foreground whitespace-nowrap cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+    >
+      <Checkbox checked={checked} tabIndex={-1} aria-hidden="true" className="h-3.5 w-3.5 pointer-events-none" />
+      {children}
+    </div>
+  );
+}
+
 // ── Pure PMedianMapInputs mutators — D7 identity contract: an added
 // entity's `id` is the stable join key and NEVER changes, only
 // displayCode/coords/status/capacity/demand do. Move/delete touch ONLY the
@@ -421,7 +472,7 @@ function PMedianInputMap({
   saving,
   demandEditable = true,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
-  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [actionMenu, setActionMenu] = useState<
@@ -617,15 +668,18 @@ function PMedianInputMap({
     <div className="h-full flex flex-col gap-2" data-testid="input-map-tab">
       <div className="flex items-center gap-2 flex-wrap flex-shrink-0" data-testid="pmedian-map-toolbar">
         <span className="text-xs text-muted-foreground">Layers:</span>
-        <ToggleChip testId="toggle-layer-warehouses" active={toggles.warehouses} onClick={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
+        <LayerCheckbox testId="toggle-layer-warehouses" checked={toggles.warehouses} onToggle={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
           Warehouses
-        </ToggleChip>
-        <ToggleChip testId="toggle-layer-customers" active={toggles.customers} onClick={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-customers" checked={toggles.customers} onToggle={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
           Customers
-        </ToggleChip>
-        <ToggleChip testId="toggle-layer-show-inactive" active={toggles.showInactive} onClick={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-show-inactive" checked={toggles.showInactive} onToggle={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
           Show inactive
-        </ToggleChip>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+          Size customers by demand
+        </LayerCheckbox>
         <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
         <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
           + Warehouse
@@ -691,8 +745,15 @@ function PMedianInputMap({
             added, T8's own `displayCustomers` — already includes the live
             EditCustomerDialog preview), not MapLegend's fallback demo
             population, so the legend's quintile-bucket labels match what's
-            actually rendered on this map. */}
-        <MapLegend customers={displayCustomers} />
+            actually rendered on this map. T3 (Bundle 2.2, A1/A2) — the
+            legend now follows the live toolbar checkboxes instead of always
+            showing every group. */}
+        <MapLegend
+          customers={displayCustomers}
+          showWarehouseLayer={toggles.warehouses}
+          showCustomerLayer={toggles.customers}
+          sizeByDemand={toggles.sizeByDemand ?? true}
+        />
         {selected && (
           <MapDetailsCard
             entity={selected.entity}
@@ -885,7 +946,7 @@ function TransportInputMap({
   onSave,
   saving,
 }: Extract<InputMapTabProps, { mode: "transport" }>) {
-  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [actionMenu, setActionMenu] = useState<
@@ -1075,17 +1136,20 @@ function TransportInputMap({
     <div className="h-full flex flex-col gap-2" data-testid="input-map-tab">
       <div className="flex items-center gap-2 flex-wrap flex-shrink-0" data-testid="transport-map-toolbar">
         <span className="text-xs text-muted-foreground">Layers:</span>
-        <ToggleChip testId="toggle-layer-mines" active={toggles.warehouses} onClick={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
+        <LayerCheckbox testId="toggle-layer-mines" checked={toggles.warehouses} onToggle={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
           Mines
-        </ToggleChip>
-        <ToggleChip testId="toggle-layer-stations" active={toggles.customers} onClick={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-stations" checked={toggles.customers} onToggle={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
           Stations
-        </ToggleChip>
+        </LayerCheckbox>
         {/* R3/R7 N/A for transport-coal (supportsFacilityStatus:false) —
             deliberately no "Show inactive" toggle here: mines/stations have
             no status concept at all, so it would be a meaningless no-op
             control rather than a real gate (see this file's "transport" mode
             comment above). */}
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+          Size customers by demand
+        </LayerCheckbox>
         <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
         <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
           + Mine
@@ -1144,8 +1208,15 @@ function TransportInputMap({
         </MapContainer>
         {/* R1/R2 — green station bubbles + quintile sizing come for free from
             types.ts's demandTone/makeQuintileRadius (shared, unmodified);
-            showStatusLegend=false is R3's N/A gate for this model. */}
-        <MapLegend customers={displayStations} showStatusLegend={false} />
+            showStatusLegend=false is R3's N/A gate for this model. T3
+            (Bundle 2.2, A1/A2) — legend follows the live toolbar state. */}
+        <MapLegend
+          customers={displayStations}
+          showStatusLegend={false}
+          showWarehouseLayer={toggles.warehouses}
+          showCustomerLayer={toggles.customers}
+          sizeByDemand={toggles.sizeByDemand ?? true}
+        />
         {selected && (
           <MapDetailsCard
             entity={selected.entity}
@@ -1342,7 +1413,7 @@ function TwoEchelonInputMap({
   onSave,
   saving,
 }: Extract<InputMapTabProps, { mode: "twoEchelon" }>) {
-  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false });
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
   const [actionMenu, setActionMenu] = useState<
@@ -1530,15 +1601,18 @@ function TwoEchelonInputMap({
     <div className="h-full flex flex-col gap-2" data-testid="input-map-tab">
       <div className="flex items-center gap-2 flex-wrap flex-shrink-0" data-testid="two-echelon-map-toolbar">
         <span className="text-xs text-muted-foreground">Layers:</span>
-        <ToggleChip testId="toggle-layer-warehouses" active={toggles.warehouses} onClick={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
+        <LayerCheckbox testId="toggle-layer-warehouses" checked={toggles.warehouses} onToggle={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
           Refineries
-        </ToggleChip>
-        <ToggleChip testId="toggle-layer-customers" active={toggles.customers} onClick={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-customers" checked={toggles.customers} onToggle={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
           Customers
-        </ToggleChip>
-        <ToggleChip testId="toggle-layer-show-inactive" active={toggles.showInactive} onClick={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-show-inactive" checked={toggles.showInactive} onToggle={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
           Show inactive
-        </ToggleChip>
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+          Size customers by demand
+        </LayerCheckbox>
         <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
         <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
           + Refinery
@@ -1591,8 +1665,13 @@ function TwoEchelonInputMap({
               EntityMarkers renders from) — read-only context, never
               placeable/movable/editable/deletable, and never a valid
               armed-move/copy drop target since it never enters the
-              interactive click-routing flow above at all. */}
-          {mine && (
+              interactive click-routing flow above at all. T3 (Bundle 2.2,
+              A1) — the plan puts the mine implicit under the Refineries
+              layer (spec: "Refineries, Customers"), so it's gated by
+              `toggles.warehouses` (the Refineries checkbox) exactly like
+              every real refinery marker below — disabling Refineries hides
+              both. */}
+          {mine && toggles.warehouses && (
             <Marker position={[mine.lat, mine.lng]} zIndexOffset={900} data-testid="mine-marker-fixed">
               <Tooltip direction="top" offset={[0, -10]} opacity={1}>
                 <span className="font-semibold text-xs">{mine.displayCode} (mine, fixed)</span>
@@ -1612,8 +1691,14 @@ function TwoEchelonInputMap({
         {/* R1/R2/R3 — green customer bubbles + quintile sizing + the status
             legend all come for free from types.ts's demandTone/
             makeQuintileRadius/MapLegend's default showStatusLegend=true —
-            refineries DO carry a real status, unlike transport's mines. */}
-        <MapLegend customers={displayCustomers} />
+            refineries DO carry a real status, unlike transport's mines. T3
+            (Bundle 2.2, A1/A2) — legend follows the live toolbar state. */}
+        <MapLegend
+          customers={displayCustomers}
+          showWarehouseLayer={toggles.warehouses}
+          showCustomerLayer={toggles.customers}
+          sizeByDemand={toggles.sizeByDemand ?? true}
+        />
         {selected && (
           <MapDetailsCard
             entity={selected.entity}
