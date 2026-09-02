@@ -56,7 +56,15 @@ export interface PublicModelInfo {
   name: string;
   chapter: string;
   countryBounds: Manifest["countryBounds"];
-  capabilities: Manifest["capabilities"] & { supportsFacilityStatus: boolean };
+  capabilities: Manifest["capabilities"] & {
+    supportsFacilityStatus: boolean;
+    // Bundle 2.2 (B2.2-T2) — both already default false at the
+    // ManifestSchema/Zod layer (T0), re-asserted explicitly here too,
+    // matching the existing supportsFacilityStatus pattern: the public
+    // boundary should never trust an upstream default alone.
+    supportsReferenceDistances: boolean;
+    supportsAddedCustomerExclusion: boolean;
+  };
   inputsSchema: Manifest["inputsSchema"];
   // R5 (Workspace UX bundle) — the unit this model's distances/bands are
   // reported in. Optional on the manifest (older manifests predate it), so
@@ -77,6 +85,8 @@ function toPublic(manifest: Manifest): PublicModelInfo {
       // distanceUnit pattern just above: the public boundary should never
       // trust an upstream default alone.
       supportsFacilityStatus: manifest.capabilities?.supportsFacilityStatus ?? false,
+      supportsReferenceDistances: manifest.capabilities?.supportsReferenceDistances ?? false,
+      supportsAddedCustomerExclusion: manifest.capabilities?.supportsAddedCustomerExclusion ?? false,
     },
     inputsSchema: manifest.inputsSchema,
     distanceUnit: manifest.distanceUnit ?? "mi",

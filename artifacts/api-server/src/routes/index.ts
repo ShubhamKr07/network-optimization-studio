@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
 import datasetRouter from "./dataset.js";
 import modelsRouter from "./models.js";
+import referenceDistancesRouter from "./referenceDistances.js";
 import scenariosRouter from "./scenarios.js";
 import solveHistoryRouter from "./solveHistory.js";
 import authRouter from "./auth.js";
@@ -12,6 +13,7 @@ router.use(healthRouter);
 router.use(authRouter);
 router.use(datasetRouter);
 router.use(modelsRouter);
+router.use(referenceDistancesRouter);
 router.use(solveHistoryRouter);
 router.use(scenariosRouter);
 

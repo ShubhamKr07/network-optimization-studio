@@ -70,6 +70,33 @@ describe("GET /api/models", () => {
     expect(byId["two-echelon-gold-au"]).toBe(true);
     expect(byId["transport-coal"]).toBe(false);
   });
+
+  // Bundle 2.2 (B2.2-T2) — supportsReferenceDistances gates the
+  // reference-distances endpoint/UI, never modelId directly. Only
+  // p-median-us today.
+  it("returns the correct supportsReferenceDistances per model", () => {
+    const byId: Record<string, boolean> = Object.fromEntries(
+      listModels().map(m => [m.id, m.capabilities.supportsReferenceDistances]),
+    );
+    expect(byId["p-median-us"]).toBe(true);
+    expect(byId["p-median-brazil"]).toBe(false);
+    expect(byId["two-echelon-gold-au"]).toBe(false);
+    expect(byId["transport-coal"]).toBe(false);
+  });
+
+  // Bundle 2.2 (B2.2-T2) — supportsAddedCustomerExclusion gates A3's
+  // added-customer Active/Excluded control + solve payload/precheck
+  // exclusion, never modelId directly. p-median-brazil is explicitly false
+  // (its solver applies no customer exclusion even though base-customer
+  // status is still allowed there).
+  it("returns the correct supportsAddedCustomerExclusion per model", () => {
+    const byId: Record<string, boolean> = Object.fromEntries(
+      listModels().map(m => [m.id, m.capabilities.supportsAddedCustomerExclusion]),
+    );
+    expect(byId["p-median-us"]).toBe(true);
+    expect(byId["two-echelon-gold-au"]).toBe(true);
+    expect(byId["p-median-brazil"]).toBe(false);
+  });
 });
 
 // DoD (G1.2, literal test from the plan): adding a fourth manifest+dataset

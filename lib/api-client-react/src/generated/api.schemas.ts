@@ -106,6 +106,10 @@ export type ModelInfoCapabilities = {
   outputGrids: string[];
   /** True when the model has open/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3/R7 on this, never on modelId. */
   supportsFacilityStatus: boolean;
+  /** True when this model exposes its immutable base×base reference-distance matrix via GET /models/{id}/reference-distances (Bundle 2.2, B3). Only p-median-us today. Gate the reference-distances UI on this, never on modelId. */
+  supportsReferenceDistances: boolean;
+  /** True when this model's solver honors an Active/Excluded status on a user-added customer (addedCustomers[].status). p-median-us and two-echelon-gold-au only — p-median-brazil's solver applies no customer exclusion (Bundle 2.2, A3). Gate added-customer exclusion controls on this, never on modelId. */
+  supportsAddedCustomerExclusion: boolean;
 };
 
 /**
@@ -137,6 +141,33 @@ export interface ModelInfo {
   inputsSchema: ModelInfoInputsSchema;
   /** Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field. */
   distanceUnit: ModelInfoDistanceUnit;
+}
+
+/**
+ * One base-warehouse×base-customer distance. fromCode/toCode echo fromId/toId (base entities' id IS already a short display code, e.g. "ALN"/"C1") — kept as separate fields to match the added-entity displayCode shape used elsewhere.
+ */
+export interface ReferenceDistancePair {
+  fromId: string;
+  fromCode: string;
+  toId: string;
+  toCode: string;
+  distance: number;
+}
+
+export type ReferenceDistancesDistanceUnit = typeof ReferenceDistancesDistanceUnit[keyof typeof ReferenceDistancesDistanceUnit];
+
+
+export const ReferenceDistancesDistanceUnit = {
+  mi: 'mi',
+  km: 'km',
+} as const;
+
+/**
+ * Immutable base×base reference-distance matrix for a supportsReferenceDistances-capable model (Bundle 2.2, B3). Never includes scenario-local added entities or distanceOverrides (DD-1).
+ */
+export interface ReferenceDistances {
+  pairs: ReferenceDistancePair[];
+  distanceUnit: ReferenceDistancesDistanceUnit;
 }
 
 export interface TransportAssignment {

@@ -75,6 +75,42 @@ paths:
                 items:
                   $ref: "#/components/schemas/ModelInfo"
 
+  /models/{id}/reference-distances:
+    get:
+      operationId: getReferenceDistances
+      tags: [models]
+      summary: Get a model's immutable base×base reference-distance matrix (Bundle 2.2, B3)
+      description: Unauthenticated, model-scoped, ownerless (matches /dataset and /models — no user_id, no 404-vs-403 concern). Returns the complete, unfiltered base×base distance matrix for the model — never includes scenario-local added entities or distanceOverrides (DD-1, base dataset files are read-only). The API disables Express's automatic ETags globally, so this route sets an explicit ETag derived from the dataset package's version/hash and supports If-None-Match revalidation.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Reference distance matrix
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceDistances"
+        "304":
+          description: Not modified — the caller's If-None-Match header matched the current ETag
+        "422":
+          description: Known-but-unsupported model (capabilities.supportsReferenceDistances is false), or an unknown model id. This endpoint is ownerless — there is no "owned" resource concept to 404 on.
+
   /solve-history:
     get:
       operationId: getSolveHistory
@@ -678,7 +714,13 @@ components:
             supportsFacilityStatus:
               type: boolean
               description: True when the model has open/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3/R7 on this, never on modelId.
-          required: [supportsP, capacityModes, demandEditable, outputGrids, supportsFacilityStatus]
+            supportsReferenceDistances:
+              type: boolean
+              description: True when this model exposes its immutable base×base reference-distance matrix via GET /models/{id}/reference-distances (Bundle 2.2, B3). Only p-median-us today. Gate the reference-distances UI on this, never on modelId.
+            supportsAddedCustomerExclusion:
+              type: boolean
+              description: True when this model's solver honors an Active/Excluded status on a user-added customer (addedCustomers[].status). p-median-us and two-echelon-gold-au only — p-median-brazil's solver applies no customer exclusion (Bundle 2.2, A3). Gate added-customer exclusion controls on this, never on modelId.
+          required: [supportsP, capacityModes, demandEditable, outputGrids, supportsFacilityStatus, supportsReferenceDistances, supportsAddedCustomerExclusion]
         inputsSchema:
           type: object
           description: JSON Schema describing this model's inputs shape. Opaque to this contract.
@@ -687,6 +729,35 @@ components:
           description: Unit this model's distances/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to "mi" if the manifest predates this field.
           enum: [mi, km]
       required: [id, name, chapter, countryBounds, capabilities, inputsSchema, distanceUnit]
+
+    ReferenceDistancePair:
+      type: object
+      description: One base-warehouse×base-customer distance. fromCode/toCode echo fromId/toId (base entities' id IS already a short display code, e.g. "ALN"/"C1") — kept as separate fields to match the added-entity displayCode shape used elsewhere.
+      properties:
+        fromId:
+          type: string
+        fromCode:
+          type: string
+        toId:
+          type: string
+        toCode:
+          type: string
+        distance:
+          type: number
+      required: [fromId, fromCode, toId, toCode, distance]
+
+    ReferenceDistances:
+      type: object
+      description: Immutable base×base reference-distance matrix for a supportsReferenceDistances-capable model (Bundle 2.2, B3). Never includes scenario-local added entities or distanceOverrides (DD-1).
+      properties:
+        pairs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceDistancePair"
+        distanceUnit:
+          type: string
+          enum: [mi, km]
+      required: [pairs, distanceUnit]
 
     TransportAssignment:
       type: object
