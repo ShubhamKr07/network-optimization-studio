@@ -105,3 +105,134 @@ describe("ManifestSchema — capabilities.supportsFacilityStatus (Bundle 2, B2-T
     expect(readManifest("transport-coal").capabilities.supportsFacilityStatus).toBe(false);
   });
 });
+
+describe("ManifestSchema — capabilities.supportsReferenceDistances (Bundle 2.2, B2.2-T0)", () => {
+  const baseManifest = {
+    id: "p-median-us",
+    name: "Al's Athletics",
+    chapter: "Chapter 3",
+    datasetDir: "solvers/p-median-us/dataset",
+    countryBounds: { sw: [25, -125] as [number, number], ne: [50, -66] as [number, number] },
+    capabilities: {
+      supportsP: true,
+      capacityModes: ["none", "uniform", "per_wh"],
+      demandEditable: true,
+      outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+    },
+    inputsSchema: {},
+  };
+
+  it("parses and retains an explicit supportsReferenceDistances: true", () => {
+    const parsed = ManifestSchema.parse({
+      ...baseManifest,
+      capabilities: { ...baseManifest.capabilities, supportsReferenceDistances: true },
+    });
+    expect(parsed.capabilities.supportsReferenceDistances).toBe(true);
+  });
+
+  it("defaults to false when supportsReferenceDistances is absent", () => {
+    const parsed = ManifestSchema.parse(baseManifest);
+    expect(parsed.capabilities.supportsReferenceDistances).toBe(false);
+  });
+
+  it("real manifest: p-median-us carries supportsReferenceDistances: true", async () => {
+    const { readManifest } = await import("./index");
+    expect(readManifest("p-median-us").capabilities.supportsReferenceDistances).toBe(true);
+  });
+
+  it("real manifests: two-echelon-gold-au, p-median-brazil, transport-coal default to false (not set)", async () => {
+    const { readManifest } = await import("./index");
+    expect(readManifest("two-echelon-gold-au").capabilities.supportsReferenceDistances).toBe(false);
+    expect(readManifest("p-median-brazil").capabilities.supportsReferenceDistances).toBe(false);
+    expect(readManifest("transport-coal").capabilities.supportsReferenceDistances).toBe(false);
+  });
+});
+
+describe("ManifestSchema — capabilities.supportsAddedCustomerExclusion (Bundle 2.2, B2.2-T0)", () => {
+  const baseManifest = {
+    id: "p-median-us",
+    name: "Al's Athletics",
+    chapter: "Chapter 3",
+    datasetDir: "solvers/p-median-us/dataset",
+    countryBounds: { sw: [25, -125] as [number, number], ne: [50, -66] as [number, number] },
+    capabilities: {
+      supportsP: true,
+      capacityModes: ["none", "uniform", "per_wh"],
+      demandEditable: true,
+      outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+    },
+    inputsSchema: {},
+  };
+
+  it("parses and retains an explicit supportsAddedCustomerExclusion: true", () => {
+    const parsed = ManifestSchema.parse({
+      ...baseManifest,
+      capabilities: { ...baseManifest.capabilities, supportsAddedCustomerExclusion: true },
+    });
+    expect(parsed.capabilities.supportsAddedCustomerExclusion).toBe(true);
+  });
+
+  it("parses an explicit supportsAddedCustomerExclusion: false", () => {
+    const parsed = ManifestSchema.parse({
+      ...baseManifest,
+      capabilities: { ...baseManifest.capabilities, supportsAddedCustomerExclusion: false },
+    });
+    expect(parsed.capabilities.supportsAddedCustomerExclusion).toBe(false);
+  });
+
+  it("defaults to false when supportsAddedCustomerExclusion is absent", () => {
+    const parsed = ManifestSchema.parse(baseManifest);
+    expect(parsed.capabilities.supportsAddedCustomerExclusion).toBe(false);
+  });
+
+  it("real manifests: p-median-us and two-echelon-gold-au carry supportsAddedCustomerExclusion: true", async () => {
+    const { readManifest } = await import("./index");
+    expect(readManifest("p-median-us").capabilities.supportsAddedCustomerExclusion).toBe(true);
+    expect(readManifest("two-echelon-gold-au").capabilities.supportsAddedCustomerExclusion).toBe(true);
+  });
+
+  it("real manifest: p-median-brazil explicitly carries supportsAddedCustomerExclusion: false", async () => {
+    const { readManifest } = await import("./index");
+    expect(readManifest("p-median-brazil").capabilities.supportsAddedCustomerExclusion).toBe(false);
+  });
+});
+
+describe("ManifestSchema — inputsSchema.addedCustomers[].status (Bundle 2.2, B2.2-T0)", () => {
+  it("p-median-us manifest's addedCustomers item schema carries a status property with the active/excluded enum", async () => {
+    const { readManifest } = await import("./index");
+    const manifest = readManifest("p-median-us");
+    const inputsSchema = manifest.inputsSchema as {
+      properties: { addedCustomers: { items: { properties: { status: { enum: string[] } } } } };
+    };
+    expect(inputsSchema.properties.addedCustomers.items.properties.status.enum).toEqual(["active", "excluded"]);
+  });
+
+  it("two-echelon-gold-au manifest's addedCustomers item schema carries a status property with the active/excluded enum", async () => {
+    const { readManifest } = await import("./index");
+    const manifest = readManifest("two-echelon-gold-au");
+    const inputsSchema = manifest.inputsSchema as {
+      properties: { addedCustomers: { items: { properties: { status: { enum: string[] } } } } };
+    };
+    expect(inputsSchema.properties.addedCustomers.items.properties.status.enum).toEqual(["active", "excluded"]);
+  });
+
+  it("addedCustomers.status is not in the item's required list (back-compat default active)", async () => {
+    const { readManifest } = await import("./index");
+    for (const modelId of ["p-median-us", "two-echelon-gold-au"] as const) {
+      const manifest = readManifest(modelId);
+      const inputsSchema = manifest.inputsSchema as {
+        properties: { addedCustomers: { items: { required: string[] } } };
+      };
+      expect(inputsSchema.properties.addedCustomers.items.required).not.toContain("status");
+    }
+  });
+});
+
+describe("ManifestSchema — all real manifests still validate (Bundle 2.2, B2.2-T0)", () => {
+  it("every model's manifest.json parses cleanly against ManifestSchema", async () => {
+    const { readManifest, MODEL_IDS } = await import("./index");
+    for (const modelId of MODEL_IDS) {
+      expect(() => readManifest(modelId)).not.toThrow();
+    }
+  });
+});

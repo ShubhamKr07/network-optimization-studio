@@ -170,6 +170,20 @@ export const ManifestSchema = z.object({
     // pre-Bundle-2 manifests (none exist on disk, but any future stale
     // fixture) still parse.
     supportsFacilityStatus: z.boolean().optional().default(false),
+    // Bundle 2.2 (B2.2-T0) — true when this model exposes the immutable
+    // base×base reference-distance matrix via GET /models/:id/reference-distances
+    // (T7's DistancesTab reference section). Optional+defaulted so pre-existing
+    // manifests still parse; only p-median-us sets this true today.
+    supportsReferenceDistances: z.boolean().optional().default(false),
+    // Bundle 2.2 (B2.2-T0) — true when this model's solver honors an
+    // Active/Excluded status on a user-added customer (addedCustomers[].status).
+    // Gates T1's payload/precheck exclusion logic and T8's dialog controls for
+    // added customers specifically — never gate on modelId directly (this
+    // repo's most-documented recurring bug class). Brazil is explicitly false:
+    // its solver applies no customer exclusion, even though base-customer
+    // status (customerOverrides) is still allowed there. Optional+defaulted so
+    // pre-existing manifests still parse.
+    supportsAddedCustomerExclusion: z.boolean().optional().default(false),
   }),
   inputsSchema: z.record(z.string(), z.unknown()),
   // R5 (Workspace UX bundle) — the unit distances/bands are reported in for
