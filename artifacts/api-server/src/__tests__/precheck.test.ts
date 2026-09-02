@@ -5,6 +5,8 @@ import {
   precheckTwoEchelonInputs,
   buildTransportIdSpaces,
   buildTwoEchelonIdSpaces,
+  buildActivePMedianIds,
+  buildActiveTwoEchelonIds,
   BRAZIL_DATASET,
   TRANSPORT_DATASET,
   TWO_ECHELON_DATASET,
@@ -96,7 +98,7 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
     it("a base warehouse requires a distance to an added active customer (vice-versa direction)", () => {
       const inputs: PMedianInputs = {
         ...BASE,
-        addedCustomers: [{ id: "C-NEW", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 }],
+        addedCustomers: [{ id: "C-NEW", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500, status: "active" }],
         distanceOverrides: [{ fromId: "WH-A", toId: "C-NEW", distance: 15 }],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
@@ -144,7 +146,7 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
     it("rejects an added customer reusing a real base-dataset ID", () => {
       const inputs: PMedianInputs = {
         ...BASE,
-        addedCustomers: [{ id: "C-1", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 }],
+        addedCustomers: [{ id: "C-1", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500, status: "active" }],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
       expect(result.ok).toBe(false);
@@ -158,8 +160,8 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
       const inputs: PMedianInputs = {
         ...BASE,
         addedCustomers: [
-          { id: "C-DUP", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 },
-          { id: "C-DUP", city: "Sacramento", state: "CA", lat: 38.6, lng: -121.5, demand: 300 },
+          { id: "C-DUP", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500, status: "active" },
+          { id: "C-DUP", city: "Sacramento", state: "CA", lat: 38.6, lng: -121.5, demand: 300, status: "active" },
         ],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
@@ -224,7 +226,7 @@ describe("precheckPMedianInputs — B2.1 semantic precheck", () => {
       const inputs: PMedianInputs = {
         ...BASE,
         addedWarehouses: [{ id: "WH-09", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }],
-        addedCustomers: [{ id: "C-NEW", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500 }],
+        addedCustomers: [{ id: "C-NEW", city: "Fresno", state: "CA", lat: 36.7, lng: -119.7, demand: 500, status: "active" }],
         distanceOverrides: [{ fromId: "WH-09", toId: "C-NEW", distance: 5 }],
       };
       const result = precheckPMedianInputs(inputs, DATASET);
@@ -317,7 +319,7 @@ describe("precheckPMedianInputs — B6.3 p-median-brazil dataset wiring", () => 
     const inputs: PMedianInputs = {
       ...BRAZIL_BASE,
       addedWarehouses: [{ id: "WH-09", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" }],
-      addedCustomers: [{ id: "REG-NEW", city: "New Region", state: "XX", lat: -8.0, lng: -48.0, demand: 500 }],
+      addedCustomers: [{ id: "REG-NEW", city: "New Region", state: "XX", lat: -8.0, lng: -48.0, demand: 500, status: "active" }],
       distanceOverrides: [{ fromId: "WH-09", toId: "REG-NEW", distance: 5 }],
     };
     const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
@@ -672,7 +674,7 @@ describe("precheckTwoEchelonInputs — B6.2 semantic precheck", () => {
     it("a base refinery requires a distance to an added active customer (vice-versa direction)", () => {
       const inputs: TwoEchelonInputs = {
         ...TWO_ECHELON_BASE,
-        addedCustomers: [{ id: "C-NEW", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 }],
+        addedCustomers: [{ id: "C-NEW", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500, status: "active" }],
         distanceOverrides: [{ fromId: "REF-A", toId: "C-NEW", distance: 15 }],
       };
       const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
@@ -736,7 +738,7 @@ describe("precheckTwoEchelonInputs — B6.2 semantic precheck", () => {
     it("rejects an added customer reusing a real base-dataset ID", () => {
       const inputs: TwoEchelonInputs = {
         ...TWO_ECHELON_BASE,
-        addedCustomers: [{ id: "C-1", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 }],
+        addedCustomers: [{ id: "C-1", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500, status: "active" }],
       };
       const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
       expect(result.ok).toBe(false);
@@ -750,8 +752,8 @@ describe("precheckTwoEchelonInputs — B6.2 semantic precheck", () => {
       const inputs: TwoEchelonInputs = {
         ...TWO_ECHELON_BASE,
         addedCustomers: [
-          { id: "C-DUP", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 },
-          { id: "C-DUP", city: "Adelaide", state: "SA", lat: -34, lng: 138, demand: 300 },
+          { id: "C-DUP", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500, status: "active" },
+          { id: "C-DUP", city: "Adelaide", state: "SA", lat: -34, lng: 138, demand: 300, status: "active" },
         ],
       };
       const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
@@ -812,7 +814,7 @@ describe("precheckTwoEchelonInputs — B6.2 semantic precheck", () => {
       const inputs: TwoEchelonInputs = {
         ...TWO_ECHELON_BASE,
         addedRefineries: [{ id: "REF-09", city: "X", state: "WA", lat: -30, lng: 121, status: "active" }],
-        addedCustomers: [{ id: "C-NEW", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500 }],
+        addedCustomers: [{ id: "C-NEW", city: "Perth", state: "WA", lat: -31, lng: 115, demand: 500, status: "active" }],
         distanceOverrides: [{ fromId: "REF-09", toId: "C-NEW", distance: 5 }],
       };
       const result = precheckTwoEchelonInputs(inputs, TWO_ECHELON_DATASET_FAKE);
@@ -869,5 +871,86 @@ describe("buildTwoEchelonIdSpaces", () => {
   it("defaults to the real two-echelon-gold-au dataset when no dataset argument is given", () => {
     const { mineIdSpace } = buildTwoEchelonIdSpaces({});
     expect(mineIdSpace.has("kalgoorlie")).toBe(true);
+  });
+});
+
+// Bundle 2.2 (B2.2-T1, A3 backend) — an added customer's own `status` is
+// only honored as an "active" filter when the model's manifest capability
+// supportsAddedCustomerExclusion is true (real manifests via the model
+// registry — p-median-us/two-echelon-gold-au true, p-median-brazil false).
+// This describes buildActivePMedianIds/buildActiveTwoEchelonIds directly
+// (not just through precheckPMedianInputs/precheckTwoEchelonInputs) since
+// those are what B4.3's export stub-generator and autoDistance.ts also
+// consume — the gate has to hold at the shared-helper level, not just at
+// the precheck-function level.
+describe("buildActivePMedianIds / buildActiveTwoEchelonIds — B2.2-T1 added-customer exclusion capability gate", () => {
+  it("p-median-us (real dataset, capability true): an excluded added customer is NOT counted active", () => {
+    const { activeCustomerIds } = buildActivePMedianIds({
+      addedCustomers: [{ id: "C-NEW", status: "excluded" }],
+    });
+    expect(activeCustomerIds).not.toContain("C-NEW");
+  });
+
+  it("p-median-us (real dataset, capability true): an active (or default) added customer IS counted active", () => {
+    const { activeCustomerIds } = buildActivePMedianIds({
+      addedCustomers: [{ id: "C-NEW", status: "active" }],
+    });
+    expect(activeCustomerIds).toContain("C-NEW");
+  });
+
+  it("p-median-brazil (real BRAZIL_DATASET, capability false): an excluded added customer is STILL counted active", () => {
+    const { activeCustomerIds } = buildActivePMedianIds(
+      { addedCustomers: [{ id: "REG-NEW", status: "excluded" }] },
+      BRAZIL_DATASET,
+    );
+    expect(activeCustomerIds).toContain("REG-NEW");
+  });
+
+  it("two-echelon-gold-au (real TWO_ECHELON_DATASET, capability true): an excluded added customer is NOT counted active", () => {
+    const { activeCustomerIds } = buildActiveTwoEchelonIds(
+      { addedCustomers: [{ id: "perth", status: "excluded" }] },
+      TWO_ECHELON_DATASET,
+    );
+    expect(activeCustomerIds).not.toContain("perth");
+  });
+
+  it("two-echelon-gold-au (real TWO_ECHELON_DATASET, capability true): an active added customer IS counted active", () => {
+    const { activeCustomerIds } = buildActiveTwoEchelonIds(
+      { addedCustomers: [{ id: "perth", status: "active" }] },
+      TWO_ECHELON_DATASET,
+    );
+    expect(activeCustomerIds).toContain("perth");
+  });
+
+  it("a fake dataset omitting supportsAddedCustomerExclusion (e.g. TWO_ECHELON_DATASET_FAKE) never filters, matching pre-Bundle-2.2 behavior", () => {
+    const { activeCustomerIds } = buildActiveTwoEchelonIds(
+      { addedCustomers: [{ id: "C-NEW", status: "excluded" }] },
+      TWO_ECHELON_DATASET_FAKE,
+    );
+    expect(activeCustomerIds).toContain("C-NEW");
+  });
+});
+
+// Bundle 2.2 (B2.2-T1) — the full precheck-function level Brazil-negative
+// case (review-mandated): an added Brazil customer marked "excluded" must
+// still be required to have complete distance coverage — i.e. precheck
+// treats it as active, matching buildActivePMedianIds' own gated behavior
+// above, and matching the fact that Brazil's solver serves it regardless.
+describe("precheckPMedianInputs — B2.2-T1 Brazil-negative added-customer exclusion", () => {
+  it("a Brazil added customer marked excluded is still required to have distances to every active warehouse (still 'active')", () => {
+    const inputs: PMedianInputs = {
+      ...BASE,
+      singleSource: true,
+      addedCustomers: [
+        { id: "REG-NEW", city: "New Region", state: "XX", lat: -8.0, lng: -48.0, demand: 500, status: "excluded" },
+      ],
+      // Deliberately no distanceOverrides for REG-NEW — if it were treated
+      // as inactive/excluded (like p-median-us would), this would pass with
+      // no completeness error. Since Brazil doesn't honor the capability,
+      // it must still be flagged as missing.
+    };
+    const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.code === "completeness" && e.message.includes("REG-NEW"))).toBe(true);
   });
 });
