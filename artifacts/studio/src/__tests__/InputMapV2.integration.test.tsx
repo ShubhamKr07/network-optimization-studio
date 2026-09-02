@@ -3,6 +3,14 @@ import { render, fireEvent, screen } from "@testing-library/react";
 import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
 import type { MapWarehouse, MapCustomer, PMedianMapInputs } from "@/components/workspace/map/types";
 
+// T8 (Bundle 2.2, A3) — PMedianInputMap now calls `useListModels()` (to gate the
+// added-customer exclusion control by capability), so InputMapTab rendered directly
+// here (no QueryClientProvider ancestor) needs the hook mocked. Empty data → the
+// exclusion capability resolves false, which this pre-T8 suite neither sets nor asserts.
+vi.mock("@workspace/api-client-react", () => ({
+  useListModels: () => ({ data: [] }),
+}));
+
 // T10 (Input Map v2 QA) — genuinely new coverage on top of InputMapTabV2.
 // test.tsx (create/delete/move/edit/copy dispatch) and Workspace.
 // InputMapV2.test.tsx (Save reconciliation). Both of those already use a
