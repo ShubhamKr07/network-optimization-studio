@@ -143,4 +143,36 @@ describe("CreateEntityDialog", () => {
       expect(screen.getByTestId("create-entity-dialog")).toHaveTextContent("New warehouse");
     });
   });
+
+  // Cleanup pass — CreateEntityDialog's Capacity field now mirrors
+  // EditWarehouseDialog's own capacityMode gate (a refinery has no capacity
+  // concept at all; a per-warehouse capacity mode still needs it).
+  describe("capacityMode gate", () => {
+    it("REFINERY_ROLE with capacityMode='none' renders no Capacity field and submits no capacity key", () => {
+      const { onSubmit } = renderDialog({ role: REFINERY_ROLE, capacityMode: "none" });
+      expect(screen.queryByTestId("create-entity-capacity")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input).not.toHaveProperty("capacity");
+    });
+
+    it("a per_wh warehouse (default WAREHOUSE_ROLE) still shows and submits Capacity", () => {
+      const { onSubmit } = renderDialog({ capacityMode: "per_wh" });
+      expect(screen.getByTestId("create-entity-capacity")).toBeInTheDocument();
+      fireEvent.change(screen.getByTestId("create-entity-capacity"), { target: { value: "900" } });
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input.capacity).toBe(900);
+    });
+
+    it("a warehouse with capacityMode='none'/'uniform' hides Capacity too — mirrors EditWarehouseDialog's showValueField exactly", () => {
+      renderDialog({ capacityMode: "none" });
+      expect(screen.queryByTestId("create-entity-capacity")).not.toBeInTheDocument();
+    });
+
+    it("MINE_ROLE with no capacityMode prop (undefined — mines have no capacityMode concept) still shows Capacity", () => {
+      renderDialog({ role: MINE_ROLE });
+      expect(screen.getByTestId("create-entity-capacity")).toBeInTheDocument();
+    });
+  });
 });

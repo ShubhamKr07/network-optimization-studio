@@ -671,11 +671,10 @@ function warehouseStatusesFromInputs(
 // Warehouses/Customers/Distances grid tabs (Step 2b — the SAME
 // WarehousesTab/CustomersTab/DistancesTab components p-median-us already
 // uses, incl. their Upload/Download CSV toolbars, T9's backend gate).
-// Phase 3.2, Task 4 — "Input Map" is the first entry in every model's list
-// (per-model placement/pin wiring lives in placementOptionsForModel/
-// pinsForModel below). p-median-brazil shares this array with p-median-us
-// (the switch's default case) so it gets the exact same sidebar entries —
-// T5 (Bundle 2) wired every one of them to real content.
+// Phase 3.2, Task 4 — "Input Map" is the first entry in every model's list.
+// p-median-brazil shares this array with p-median-us (the switch's default
+// case) so it gets the exact same sidebar entries — T5 (Bundle 2) wired
+// every one of them to real content.
 function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
     case "transport-coal":
@@ -710,61 +709,6 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
   }
-}
-
-// Phase 3.2, Task 4 — per-model placement options for the Input Map's
-// toggle (matches inputEntriesForModel's own entity ids exactly, so
-// handlePlacePoint's openTab(kind, ...) call always resolves a real tab).
-// No "mines" option for two-echelon-gold-au (its mine is fixed, never a
-// placement choice) and no mine/station placement crossover for
-// transport-coal vs. p-median-us's warehouse/customer vocabulary.
-function placementOptionsForModel(modelId: StudioModelType): { key: string; label: string }[] {
-  switch (modelId) {
-    case "transport-coal":
-      return [
-        { key: "mines", label: "Mine" },
-        { key: "stations", label: "Station" },
-      ];
-    case "two-echelon-gold-au":
-      return [
-        { key: "refineries", label: "Refinery" },
-        { key: "customers", label: "Customer" },
-      ];
-    case "p-median-brazil":
-    case "p-median-us":
-    default:
-      return [
-        { key: "warehouses", label: "Warehouse" },
-        { key: "customers", label: "Customer" },
-      ];
-  }
-}
-
-// Phase 3.2, Task 4 — pins shown on the Input Map: base dataset rows +
-// scenario-local added rows, grouped by kind (matches placementOptionsForModel's
-// own key vocabulary). `dataset` can be undefined before GET /dataset
-// resolves — degrades to no pins for that group rather than crashing.
-function pinsForModel(
-  modelId: StudioModelType,
-  dataset: { warehouses: { id: string; city: string; state: string; lat: number; lng: number; kind?: string }[]; customers: { id: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
-  localInputs: Record<string, unknown> | null,
-): { kind: string; entities: { id: string; city: string; state: string; lat: number; lng: number }[] }[] {
-  if (modelId === "transport-coal") {
-    return [
-      { kind: "mines", entities: [...(dataset?.warehouses ?? []), ...addedMinesFromInputs(localInputs)] },
-      { kind: "stations", entities: [...(dataset?.customers ?? []), ...addedStationsFromInputs(localInputs)] },
-    ];
-  }
-  if (modelId === "two-echelon-gold-au") {
-    return [
-      { kind: "refineries", entities: [...(dataset?.warehouses ?? []).filter(w => w.kind !== "mine"), ...addedRefineriesFromInputs(localInputs)] },
-      { kind: "customers", entities: [...(dataset?.customers ?? []), ...addedCustomersFromInputs(localInputs)] },
-    ];
-  }
-  return [
-    { kind: "warehouses", entities: [...(dataset?.warehouses ?? []), ...addedWarehousesFromInputs(localInputs)] },
-    { kind: "customers", entities: [...(dataset?.customers ?? []), ...addedCustomersFromInputs(localInputs)] },
-  ];
 }
 
 // Phase 3.2, Task 4 — dispatches to precheckDisplay.ts's per-entity
@@ -1278,13 +1222,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     return () => clearTimeout(t);
   }, [focusEntityId]);
 
-  function handlePlacePoint(lat: number, lng: number, kind: string) {
-    const entry = inputEntriesForModel(modelId).find(e => e.id === kind);
-    openTab("input", { id: kind, label: entry?.label ?? kind });
-    setPendingPrefill({ lat, lng });
-    toast({ description: `Placing a new ${entry?.label.toLowerCase().replace(/s$/, "") ?? kind} at ${lat.toFixed(4)}, ${lng.toFixed(4)} — fill in the remaining fields below.` });
-  }
-
   function handleEntityAdded(kind: string, id: string) {
     if (!currentScenario) return;
     setPendingPrecheckWatches(prev => [...prev, { scenarioId: currentScenario.id, kind, id }]);
@@ -1766,12 +1703,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // two-echelon-gold-au): effective-row refineries/mines/stations or
     // warehouses/customers (base dataset + overrides applied, unioned with
     // added rows) wired to their own onInputsChange so every map edit lands
-    // in localInputs exactly like every other editable tab. The original
-    // Phase 3.2 Task 4 click-to-place "legacy" pin map (`pinsForModel`/
-    // `placementOptionsForModel`/`handlePlacePoint` below) has no remaining
-    // caller in this branch — kept only because handlePlacePoint's
-    // openTab+prefill flow is still reachable from the Warehouses/Customers/
-    // Refineries/Mines/Stations *Tab's own "add on map" affordance.
+    // in localInputs exactly like every other editable tab. Every mode below
+    // (twoEchelon/transport/pmedian) has fully superseded the original
+    // Phase 3.2 Task 4 click-to-place "legacy"/"placeholder" pin map — no
+    // model routes to either anymore, so both were removed from
+    // InputMapTab.tsx's mode union (cleanup pass) along with this file's own
+    // now-unreferenced pinsForModel/placementOptionsForModel/handlePlacePoint.
     if (activeTab.kind === "input" && activeTab.entity === "input-map") {
       if (modelId === "two-echelon-gold-au") {
         if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
@@ -2125,8 +2062,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // (supportsFacilityStatus:true, same target group as p-median-us/
       // brazil — the fixed mine is retained regardless, via NetworkMap's
       // own `kind === "mine"` guard, T4 Step 2).
-      const projectsAddedEntities =
-        modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "transport-coal" || modelId === "two-echelon-gold-au";
+      // Cleanup pass — every model projects its added entities into the
+      // output map (unlike hidesClosedFacilities below, this isn't a
+      // capability gate at all: there's no model without an added-entity
+      // concept to exclude), so the old modelId===A||B||C||D allowlist
+      // (already covering all 4 models) simplified to a flat constant.
+      const projectsAddedEntities = true;
       // R7 gate is capability-driven, NOT a hardcoded model list — a 5th
       // facility-status model must inherit hide-closed with zero changes
       // here (plan Global Constraint; the exact bug class this repo keeps
