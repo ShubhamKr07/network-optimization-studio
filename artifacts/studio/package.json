@@ -15,6 +15,7 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.10",
     "html-to-image": "^1.11.13"
   },
   "devDependencies": {
