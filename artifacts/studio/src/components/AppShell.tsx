@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogoutUser, getGetCurrentAuthUserQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
+import { AppFooter } from "@/components/AppFooter";
 
 interface AppShellProps {
   userEmail: string;
@@ -43,6 +44,7 @@ export function AppShell({ userEmail, children }: AppShellProps) {
         </Button>
       </header>
       <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
+      <AppFooter />
     </div>
   );
 }

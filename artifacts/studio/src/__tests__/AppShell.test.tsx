@@ -73,4 +73,47 @@ describe("AppShell layout", () => {
     const main = screen.getByText("lab content").closest("main") as HTMLElement;
     expect(main.className).toContain("overflow-y-auto");
   });
+
+  it("mounts the app footer below the body content, reserving its own height", () => {
+    render(
+      <AppShell userEmail="student@example.com">
+        <div>lab content</div>
+      </AppShell>,
+    );
+    const footer = screen.getByTestId("app-footer");
+    expect(footer).toBeInTheDocument();
+    expect(footer.className).toContain("flex-shrink-0");
+    // The footer must be a sibling of <main>, not nested inside it — nesting
+    // it inside the scrollable region would let it scroll out of view /
+    // overlap body content instead of always reserving its own fixed strip
+    // at the bottom of the h-screen column.
+    const main = screen.getByText("lab content").closest("main") as HTMLElement;
+    expect(footer.parentElement).toBe(main.parentElement);
+  });
+
+  it("keeps the footer un-clipped and non-overlapping at a narrow (375px) viewport", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+    window.dispatchEvent(new Event("resize"));
+    try {
+      render(
+        <AppShell userEmail="student@example.com">
+          <div>lab content</div>
+        </AppShell>,
+      );
+      const root = screen.getByTestId("app-footer").closest("div.h-screen") as HTMLElement;
+      const footer = screen.getByTestId("app-footer");
+      const main = screen.getByText("lab content").closest("main") as HTMLElement;
+      // Column layout (h-screen flex flex-col) with a flex-shrink-0 footer
+      // is width-independent for the overlap concern: the footer always
+      // reserves its own row at the bottom regardless of viewport width, and
+      // <main> stays the sole scrollable/clippable region.
+      expect(root).toBeInTheDocument();
+      expect(footer.className).toContain("flex-shrink-0");
+      expect(main.className).toContain("overflow-y-auto");
+      expect(footer.parentElement).toBe(main.parentElement);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
+    }
+  });
 });
