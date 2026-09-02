@@ -4,7 +4,7 @@
   "chapter": "Chapter 3",
   "datasetDir": "solvers/p-median-us/dataset",
   "countryBounds": { "sw": [25.78, -123.11], "ne": [47.67, -71.02] },
-  "capabilities": { "supportsP": true, "capacityModes": ["none", "uniform", "per_wh"], "demandEditable": true, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true },
+  "capabilities": { "supportsP": true, "capacityModes": ["none", "uniform", "per_wh"], "demandEditable": true, "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"], "supportsFacilityStatus": true, "supportsReferenceDistances": true, "supportsAddedCustomerExclusion": true },
   "distanceUnit": "mi",
   "inputsSchema": {
     "type": "object",
@@ -70,7 +70,8 @@
             "state": { "type": "string" },
             "lat": { "type": "number" },
             "lng": { "type": "number" },
-            "demand": { "type": "number", "minimum": 0 }
+            "demand": { "type": "number", "minimum": 0 },
+            "status": { "type": "string", "enum": ["active", "excluded"] }
           },
           "required": ["id", "city", "state", "lat", "lng", "demand"]
         }

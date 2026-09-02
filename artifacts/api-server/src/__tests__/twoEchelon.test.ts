@@ -93,6 +93,37 @@ describe("twoEchelonInputsSchema — B6.2 network-edit fields", () => {
     expect(result.success).toBe(false);
   });
 
+  // Bundle 2.2 (B2.2-T1, A3 backend) — addedCustomerSchema gains `status`,
+  // mirroring pMedian.ts's own coverage exactly.
+  it("defaults an added customer's status to 'active' when omitted (back-compat)", () => {
+    const result = twoEchelonInputsSchema.parse({
+      ...BASE,
+      addedCustomers: [{ id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000 }],
+    });
+    expect(result.addedCustomers[0].status).toBe("active");
+  });
+
+  it("accepts an added customer with status:'excluded'", () => {
+    const result = twoEchelonInputsSchema.safeParse({
+      ...BASE,
+      addedCustomers: [
+        { id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000, status: "excluded" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.addedCustomers[0].status).toBe("excluded");
+  });
+
+  it("rejects an added customer with an invalid status value", () => {
+    const result = twoEchelonInputsSchema.safeParse({
+      ...BASE,
+      addedCustomers: [
+        { id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000, status: "bogus" },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("accepts a valid distanceOverrides entry with field name `distance` (not `cost`)", () => {
     const result = twoEchelonInputsSchema.parse({
       ...BASE,

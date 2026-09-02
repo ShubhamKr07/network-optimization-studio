@@ -74,4 +74,27 @@ describe("Login", () => {
     render(<Login />);
     expect(screen.getByText("Register")).toBeInTheDocument();
   });
+
+  it("mounts the app footer", () => {
+    render(<Login />);
+    expect(screen.getByTestId("app-footer")).toBeInTheDocument();
+  });
+
+  it("keeps the footer un-clipped at a narrow (375px) viewport", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+    window.dispatchEvent(new Event("resize"));
+    try {
+      render(<Login />);
+      const footer = screen.getByTestId("app-footer");
+      const root = footer.closest("div.min-h-screen") as HTMLElement;
+      // min-h-screen + flex-col + flex-shrink-0 footer: the footer always
+      // reserves its own row below the centered card, regardless of
+      // viewport width — never overlapped or clipped by page content.
+      expect(root.className).toContain("flex-col");
+      expect(footer.className).toContain("flex-shrink-0");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
+    }
+  });
 });

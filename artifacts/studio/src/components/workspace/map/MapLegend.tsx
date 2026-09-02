@@ -36,6 +36,21 @@ export interface MapLegendProps {
    * entity actually has a status field (capabilities.supportsFacilityStatus).
    * Defaults to true — today's exact p-median-us behavior, unchanged. */
   showStatusLegend?: boolean;
+  /** T3 (Bundle 2.2, A1) — the LIVE warehouse/mine/refinery layer-checkbox
+   * state (not a capability), ANDed with `showStatusLegend` — a status
+   * legend for a hidden layer is meaningless. Optional, default `true`
+   * (today's behavior for every caller that doesn't wire it yet). */
+  showWarehouseLayer?: boolean;
+  /** T3 (Bundle 2.2, A1) — the LIVE customer/station layer-checkbox state,
+   * ANDed with `sizeByDemand` for the demand-bucket group below. Optional,
+   * default `true`. */
+  showCustomerLayer?: boolean;
+  /** T3 (Bundle 2.2, A2) — mirrors the "Size customers by demand" toggle.
+   * `false` means every demand-bearing marker is now a fixed radius, so
+   * there is no varying scale left to show a legend for — the whole
+   * demand-bucket section is hidden, not rendered as fixed-size dummy rows.
+   * Optional, default `true`. */
+  sizeByDemand?: boolean;
 }
 
 // Static overlay — status swatches + demand reference bubbles. Reuses the
@@ -46,10 +61,24 @@ export interface MapLegendProps {
 // via the .scn-theme-scoped tokens set on Workspace.tsx's root, same as
 // every other Workspace overlay component) — this component does not
 // re-apply the .scn-theme class itself.
-export function MapLegend({ customers, modelId = "p-median-us", showStatusLegend = true }: MapLegendProps = {}) {
+export function MapLegend({
+  customers,
+  modelId = "p-median-us",
+  showStatusLegend = true,
+  showWarehouseLayer = true,
+  showCustomerLayer = true,
+  sizeByDemand = true,
+}: MapLegendProps = {}) {
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
   const scale = makeQuintileRadius(demands);
+  // T3 (Bundle 2.2, A1/A2) — legend follows the live toolbar state: a status
+  // legend for a hidden warehouse layer, or a demand-bucket legend when
+  // sizing-by-demand is off (nothing varies to show a scale for), is
+  // meaningless — hide the whole group rather than render a stale/misleading
+  // one.
+  const showStatusGroup = showStatusLegend && showWarehouseLayer;
+  const showDemandGroup = showCustomerLayer && sizeByDemand;
 
   return (
     <div
@@ -60,7 +89,7 @@ export function MapLegend({ customers, modelId = "p-median-us", showStatusLegend
       className="absolute bottom-4 left-4 bg-card border border-border rounded-md shadow p-2 flex flex-col gap-2 z-10 text-xs pointer-events-none"
       data-testid="map-legend"
     >
-      {showStatusLegend && (
+      {showStatusGroup && (
         <div className="flex items-center gap-3">
           {STATUSES.map((status) => {
             const { label, marker } = warehouseStatusPresentation[status];
@@ -77,25 +106,27 @@ export function MapLegend({ customers, modelId = "p-median-us", showStatusLegend
           })}
         </div>
       )}
-      <div className="flex items-center gap-3 flex-wrap">
-        {/* R2: only buckets a real customer actually occupies get a row — a
-            collapsed/degenerate population (e.g. every demand identical)
-            never renders an empty bucket row. */}
-        {scale.usedBuckets.map((bucket) => {
-          const radius = QUINTILE_RADII[bucket];
-          const size = Math.ceil(radius * 2) + 4;
-          return (
-            <div key={bucket} className="flex items-center gap-1" data-testid={`legend-demand-bucket-${bucket}`}>
-              <span
-                className="inline-block"
-                style={{ width: size, height: size }}
-                dangerouslySetInnerHTML={{ __html: customerBubbleSvg(radius, tone) }}
-              />
-              <span className="text-muted-foreground">{bucketLabel(bucket, scale.thresholds)}</span>
-            </div>
-          );
-        })}
-      </div>
+      {showDemandGroup && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* R2: only buckets a real customer actually occupies get a row — a
+              collapsed/degenerate population (e.g. every demand identical)
+              never renders an empty bucket row. */}
+          {scale.usedBuckets.map((bucket) => {
+            const radius = QUINTILE_RADII[bucket];
+            const size = Math.ceil(radius * 2) + 4;
+            return (
+              <div key={bucket} className="flex items-center gap-1" data-testid={`legend-demand-bucket-${bucket}`}>
+                <span
+                  className="inline-block"
+                  style={{ width: size, height: size }}
+                  dangerouslySetInnerHTML={{ __html: customerBubbleSvg(radius, tone) }}
+                />
+                <span className="text-muted-foreground">{bucketLabel(bucket, scale.thresholds)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

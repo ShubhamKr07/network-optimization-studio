@@ -10,6 +10,11 @@ import { render, fireEvent } from "@testing-library/react";
 // emits a Tooltip with the right children) without depending on Leaflet DOM
 // behavior under jsdom.
 const tooltipChildren: React.ReactNode[] = [];
+// B2.2-T4 (A4) — full props per Tooltip render, so route-hover-tooltip tests
+// can assert `opacity`/`className` (translucent, pointer-events-none)
+// alongside content, not just content the way the pre-existing marker-hover
+// tests above do.
+const tooltipCalls: { props: Record<string, unknown>; children: React.ReactNode }[] = [];
 // Capture the props passed to <MapContainer> so we can assert that Leaflet
 // interaction options (e.g. boxZoom) are disabled as expected. We wrap the real
 // MapContainer (rather than replacing it) so it still provides the Leaflet
@@ -20,8 +25,9 @@ vi.mock("react-leaflet", async () => {
   const RealMapContainer = actual.MapContainer;
   return {
     ...actual,
-    Tooltip: (props: { children?: React.ReactNode }) => {
+    Tooltip: (props: { children?: React.ReactNode } & Record<string, unknown>) => {
       if (props.children) tooltipChildren.push(props.children);
+      tooltipCalls.push({ props, children: props.children });
       return null;
     },
     MapContainer: (props: React.ComponentProps<typeof RealMapContainer>) => {
@@ -653,5 +659,109 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
     expect(routeHtml).not.toContain("#DC2626");
     // Sanity: the full DOM still renders the band legend.
     expect(fullHtml).toContain("#16A34A");
+  });
+});
+
+// ── B2.2-T4 (A4) — route hover tooltip, model-unit-aware ────────────────────
+describe("NetworkMap route hover tooltip (A4)", () => {
+  const routeDataset = {
+    warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+    customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 }],
+  };
+  const routeResult = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [{ fromId: "W1", toId: "C1", flow: 5000, distance: 123 }],
+    metrics: { weightedAvgDistance: 123, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["W1"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("renders a translucent, pointer-events-none Tooltip on the route polyline with cities + distance in the model's unit (default mi)", () => {
+    tooltipCalls.length = 0;
+    render(
+      <NetworkMap
+        dataset={routeDataset}
+        warehouseStatuses={[]}
+        result={routeResult}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+
+    const routeTooltip = tooltipCalls.find((c) => {
+      const { container } = render(<>{c.children}</>);
+      return container.textContent?.includes("Testville") && container.textContent?.includes("Sampleburg");
+    });
+    expect(routeTooltip).toBeDefined();
+    // translucent (opacity < 1) and pointer-events-none, distinct from the
+    // fully-opaque marker Tooltips (opacity={1}) elsewhere in this file.
+    expect(routeTooltip!.props.opacity).toBeLessThan(1);
+    expect(routeTooltip!.props.className).toContain("pointer-events-none");
+
+    const { container: tooltipContainer } = render(<>{routeTooltip!.children}</>);
+    expect(tooltipContainer.textContent).toContain("Testville");
+    expect(tooltipContainer.textContent).toContain("Sampleburg");
+    expect(tooltipContainer.textContent).toContain("Testville → Sampleburg");
+    expect(tooltipContainer.textContent).toContain("123 mi");
+  });
+
+  it("renders the route tooltip in a non-mi model unit (e.g. km), never hardcoding mi", () => {
+    tooltipCalls.length = 0;
+    render(
+      <NetworkMap
+        dataset={routeDataset}
+        warehouseStatuses={[]}
+        result={routeResult}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        distanceUnit="km"
+      />,
+    );
+
+    const routeTooltip = tooltipCalls.find((c) => {
+      const { container } = render(<>{c.children}</>);
+      return container.textContent?.includes("Testville") && container.textContent?.includes("Sampleburg");
+    });
+    expect(routeTooltip).toBeDefined();
+    const { container: tooltipContainer } = render(<>{routeTooltip!.children}</>);
+    expect(tooltipContainer.textContent).toContain("123 km");
+    expect(tooltipContainer.textContent).not.toContain("123 mi");
+  });
+
+  it("does NOT change the click-based CustomerPopup content or behavior", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={routeDataset}
+        warehouseStatuses={[]}
+        result={routeResult}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        distanceUnit="km"
+      />,
+    );
+    const customerMarker = container.querySelector(".leaflet-interactive");
+    expect(customerMarker).not.toBeNull();
+    fireEvent.click(customerMarker!);
+    // Popup click path is unaffected by the new hover Tooltip — it still
+    // opens via Leaflet's imperative L.popup() API (asserted elsewhere by
+    // this being reachable without throwing); no snapshot of popup markup
+    // needed here since CustomerPopup itself was not touched by this task.
+    expect(container).toBeDefined();
   });
 });

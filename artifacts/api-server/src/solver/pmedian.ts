@@ -1,6 +1,7 @@
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
   | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
@@ -39,14 +40,26 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
 
   if (input.modelId === "two-echelon-gold-au") {
     const i = input.inputs;
+    // Bundle 2.2 (B2.2-T1, A3 backend) — an added customer can be marked
+    // Excluded on the schema, but this model's solver only honors it when
+    // the manifest advertises supportsAddedCustomerExclusion (true for
+    // two-echelon-gold-au). Read from the registry, never hardcoded as
+    // modelId === "two-echelon-gold-au" here (this repo's most-documented
+    // recurring bug class) — the gate is the capability, not the string.
+    const supportsAddedCustomerExclusion =
+      getManifest(input.modelId)?.capabilities.supportsAddedCustomerExclusion ?? false;
     return {
       modelType: "two_echelon",
       bomRatio: i.bomRatio,
       refineryStatuses: i.refineryOverrides
         .filter((o) => o.status !== "active")
         .map((o) => ({ refineryId: o.id, status: o.status })),
-      excludedCustomerIds: i.customerOverrides
-        .filter((o) => o.status === "excluded").map((o) => o.id),
+      excludedCustomerIds: [
+        ...i.customerOverrides.filter((o) => o.status === "excluded").map((o) => o.id),
+        ...(supportsAddedCustomerExclusion
+          ? i.addedCustomers.filter((c) => c.status === "excluded").map((c) => c.id)
+          : []),
+      ],
       customerDemands: Object.fromEntries(
         i.customerOverrides.filter((o) => o.demand != null).map((o) => [o.id, o.demand as number]),
       ),
@@ -71,9 +84,23 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
   const warehouseStatuses = i.warehouseOverrides
     .filter((o) => o.status !== "active")
     .map((o) => ({ warehouseId: o.id, status: o.status }));
-  const excludedCustomerIds = i.customerOverrides
-    .filter((o) => o.status === "excluded")
-    .map((o) => o.id);
+  // Bundle 2.2 (B2.2-T1, A3 backend) — this p-median block is SHARED by
+  // p-median-us AND p-median-brazil (input.modelId discriminates only
+  // above, at the branch level). An added customer's `status` field is
+  // schema-legal for both (pMedianInputsSchema is one shared schema), but
+  // only a model whose manifest sets `capabilities.
+  // supportsAddedCustomerExclusion: true` (p-median-us) actually excludes
+  // it from the solve — Brazil's manifest sets this false, so a Brazil
+  // added customer marked "excluded" is still served. Read from the
+  // registry, never a hardcoded `modelId === "p-median-us"` branch here.
+  const supportsAddedCustomerExclusion =
+    getManifest(input.modelId)?.capabilities.supportsAddedCustomerExclusion ?? false;
+  const excludedCustomerIds = [
+    ...i.customerOverrides.filter((o) => o.status === "excluded").map((o) => o.id),
+    ...(supportsAddedCustomerExclusion
+      ? i.addedCustomers.filter((c) => c.status === "excluded").map((c) => c.id)
+      : []),
+  ];
   // D1.1: sparse per-entity overrides — only entities with a real capacity/
   // demand value produce an entry. solve_pmedian (p-median-us) applies these
   // in the LP; solve_capacitated_pmedian (Brazil) ignores unknown keys.

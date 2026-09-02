@@ -90,6 +90,10 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useDeleteScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  // T9 (B2.2-T7 mock gap) — see Workspace.test.tsx's own comment on this
+  // same mock addition.
+  useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
+  getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
   useListModels: vi.fn(() => ({
     data: [
       {

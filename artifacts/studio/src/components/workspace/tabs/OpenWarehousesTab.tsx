@@ -1,9 +1,26 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 
+// B2.2-T6 — a read-only SNAPSHOT of the fields this tab needs from
+// Scenario.inputs, passed by Workspace.tsx (T9 wires the real call site;
+// this stays optional so this file's own commit typechecks standalone).
+// Deliberately NOT `localInputs` — this must be the last-SAVED inputs the
+// solved `result` actually reflects, not any unsaved in-progress edit
+// (snapshot invariant). `addedWarehouses`/`addedRefineries` share the same
+// `aw-` uid family (two-echelon's added facilities are refineries, not
+// warehouses) so both are merged into one id -> displayCode lookup, mirroring
+// DistancesTab.tsx's existing `displayCodeById` pattern.
+export interface OpenWarehousesDisplayedInputs {
+  capacityMode?: string;
+  addedWarehouses?: { id: string; displayCode?: string }[];
+  addedRefineries?: { id: string; displayCode?: string }[];
+}
+
 interface OpenWarehousesTabProps {
   result: SolveResult | null;
   scenarioId: number;
+  /** Optional (back-compat default: Utilization shown, ids rendered raw). */
+  displayedInputs?: OpenWarehousesDisplayedInputs | null;
 }
 
 interface OpenWarehouseRow {
@@ -29,11 +46,28 @@ function openWarehouseRows(result: SolveResult): OpenWarehouseRow[] {
   }));
 }
 
-export function OpenWarehousesTab({ result, scenarioId }: OpenWarehousesTabProps) {
+// Merges addedWarehouses ∪ addedRefineries into one id -> displayCode
+// lookup. Absent `displayedInputs` (back-compat) yields an empty map, so
+// every id falls through to its raw value unchanged.
+function displayCodeById(displayedInputs: OpenWarehousesDisplayedInputs | null | undefined): Record<string, string> {
+  const map: Record<string, string> = {};
+  const sources = [displayedInputs?.addedWarehouses ?? [], displayedInputs?.addedRefineries ?? []];
+  for (const rows of sources) {
+    for (const row of rows) {
+      if (row.displayCode) map[row.id] = row.displayCode;
+    }
+  }
+  return map;
+}
+
+export function OpenWarehousesTab({ result, scenarioId, displayedInputs }: OpenWarehousesTabProps) {
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="open-warehouses-empty">No solved result yet.</div>;
   }
   const rows = openWarehouseRows(result);
+  // Back-compat: no `displayedInputs` at all -> show Utilization as today.
+  const showUtilization = displayedInputs?.capacityMode !== "none";
+  const codeById = displayCodeById(displayedInputs);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -54,15 +88,17 @@ export function OpenWarehousesTab({ result, scenarioId }: OpenWarehousesTabProps
             <tr>
               <th className="text-left p-2">Warehouse</th>
               <th className="text-right p-2">Total Flow</th>
-              <th className="text-right p-2">Utilization</th>
+              {showUtilization && <th className="text-right p-2">Utilization</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">
-                <td className="p-2">{r.warehouseId}</td>
+                <td className="p-2">{codeById[r.warehouseId] ?? r.warehouseId}</td>
                 <td className="p-2 text-right">{r.totalFlow.toLocaleString()}</td>
-                <td className="p-2 text-right">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
+                {showUtilization && (
+                  <td className="p-2 text-right">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
+                )}
               </tr>
             ))}
           </tbody>

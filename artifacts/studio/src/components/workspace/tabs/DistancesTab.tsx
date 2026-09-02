@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
+import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@workspace/api-client-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -45,6 +47,23 @@ interface DistancesTabProps {
   focusEntityId?: string | null;
   /** Followup — scenario-local added entities' `id -> displayCode` map (Workspace.tsx builds this from addedWarehouses/addedCustomers). From/To cells look up through this for DISPLAY ONLY — the underlying stored fromId/toId (the uuid) stays the join key everywhere else (existence checks, edits, removal). Base dataset ids have no entry here and fall back to showing the raw id, unchanged. */
   displayCodeById?: Record<string, string>;
+  /** B3 (Bundle 2.2) — the active model's id, used to fetch its reference-distance
+   * matrix. Optional: absent (or `referenceCapable` false) hides the reference
+   * section entirely — T9 wires the real value at the Workspace.tsx call site. */
+  modelId?: string;
+  /** B3 — mirrors `manifest.capabilities.supportsReferenceDistances` for the
+   * active model. The reference section only renders (and the fetch only
+   * fires) when this is true AND `modelId` is set — an unsupported model
+   * (e.g. Brazil) must never issue the request (would 422 server-side). */
+  referenceCapable?: boolean;
+  /** B3 — base-dataset warehouse ids currently INACTIVE in the scenario's live
+   * (unsaved) `localInputs` draft (status not potential/fixed-open). Purely a
+   * view filter over the immutable reference matrix — never refetched, just
+   * hides rows whose warehouse endpoint is presently inactive. */
+  inactiveWarehouseIds?: string[];
+  /** B3 — base-dataset customer ids currently EXCLUDED in the scenario's live
+   * `localInputs` draft. Same filter semantics as `inactiveWarehouseIds`. */
+  excludedCustomerIds?: string[];
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -69,6 +88,10 @@ export function DistancesTab({
   onImportApplied,
   focusEntityId,
   displayCodeById,
+  modelId,
+  referenceCapable,
+  inactiveWarehouseIds,
+  excludedCustomerIds,
 }: DistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -79,6 +102,21 @@ export function DistancesTab({
   const [newTo, setNewTo] = useState("");
   const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // B3 (Bundle 2.2) — called UNCONDITIONALLY (Rules of Hooks) with `enabled`
+  // gating the actual request: an unsupported model (referenceCapable false,
+  // e.g. Brazil) or an unresolved modelId must never fire this request (the
+  // server 422s an unsupported model). `staleTime: Infinity` — the base
+  // matrix is immutable (DD-1), fetched once per model per session; a tab
+  // remount must not revalidate.
+  const referenceEnabled = Boolean(referenceCapable && modelId);
+  const referenceQuery = useGetReferenceDistances(modelId ?? "", {
+    query: {
+      enabled: referenceEnabled,
+      staleTime: Infinity,
+      queryKey: getGetReferenceDistancesQueryKey(modelId ?? ""),
+    },
+  });
 
   // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
   // Rows use this component's own existing `row-distance-${fromId}-${toId}`
@@ -104,6 +142,35 @@ export function DistancesTab({
   const warehouseIdSet = new Set(warehouseIds);
   const customerIdSet = new Set(customerIds);
   const savedByKey = new Map(savedDistanceOverrides.map(o => [pairKey(o.fromId, o.toId), o.distance]));
+
+  // B3 — client-side view filter over the immutable base×base reference
+  // matrix (DD-1: base data never mutates). Purely derived from live
+  // `localInputs`-sourced status props — no refetch, instant recompute on
+  // every render. Only base-dataset rows are ever present in the reference
+  // response, so added entities never appear here regardless of status.
+  const inactiveWarehouseIdSet = useMemo(
+    () => new Set(inactiveWarehouseIds ?? []),
+    [inactiveWarehouseIds],
+  );
+  const excludedCustomerIdSet = useMemo(
+    () => new Set(excludedCustomerIds ?? []),
+    [excludedCustomerIds],
+  );
+  const referencePairs = referenceQuery.data?.pairs ?? [];
+  const visibleReferencePairs = useMemo(
+    () =>
+      referencePairs.filter(
+        p => !inactiveWarehouseIdSet.has(p.fromId) && !excludedCustomerIdSet.has(p.toId),
+      ),
+    [referencePairs, inactiveWarehouseIdSet, excludedCustomerIdSet],
+  );
+  const referenceScrollRef = useRef<HTMLDivElement>(null);
+  const referenceVirtualizer = useVirtualizer({
+    count: visibleReferencePairs.length,
+    getScrollElement: () => referenceScrollRef.current,
+    estimateSize: () => 28,
+    overscan: 10,
+  });
 
   const visibleRows = distanceOverrides.filter(
     o =>
@@ -274,8 +341,70 @@ export function DistancesTab({
     </Button>
   );
 
+  // B3 (Bundle 2.2) — read-only base×base reference-distance section, above
+  // the editable overrides grid. Gated on the `referenceCapable` prop alone
+  // (not `modelId`) per spec: an unsupported model must simply not render
+  // this section at all (back-compat default: both props absent → hidden).
+  const referenceTotal = visibleReferencePairs.length;
+  const referenceSection = referenceCapable ? (
+    <div className="mb-4 border rounded-md" data-testid="distances-reference-section">
+      <div className="flex items-center justify-between px-2 py-1.5 border-b bg-muted/40">
+        <span className="text-xs font-medium">Base distances (reference)</span>
+        <span className="text-[11px] text-muted-foreground" data-testid="distances-reference-total">
+          {referenceTotal} pair{referenceTotal === 1 ? "" : "s"}
+        </span>
+      </div>
+      {referenceQuery.isLoading && (
+        <p className="text-xs text-muted-foreground px-2 py-2" data-testid="distances-reference-loading">
+          Loading reference distances…
+        </p>
+      )}
+      {referenceQuery.isError && (
+        <p className="text-xs text-destructive px-2 py-2" data-testid="distances-reference-error">
+          Failed to load reference distances.
+        </p>
+      )}
+      {!referenceQuery.isLoading && !referenceQuery.isError && (
+        <div>
+          <div className="flex text-[11px] font-medium text-muted-foreground px-2 py-1 border-b">
+            <div className="w-1/3">From</div>
+            <div className="w-1/3">To</div>
+            <div className="w-1/3">Distance</div>
+          </div>
+          <div
+            ref={referenceScrollRef}
+            className="max-h-[220px] overflow-y-auto relative"
+            data-testid="distances-reference-scroll"
+          >
+            <div style={{ height: referenceVirtualizer.getTotalSize(), position: "relative" }}>
+              {referenceVirtualizer.getVirtualItems().map(virtualRow => {
+                const pair = visibleReferencePairs[virtualRow.index];
+                if (!pair) return null;
+                return (
+                  <div
+                    key={`${pair.fromId}|${pair.toId}`}
+                    data-testid={`row-reference-distance-${pair.fromId}-${pair.toId}`}
+                    className="flex items-center text-xs px-2 border-b absolute top-0 left-0 w-full"
+                    style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <div className="w-1/3 font-mono">{pair.fromCode}</div>
+                    <div className="w-1/3 font-mono">{pair.toCode}</div>
+                    <div className="w-1/3">
+                      {pair.distance} {referenceQuery.data?.distanceUnit ?? ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div data-testid="distances-tab">
+      {referenceSection}
       {toolbar}
 
       {distanceOverrides.length === 0 ? (

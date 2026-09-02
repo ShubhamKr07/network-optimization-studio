@@ -8,7 +8,20 @@ export interface EntityMarkersToggles {
   warehouses: boolean;
   customers: boolean;
   showInactive: boolean;
+  /** T3 (Bundle 2.2, A2) — "Size customers by demand". Optional, default
+   * `true` (today's quintile-scale behavior, unchanged) so every existing
+   * caller/test literal that doesn't set this field keeps working. `false`
+   * -> every demand-bearing marker (p-median/two-echelon customers,
+   * transport-coal stations — this component has no per-model branching,
+   * it's whatever's passed as `customers`) renders at a fixed radius
+   * (`FIXED_CUSTOMER_RADIUS`) instead of the quintile scale. */
+  sizeByDemand?: boolean;
 }
+
+/** A2 (Bundle 2.2) — the fixed OFF-state customer/station marker radius,
+ * per the plan's Global Constraints (`FIXED_CUSTOMER_RADIUS = 6` px).
+ * Exported so InputMapTab/MapLegend/tests share one literal. */
+export const FIXED_CUSTOMER_RADIUS = 6;
 
 export interface EntityMarkersProps {
   warehouses: MapWarehouse[];
@@ -104,6 +117,9 @@ export function EntityMarkers({
 }: EntityMarkersProps) {
   const tone = demandTone(modelId);
   const scale = useMemo(() => makeQuintileRadius(customers.map((c) => c.demand)), [customers]);
+  // T3 (Bundle 2.2, A2) — default true keeps today's behavior for every
+  // existing `toggles` literal that doesn't set this field.
+  const sizeByDemand = toggles.sizeByDemand ?? true;
 
   function bindEventHandlers(entity: MapEntity) {
     return {
@@ -153,11 +169,12 @@ export function EntityMarkers({
       {toggles.customers &&
         customers.map((cs) => {
           const entity: MapEntity = { kind: "cs", entity: cs };
+          const radius = sizeByDemand ? scale.radiusOf(cs.demand) : FIXED_CUSTOMER_RADIUS;
           return (
             <Marker
               key={cs.id}
               position={[cs.lat, cs.lng]}
-              icon={customerIcon(scale.radiusOf(cs.demand), cs.excluded, tone)}
+              icon={customerIcon(radius, cs.excluded, tone)}
               draggable={draggableIds.has(cs.id)}
               eventHandlers={bindEventHandlers(entity)}
             >

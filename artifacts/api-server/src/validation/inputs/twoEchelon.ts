@@ -42,6 +42,15 @@ const addedCustomerSchema = z.object({
   demand: z.number().nonnegative(),
   // T11 — see addedRefinerySchema's own comment above.
   displayCode: z.string().optional(),
+  // Bundle 2.2 (B2.2-T1, A3 backend) — Active/Excluded on a user-added
+  // customer, mirroring pMedian.ts's addedCustomerSchema.status exactly.
+  // two-echelon-gold-au's manifest sets `capabilities.
+  // supportsAddedCustomerExclusion: true` (unlike p-median-brazil, which
+  // shares p-median's schema but opts out) — see solver/pmedian.ts
+  // buildPayload's two-echelon block and services/precheck.ts's
+  // buildActiveTwoEchelonIds for where this actually takes effect.
+  // Optional-with-default "active": back-compat for existing scenarios.
+  status: z.enum(["active", "excluded"]).default("active"),
 });
 
 // {fromId, toId, distance} — ONE flat array covering BOTH legs (mine ->

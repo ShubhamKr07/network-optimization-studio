@@ -53,6 +53,17 @@ const addedCustomerSchema = z.object({
   demand: z.number().nonnegative(),
   // T1 (Input Map v2) — see addedWarehouseSchema's `displayCode` comment.
   displayCode: z.string().optional(),
+  // Bundle 2.2 (B2.2-T1, A3 backend) — Active/Excluded on a user-added
+  // customer. This schema is shared by p-median-us AND p-median-brazil
+  // (same PMedianInputs type), so accepting the field here is model-agnostic
+  // by design; whether it actually *does* anything (solver payload +
+  // precheck "active" set) is gated separately on the model manifest's
+  // `capabilities.supportsAddedCustomerExclusion` (true for p-median-us,
+  // false for p-median-brazil — see solver/pmedian.ts buildPayload and
+  // services/precheck.ts) rather than on this schema. Optional-with-default
+  // "active": every existing scenario's addedCustomers rows (written before
+  // this field existed) still validate unchanged.
+  status: z.enum(["active", "excluded"]).default("active"),
 });
 
 const distanceOverrideSchema = z.object({

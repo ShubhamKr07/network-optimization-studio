@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AppFooter } from "@/components/AppFooter";
 
 export function Login() {
   const [, navigate] = useLocation();
@@ -37,55 +38,58 @@ export function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>SCND Optimization Studio</CardTitle>
-          <p className="text-xs text-muted-foreground">By Prof. Michael Watson</p>
-          <CardDescription>Log in to continue your labs.</CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="flex flex-col gap-4">
-            {loginUser.isError && (
-              <Alert variant="destructive" data-testid="alert-login-error">
-                <AlertDescription>Invalid email or password.</AlertDescription>
-              </Alert>
-            )}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                data-testid="input-email"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                data-testid="input-password"
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3 items-stretch">
-            <Button type="submit" disabled={loginUser.isPending} data-testid="button-login">
-              {loginUser.isPending ? "Logging in…" : "Log in"}
-            </Button>
-            <p className="text-sm text-muted-foreground text-center">
-              No account? <Link href="/register" className="underline">Register</Link>
-            </p>
-          </CardFooter>
-        </form>
-      </Card>
+    <div className="min-h-screen flex flex-col bg-background">
+      <div className="flex-1 flex items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle>SCND Optimization Studio</CardTitle>
+            <p className="text-xs text-muted-foreground">By Prof. Michael Watson</p>
+            <CardDescription>Log in to continue your labs.</CardDescription>
+          </CardHeader>
+          <form onSubmit={handleSubmit}>
+            <CardContent className="flex flex-col gap-4">
+              {loginUser.isError && (
+                <Alert variant="destructive" data-testid="alert-login-error">
+                  <AlertDescription>Invalid email or password.</AlertDescription>
+                </Alert>
+              )}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  data-testid="input-email"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  data-testid="input-password"
+                />
+              </div>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3 items-stretch">
+              <Button type="submit" disabled={loginUser.isPending} data-testid="button-login">
+                {loginUser.isPending ? "Logging in…" : "Log in"}
+              </Button>
+              <p className="text-sm text-muted-foreground text-center">
+                No account? <Link href="/register" className="underline">Register</Link>
+              </p>
+            </CardFooter>
+          </form>
+        </Card>
+      </div>
+      <AppFooter />
     </div>
   );
 }

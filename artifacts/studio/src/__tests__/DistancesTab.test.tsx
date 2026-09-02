@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,6 +15,34 @@ const overrides = [
   { fromId: "WH02", toId: "C001", distance: 88 },
 ];
 
+// B3 (Bundle 2.2) — a 26-warehouse x 200-customer base×base matrix, matching
+// p-median-us's real dataset shape (26*200=5200), so the filter-count math in
+// the tests below (5200 -> 5000 -> 5174 -> 4975) matches the real dataset's
+// arithmetic, not an arbitrary fixture size.
+function buildReferencePairs() {
+  const pairs: { fromId: string; fromCode: string; toId: string; toCode: string; distance: number }[] = [];
+  for (let w = 1; w <= 26; w++) {
+    const fromId = `WH${String(w).padStart(2, "0")}`;
+    for (let c = 1; c <= 200; c++) {
+      const toId = `C${String(c).padStart(3, "0")}`;
+      pairs.push({ fromId, fromCode: fromId, toId, toCode: toId, distance: 100 + w + c });
+    }
+  }
+  return pairs;
+}
+const referencePairs = buildReferencePairs();
+const REFERENCE_TOTAL = referencePairs.length; // 5200
+
+function mockReferenceDistancesFetch() {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/reference-distances")) {
+      return jsonResponse({ pairs: referencePairs, distanceUnit: "mi" });
+    }
+    throw new Error(`Unhandled fetch in test: ${url}`);
+  });
+}
+
 const fetchMock = vi.fn();
 global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -22,9 +50,11 @@ function jsonResponse(body: unknown, contentType = "application/json") {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": contentType } });
 }
 
-function renderWithQueryClient(ui: React.ReactElement) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient) {
+  const client =
+    queryClient ??
+    new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -35,7 +65,7 @@ beforeEach(() => {
 
 describe("DistancesTab — rendering", () => {
   it("renders the scenario's current distanceOverrides rows", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -51,7 +81,7 @@ describe("DistancesTab — rendering", () => {
   });
 
   it("shows an empty message plus the add-row affordance when there are no overrides yet", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={[]}
         savedDistanceOverrides={[]}
@@ -67,7 +97,7 @@ describe("DistancesTab — rendering", () => {
 
 describe("DistancesTab — from/to filters", () => {
   it("filters visible rows by the from-id filter text", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -83,7 +113,7 @@ describe("DistancesTab — from/to filters", () => {
   });
 
   it("filters visible rows by the to-id filter text", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -99,7 +129,7 @@ describe("DistancesTab — from/to filters", () => {
   });
 
   it("filters are case-insensitive substring matches", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -117,7 +147,7 @@ describe("DistancesTab — from/to filters", () => {
 describe("DistancesTab — inline edit", () => {
   it("editing a row's distance value calls onChange with the updated array, leaving other rows untouched", () => {
     const onChange = vi.fn();
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -136,7 +166,7 @@ describe("DistancesTab — inline edit", () => {
 
   it("removing a row calls onChange with that row dropped", () => {
     const onChange = vi.fn();
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -156,7 +186,7 @@ describe("DistancesTab — inline edit", () => {
 describe("DistancesTab — changed-row highlight", () => {
   it("marks a row changed when its distance differs from the saved baseline", () => {
     const edited = [{ fromId: "WH01", toId: "C001", distance: 999 }, overrides[1], overrides[2]];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={edited}
         savedDistanceOverrides={overrides}
@@ -171,7 +201,7 @@ describe("DistancesTab — changed-row highlight", () => {
 
   it("marks a brand-new row (absent from the saved baseline) as changed", () => {
     const withNew = [...overrides, { fromId: "WH02", toId: "C002", distance: 42 }];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={withNew}
         savedDistanceOverrides={overrides}
@@ -184,7 +214,7 @@ describe("DistancesTab — changed-row highlight", () => {
   });
 
   it("a row unchanged from the saved baseline has no changed badge", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -200,7 +230,7 @@ describe("DistancesTab — changed-row highlight", () => {
 describe("DistancesTab — add row", () => {
   it("adding a new row via the form produces a new distanceOverrides entry", async () => {
     const onChange = vi.fn();
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -220,7 +250,7 @@ describe("DistancesTab — add row", () => {
 
   it("rejects an add with a missing id or non-positive distance, without calling onChange", async () => {
     const onChange = vi.fn();
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -240,7 +270,7 @@ describe("DistancesTab — add row", () => {
 
   it("rejects an add that duplicates an existing (fromId, toId) pair", async () => {
     const onChange = vi.fn();
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -263,7 +293,7 @@ describe("DistancesTab — add row", () => {
 describe("DistancesTab — client-side reference validation (nice-to-have)", () => {
   it("shows an inline warning for a fromId that doesn't resolve against known warehouses", () => {
     const badOverrides = [{ fromId: "GHOST", toId: "C001", distance: 100 }];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={badOverrides}
         savedDistanceOverrides={badOverrides}
@@ -277,7 +307,7 @@ describe("DistancesTab — client-side reference validation (nice-to-have)", () 
 
   it("shows an inline warning for a toId that doesn't resolve against known customers", () => {
     const badOverrides = [{ fromId: "WH01", toId: "GHOST", distance: 100 }];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={badOverrides}
         savedDistanceOverrides={badOverrides}
@@ -290,7 +320,7 @@ describe("DistancesTab — client-side reference validation (nice-to-have)", () 
   });
 
   it("does not warn for a row whose ids both resolve", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -312,7 +342,7 @@ describe("DistancesTab — client-side reference validation (nice-to-have)", () 
 describe("DistancesTab — estimated rows (T9)", () => {
   it("shows an Estimated chip on a row flagged estimated:true", () => {
     const estimatedOverrides = [{ fromId: "WH01", toId: "C001", distance: 120.5, estimated: true }, overrides[1], overrides[2]];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={estimatedOverrides}
         savedDistanceOverrides={estimatedOverrides}
@@ -326,7 +356,7 @@ describe("DistancesTab — estimated rows (T9)", () => {
   });
 
   it("does not show an Estimated chip on a row with no estimated flag", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -341,7 +371,7 @@ describe("DistancesTab — estimated rows (T9)", () => {
   it("editing an estimated row's distance drops the estimated flag in the onChange payload (confirm-on-edit)", () => {
     const onChange = vi.fn();
     const estimatedOverrides = [{ fromId: "WH01", toId: "C001", distance: 120.5, estimated: true }, overrides[1], overrides[2]];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={estimatedOverrides}
         savedDistanceOverrides={estimatedOverrides}
@@ -366,7 +396,7 @@ describe("DistancesTab — estimated rows (T9)", () => {
 describe("DistancesTab — displayCodeById (Followup)", () => {
   it("renders an added entity's displayCode instead of its raw uid", () => {
     const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={uidOverrides}
         savedDistanceOverrides={uidOverrides}
@@ -382,7 +412,7 @@ describe("DistancesTab — displayCodeById (Followup)", () => {
   });
 
   it("falls back to the raw id for a base dataset id with no displayCode entry", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -398,7 +428,7 @@ describe("DistancesTab — displayCodeById (Followup)", () => {
   it("editing an added entity's row still writes the uid-keyed row to onChange, not the displayCode", () => {
     const onChange = vi.fn();
     const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={uidOverrides}
         savedDistanceOverrides={uidOverrides}
@@ -415,7 +445,7 @@ describe("DistancesTab — displayCodeById (Followup)", () => {
 
 describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(
+    renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
@@ -498,5 +528,256 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
     await userEvent.click(screen.getByTestId("button-import-confirm"));
 
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
+  });
+});
+
+// B3 (Bundle 2.2) — read-only base×base reference-distance section, above
+// the editable overrides grid. `modelId`/`referenceCapable`/the
+// `inactiveWarehouseIds`/`excludedCustomerIds` filter props are all new and
+// OPTIONAL — T9 wires the real localInputs-derived values at the
+// Workspace.tsx call site; this file only proves the component's own
+// contract.
+describe("DistancesTab — reference distances (B3)", () => {
+  // jsdom reports offsetHeight:0 for every element by default, which would
+  // make the virtualizer compute an empty visible range and mount zero
+  // rows — give the scroll container (and everything else, harmlessly) a
+  // real measured height so a bounded, nonzero window of rows renders.
+  let originalOffsetHeight: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 220 });
+  });
+  afterEach(() => {
+    if (originalOffsetHeight) {
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    }
+  });
+
+  it("hides the reference section when referenceCapable is absent (back-compat default)", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+      />,
+    );
+    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
+  });
+
+  it("hides the reference section when referenceCapable is explicitly false", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-brazil"
+        referenceCapable={false}
+      />,
+    );
+    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
+  });
+
+  it("renders the reference section when referenceCapable is true", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    expect(screen.getByTestId("distances-reference-section")).toBeInTheDocument();
+    expect(screen.getByText("Base distances (reference)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+  });
+
+  it("an unsupported model (referenceCapable false) fires NO reference-distances request", () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-brazil"
+        referenceCapable={false}
+      />,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("remounting a supported tab under the same query client does not refetch (staleTime: Infinity)", async () => {
+    mockReferenceDistancesFetch();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { unmount } = renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+      client,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    unmount();
+
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+      client,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("client-side filter: total starts at the full base matrix", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+  });
+
+  it("client-side filter: one inactive base warehouse drops its 200 pairs (5200 -> 5000)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+        inactiveWarehouseIds={["WH01"]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("5000"));
+    expect(fetchMock).toHaveBeenCalledTimes(1); // filter is instant client-side, no refetch
+  });
+
+  it("client-side filter: one excluded base customer drops its 26 pairs (5200 -> 5174)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+        excludedCustomerIds={["C001"]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("5174"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("client-side filter: an inactive warehouse AND an excluded customer together (5200 -> 4975)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+        inactiveWarehouseIds={["WH01"]}
+        excludedCustomerIds={["C001"]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("4975"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("added entities never appear in the reference section (base-only, DD-1)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01", "aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+    expect(screen.queryByTestId(/row-reference-distance-aw-1234-/)).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-testid^="row-reference-distance-aw-1234-"]').length).toBe(0);
+  });
+
+  it("a base×base distanceOverrides entry does not change the reference baseline distance value", async () => {
+    mockReferenceDistancesFetch();
+    // WH01/C001's reference distance (from buildReferencePairs) is 100+1+1=102.
+    // An override for the exact same pair, at a very different value, must
+    // not leak into the read-only reference row.
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 999999 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 999999 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+    const row = document.querySelector('[data-testid="row-reference-distance-WH01-C001"]');
+    expect(row).toBeTruthy();
+    expect(row).toHaveTextContent("102");
+    expect(row).not.toHaveTextContent("999999");
+  });
+
+  it("virtualization: only a windowed subset of reference rows is mounted in the DOM (not all 5200)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+    const mountedRows = document.querySelectorAll('[data-testid^="row-reference-distance-"]');
+    expect(mountedRows.length).toBeGreaterThan(0);
+    expect(mountedRows.length).toBeLessThan(REFERENCE_TOTAL);
   });
 });

@@ -257,6 +257,12 @@ interface NetworkMapProps {
   // false so every existing caller (Studio.tsx, Input Map, tests) renders
   // every candidate exactly as before.
   hideClosedWarehouses?: boolean;
+  // B2.2-T4 (A4) — unit each edge's `distance` is reported in, sourced from
+  // the active model's manifest (ModelInfo.distanceUnit) by the caller.
+  // Optional/defaults to "mi" so every existing caller that hasn't threaded
+  // it through yet (Studio.tsx, Workspace.tsx call sites owned by other
+  // tasks, tests) keeps compiling and rendering unchanged.
+  distanceUnit?: string;
 }
 
 export function NetworkMap({
@@ -264,7 +270,7 @@ export function NetworkMap({
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
-  hideClosedWarehouses = false,
+  hideClosedWarehouses = false, distanceUnit = "mi",
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
@@ -453,7 +459,26 @@ export function NetworkMap({
                     weight: focused && hasCustomerSelection ? 4 : 2,
                     opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
                   }}
-                />
+                >
+                  {/* B2.2-T4 (A4) — hover tooltip: cities + length in the
+                      active model's own distance unit (never hardcoded
+                      "mi"). Translucent + pointer-events-none so it never
+                      blocks clicks/hover on the polyline itself or on
+                      markers underneath it. Deliberately does not touch the
+                      click-based CustomerPopup above. */}
+                  <Tooltip
+                    direction="center"
+                    opacity={0.85}
+                    className="pointer-events-none"
+                    sticky
+                  >
+                    <span className="text-xs">
+                      {warehouse.city} → {toEntity.city}
+                      <br />
+                      {edge.distance} {distanceUnit}
+                    </span>
+                  </Tooltip>
+                </Polyline>
               );
             })}
         </Pane>

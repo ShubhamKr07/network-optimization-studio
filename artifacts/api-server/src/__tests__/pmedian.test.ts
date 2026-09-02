@@ -304,7 +304,7 @@ describe("buildPayload()", () => {
       { id: "NEW1", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, capacity: 100000, status: "active" as const },
     ];
     const addedCustomers = [
-      { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000 },
+      { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000, status: "active" as const },
     ];
     const distanceOverrides = [{ fromId: "CHI", toId: "C1", distance: 123.4 }];
     const input: SolveInput = {
@@ -328,7 +328,9 @@ describe("buildPayload()", () => {
   });
 
   it("also forwards addedWarehouses/addedCustomers/distanceOverrides for p-median-brazil (harmless today, ready for B6.3)", () => {
-    const addedCustomers = [{ id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000 }];
+    const addedCustomers = [
+      { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000, status: "active" as const },
+    ];
     const input: SolveInput = {
       modelId: "p-median-brazil",
       inputs: {
@@ -402,6 +404,135 @@ describe("buildPayload()", () => {
     expect(payload.customerDemands).toEqual({ sydney: 3000000 });
   });
 
+  // Bundle 2.2 (B2.2-T1, A3 backend) — an added customer's own `status` is
+  // capability-gated on the model manifest's `supportsAddedCustomerExclusion`
+  // (real manifests via the model registry, not mocked — p-median-us/
+  // two-echelon-gold-au true, p-median-brazil false). See registry/
+  // modelRegistry.ts's getManifest.
+  it("p-median-us: an added customer with status:'excluded' lands in excludedCustomerIds", () => {
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: {
+        ...baseInput.inputs,
+        addedCustomers: [
+          { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000, status: "excluded" },
+        ],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual(["NEWC1"]);
+  });
+
+  it("p-median-us: an added customer with status:'active' (or default) is absent from excludedCustomerIds", () => {
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: {
+        ...baseInput.inputs,
+        addedCustomers: [
+          { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000, status: "active" },
+        ],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual([]);
+  });
+
+  it("p-median-us: excludedCustomerIds combines excluded base customerOverrides and excluded added customers", () => {
+    const input: SolveInput = {
+      ...baseInput,
+      inputs: {
+        ...baseInput.inputs,
+        customerOverrides: [{ id: "C1", status: "excluded" }],
+        addedCustomers: [
+          { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000, status: "excluded" },
+        ],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual(["C1", "NEWC1"]);
+  });
+
+  // Brazil-negative (review-mandated): p-median-brazil shares this exact
+  // buildPayload block with p-median-us, but its manifest sets
+  // supportsAddedCustomerExclusion:false — an added customer marked
+  // "excluded" must still be served by the solver.
+  it("p-median-brazil: an added customer with status:'excluded' does NOT land in excludedCustomerIds (capability off)", () => {
+    const input: SolveInput = {
+      modelId: "p-median-brazil",
+      inputs: {
+        p: 5,
+        distanceBands: [500, 1000, 2000, 4000],
+        capacityMode: "uniform",
+        uniformCapacity: 20000000,
+        warehouseOverrides: [],
+        customerOverrides: [],
+        gap: 0,
+        timeLimitSec: 120,
+        singleSource: true,
+        addedWarehouses: [],
+        addedCustomers: [
+          { id: "NEWC1", city: "Boise", state: "ID", lat: 43.6, lng: -116.2, demand: 5000, status: "excluded" },
+        ],
+        distanceOverrides: [],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual([]);
+  });
+
+  it("p-median-brazil: base-customer exclusion via customerOverrides is unaffected by the added-customer capability gate", () => {
+    const input: SolveInput = {
+      modelId: "p-median-brazil",
+      inputs: {
+        p: 5,
+        distanceBands: [500, 1000, 2000, 4000],
+        capacityMode: "uniform",
+        uniformCapacity: 20000000,
+        warehouseOverrides: [],
+        customerOverrides: [{ id: "C1", status: "excluded" }],
+        gap: 0,
+        timeLimitSec: 120,
+        singleSource: true,
+        addedWarehouses: [],
+        addedCustomers: [],
+        distanceOverrides: [],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual(["C1"]);
+  });
+
+  it("two-echelon-gold-au: an added customer with status:'excluded' lands in excludedCustomerIds", () => {
+    const input: SolveInput = {
+      modelId: "two-echelon-gold-au",
+      inputs: {
+        bomRatio: 1.1,
+        refineryOverrides: [],
+        customerOverrides: [],
+        distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120,
+        addedRefineries: [],
+        addedCustomers: [
+          { id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000, status: "excluded" },
+        ],
+        distanceOverrides: [],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual(["perth"]);
+  });
+
+  it("two-echelon-gold-au: an added customer with default status is absent from excludedCustomerIds", () => {
+    const input: SolveInput = {
+      modelId: "two-echelon-gold-au",
+      inputs: {
+        bomRatio: 1.1,
+        refineryOverrides: [],
+        customerOverrides: [],
+        distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120,
+        addedRefineries: [],
+        addedCustomers: [
+          { id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000, status: "active" },
+        ],
+        distanceOverrides: [],
+      },
+    };
+    expect(buildPayload(input).excludedCustomerIds).toEqual([]);
+  });
+
   it("forwards addedRefineries/addedCustomers/distanceOverrides for two-echelon-gold-au (B6.2)", () => {
     const input: SolveInput = {
       modelId: "two-echelon-gold-au",
@@ -411,7 +542,7 @@ describe("buildPayload()", () => {
         customerOverrides: [],
         distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120,
         addedRefineries: [{ id: "ref-new-1", city: "Kalgoorlie West", state: "WA", lat: -30.8, lng: 121.3, status: "active" }],
-        addedCustomers: [{ id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000 }],
+        addedCustomers: [{ id: "perth", city: "Perth", state: "WA", lat: -31.95, lng: 115.86, demand: 250000, status: "active" }],
         distanceOverrides: [{ fromId: "kalgoorlie", toId: "ref-new-1", distance: 123.4 }],
       },
     };

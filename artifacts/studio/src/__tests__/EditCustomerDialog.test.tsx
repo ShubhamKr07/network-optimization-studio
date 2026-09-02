@@ -54,11 +54,11 @@ describe("EditCustomerDialog", () => {
     expect(thumb).toHaveAttribute("aria-valuenow", "2500");
   });
 
-  it("Save calls onSubmit with the current demand value", () => {
+  it("Save calls onSubmit with the current demand value (plus status — CUSTOMER_ROLE + a non-added entity shows the control by default, see the status-control describe block below)", () => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByTestId("edit-customer-demand-input"), { target: { value: "3000" } });
     fireEvent.click(screen.getByTestId("edit-customer-save"));
-    expect(onSubmit).toHaveBeenCalledWith({ demand: 3000 });
+    expect(onSubmit).toHaveBeenCalledWith({ demand: 3000, status: "active" });
   });
 
   it("Escape calls onCancel", () => {
@@ -103,6 +103,54 @@ describe("EditCustomerDialog", () => {
       fireEvent.click(screen.getByTestId("edit-customer-cancel"));
       expect(onCancel).toHaveBeenCalled();
       expect(onSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  // T8 (Bundle 2.2, A3) — two-gate Active/Excluded control: role
+  // (`supportsExclusion`, CUSTOMER_ROLE only) AND, for an ADDED entity only,
+  // the model capability `supportsAddedCustomerExclusion`.
+  describe("Active/Excluded status control (T8, Bundle 2.2, A3)", () => {
+    it("a BASE customer (CUSTOMER_ROLE, default) shows Active/Excluded regardless of the capability prop", () => {
+      renderDialog({ entity: { ...customer, isAdded: false } });
+      expect(screen.getByTestId("edit-customer-status")).toBeInTheDocument();
+    });
+
+    it("a STATION_ROLE entity NEVER shows the control (negative) — role gate wins even for a base row", () => {
+      renderDialog({ role: STATION_ROLE, entity: { ...customer, isAdded: false } });
+      expect(screen.queryByTestId("edit-customer-status")).not.toBeInTheDocument();
+    });
+
+    it("initializes from entity.excluded and Save emits the selected status", () => {
+      const { onSubmit } = renderDialog({ entity: { ...customer, isAdded: false, excluded: false } });
+      fireEvent.click(screen.getByTestId("edit-customer-status-excluded"));
+      fireEvent.click(screen.getByTestId("edit-customer-save"));
+      expect(onSubmit).toHaveBeenCalledWith({ demand: customer.demand, status: "excluded" });
+    });
+
+    it("an entity that starts excluded pre-selects the Excluded radio", () => {
+      renderDialog({ entity: { ...customer, isAdded: false, excluded: true } });
+      const excludedRadio = screen.getByTestId("edit-customer-status-excluded");
+      expect(excludedRadio).toHaveAttribute("data-state", "checked");
+    });
+
+    // Brazil-negative — an ADDED customer's control is additionally gated on
+    // `supportsAddedCustomerExclusion` (p-median-brazil is false).
+    it("an ADDED customer with supportsAddedCustomerExclusion=false (Brazil) hides the control", () => {
+      renderDialog({ entity: { ...customer, isAdded: true }, supportsAddedCustomerExclusion: false });
+      expect(screen.queryByTestId("edit-customer-status")).not.toBeInTheDocument();
+    });
+
+    it("an ADDED customer with supportsAddedCustomerExclusion=true (p-median-us/two-echelon) shows the control", () => {
+      const { onSubmit } = renderDialog({ entity: { ...customer, isAdded: true }, supportsAddedCustomerExclusion: true });
+      expect(screen.getByTestId("edit-customer-status")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("edit-customer-status-excluded"));
+      fireEvent.click(screen.getByTestId("edit-customer-save"));
+      expect(onSubmit).toHaveBeenCalledWith({ demand: customer.demand, status: "excluded" });
+    });
+
+    it("omitting supportsAddedCustomerExclusion defaults to false — an ADDED customer's control stays hidden", () => {
+      renderDialog({ entity: { ...customer, isAdded: true } });
+      expect(screen.queryByTestId("edit-customer-status")).not.toBeInTheDocument();
     });
   });
 });

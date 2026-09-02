@@ -22,6 +22,7 @@ import { nearestCity } from "@/lib/gazetteer";
 import { newUid, nextDisplayCode } from "@/lib/entityId";
 
 const STATUS_OPTIONS: WhStatus[] = ["active", "forced_open", "inactive"];
+const CUSTOMER_STATUS_OPTIONS = ["active", "excluded"] as const;
 
 type CopyFrom =
   | AddedWarehouseInput
@@ -55,6 +56,14 @@ interface CreateEntityDialogProps {
    * server-side even if sent). Optional so this stays backward-compatible
    * with any test/caller that doesn't pass it. */
   capacityMode?: "none" | "uniform" | "per_wh";
+  /** T8 (Bundle 2.2, A3) — model capability gate for a newly-created
+   * customer's Active/Excluded control. A NEW entity is always "added" by
+   * definition, so unlike EditCustomerDialog there is no base-vs-added
+   * branch here: the control is gated on `role.supportsExclusion` (never
+   * true for STATION_ROLE) AND this capability (p-median-us/two-echelon-
+   * gold-au true, p-median-brazil false). Defaults false — hidden until the
+   * caller explicitly opts in. Ignored for `kind==="wh"`. */
+  supportsAddedCustomerExclusion?: boolean;
   lat: number;
   lng: number;
   existingCodes: Iterable<string>;
@@ -76,6 +85,7 @@ export function CreateEntityDialog({
   kind,
   role = kind === "wh" ? WAREHOUSE_ROLE : CUSTOMER_ROLE,
   capacityMode,
+  supportsAddedCustomerExclusion = false,
   lat,
   lng,
   existingCodes,
@@ -96,6 +106,12 @@ export function CreateEntityDialog({
   const copyDemand = valueFromCopy(copyFrom, "demand");
 
   const [status, setStatus] = useState<WhStatus>("active");
+  // T8 (Bundle 2.2, A3) — a SEPARATE state variable from the warehouse-role
+  // `status` above (different vocabulary — WhStatus vs Active/Excluded — and
+  // a warehouse-kind role never reads this one). A newly-created customer is
+  // always an "added" entity, so this always defaults "active", never
+  // derived from any existing entity.
+  const [csStatus, setCsStatus] = useState<"active" | "excluded">("active");
   const [capacity, setCapacity] = useState<string>(copyCapacity != null ? String(copyCapacity) : "");
   const [demand, setDemand] = useState<string>(String(copyDemand ?? medianDemand));
 
@@ -103,6 +119,12 @@ export function CreateEntityDialog({
     () => nextDisplayCode(role.uidKind, state, city, existingCodes),
     [role.uidKind, state, city, existingCodes],
   );
+
+  // Two-gate: role.supportsExclusion (never true for STATION_ROLE) AND the
+  // model capability (a newly-created customer is always "added" — no
+  // base-vs-added branch needed here, see this component's own prop
+  // comment).
+  const showCustomerExclusion = (role.supportsExclusion ?? false) && supportsAddedCustomerExclusion;
 
   // Mirrors EditWarehouseDialog's own `showValueField` gate exactly: a role
   // without a capacity value field (customers/stations never reach this —
@@ -132,6 +154,10 @@ export function CreateEntityDialog({
       };
       onSubmit(input as unknown as AddedWarehouseInput);
     } else {
+      // T8 (Bundle 2.2, A3) — same "omit the key entirely" convention as the
+      // kind==="wh" branch above: !showCustomerExclusion (STATION_ROLE, or a
+      // customer on a model without supportsAddedCustomerExclusion) never
+      // populates `status` at all.
       const input: AddedCustomerInput = {
         id,
         displayCode,
@@ -140,6 +166,7 @@ export function CreateEntityDialog({
         lat,
         lng,
         demand: Number(demand) || 0,
+        ...(showCustomerExclusion ? { status: csStatus } : {}),
       };
       onSubmit(input);
     }
@@ -241,19 +268,44 @@ export function CreateEntityDialog({
               )}
             </>
           ) : (
-            <div className="space-y-2">
-              <Label htmlFor="create-entity-demand" className="text-xs font-semibold text-foreground">
-                Demand
-              </Label>
-              <Input
-                id="create-entity-demand"
-                type="number"
-                min={0}
-                value={demand}
-                onChange={e => setDemand(e.target.value)}
-                data-testid="create-entity-demand"
-              />
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="create-entity-demand" className="text-xs font-semibold text-foreground">
+                  Demand
+                </Label>
+                <Input
+                  id="create-entity-demand"
+                  type="number"
+                  min={0}
+                  value={demand}
+                  onChange={e => setDemand(e.target.value)}
+                  data-testid="create-entity-demand"
+                />
+              </div>
+              {showCustomerExclusion && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-foreground">Status</Label>
+                  <RadioGroup
+                    value={csStatus}
+                    onValueChange={v => setCsStatus(v as "active" | "excluded")}
+                    data-testid="create-entity-cs-status"
+                  >
+                    {CUSTOMER_STATUS_OPTIONS.map(option => (
+                      <div key={option} className="flex items-center gap-2">
+                        <RadioGroupItem
+                          value={option}
+                          id={`create-entity-cs-status-${option}`}
+                          data-testid={`create-entity-cs-status-${option}`}
+                        />
+                        <Label htmlFor={`create-entity-cs-status-${option}`} className="text-sm font-normal">
+                          {option === "active" ? "Active" : "Excluded"}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              )}
+            </>
           )}
         </div>
 

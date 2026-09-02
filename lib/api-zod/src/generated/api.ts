@@ -73,7 +73,9 @@ export const ListModelsResponseItem = zod.object({
   "capacityModes": zod.array(zod.string()),
   "demandEditable": zod.boolean(),
   "outputGrids": zod.array(zod.string()),
-  "supportsFacilityStatus": zod.boolean().describe('True when the model has open\/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3\/R7 on this, never on modelId.')
+  "supportsFacilityStatus": zod.boolean().describe('True when the model has open\/close + status facilities that R3 (status paint) and R7 (hide-closed) act on (Bundle 2, B2-T1). Gate R3\/R7 on this, never on modelId.'),
+  "supportsReferenceDistances": zod.boolean().describe('True when this model exposes its immutable base×base reference-distance matrix via GET \/models\/{id}\/reference-distances (Bundle 2.2, B3). Only p-median-us today. Gate the reference-distances UI on this, never on modelId.'),
+  "supportsAddedCustomerExclusion": zod.boolean().describe('True when this model\'s solver honors an Active\/Excluded status on a user-added customer (addedCustomers[].status). p-median-us and two-echelon-gold-au only — p-median-brazil\'s solver applies no customer exclusion (Bundle 2.2, A3). Gate added-customer exclusion controls on this, never on modelId.')
 }),
   "inputsSchema": zod.object({
 
@@ -81,6 +83,30 @@ export const ListModelsResponseItem = zod.object({
   "distanceUnit": zod.enum(['mi', 'km']).describe('Unit this model\'s distances\/bands are reported in (Workspace UX R5). Server always emits a value, defaulting to \"mi\" if the manifest predates this field.')
 }).describe('Registry-driven view of a solver model (Phase 3.5, G1.2) — sourced from solvers\/<model-id>\/manifest.json, datasetDir omitted (server-internal filesystem path).')
 export const ListModelsResponse = zod.array(ListModelsResponseItem)
+
+
+/**
+ * Unauthenticated, model-scoped, ownerless (matches /dataset and /models — no user_id, no 404-vs-403 concern). Returns the complete, unfiltered base×base distance matrix for the model — never includes scenario-local added entities or distanceOverrides (DD-1, base dataset files are read-only). The API disables Express's automatic ETags globally, so this route sets an explicit ETag derived from the dataset package's version/hash and supports If-None-Match revalidation.
+ * @summary Get a model's immutable base×base reference-distance matrix (Bundle 2.2, B3)
+ */
+export const GetReferenceDistancesParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetReferenceDistancesHeader = zod.object({
+  "If-None-Match": zod.string().optional()
+})
+
+export const GetReferenceDistancesResponse = zod.object({
+  "pairs": zod.array(zod.object({
+  "fromId": zod.string(),
+  "fromCode": zod.string(),
+  "toId": zod.string(),
+  "toCode": zod.string(),
+  "distance": zod.number()
+}).describe('One base-warehouse×base-customer distance. fromCode\/toCode echo fromId\/toId (base entities\' id IS already a short display code, e.g. \"ALN\"\/\"C1\") — kept as separate fields to match the added-entity displayCode shape used elsewhere.')),
+  "distanceUnit": zod.enum(['mi', 'km'])
+}).describe('Immutable base×base reference-distance matrix for a supportsReferenceDistances-capable model (Bundle 2.2, B3). Never includes scenario-local added entities or distanceOverrides (DD-1).')
 
 
 /**

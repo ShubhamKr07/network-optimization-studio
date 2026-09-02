@@ -81,6 +81,12 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  // T9 (B2.2-T7 mock gap) — DistancesTab now calls useGetReferenceDistances
+  // unconditionally (Rules of Hooks); every test file that can render it
+  // (any test opening the Distances tab) needs this mock, even though most
+  // scenarios here have referenceCapable disabled and never actually fire it.
+  useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
+  getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
   // C6.1, Task 4 — capabilities.outputGrids is now read by Workspace.tsx's
   // output-grid gating (activeModelManifest?.capabilities.outputGrids), so
   // every model this test file exercises needs a real capabilities object,
@@ -96,6 +102,9 @@ vi.mock("@workspace/api-client-react", () => ({
           capacityModes: ["none", "uniform", "per_wh"],
           demandEditable: true,
           outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+          // T9 (B2.2-T7 wiring) — matches solvers/p-median-us/manifest.json's
+          // real capability exactly (the only model with this true).
+          supportsReferenceDistances: true,
         },
       },
       {
@@ -371,13 +380,85 @@ describe("Workspace — output grid tabs (Phase C, Task 3)", () => {
     expect(await screen.findByTestId("flow-row-KY-CHI")).toBeInTheDocument();
   });
 
-  it("shows a placeholder for a grid not in the model's outputGrids capability (Open Warehouses for transport-coal)", async () => {
+  // T9 (B2) — the sidebar entry itself is now gated by
+  // capabilities.outputGrids (was: entry always present, content fell back
+  // to a placeholder). Open Warehouses isn't in transport-coal's
+  // outputGrids (["flows","costSummary","serviceStats"]), so its sidebar
+  // entry no longer renders at all — replaces the old
+  // "click it, see a placeholder" assertion.
+  it("hides the sidebar entry entirely for a grid not in the model's outputGrids capability (Open Warehouses for transport-coal)", () => {
     const transportSolved = { ...solvedScenario, modelId: "transport-coal" };
     mockUseGetScenario.mockReturnValue({ data: transportSolved } as unknown as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: [transportSolved] } as unknown as ReturnType<typeof useListScenarios>);
     render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    expect(screen.queryByTestId("sidebar-output-open-warehouses")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-output-customer-assignments")).not.toBeInTheDocument();
+    // Its own real outputs stay present.
+    expect(screen.getByTestId("sidebar-output-flows")).toBeInTheDocument();
+  });
+
+  // T9 (B2) — Flows is p-median-us's own missing capability (mirror of the
+  // transport-coal case above).
+  it("hides the Flows sidebar entry for p-median-us (not in its outputGrids capability)", () => {
+    renderWorkspace();
+    expect(screen.queryByTestId("sidebar-output-flows")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-output-open-warehouses")).toBeInTheDocument();
+  });
+
+  it("shows the Flows sidebar entry for a model whose outputGrids includes it (transport-coal)", () => {
+    const transportSolved = { ...solvedScenario, modelId: "transport-coal" };
+    mockUseGetScenario.mockReturnValue({ data: transportSolved } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [transportSolved] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="transport-coal" userEmail="student@example.com" />);
+    expect(screen.getByTestId("sidebar-output-flows")).toBeInTheDocument();
+  });
+
+  // T9 (T6 wiring) — Open Warehouses/Customer Assignments now receive
+  // `displayedInputs`, built from the SAVED snapshot (never `localInputs`).
+  // `solvedScenario`'s own inputs default `capacityMode: "none"` (the
+  // fixture's real p-median-us default), so the Utilization column must be
+  // hidden end-to-end, not merely absent from a hand-built unit test.
+  it("T9 (T6): the Utilization column is hidden end-to-end for the default fixture's capacityMode 'none'", async () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
-    expect(await screen.findByTestId("tab-content-placeholder")).toBeInTheDocument();
+    await screen.findByTestId("open-warehouse-row-CHI");
+    expect(screen.queryByText("Utilization")).not.toBeInTheDocument();
+  });
+
+  it("T9 (T6): the Utilization column shows once the displayed snapshot's capacityMode is not 'none'", async () => {
+    const capacitated = { ...solvedScenario, inputs: { ...solvedScenario.inputs, capacityMode: "uniform" } };
+    mockUseGetScenario.mockReturnValue({ data: capacitated } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [capacitated, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    await screen.findByTestId("open-warehouse-row-CHI");
+    expect(screen.getByText("Utilization")).toBeInTheDocument();
+  });
+
+  it("T9 (T6): an added warehouse's displayCode (from the SAVED snapshot's addedWarehouses) renders in Open Warehouses and Customer Assignments, not its raw uid", async () => {
+    const withAdded = {
+      ...solvedScenario,
+      inputs: {
+        ...solvedScenario.inputs,
+        addedWarehouses: [
+          { id: "aw-1", displayCode: "WH-NV-RENO-01", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" },
+        ],
+      },
+      result: {
+        ...solvedScenario.result,
+        edges: [{ fromId: "aw-1", toId: "C1", flow: 100, distance: 12.3, band: 0 }],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: withAdded } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [withAdded, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-output-open-warehouses"));
+    expect(await screen.findByTestId("open-warehouse-row-aw-1")).toHaveTextContent("WH-NV-RENO-01");
+
+    fireEvent.click(screen.getByTestId("sidebar-output-customer-assignments"));
+    expect(await screen.findByTestId("assignment-row-C1")).toHaveTextContent("WH-NV-RENO-01");
   });
 });
 
@@ -431,6 +512,28 @@ describe("Workspace — Distances tab (B5.1)", () => {
 
     expect(screen.queryByTestId("warning-unknown-from-CHI-C1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("warning-unknown-to-CHI-C1")).not.toBeInTheDocument();
+  });
+
+  // T9 (T7 wiring) — modelId/referenceCapable/inactiveWarehouseIds/
+  // excludedCustomerIds are now supplied at the Workspace.tsx call site.
+  // p-median-us's real manifest capability is true (mocked to match above),
+  // so the reference section must actually render.
+  it("T9 (T7): the reference-distances section appears for p-median-us (referenceCapable/modelId wired from the manifest)", () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("distances-reference-section")).toBeInTheDocument();
+  });
+
+  // p-median-brazil's manifest has no supportsReferenceDistances at all
+  // (defaults false) — the reference section must stay hidden there, proving
+  // this is genuinely capability-driven, not just "always on for any model".
+  it("T9 (T7): the reference-distances section stays hidden for a model without the capability (p-median-brazil)", () => {
+    const brazilScenario = { ...scenario, id: 9, modelId: "p-median-brazil" };
+    mockUseListScenarios.mockReturnValue({ data: [brazilScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: brazilScenario } as unknown as ReturnType<typeof useGetScenario>);
+    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
   });
 });
 
@@ -1622,5 +1725,139 @@ describe("Workspace — header centered chapter/summary + divider layout (B2.1-T
     expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
     expect(screen.getByTestId("button-logout")).toBeInTheDocument();
     expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
+  });
+});
+
+// T9 — C2 (items 13/14/15): 3-track grid header (selector left / summary
+// centered in its own track / account+stepper+solve right), replacing the
+// old absolute-centering layout. Below `md` the grid collapses to a single
+// column so the three zones stack into rows.
+describe("Workspace — header grid layout (T9, C2)", () => {
+  it("removes the old title/subtitle block (text-app-name) entirely", () => {
+    renderWorkspace();
+    expect(screen.queryByTestId("text-app-name")).not.toBeInTheDocument();
+  });
+
+  it("lays out the scenario selector (left) before the centered summary (center) before email/logout (right), in that DOM order", () => {
+    renderWorkspace();
+    const selector = screen.getByTestId("select-scenario-context");
+    const summary = screen.getByTestId("workspace-chapter-summary");
+    const email = screen.getByTestId("text-user-email");
+    // eslint-disable-next-line no-bitwise
+    expect(selector.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // eslint-disable-next-line no-bitwise
+    expect(summary.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the summary is full/untruncated text at rest — no more max-w-[38%]/absolute positioning against the whole header", () => {
+    renderWorkspace();
+    const summary = screen.getByTestId("workspace-chapter-summary");
+    expect(summary.className).not.toContain("absolute");
+    expect(summary.className).not.toContain("max-w-[38%]");
+    expect(summary).toHaveTextContent(
+      "Chapter 3 · Facility-location: choose which warehouses to open to minimize weighted distance to customers."
+    );
+  });
+
+  it("the header uses a responsive grid-cols-1 -> md:grid-cols-[auto_1fr_auto] track layout, not a fixed-width flex row", () => {
+    renderWorkspace();
+    const grid = screen.getByTestId("select-scenario-context").closest('[class*="grid-cols"]') as HTMLElement;
+    expect(grid).not.toBeNull();
+    expect(grid.className).toContain("grid-cols-1");
+    expect(grid.className).toContain("md:grid-cols-[auto_1fr_auto]");
+  });
+
+  it("the result-history stepper, Save as scenario, and Run Optimizer stay in the right zone, directly below email/logout — unmoved relative position", () => {
+    const solvedScenario = {
+      ...scenario,
+      result: {
+        status: "optimal" as const,
+        objective: 1,
+        runTimeSec: 0.1,
+        quality: "Proven optimal",
+        edges: [],
+        metrics: {},
+        details: {},
+        solverUsed: "CBC",
+        infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    const email = screen.getByTestId("text-user-email");
+    const runOptimizer = screen.getByTestId("button-run-optimizer");
+    const saveAsScenario = screen.getByTestId("button-save-as-scenario");
+    // Both live in the SAME right-hand zone (share a common ancestor closer
+    // than the header itself), and the stepper/Run-Optimizer row follows the
+    // email/logout row within it — exactly the pre-T9 relative order.
+    const rightZone = email.closest('[class*="items-end"]') as HTMLElement;
+    expect(rightZone).toContainElement(runOptimizer);
+    expect(rightZone).toContainElement(saveAsScenario);
+    // eslint-disable-next-line no-bitwise
+    expect(email.compareDocumentPosition(runOptimizer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Narrow-viewport behavior — the grid collapses to one column (via
+  // Tailwind's `md:` prefix) rather than forcing horizontal overflow; every
+  // control stays reachable in the DOM regardless of viewport (jsdom doesn't
+  // evaluate media queries, so this asserts the RESPONSIVE CLASSES that
+  // drive that collapse are present, matching AppShell.test.tsx's own
+  // established narrow-viewport convention for this repo).
+  it("at a narrow (375px) viewport, every header control stays reachable and the summary carries truncating classes instead of forcing overflow", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+    window.dispatchEvent(new Event("resize"));
+    try {
+      renderWorkspace();
+      expect(screen.getByTestId("button-page-back")).toBeInTheDocument();
+      expect(screen.getByTestId("select-scenario-context")).toBeInTheDocument();
+      expect(screen.getByTestId("workspace-chapter-summary")).toBeInTheDocument();
+      expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
+      expect(screen.getByTestId("button-logout")).toBeInTheDocument();
+      expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
+
+      const summary = screen.getByTestId("workspace-chapter-summary");
+      expect(summary.className).toContain("truncate");
+      expect(summary.className).toContain("min-w-0");
+
+      const grid = screen.getByTestId("select-scenario-context").closest('[class*="grid-cols-1"]') as HTMLElement;
+      expect(grid).not.toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
+    }
+  });
+});
+
+// T9 — C1: AppFooter mounted inside the root scn-theme shell, as the last
+// child (after the body region), so it never overlaps the map/tab content.
+describe("Workspace — footer (T9, C1)", () => {
+  it("mounts AppFooter inside the root workspace-page shell", () => {
+    renderWorkspace();
+    const root = screen.getByTestId("workspace-page");
+    const footer = screen.getByTestId("app-footer");
+    expect(root).toContainElement(footer);
+  });
+
+  it("the footer follows the body/tab-content region in DOM order and is flex-shrink-0 (reserves its own row, never overlapped)", () => {
+    renderWorkspace();
+    const bodyRegion = screen.getByTestId("tab-content-region");
+    const footer = screen.getByTestId("app-footer");
+    // eslint-disable-next-line no-bitwise
+    expect(bodyRegion.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(footer.className).toContain("flex-shrink-0");
+  });
+});
+
+// T9 — B4: Solution Summary (cost-summary) immediately follows Output Map.
+describe("Workspace — output sidebar tab order (T9, B4)", () => {
+  it("Solution Summary is the second Outputs sidebar entry, immediately after Output Map", () => {
+    renderWorkspace();
+    const sidebarOutputIds = Array.from(document.querySelectorAll('[data-testid^="sidebar-output-"]')).map(el =>
+      el.getAttribute("data-testid"),
+    );
+    expect(sidebarOutputIds[0]).toBe("sidebar-output-output-map");
+    expect(sidebarOutputIds[1]).toBe("sidebar-output-cost-summary");
   });
 });

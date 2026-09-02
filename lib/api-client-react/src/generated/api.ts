@@ -37,6 +37,7 @@ import type {
   LogoutSuccess,
   ModelInfo,
   PrecheckResult,
+  ReferenceDistances,
   RegisterRequest,
   Scenario,
   ScenarioInput,
@@ -286,6 +287,84 @@ export function useListModels<TData = Awaited<ReturnType<typeof listModels>>, TE
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListModelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetReferenceDistancesUrl = (id: string,) => {
+
+
+
+
+  return `/api/models/${id}/reference-distances`
+}
+
+/**
+ * Unauthenticated, model-scoped, ownerless (matches /dataset and /models — no user_id, no 404-vs-403 concern). Returns the complete, unfiltered base×base distance matrix for the model — never includes scenario-local added entities or distanceOverrides (DD-1, base dataset files are read-only). The API disables Express's automatic ETags globally, so this route sets an explicit ETag derived from the dataset package's version/hash and supports If-None-Match revalidation.
+ * @summary Get a model's immutable base×base reference-distance matrix (Bundle 2.2, B3)
+ */
+export const getReferenceDistances = async (id: string, options?: RequestInit): Promise<ReferenceDistances> => {
+
+  return customFetch<ReferenceDistances>(getGetReferenceDistancesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReferenceDistancesQueryKey = (id: string,) => {
+    return [
+    `/api/models/${id}/reference-distances`
+    ] as const;
+    }
+
+
+export const getGetReferenceDistancesQueryOptions = <TData = Awaited<ReturnType<typeof getReferenceDistances>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferenceDistances>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReferenceDistancesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReferenceDistances>>> = ({ signal }) => getReferenceDistances(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReferenceDistances>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReferenceDistancesQueryResult = NonNullable<Awaited<ReturnType<typeof getReferenceDistances>>>
+export type GetReferenceDistancesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a model's immutable base×base reference-distance matrix (Bundle 2.2, B3)
+ */
+
+export function useGetReferenceDistances<TData = Awaited<ReturnType<typeof getReferenceDistances>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReferenceDistances>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReferenceDistancesQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

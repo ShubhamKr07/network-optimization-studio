@@ -4,6 +4,7 @@ import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonD
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import { getManifest } from "../registry/modelRegistry.js";
 
 /**
  * SCN v0.3 Phase B, task B2.1 - semantic precheck for p-median-us
@@ -58,6 +59,17 @@ export interface PrecheckDatasetEntity {
 export interface PrecheckDataset {
   warehouses: readonly PrecheckDatasetEntity[];
   customers: readonly PrecheckDatasetEntity[];
+  // Bundle 2.2 (B2.2-T1, A3 backend) — whether THIS model's added customers
+  // can be individually excluded from the solve (an added customer's own
+  // `status` field). Read once from the model registry's manifest
+  // capability at the point each PrecheckDataset constant is defined below
+  // (never a runtime `modelId === "..."` branch inside the exclusion logic
+  // itself) — this is how p-median-us (true) and p-median-brazil (false)
+  // diverge despite sharing this exact PrecheckDataset shape and the same
+  // buildActivePMedianIds/precheckPMedianInputs functions. Optional: a
+  // caller-supplied fake dataset (tests) that omits it behaves as `false`
+  // (no filtering), matching pre-Bundle-2.2 behavior exactly.
+  supportsAddedCustomerExclusion?: boolean;
 }
 
 // `dataset` is a parameter (defaulting to the real p-median-us base
@@ -66,7 +78,11 @@ export interface PrecheckDataset {
 // default, but B6.x's fast-follow to the other three models can reuse this
 // same function against a different model's base dataset without a
 // rewrite. No multi-model dispatch is built here - that's still B6.x's job.
-const DEFAULT_DATASET: PrecheckDataset = { warehouses: WAREHOUSES, customers: CUSTOMERS };
+const DEFAULT_DATASET: PrecheckDataset = {
+  warehouses: WAREHOUSES,
+  customers: CUSTOMERS,
+  supportsAddedCustomerExclusion: getManifest("p-median-us")?.capabilities.supportsAddedCustomerExclusion ?? false,
+};
 
 // SCN v0.3 Phase B, task B6.3 — p-median-brazil's base dataset, shaped for
 // this service (`{warehouses: {id}[], customers: {id}[]}`; Brazil's
@@ -77,7 +93,15 @@ const DEFAULT_DATASET: PrecheckDataset = { warehouses: WAREHOUSES, customers: CU
 // dataset. p-median-brazil shares pMedianInputsSchema/PMedianInputs with
 // p-median-us (validation/inputs/pMedian.ts), so no new schema is needed —
 // only a different base dataset to check added entities against.
-export const BRAZIL_DATASET: PrecheckDataset = { warehouses: BRAZIL_WAREHOUSES, customers: BRAZIL_REGIONS };
+export const BRAZIL_DATASET: PrecheckDataset = {
+  warehouses: BRAZIL_WAREHOUSES,
+  customers: BRAZIL_REGIONS,
+  // Bundle 2.2 (B2.2-T1) — explicit false via the manifest (p-median-brazil's
+  // capability), not merely "field absent": an added Brazil customer marked
+  // "excluded" must still count active, matching its solver's real behavior.
+  supportsAddedCustomerExclusion:
+    getManifest("p-median-brazil")?.capabilities.supportsAddedCustomerExclusion ?? false,
+};
 
 // SCN v0.3 Phase B, task B6.1 — transport-coal's base dataset, shaped for
 // this service (`{warehouses: {id}[], customers: {id}[]}`; transport-coal's
@@ -127,10 +151,29 @@ export function buildPMedianIdSpaces(
  * buildPMedianIdSpaces takes one - callers with only override/added-entity
  * arrays (not a full validated PMedianInputs) can use it too.
  */
+/**
+ * Bundle 2.2 (B2.2-T1, A3 backend) — an added customer's own `status` field
+ * (pMedian.ts/twoEchelon.ts's addedCustomerSchema) is only honored as an
+ * "active" filter when the model's manifest capability
+ * `supportsAddedCustomerExclusion` is true. Shared by
+ * buildActivePMedianIds/buildActiveTwoEchelonIds and their respective
+ * precheck functions' own "vice versa" required-set computation below, so
+ * both places apply the exact same rule rather than risking one being
+ * gated and the other not (which would otherwise contradict each other in
+ * precheckPMedianInputs' completeness check).
+ */
+function filterActiveAddedCustomers<T extends PrecheckDatasetEntity & { status?: string }>(
+  addedCustomers: readonly T[],
+  supportsAddedCustomerExclusion: boolean | undefined,
+): T[] {
+  if (!supportsAddedCustomerExclusion) return [...addedCustomers];
+  return addedCustomers.filter((c) => c.status !== "excluded");
+}
+
 export function buildActivePMedianIds(
   inputs: {
     addedWarehouses?: readonly (PrecheckDatasetEntity & { status?: string })[];
-    addedCustomers?: readonly PrecheckDatasetEntity[];
+    addedCustomers?: readonly (PrecheckDatasetEntity & { status?: string })[];
     warehouseOverrides?: readonly { id: string; status?: string }[];
     customerOverrides?: readonly { id: string; status?: string }[];
   },
@@ -155,7 +198,10 @@ export function buildActivePMedianIds(
   const activeBaseCustomerIds = dataset.customers
     .map((c) => c.id)
     .filter((id) => customerStatusById.get(id) !== "excluded");
-  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  const activeAddedCustomerIds = filterActiveAddedCustomers(
+    addedCustomers,
+    dataset.supportsAddedCustomerExclusion,
+  ).map((c) => c.id);
   const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
 
   return { activeWarehouseIds, activeCustomerIds };
@@ -236,16 +282,23 @@ export function precheckPMedianInputs(
   // --- (a) completeness --------------------------------------------------
   // "Active" per the brief: for base entities, not excluded/inactive per
   // this scenario's overrides; for added entities, present in
-  // addedWarehouses/addedCustomers (addedCustomers has no status field -
-  // v1 has no way to add a customer and mark it excluded in the same
-  // breath - so every added customer counts as active). Computed via the
-  // shared helper above (identical result to the inline block this
+  // addedWarehouses/addedCustomers, with an added customer's own `status`
+  // additionally respected when this model's manifest capability
+  // supportsAddedCustomerExclusion is true (Bundle 2.2, B2.2-T1 — p-median-us
+  // yes, p-median-brazil no, despite sharing this exact function). Computed
+  // via the shared helper above (identical result to the inline block this
   // replaced) so B4.3's export stub-generator reuses the same "active"
   // definition instead of reimplementing it.
   const { activeWarehouseIds, activeCustomerIds } = buildActivePMedianIds(inputs, dataset);
-  // Every added customer counts as active (addedCustomers has no status
-  // field) — needed separately below for the "vice versa" required set.
-  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  // Same gated "active" rule as buildActivePMedianIds above — needed
+  // separately below for the "vice versa" required set. Must stay
+  // consistent with activeCustomerIds' own added-customer filtering, or an
+  // excluded added customer would be dropped from activeCustomerIds but
+  // still demanded (as a "vice versa" requirement) here.
+  const activeAddedCustomerIds = filterActiveAddedCustomers(
+    addedCustomers,
+    dataset.supportsAddedCustomerExclusion,
+  ).map((c) => c.id);
 
   const overrideKeys = new Set(distanceOverrides.map((o) => o.fromId + "|" + o.toId));
 
@@ -282,12 +335,18 @@ export interface TwoEchelonPrecheckDataset {
   mines: readonly PrecheckDatasetEntity[];
   refineries: readonly PrecheckDatasetEntity[];
   customers: readonly PrecheckDatasetEntity[];
+  // Bundle 2.2 (B2.2-T1, A3 backend) — see PrecheckDataset's own field of
+  // the same name above for the full rationale. two-echelon-gold-au's
+  // manifest sets this true.
+  supportsAddedCustomerExclusion?: boolean;
 }
 
 export const TWO_ECHELON_DATASET: TwoEchelonPrecheckDataset = {
   mines: GOLD_MINES,
   refineries: GOLD_REFINERIES,
   customers: GOLD_CUSTOMERS,
+  supportsAddedCustomerExclusion:
+    getManifest("two-echelon-gold-au")?.capabilities.supportsAddedCustomerExclusion ?? false,
 };
 
 /**
@@ -330,7 +389,7 @@ export function buildTwoEchelonIdSpaces(
 export function buildActiveTwoEchelonIds(
   inputs: {
     addedRefineries?: readonly (PrecheckDatasetEntity & { status?: string })[];
-    addedCustomers?: readonly PrecheckDatasetEntity[];
+    addedCustomers?: readonly (PrecheckDatasetEntity & { status?: string })[];
     refineryOverrides?: readonly { id: string; status?: string }[];
     customerOverrides?: readonly { id: string; status?: string }[];
   },
@@ -354,7 +413,10 @@ export function buildActiveTwoEchelonIds(
   const activeBaseCustomerIds = dataset.customers
     .map((c) => c.id)
     .filter((id) => customerStatusById.get(id) !== "excluded");
-  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  const activeAddedCustomerIds = filterActiveAddedCustomers(
+    addedCustomers,
+    dataset.supportsAddedCustomerExclusion,
+  ).map((c) => c.id);
   const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
 
   return { activeRefineryIds, activeCustomerIds };
@@ -472,15 +534,19 @@ export function precheckTwoEchelonInputs(
   // "Active" per the same rule precheckPMedianInputs/precheckTransportInputs
   // already establish: base refineries not inactive per refineryOverrides,
   // plus added refineries not inactive per their own status; base customers
-  // not excluded per customerOverrides, plus every added customer
-  // (addedCustomerSchema has no status field, same precedent as p-median's
-  // own added customers).
+  // not excluded per customerOverrides, plus every added customer, with an
+  // added customer's own `status` additionally respected when this model's
+  // manifest capability supportsAddedCustomerExclusion is true (Bundle 2.2,
+  // B2.2-T1 — two-echelon-gold-au is true).
   const { activeRefineryIds, activeCustomerIds } = buildActiveTwoEchelonIds(inputs, dataset);
-  // Every added customer counts as active (addedCustomerSchema has no
-  // status field) — needed separately below for the "vice versa" required
-  // set, same distinction buildActivePMedianIds' own caller (
-  // precheckPMedianInputs) already draws.
-  const activeAddedCustomerIds = addedCustomers.map((c) => c.id);
+  // Same gated "active" rule as buildActiveTwoEchelonIds above — needed
+  // separately below for the "vice versa" required set. Must stay
+  // consistent with activeCustomerIds' own added-customer filtering, same
+  // reasoning as precheckPMedianInputs' own local duplicate above.
+  const activeAddedCustomerIds = filterActiveAddedCustomers(
+    addedCustomers,
+    dataset.supportsAddedCustomerExclusion,
+  ).map((c) => c.id);
 
   const overrideKeys = new Set(distanceOverrides.map((o) => o.fromId + "|" + o.toId));
 

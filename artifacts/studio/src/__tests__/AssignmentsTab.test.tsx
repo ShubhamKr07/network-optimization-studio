@@ -31,4 +31,65 @@ describe("AssignmentsTab", () => {
     fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
     expect(spy).toHaveBeenCalledWith(1, "assignments", "csv");
   });
+
+  // B2.2-T6 — B6: added-entity display ID
+  describe("added-entity display ID", () => {
+    it("shows a user-created warehouse's display ID (not its uid) from displayedInputs.addedWarehouses", () => {
+      const withAdded = {
+        ...result,
+        edges: [{ fromId: "aw-abc123", toId: "C9", flow: 500, distance: 3 }],
+      };
+      render(
+        <AssignmentsTab
+          result={withAdded}
+          scenarioId={1}
+          displayedInputs={{ addedWarehouses: [{ id: "aw-abc123", displayCode: "WH-CO-DENVER-01" }] }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-C9");
+      expect(row).toHaveTextContent("WH-CO-DENVER-01");
+      expect(row).not.toHaveTextContent("aw-abc123");
+    });
+
+    it("shows an added two-echelon refinery's display ID from displayedInputs.addedRefineries (same aw- uid family)", () => {
+      const withRefinery = {
+        ...result,
+        edges: [{ fromId: "aw-xyz789", toId: "C9", flow: 500, distance: 3 }],
+      };
+      render(
+        <AssignmentsTab
+          result={withRefinery}
+          scenarioId={1}
+          displayedInputs={{ addedRefineries: [{ id: "aw-xyz789", displayCode: "RF-AU-CUNN-01" }] }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-C9");
+      expect(row).toHaveTextContent("RF-AU-CUNN-01");
+      expect(row).not.toHaveTextContent("aw-xyz789");
+    });
+
+    it("falls back to the raw id when no displayCode entry exists for it (base dataset rows), and displayedInputs is optional", () => {
+      render(<AssignmentsTab result={result} scenarioId={1} />);
+      expect(screen.getByTestId("assignment-row-C1")).toHaveTextContent("ALN");
+    });
+  });
+
+  // B2.2-T6 — snapshot invariant
+  it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
+    // Same rationale as OpenWarehousesTab's equivalent test: this component
+    // reads ONLY `displayedInputs`, never anything resembling `localInputs`
+    // — an unsaved edit the student hasn't saved yet must have zero effect
+    // on what's rendered here.
+    const withAdded = {
+      ...result,
+      edges: [{ fromId: "aw-abc123", toId: "C9", flow: 500, distance: 3 }],
+    };
+    const savedSnapshot = { addedWarehouses: [{ id: "aw-abc123", displayCode: "WH-CO-DENVER-01" }] };
+    const unsavedLocalEdit = { addedWarehouses: [{ id: "aw-abc123", displayCode: "WH-CO-DENVER-99-DRAFT" }] }; // never passed
+    void unsavedLocalEdit;
+    render(<AssignmentsTab result={withAdded} scenarioId={1} displayedInputs={savedSnapshot} />);
+    const row = screen.getByTestId("assignment-row-C9");
+    expect(row).toHaveTextContent("WH-CO-DENVER-01");
+    expect(row).not.toHaveTextContent("WH-CO-DENVER-99-DRAFT");
+  });
 });

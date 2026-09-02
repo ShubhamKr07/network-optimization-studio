@@ -25,6 +25,7 @@ import {
   type SolveResult,
 } from "@workspace/api-client-react";
 import { ArrowLeft, Save } from "lucide-react";
+import { AppFooter } from "@/components/AppFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -345,6 +346,14 @@ function pmedianMapCustomers(
       isAdded: false,
     };
   });
+  // T9 (A3 projection) — an added customer's `excluded` flag is now derived
+  // from its own `status` field (T1/T8's `AddedCustomerInput.status`),
+  // instead of the old hardcoded `false`. This function is shared verbatim
+  // by two-echelon-gold-au's Input Map customers render (see the
+  // `customers={pmedianMapCustomers(...)}` call site below) — reusing
+  // p-median-us's exact addedCustomers/status field name/shape (T7's own
+  // comment on why no separate two-echelon wrapper exists) — so this one fix
+  // covers both models' added-customer projection, not just p-median-us.
   const added: MapCustomer[] = mapAddedCustomersFromInputs(inputs).map(c => ({
     id: c.id,
     displayCode: c.displayCode ?? c.id,
@@ -353,7 +362,7 @@ function pmedianMapCustomers(
     lat: c.lat,
     lng: c.lng,
     demand: c.demand,
-    excluded: false,
+    excluded: c.status === "excluded",
     isAdded: true,
   }));
   return [...base, ...added];
@@ -641,6 +650,46 @@ function displayCodeMapFromInputs(inputs: Record<string, unknown> | null): Recor
   return map;
 }
 
+// T9 (T6 wiring) — the snapshot shape OpenWarehousesTab.tsx's
+// OpenWarehousesDisplayedInputs and AssignmentsTab.tsx's
+// AssignmentsDisplayedInputs both accept (a structural superset covers
+// both — capacityMode is simply unused by AssignmentsTab). Built from
+// `displayedInputs` (the SAVED snapshot that produced `displayedResult`),
+// NEVER `localInputs` — the snapshot invariant both tabs' own comments
+// document. `addedWarehouses`/`addedRefineries` share the `aw-` uid family
+// (two-echelon's added facilities are refineries), so both are always
+// included regardless of the active model — the unused one is just empty.
+function facilityDisplayedInputs(inputs: Record<string, unknown> | null): {
+  capacityMode: string;
+  addedWarehouses: { id: string; displayCode?: string }[];
+  addedRefineries: { id: string; displayCode?: string }[];
+} {
+  return {
+    capacityMode: capacityModeFromInputs(inputs),
+    addedWarehouses: addedWarehousesFromInputs(inputs),
+    addedRefineries: addedRefineriesFromInputs(inputs),
+  };
+}
+
+// T9 (T7 wiring) — base-dataset warehouse/customer ids currently inactive/
+// excluded in the scenario's LIVE (unsaved) localInputs draft — DistancesTab's
+// own view filter over its immutable reference matrix (never refetched, just
+// hides rows whose endpoint is presently inactive/excluded). `warehouseOverrides`/
+// `customerOverrides` only ever key base-dataset ids (added entities carry
+// their own status on addedWarehouses/addedCustomers, never on these
+// override arrays), so no separate dataset cross-reference is needed here.
+function inactiveWarehouseIdsFromInputs(inputs: Record<string, unknown> | null): string[] {
+  return warehouseOverridesFromInputs(inputs)
+    .filter(o => o.status === "inactive")
+    .map(o => o.id);
+}
+
+function excludedCustomerIdsFromInputs(inputs: Record<string, unknown> | null): string[] {
+  return customerOverridesFromInputs(inputs)
+    .filter(o => o.status === "excluded")
+    .map(o => o.id);
+}
+
 // A3.1/A5.3 — same derivation Studio.tsx applies at its NetworkMap call site
 // (`(localConfig?.warehouseOverrides ?? []).filter(o => o.status !==
 // "active").map(...)`), generalized per model: two-echelon-gold-au's forced-
@@ -729,14 +778,30 @@ function missingCountFor(kind: string, errors: PrecheckErrorLike[], id: string):
 // has something real to open+activate.
 const OUTPUT_MAP_ENTRY: SidebarEntry = { id: "output-map", label: "Output Map" };
 
+// T9 (B4) — Solution Summary immediately follows Output Map, matching the
+// wireframe's tab order (was last-but-one).
 const OUTPUT_ENTRIES: SidebarEntry[] = [
   OUTPUT_MAP_ENTRY,
+  { id: "cost-summary", label: "Solution Summary" },
   { id: "open-warehouses", label: "Open Warehouses" },
   { id: "customer-assignments", label: "Customer Assignments" },
   { id: "flows", label: "Flows" },
-  { id: "cost-summary", label: "Solution Summary" },
   { id: "service-stats", label: "Service Stats" },
 ];
+
+// T9 (B2) — single translation point between the sidebar's kebab-case
+// entity ids and the manifest's camelCase `capabilities.outputGrids`
+// strings (C6.1's own vocabulary) — hoisted to module scope so BOTH the
+// SidebarTree gate (which entries even appear) and renderTabContent's
+// content gate (defense-in-depth, unchanged) share one definition instead of
+// two independently-maintained copies drifting apart.
+const OUTPUT_ENTITY_TO_CAPABILITY: Record<string, string> = {
+  "open-warehouses": "openWarehouses",
+  "customer-assignments": "assignments",
+  "cost-summary": "costSummary",
+  "service-stats": "serviceStats",
+  "flows": "flows",
+};
 
 interface WorkspaceProps {
   modelId: StudioModelType;
@@ -1775,6 +1840,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // demandEditable:false (textbook-fixed region demand); every other
           // model on this branch (only p-median-us today) defaults true.
           demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
+          // T9 (T8 wiring) — "pmedian" mode is shared by p-median-us AND
+          // p-median-brazil, so an explicit modelId is needed to resolve
+          // `capabilities.supportsAddedCustomerExclusion` for the added-
+          // customer status control (brazil's own capability is false — see
+          // InputMapTab.tsx's own comment on this prop).
+          modelId={modelId}
         />
       );
     }
@@ -1963,6 +2034,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
           displayCodeById={displayCodeMapFromInputs(localInputs)}
+          modelId={modelId}
+          referenceCapable={activeModelManifest?.capabilities?.supportsReferenceDistances}
+          inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}
+          excludedCustomerIds={excludedCustomerIdsFromInputs(localInputs)}
         />
       );
     }
@@ -2126,20 +2201,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!hasFreshSolvedRun) {
         return <StaleOutputBanner onRunOptimizer={openSolveDialog} />;
       }
-      const outputGrids = activeModelManifest?.capabilities.outputGrids ?? [];
-      // Single translation point between the sidebar's kebab-case entity ids
-      // and the manifest's camelCase capability strings (matching the
-      // export route's own entity vocabulary from C6.1 Task 2) — keep all
-      // sidebar-entity <-> capability-string translation here, not
-      // duplicated elsewhere in this file.
-      const entityToCapability: Record<string, string> = {
-        "open-warehouses": "openWarehouses",
-        "customer-assignments": "assignments",
-        "cost-summary": "costSummary",
-        "service-stats": "serviceStats",
-        "flows": "flows",
-      };
-      if (!outputGrids.includes(entityToCapability[activeTab.entity])) {
+      const outputGrids = activeModelManifest?.capabilities?.outputGrids ?? [];
+      if (!outputGrids.includes(OUTPUT_ENTITY_TO_CAPABILITY[activeTab.entity])) {
         return (
           <span className="text-muted-foreground" data-testid="tab-content-placeholder">
             {activeTab.label} — not available for this model.
@@ -2147,8 +2210,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         );
       }
       const result = displayedResult;
-      if (activeTab.entity === "open-warehouses") return <OpenWarehousesTab result={result} scenarioId={currentScenario!.id} />;
-      if (activeTab.entity === "customer-assignments") return <AssignmentsTab result={result} scenarioId={currentScenario!.id} />;
+      if (activeTab.entity === "open-warehouses")
+        return (
+          <OpenWarehousesTab
+            result={result}
+            scenarioId={currentScenario!.id}
+            displayedInputs={facilityDisplayedInputs(displayedInputs)}
+          />
+        );
+      if (activeTab.entity === "customer-assignments")
+        return (
+          <AssignmentsTab
+            result={result}
+            scenarioId={currentScenario!.id}
+            displayedInputs={facilityDisplayedInputs(displayedInputs)}
+          />
+        );
       // T5 — Solution Summary compare (R6+R8). `scenarios` is the same-model
       // list already fetched at the top of this component
       // (`useListScenarios({ modelId })`); each row already carries the full
@@ -2186,123 +2263,143 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden scn-theme" data-testid="workspace-page">
-      <header className="min-h-14 border-b flex items-center px-4 py-1.5 gap-4 flex-shrink-0 bg-background relative">
-        {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
-            convention verbatim (same testid/icon/onClick target) rather than
-            inventing new UX: Workspace was the only authed page with no way
-            back to "/" other than the browser's own back button. */}
-        <button
-          onClick={() => navigate("/")}
-          data-testid="button-page-back"
-          title="Back to models"
-          className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <div className="flex flex-col leading-tight" data-testid="text-app-name">
-          <span className="font-semibold text-sm font-heading">SCND Optimization Studio</span>
-          <span className="text-xs text-muted-foreground">By Prof. Michael Watson</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
-          <span className="flex-shrink-0">Scenario:</span>
-          <select
-            aria-label="Scenario"
-            data-testid="select-scenario-context"
-            className="bg-transparent border rounded px-1.5 py-0.5 text-foreground text-sm max-w-[220px] truncate"
-            value={currentScenario?.id ?? ""}
-            onChange={e => handleSelectScenario(parseInt(e.target.value, 10))}
-            disabled={!scenarios?.length}
-          >
-            {!scenarios?.length && <option value="">No scenarios yet</option>}
-            {scenarios?.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        {/* Item 4 (B2.1-T3) — centered "Chapter N · <description>" summary,
-            independent of the left/right content widths (absolutely
-            positioned against the now-`relative` header, not a flex child).
-            Renders nothing for an unrecognized modelId. `truncate` +
-            `max-w` keep it from ever overlapping the scenario select or the
-            right-side controls at narrow widths. */}
-        {(() => {
-          const activeChapter = chapterForModelId(modelId);
-          if (!activeChapter) return null;
-          return (
-            <div
-              data-testid="workspace-chapter-summary"
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[38%] truncate text-xs text-muted-foreground text-center pointer-events-none"
-              title={`${activeChapter.chapter} · ${activeChapter.description}`}
+      {/* T9 (C2, items 13/14/15) — replaces the old absolute-centering
+          layout (fixed-width left/right flex children + an
+          absolutely-positioned center overlay) with a real 3-track grid:
+          `auto` (selector) / `1fr` (summary, centered in ITS OWN track
+          rather than the whole header) / `auto` (account+stepper+solve).
+          Below `md` (768px) the grid collapses to a single column so the
+          three zones stack into rows (selector / summary / account)
+          instead of overflowing — `min-w-0` throughout so children can
+          actually shrink/wrap rather than forcing horizontal scroll. The
+          old title/subtitle block ("SCND Optimization Studio" / "By Prof.
+          Michael Watson", `text-app-name`) is gone — ObjectiveBar/
+          Studio.tsx already carry that branding elsewhere; Workspace's own
+          header doesn't need to repeat it. */}
+      <header className="border-b flex-shrink-0 bg-background">
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-2 md:gap-4 px-4 py-1.5 min-h-14">
+          {/* Left zone — back arrow + scenario selector. */}
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
+                convention verbatim (same testid/icon/onClick target) rather
+                than inventing new UX: Workspace was the only authed page
+                with no way back to "/" other than the browser's own back
+                button. */}
+            <button
+              onClick={() => navigate("/")}
+              data-testid="button-page-back"
+              title="Back to models"
+              className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
-              {activeChapter.chapter} · {activeChapter.description}
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+              <span className="flex-shrink-0">Scenario:</span>
+              <select
+                aria-label="Scenario"
+                data-testid="select-scenario-context"
+                className="bg-transparent border rounded px-1.5 py-0.5 text-foreground text-sm max-w-[220px] truncate"
+                value={currentScenario?.id ?? ""}
+                onChange={e => handleSelectScenario(parseInt(e.target.value, 10))}
+                disabled={!scenarios?.length}
+              >
+                {!scenarios?.length && <option value="">No scenarios yet</option>}
+                {scenarios?.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
             </div>
-          );
-        })()}
-        <div className="flex-1" />
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground" data-testid="text-user-email">
-              {userEmail}
-            </span>
-            {/* Task 10 — logout, reusing AppShell.tsx's exact handleLogout
-                pattern (see the comment on that function above). */}
-            <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
-              Log out
-            </Button>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Task 6 (C5.1) — result-history stepper, only shown once there's
-                at least one result to step through (Studio.tsx's own gate,
-                mirrored here). */}
-            {resultHistoryState.items.length > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <button
-                  type="button"
-                  data-testid="button-result-back"
-                  disabled={!canGoBackResult}
-                  onClick={stepResultBack}
-                  title="Previous result"
-                  className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                >
-                  ←
-                </button>
-                <span className="text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
-                  {resultHistoryState.index + 1}/{resultHistoryState.items.length}
-                </span>
-                <button
-                  type="button"
-                  data-testid="button-result-forward"
-                  disabled={!canGoForwardResult}
-                  onClick={stepResultForward}
-                  title="Next result"
-                  className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                >
-                  →
-                </button>
-                {/* Task 7 (C5.1) — "Save as scenario" from the currently-viewed
-                    history entry (DD-7). Same conditional gate as the stepper
-                    itself (both need at least one history entry to make sense). */}
-                <button
-                  type="button"
-                  data-testid="button-save-as-scenario"
-                  onClick={handleSaveAsScenario}
-                  disabled={createScenario.isPending}
-                  className="text-xs border rounded px-2 py-1 hover:bg-muted"
-                >
-                  Save as scenario
-                </button>
+
+          {/* Center zone — "Chapter N · <description>" summary, centered
+              WITHIN its own `1fr` grid track (not absolutely positioned
+              against the whole header any more), full untruncated text at
+              `md`+. Below `md` it truncates instead of forcing horizontal
+              overflow (the grid collapses to one column there, so this
+              zone is a full-width row on its own). Renders nothing for an
+              unrecognized modelId. */}
+          {(() => {
+            const activeChapter = chapterForModelId(modelId);
+            if (!activeChapter) return null;
+            return (
+              <div
+                data-testid="workspace-chapter-summary"
+                className="min-w-0 truncate md:overflow-visible md:whitespace-normal md:text-clip text-xs text-muted-foreground text-center"
+                title={`${activeChapter.chapter} · ${activeChapter.description}`}
+              >
+                {activeChapter.chapter} · {activeChapter.description}
               </div>
-            )}
-            <Button
-              size="sm"
-              disabled={!currentScenario}
-              onClick={openSolveDialog}
-              data-testid="button-run-optimizer"
-            >
-              Run Optimizer
-            </Button>
+            );
+          })()}
+
+          {/* Right zone — email+logout, then (unchanged relative position,
+              directly below it) the result-history stepper/"Save as
+              scenario"/Run Optimizer cluster. */}
+          <div className="flex flex-col items-end gap-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <span className="text-sm text-muted-foreground" data-testid="text-user-email">
+                {userEmail}
+              </span>
+              {/* Task 10 — logout, reusing AppShell.tsx's exact handleLogout
+                  pattern (see the comment on that function above). */}
+              <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
+                Log out
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Task 6 (C5.1) — result-history stepper, only shown once there's
+                  at least one result to step through (Studio.tsx's own gate,
+                  mirrored here). */}
+              {resultHistoryState.items.length > 0 && (
+                <div className="flex items-center gap-1 text-xs">
+                  <button
+                    type="button"
+                    data-testid="button-result-back"
+                    disabled={!canGoBackResult}
+                    onClick={stepResultBack}
+                    title="Previous result"
+                    className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                  >
+                    ←
+                  </button>
+                  <span className="text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
+                    {resultHistoryState.index + 1}/{resultHistoryState.items.length}
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="button-result-forward"
+                    disabled={!canGoForwardResult}
+                    onClick={stepResultForward}
+                    title="Next result"
+                    className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                  >
+                    →
+                  </button>
+                  {/* Task 7 (C5.1) — "Save as scenario" from the currently-viewed
+                      history entry (DD-7). Same conditional gate as the stepper
+                      itself (both need at least one history entry to make sense). */}
+                  <button
+                    type="button"
+                    data-testid="button-save-as-scenario"
+                    onClick={handleSaveAsScenario}
+                    disabled={createScenario.isPending}
+                    className="text-xs border rounded px-2 py-1 hover:bg-muted"
+                  >
+                    Save as scenario
+                  </button>
+                </div>
+              )}
+              <Button
+                size="sm"
+                disabled={!currentScenario}
+                onClick={openSolveDialog}
+                data-testid="button-run-optimizer"
+              >
+                Run Optimizer
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -2314,7 +2411,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onSelectScenario={handleSelectScenario}
           onCreateScenario={handleCreateScenario}
           inputs={inputEntriesForModel(modelId)}
-          outputs={OUTPUT_ENTRIES}
+          // T9 (B2) — gate the sidebar's Outputs list by the active model's
+          // real capabilities.outputGrids (Output Map itself is always
+          // listed — it's not a "grid" entity and has no entry in
+          // OUTPUT_ENTITY_TO_CAPABILITY). Closes the "Flows visible on
+          // p-median-us" gap: renderTabContent's own content-level gate
+          // (unchanged, defense-in-depth) already blocked its CONTENT, but
+          // the sidebar entry itself was ungated until now.
+          outputs={OUTPUT_ENTRIES.filter(
+            e =>
+              e.id === OUTPUT_MAP_ENTRY.id ||
+              (activeModelManifest?.capabilities?.outputGrids ?? []).includes(OUTPUT_ENTITY_TO_CAPABILITY[e.id]),
+          )}
           hasSolvedRun={hasFreshSolvedRun}
           activeEntityId={activeTab?.entity ?? null}
           onOpenInput={entry => openTab("input", entry)}
@@ -2429,6 +2537,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* T9 (C1) — footer, mounted as the LAST child of this root
+          `h-screen flex flex-col` column, inside `.scn-theme`. `AppFooter`
+          is `flex-shrink-0` (FOOTER_H fixed height), so it simply reserves
+          its own space as a flex sibling of the body region's `flex-1
+          min-h-0` wrapper above — no overlap, no extra height math needed
+          here (flexbox already shrinks the body region to make room). Order
+          relative to the Dialogs above is irrelevant — both Dialog and
+          SolveDialog render via a Radix portal to document.body, not in
+          this flex flow. */}
+      <AppFooter />
     </div>
   );
 }

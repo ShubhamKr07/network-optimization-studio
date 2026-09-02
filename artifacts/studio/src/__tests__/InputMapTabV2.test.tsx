@@ -3,6 +3,17 @@ import { render, fireEvent, screen } from "@testing-library/react";
 import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
 import type { AddedWarehouseInput, MapWarehouse, MapCustomer, PMedianMapInputs } from "@/components/workspace/map/types";
 
+// T8 (Bundle 2.2, A3) — PMedianInputMap now calls `useListModels()`
+// internally (to derive `supportsAddedCustomerExclusion`), so every render
+// in this file needs SOME mock or a real QueryClientProvider ancestor. An
+// empty list is a safe default — every capability lookup resolves to
+// `false` (control hidden), matching this file's existing assertions (none
+// of which pass `modelId`, so the added-customer status control was never
+// meant to show here).
+vi.mock("@workspace/api-client-react", () => ({
+  useListModels: () => ({ data: [] }),
+}));
+
 // T8 (Input Map v2) — the pmedian-mode surface under test here composes T4's
 // EntityMarkers/MapLegend, T5's inspect card/action menu, T6's edit
 // dialogs, and T7's create/move dialogs, all real (not mocked) under jsdom —

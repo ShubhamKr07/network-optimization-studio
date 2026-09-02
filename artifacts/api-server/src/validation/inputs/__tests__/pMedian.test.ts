@@ -188,6 +188,40 @@ describe("pMedianInputsSchema — B1.1 network-edit fields", () => {
     expect(result.success && result.data.addedCustomers[0].displayCode).toBe("C-A1");
   });
 
+  // Bundle 2.2 (B2.2-T1, A3 backend) — addedCustomerSchema gains `status`.
+  // Shape-only here (schema doesn't know about the model capability gate —
+  // that's buildPayload/precheck.ts's job); this schema is shared by both
+  // p-median-us and p-median-brazil, so it must accept `status` regardless
+  // of which model actually honors it.
+  it("defaults an added customer's status to 'active' when omitted (back-compat)", () => {
+    const result = pMedianInputsSchema.parse({
+      ...BASE,
+      addedCustomers: [{ id: "C-X", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200 }],
+    });
+    expect(result.addedCustomers[0].status).toBe("active");
+  });
+
+  it("accepts an added customer with status:'excluded'", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      addedCustomers: [
+        { id: "C-X", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200, status: "excluded" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.addedCustomers[0].status).toBe("excluded");
+  });
+
+  it("rejects an added customer with an invalid status value", () => {
+    const result = pMedianInputsSchema.safeParse({
+      ...BASE,
+      addedCustomers: [
+        { id: "C-X", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, demand: 1200, status: "bogus" },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("accepts rows/entities without estimated/displayCode (all three fields optional)", () => {
     const result = pMedianInputsSchema.safeParse({
       ...BASE,
