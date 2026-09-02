@@ -74,6 +74,10 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  // T9 (B2.2-T7 mock gap) — this sweep opens the Distances tab for
+  // p-median-us, which now calls useGetReferenceDistances unconditionally.
+  useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
+  getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
   useListModels: vi.fn(),
   usePrecheckScenario: vi.fn(() => ({ data: { ok: true, errors: [] } })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
@@ -224,10 +228,10 @@ describe("Workspace tab coverage — p-median-us", () => {
         COST_SUMMARY,
         SERVICE_STATS,
         // "flows" deliberately NOT included — not in this model's
-        // outputGrids capability, so its sidebar entry falls through to the
-        // generic placeholder (covered by Workspace.test.tsx's own C6.1
-        // gating test already; re-asserting the negative here would just
-        // duplicate that coverage).
+        // outputGrids capability, so (T9, B2) its sidebar entry doesn't
+        // even render (covered by Workspace.test.tsx's own B2 gating tests
+        // already; re-asserting the negative here would just duplicate that
+        // coverage).
       ],
     );
   });

@@ -72,6 +72,10 @@ vi.mock("@workspace/api-client-react", () => ({
   useCloneScenario: vi.fn(() => mockCloneScenario),
   useDeleteScenario: vi.fn(() => mockDeleteScenario),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
+  // T9 (B2.2-T7 mock gap) — see Workspace.test.tsx's own comment on this
+  // same mock addition.
+  useGetReferenceDistances: vi.fn(() => ({ data: undefined })),
+  getGetReferenceDistancesQueryKey: vi.fn((id: string) => ["reference-distances", id]),
   useListModels: vi.fn(() => ({
     data: [
       {
@@ -93,6 +97,10 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace } from "@/pages/Workspace";
+import { useGetScenario, useListScenarios } from "@workspace/api-client-react";
+
+const mockUseGetScenario = vi.mocked(useGetScenario);
+const mockUseListScenarios = vi.mocked(useListScenarios);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -242,5 +250,69 @@ describe("Workspace — Input Map v2 Save reconciliation + estimate toast (T8)",
     // Not flagged "changed" — the saved baseline (savedInputsRef) was synced
     // to the same response, so this row isn't a pending unsaved edit.
     expect(screen.queryByTestId(`badge-distance-changed-${newId}-C1`)).not.toBeInTheDocument();
+  });
+});
+
+// T9 (A3 projection) — `pmedianMapCustomers`'s added-row `excluded` flag
+// used to be hardcoded `false`; now derived from the added customer's own
+// `status` field (T1/T8's AddedCustomerInput.status). This function is
+// shared verbatim by two-echelon-gold-au's own Input Map customers render
+// (Workspace.tsx's `customers={pmedianMapCustomers(...)}` call site for
+// mode="twoEchelon"), so this single p-median-us test covers both models'
+// projection logic — no separate two-echelon test needed for the SAME
+// shared function (see Workspace.tsx's own comment on this reuse).
+describe("Workspace — Input Map v2 added-customer excluded projection (T9, A3)", () => {
+  it("an added customer with status:'excluded' renders dimmed (cs-excluded class) on the Input Map, not the old hardcoded false", () => {
+    const scenarioWithExcludedAdded = {
+      ...scenario,
+      inputs: {
+        ...pmedianInputs,
+        addedCustomers: [
+          {
+            id: "aw-cs-1",
+            displayCode: "CS-NV-RENO-01",
+            city: "Reno",
+            state: "NV",
+            lat: 39.5,
+            lng: -119.8,
+            demand: 50,
+            status: "excluded" as const,
+          },
+        ],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithExcludedAdded } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scenarioWithExcludedAdded] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    const excludedMarker = document.querySelector(".cs-excluded");
+    expect(excludedMarker).not.toBeNull();
+  });
+
+  it("an added customer with the default/omitted status (active) does NOT render dimmed", () => {
+    const scenarioWithActiveAdded = {
+      ...scenario,
+      inputs: {
+        ...pmedianInputs,
+        addedCustomers: [
+          {
+            id: "aw-cs-2",
+            displayCode: "CS-NV-RENO-01",
+            city: "Reno",
+            state: "NV",
+            lat: 39.5,
+            lng: -119.8,
+            demand: 50,
+          },
+        ],
+      },
+    };
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithActiveAdded } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [scenarioWithActiveAdded] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-input-map"));
+
+    expect(document.querySelector(".cs-excluded")).toBeNull();
   });
 });
