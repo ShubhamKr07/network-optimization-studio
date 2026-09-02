@@ -109,26 +109,6 @@ function renderPMedian(over: {
 }
 
 describe("InputMapTab — mode dispatch", () => {
-  it("legacy mode renders the Task-4 pin-drop placement toggle, not the pmedian toolbar or MapLegend", () => {
-    render(
-      <InputMapTab
-        mode="legacy"
-        pins={[]}
-        placementOptions={[{ key: "mines", label: "Mine" }, { key: "stations", label: "Station" }]}
-        onPlacePoint={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("input-map-placement-toggle")).toBeInTheDocument();
-    expect(screen.queryByTestId("map-legend")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("pmedian-map-toolbar")).not.toBeInTheDocument();
-  });
-
-  it("placeholder mode renders no map at all", () => {
-    render(<InputMapTab mode="placeholder" />);
-    expect(screen.getByTestId("tab-content-placeholder")).toBeInTheDocument();
-    expect(screen.queryByTestId("input-map-tab")).not.toBeInTheDocument();
-  });
-
   it("pmedian mode renders the real toolbar and MapLegend", () => {
     renderPMedian();
     expect(screen.getByTestId("pmedian-map-toolbar")).toBeInTheDocument();

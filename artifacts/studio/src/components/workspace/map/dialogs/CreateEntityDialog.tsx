@@ -46,6 +46,15 @@ interface CreateEntityDialogProps {
    * p-median-us behavior, unchanged for every existing call site that
    * doesn't pass this. */
   role?: EntityRoleConfig;
+  /** Cleanup pass — mirrors EditWarehouseDialog's own `capacityMode` prop
+   * exactly: p-median-us/brazil gate their Capacity field on it (only
+   * `per_wh` shows it), transport-coal's mines have no capacityMode concept
+   * and always show it (leave undefined), two-echelon's refineries pass
+   * "none" to suppress it entirely (refineries have no capacity concept —
+   * `addedRefinerySchema` has no capacity field, the value is stripped
+   * server-side even if sent). Optional so this stays backward-compatible
+   * with any test/caller that doesn't pass it. */
+  capacityMode?: "none" | "uniform" | "per_wh";
   lat: number;
   lng: number;
   existingCodes: Iterable<string>;
@@ -66,6 +75,7 @@ interface CreateEntityDialogProps {
 export function CreateEntityDialog({
   kind,
   role = kind === "wh" ? WAREHOUSE_ROLE : CUSTOMER_ROLE,
+  capacityMode,
   lat,
   lng,
   existingCodes,
@@ -94,11 +104,22 @@ export function CreateEntityDialog({
     [role.uidKind, state, city, existingCodes],
   );
 
+  // Mirrors EditWarehouseDialog's own `showValueField` gate exactly: a role
+  // without a capacity value field (customers/stations never reach this —
+  // they're kind==="cs") never shows it; a role that HAS one shows it only
+  // when there's no capacityMode gate at all (mines — undefined) or the
+  // caller's capacityMode says per_wh (p-median-us/brazil's per-warehouse
+  // capacity). "none"/"uniform" both hide it — a uniform-capacity scenario
+  // has no per-warehouse override to set, and two-echelon's refineries
+  // always pass "none" (no capacity concept for that role at all).
+  const showCapacity = role.valueField?.key === "capacity" && (capacityMode === undefined || capacityMode === "per_wh");
+
   const handleSubmit = () => {
     if (kind === "wh") {
-      // role.hasStatus:false (e.g. MINE_ROLE) — status is entirely absent
-      // from the emitted object, not just undefined, so it can never
-      // round-trip into a PATCH payload as a stray no-op field.
+      // role.hasStatus:false (e.g. MINE_ROLE) and !showCapacity (e.g.
+      // REFINERY_ROLE with capacityMode="none") both omit the key entirely
+      // from the emitted object, not just leave it undefined, so it can
+      // never round-trip into a PATCH payload as a stray no-op field.
       const input = {
         id,
         displayCode,
@@ -106,7 +127,7 @@ export function CreateEntityDialog({
         state,
         lat,
         lng,
-        capacity: capacity === "" ? null : Number(capacity),
+        ...(showCapacity ? { capacity: capacity === "" ? null : Number(capacity) } : {}),
         ...(role.hasStatus ? { status } : {}),
       };
       onSubmit(input as unknown as AddedWarehouseInput);
@@ -203,19 +224,21 @@ export function CreateEntityDialog({
                   </RadioGroup>
                 </div>
               )}
-              <div className="space-y-2">
-                <Label htmlFor="create-entity-capacity" className="text-xs font-semibold text-foreground">
-                  Capacity
-                </Label>
-                <Input
-                  id="create-entity-capacity"
-                  type="number"
-                  min={0}
-                  value={capacity}
-                  onChange={e => setCapacity(e.target.value)}
-                  data-testid="create-entity-capacity"
-                />
-              </div>
+              {showCapacity && (
+                <div className="space-y-2">
+                  <Label htmlFor="create-entity-capacity" className="text-xs font-semibold text-foreground">
+                    Capacity
+                  </Label>
+                  <Input
+                    id="create-entity-capacity"
+                    type="number"
+                    min={0}
+                    value={capacity}
+                    onChange={e => setCapacity(e.target.value)}
+                    data-testid="create-entity-capacity"
+                  />
+                </div>
+              )}
             </>
           ) : (
             <div className="space-y-2">

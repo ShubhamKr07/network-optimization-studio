@@ -30,25 +30,6 @@ import type { AddedMine } from "@/components/workspace/tabs/MinesTab";
 import type { AddedStation } from "@/components/workspace/tabs/StationsTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 
-// ── Legacy (Task 4) pin shapes — unchanged from before this rewrite ────────
-interface PinEntity {
-  id: string;
-  city: string;
-  state: string;
-  lat: number;
-  lng: number;
-}
-
-interface PinGroup {
-  kind: string;
-  entities: PinEntity[];
-}
-
-interface PlacementOption {
-  key: string; // matches inputEntriesForModel()'s own entity id ("warehouses", "customers", "mines", "stations", "refineries")
-  label: string;
-}
-
 // T6 (Bundle 2) — the `inputs` slice transport-coal's map mode edits.
 // TransportLpInputs is NOT PMedianMapInputs-shaped: no warehouseOverrides/
 // customerOverrides/capacityMode/distanceOverrides — mines/stations use
@@ -90,12 +71,12 @@ export interface TwoEchelonMapInputs {
   [k: string]: unknown; // bomRatio, gap, timeLimitSec, distanceBands, … passed through
 }
 
-// T8 (Input Map v2) — discriminated union so p-median's real map surface
-// (warehouses/customers/inputs/onInputsChange) isn't a mandatory prop shape
-// for the other two callers, which still get the Task-4 pin-drop map
-// ("legacy") or a placeholder (p-median-brazil has no per-row dataset
-// endpoint, same boundary every other Brazil input tab already draws — see
-// Workspace.tsx's own inputEntriesForModel comment).
+// T8 (Input Map v2) — discriminated union, one variant per model's real map
+// surface. The original Task-4 "legacy" pin-drop mode and "placeholder"
+// mode (p-median-brazil once had no real map surface) were both removed in
+// a cleanup pass once T5 gave p-median-brazil the real "pmedian" mode and
+// every other model landed its own full-v2 mode — no caller routes to
+// either dead mode anymore.
 export type InputMapTabProps =
   | {
       mode: "pmedian";
@@ -123,13 +104,6 @@ export type InputMapTabProps =
        * editing a BASE customer's demand; an ADDED customer always stays
        * editable regardless (see handleEditSubmit's own comment below). */
       demandEditable?: boolean;
-    }
-  | {
-      mode: "legacy";
-      countryBounds?: CountryBounds;
-      pins: PinGroup[];
-      placementOptions: PlacementOption[];
-      onPlacePoint: (lat: number, lng: number, kind: string) => void;
     }
   | {
       // T6 (Bundle 2) — transport-coal's full-v2 editor. A separate mode
@@ -184,131 +158,12 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
-    }
-  | { mode: "placeholder" };
+    };
 
 export function InputMapTab(props: InputMapTabProps): ReactNode {
-  if (props.mode === "placeholder") return <PlaceholderInputMap />;
-  if (props.mode === "legacy") return <LegacyInputMap {...props} />;
   if (props.mode === "transport") return <TransportInputMap {...props} />;
   if (props.mode === "twoEchelon") return <TwoEchelonInputMap {...props} />;
   return <PMedianInputMap {...props} />;
-}
-
-// p-median-brazil has no `GET /dataset` entry (openapi.yaml's `modelId`
-// enum) — same message shape Workspace.tsx's own Warehouses/Customers
-// placeholder branch already uses for this model.
-function PlaceholderInputMap() {
-  return (
-    <span className="text-muted-foreground" data-testid="tab-content-placeholder">
-      Input Map — not available for this model yet (no per-row dataset endpoint exists for p-median-brazil).
-    </span>
-  );
-}
-
-function ClickCapture({ onClick }: { onClick: (lat: number, lng: number) => void }) {
-  useMapEvents({
-    click(e) {
-      onClick(e.latlng.lat, e.latlng.lng);
-    },
-  });
-  return null;
-}
-
-// Phase 3.2, Task 4 (unchanged) — pre-solve map: shows current base + added
-// entities as pins, and lets a click drop a DRAFT marker with a
-// Confirm/Cancel panel (rendered outside the Leaflet tree, in this
-// component's own JSX, NOT inside a <Popup> nested in a <Marker> — a Popup
-// there stays closed until the marker itself is clicked, real Leaflet
-// behavior, which would make the controls invisible without an extra click
-// nobody's told to make) before anything is actually added. Deliberately
-// does not reuse NetworkMap.tsx, which is coupled to solve-result
-// edges/bands/routes; this component only ever needs static pins + one
-// click handler. transport-coal and two-echelon-gold-au both stay on this
-// simpler flow (T8) — their Mines/Stations/Refineries/Customers tabs have no
-// override-projection/edit-in-place concept the way p-median-us's map does.
-function LegacyInputMap({
-  countryBounds,
-  pins,
-  placementOptions,
-  onPlacePoint,
-}: Extract<InputMapTabProps, { mode: "legacy" }>) {
-  const [activeKind, setActiveKind] = useState(placementOptions[0]?.key ?? "");
-  const [draft, setDraft] = useState<{ lat: number; lng: number } | null>(null);
-  const boundsProps = getMapBoundsProps(countryBounds);
-  // Same fix NetworkMap.tsx/OutputMapTab.tsx already carry (E5.1/Round 3):
-  // MapContainer only applies center/maxBounds/minZoom at construction —
-  // keying on the resolved bounds forces a remount once the real
-  // countryBounds lands, instead of getting stuck on the fallback.
-  const mapKey = countryBounds ? `${countryBounds.sw.join(",")}_${countryBounds.ne.join(",")}` : "fallback";
-
-  return (
-    <div className="h-full flex flex-col gap-2" data-testid="input-map-tab">
-      <div className="flex items-center gap-2 flex-shrink-0" data-testid="input-map-placement-toggle">
-        <span className="text-xs text-muted-foreground">Placing:</span>
-        <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
-          {placementOptions.map(opt => (
-            <button
-              key={opt.key}
-              type="button"
-              data-testid={`button-input-map-place-${opt.key}`}
-              onClick={() => setActiveKind(opt.key)}
-              className={`px-2 py-1 transition-colors whitespace-nowrap ${
-                activeKind === opt.key ? "bg-primary text-white" : "bg-white text-muted-foreground hover:bg-muted"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        {draft && (
-          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="input-map-draft-panel">
-            <span>Lat: {draft.lat.toFixed(4)}, Lng: {draft.lng.toFixed(4)} — placing {placementOptions.find(o => o.key === activeKind)?.label}</span>
-            <Button
-              size="sm"
-              className="h-6 text-[10px]"
-              data-testid="button-input-map-confirm"
-              onClick={() => { onPlacePoint(draft.lat, draft.lng, activeKind); setDraft(null); }}
-            >
-              Confirm
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-[10px]"
-              data-testid="button-input-map-cancel"
-              onClick={() => setDraft(null)}
-            >
-              Cancel
-            </Button>
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-h-0">
-        <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
-          <ClickCapture onClick={(lat, lng) => setDraft({ lat, lng })} />
-          {pins.map(group => group.entities.map(e => (
-            <Marker key={`${group.kind}-${e.id}`} position={[e.lat, e.lng]} />
-          )))}
-          {/* Visually distinct from committed pins (dashed amber outline,
-              CircleMarker rather than the default Marker icon) rather than
-              a custom icon asset. No `data-testid` here — CircleMarkerProps
-              doesn't extend any DOM-attribute interface (confirmed against
-              @react-leaflet/core's own types), so an arbitrary data-* prop
-              doesn't type-check; the draft panel's own
-              `input-map-draft-panel` testid is what tests assert against. */}
-          {draft && (
-            <CircleMarker
-              center={[draft.lat, draft.lng]}
-              radius={8}
-              pathOptions={{ color: "#f59e0b", dashArray: "4", fillOpacity: 0.3 }}
-            />
-          )}
-        </MapContainer>
-      </div>
-    </div>
-  );
 }
 
 // ── p-median-us real map surface (T8) ───────────────────────────────────────
@@ -907,6 +762,7 @@ function PMedianInputMap({
       {createState && (
         <CreateEntityDialog
           kind={createState.kind}
+          capacityMode={inputs.capacityMode}
           lat={createState.lat}
           lng={createState.lng}
           existingCodes={existingCodes}
@@ -1817,6 +1673,7 @@ function TwoEchelonInputMap({
         <CreateEntityDialog
           kind={createState.kind}
           role={createState.kind === "wh" ? REFINERY_ROLE : undefined}
+          capacityMode="none"
           lat={createState.lat}
           lng={createState.lng}
           existingCodes={existingCodes}
