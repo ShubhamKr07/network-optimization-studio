@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MapContainer, TileLayer, Marker, CircleMarker, Tooltip, useMapEvents } from "react-leaflet";
 import type L from "leaflet";
 import { Save } from "lucide-react";
+import { useListModels } from "@workspace/api-client-react";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -105,6 +106,15 @@ export type InputMapTabProps =
        * editing a BASE customer's demand; an ADDED customer always stays
        * editable regardless (see handleEditSubmit's own comment below). */
       demandEditable?: boolean;
+      /** T8 (Bundle 2.2, A3) — this mode is shared by p-median-us AND
+       * p-median-brazil, so (unlike "twoEchelon", which is unambiguous)
+       * an explicit `modelId` is needed to look up `capabilities.
+       * supportsAddedCustomerExclusion` for the added-customer status
+       * control. Optional, per this bundle's established T6/T7 "safe
+       * default, call site wired later" convention — absent means the
+       * control stays hidden for every added customer on this mode
+       * (matches Brazil's own capability value, so nothing regresses). */
+      modelId?: string;
     }
   | {
       // T6 (Bundle 2) — transport-coal's full-v2 editor. A separate mode
@@ -170,6 +180,16 @@ export function InputMapTab(props: InputMapTabProps): ReactNode {
 // ── p-median-us real map surface (T8) ───────────────────────────────────────
 
 const EMPTY_ID_SET = new Set<string>();
+
+// T8 (Bundle 2.2, A3) — same `useListModels()`-derived-capability pattern
+// OutputMapTab/CostSummaryTab already use. `modelId` undefined (pmedian
+// mode before T9 wires its own optional prop) or not found in the list both
+// fall back to `false` — a safe default, since Brazil's own real capability
+// is also `false`.
+function useSupportsAddedCustomerExclusion(modelId: string | undefined): boolean {
+  const { data: models } = useListModels();
+  return models?.find(m => m.id === modelId)?.capabilities.supportsAddedCustomerExclusion ?? false;
+}
 
 type OverlayAnchor = { containerPoint: { x: number; y: number }; containerSize?: { width: number; height: number } };
 
@@ -400,10 +420,20 @@ function editAddedWarehouse(inputs: PMedianMapInputs, id: string, patch: { statu
   };
 }
 
-function editAddedCustomer(inputs: PMedianMapInputs, id: string, demand: number): PMedianMapInputs {
+// T8 (Bundle 2.2, A3) — `status` is only ever written when the caller's
+// dialog actually showed the control (see EditCustomerDialog's own
+// `showExclusion` two-gate); when omitted, an added customer's existing
+// status (if any) is left untouched, not reset to a stray default.
+function editAddedCustomer(
+  inputs: PMedianMapInputs,
+  id: string,
+  patch: { demand: number; status?: "active" | "excluded" },
+): PMedianMapInputs {
   return {
     ...inputs,
-    addedCustomers: inputs.addedCustomers.map(c => (c.id === id ? { ...c, demand } : c)),
+    addedCustomers: inputs.addedCustomers.map(c =>
+      c.id === id ? { ...c, demand: patch.demand, ...(patch.status !== undefined ? { status: patch.status } : {}) } : c,
+    ),
   };
 }
 
@@ -419,14 +449,25 @@ function editBaseWarehouseOverride(inputs: PMedianMapInputs, id: string, patch: 
   return { ...inputs, warehouseOverrides: isNoOp ? rest : [...rest, merged] };
 }
 
-// Mirrors CustomerTable.tsx's `upsert` exactly — preserves the existing
-// override's status (or "active" if none), never touched by a demand-only
-// edit from this map's EditCustomerDialog (which has no status field).
-function editBaseCustomerOverride(inputs: PMedianMapInputs, id: string, demand: number): PMedianMapInputs {
+// Mirrors CustomerTable.tsx's `upsert` — preserves the existing override's
+// status when the patch doesn't carry one (a demand-only edit from a role
+// without `supportsExclusion`, e.g. STATION_ROLE never reaches this
+// function at all). T8 (Bundle 2.2, A3) — `patch.status` is now explicit
+// whenever EditCustomerDialog showed the Active/Excluded control (any base
+// p-median-us/brazil customer — role-gated only, see that dialog's own
+// `showExclusion` comment). isNoOp also prunes a pure status-revert-to-
+// active whose demand is unchanged from what was already stored (a true
+// no-op), not just a literal `null` demand.
+function editBaseCustomerOverride(
+  inputs: PMedianMapInputs,
+  id: string,
+  patch: { demand: number; status?: "active" | "excluded" },
+): PMedianMapInputs {
   const existing = inputs.customerOverrides.find(o => o.id === id);
-  const merged = { id, status: existing?.status ?? "active", demand };
+  const status = patch.status ?? existing?.status ?? "active";
+  const merged = { id, status, demand: patch.demand };
   const rest = inputs.customerOverrides.filter(o => o.id !== id);
-  const isNoOp = merged.status === "active" && merged.demand == null;
+  const isNoOp = merged.status === "active" && (merged.demand == null || merged.demand === existing?.demand);
   return { ...inputs, customerOverrides: isNoOp ? rest : [...rest, merged] };
 }
 
@@ -471,7 +512,9 @@ function PMedianInputMap({
   onSave,
   saving,
   demandEditable = true,
+  modelId,
 }: Extract<InputMapTabProps, { mode: "pmedian" }>) {
+  const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion(modelId);
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
@@ -637,15 +680,17 @@ function PMedianInputMap({
     setActionMenu(null);
   }
 
-  function handleEditSubmit(patch: { status: WhStatus; capacity?: number | null } | { demand: number }) {
+  function handleEditSubmit(
+    patch: { status: WhStatus; capacity?: number | null } | { demand: number; status?: "active" | "excluded" },
+  ) {
     if (!editEntity) return;
     const { kind, entity } = editEntity;
     if (kind === "wh") {
       const p = patch as { status: WhStatus; capacity?: number | null };
       onInputsChange(entity.isAdded ? editAddedWarehouse(inputs, entity.id, p) : editBaseWarehouseOverride(inputs, entity.id, p));
     } else {
-      const p = patch as { demand: number };
-      onInputsChange(entity.isAdded ? editAddedCustomer(inputs, entity.id, p.demand) : editBaseCustomerOverride(inputs, entity.id, p.demand));
+      const p = patch as { demand: number; status?: "active" | "excluded" };
+      onInputsChange(entity.isAdded ? editAddedCustomer(inputs, entity.id, p) : editBaseCustomerOverride(inputs, entity.id, p));
     }
     setEditEntity(null);
     setLivePreview(null);
@@ -812,6 +857,7 @@ function PMedianInputMap({
           // model's demandEditable capability (a newly-added region has no
           // textbook demand to protect); only a BASE row is gated.
           demandEditable={demandEditable || editEntity.entity.isAdded}
+          supportsAddedCustomerExclusion={supportsAddedCustomerExclusion}
           onSubmit={handleEditSubmit}
           onLivePreview={demand => setLivePreview({ id: editEntity.entity.id, demand })}
           onCancel={() => {
@@ -824,6 +870,7 @@ function PMedianInputMap({
         <CreateEntityDialog
           kind={createState.kind}
           capacityMode={inputs.capacityMode}
+          supportsAddedCustomerExclusion={supportsAddedCustomerExclusion}
           lat={createState.lat}
           lng={createState.lng}
           existingCodes={existingCodes}
@@ -1353,8 +1400,19 @@ function editAddedRefinery(inputs: TwoEchelonMapInputs, id: string, status: WhSt
   return { ...inputs, addedRefineries: inputs.addedRefineries.map(r => (r.id === id ? { ...r, status } : r)) };
 }
 
-function editAddedTwoEchelonCustomer(inputs: TwoEchelonMapInputs, id: string, demand: number): TwoEchelonMapInputs {
-  return { ...inputs, addedCustomers: inputs.addedCustomers.map(c => (c.id === id ? { ...c, demand } : c)) };
+// T8 (Bundle 2.2, A3) — mirrors PMedianInputMap's own editAddedCustomer
+// exactly (status only written when the dialog actually showed it).
+function editAddedTwoEchelonCustomer(
+  inputs: TwoEchelonMapInputs,
+  id: string,
+  patch: { demand: number; status?: "active" | "excluded" },
+): TwoEchelonMapInputs {
+  return {
+    ...inputs,
+    addedCustomers: inputs.addedCustomers.map(c =>
+      c.id === id ? { ...c, demand: patch.demand, ...(patch.status !== undefined ? { status: patch.status } : {}) } : c,
+    ),
+  };
 }
 
 // Mirrors editBaseWarehouseOverride minus the capacity merge — refineries
@@ -1366,14 +1424,20 @@ function editBaseRefineryOverride(inputs: TwoEchelonMapInputs, id: string, statu
   return { ...inputs, refineryOverrides: status === "active" ? rest : [...rest, { id, status }] };
 }
 
-// Mirrors editBaseCustomerOverride (PMedianInputMap) exactly —
-// twoEchelonInputsSchema's customerOverrides shares p-median-us's exact
+// Mirrors editBaseCustomerOverride (PMedianInputMap) exactly, including its
+// T8 (Bundle 2.2, A3) status-passthrough + no-op pruning — twoEchelon-
+// InputsSchema's customerOverrides shares p-median-us's exact
 // {id, demand?, status} shape.
-function editBaseTwoEchelonCustomerOverride(inputs: TwoEchelonMapInputs, id: string, demand: number): TwoEchelonMapInputs {
+function editBaseTwoEchelonCustomerOverride(
+  inputs: TwoEchelonMapInputs,
+  id: string,
+  patch: { demand: number; status?: "active" | "excluded" },
+): TwoEchelonMapInputs {
   const existing = inputs.customerOverrides.find(o => o.id === id);
-  const merged = { id, status: existing?.status ?? "active", demand };
+  const status = patch.status ?? existing?.status ?? "active";
+  const merged = { id, status, demand: patch.demand };
   const rest = inputs.customerOverrides.filter(o => o.id !== id);
-  const isNoOp = merged.status === "active" && merged.demand == null;
+  const isNoOp = merged.status === "active" && (merged.demand == null || merged.demand === existing?.demand);
   return { ...inputs, customerOverrides: isNoOp ? rest : [...rest, merged] };
 }
 
@@ -1413,6 +1477,14 @@ function TwoEchelonInputMap({
   onSave,
   saving,
 }: Extract<InputMapTabProps, { mode: "twoEchelon" }>) {
+  // T8 (Bundle 2.2, A3) — unlike "pmedian" mode (shared by p-median-us AND
+  // p-median-brazil, needs a caller-supplied `modelId`), this mode
+  // unambiguously renders "two-echelon-gold-au" — the literal here is a
+  // manifest LOOKUP key, not a UI-branching `modelId === "..."` gate (the
+  // real gate is `capabilities.supportsAddedCustomerExclusion`, read live
+  // off the registry so this stays correct if that manifest value ever
+  // changes).
+  const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion("two-echelon-gold-au");
   const [toggles, setToggles] = useState<EntityMarkersToggles>({ warehouses: true, customers: true, showInactive: false, sizeByDemand: true });
   const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" } | null>(null);
   const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
@@ -1566,15 +1638,17 @@ function TwoEchelonInputMap({
   // level, but with `capacityMode="none"` passed below, `capacity` is never
   // populated at runtime (EditWarehouseDialog's own showValueField gate), so
   // it's never read here.
-  function handleEditSubmit(patch: { status: WhStatus; capacity?: number | null } | { demand: number }) {
+  function handleEditSubmit(
+    patch: { status: WhStatus; capacity?: number | null } | { demand: number; status?: "active" | "excluded" },
+  ) {
     if (!editEntity) return;
     const { kind, entity } = editEntity;
     if (kind === "wh") {
       const p = patch as { status: WhStatus };
       onInputsChange(entity.isAdded ? editAddedRefinery(inputs, entity.id, p.status) : editBaseRefineryOverride(inputs, entity.id, p.status));
     } else {
-      const p = patch as { demand: number };
-      onInputsChange(entity.isAdded ? editAddedTwoEchelonCustomer(inputs, entity.id, p.demand) : editBaseTwoEchelonCustomerOverride(inputs, entity.id, p.demand));
+      const p = patch as { demand: number; status?: "active" | "excluded" };
+      onInputsChange(entity.isAdded ? editAddedTwoEchelonCustomer(inputs, entity.id, p) : editBaseTwoEchelonCustomerOverride(inputs, entity.id, p));
     }
     setEditEntity(null);
     setLivePreview(null);
@@ -1746,6 +1820,7 @@ function TwoEchelonInputMap({
       {editEntity && editEntity.kind === "cs" && (
         <EditCustomerDialog
           entity={editEntity.entity}
+          supportsAddedCustomerExclusion={supportsAddedCustomerExclusion}
           onSubmit={handleEditSubmit}
           onLivePreview={demand => setLivePreview({ id: editEntity.entity.id, demand })}
           onCancel={() => {
@@ -1758,6 +1833,7 @@ function TwoEchelonInputMap({
         <CreateEntityDialog
           kind={createState.kind}
           role={createState.kind === "wh" ? REFINERY_ROLE : undefined}
+          supportsAddedCustomerExclusion={supportsAddedCustomerExclusion}
           capacityMode="none"
           lat={createState.lat}
           lng={createState.lng}

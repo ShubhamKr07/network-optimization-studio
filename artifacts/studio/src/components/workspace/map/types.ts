@@ -25,6 +25,12 @@ export interface AddedCustomerInput {
   lat: number;
   lng: number;
   demand: number;
+  // T8 (Bundle 2.2, A3) — Active/Excluded on a scenario-local added customer.
+  // Optional, back-compat default "active" (mirrors T1's Zod default) — an
+  // added customer minted before this task, or on a model that never wires
+  // the exclusion control (p-median-brazil, `capabilities.
+  // supportsAddedCustomerExclusion:false`), simply omits the key.
+  status?: "active" | "excluded";
 }
 
 export interface PMedianMapInputs {
@@ -113,6 +119,17 @@ export interface EntityRoleConfig {
   label: string;
   /** Status (Potential / Fixed-Open / Inactive) field — warehouses/refineries only. */
   hasStatus: boolean;
+  /** T8 (Bundle 2.2, A3) — Active/Excluded field, semantically DISTINCT from
+   * `hasStatus` (which means facility open/close status). Both CUSTOMER_ROLE
+   * and STATION_ROLE have `hasStatus:false`, but only customers can be
+   * excluded — stations have no exclusion concept at all. Optional, default
+   * `false`: every role other than CUSTOMER_ROLE inherits "no exclusion"
+   * without an explicit per-role edit, and a future role can't accidentally
+   * acquire it. For an ADDED customer, this role gate is further narrowed by
+   * the model capability `supportsAddedCustomerExclusion` (p-median-us and
+   * two-echelon-gold-au true, p-median-brazil false) — a BASE customer's
+   * status control is gated on THIS flag alone (Brazil still allows it). */
+  supportsExclusion?: boolean;
   /** Editable numeric value field in Create/Edit dialogs. Absent = no value field at all. */
   valueField?: {
     key: "capacity" | "demand";
@@ -135,6 +152,7 @@ export const CUSTOMER_ROLE: EntityRoleConfig = {
   uidKind: "cs",
   label: "customer",
   hasStatus: false,
+  supportsExclusion: true,
   valueField: { key: "demand", label: "Demand", required: true },
 };
 

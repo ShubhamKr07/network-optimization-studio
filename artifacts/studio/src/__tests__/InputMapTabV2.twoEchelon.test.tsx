@@ -4,6 +4,16 @@ import { InputMapTab } from "@/components/workspace/tabs/InputMapTab";
 import type { MapWarehouse, MapCustomer } from "@/components/workspace/map/types";
 import type { TwoEchelonMapInputs } from "@/components/workspace/tabs/InputMapTab";
 
+// T8 (Bundle 2.2, A3) — TwoEchelonInputMap now calls `useListModels()`
+// internally (to derive `supportsAddedCustomerExclusion`), same as
+// InputMapTabV2.test.tsx's own identical mock. An empty list is a safe
+// default (control hidden) — this file's own dedicated Brazil-negative/
+// exclusion coverage lives in Workspace.InputMapV2-style integration tests
+// added by this task, not here.
+vi.mock("@workspace/api-client-react", () => ({
+  useListModels: () => ({ data: [] }),
+}));
+
 // T7 (Bundle 2) — two-echelon-gold-au's full-v2 Input Map editor. Same
 // composition/real-jsdom convention InputMapTabV2.test.tsx/
 // InputMapTabV2.transport.test.tsx already establish for "pmedian"/

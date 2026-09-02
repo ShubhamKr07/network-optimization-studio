@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
-import { MINE_ROLE, REFINERY_ROLE } from "@/components/workspace/map/types";
+import { MINE_ROLE, REFINERY_ROLE, STATION_ROLE } from "@/components/workspace/map/types";
 
 // Reno, NV per the real gazetteer entry (lat 39.549097, lng -119.849907) —
 // (39.53, -119.81) is nearest to it, not any other gazetteer city.
@@ -173,6 +173,46 @@ describe("CreateEntityDialog", () => {
     it("MINE_ROLE with no capacityMode prop (undefined — mines have no capacityMode concept) still shows Capacity", () => {
       renderDialog({ role: MINE_ROLE });
       expect(screen.getByTestId("create-entity-capacity")).toBeInTheDocument();
+    });
+  });
+
+  // T8 (Bundle 2.2, A3) — a newly-created customer is always "added", so the
+  // gate here is simpler than EditCustomerDialog's (no base-vs-added
+  // branch): role.supportsExclusion (CUSTOMER_ROLE only) AND the model
+  // capability `supportsAddedCustomerExclusion`.
+  describe("Active/Excluded status control (T8, Bundle 2.2, A3)", () => {
+    it("kind='cs' (customer branch) with supportsAddedCustomerExclusion=true shows the control and submits the selected status", () => {
+      const { onSubmit } = renderDialog({ kind: "cs", supportsAddedCustomerExclusion: true });
+      expect(screen.getByTestId("create-entity-cs-status")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-entity-cs-status-excluded"));
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input.status).toBe("excluded");
+    });
+
+    it("kind='cs' with supportsAddedCustomerExclusion=true defaults the radio to Active and submits status:'active'", () => {
+      const { onSubmit } = renderDialog({ kind: "cs", supportsAddedCustomerExclusion: true });
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input.status).toBe("active");
+    });
+
+    it("kind='cs' with supportsAddedCustomerExclusion omitted (default false) hides the control and submits no status key — matches the existing 'no status/capacity' coverage above", () => {
+      renderDialog({ kind: "cs" });
+      expect(screen.queryByTestId("create-entity-cs-status")).not.toBeInTheDocument();
+    });
+
+    it("STATION_ROLE (kind='cs') NEVER shows the control, even with supportsAddedCustomerExclusion=true (negative — role gate wins)", () => {
+      const { onSubmit } = renderDialog({ kind: "cs", role: STATION_ROLE, supportsAddedCustomerExclusion: true });
+      expect(screen.queryByTestId("create-entity-cs-status")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input).not.toHaveProperty("status");
+    });
+
+    it("kind='wh' never renders the customer status control regardless of the capability prop", () => {
+      renderDialog({ kind: "wh", supportsAddedCustomerExclusion: true });
+      expect(screen.queryByTestId("create-entity-cs-status")).not.toBeInTheDocument();
     });
   });
 });

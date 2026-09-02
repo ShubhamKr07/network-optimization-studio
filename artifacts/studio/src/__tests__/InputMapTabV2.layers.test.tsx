@@ -8,6 +8,14 @@ import type {
 } from "@/components/workspace/map/types";
 import type { TransportMapInputs, TwoEchelonMapInputs } from "@/components/workspace/tabs/InputMapTab";
 
+// T8 (Bundle 2.2, A3) — pmedian/twoEchelon modes now call `useListModels()`
+// internally; an empty list is a safe default (capability false, control
+// hidden) — this file only exercises A1/A2 layer/legend/sizing behavior,
+// unrelated to the added-customer status control.
+vi.mock("@workspace/api-client-react", () => ({
+  useListModels: () => ({ data: [] }),
+}));
+
 // T3 (Bundle 2.2, A1+A2) — layer-visibility toggles are now real shadcn
 // `Checkbox`es (not `ToggleChip` buttons) across all three Input Map
 // toolbars, per model applicability (p-median-us/brazil: Warehouses/
