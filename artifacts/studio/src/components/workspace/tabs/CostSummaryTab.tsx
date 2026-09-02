@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { Scenario, SolveResult } from "@workspace/api-client-react";
-import { useListModels } from "@workspace/api-client-react";
+import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
+import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 
 interface CostSummaryTabProps {
@@ -61,6 +61,57 @@ function bandBoundaries(result: SolveResult): number[] {
   return (result.metrics.bandCoverage ?? []).map(b => b.band);
 }
 
+// T5 (B5) — a scenario's own scenario-local added facilities, read directly
+// off the OPAQUE `Scenario.inputs` (never `localInputs` — compare columns
+// are other scenarios' own persisted state, not the currently-open one).
+// p-median models store these under `addedWarehouses`; two-echelon under
+// `addedRefineries` (never `addedMines` — the mine is fixed, non-overridable,
+// and never appears in `openFacilityIds()` since its only edges are the
+// excluded `mine_to_refinery` leg). Both keys are checked unconditionally —
+// a scenario only ever populates the one its own model actually uses.
+interface AddedFacilityLike {
+  id: string;
+  city?: string;
+  state?: string;
+  displayCode?: string;
+}
+
+function extractAddedFacilities(inputs: unknown): AddedFacilityLike[] {
+  if (!inputs || typeof inputs !== "object") return [];
+  const obj = inputs as Record<string, unknown>;
+  const addedWarehouses = Array.isArray(obj.addedWarehouses) ? (obj.addedWarehouses as AddedFacilityLike[]) : [];
+  const addedRefineries = Array.isArray(obj.addedRefineries) ? (obj.addedRefineries as AddedFacilityLike[]) : [];
+  return [...addedWarehouses, ...addedRefineries];
+}
+
+interface BaseFacilityLike {
+  id: string;
+  city?: string;
+  state?: string;
+}
+
+// Base facility -> dataset city/state; added facility -> city/state from
+// that column's OWN persisted inputs (added facilities never appear in the
+// shared base dataset). Unknown/unresolvable id (or dataset not loaded yet)
+// falls back to the raw id — never blank.
+function facilityCityLabel(id: string, baseFacilities: BaseFacilityLike[], addedFacilities: AddedFacilityLike[]): string {
+  const added = addedFacilities.find(f => f.id === id);
+  if (added) {
+    if (added.city) return added.state ? `${added.city}, ${added.state}` : added.city;
+    return added.displayCode ?? id;
+  }
+  const base = baseFacilities.find(f => f.id === id);
+  if (base?.city) return base.state ? `${base.city}, ${base.state}` : base.city;
+  return id;
+}
+
+function openFacilityCityList(result: SolveResult, scenarioInputs: unknown, baseFacilities: BaseFacilityLike[]): string {
+  const addedFacilities = extractAddedFacilities(scenarioInputs);
+  const ids = [...openFacilityIds(result)].sort();
+  if (ids.length === 0) return "—";
+  return ids.map(id => facilityCityLabel(id, baseFacilities, addedFacilities)).join(", ");
+}
+
 // R6+R8 — per-band coverage is only shown when every selected scenario's
 // SOLVED bands are identical (band-for-band); R5 makes bands a per-scenario
 // solve input, so two scenarios can legitimately differ, and re-bucketing
@@ -81,10 +132,26 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // "mi"/no facility rows rather than blocking render on it resolving.
   const { data: models } = useListModels();
   const activeModel = models?.find(m => m.id === modelId) as
-    | { distanceUnit?: string; capabilities?: { supportsP?: boolean } }
+    | { distanceUnit?: string; capabilities?: { supportsP?: boolean; supportsFacilityStatus?: boolean } }
     | undefined;
   const distanceUnit = activeModel?.distanceUnit ?? "mi";
   const supportsP = activeModel?.capabilities?.supportsP ?? false;
+  // T5 (B5) — the open-facility-by-city row is gated independently of
+  // supportsP: two-echelon has no P (openFacilities/aggregate-utilization
+  // rows below stay hidden for it) but DOES have a real open/closed
+  // facility-status concept, so it still gets the city list.
+  const supportsFacilityStatus = activeModel?.capabilities?.supportsFacilityStatus ?? false;
+
+  // T5 (B5) — base facility id -> city/state, single fetch (compare is
+  // single-model by construction — cross-model selection is impossible, see
+  // `sameModelScenarios` below). Shares its query cache key with
+  // Workspace.tsx's own `useGetDataset` fetch for the same modelId, so this
+  // never causes a redundant network round trip in real usage.
+  const datasetParams: GetDatasetParams = { modelId: modelId as GetDatasetParams["modelId"] };
+  const { data: dataset } = useGetDataset(datasetParams, {
+    query: { queryKey: getGetDatasetQueryKey(datasetParams) },
+  });
+  const baseFacilities: BaseFacilityLike[] = dataset?.warehouses ?? [];
 
   // R6+R8 — cross-model compare is impossible BY CONSTRUCTION here, not just
   // by caller convention: even if `scenarios` ever carried a mixed-model
@@ -229,6 +296,22 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
+            {/* T5 (B5) — open-facility set by city, gated independently on
+                supportsFacilityStatus (present for p-median-us/brazil AND
+                two-echelon, absent for transport-coal — no facility-location
+                concept there). Replaces the old "Open facilities" COUNT row
+                that used to live inside the supportsP fragment below; not
+                duplicated alongside it. */}
+            {supportsFacilityStatus && (
+              <tr>
+                <td className="p-2 text-muted-foreground">Open facilities</td>
+                {compareScenarios.map(s => (
+                  <td key={s.id} className="p-2" data-testid={`cost-summary-compare-open-facilities-cities-${s.id}`}>
+                    {openFacilityCityList(s.result!, s.inputs, baseFacilities)}
+                  </td>
+                ))}
+              </tr>
+            )}
             <tr>
               <td className="p-2 text-muted-foreground">Runtime</td>
               {compareScenarios.map(s => (
@@ -245,34 +328,26 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
-            {/* R6+R8 — open-facility count + aggregate utilization rows are
-                omitted entirely (not just N/A cells) for models without a
-                real facility-location concept, per capabilities.supportsP —
-                transport-coal (every mine "open") and two-echelon-gold-au
-                (utilizationByNode holds closed refineries at 0) never get
-                these rows. */}
+            {/* R6+R8 — aggregate utilization is omitted entirely (not just an
+                N/A cell) for models without a real facility-location
+                concept, per capabilities.supportsP — transport-coal (every
+                mine "open") and two-echelon-gold-au (utilizationByNode holds
+                closed refineries at 0) never get this row. (The former
+                "Open facilities" COUNT row that used to live here is gone —
+                T5 replaced it with the city-list row above, gated
+                independently on supportsFacilityStatus.) */}
             {supportsP && (
-              <>
-                <tr>
-                  <td className="p-2 text-muted-foreground">Open facilities</td>
-                  {compareScenarios.map(s => (
-                    <td key={s.id} className="p-2" data-testid={`cost-summary-compare-open-facilities-${s.id}`}>
-                      {openFacilityIds(s.result!).size}
+              <tr>
+                <td className="p-2 text-muted-foreground">Aggregate utilization</td>
+                {compareScenarios.map(s => {
+                  const util = aggregateUtilization(s.result!);
+                  return (
+                    <td key={s.id} className="p-2" data-testid={`cost-summary-compare-utilization-${s.id}`}>
+                      {util != null ? `${Math.round(util)}%` : "N/A"}
                     </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="p-2 text-muted-foreground">Aggregate utilization</td>
-                  {compareScenarios.map(s => {
-                    const util = aggregateUtilization(s.result!);
-                    return (
-                      <td key={s.id} className="p-2" data-testid={`cost-summary-compare-utilization-${s.id}`}>
-                        {util != null ? `${Math.round(util)}%` : "N/A"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </>
+                  );
+                })}
+              </tr>
             )}
             {sharedBands &&
               bandBoundaries(results[0]).map(band => (

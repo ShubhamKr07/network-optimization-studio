@@ -6,18 +6,55 @@ import type { Scenario } from "@workspace/api-client-react";
 // R6+R8 — distanceUnit + the supportsP capability flag are both sourced from
 // GET /api/models (via useListModels), same pattern ServiceStatsTab.test.tsx
 // already established for this suite of Workspace-tab tests.
+// T5 (B5) — supportsFacilityStatus mirrors real capability values: true for
+// p-median-us/brazil AND two-echelon (all three have a real open/closed
+// facility concept), false for transport-coal (every mine "opens" — no
+// facility-location concept at all). This is intentionally NOT the same
+// gate as supportsP (two-echelon has no P but does have facility status).
 const mockUseListModels = vi.fn(() => ({
   data: [
-    { id: "p-median-us", distanceUnit: "mi", capabilities: { supportsP: true } },
-    { id: "p-median-brazil", distanceUnit: "mi", capabilities: { supportsP: true } },
-    { id: "transport-coal", distanceUnit: "mi", capabilities: { supportsP: false } },
+    { id: "p-median-us", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: true } },
+    { id: "p-median-brazil", distanceUnit: "mi", capabilities: { supportsP: true, supportsFacilityStatus: true } },
+    { id: "transport-coal", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: false } },
     // Bundle 2 (B2-T1) relabels two-echelon-gold-au "km" -> "mi" (its base
     // numbers are geographically miles; zero data change).
-    { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsP: false } },
+    { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
   ],
 }));
+
+// T5 (B5) — base facility id -> city/state for the new city-list row. Only
+// p-median-us's dataset is populated with fixture rows matching the
+// scenario fixtures' edge ids (WH1/WH2) below; other models default to an
+// empty dataset (exercises the "dataset not loaded / unknown id" fallback).
+const mockUseGetDataset = vi.fn((params?: { modelId?: string }) => {
+  if (params?.modelId === "p-median-us") {
+    return {
+      data: {
+        warehouses: [
+          { id: "WH1", city: "Chicago", state: "IL", lat: 0, lng: 0 },
+          { id: "WH2", city: "Dallas", state: "TX", lat: 0, lng: 0 },
+        ],
+        customers: [],
+      },
+    };
+  }
+  if (params?.modelId === "two-echelon-gold-au") {
+    return {
+      data: {
+        warehouses: [
+          { id: "MINE1", city: "Kalgoorlie", state: "WA", lat: 0, lng: 0, kind: "mine" },
+          { id: "REF1", city: "Daggar Hills", state: "QLD", lat: 0, lng: 0, kind: "facility" },
+        ],
+        customers: [],
+      },
+    };
+  }
+  return { data: undefined };
+});
 vi.mock("@workspace/api-client-react", () => ({
   useListModels: () => mockUseListModels(),
+  useGetDataset: (params?: { modelId?: string }) => mockUseGetDataset(params),
+  getGetDatasetQueryKey: (params?: { modelId?: string }) => ["dataset", params],
 }));
 
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
@@ -121,7 +158,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     // default (no afterEach resets this shared mock).
     const defaultImpl = mockUseListModels.getMockImplementation();
     mockUseListModels.mockReturnValue({
-      data: [{ id: "two-echelon-gold-au", distanceUnit: "km", capabilities: { supportsP: false } }],
+      data: [{ id: "two-echelon-gold-au", distanceUnit: "km", capabilities: { supportsP: false, supportsFacilityStatus: false } }],
     });
     try {
       const twoEchelonS1 = withModel(s1, "two-echelon-gold-au");
@@ -135,32 +172,139 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     }
   });
 
-  it("facility-location rows (open facilities + aggregate utilization, opened nodes only) present for p-median-us", () => {
+  it("aggregate utilization (opened nodes only) present for p-median-us, gated on supportsP as before", () => {
     render(<CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} />);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-1")).toHaveTextContent("2");
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-2")).toHaveTextContent("1");
     // s1: WH1=50, WH2=90 both opened -> mean 70; s2: only WH1=70 opened -> 70
     expect(screen.getByTestId("cost-summary-compare-utilization-1")).toHaveTextContent("70%");
     expect(screen.getByTestId("cost-summary-compare-utilization-2")).toHaveTextContent("70%");
   });
 
-  it("facility-location rows absent for transport-coal (every mine 'open')", () => {
+  it("aggregate utilization absent for transport-coal (every mine 'open', no supportsP)", () => {
     const t1 = withModel(s1, "transport-coal");
     const t2 = withModel(s2, "transport-coal");
     render(<CostSummaryTab result={t1.result} scenarioId={1} modelId="transport-coal" scenarios={[t1, t2]} />);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
-    expect(screen.queryByTestId("cost-summary-compare-open-facilities-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-utilization-1")).not.toBeInTheDocument();
   });
 
-  it("facility-location rows absent for two-echelon-gold-au (closed refineries carry a real 0)", () => {
-    const g1 = withModel(s1, "two-echelon-gold-au");
-    const g2 = withModel(s2, "two-echelon-gold-au");
-    render(<CostSummaryTab result={g1.result} scenarioId={1} modelId="two-echelon-gold-au" scenarios={[g1, g2]} />);
+  // ── T5 (B5) — open-facility set by city ──────────────────────────────
+
+  it("the city-list row appears immediately after Weighted avg. distance, and the old count row is gone (not duplicated)", () => {
+    render(<CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} />);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    const table = screen.getByTestId("cost-summary-compare-table");
+    const rowLabels = [...table.querySelectorAll("tbody tr")].map(tr => tr.querySelector("td")?.textContent);
+    const distanceIdx = rowLabels.findIndex(l => l?.startsWith("Weighted avg. distance"));
+    const facilitiesIdx = rowLabels.findIndex(l => l === "Open facilities");
+    expect(distanceIdx).toBeGreaterThanOrEqual(0);
+    expect(facilitiesIdx).toBe(distanceIdx + 1);
+    // Old count-row testid must be gone entirely (replaced, not duplicated).
     expect(screen.queryByTestId("cost-summary-compare-open-facilities-1")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("cost-summary-compare-utilization-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toBeInTheDocument();
+  });
+
+  it("resolves base facility ids to their dataset city names", () => {
+    render(<CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} />);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    // s1 opens WH1 (Chicago, IL) + WH2 (Dallas, TX); s2 opens WH1 only.
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Chicago, IL");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Dallas, TX");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-2")).toHaveTextContent("Chicago, IL");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-2")).not.toHaveTextContent("Dallas, TX");
+  });
+
+  it("gates the city-list row independently on supportsFacilityStatus, not supportsP (absent for transport-coal)", () => {
+    const t1 = withModel(s1, "transport-coal");
+    const t2 = withModel(s2, "transport-coal");
+    render(<CostSummaryTab result={t1.result} scenarioId={1} modelId="transport-coal" scenarios={[t1, t2]} />);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.queryByTestId("cost-summary-compare-open-facilities-cities-1")).not.toBeInTheDocument();
+  });
+
+  it("resolves an added p-median warehouse's city from that column's own inputs.addedWarehouses", () => {
+    const added = scenario({
+      id: 20, name: "Added WH", modelId: "p-median-us",
+      inputs: { addedWarehouses: [{ id: "aw-1", city: "Newtown", state: "PA", lat: 0, lng: 0, status: "active", displayCode: "AW1" }] },
+      result: { ...result, edges: [{ fromId: "aw-1", toId: "C9", flow: 1, distance: 10 }] },
+    });
+    render(<CostSummaryTab result={added.result} scenarioId={20} modelId="p-median-us" scenarios={[added, s2]} />);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-20")).toHaveTextContent("Newtown, PA");
+  });
+
+  it("falls back to the raw facility id when it can't be resolved against either the base dataset or added inputs", () => {
+    const unknownFacility = scenario({
+      id: 40, name: "Unknown facility", modelId: "p-median-us",
+      result: { ...result, edges: [{ fromId: "WH-GHOST", toId: "C1", flow: 1, distance: 5 }] },
+    });
+    render(<CostSummaryTab result={unknownFacility.result} scenarioId={40} modelId="p-median-us" scenarios={[unknownFacility, s2]} />);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-40")).toHaveTextContent("WH-GHOST");
+  });
+
+  it("falls back to the raw facility id before the dataset has resolved (e.g. p-median-brazil, not mocked here)", () => {
+    // mockUseGetDataset only has fixture rows for p-median-us/two-echelon;
+    // p-median-brazil resolves to `{data: undefined}`, standing in for
+    // "dataset not loaded yet" — the row must still render ids, never blank.
+    const brazilS1 = withModel(s1, "p-median-brazil");
+    const brazilS2 = withModel(s2, "p-median-brazil");
+    render(<CostSummaryTab result={brazilS1.result} scenarioId={1} modelId="p-median-brazil" scenarios={[brazilS1, brazilS2]} />);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("WH1");
+  });
+
+  describe("two-echelon-gold-au", () => {
+    const g1 = scenario({
+      id: 10, name: "Gold A", modelId: "two-echelon-gold-au",
+      result: {
+        ...result,
+        objective: 500,
+        metrics: { weightedAvgDistance: 400 },
+        edges: [
+          { fromId: "MINE1", toId: "REF1", flow: 1, distance: 50, leg: "mine_to_refinery" as const },
+          { fromId: "REF1", toId: "C1", flow: 1, distance: 100, leg: "refinery_to_customer" as const },
+        ],
+      },
+    });
+    const g2 = scenario({
+      id: 11, name: "Gold B", modelId: "two-echelon-gold-au",
+      result: {
+        ...result,
+        objective: 520,
+        metrics: { weightedAvgDistance: 420 },
+        edges: [
+          { fromId: "MINE1", toId: "REF1", flow: 1, distance: 50, leg: "mine_to_refinery" as const },
+          { fromId: "REF1", toId: "C2", flow: 1, distance: 90, leg: "refinery_to_customer" as const },
+        ],
+      },
+    });
+
+    it("gets exactly one city-list row (fixed mine excluded) and no aggregate-utilization row", () => {
+      render(<CostSummaryTab result={g1.result} scenarioId={10} modelId="two-echelon-gold-au" scenarios={[g1, g2]} />);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
+      expect(screen.queryAllByText("Open facilities")).toHaveLength(1);
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-10")).toHaveTextContent("Daggar Hills, QLD");
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-10")).not.toHaveTextContent("Kalgoorlie");
+      expect(screen.queryByTestId("cost-summary-compare-utilization-10")).not.toBeInTheDocument();
+    });
+
+    it("resolves an added refinery's city from that column's own inputs.addedRefineries", () => {
+      const addedRef = scenario({
+        id: 30, name: "Added Refinery", modelId: "two-echelon-gold-au",
+        inputs: { addedRefineries: [{ id: "aw-2", city: "Toowoomba", state: "QLD", lat: 0, lng: 0, status: "active", displayCode: "AR1" }] },
+        result: {
+          ...result,
+          edges: [
+            { fromId: "MINE1", toId: "aw-2", flow: 1, distance: 20, leg: "mine_to_refinery" as const },
+            { fromId: "aw-2", toId: "C1", flow: 1, distance: 30, leg: "refinery_to_customer" as const },
+          ],
+        },
+      });
+      render(<CostSummaryTab result={addedRef.result} scenarioId={30} modelId="two-echelon-gold-au" scenarios={[addedRef, g2]} />);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-30")).toHaveTextContent("Toowoomba, QLD");
+    });
   });
 
   it("shows per-band coverage rows when all selected scenarios share identical bands", () => {
