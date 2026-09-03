@@ -33,8 +33,10 @@ Single stylesheet of record: `artifacts/studio/src/index.css`.
   capability- / `chapters.ts`-driven (this repo's most-documented recurring bug class).
 - **Fonts:** `Source Serif 4` (display/headings), `IBM Plex Sans` (UI/body), `IBM Plex Mono` (every
   number, stat, chip, axis label, uppercase kicker).
-- **Copy unchanged.** No text/wording edits (footer stays "© Developed by hx1", titles unchanged) —
-  this bundle restyles, it does not rewrite copy.
+- **Copy mostly frozen.** Existing instructional and functional copy remains unchanged; the locked
+  brand-chrome additions and the Landing title replacement (`Labs` → `Network Design Labs`, plus the new
+  Landing/auth kicker + author strings) are the explicit exceptions. Footer copy ("© Developed by hx1")
+  unchanged.
 - **`Studio.tsx` / `.studio-lab` are out of scope and left untouched** (dead code — all four chapters
   are `workspace: true`, Studio unreachable via navigation). See "Resolved open item".
 
@@ -75,25 +77,61 @@ triples; hexes are the source of truth from `docs/design-system/tokens/colors.cs
 | `--ring`, `--sidebar-ring` | green-500 | `#7DA436` | `81 50% 43%` |
 | `--destructive` | red (kept) | `#DC2626` | `0 72% 51%` |
 
-Radius: `--radius: .5rem` → `--radius: 4px` (shadcn `sm/md/lg` resolve to 3/4/6). The existing
-`--chart-1..5: red` placeholders get real values from the data-viz block below (Wave 3).
+**Token-representation rule (strict, both directions).** A variable is EITHER an `H S% L%` channel
+triple (consumed only via `hsl(var(--x))`, and safe to feed the `@theme inline` `hsl(var(--*))`
+mappings) OR a complete CSS color (hex, consumed via bare `var(--x)`). Never mix. Consequences the plan
+must honor: (a) utilities that set `color:`/`background:` off a shadcn channel token must wrap it —
+`.scnd-kicker` uses `color: hsl(var(--muted-foreground))`, not `var(--muted-foreground)` — OR use a raw
+complete-color token (`--text-muted`, added in B); (b) `--chart-1..5` are consumed by `@theme inline` as
+`hsl(var(--chart-*))`, so they MUST be HSL triples (replacing today's `--chart-1..5: red` placeholders),
+not hex/`var(--green-*)`.
 
-### B. Additive raw tokens shadcn lacks (defined once at `:root`, consumed directly)
+**Radius (corrected).** The `@theme inline` block resolves `--radius-sm/md/lg/xl` as
+`calc(--radius − 4 / − 2 / +0 / +4)px`, so a single `--radius: 4px` yields `0 / 2 / 4 / 8` — and `Card`
+uses `rounded-xl` (→ 8px), violating the 3/4/6px-only rule. Wave 1 therefore **pins the four Tailwind
+radius variables explicitly** to the book-cover scale: `--radius-sm: 3px`, `--radius-md: 4px`,
+`--radius-lg: 6px`, `--radius-xl: 6px` (cap `xl` at 6 so cards land at 6, the package's largest radius),
+and keeps a base `--radius: 4px` for any consumer reading it directly. **No-pill exception:** geometry-
+essential round controls — Radix Switch thumb/track, radio dots, progress/slider tracks, and map demand
+bubbles — keep their intrinsic rounding; the no-pill rule applies to buttons/inputs/cards/badges only.
 
-Copied verbatim from the package's token files, kept as hex (consumed via `var(--x)` or Tailwind
-arbitrary values, not through `@theme`):
+### B. Additive raw tokens shadcn lacks (defined once at `:root`)
 
-- **Green scale:** `--green-050..800` (`docs/design-system/tokens/colors.css`).
-- **Ink scale:** `--ink-900/800/700/500/400/300`.
-- **Band motif:** `--surface-band: #181A15`, `--surface-band-fg: #FCFCFA`, `--surface-selected:
-  #F4F7EB`, plus `--surface-sunken: #F5F6F1`.
+Ported from the package's token files (`docs/design-system/tokens/{colors,dataviz}.css`). **Complete
+CSS colors** (hex, consumed via bare `var(--x)`) unless marked HSL. This inventory is exhaustive for
+what the Wave 2/3 close-match consumes — nothing here is "TBD at plan time":
+
+- **Green scale:** `--green-050..800`. **Ink scale:** `--ink-900/800/700/500/400/300`.
+- **Raw text colors** (so utilities/inline styles avoid the `hsl()` wrap): `--text-body: #181A15`,
+  `--text-muted: #5B5F54`, `--text-faint: #83887A`, `--text-brand: #5F7F28`.
+- **Band motif & surfaces:** `--surface-band: #181A15`, `--surface-band-fg: #FCFCFA`,
+  `--surface-selected: #F4F7EB`, `--surface-sunken: #F5F6F1`.
 - **Interactive steps:** `--primary-hover: #48611E` (green-700), `--primary-active: #324414`
-  (green-800), `--link`, `--link-hover`.
-- **Data-viz (Wave 3):** `--band-0..4` five-color scale (`#16A34A #84CC16 #F59E0B #EF4444 #DC2626`,
-  index 0 = nearest → 4 = farthest — **replaces today's 4-color `--band-0..3`**); map-entity colors
-  (`--map-warehouse`, `--map-warehouse-open`, `--map-customer`, `--map-customer-stroke`, `--map-flow`,
-  `--map-inactive`); chart tokens `--chart-1..5`, `--chart-grid`, `--chart-axis-label`,
-  `--utilization`.
+  (green-800), `--link: #48611E`, `--link-hover: #324414`, `--focus-ring: #7DA436` (green-500).
+- **Structural:** `--line: #E2E4DA`, `--line-strong: #C9CCBD` (strong-border alias for hairline-heavy
+  tables/dividers that need one step darker).
+- **Status (full sets, so `ConstraintChips`/`StaleOutputBanner`/Landing badges use tokens, not
+  hardcoded Tailwind amber/green/red):** `--success #16A34A / --success-bg #F0FDF4 / --success-border
+  #86EFAC`; `--warning #B45309 / --warning-bg #FFFBEB / --warning-border #FCD34D`; `--danger #DC2626 /
+  --danger-bg #FEF2F2 / --danger-border #FCA5A5`.
+- **Effects:** `--shadow-sm: 0 1px 2px rgba(24,26,21,.06)`, `--shadow-md: 0 2px 8px rgba(24,26,21,.10)`,
+  `--shadow-overlay: 0 8px 30px rgba(24,26,21,.18)` (flat print feel — cards `--shadow-sm`, dialogs/
+  popovers `--shadow-overlay`; replaces the current all-transparent `--shadow-*` placeholders).
+- **Data-viz — bands & map entities (hex, Wave 3):** `--band-0..4` five-color scale
+  (`#16A34A #84CC16 #F59E0B #EF4444 #DC2626`, index 0 = nearest → 4 = farthest — **replaces today's
+  4-color `--band-0..3`**); map-entity colors `--map-warehouse #181A15`, `--map-warehouse-open #5F7F28`,
+  `--map-customer #93B747`, `--map-customer-stroke #48611E`, `--map-flow #7DA436`, `--map-inactive
+  #ADB1A4`.
+- **Data-viz — map interaction-state rings (NEW, hex, Wave 3):** the app today hardcodes non-brand
+  ring colors in `NetworkMap.tsx` for distinct interaction states. Define book-cover replacements that
+  **keep the three states visually distinguishable** (do NOT collapse them to one green): `--map-ring-
+  forced-open` (replaces blue `#2D6CDF` — an ink/dark dashed ring), `--map-ring-select` (replaces amber
+  single-select `#FCD34D` — keep a warm `--warning`-family value), `--map-ring-multiselect` (replaces
+  violet `#7C3AED` — a second clearly-distinct hue, e.g. green-800/ink so it reads apart from the warm
+  single-select), `--map-default-stroke` (replaces slate `#64748B` → `--ink-400 #83887A`).
+- **Charts (HSL triples, Wave 3):** `--chart-1..5` (real values replacing `red` placeholders — e.g.
+  green-600, ink-700, green-300, warning, ink-400 from the package), `--chart-grid`,
+  `--chart-axis-label`, `--utilization`. HSL because `@theme inline` maps them as `hsl(var(--chart-*))`.
 
 ### C. Fonts
 
@@ -110,7 +148,8 @@ read these.
 - `.scnd-band` — `background: var(--surface-band); color: var(--surface-band-fg);` optional
   `border-bottom: 2px solid var(--green-400)`.
 - `.scnd-kicker` — `font-family: var(--app-font-mono); font-size: 10.5px; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--muted-foreground)`.
+  text-transform: uppercase; color: var(--text-muted)` (raw complete-color token, not the
+  `--muted-foreground` channel triple — per the token-representation rule).
 - `.scnd-display` — `font-family: var(--app-font-display)` (serif titles; color applied per-use, green
   or on-band).
 
@@ -121,8 +160,10 @@ ships the green/serif/paper look; band + studio polish layer on top).
 
 ### Wave 1 — Foundations (single writer: `index.css`)
 
-- Retarget `:root` shadcn vars (table A), add additive tokens (B), swap fonts (C), set `--radius: 4px`,
-  add utilities (D), give `--chart-1..5` real values.
+- Retarget `:root` shadcn vars (table A), add the full additive token inventory (B), swap fonts (C),
+  add utilities (D). Pin the four Tailwind radius vars explicitly (`--radius-sm/md/lg/xl` = 3/4/6/6px)
+  plus base `--radius: 4px`. Replace the transparent `--shadow-*` placeholders with the package's flat
+  shadows. Give `--chart-1..5` real HSL values.
 - **Retire `.scn-theme`:** delete the `.scn-theme` rule body (its role now lives in `:root`); leave the
   `scn-theme` className on `Workspace.tsx:2265` as a harmless no-op so Wave 1 need not touch
   `Workspace.tsx`/`Workspace.test.tsx`/`MapLegend.tsx` just to drop a class. (A later trivial cleanup
@@ -134,10 +175,21 @@ ships the green/serif/paper look; band + studio polish layer on top).
 
 ### Wave 2 — Band motif + chrome (markup)
 
-- **Landing hero** (`pages/Landing.tsx`): wrap the page in a `.scnd-band` header strip — mono kicker
-  "OPTIMIZATION STUDIO BY PROF. MICHAEL WATSON", green `.scnd-display` title "Network Design Labs" (per
-  the package thumbnail) — above the paper body. Chapter cards: `c.chapter` ("CHAPTER 3") rendered as
-  `.scnd-kicker`; `c.title` in serif; recent-solves stats stay mono (Wave 3 formalizes).
+- **Landing hero — owned by `AppShell.tsx`, one band, no stacking.** Landing is rendered inside
+  `AppShell` (`App.tsx:39` `authedOnly` → `<AppShell userEmail=…>`), whose existing white header
+  (`AppShell.tsx:35`, `bg-background`) already carries the product name, `text-user-email`, and the
+  logout button. Adding a second branded header inside `Landing.tsx` would stack two headers. **Decision:
+  restyle `AppShell`'s header into the `.scnd-band` hero** — mono kicker "OPTIMIZATION STUDIO BY PROF.
+  MICHAEL WATSON", green `.scnd-display` title "Network Design Labs", with `text-user-email` + logout on
+  the right of the same band (matches the package thumbnail, where account actions live in the hero
+  band). `AppShell` also wraps `NotFound`; the shared hero is acceptable there (or the plan may pass an
+  optional hero title). `Landing.tsx` then drops any header of its own — its body is the paper section
+  ("Labs"/chapter cards/recent solves) below the band. Wave 2's file inventory **must include
+  `AppShell.tsx`** (and its test).
+- **Landing body** (`pages/Landing.tsx`): chapter cards — `c.chapter` ("CHAPTER 3") rendered as
+  `.scnd-kicker`; `c.title` in serif; badges use status tokens (B); recent-solves stats mono (Wave 3
+  formalizes). Note the visible title string `Labs` → `Network Design Labs` moves into the AppShell band
+  (a locked copy exception).
 - **Workspace header** (`Workspace.tsx` `<header>` ~L2287): switch `bg-background` → `.scnd-band`; back
   arrow, scenario `<select>`, and summary recolor to band-fg; the center "Chapter N · description"
   becomes a serif/kicker treatment on the band. Preserve the 3-track grid, all test IDs, and `<md`
@@ -163,25 +215,54 @@ ships the green/serif/paper look; band + studio polish layer on top).
     status-statement).
   - `StaleOutputBanner.tsx` — status-statement styling (amber triangle kept), token colors.
   - `MapLegend.tsx` — legend swatches to the exact `--band-*` / map-entity token values.
-- **Mono-numbers pass** — apply `--app-font-mono` (`font-mono`) to numeric/stat displays, prose stays
-  sans. Concrete surfaces (plan enumerates exact lines): ObjectiveBar stats, Landing recent-solves stats
-  (`obj`, `mi`, `s`), the Output-Map metric overlay in `Workspace.tsx`, numeric table cells across the
-  output/input grid tabs (Open Warehouses, Assignments, Solution Summary, Service Stats, Flows,
-  Distances), badges/chips carrying numbers, kicker labels.
-- **Data-viz alignment** — distance-band UI (`lib/bands.ts` consumers, coverage bars, `NetworkMap`
-  route/marker coloring) reads the fixed 5-color `--band-0..4`; reconcile `EntityMarkers.tsx` /
-  `MapLegend.tsx` marker/bubble/flow colors to the map-entity tokens. (Marker geometry — triangles /
-  demand bubbles — is already implemented from prior bundles; this only aligns colors, not shapes.)
+- **Mono-numbers pass** — apply `--app-font-mono` (`font-mono`) to every number/stat display, prose
+  stays sans. Numeric **inputs are data displays too** and receive `font-mono` (not only read-only
+  cells). The plan **derives the full surface list from the current tree** (grep numeric renders +
+  `<input type=number>`/numeric editors), not from this spec's memory. Known surfaces to cover, at
+  minimum: ObjectiveBar stats; Landing recent-solves stats (`obj`/`mi`/`s`); the Output-Map metric
+  overlay in `Workspace.tsx`; `ConstraintChips`; the Optimization Parameters tab controls; the Solve
+  dialog (`SolveDialog.tsx`); entity dialogs (`CreateEntity`/`EditWarehouse`/`EditCustomer`/`MoveConfirm`)
+  and `MapDetailsCard`/map tooltips; the result-history position indicator; and all Bundle-2.2 output +
+  input grids and their numeric cells/editors — Open Warehouses, Customer Assignments, Solution Summary,
+  Service Stats, Flows, Distances, plus Warehouses, Customers, Mines, Stations, Lane Costs, Leg
+  Distances. Prose labels stay sans; kickers use mono via `.scnd-kicker`.
+- **Data-viz alignment (real owners).** `lib/bandPalette.ts` — NOT `lib/bands.ts` — owns the
+  application's band palette (`BAND_COLORS`, already a 5-entry hardcoded hex array, with its own tests);
+  point it at `--band-0..4` and update `bandPalette.test.ts`. Reconcile marker/bubble/flow colors in
+  `EntityMarkers.tsx` (input-map markers) and `NetworkMap.tsx` (output map) to the map-entity tokens.
+  `NetworkMap.tsx` hardcodes **interaction-state ring colors** in two duplicate icon factories
+  (`createTriangleIcon` + its sibble) — blue `#2D6CDF` forced-open, amber `#FCD34D` single-select,
+  violet `#7C3AED` multi-select, slate `#64748B` default — replace each with the corresponding new
+  `--map-ring-*` / `--map-default-stroke` token (B), **preserving the three-way visual distinction** so
+  interaction states stay unambiguous. Distinguish the two legends in the file inventory: the input-map
+  `MapLegend.tsx` (a component) vs `NetworkMap.tsx`'s separate **built-in output legend** with its own
+  duplicate hardcoded colors — both must move to tokens. Marker geometry (triangles / demand bubbles) is
+  already implemented; this aligns colors only, not shapes.
 - **Exit check:** the 6 studio components visually match the reference; all numbers render mono; band
   coverage/legend use the 5-color scale; full studio suite green; live browser verify.
 
 ## Testing & verification
 
-- Per-wave: `pnpm run typecheck` + `pnpm --filter studio test` green. api-server unaffected (no backend
-  change) but run once at the end. No Python touched → `e2e_accuracy.py` not re-run.
+- Per-wave: `pnpm run typecheck` + `pnpm --filter studio test` green (frontend-focused, adequate mid-
+  bundle since only `artifacts/studio` changes).
+- **Final bundle gate = the repository's full canonical gate** (`CLAUDE.md` / `AGENTS.md`), run once at
+  the end even though no backend/solver code changed:
+
+  ```bash
+  pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
+    && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
+  ```
+
+  The standalone `e2e_accuracy.py` / `e2e_journey.py` scripts are NOT run (no solver change; `e2e_journey`
+  is dead at auth anyway).
+- **Add a CSS-contract test** (Wave 1): a small unit/DOM assertion on computed styles — that
+  `--chart-*` and any `hsl()`-wrapped token resolve to a valid non-empty computed color (catches a
+  triple-vs-complete-color mistake, which RTL/class tests cannot), and that a `Card` / button resolve to
+  the pinned 6/4px radii rather than 8px. Existing class-based RTL tests do not detect an invalid
+  computed color.
 - Expect and update class/snapshot/style assertions (e.g. `Workspace.test.tsx`, `MapLegend.test.tsx`,
-  any test asserting a specific color/utility class). Never weaken a behavioral/testid/role assertion to
-  make a style change pass.
+  `bandPalette.test.ts`, any test asserting a specific color/utility class). Never weaken a
+  behavioral/testid/role assertion to make a style change pass.
 - Final: live-verify in a real browser (local dev, disposable account, purged after) — Landing band +
   serif title, auth band, Workspace band header, sidebar green active rule, mono stats, band-colored
   routes/legend — across at least two models (p-median-us + one other) to catch any per-model gate slip.
@@ -199,6 +280,59 @@ The package is light-only; the sole dark surface is the dead `.studio-lab`/`Stud
 leave untouched** (zero-risk dead code). Deleting `Studio.tsx` + its `.studio-lab`/`--arc-*` CSS is a
 separate cleanup, out of scope here — flagged as a future candidate. (After Wave 3, `--arc-*` is
 consumed only by dead `Studio.tsx`.)
+
+## Review comments (2026-09-03, verbatim)
+
+> The overall direction matches `docs/design-system/DECISIONS.md`: promote the book-cover theme to
+> global `:root`, preserve shadcn/Radix behavior, close-match only the 6 named studio components, use
+> three independently green waves, and leave the dead `Studio.tsx`/`.studio-lab` surface alone.
+>
+> **Implementation blockers.** (1) Separate HSL-channel tokens from complete CSS colors —
+> `.scnd-kicker` must use `hsl(var(--muted-foreground))` or a raw `--text-muted`, not
+> `var(--muted-foreground)`; `--chart-1..5` cannot be hex/`var(--green-*)` while `@theme inline` maps
+> them as `hsl(var(--chart-*))`; do not mix. (2) Correct the radius mapping — `--radius: 4px` resolves
+> `sm/md/lg/xl` to `0/2/4/8`, not 3/4/6; `Card` uses `rounded-xl` (8px); pin the Tailwind radius
+> variables explicitly incl. `xl`, and state the round-control no-pill exceptions. (3) Choose one owner
+> for the Landing header — Landing renders inside `AppShell`, whose header already has product name /
+> email / logout; Wave 2 must include `AppShell.tsx` and decide replace-as-band vs retain. (4) Fix the
+> copy constraint — "copy unchanged" conflicts with `Labs`→`Network Design Labs`, the new kicker, and
+> Register author text; reword to allow the locked brand-chrome/title exceptions.
+>
+> **Coverage corrections.** (5) Complete the token inventory — `--success-*`/`--warning-*`/`--danger-*`,
+> `--line-strong`, `--focus-ring`, card/overlay shadows. (6) Derive the mono-number inventory from the
+> current tree — include numeric form controls (Optimization Parameters, Solve dialog, entity dialogs,
+> table editors), map detail cards/tooltips, result-history position, and Bundle-2.2 grids; numeric
+> inputs get `font-mono` too. (7) Real map palette sources — `lib/bandPalette.ts` (not `lib/bands.ts`)
+> owns the 5-entry palette + tests; `NetworkMap.tsx` has blue/amber/violet/slate rings + a built-in
+> legend distinct from `MapLegend.tsx`; define tokens for single-/multi-selection before replacing, keep
+> distinguishability. (8) Use the full final gate (typecheck + api-server + studio + solver pytest); add
+> a CSS contract check for token representation and resolved radii.
+
+## Review resolution (2026-09-03)
+
+All eight verified against the code and fixed in-spec:
+
+1. **Token representation** — added the strict "Token-representation rule" (both directions) in §A; raw
+   complete-color tokens `--text-body/-muted/-faint/-brand` added in §B; `.scnd-kicker` now uses
+   `var(--text-muted)` (§D); `--chart-1..5` declared HSL triples (§B, Wave 1).
+2. **Radius** — §A "Radius (corrected)" + Wave 1 now pin `--radius-sm/md/lg/xl = 3/4/6/6px` (cap `xl`
+   at 6 so `Card` lands at 6); round-control no-pill exceptions stated (Switch/radio/progress/demand
+   bubbles).
+3. **Landing header owner** — Wave 2 now owns it via `AppShell.tsx` (restyle its header into the
+   `.scnd-band` hero incl. account actions; Landing drops its own header; `AppShell.tsx` + test in the
+   inventory). Confirmed `App.tsx:39` wraps Landing in `AppShell`.
+4. **Copy constraint** — replaced "Copy unchanged" with "Copy mostly frozen" + explicit locked
+   exceptions (`Labs`→`Network Design Labs`, kicker/author strings).
+5. **Token inventory** — §B expanded to full status sets, `--line-strong`, `--focus-ring`, and the flat
+   `--shadow-sm/md/overlay` (replacing transparent placeholders).
+6. **Mono-numbers** — Wave 3 now says the plan derives the surface list from the tree, numeric inputs
+   included; enumerates the Bundle-2.2 grids, dialogs, map cards/tooltips, and result-history position.
+7. **Map palette** — §B adds `--map-*` entity + NEW `--map-ring-forced-open/-select/-multiselect` +
+   `--map-default-stroke` tokens; Wave 3 corrected to `lib/bandPalette.ts` (+ its test), the two
+   duplicate `NetworkMap.tsx` icon factories, and the distinct input `MapLegend.tsx` vs the built-in
+   output legend — distinction preserved.
+8. **Final gate** — Testing §: final bundle gate = the full canonical command (incl. api-server +
+   solver pytest); added a Wave-1 CSS-contract test for computed color/radii.
 
 ## Risks
 
