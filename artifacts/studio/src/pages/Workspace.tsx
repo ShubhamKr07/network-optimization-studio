@@ -2276,7 +2276,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           Michael Watson", `text-app-name`) is gone — ObjectiveBar/
           Studio.tsx already carry that branding elsewhere; Workspace's own
           header doesn't need to repeat it. */}
-      <header className="border-b flex-shrink-0 bg-background">
+      {/* Bundle 3 (T6) — book-cover dark band, matching the AppShell/auth
+          band motif (T1's .scnd-band utility) instead of the plain
+          bg-background bar. Grid/testids/handlers all unchanged — this is
+          a recolor pass only. */}
+      <header className="scnd-band flex-shrink-0">
         <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-2 md:gap-4 px-4 py-1.5 min-h-14">
           {/* Left zone — back arrow + scenario selector. */}
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -2289,16 +2293,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               onClick={() => navigate("/")}
               data-testid="button-page-back"
               title="Back to models"
-              className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+            <div className="flex items-center gap-2 text-sm text-[color:var(--ink-300)] min-w-0">
               <span className="flex-shrink-0">Scenario:</span>
               <select
                 aria-label="Scenario"
                 data-testid="select-scenario-context"
-                className="bg-transparent border rounded px-1.5 py-0.5 text-foreground text-sm max-w-[220px] truncate"
+                className="bg-transparent border border-[color:var(--ink-500)] rounded px-1.5 py-0.5 text-[color:var(--surface-band-fg)] text-sm max-w-[220px] truncate"
                 value={currentScenario?.id ?? ""}
                 onChange={e => handleSelectScenario(parseInt(e.target.value, 10))}
                 disabled={!scenarios?.length}
@@ -2326,10 +2330,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             return (
               <div
                 data-testid="workspace-chapter-summary"
-                className="min-w-0 truncate md:overflow-visible md:whitespace-normal md:text-clip text-xs text-muted-foreground text-center"
+                className="min-w-0 truncate md:overflow-visible md:whitespace-normal md:text-clip text-xs text-center"
                 title={`${activeChapter.chapter} · ${activeChapter.description}`}
               >
-                {activeChapter.chapter} · {activeChapter.description}
+                <span className="scnd-kicker">{activeChapter.chapter}</span>
+                <span className="text-[color:var(--ink-300)]"> · </span>
+                <span className="scnd-display text-[color:var(--surface-band-fg)]">{activeChapter.description}</span>
               </div>
             );
           })()}
@@ -2339,12 +2345,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               scenario"/Run Optimizer cluster. */}
           <div className="flex flex-col items-end gap-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className="text-sm text-muted-foreground" data-testid="text-user-email">
+              <span className="text-sm text-[color:var(--ink-300)]" data-testid="text-user-email">
                 {userEmail}
               </span>
               {/* Task 10 — logout, reusing AppShell.tsx's exact handleLogout
                   pattern (see the comment on that function above). */}
-              <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                data-testid="button-logout"
+                className="text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10"
+              >
                 Log out
               </Button>
             </div>
@@ -2360,11 +2372,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                     disabled={!canGoBackResult}
                     onClick={stepResultBack}
                     title="Previous result"
-                    className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                    className="w-6 h-6 rounded flex items-center justify-center text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                   >
                     ←
                   </button>
-                  <span className="text-muted-foreground w-10 text-center" data-testid="text-result-history-position">
+                  <span className="text-[color:var(--ink-300)] w-10 text-center" data-testid="text-result-history-position">
                     {resultHistoryState.index + 1}/{resultHistoryState.items.length}
                   </span>
                   <button
@@ -2373,7 +2385,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                     disabled={!canGoForwardResult}
                     onClick={stepResultForward}
                     title="Next result"
-                    className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                    className="w-6 h-6 rounded flex items-center justify-center text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                   >
                     →
                   </button>
@@ -2385,7 +2397,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                     data-testid="button-save-as-scenario"
                     onClick={handleSaveAsScenario}
                     disabled={createScenario.isPending}
-                    className="text-xs border rounded px-2 py-1 hover:bg-muted"
+                    className="text-xs border border-[color:var(--ink-500)] text-[color:var(--ink-300)] rounded px-2 py-1 hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]"
                   >
                     Save as scenario
                   </button>
