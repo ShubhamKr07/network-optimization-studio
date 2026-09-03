@@ -123,10 +123,11 @@ describe("NetworkMap multi-select", () => {
         onToggleCustomerMultiSelect={vi.fn()}
       />,
     );
-    // The multi-select ring uses a distinct stroke color (#7C3AED, violet) from
-    // the existing single-select highlight ring (#FCD34D, amber) so a student
-    // can tell the two selection modes apart at a glance.
-    expect(container.innerHTML).toContain("#7C3AED");
+    // The multi-select ring uses a distinct stroke token (--map-ring-multiselect,
+    // violet) from the existing single-select highlight ring
+    // (--map-ring-select, amber) so a student can tell the two selection
+    // modes apart at a glance.
+    expect(container.innerHTML).toContain("var(--map-ring-multiselect)");
   });
 });
 
@@ -485,8 +486,8 @@ describe("NetworkMap MapContainer boxZoom", () => {
 
 // ── Edge coloring keys off `leg` (M4.2 / row q) ─────────────────────────────
 // Two-echelon edges carry a `leg` field; the map must style mine→refinery
-// edges green (#16A34A) and refinery→customer edges red (#DC2626). When an
-// edge has NO leg (every single-echelon model), the map must fall back to
+// edges green (var(--map-warehouse-open)) and refinery→customer edges red
+// (var(--danger)). When an edge has NO leg (every single-echelon model), the map must fall back to
 // the band-color behavior unchanged. NetworkMap passes the resolved color
 // to react-leaflet's <Polyline pathOptions={{color}}>; under jsdom react-leaflet
 // serializes that into a stroke attribute on the rendered <path>, which is
@@ -540,13 +541,13 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
       />,
     );
     // Isolate the route-pane SVG so the assertion reflects the polylines'
-    // strokes, not the band-legend swatches (which always paint Band 1 =
-    // #16A34A and, with 5 bands, Band 5 = #DC2626 regardless of edges).
+    // strokes, not the band-legend swatches (which always paint Band 1 and,
+    // with 5 bands, Band 5 regardless of edges).
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
-    // mine→refinery leg = green (#16A34A), refinery→customer leg = red (#DC2626).
-    expect(routeHtml).toContain("#16A34A");
-    expect(routeHtml).toContain("#DC2626");
+    // mine→refinery leg = var(--map-warehouse-open), refinery→customer leg = var(--danger).
+    expect(routeHtml).toContain("var(--map-warehouse-open)");
+    expect(routeHtml).toContain("var(--danger)");
   });
 
   // Regression: the real two-echelon-gold-au dataset does NOT duplicate the
@@ -595,10 +596,10 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
     // Both edges must render — previously only the refinery_to_customer
-    // (red) line appeared; the mine_to_refinery (green) line was silently
-    // dropped.
-    expect(routeHtml).toContain("#16A34A");
-    expect(routeHtml).toContain("#DC2626");
+    // (var(--danger)) line appeared; the mine_to_refinery
+    // (var(--map-warehouse-open)) line was silently dropped.
+    expect(routeHtml).toContain("var(--map-warehouse-open)");
+    expect(routeHtml).toContain("var(--danger)");
     // A real <path> element per edge (not just a color mentioned somewhere
     // else, e.g. the legend) — exactly 2 route polylines.
     const pathCount = (routeHtml.match(/<path/g) ?? []).length;
@@ -641,9 +642,9 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
       />,
     );
     // Isolate the route-pane SVG: the legend swatches in the results overlay
-    // always paint Band 1 (#16A34A) regardless of the edges, so asserting
-    // against container.innerHTML would conflate the legend with the polyline.
-    // The route pane holds only the rendered <Polyline> strokes.
+    // always paint Band 1 (getBandColor(0)) regardless of the edges, so
+    // asserting against container.innerHTML would conflate the legend with
+    // the polyline. The route pane holds only the rendered <Polyline> strokes.
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
     const fullHtml = container.innerHTML;
@@ -654,11 +655,11 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
     expect(routeHtml.toLowerCase()).toContain(bandColor.toLowerCase());
     // Must NOT have keyed off a leg: the route polyline must carry NEITHER
     // leg color. (Checked on the route pane only — the legend always shows
-    // #16A34A as Band 1, which is unrelated to the polyline's leg.)
-    expect(routeHtml).not.toContain("#16A34A");
-    expect(routeHtml).not.toContain("#DC2626");
+    // getBandColor(0) as Band 1, which is unrelated to the polyline's leg.)
+    expect(routeHtml).not.toContain("var(--map-warehouse-open)");
+    expect(routeHtml).not.toContain("var(--danger)");
     // Sanity: the full DOM still renders the band legend.
-    expect(fullHtml).toContain("#16A34A");
+    expect(fullHtml).toContain(getBandColor(0));
   });
 });
 
