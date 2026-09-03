@@ -14,7 +14,7 @@
 
 - **Presentation only.** No behavior/contract/API/DB/solver change. No Python touched → `e2e_accuracy.py` not re-run.
 - **Light theme only.** No dark-mode work on live surfaces.
-- **Preserve every `data-testid`, `aria-*`, role, DOM structure, focus/keyboard behavior.** Close-match = class/token/inline-style changes only; never restructure a component or remove a test id.
+- **Preserve every `data-testid`, `aria-*`, role, interactive/Radix structure, and focus/keyboard behavior — and freeze the DOM of the six close-match studio components** (T8) to class/token/inline-style changes only. **Additive brand-chrome markup is explicitly allowed** where a task requires it: T3-T6 add band wrappers, hero/kicker/title elements, and header restructuring on Landing/AppShell/auth/Workspace-header/footer. The rule is: never remove/rename a testid, never break a Radix primitive's structure or a11y, never restructure a *close-match* component — but adding presentational wrapper/hero/kicker elements around existing content on the chrome surfaces is the point of Wave 2.
 - **Reference components (`docs/design-system/components/**`) are a visual spec, never imported.**
 - **No per-model style branching on `modelId === "..."`** — capability/`chapters.ts`-driven only.
 - **Fonts:** Source Serif 4 (display/headings/serif), IBM Plex Sans (UI/body), IBM Plex Mono (every number/stat/chip/kicker). All three serif-family vars set.
@@ -40,9 +40,9 @@ files and parallelize only file-disjoint tasks:
 
 ## File Structure
 
-- `artifacts/studio/src/index.css` — T1 (foundation: tokens, fonts, radii, shadows, utilities).
+- `artifacts/studio/src/index.css` **+ `components/ui/switch.tsx`** (thumb shadow decouple, Step 5b) — T1 (foundation: tokens, fonts, radii, shadows, utilities).
 - `artifacts/studio/src/__tests__/designTokens.contract.test.ts` — T2 (NEW, source-contract).
-- `artifacts/studio/src/components/AppShell.tsx` (+ `AppShell.test.tsx` if present), `pages/Landing.tsx`, `pages/not-found.tsx` — T3.
+- `artifacts/studio/src/components/AppShell.tsx` (+ `AppShell.test.tsx`), **`App.tsx` (+ `App.test.tsx`)**, `pages/Landing.tsx`, `pages/not-found.tsx` — T3.
 - `artifacts/studio/src/pages/auth/{Login,Register}.tsx` — T4.
 - `artifacts/studio/src/components/AppFooter.tsx` — T5.
 - `artifacts/studio/src/pages/Workspace.tsx` (header region only, ~L2287) — T6.
@@ -58,7 +58,7 @@ files and parallelize only file-disjoint tasks:
 
 ### Task 1: index.css — tokens, fonts, radii, shadows, utilities
 
-**Files:** Modify `artifacts/studio/src/index.css`.
+**Files:** Modify `artifacts/studio/src/index.css` and `artifacts/studio/src/components/ui/switch.tsx` (Step 5b — thumb shadow decouple).
 
 **Interfaces produced (consumed by all later tasks):**
 - Utility classes `.scnd-band`, `.scnd-kicker`, `.scnd-display`.
@@ -149,7 +149,7 @@ Leave the `leaflet`, `tailwindcss`, `tw-animate-css` imports and the `.leaflet-c
 ```
 DELETE the old `--band-3: #EF4444` line's absence of `--band-4` (add `--band-4`), the `--chart-1..5: red` lines, and the entire `--shadow-2xs/xs/sm/shadow/md/lg/xl/2xl` placeholder block in `:root` (moved to `@theme`, Step 5). Keep `--tracking-normal`/`--spacing` and the derived-border/`--accent-*`/`--demand-*` blocks.
 
-- [ ] **Step 4: `.dark` block** — remove its transparent `--shadow-*` placeholder lines too (dead; shadows now come from `@theme`). Leave the rest of `.dark` untouched (dead surface).
+- [ ] **Step 4: `.dark` block** — remove its transparent `--shadow-*` placeholder lines **and** its five `--chart-1..5: red` placeholder lines (L495-499) — both are dead, and T2's contract scans the whole stylesheet, so a `red` left anywhere fails it. Leave the rest of `.dark` untouched (dead surface).
 
 - [ ] **Step 5: Add radii + shadows to `@theme inline`.** In the existing `@theme inline {…}` block, replace the four `--radius-*` calc lines with pinned values, and add the shadow namespace:
 ```css
@@ -341,7 +341,7 @@ describe("design tokens — representation contract", () => {
 **Files:** Modify `components/ObjectiveBar.tsx`.
 
 - [ ] **Step 1 (test):** extend/confirm `ObjectiveBar.test.tsx` — same props/render (chapter label, title, description, stat pills when `result`, "Not yet solved" otherwise); stats are `font-mono`. No `--arc-*` string remains (assert via a source check or a computed-class check).
-- [ ] **Step 2:** rewrite the inline styles: container → white/paper card (`background: var(--surface-card, #fff)`, `border: 1px solid var(--line)`, `--shadow-sm`, `--radius-md`); kicker `var(--text-muted)` mono; title `var(--app-font-display)` `var(--text-body)`; description `var(--text-muted)`; `StatPill` → mono, `var(--text-muted)`, `1px solid var(--line)`. Replace every `--arc-*` with book-cover tokens. Props/DOM unchanged.
+- [ ] **Step 2:** rewrite the inline styles: container → white card (`background: hsl(var(--card))` — the existing shadcn token; do NOT invent `--surface-card`), `border: 1px solid var(--line)`, `box-shadow: var(--shadow-sm)`, `border-radius: var(--radius-md)`; kicker `var(--text-muted)` mono; title `var(--app-font-display)` `var(--text-body)`; description `var(--text-muted)`; `StatPill` → mono, `var(--text-muted)`, `1px solid var(--line)`. Replace every `--arc-*` with book-cover tokens. Props/DOM unchanged.
 - [ ] **Step 3:** `grep -n 'arc-' components/ObjectiveBar.tsx` → zero. test + typecheck green. **Commit** — `[bundle3-T7] ObjectiveBar book-cover rewrite`.
 
 ### Task 8: Close-match the 5 other studio components
@@ -357,10 +357,11 @@ describe("design tokens — representation contract", () => {
 - [ ] **Step 4 — StaleOutputBanner:** amber triangle kept; recolor text to tokens (`text-[color:var(--text-body)]`/`--text-muted`), status-statement tone unchanged.
 - [ ] **Step 5 — ConstraintChips:** chips already `font-mono`; reconcile the stale `Badge` amber classes to status tokens (`text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]`); chip border/hover to `--line`/`--primary`.
 - [ ] **Step 6 — MapLegend (input-map legend only):** move entity/status swatches to the map-entity
-  tokens. The **customer swatch must use exactly `--map-customer` (fill) + `--map-customer-stroke`
-  (stroke)** — the same pair T10 moves the actual markers to — so legend and markers can never diverge.
-  Use `--demand-*` **only** if a swatch genuinely represents the demand-bubble sizing scale (a distinct
-  legend row), not as a substitute for the customer entity color. Warehouse/mine swatches →
+  tokens. The **customer swatches — including the demand-bubble size samples — use exactly
+  `--map-customer` (fill) + `--map-customer-stroke` (stroke)**, the same pair T10 gives the markers
+  (Steps 3-4), so legend and markers can never diverge. **No `--demand-*` here:** the demand legend is
+  precisely customer bubbles at three sizes (size, not a different color), so there is no genuinely
+  distinct `--demand-*` consumer to justify the exception — drop it. Warehouse/mine swatches →
   `--map-warehouse`/`--map-warehouse-open`/`--map-inactive`. **Do NOT** add distance-band swatches here
   (those live in NetworkMap's output legend, T10).
 - [ ] **Step 7:** `pnpm --filter studio test` green (update cosmetic assertions); typecheck. **Commit** — `[bundle3-T8] close-match 5 studio components`.
@@ -383,14 +384,21 @@ describe("design tokens — representation contract", () => {
   `BAND_COLORS`/`getBandColor` consumer to confirm each is a CSS context (SVG attr or inline style), not
   a place that needs a resolved hex (e.g. a canvas API); if any needs a literal, resolve it via
   `getComputedStyle` there rather than reverting the array.
-- [ ] **Step 3 — NetworkMap.tsx:** replace the hardcoded hexes in BOTH icon factories (`createTriangleIcon` + sibling, L34–L58 and L92–L116) and the built-in legend/marker SVGs (L446-447 leg colors, L498/509/514 default+multiselect, L593/600/606/607 legend icons, tooltip L176-188 grays) with the tokens: default stroke `#64748B`/`#94A3B8` → `var(--map-default-stroke)`; open `#16A34A`/`#15803D` → `var(--map-warehouse-open)` (+ a highlighted step); inactive `#DC2626` → keep `var(--danger)`; forced-open ring `#2D6CDF` → `var(--map-ring-forced-open)`; single-select `#FCD34D` → `var(--map-ring-select)`; multi-select `#7C3AED` → `var(--map-ring-multiselect)`; leg colors → `var(--map-warehouse-open)` / `var(--danger)`; tooltip grays → `var(--line)`/`var(--text-body)`/`var(--text-muted)`. **Note (confirmed, no landmine):** `var(--map-*)` in the SVG `stroke`/`fill` strings resolves directly — both `NetworkMap.tsx` (L72/L133) and `EntityMarkers.tsx` (L81/L91) build icons via `L.divIcon({html})`, i.e. in-document DOM SVG that inherits `:root` custom properties, NOT `data:` URIs. The only asset icon is stock Leaflet's default pin (`NetworkMap.tsx:22`), which we do not recolor. No literal-hex fallback needed.
-- [ ] **Step 4 — EntityMarkers.tsx:** align marker/bubble/flow colors to `--map-*` tokens (supply/demand already use `--accent-*`/`--demand-*`; reconcile any literal hex to tokens).
+- [ ] **Step 3 — NetworkMap.tsx:** replace the hardcoded hexes in BOTH icon factories (`createTriangleIcon` + sibling, L34–L58 and L92–L116) and the built-in legend/marker SVGs (L446-447 leg colors, L498/509/514 default+multiselect, L593/600/606/607 legend icons, tooltip L176-188 grays) with the tokens — **context-specific, because the same hex means different things in different markers:**
+  - **Warehouse triangles** (`createTriangleIcon` + sibling, L34/92 default stroke `#64748B`) → `var(--map-default-stroke)`.
+  - **Warehouse open** `#16A34A` → `var(--map-warehouse-open)`; **highlighted-open** `#15803D` → `var(--green-700)` (the exact darker step, not "a step").
+  - **Warehouse inactive** `#DC2626` → keep `var(--danger)`.
+  - **Customer bubble default** (L498 fill `#94A3B8`, L514 stroke `#64748B`) → fill `var(--map-customer)`, stroke `var(--map-customer-stroke)` — the SAME pair T8's legend uses (they must match). Do NOT fold the customer stroke into `--map-default-stroke`.
+  - **Rings:** forced-open `#2D6CDF` → `var(--map-ring-forced-open)`; single-select `#FCD34D` → `var(--map-ring-select)`; multi-select `#7C3AED` → `var(--map-ring-multiselect)`.
+  - **Leg colors** (L446-447) → `var(--map-warehouse-open)` / `var(--danger)`; **tooltip grays** (L176-188) → `var(--line)` / `var(--text-body)` / `var(--text-muted)`.
+  - Band-state fills (`getBandColor(...)`) already flow from `bandPalette` (Step 2) — no literal change. **Note (confirmed, no landmine):** `var(--map-*)` in the SVG `stroke`/`fill` strings resolves directly — both `NetworkMap.tsx` (L72/L133) and `EntityMarkers.tsx` (L81/L91) build icons via `L.divIcon({html})`, i.e. in-document DOM SVG that inherits `:root` custom properties, NOT `data:` URIs. The only asset icon is stock Leaflet's default pin (`NetworkMap.tsx:22`), which we do not recolor. No literal-hex fallback needed.
+- [ ] **Step 4 — EntityMarkers.tsx:** align to `--map-*` tokens. **Customer demand bubbles → `var(--map-customer)` fill / `var(--map-customer-stroke)` stroke** (retiring the Bundle-2.2 `--demand-300/600` for bubbles — under book-cover, supply is ink warehouse triangles and demand is green customer bubbles, so they're already distinct without a separate demand green; this is the same pair the NetworkMap markers (Step 3) and the T8 legend use, so all three match). Warehouse/mine markers → `var(--map-warehouse)`/`var(--map-warehouse-open)`/`var(--map-inactive)`. Flows → `var(--map-flow)`. Grep for remaining `--demand-*` / `--accent-*` / literal-hex uses in this file and reconcile each. (Leave the `--demand-*` token *definitions* in `index.css` in place if any non-bubble consumer remains; otherwise they become dead — acceptable, don't chase.)
 - [ ] **Step 5:** test + typecheck green. **Commit** — `[bundle3-T10] map palette → book-cover tokens`.
 
 ### Task 9: Mono-numbers pass (run LAST, after T7/T8/T10 merge)
 
 **Files (exhaustive, from `grep toLocaleString|toFixed|toExponential` + `type="number"`, excluding dead `pages/Studio.tsx`, recharts-internal `ui/chart.tsx`, unused `ui/calendar.tsx`, and `BrazilMap.tsx`/already-mono):**
-Formatters — `components/NetworkMap.tsx`* , `components/ObjectiveBar.tsx`* , `components/workspace/map/{MapActionMenu,MapDetailsCard,MapLegend}.tsx`, `components/workspace/map/dialogs/MoveConfirmDialog.tsx` (raw `{newLat}`/`{newLng}`, testids `move-confirm-lat`/`-lng`), `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{AssignmentsTab,CostSummaryTab,CustomersTab,FlowsTab,MinesTab,OpenWarehousesTab,OptimizationParametersTab,OutputMapTab,StationsTab,WarehousesTab}.tsx`, `pages/Workspace.tsx` (result-history position, `data-testid="text-result-history-position"` ~L2367), `pages/Landing.tsx`*, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
+Formatters + raw-numeric cells — `components/NetworkMap.tsx`* , `components/ObjectiveBar.tsx`* , `components/workspace/map/{MapActionMenu,MapDetailsCard,MapLegend}.tsx`, `components/workspace/map/dialogs/MoveConfirmDialog.tsx` (raw `{newLat}`/`{newLng}`, testids `move-confirm-lat`/`-lng`), `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{AssignmentsTab,CostSummaryTab,CustomersTab,FlowsTab,MinesTab,OpenWarehousesTab,OptimizationParametersTab,OutputMapTab,ServiceStatsTab,StationsTab,WarehousesTab}.tsx` (**ServiceStatsTab** renders raw `≤ {b.band} {unit}` + `{b.percent}%` band/percent cells at ~L62/L66 with no `font-mono` — mono both), `pages/Workspace.tsx` (result-history position, `data-testid="text-result-history-position"` ~L2367), `pages/Landing.tsx`*, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
 Numeric inputs (`type="number"` → also mono) — `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{LaneCostsTab,LegDistancesTab,OptimizationParametersTab,WarehousesTab,MinesTab,CustomersTab,DistancesTab,StationsTab}.tsx`, `components/workspace/map/dialogs/{EditWarehouseDialog,EditCustomerDialog,CreateEntityDialog}.tsx`, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
 (*already handled in T3/T7/T10 — re-verify only, don't double-edit.)
 **Excluded (dead):** `components/MapBulkEditToolbar.tsx` (rendered only by dead `Studio.tsx` — grep-confirmed consumers: `Studio.tsx` + its tests), `pages/Studio.tsx`, `ui/calendar.tsx` (no date UI), `ui/chart.tsx` (recharts internal), `BrazilMap.tsx` (already mono).
@@ -482,6 +490,46 @@ Reviewer raised 9 issues on the first plan draft; all verified against code and 
    and both-branch assertions.
 9. **MapLegend/marker parity** — legend customer swatch must use the exact `--map-customer` /
    `--map-customer-stroke` pair T10 gives the markers; `--demand-*` only for a genuine demand-scale row.
+
+## Re-review comments (2026-09-03, rev 2, verbatim)
+
+> **Blockers.** (1) T1 guarantees T2's test fails: T1 removes `--chart-1..5: red` from `:root` but leaves
+> the rest of `.dark` untouched, while `.dark` still defines all five red chart placeholders and T2
+> rejects that pattern anywhere. Remove/replace the `.dark` chart placeholders in T1 too. (2) T10 maps
+> both `#64748B` and `#94A3B8` to `--map-default-stroke`, but in the customer marker `#94A3B8` is the fill
+> and `#64748B` is the stroke — map them to `--map-customer`/`--map-customer-stroke`; also name the exact
+> destination token for the `#15803D` highlighted state instead of "+ a highlighted step".
+> **Coverage/execution safety.** (3) T9 omits `ServiceStatsTab.tsx`, whose band and percentage cells
+> render raw numbers without `font-mono`; the spec includes Service Stats — add it + assertions. (4)
+> Opening file inventory is stale: assigns only `index.css` to T1 though T1 also edits `ui/switch.tsx`,
+> and omits `App.tsx`/`App.test.tsx` from T3 though the task includes them — update both. (5) T7 uses
+> `var(--surface-card, #fff)` but `--surface-card` is never defined and T2 doesn't inventory it — use
+> `hsl(var(--card))` or add the token; don't depend on a fallback.
+> **Ambiguities.** (6) T8 first requires the exact customer fill/stroke pair, then permits `--demand-*`
+> for the demand-bubble scale — but that legend is precisely customer bubbles at three sizes; remove the
+> exception or name a genuinely distinct `--demand-*` consumer. (7) The global "preserve every DOM
+> structure / never restructure" rule conflicts with T3-T6 (new hero wrappers/band headers) — narrow the
+> freeze to interactive/Radix structure, roles, testids, and the six close-match components, and
+> explicitly allow the additive brand-chrome markup those tasks require.
+
+## Review resolution (2026-09-03, rev 2)
+
+All 7 verified against code and fixed:
+
+1. **`.dark` chart red** — T1 Step 4 now removes the `.dark` `--chart-1..5: red` lines too (confirmed at
+   L495-499); T2's whole-file scan then passes.
+2. **Customer marker fill/stroke** — confirmed L498 fill `#94A3B8` / L514 stroke `#64748B`; T10 Step 3 now
+   maps them to `--map-customer`/`--map-customer-stroke` (distinct from the warehouse-triangle stroke,
+   which stays `--map-default-stroke`), and names `#15803D` → `var(--green-700)` exactly.
+3. **ServiceStatsTab** — added to T9 (confirmed raw `≤ {b.band}` / `{b.percent}%` at ~L62/66, no mono).
+4. **Inventory sync** — top File Structure + T1 `Files:` now include `ui/switch.tsx`; T3 line + inventory
+   include `App.tsx`/`App.test.tsx`.
+5. **T7 token** — uses existing `hsl(var(--card))`, not an undefined `--surface-card`.
+6. **Demand exception** — removed; MapLegend demand-bubble size samples + EntityMarkers customer bubbles
+   both use `--map-customer`/`--map-customer-stroke` (supply=ink triangles vs demand=green bubbles is
+   already distinct under book-cover, so no separate demand green is needed).
+7. **DOM-freeze constraint** — narrowed to Radix/interactive structure + roles + testids + the six
+   close-match components; additive brand-chrome markup on T3-T6 chrome surfaces explicitly allowed.
 
 ## Self-review (run before dispatch — the discipline the post-mortems named)
 
