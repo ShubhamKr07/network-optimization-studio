@@ -141,8 +141,10 @@ export function SidebarTree({
 }
 
 function rowClass(active: boolean): string {
-  return `w-full text-left px-3 py-1.5 truncate ${
-    active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+  return `w-full text-left px-3 py-1.5 truncate border-l-2 ${
+    active
+      ? "bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] font-medium border-[color:var(--green-500)]"
+      : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
   }`;
 }
 
@@ -301,7 +303,7 @@ function SidebarSection({
 }) {
   return (
     <div data-testid={testid} className="border-b py-1.5">
-      <div className="flex items-center justify-between px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wide text-muted-foreground">
         <span>{title}</span>
         {action}
       </div>

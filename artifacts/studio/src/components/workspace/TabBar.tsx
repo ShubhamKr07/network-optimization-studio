@@ -38,6 +38,10 @@ export function TabBar({ tabs, activeTabId, onActivate, onClose }: TabBarProps) 
             onKeyDown={e => {
               if (e.key === "Enter" || e.key === " ") onActivate(tab.id);
             }}
+            // Active tab gets a TOP green rule (inset box-shadow), matching the
+            // reference TabBar.jsx — not a bottom border, which would sit flush
+            // against the tab strip's own border-b and be invisible.
+            style={{ boxShadow: isActive ? "inset 0 2px 0 var(--green-500)" : "none" }}
             className={`flex items-center gap-1.5 px-3 border-r text-xs cursor-pointer select-none whitespace-nowrap ${
               isActive ? "bg-background font-medium text-foreground" : "text-muted-foreground hover:text-foreground"
             }`}
