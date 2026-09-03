@@ -221,12 +221,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       );
     }
 
-    const rows: Array<[string, string]> = [
-      ["Objective", result.objective.toLocaleString()],
-      ["Weighted avg. distance", result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"],
-      ["Runtime", `${result.runTimeSec.toFixed(2)}s`],
-      ["Quality", result.quality],
-      ["Solver", result.solverUsed],
+    const rows: Array<[string, string, boolean]> = [
+      ["Objective", result.objective.toLocaleString(), true],
+      ["Weighted avg. distance", result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—", true],
+      ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
+      ["Quality", result.quality, false],
+      ["Solver", result.solverUsed, false],
     ];
 
     return (
@@ -244,10 +244,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           </button>
         </div>
         <dl className="p-4 space-y-2 text-sm" data-testid="cost-summary-list">
-          {rows.map(([label, value]) => (
+          {rows.map(([label, value, mono]) => (
             <div key={label} className="flex justify-between border-b pb-1">
               <dt className="text-muted-foreground">{label}</dt>
-              <dd className="font-medium" data-testid={`cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}>{value}</dd>
+              <dd className={`font-medium${mono ? " font-mono" : ""}`} data-testid={`cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}>{value}</dd>
             </div>
           ))}
         </dl>
@@ -283,7 +283,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             <tr>
               <td className="p-2 text-muted-foreground">Objective</td>
               {compareScenarios.map(s => (
-                <td key={s.id} className="p-2" data-testid={`cost-summary-compare-objective-${s.id}`}>
+                <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-objective-${s.id}`}>
                   {s.result!.objective.toLocaleString()}
                 </td>
               ))}
@@ -291,7 +291,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             <tr>
               <td className="p-2 text-muted-foreground">Weighted avg. distance ({distanceUnit})</td>
               {compareScenarios.map(s => (
-                <td key={s.id} className="p-2" data-testid={`cost-summary-compare-distance-${s.id}`}>
+                <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-distance-${s.id}`}>
                   {s.result!.metrics.weightedAvgDistance != null ? s.result!.metrics.weightedAvgDistance.toFixed(1) : "—"}
                 </td>
               ))}
@@ -315,7 +315,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             <tr>
               <td className="p-2 text-muted-foreground">Runtime</td>
               {compareScenarios.map(s => (
-                <td key={s.id} className="p-2" data-testid={`cost-summary-compare-runtime-${s.id}`}>
+                <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-runtime-${s.id}`}>
                   {s.result!.runTimeSec.toFixed(2)}s
                 </td>
               ))}
@@ -342,7 +342,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 {compareScenarios.map(s => {
                   const util = aggregateUtilization(s.result!);
                   return (
-                    <td key={s.id} className="p-2" data-testid={`cost-summary-compare-utilization-${s.id}`}>
+                    <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-utilization-${s.id}`}>
                       {util != null ? `${Math.round(util)}%` : "N/A"}
                     </td>
                   );
@@ -352,13 +352,13 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             {sharedBands &&
               bandBoundaries(results[0]).map(band => (
                 <tr key={band}>
-                  <td className="p-2 text-muted-foreground">
+                  <td className="p-2 text-muted-foreground font-mono">
                     ≤ {band} {distanceUnit}
                   </td>
                   {compareScenarios.map(s => {
                     const coverage = (s.result!.metrics.bandCoverage ?? []).find(b => b.band === band);
                     return (
-                      <td key={s.id} className="p-2" data-testid={`cost-summary-compare-band-${band}-${s.id}`}>
+                      <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-band-${band}-${s.id}`}>
                         {coverage ? `${coverage.percent}%` : "—"}
                       </td>
                     );

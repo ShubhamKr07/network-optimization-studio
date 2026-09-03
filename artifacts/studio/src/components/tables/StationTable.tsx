@@ -45,7 +45,7 @@ export function StationTable({ stations, overrides, onChange }: StationTableProp
                 <TableCell className="text-xs">{s.state}</TableCell>
                 <TableCell className="text-xs font-mono">{s.lat.toFixed(4)}</TableCell>
                 <TableCell className="text-xs font-mono">{s.lng.toFixed(4)}</TableCell>
-                {stations.some(x => x.zip) && <TableCell className="text-xs">{s.zip ?? "—"}</TableCell>}
+                {stations.some(x => x.zip) && <TableCell className="text-xs font-mono">{s.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input
                     type="number"
@@ -56,7 +56,7 @@ export function StationTable({ stations, overrides, onChange }: StationTableProp
                       setDrafts(prev => ({ ...prev, [s.id]: raw }));
                       upsert(s.id, raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0));
                     }}
-                    className="h-7 text-xs w-32"
+                    className="h-7 text-xs w-32 font-mono"
                     placeholder="base demand"
                     data-testid={`input-station-demand-${s.id}`}
                   />

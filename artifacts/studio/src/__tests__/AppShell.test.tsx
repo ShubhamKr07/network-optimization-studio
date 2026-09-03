@@ -55,6 +55,37 @@ describe("AppShell logout", () => {
   });
 });
 
+describe("AppShell band hero", () => {
+  it("carries the .scnd-band class on the header", () => {
+    render(
+      <AppShell userEmail="student@example.com">
+        <div>lab content</div>
+      </AppShell>,
+    );
+    const header = screen.getByTestId("text-user-email").closest("header") as HTMLElement;
+    expect(header.className).toContain("scnd-band");
+  });
+
+  it("renders the given heroTitle in the band", () => {
+    render(
+      <AppShell userEmail="student@example.com" heroTitle="Network Design Labs">
+        <div>lab content</div>
+      </AppShell>,
+    );
+    expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
+    expect(screen.queryByText("SCND Optimization Studio")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the SCND Optimization Studio wordmark when no heroTitle is given", () => {
+    render(
+      <AppShell userEmail="student@example.com">
+        <div>lab content</div>
+      </AppShell>,
+    );
+    expect(screen.getByText("SCND Optimization Studio")).toBeInTheDocument();
+  });
+});
+
 describe("AppShell layout", () => {
   it("clamps its root to exactly one viewport height and scopes scrolling to <main>", () => {
     render(

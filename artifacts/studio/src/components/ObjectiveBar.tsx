@@ -24,27 +24,28 @@ export function ObjectiveBar({ result, modelId, scenarioName }: ObjectiveBarProp
     <div style={{
       display: "flex", alignItems: "center", gap: "16px",
       padding: "10px 16px",
-      background: "var(--arc-ink-2)",
-      border: "1px solid var(--arc-grat)",
-      borderRadius: "10px",
+      background: "hsl(var(--card))",
+      border: "1px solid var(--line)",
+      boxShadow: "var(--shadow-sm)",
+      borderRadius: "var(--radius-md)",
       margin: "6px 8px 0",
       position: "relative",
       flexShrink: 0,
     }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "var(--arc-mono)", fontSize: "9.5px", letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--arc-muted)", marginBottom: "1px" }}>
+        <div style={{ fontFamily: "var(--app-font-mono)", fontSize: "9.5px", letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "1px" }}>
           {chapter?.chapter ?? "Model"}
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
-          <b style={{ fontFamily: "var(--arc-display)", fontSize: "13px", fontWeight: 600, color: "var(--arc-paper)" }}>
+          <b style={{ fontFamily: "var(--app-font-display)", fontSize: "13px", fontWeight: 600, color: "var(--text-body)" }}>
             {chapter?.title ?? ""}
           </b>
           {scenarioName ? (
-            <span style={{ color: "var(--arc-muted)", fontSize: "12px" }}>· {scenarioName}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>· {scenarioName}</span>
           ) : null}
         </div>
         {chapter?.description ? (
-          <div style={{ color: "var(--arc-muted)", fontSize: "11px", marginTop: "2px", lineHeight: 1.35 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: "11px", marginTop: "2px", lineHeight: 1.35 }}>
             {chapter.description}
           </div>
         ) : null}
@@ -68,10 +69,10 @@ export function ObjectiveBar({ result, modelId, scenarioName }: ObjectiveBarProp
 function StatPill({ label }: { label: string }) {
   return (
     <div style={{
-      fontFamily: "var(--arc-mono)", fontSize: "11px",
+      fontFamily: "var(--app-font-mono)", fontSize: "11px",
       padding: "5px 9px", borderRadius: "7px",
-      border: "1px solid var(--arc-grat)",
-      color: "var(--arc-muted)",
+      border: "1px solid var(--line)",
+      color: "var(--text-muted)",
       background: "transparent",
       whiteSpace: "nowrap",
     }}>

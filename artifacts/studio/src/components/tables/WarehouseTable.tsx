@@ -70,7 +70,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
                 <TableCell className="text-xs">{wh.state}</TableCell>
                 <TableCell className="text-xs font-mono">{wh.lat.toFixed(4)}</TableCell>
                 <TableCell className="text-xs font-mono">{wh.lng.toFixed(4)}</TableCell>
-                {warehouses.some(w => w.zip) && <TableCell className="text-xs">{wh.zip ?? "—"}</TableCell>}
+                {warehouses.some(w => w.zip) && <TableCell className="text-xs font-mono">{wh.zip ?? "—"}</TableCell>}
                 {capacityMode === "per_wh" && (
                   <TableCell>
                     <Input
@@ -83,7 +83,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
                         const capacity = raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0);
                         upsert(wh.id, { capacity });
                       }}
-                      className="h-7 text-xs w-28"
+                      className="h-7 text-xs w-28 font-mono"
                       placeholder="uniform"
                       data-testid={`input-wh-capacity-${wh.id}`}
                     />

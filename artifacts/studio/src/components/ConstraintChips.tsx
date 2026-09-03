@@ -48,7 +48,11 @@ export function ConstraintChips({
         <Chip testid="chip-demand-edited" onClick={onFocusCustomers}>demand edited ({demandEditedCount})</Chip>
       )}
       {stale && (
-        <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300 bg-amber-50" data-testid="chip-stale">
+        <Badge
+          variant="outline"
+          className="text-[10px] text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
+          data-testid="chip-stale"
+        >
           Stale
         </Badge>
       )}
@@ -62,7 +66,7 @@ function Chip({ children, onClick, testid }: { children: React.ReactNode; onClic
       type="button"
       onClick={onClick}
       data-testid={testid}
-      className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+      className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-[color:var(--line)] bg-white text-muted-foreground hover:border-[color:var(--primary)] hover:text-foreground transition-colors"
     >
       {children}
     </button>

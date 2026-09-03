@@ -2,6 +2,11 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
+// Vite raw-import (not fs.readFileSync) — reading via node:fs + import.meta.url
+// breaks under this project's jsdom test environment (import.meta.url doesn't
+// resolve to a file:// URL there); a `?raw` import is handled by Vite's own
+// transform instead, so it works under both jsdom and node.
+import objectiveBarSource from "@/components/ObjectiveBar?raw";
 
 const optimalResult: SolveResult = {
   status: "optimal",
@@ -83,6 +88,17 @@ describe("ObjectiveBar — scenario name", () => {
   it("renders without a scenario name (no crash, nothing extra shown)", () => {
     render(<ObjectiveBar result={null} scenarioId={5} modelId="p-median-us" />);
     expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
+  });
+});
+
+// ── Book-cover theming (Bundle 3 / T7) ──────────────────────────────────────
+// ObjectiveBar was the one live component still reading the dead `--arc-*`
+// dark tokens (everything else that used them, Studio.tsx/.studio-lab, was
+// retired). Source-check (not a computed-style check — jsdom doesn't resolve
+// CSS custom properties) that none remain.
+describe("ObjectiveBar — book-cover tokens", () => {
+  it("reads no --arc-* token (rewritten off the dead dark theme)", () => {
+    expect(objectiveBarSource).not.toMatch(/--arc-/);
   });
 });
 

@@ -113,21 +113,21 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose 
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lat">
         <span className="text-muted-foreground">Latitude</span>
-        <span>{e.lat.toFixed(4)}</span>
+        <span className="font-mono">{e.lat.toFixed(4)}</span>
       </div>
       <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-lng">
         <span className="text-muted-foreground">Longitude</span>
-        <span>{e.lng.toFixed(4)}</span>
+        <span className="font-mono">{e.lng.toFixed(4)}</span>
       </div>
       {kind === "wh" ? (
         <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-capacity">
           <span className="text-muted-foreground">Capacity</span>
-          <span>{e.capacity != null ? `${fmt(e.capacity)} units` : "—"}</span>
+          <span className="font-mono">{e.capacity != null ? `${fmt(e.capacity)} units` : "—"}</span>
         </div>
       ) : (
         <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-demand">
           <span className="text-muted-foreground">Demand</span>
-          <span>{fmt(e.demand)} units</span>
+          <span className="font-mono">{fmt(e.demand)} units</span>
         </div>
       )}
       <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="map-details-footer">

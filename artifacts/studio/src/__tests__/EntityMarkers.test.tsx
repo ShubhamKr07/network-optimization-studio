@@ -70,46 +70,33 @@ describe("SVG-string icon builders", () => {
     expect(svg).toContain("<circle");
   });
 
-  // R3 regression: --accent-700/--accent-300/--accent-600 (and --demand-*)
-  // are already complete colors (index.css's relative-color-syntax output),
-  // not shadcn H-S-L channel triples — wrapping one again as
-  // `hsl(var(--accent-700))` is an invalid nested color, which SVG silently
-  // falls back from (fill -> black, stroke -> none) instead of erroring.
-  // Assert the generated markup uses the unwrapped `var(--token)` form and
-  // never the invalid nested form, for every marker style/tone.
-  it("warehouseTriangleSvg uses var(--accent-700) unwrapped, never hsl(var(--accent-700))", () => {
-    // outline/filled both use --accent-700 (stroke-only vs fill+stroke);
-    // dashed uses --muted-foreground instead (asserted separately below) —
-    // so only assert the presence of --accent-700 where it's actually used.
-    for (const marker of ["outline", "filled"] as const) {
-      const svg = warehouseTriangleSvg(marker);
-      expect(svg).toContain("var(--accent-700)");
-      expect(svg).not.toContain("hsl(var(--accent-700))");
-    }
-    // Every style, including dashed, must never contain the invalid nested form.
+  // Bundle 3 (T10) regression: warehouse triangles now key off the
+  // book-cover --map-* tokens (index.css), not the old R3-era --accent-700.
+  // Assert the generated markup uses the unwrapped `var(--token)` form —
+  // these are already complete colors, so re-wrapping one in `hsl(...)`
+  // would be an invalid nested color (SVG silently falls back to black/none
+  // instead of erroring).
+  it("warehouseTriangleSvg uses --map-warehouse/--map-warehouse-open/--map-inactive unwrapped, per marker style", () => {
+    expect(warehouseTriangleSvg("outline")).toContain("var(--map-warehouse)");
+    expect(warehouseTriangleSvg("filled")).toContain("var(--map-warehouse-open)");
+    expect(warehouseTriangleSvg("dashed")).toContain("var(--map-inactive)");
     for (const marker of ["outline", "filled", "dashed"] as const) {
-      expect(warehouseTriangleSvg(marker)).not.toContain("hsl(var(--accent-700))");
+      const svg = warehouseTriangleSvg(marker);
+      expect(svg).not.toContain("hsl(var(--map-warehouse))");
+      expect(svg).not.toContain("hsl(var(--map-warehouse-open))");
+      expect(svg).not.toContain("hsl(var(--map-inactive))");
     }
   });
 
-  it("warehouseTriangleSvg's dashed stroke keeps --muted-foreground wrapped (it's a genuine H-S-L channel token, not a complete color)", () => {
-    expect(warehouseTriangleSvg("dashed")).toContain("hsl(var(--muted-foreground))");
-  });
-
-  it("customerBubbleSvg uses var(--accent-300)/var(--accent-600) unwrapped for the blue tone (default)", () => {
-    const svg = customerBubbleSvg(6);
-    expect(svg).toContain("var(--accent-300)");
-    expect(svg).toContain("var(--accent-600)");
-    expect(svg).not.toContain("hsl(var(--accent-300))");
-    expect(svg).not.toContain("hsl(var(--accent-600))");
-  });
-
-  it("customerBubbleSvg uses var(--demand-300)/var(--demand-600) unwrapped for the green tone", () => {
-    const svg = customerBubbleSvg(6, "green");
-    expect(svg).toContain("var(--demand-300)");
-    expect(svg).toContain("var(--demand-600)");
-    expect(svg).not.toContain("--accent-300");
-    expect(svg).not.toContain("--accent-600");
+  it("customerBubbleSvg always uses var(--map-customer)/var(--map-customer-stroke) unwrapped, regardless of tone", () => {
+    for (const svg of [customerBubbleSvg(6), customerBubbleSvg(6, "green"), customerBubbleSvg(6, "blue")]) {
+      expect(svg).toContain("var(--map-customer)");
+      expect(svg).toContain("var(--map-customer-stroke)");
+      expect(svg).not.toContain("--accent-300");
+      expect(svg).not.toContain("--accent-600");
+      expect(svg).not.toContain("--demand-300");
+      expect(svg).not.toContain("--demand-600");
+    }
   });
 });
 
@@ -253,25 +240,29 @@ describe("EntityMarkers", () => {
     expect(onLeftClick.mock.calls[0][0]).toEqual({ kind: "wh", entity: wh({ id: "W1" }) });
   });
 
-  // R1 — supply blue / demand green.
-  describe("demand tone (R1)", () => {
-    it("customer bubbles are green (var(--demand-*)) for p-median-us, the default modelId", () => {
+  // R1 (supply/demand distinction) — Bundle 3 (T10) retargets both to the
+  // book-cover --map-* tokens: customer bubbles are always --map-customer,
+  // warehouse triangles are always --map-warehouse (Potential/outline here),
+  // regardless of modelId.
+  describe("demand tone (R1, Bundle 3 retarget)", () => {
+    it("customer bubbles use var(--map-customer) for p-median-us, the default modelId", () => {
       const { container } = renderMarkers({ customers: [cs({ id: "C1" })] });
       const svg = container.querySelector(".cs-marker svg")!;
-      expect(svg.outerHTML).toContain("var(--demand-300)");
+      expect(svg.outerHTML).toContain("var(--map-customer)");
     });
 
-    it("customer bubbles are green (var(--demand-*)) for every other modelId too (R1 fast-follow — no more blue branch)", () => {
+    it("customer bubbles use var(--map-customer) for every other modelId too (no per-model branch)", () => {
       const { container } = renderMarkers({ customers: [cs({ id: "C1" })], modelId: "transport-coal" });
       const svg = container.querySelector(".cs-marker svg")!;
-      expect(svg.outerHTML).toContain("var(--demand-300)");
+      expect(svg.outerHTML).toContain("var(--map-customer)");
       expect(svg.outerHTML).not.toContain("--accent-300");
+      expect(svg.outerHTML).not.toContain("--demand-300");
     });
 
-    it("warehouse triangles stay blue (var(--accent-700)) regardless of modelId", () => {
+    it("warehouse triangles use var(--map-warehouse) regardless of modelId", () => {
       const { container } = renderMarkers({ warehouses: [wh({ id: "W1" })], modelId: "transport-coal" });
       const svg = container.querySelector(".wh-marker svg")!;
-      expect(svg.outerHTML).toContain("var(--accent-700)");
+      expect(svg.outerHTML).toContain("var(--map-warehouse)");
     });
   });
 

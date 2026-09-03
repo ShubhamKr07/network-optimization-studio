@@ -35,15 +35,15 @@ export function Gate() {
 
   const user = data?.user;
 
-  function authedOnly(children: ReactNode) {
-    return user ? <AppShell userEmail={user.email}>{children}</AppShell> : <Redirect to="/login" />;
+  function authedOnly(children: ReactNode, heroTitle?: string) {
+    return user ? <AppShell userEmail={user.email} heroTitle={heroTitle}>{children}</AppShell> : <Redirect to="/login" />;
   }
 
   return (
     <Switch>
       <Route path="/login">{user ? <Redirect to="/" /> : <Login />}</Route>
       <Route path="/register">{user ? <Redirect to="/" /> : <Register />}</Route>
-      <Route path="/">{authedOnly(<Landing />)}</Route>
+      <Route path="/">{authedOnly(<Landing />, "Network Design Labs")}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>
           {c.workspace

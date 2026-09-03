@@ -1830,6 +1830,28 @@ describe("Workspace — header grid layout (T9, C2)", () => {
   });
 });
 
+// Bundle 3 (T6) — book-cover dark band recolor. Grid/testids/handlers are
+// covered by the pre-existing describe blocks above; this only asserts the
+// new band styling landed.
+describe("Workspace — header band (Bundle 3, T6)", () => {
+  it("the header carries the scnd-band utility class", () => {
+    renderWorkspace();
+    const header = screen.getByTestId("select-scenario-context").closest("header") as HTMLElement;
+    expect(header).not.toBeNull();
+    expect(header.className).toContain("scnd-band");
+  });
+
+  it("every header control (back arrow, selector, summary, account/logout, run optimizer) is still present after the recolor", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("button-page-back")).toBeInTheDocument();
+    expect(screen.getByTestId("select-scenario-context")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-chapter-summary")).toBeInTheDocument();
+    expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
+    expect(screen.getByTestId("button-logout")).toBeInTheDocument();
+    expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
+  });
+});
+
 // T9 — C1: AppFooter mounted inside the root scn-theme shell, as the last
 // child (after the body region), so it never overlaps the map/tab content.
 describe("Workspace — footer (T9, C1)", () => {

@@ -48,8 +48,8 @@ export function FlowsTab({ result, scenarioId }: FlowsTabProps) {
               <tr key={`${e.fromId}-${e.toId}`} data-testid={`flow-row-${e.fromId}-${e.toId}`} className="border-b">
                 <td className="p-2">{e.fromId}</td>
                 <td className="p-2">{e.toId}</td>
-                <td className="p-2 text-right">{e.distance.toFixed(1)}</td>
-                <td className="p-2 text-right">{e.flow.toLocaleString()}</td>
+                <td className="p-2 text-right font-mono">{e.distance.toFixed(1)}</td>
+                <td className="p-2 text-right font-mono">{e.flow.toLocaleString()}</td>
               </tr>
             ))}
           </tbody>

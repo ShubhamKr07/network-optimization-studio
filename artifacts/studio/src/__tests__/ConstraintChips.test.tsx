@@ -60,6 +60,18 @@ describe("ConstraintChips", () => {
     expect(screen.getByTestId("chip-stale")).toBeInTheDocument();
   });
 
+  it("styles the Stale chip and chip borders on book-cover status/line tokens, not literal amber/border Tailwind classes", () => {
+    render(<ConstraintChips {...baseProps()} stale={true} />);
+    const stale = screen.getByTestId("chip-stale");
+    expect(stale.className).toContain("var(--warning)");
+    expect(stale.className).toContain("var(--warning-border)");
+    expect(stale.className).toContain("var(--warning-bg)");
+    expect(stale.className).not.toContain("amber");
+    const chip = screen.getByTestId("chip-p");
+    expect(chip.className).toContain("var(--line)");
+    expect(chip.className).toContain("var(--primary)");
+  });
+
   it("clicking the p chip calls onFocusP", async () => {
     const props = baseProps();
     render(<ConstraintChips {...props} />);

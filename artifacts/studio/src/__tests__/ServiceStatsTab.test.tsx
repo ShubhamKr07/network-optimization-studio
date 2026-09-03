@@ -70,4 +70,14 @@ describe("ServiceStatsTab", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} />);
     expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
+
+  // Bundle 3, T9 — mono-numbers pass: band/percent cells are numeric and
+  // must render in the monospace font, distinct from prose/labels.
+  it("renders the band and percent cells with font-mono (Bundle 3, T9)", () => {
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+    const row = screen.getByTestId("service-stats-band-200");
+    const [bandCell, percentCell] = row.querySelectorAll("span");
+    expect(bandCell).toHaveClass("font-mono");
+    expect(percentCell).toHaveClass("font-mono");
+  });
 });

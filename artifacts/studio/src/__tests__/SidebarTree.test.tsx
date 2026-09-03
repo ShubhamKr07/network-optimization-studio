@@ -69,6 +69,16 @@ describe("SidebarTree", () => {
     expect(props.onOpenInput).toHaveBeenCalledWith(props.inputs[0]);
   });
 
+  it("styles the active input row with the book-cover selected-surface/green-rule treatment", () => {
+    render(<SidebarTree {...baseProps()} activeEntityId="customers" />);
+    const active = screen.getByTestId("sidebar-input-customers");
+    expect(active.className).toContain("var(--surface-selected)");
+    expect(active.className).toContain("var(--text-brand)");
+    expect(active.className).toContain("var(--green-500)");
+    const inactive = screen.getByTestId("sidebar-input-warehouses");
+    expect(inactive.className).not.toContain("var(--surface-selected)");
+  });
+
   it("greys out and disables outputs when there is no solved run", async () => {
     const props = baseProps();
     render(<SidebarTree {...props} hasSolvedRun={false} />);

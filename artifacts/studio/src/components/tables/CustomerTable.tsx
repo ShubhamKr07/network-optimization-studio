@@ -85,7 +85,7 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                 <TableCell className="text-xs">{c.state}</TableCell>
                 <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
                 <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
-                {customers.some(x => x.zip) && <TableCell className="text-xs">{c.zip ?? "—"}</TableCell>}
+                {customers.some(x => x.zip) && <TableCell className="text-xs font-mono">{c.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input
                     type="number"
@@ -94,7 +94,7 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
                     onChange={e => handleDemandChange(c.id, e.target.value)}
                     disabled={!demandEditable}
                     title={demandEditable ? undefined : "Demand for this row is fixed by the textbook dataset and can't be edited."}
-                    className="h-7 text-xs w-28"
+                    className="h-7 text-xs w-28 font-mono"
                     data-testid={`input-customer-demand-${c.id}`}
                   />
                   {error && <p className="text-[10px] text-destructive mt-0.5" data-testid={`error-customer-demand-${c.id}`}>{error}</p>}

@@ -110,6 +110,15 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
     render(<CostSummaryTab result={result} scenarioId={1} modelId="two-echelon-gold-au" />);
     expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("382.9 mi");
   });
+
+  // Bundle 3, T9 — mono-numbers pass: the numeric objective/distance stats
+  // render in the monospace font; the text-valued Quality row doesn't.
+  it("renders numeric stats with font-mono, text stats without (Bundle 3, T9)", () => {
+    render(<CostSummaryTab result={result} scenarioId={1} />);
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveClass("font-mono");
+    expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveClass("font-mono");
+    expect(screen.getByTestId("cost-summary-value-quality")).not.toHaveClass("font-mono");
+  });
 });
 
 describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {

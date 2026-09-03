@@ -21,4 +21,10 @@ describe("StaleOutputBanner", () => {
     await userEvent.click(screen.getByTestId("button-stale-banner-run-optimizer"));
     expect(onRunOptimizer).toHaveBeenCalledTimes(1);
   });
+
+  it("renders its message text on book-cover text tokens, not raw shadcn foreground/muted", () => {
+    render(<StaleOutputBanner onRunOptimizer={vi.fn()} />);
+    expect(screen.getByText(/inputs changed since last solve/i).className).toContain("var(--text-body)");
+    expect(screen.getByText(/re-run the optimizer/i).className).toContain("var(--text-muted)");
+  });
 });

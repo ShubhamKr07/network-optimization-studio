@@ -43,6 +43,12 @@ describe("TabBar", () => {
     expect(screen.getByTestId("tab-input:warehouses")).toHaveAttribute("aria-selected", "false");
   });
 
+  it("gives the active tab a top green rule via inset box-shadow, not a bottom border", () => {
+    render(<TabBar {...baseProps()} />);
+    expect(screen.getByTestId("tab-input:customers")).toHaveStyle({ boxShadow: "inset 0 2px 0 var(--green-500)" });
+    expect(screen.getByTestId("tab-input:warehouses")).toHaveStyle({ boxShadow: "none" });
+  });
+
   it("clicking a tab calls onActivate with its id", async () => {
     const props = baseProps();
     render(<TabBar {...props} />);

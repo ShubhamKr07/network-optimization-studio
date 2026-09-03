@@ -43,6 +43,12 @@ export function Register() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <header className="scnd-band flex-shrink-0 px-4 py-3 text-center" data-testid="auth-band">
+        <div className="scnd-kicker">By Prof. Michael Watson</div>
+        <div className="scnd-display text-lg font-semibold" style={{ color: "var(--surface-band-fg)" }}>
+          SCND Optimization Studio
+        </div>
+      </header>
       <div className="flex-1 flex items-center justify-center p-4">
         <Card className="w-full max-w-sm">
           <CardHeader>

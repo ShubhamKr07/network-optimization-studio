@@ -43,30 +43,34 @@ export interface EntityMarkersProps {
 // L.divIcon's `html` option requires a raw string; a React element there
 // silently stringifies to "[object Object]" instead of throwing.
 //
-// R3 bug fix: --accent-*/--demand-* (index.css) are already COMPLETE colors
-// (relative-color `hsl(from ...)` output), not shadcn H-S-L channel triples
-// — wrapping one again as `hsl(var(--accent-700))` is an invalid nested
-// color. An invalid `fill` falls back to SVG's default black (which is why
-// filled/Fixed-Open rendered — a black triangle looked "correct" enough to
-// hide the bug); an invalid `stroke` falls back to `none` (why outline/
-// dashed painted nothing at all). Fix: consume them unwrapped, `var(--token)`.
-// `--muted-foreground` is a genuine shadcn channel token (H S% L%, declared
-// as such everywhere else in index.css), so it stays wrapped in `hsl(...)`.
+// Bundle 3 (T10) — book-cover map-entity tokens (index.css's --map-*), not
+// the old R3-era --accent-*/--demand-* pair. outline (Potential) uses the
+// default ink stroke; filled (Fixed-Open, i.e. actually open) uses the
+// warehouse-open green for both fill and stroke; dashed (Inactive) uses the
+// inactive gray. All three are already COMPLETE colors (bare hex/HSL — see
+// index.css's raw-token block), so they're consumed unwrapped as
+// `var(--token)`, never re-wrapped in `hsl(...)`.
 export function warehouseTriangleSvg(marker: "outline" | "filled" | "dashed"): string {
   const filled = marker === "filled";
   const dashed = marker === "dashed";
-  const stroke = dashed ? "hsl(var(--muted-foreground))" : "var(--accent-700)";
-  const fill = filled ? "var(--accent-700)" : "none";
+  const stroke = dashed ? "var(--map-inactive)" : filled ? "var(--map-warehouse-open)" : "var(--map-warehouse)";
+  const fill = filled ? "var(--map-warehouse-open)" : "none";
   const dashAttr = dashed ? ' stroke-dasharray="4"' : "";
   return `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polygon points="12,2 22,20 2,20" fill="${fill}" stroke="${stroke}" stroke-width="2"${dashAttr} /></svg>`;
 }
 
-export function customerBubbleSvg(radiusPx: number, tone: DemandTone = "blue"): string {
+// Bundle 3 (T10) — demand bubbles are always the map-customer green/stroke
+// pair now, regardless of `tone`: under book-cover, supply (ink warehouse
+// triangles) vs demand (green customer bubbles) is already visually
+// distinct, retiring the old --demand-*/--accent-* tone split. This is the
+// exact pair NetworkMap's own customer markers and MapLegend's demand-bubble
+// swatches use, so all three can never drift apart. `tone` stays a real
+// parameter (unused for color) so existing call sites (MapLegend.tsx) don't
+// need a signature change.
+export function customerBubbleSvg(radiusPx: number, _tone: DemandTone = "blue"): string {
   const size = Math.ceil(radiusPx * 2) + 4;
   const center = size / 2;
-  const fillToken = tone === "green" ? "--demand-300" : "--accent-300";
-  const strokeToken = tone === "green" ? "--demand-600" : "--accent-600";
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="${center}" cy="${center}" r="${radiusPx}" fill="var(${fillToken})" fill-opacity="0.55" stroke="var(${strokeToken})" stroke-width="1.5" /></svg>`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="${center}" cy="${center}" r="${radiusPx}" fill="var(--map-customer)" fill-opacity="0.55" stroke="var(--map-customer-stroke)" stroke-width="1.5" /></svg>`;
 }
 
 // T4 (Bundle 2) — `status` is optional now: a role with `hasStatus: false`

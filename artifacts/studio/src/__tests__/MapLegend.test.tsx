@@ -42,19 +42,27 @@ describe("MapLegend", () => {
     expect(rows.length).toBeGreaterThan(1);
   });
 
-  describe("demand tone (R1)", () => {
-    it("demand swatches are green (var(--demand-*)) for p-median-us, the default modelId", () => {
+  describe("demand tone (book-cover — bundle3-T8/T10)", () => {
+    // Bundle 3: demand-bubble swatches (base + legend, via the shared
+    // customerBubbleSvg builder EntityMarkers/MapLegend both consume) use
+    // the exact --map-customer/--map-customer-stroke pair the map markers
+    // use — not --demand-*/--accent-* — so legend and markers can never
+    // diverge (same reuse guarantee the R1/R3 predecessor tests checked,
+    // updated for the retired --demand-* tone system).
+    it("demand swatches use --map-customer/--map-customer-stroke for p-median-us, the default modelId", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
       const { container } = render(<MapLegend customers={customers} />);
       const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
-      expect(anySwatch.outerHTML).toContain("var(--demand-300)");
+      expect(anySwatch.outerHTML).toContain("var(--map-customer)");
+      expect(anySwatch.outerHTML).toContain("var(--map-customer-stroke)");
     });
 
-    it("demand swatches are green for every other modelId too (R1 fast-follow — no more blue branch)", () => {
+    it("demand swatches use the same map-customer pair for every other modelId too (no more per-model tone branch)", () => {
       const customers = [1000, 5000, 20000].map((demand) => ({ demand }));
       const { container } = render(<MapLegend customers={customers} modelId="transport-coal" />);
       const anySwatch = container.querySelector('[data-testid^="legend-demand-bucket-"] svg')!;
-      expect(anySwatch.outerHTML).toContain("var(--demand-300)");
+      expect(anySwatch.outerHTML).toContain("var(--map-customer)");
+      expect(anySwatch.outerHTML).not.toContain("--demand-");
       expect(anySwatch.outerHTML).not.toContain("--accent-300");
     });
   });

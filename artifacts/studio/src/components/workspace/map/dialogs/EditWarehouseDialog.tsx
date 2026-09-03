@@ -85,11 +85,11 @@ export function EditWarehouseDialog({
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p data-testid="edit-warehouse-lat">{entity.lat}</p>
+              <p className="font-mono" data-testid="edit-warehouse-lat">{entity.lat}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p data-testid="edit-warehouse-lng">{entity.lng}</p>
+              <p className="font-mono" data-testid="edit-warehouse-lng">{entity.lng}</p>
             </div>
           </div>
 
@@ -128,6 +128,7 @@ export function EditWarehouseDialog({
                 min={0}
                 value={capacity}
                 onChange={e => setCapacity(e.target.value)}
+                className="font-mono"
                 data-testid="edit-warehouse-capacity"
               />
             </div>

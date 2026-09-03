@@ -327,7 +327,7 @@ export function CustomersTab({
                           const parsed = Number(e.target.value);
                           if (Number.isFinite(parsed) && parsed >= 0) upsertAddedDemand(c.id, parsed);
                         }}
-                        className="h-7 text-xs w-28"
+                        className="h-7 text-xs w-28 font-mono"
                         data-testid={`input-added-customer-demand-${c.id}`}
                       />
                     </TableCell>
@@ -374,7 +374,7 @@ export function CustomersTab({
             value={newLat}
             onChange={e => setNewLat(e.target.value)}
             onFocus={touchLat}
-            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-customer-lat"
           />
           <Input
@@ -383,7 +383,7 @@ export function CustomersTab({
             value={newLng}
             onChange={e => setNewLng(e.target.value)}
             onFocus={touchLng}
-            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-customer-lng"
           />
           <Input
@@ -394,7 +394,7 @@ export function CustomersTab({
             className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-customer-display-code"
           />
-          <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-customer-demand" />
+          <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24 font-mono" data-testid="input-new-customer-demand" />
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-customer-confirm">
             Add
           </Button>

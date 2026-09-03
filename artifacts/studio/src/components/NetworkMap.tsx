@@ -31,31 +31,31 @@ const createTriangleIcon = (
   multiSelected = false,
 ) => {
   let fill = "none";
-  let stroke = "#64748B";
+  let stroke = "var(--map-default-stroke)";
   let strokeWidth = "2";
   let dash = "";
   let extraCircle = "";
 
   if (status === "open" || status === "forced_open") {
-    fill = highlighted ? "#15803D" : "#16A34A";
-    stroke = highlighted ? "#15803D" : "#16A34A";
+    fill = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
+    stroke = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
   } else if (status === "inactive") {
-    stroke = "#DC2626";
+    stroke = "var(--danger)";
     dash = 'stroke-dasharray="4"';
   }
 
   if (status === "forced_open") {
-    extraCircle = `<circle cx="12" cy="12" r="10" fill="none" stroke="#2D6CDF" stroke-width="1.5" stroke-dasharray="3" />`;
+    extraCircle = `<circle cx="12" cy="12" r="10" fill="none" stroke="var(--map-ring-forced-open)" stroke-width="1.5" stroke-dasharray="3" />`;
   }
 
   const ringCircle = highlighted
-    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#FCD34D" stroke-width="2" />`
+    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="var(--map-ring-select)" stroke-width="2" />`
     : "";
   // Multi-select ring uses a distinct violet stroke so it's visually
   // unambiguous from the amber single-select ring above, and can coexist
   // with it (a warehouse can be both single-selected and multi-selected).
   const multiSelectRing = multiSelected
-    ? `<circle cx="12" cy="12" r="9" fill="none" stroke="#7C3AED" stroke-width="2.5" />`
+    ? `<circle cx="12" cy="12" r="9" fill="none" stroke="var(--map-ring-multiselect)" stroke-width="2.5" />`
     : "";
 
   const opacity = dimmed ? 0.25 : 1;
@@ -89,31 +89,31 @@ const createStarIcon = (
   multiSelected = false,
 ) => {
   let fill = "none";
-  let stroke = "#64748B";
+  let stroke = "var(--map-default-stroke)";
   let strokeWidth = "2";
   let dash = "";
   let extraCircle = "";
 
   if (status === "open" || status === "forced_open") {
-    fill = highlighted ? "#15803D" : "#16A34A";
-    stroke = highlighted ? "#15803D" : "#16A34A";
+    fill = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
+    stroke = highlighted ? "var(--green-700)" : "var(--map-warehouse-open)";
   } else if (status === "inactive") {
-    stroke = "#DC2626";
+    stroke = "var(--danger)";
     dash = 'stroke-dasharray="4"';
   }
 
   if (status === "forced_open") {
-    extraCircle = `<circle cx="12" cy="12" r="10" fill="none" stroke="#2D6CDF" stroke-width="1.5" stroke-dasharray="3" />`;
+    extraCircle = `<circle cx="12" cy="12" r="10" fill="none" stroke="var(--map-ring-forced-open)" stroke-width="1.5" stroke-dasharray="3" />`;
   }
 
   const ringCircle = highlighted
-    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#FCD34D" stroke-width="2" />`
+    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="var(--map-ring-select)" stroke-width="2" />`
     : "";
   // Multi-select ring uses a distinct violet stroke so it's visually
   // unambiguous from the amber single-select ring above, and can coexist
   // with it (a warehouse can be both single-selected and multi-selected).
   const multiSelectRing = multiSelected
-    ? `<circle cx="12" cy="12" r="9" fill="none" stroke="#7C3AED" stroke-width="2.5" />`
+    ? `<circle cx="12" cy="12" r="9" fill="none" stroke="var(--map-ring-multiselect)" stroke-width="2.5" />`
     : "";
 
   const opacity = dimmed ? 0.25 : 1;
@@ -173,21 +173,21 @@ function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void
 
     const content = `
       <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid #e2e8f0;padding-bottom:4px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
           ${info.customerCity}, ${info.customerState}
         </div>
-        <div style="margin-bottom:3px;color:#334155">
-          <span style="color:#64748b">Warehouse:</span>
+        <div style="margin-bottom:3px;color:var(--text-body)">
+          <span style="color:var(--text-muted)">Warehouse:</span>
           <strong style="margin-left:4px">${info.warehouseCity}, ${info.warehouseState}</strong>
         </div>
-        <div style="margin-bottom:3px;color:#334155">
-          <span style="color:#64748b">Distance:</span>
-          <strong style="margin-left:4px">${info.distanceMi.toLocaleString()} mi</strong>
+        <div style="margin-bottom:3px;color:var(--text-body)">
+          <span style="color:var(--text-muted)">Distance:</span>
+          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${info.distanceMi.toLocaleString()} mi</strong>
         </div>
-        <div style="display:flex;align-items:center;gap:5px;color:#334155">
-          <span style="color:#64748b">Band:</span>
+        <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
+          <span style="color:var(--text-muted)">Band:</span>
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
-          <strong>Band ${info.band + 1}</strong>
+          <strong style="font-family:var(--app-font-mono)">Band ${info.band + 1}</strong>
         </div>
       </div>
     `;
@@ -443,8 +443,8 @@ export function NetworkMap({
               // style mine->refinery and refinery->customer differently. When
               // leg is absent (every single-echelon model), fall back to the
               // existing band-color behavior completely unchanged.
-              const legColor = edge.leg === "mine_to_refinery" ? "#16A34A"
-                : edge.leg === "refinery_to_customer" ? "#DC2626"
+              const legColor = edge.leg === "mine_to_refinery" ? "var(--map-warehouse-open)"
+                : edge.leg === "refinery_to_customer" ? "var(--danger)"
                 : getBandColor(assignBand(edge.distance, bands));
 
               return (
@@ -475,7 +475,7 @@ export function NetworkMap({
                     <span className="text-xs">
                       {warehouse.city} → {toEntity.city}
                       <br />
-                      {edge.distance} {distanceUnit}
+                      <span className="font-mono">{edge.distance} {distanceUnit}</span>
                     </span>
                   </Tooltip>
                 </Polyline>
@@ -495,7 +495,7 @@ export function NetworkMap({
             ? getBandColor(assignmentBand)
             : isWarehouseHighlighted
               ? getBandColor(assignmentBand)
-              : "#94A3B8";
+              : "var(--map-customer)";
 
           return (
             <CircleMarker
@@ -506,12 +506,12 @@ export function NetworkMap({
                 fillColor,
                 fillOpacity: dimmed ? 0.15 : 0.8,
                 color: multiSelectedCustomerIds.includes(c.id)
-                  ? "#7C3AED"
+                  ? "var(--map-ring-multiselect)"
                   : isCustomerSelected
                     ? getBandColor(assignmentBand)
                     : isWarehouseHighlighted
                       ? getBandColor(assignmentBand)
-                      : "#64748B",
+                      : "var(--map-customer-stroke)",
                 weight: multiSelectedCustomerIds.includes(c.id) ? 3 : isCustomerSelected ? 2.5 : isWarehouseHighlighted ? 1.5 : 1,
               }}
               eventHandlers={{
@@ -529,7 +529,8 @@ export function NetworkMap({
               <Tooltip direction="top" offset={[0, -4]} opacity={1}>
                 <span className="font-semibold text-xs">
                   {(c as unknown as { city?: string }).city ?? c.id}, {(c as unknown as { state?: string }).state ?? ""}
-                  {" · "}{c.demand.toLocaleString()} {assignment ? `· Band ${assignmentBand + 1}` : ""}
+                  {" · "}
+                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· Band ${assignmentBand + 1}` : ""}</span>
                 </span>
               </Tooltip>
             </CircleMarker>
@@ -573,7 +574,9 @@ export function NetworkMap({
                 <span className="font-semibold text-xs">
                   {w.id} — {w.city}, {w.state}
                   {w.kind === "mine" && " (mine)"}
-                  {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers` : ""}
+                  {result && isOpen ? (
+                    <span className="font-mono"> · {warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers</span>
+                  ) : ""}
                 </span>
               </Tooltip>
             </Marker>
@@ -590,21 +593,21 @@ export function NetworkMap({
           {dataset.warehouses.some((w) => w.kind === "mine") && (
             <div className="flex items-center gap-1">
               <svg width="14" height="14" viewBox="0 0 24 24">
-                <path d="M12 2L14.2 8.9L21.5 8.9L15.6 13.2L17.9 20.1L12 15.8L6.1 20.1L8.4 13.2L2.5 8.9L9.8 8.9Z" fill="none" stroke="#64748B" strokeWidth="2" />
+                <path d="M12 2L14.2 8.9L21.5 8.9L15.6 13.2L17.9 20.1L12 15.8L6.1 20.1L8.4 13.2L2.5 8.9L9.8 8.9Z" fill="none" stroke="var(--map-default-stroke)" strokeWidth="2" />
               </svg>
               <span className="text-muted-foreground">Mine (fixed)</span>
             </div>
           )}
           <div className="flex items-center gap-1">
             <svg width="14" height="14" viewBox="0 0 24 24">
-              <polygon points="12,2 22,20 2,20" fill="none" stroke="#64748B" strokeWidth="2" />
+              <polygon points="12,2 22,20 2,20" fill="none" stroke="var(--map-default-stroke)" strokeWidth="2" />
             </svg>
             <span className="text-muted-foreground">Potential</span>
           </div>
           <div className="flex items-center gap-1">
             <svg width="14" height="14" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" fill="none" stroke="#2D6CDF" strokeWidth="1.5" strokeDasharray="3" />
-              <polygon points="12,2 22,20 2,20" fill="#16A34A" stroke="#16A34A" strokeWidth="2" />
+              <circle cx="12" cy="12" r="10" fill="none" stroke="var(--map-ring-forced-open)" strokeWidth="1.5" strokeDasharray="3" />
+              <polygon points="12,2 22,20 2,20" fill="var(--map-warehouse-open)" stroke="var(--map-warehouse-open)" strokeWidth="2" />
             </svg>
             <span className="text-muted-foreground">Forced Open</span>
           </div>
@@ -618,7 +621,7 @@ export function NetworkMap({
             {bandColors.slice(0, bands.length).map((color, i) => (
               <div key={i} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                <span className="text-[10px] text-muted-foreground">Band {i + 1}</span>
+                <span className="text-[10px] text-muted-foreground font-mono">Band {i + 1}</span>
               </div>
             ))}
           </div>
