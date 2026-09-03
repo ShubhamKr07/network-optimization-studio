@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: this plan is executed by the **agent team**
 > (frontend-engineer implementers + independent reviewer per task), the standing NOS execution model.
-> Steps use checkbox (`- [ ]`) syntax. Spec: `docs/superpowers/specs/2026-09-03-bundle3-book-cover-design-system-design.md` (rev 2).
+> Steps use checkbox (`- [x]`) syntax. Spec: `docs/superpowers/specs/2026-09-03-bundle3-book-cover-design-system-design.md` (rev 2).
 
 **Goal:** Reskin all live surfaces (Landing, auth, Workspace) to the textbook-cover brand — paper/leaf-green/dark-band, Source Serif 4 + IBM Plex Sans/Mono, print radii + hairlines — by retargeting shadcn tokens at global `:root`, adding band/kicker markup, and close-matching the 6 studio components. Presentation only.
 
@@ -65,13 +65,13 @@ files and parallelize only file-disjoint tasks:
 - Global `:root` book-cover palette (shadcn vars) + additive tokens (`--green-*`, `--ink-*`, `--text-*`, `--surface-band*`, `--map-*`, `--band-0..4`, status, `--line-strong`, `--focus-ring`).
 - Retargeted Tailwind theme vars: radii `--radius-sm/md/lg/xl = 3/4/6/6px`, shadows in `@theme`.
 
-- [ ] **Step 1: Swap the font `@import`** (line 1). Replace the current Space Grotesk/Inter/JetBrains/Barlow import with:
+- [x] **Step 1: Swap the font `@import`** (line 1). Replace the current Space Grotesk/Inter/JetBrains/Barlow import with:
 ```css
 @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 ```
 Leave the `leaflet`, `tailwindcss`, `tw-animate-css` imports and the `.leaflet-container{z-index:0}` block unchanged.
 
-- [ ] **Step 2: Retarget the `:root` LIGHT block** (starts `/* LIGHT MODE */ :root {` ~L301). Change these exact values (old → new). Leave `--button-outline`, `--badge-outline`, `--opaque-button-border-intensity`, `--elevate-1/2`, the derived `*-border` fallbacks, `--accent-300/600/700`, `--demand*`, `--tracking-normal`, `--spacing` unchanged:
+- [x] **Step 2: Retarget the `:root` LIGHT block** (starts `/* LIGHT MODE */ :root {` ~L301). Change these exact values (old → new). Leave `--button-outline`, `--badge-outline`, `--opaque-button-border-intensity`, `--elevate-1/2`, the derived `*-border` fallbacks, `--accent-300/600/700`, `--demand*`, `--tracking-normal`, `--spacing` unchanged:
 ```
 --background: 0 0% 100%          →  60 20% 99%
 --foreground: 222 84% 12%        →  84 11% 9%
@@ -104,7 +104,7 @@ Leave the `leaflet`, `tailwindcss`, `tw-animate-css` imports and the `.leaflet-c
 --ring: 218 70% 52%              →  81 50% 43%
 ```
 
-- [ ] **Step 3: Replace the status + band-0..3 + chart + font + radius + shadow lines** in `:root` (the block `--success` through `--radius`/`--shadow-*`). New values:
+- [x] **Step 3: Replace the status + band-0..3 + chart + font + radius + shadow lines** in `:root` (the block `--success` through `--radius`/`--shadow-*`). New values:
 ```css
   /* status (full sets) */
   --success: #16A34A; --success-bg: #F0FDF4; --success-border: #86EFAC;
@@ -149,9 +149,9 @@ Leave the `leaflet`, `tailwindcss`, `tw-animate-css` imports and the `.leaflet-c
 ```
 DELETE the old `--band-3: #EF4444` line's absence of `--band-4` (add `--band-4`), the `--chart-1..5: red` lines, and the entire `--shadow-2xs/xs/sm/shadow/md/lg/xl/2xl` placeholder block in `:root` (moved to `@theme`, Step 5). Keep `--tracking-normal`/`--spacing` and the derived-border/`--accent-*`/`--demand-*` blocks.
 
-- [ ] **Step 4: `.dark` block** — remove its transparent `--shadow-*` placeholder lines **and** its five `--chart-1..5: red` placeholder lines (L495-499) — both are dead, and T2's contract scans the whole stylesheet, so a `red` left anywhere fails it. Leave the rest of `.dark` untouched (dead surface).
+- [x] **Step 4: `.dark` block** — remove its transparent `--shadow-*` placeholder lines **and** its five `--chart-1..5: red` placeholder lines (L495-499) — both are dead, and T2's contract scans the whole stylesheet, so a `red` left anywhere fails it. Leave the rest of `.dark` untouched (dead surface).
 
-- [ ] **Step 5: Add radii + shadows to `@theme inline`.** In the existing `@theme inline {…}` block, replace the four `--radius-*` calc lines with pinned values, and add the shadow namespace:
+- [x] **Step 5: Add radii + shadows to `@theme inline`.** In the existing `@theme inline {…}` block, replace the four `--radius-*` calc lines with pinned values, and add the shadow namespace:
 ```css
   --radius-sm: 3px;
   --radius-md: 4px;
@@ -172,15 +172,15 @@ DELETE the old `--band-3: #EF4444` line's absence of `--band-4` (add `--band-4`)
 omitting it silently reverts them to Tailwind's stock shadow). The one conflict: `switch.tsx`'s **thumb**
 uses `shadow-lg` (which is now the 30px overlay) — see Step 5b.
 
-- [ ] **Step 5b: decouple the Switch thumb from the overlay scale.** In `components/ui/switch.tsx` (L20),
+- [x] **Step 5b: decouple the Switch thumb from the overlay scale.** In `components/ui/switch.tsx` (L20),
   change the thumb's `shadow-lg` → `shadow-sm` so the toggle thumb keeps a small shadow while `shadow-lg`
   serves dialogs/dropdowns as the overlay. This is the only live consumer where overlay-`lg` would be
   wrong; verify no other non-overlay control uses `shadow-lg` (grep confirmed: only switch thumb + the
   overlay surfaces).
 
-- [ ] **Step 6: Retire `.scn-theme`.** Replace the entire `.scn-theme { … }` rule body (the Phase 3.1 override block) with an empty no-op comment `/* .scn-theme retired (Bundle 3): book-cover theme lives at :root now; class left on Workspace.tsx as a harmless no-op */ .scn-theme {}`. Leave `.studio-lab` and the `--arc-*` block untouched (dead Studio.tsx + T7's ObjectiveBar until rewritten).
+- [x] **Step 6: Retire `.scn-theme`.** Replace the entire `.scn-theme { … }` rule body (the Phase 3.1 override block) with an empty no-op comment `/* .scn-theme retired (Bundle 3): book-cover theme lives at :root now; class left on Workspace.tsx as a harmless no-op */ .scn-theme {}`. Leave `.studio-lab` and the `--arc-*` block untouched (dead Studio.tsx + T7's ObjectiveBar until rewritten).
 
-- [ ] **Step 7: Add the three utility classes** at the end of `index.css`:
+- [x] **Step 7: Add the three utility classes** at the end of `index.css`:
 ```css
 @layer components {
   .scnd-band { background: var(--surface-band); color: var(--surface-band-fg); border-bottom: 2px solid var(--green-400); }
@@ -193,9 +193,9 @@ uses `shadow-lg` (which is now the 30px overlay) — see Step 5b.
 (T3/T4/T6 place kickers on the band; this contextual rule keeps them readable while light-surface
 kickers keep `--text-muted`.)
 
-- [ ] **Step 8: Build + smoke.** Run `pnpm --filter studio test` — expect some class/snapshot churn in later-task files but T1 itself should not break behavioral tests. Run `pnpm --filter studio run build` to confirm the CSS compiles (catches an invalid `@theme`/token). Fix any red.
+- [x] **Step 8: Build + smoke.** Run `pnpm --filter studio test` — expect some class/snapshot churn in later-task files but T1 itself should not break behavioral tests. Run `pnpm --filter studio run build` to confirm the CSS compiles (catches an invalid `@theme`/token). Fix any red.
 
-- [ ] **Step 9: Commit** — `[bundle3-T1] index.css book-cover foundation (tokens/fonts/radii/shadows/utilities)`.
+- [x] **Step 9: Commit** — `[bundle3-T1] index.css book-cover foundation (tokens/fonts/radii/shadows/utilities)`.
 
 ### Task 2: design-token source-contract test
 
@@ -203,7 +203,7 @@ kickers keep `--text-muted`.)
 
 **Interfaces consumed:** reads `index.css` from disk (source-contract, NOT jsdom computed style).
 
-- [ ] **Step 1: Write the test.** Read `index.css` as text; assert token *shape* (the representation rule):
+- [x] **Step 1: Write the test.** Read `index.css` as text; assert token *shape* (the representation rule):
 ```ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -274,8 +274,8 @@ describe("design tokens — representation contract", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `pnpm --filter studio test src/__tests__/designTokens.contract.test.ts` — expect PASS (T1 already landed). If a token is the wrong shape, fix it in `index.css` (this is exactly the class of bug the test exists to catch).
-- [ ] **Step 3: Commit** — `[bundle3-T2] design-token source-contract test`.
+- [x] **Step 2: Run** `pnpm --filter studio test src/__tests__/designTokens.contract.test.ts` — expect PASS (T1 already landed). If a token is the wrong shape, fix it in `index.css` (this is exactly the class of bug the test exists to catch).
+- [x] **Step 3: Commit** — `[bundle3-T2] design-token source-contract test`.
 
 ---
 
@@ -301,36 +301,36 @@ describe("design tokens — representation contract", () => {
 </header>
 ```
 
-- [ ] **Step 1 (test first):** In `AppShell.test.tsx` (create if absent), assert: renders `data-testid="text-user-email"` + logout button (unchanged behavior); the header carries `.scnd-band`; **with** `heroTitle="Network Design Labs"` that title renders; **without** `heroTitle`, the fallback "SCND Optimization Studio" wordmark renders (both branches covered). Run → fails.
-- [ ] **Step 2:** `AppShell.tsx` — restyle the `<header>` (L35) from `bg-background` to `className="scnd-band …"`; keep `h-12`→ allow taller (e.g. `py-3`) for the hero; render kicker `<div className="scnd-kicker">Optimization Studio by Prof. Michael Watson</div>` + (if `heroTitle`) `<div className="scnd-display" style={{color:"var(--green-400)"}}>{heroTitle}</div>`; keep `{userEmail}` (testid intact) + logout button on the right, recolored for the band (`text-[color:var(--ink-300)]`/ghost). Add `heroTitle?: string` to props.
-- [ ] **Step 3:** `pages/Landing.tsx` — pass nothing new itself; Landing's parent `App.tsx` renders `<AppShell>` — **update `App.tsx:39/46`** so the `/` route passes `heroTitle="Network Design Labs"` (add an optional param to `authedOnly` or wrap Landing's AppShell explicitly). Keep the body `<h1>Labs</h1>` but render it `.scnd-display`; chapter-card `c.chapter` → `.scnd-kicker`; `CardTitle` serif; the recent-solves status badge → status tokens (`text-[color:var(--success)]` etc.); recent-solves stat spans get `font-mono` (also covered by T9 — idempotent).
-- [ ] **Step 4:** `pages/not-found.tsx` — passes no `heroTitle`, so its AppShell band shows the kicker + the small "SCND Optimization Studio" serif wordmark fallback (pinned above). Assert (in `App.test.tsx` or a not-found test) the fallback wordmark renders and the large green hero title does NOT.
-- [ ] **Step 5:** Run `pnpm --filter studio test` (AppShell/Landing/App tests) → green; update any snapshot/class assertion that is purely cosmetic. `typecheck`.
-- [ ] **Step 6: Commit** — `[bundle3-T3] AppShell band hero + Landing/NotFound`.
+- [x] **Step 1 (test first):** In `AppShell.test.tsx` (create if absent), assert: renders `data-testid="text-user-email"` + logout button (unchanged behavior); the header carries `.scnd-band`; **with** `heroTitle="Network Design Labs"` that title renders; **without** `heroTitle`, the fallback "SCND Optimization Studio" wordmark renders (both branches covered). Run → fails.
+- [x] **Step 2:** `AppShell.tsx` — restyle the `<header>` (L35) from `bg-background` to `className="scnd-band …"`; keep `h-12`→ allow taller (e.g. `py-3`) for the hero; render kicker `<div className="scnd-kicker">Optimization Studio by Prof. Michael Watson</div>` + (if `heroTitle`) `<div className="scnd-display" style={{color:"var(--green-400)"}}>{heroTitle}</div>`; keep `{userEmail}` (testid intact) + logout button on the right, recolored for the band (`text-[color:var(--ink-300)]`/ghost). Add `heroTitle?: string` to props.
+- [x] **Step 3:** `pages/Landing.tsx` — pass nothing new itself; Landing's parent `App.tsx` renders `<AppShell>` — **update `App.tsx:39/46`** so the `/` route passes `heroTitle="Network Design Labs"` (add an optional param to `authedOnly` or wrap Landing's AppShell explicitly). Keep the body `<h1>Labs</h1>` but render it `.scnd-display`; chapter-card `c.chapter` → `.scnd-kicker`; `CardTitle` serif; the recent-solves status badge → status tokens (`text-[color:var(--success)]` etc.); recent-solves stat spans get `font-mono` (also covered by T9 — idempotent).
+- [x] **Step 4:** `pages/not-found.tsx` — passes no `heroTitle`, so its AppShell band shows the kicker + the small "SCND Optimization Studio" serif wordmark fallback (pinned above). Assert (in `App.test.tsx` or a not-found test) the fallback wordmark renders and the large green hero title does NOT.
+- [x] **Step 5:** Run `pnpm --filter studio test` (AppShell/Landing/App tests) → green; update any snapshot/class assertion that is purely cosmetic. `typecheck`.
+- [x] **Step 6: Commit** — `[bundle3-T3] AppShell band hero + Landing/NotFound`.
 
 ### Task 4: Auth pages band
 
 **Files:** Modify `pages/auth/Login.tsx`, `pages/auth/Register.tsx`.
 
-- [ ] **Step 1 (test):** existing `Login`/`Register` tests must stay green (testids `input-email`/`input-password`/`button-login` unchanged). Add one assertion that a `.scnd-band` (or kicker) element renders on the auth page.
-- [ ] **Step 2:** Wrap the card with a `.scnd-band` title strip (or a band header above the centered card): serif "SCND Optimization Studio" + `.scnd-kicker` "By Prof. Michael Watson". Keep the form, `AppFooter`, all testids. Register mirrors Login.
-- [ ] **Step 3:** test + typecheck green. **Commit** — `[bundle3-T4] auth pages band`.
+- [x] **Step 1 (test):** existing `Login`/`Register` tests must stay green (testids `input-email`/`input-password`/`button-login` unchanged). Add one assertion that a `.scnd-band` (or kicker) element renders on the auth page.
+- [x] **Step 2:** Wrap the card with a `.scnd-band` title strip (or a band header above the centered card): serif "SCND Optimization Studio" + `.scnd-kicker` "By Prof. Michael Watson". Keep the form, `AppFooter`, all testids. Register mirrors Login.
+- [x] **Step 3:** test + typecheck green. **Commit** — `[bundle3-T4] auth pages band`.
 
 ### Task 5: AppFooter restyle
 
 **Files:** Modify `components/AppFooter.tsx`.
 
-- [ ] **Step 1 (test):** `AppFooter` test (create/extend) — copy "© Developed by hx1" unchanged, `data-testid="app-footer"`, `FOOTER_H` export unchanged.
-- [ ] **Step 2:** restyle to paper/muted print footer — `border-t` hairline (`border-[color:var(--line)]`), `text-[color:var(--text-faint)]`, mono (`font-mono`), keep `height: FOOTER_H`.
-- [ ] **Step 3:** test + typecheck. **Commit** — `[bundle3-T5] AppFooter print restyle`.
+- [x] **Step 1 (test):** `AppFooter` test (create/extend) — copy "© Developed by hx1" unchanged, `data-testid="app-footer"`, `FOOTER_H` export unchanged.
+- [x] **Step 2:** restyle to paper/muted print footer — `border-t` hairline (`border-[color:var(--line)]`), `text-[color:var(--text-faint)]`, mono (`font-mono`), keep `height: FOOTER_H`.
+- [x] **Step 3:** test + typecheck. **Commit** — `[bundle3-T5] AppFooter print restyle`.
 
 ### Task 6: Workspace header band
 
 **Files:** Modify `pages/Workspace.tsx` (header region only, ~L2287–L2340; the 3-track grid).
 
-- [ ] **Step 1 (test):** `Workspace.test.tsx` — all header testids (`button-page-back`, `select-scenario-context`, the summary, account/logout, stepper, Save/Run) stay present; grid + `<md` stacking preserved. Add one assertion the header carries `.scnd-band`.
-- [ ] **Step 2:** change `<header className="border-b flex-shrink-0 bg-background">` → `className="scnd-band flex-shrink-0"`; recolor the back arrow, `Scenario:` label, `<select>`, centered "Chapter N · description" summary, and account zone to band-fg (`text-[color:var(--surface-band-fg)]` / `--ink-300` for muted); the center summary chapter uses `.scnd-kicker` + serif description. Keep the grid `grid-cols-[auto_1fr_auto]`, `min-h-14`, all testids, all handlers.
-- [ ] **Step 3:** test + typecheck green; update cosmetic assertions. **Commit** — `[bundle3-T6] Workspace header band`.
+- [x] **Step 1 (test):** `Workspace.test.tsx` — all header testids (`button-page-back`, `select-scenario-context`, the summary, account/logout, stepper, Save/Run) stay present; grid + `<md` stacking preserved. Add one assertion the header carries `.scnd-band`.
+- [x] **Step 2:** change `<header className="border-b flex-shrink-0 bg-background">` → `className="scnd-band flex-shrink-0"`; recolor the back arrow, `Scenario:` label, `<select>`, centered "Chapter N · description" summary, and account zone to band-fg (`text-[color:var(--surface-band-fg)]` / `--ink-300` for muted); the center summary chapter uses `.scnd-kicker` + serif description. Keep the grid `grid-cols-[auto_1fr_auto]`, `min-h-14`, all testids, all handlers.
+- [x] **Step 3:** test + typecheck green; update cosmetic assertions. **Commit** — `[bundle3-T6] Workspace header band`.
 
 ---
 
@@ -340,23 +340,23 @@ describe("design tokens — representation contract", () => {
 
 **Files:** Modify `components/ObjectiveBar.tsx`.
 
-- [ ] **Step 1 (test):** extend/confirm `ObjectiveBar.test.tsx` — same props/render (chapter label, title, description, stat pills when `result`, "Not yet solved" otherwise); stats are `font-mono`. No `--arc-*` string remains (assert via a source check or a computed-class check).
-- [ ] **Step 2:** rewrite the inline styles: container → white card (`background: hsl(var(--card))` — the existing shadcn token; do NOT invent `--surface-card`), `border: 1px solid var(--line)`, `box-shadow: var(--shadow-sm)`, `border-radius: var(--radius-md)`; kicker `var(--text-muted)` mono; title `var(--app-font-display)` `var(--text-body)`; description `var(--text-muted)`; `StatPill` → mono, `var(--text-muted)`, `1px solid var(--line)`. Replace every `--arc-*` with book-cover tokens. Props/DOM unchanged.
-- [ ] **Step 3:** `grep -n 'arc-' components/ObjectiveBar.tsx` → zero. test + typecheck green. **Commit** — `[bundle3-T7] ObjectiveBar book-cover rewrite`.
+- [x] **Step 1 (test):** extend/confirm `ObjectiveBar.test.tsx` — same props/render (chapter label, title, description, stat pills when `result`, "Not yet solved" otherwise); stats are `font-mono`. No `--arc-*` string remains (assert via a source check or a computed-class check).
+- [x] **Step 2:** rewrite the inline styles: container → white card (`background: hsl(var(--card))` — the existing shadcn token; do NOT invent `--surface-card`), `border: 1px solid var(--line)`, `box-shadow: var(--shadow-sm)`, `border-radius: var(--radius-md)`; kicker `var(--text-muted)` mono; title `var(--app-font-display)` `var(--text-body)`; description `var(--text-muted)`; `StatPill` → mono, `var(--text-muted)`, `1px solid var(--line)`. Replace every `--arc-*` with book-cover tokens. Props/DOM unchanged.
+- [x] **Step 3:** `grep -n 'arc-' components/ObjectiveBar.tsx` → zero. test + typecheck green. **Commit** — `[bundle3-T7] ObjectiveBar book-cover rewrite`.
 
 ### Task 8: Close-match the 5 other studio components
 
 **Files:** Modify `components/workspace/SidebarTree.tsx`, `components/workspace/TabBar.tsx`, `components/workspace/StaleOutputBanner.tsx`, `components/ConstraintChips.tsx`, `components/workspace/map/MapLegend.tsx`.
 
-- [ ] **Step 1 (tests first):** for each, keep all existing tests green; add/adjust the specific cosmetic assertion noted below. DOM/roles/testids frozen.
-- [ ] **Step 2 — SidebarTree:** `rowClass(active)` — active state → `bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] border-l-2 border-[color:var(--green-500)] font-medium` (replacing `bg-muted font-medium text-foreground`); `SidebarSection` header → add `font-mono` (kicker) to the existing `text-[10px] uppercase tracking-wide`.
-- [ ] **Step 3 — TabBar:** active tab → `bg-background` + a **top** green rule matching the reference
+- [x] **Step 1 (tests first):** for each, keep all existing tests green; add/adjust the specific cosmetic assertion noted below. DOM/roles/testids frozen.
+- [x] **Step 2 — SidebarTree:** `rowClass(active)` — active state → `bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] border-l-2 border-[color:var(--green-500)] font-medium` (replacing `bg-muted font-medium text-foreground`); `SidebarSection` header → add `font-mono` (kicker) to the existing `text-[10px] uppercase tracking-wide`.
+- [x] **Step 3 — TabBar:** active tab → `bg-background` + a **top** green rule matching the reference
   `TabBar.jsx` (`boxShadow: active ? "inset 0 2px 0 var(--green-500)" : "none"`), NOT a bottom border;
   apply via `style={{ boxShadow: isActive ? "inset 0 2px 0 var(--green-500)" : "none" }}`. Keep
   `role=tablist/tab`, testids; test the active tab's inset boxShadow (or its class).
-- [ ] **Step 4 — StaleOutputBanner:** amber triangle kept; recolor text to tokens (`text-[color:var(--text-body)]`/`--text-muted`), status-statement tone unchanged.
-- [ ] **Step 5 — ConstraintChips:** chips already `font-mono`; reconcile the stale `Badge` amber classes to status tokens (`text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]`); chip border/hover to `--line`/`--primary`.
-- [ ] **Step 6 — MapLegend (input-map legend only):** move entity/status swatches to the map-entity
+- [x] **Step 4 — StaleOutputBanner:** amber triangle kept; recolor text to tokens (`text-[color:var(--text-body)]`/`--text-muted`), status-statement tone unchanged.
+- [x] **Step 5 — ConstraintChips:** chips already `font-mono`; reconcile the stale `Badge` amber classes to status tokens (`text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]`); chip border/hover to `--line`/`--primary`.
+- [x] **Step 6 — MapLegend (input-map legend only):** move entity/status swatches to the map-entity
   tokens. The **customer swatches — including the demand-bubble size samples — use exactly
   `--map-customer` (fill) + `--map-customer-stroke` (stroke)**, the same pair T10 gives the markers
   (Steps 3-4), so legend and markers can never diverge. **No `--demand-*` here:** the demand legend is
@@ -364,7 +364,7 @@ describe("design tokens — representation contract", () => {
   distinct `--demand-*` consumer to justify the exception — drop it. Warehouse/mine swatches →
   `--map-warehouse`/`--map-warehouse-open`/`--map-inactive`. **Do NOT** add distance-band swatches here
   (those live in NetworkMap's output legend, T10).
-- [ ] **Step 7:** `pnpm --filter studio test` green (update cosmetic assertions); typecheck. **Commit** — `[bundle3-T8] close-match 5 studio components`.
+- [x] **Step 7:** `pnpm --filter studio test` green (update cosmetic assertions); typecheck. **Commit** — `[bundle3-T8] close-match 5 studio components`.
 
 ### Task 10: Map palette → tokens (run before T9)
 
@@ -372,19 +372,19 @@ describe("design tokens — representation contract", () => {
 
 > Ordered before T9 in text but file-disjoint from T7/T8 → parallel with them; must merge before T9.
 
-- [ ] **Step 1 (test):** `bandPalette.test.ts` — assert `BAND_COLORS` are the CSS-var references
+- [x] **Step 1 (test):** `bandPalette.test.ts` — assert `BAND_COLORS` are the CSS-var references
   `["var(--band-0)",…,"var(--band-4)"]` (a **static contract that the tokens are authoritative** — a
   literal-hex array with the same values would fail this, which is the point), 5 entries, index semantics
   intact (`getBandColor(6)` clamps to index 4). NetworkMap markers: assert via existing RTL tests they
   still render; computed colors verified in T11.
-- [ ] **Step 2 — bandPalette.ts:** change `BAND_COLORS` to
+- [x] **Step 2 — bandPalette.ts:** change `BAND_COLORS` to
   `["var(--band-0)","var(--band-1)","var(--band-2)","var(--band-3)","var(--band-4)"]` so `--band-0..4` is
   the single source of truth (consumers — NetworkMap `divIcon` SVG stroke/fill, and the band-coverage
   bars' inline `style`/`backgroundColor` — all accept `var()` since they render in-document). Grep every
   `BAND_COLORS`/`getBandColor` consumer to confirm each is a CSS context (SVG attr or inline style), not
   a place that needs a resolved hex (e.g. a canvas API); if any needs a literal, resolve it via
   `getComputedStyle` there rather than reverting the array.
-- [ ] **Step 3 — NetworkMap.tsx:** replace the hardcoded hexes in BOTH icon factories (`createTriangleIcon` + sibling, L34–L58 and L92–L116) and the built-in legend/marker SVGs (L446-447 leg colors, L498/509/514 default+multiselect, L593/600/606/607 legend icons, tooltip L176-188 grays) with the tokens — **context-specific, because the same hex means different things in different markers:**
+- [x] **Step 3 — NetworkMap.tsx:** replace the hardcoded hexes in BOTH icon factories (`createTriangleIcon` + sibling, L34–L58 and L92–L116) and the built-in legend/marker SVGs (L446-447 leg colors, L498/509/514 default+multiselect, L593/600/606/607 legend icons, tooltip L176-188 grays) with the tokens — **context-specific, because the same hex means different things in different markers:**
   - **Warehouse triangles** (`createTriangleIcon` + sibling, L34/92 default stroke `#64748B`) → `var(--map-default-stroke)`.
   - **Warehouse open** `#16A34A` → `var(--map-warehouse-open)`; **highlighted-open** `#15803D` → `var(--green-700)` (the exact darker step, not "a step").
   - **Warehouse inactive** `#DC2626` → keep `var(--danger)`.
@@ -392,8 +392,8 @@ describe("design tokens — representation contract", () => {
   - **Rings:** forced-open `#2D6CDF` → `var(--map-ring-forced-open)`; single-select `#FCD34D` → `var(--map-ring-select)`; multi-select `#7C3AED` → `var(--map-ring-multiselect)`.
   - **Leg colors** (L446-447) → `var(--map-warehouse-open)` / `var(--danger)`; **tooltip grays** (L176-188) → `var(--line)` / `var(--text-body)` / `var(--text-muted)`.
   - Band-state fills (`getBandColor(...)`) already flow from `bandPalette` (Step 2) — no literal change. **Note (confirmed, no landmine):** `var(--map-*)` in the SVG `stroke`/`fill` strings resolves directly — both `NetworkMap.tsx` (L72/L133) and `EntityMarkers.tsx` (L81/L91) build icons via `L.divIcon({html})`, i.e. in-document DOM SVG that inherits `:root` custom properties, NOT `data:` URIs. The only asset icon is stock Leaflet's default pin (`NetworkMap.tsx:22`), which we do not recolor. No literal-hex fallback needed.
-- [ ] **Step 4 — EntityMarkers.tsx:** align to `--map-*` tokens. **Customer demand bubbles → `var(--map-customer)` fill / `var(--map-customer-stroke)` stroke** (retiring the Bundle-2.2 `--demand-300/600` for bubbles — under book-cover, supply is ink warehouse triangles and demand is green customer bubbles, so they're already distinct without a separate demand green; this is the same pair the NetworkMap markers (Step 3) and the T8 legend use, so all three match). Warehouse/mine markers → `var(--map-warehouse)`/`var(--map-warehouse-open)`/`var(--map-inactive)`. Flows → `var(--map-flow)`. Grep for remaining `--demand-*` / `--accent-*` / literal-hex uses in this file and reconcile each. (Leave the `--demand-*` token *definitions* in `index.css` in place if any non-bubble consumer remains; otherwise they become dead — acceptable, don't chase.)
-- [ ] **Step 5:** test + typecheck green. **Commit** — `[bundle3-T10] map palette → book-cover tokens`.
+- [x] **Step 4 — EntityMarkers.tsx:** align to `--map-*` tokens. **Customer demand bubbles → `var(--map-customer)` fill / `var(--map-customer-stroke)` stroke** (retiring the Bundle-2.2 `--demand-300/600` for bubbles — under book-cover, supply is ink warehouse triangles and demand is green customer bubbles, so they're already distinct without a separate demand green; this is the same pair the NetworkMap markers (Step 3) and the T8 legend use, so all three match). Warehouse/mine markers → `var(--map-warehouse)`/`var(--map-warehouse-open)`/`var(--map-inactive)`. Flows → `var(--map-flow)`. Grep for remaining `--demand-*` / `--accent-*` / literal-hex uses in this file and reconcile each. (Leave the `--demand-*` token *definitions* in `index.css` in place if any non-bubble consumer remains; otherwise they become dead — acceptable, don't chase.)
+- [x] **Step 5:** test + typecheck green. **Commit** — `[bundle3-T10] map palette → book-cover tokens`.
 
 ### Task 9: Mono-numbers pass (run LAST, after T7/T8/T10 merge)
 
@@ -406,37 +406,37 @@ Numeric inputs (`type="number"` → also mono) — `components/workspace/SolveDi
 
 **Rule:** every rendered number and every numeric `<input>` value gets `font-mono` (Tailwind class, or `style={{fontFamily:"var(--app-font-mono)"}}` for inline-styled spots). Prose/labels stay sans. Kickers already mono via `.scnd-kicker`.
 
-- [ ] **Step 1 (test):** pick 3 representative surfaces (a table numeric cell, a numeric input, the CostSummary stat) and assert the numeric element carries `font-mono` in RTL. Run → fails where not yet applied.
-- [ ] **Step 2:** apply `font-mono` to the numeric render/input in each enumerated file. Where a file already has partial mono (tables, ConstraintChips), only fill gaps — grep each file for the formatter/`type="number"` and confirm the enclosing element is mono.
-- [ ] **Step 3:** `pnpm --filter studio test` green; typecheck. **Commit** — `[bundle3-T9] mono-numbers pass (enumerated surfaces)`.
+- [x] **Step 1 (test):** pick 3 representative surfaces (a table numeric cell, a numeric input, the CostSummary stat) and assert the numeric element carries `font-mono` in RTL. Run → fails where not yet applied.
+- [x] **Step 2:** apply `font-mono` to the numeric render/input in each enumerated file. Where a file already has partial mono (tables, ConstraintChips), only fill gaps — grep each file for the formatter/`type="number"` and confirm the enclosing element is mono.
+- [x] **Step 3:** `pnpm --filter studio test` green; typecheck. **Commit** — `[bundle3-T9] mono-numbers pass (enumerated surfaces)`.
 
 ### Task 11: Playwright computed-style smoke
 
 **Files:** Create `artifacts/studio/e2e/design-system.spec.ts`.
 
-- [ ] **Step 1:** mirror the existing `e2e/workspace-ux-r1-r9.spec.ts` setup (dev-proxy, disposable account). Assert via real-browser `getComputedStyle`:
+- [x] **Step 1:** mirror the existing `e2e/workspace-ux-r1-r9.spec.ts` setup (dev-proxy, disposable account). Assert via real-browser `getComputedStyle`:
   - Landing AppShell header background ≈ ink `rgb(24, 26, 21)`; a primary button color ≈ green-600.
   - a `Card` `borderRadius` = `6px` (not 8).
   - a `Card`'s `boxShadow` equals the **exact expected** small shadow (`rgba(24, 26, 21, 0.06) 0px 1px 2px 0px`), NOT merely `!== "none"` — a transparent `rgba(.../0)` would pass `!== none` but be invisible; and a dialog's `boxShadow` is the overlay value while a Switch thumb's is the small value (proves Step 5b's decouple).
   - **focus-state contrast:** open a `Select`/dropdown, focus an option, read the focused option's `color` (≈ ink `rgb(24,26,21)`) over its `background` (≈ green-400) — guards finding 1's AA fix.
   - a band-colored route/legend swatch resolves to a `--band-*` value.
   - the band hero title "Network Design Labs" is visible and body "Labs" still present.
-- [ ] **Step 2:** run locally per the repo's e2e instructions (start api-server + studio with `API_PROXY_TARGET`, then `npx playwright test design-system.spec.ts`). If the env can't run e2e in the execution sandbox, mark the spec written-but-not-run and flag for the live-verify step (same convention as prior bundles).
-- [ ] **Step 3: Commit** — `[bundle3-T11] design-system Playwright smoke`.
+- [x] **Step 2:** run locally per the repo's e2e instructions (start api-server + studio with `API_PROXY_TARGET`, then `npx playwright test design-system.spec.ts`). If the env can't run e2e in the execution sandbox, mark the spec written-but-not-run and flag for the live-verify step (same convention as prior bundles).
+- [x] **Step 3: Commit** — `[bundle3-T11] design-system Playwright smoke`.
 
 ---
 
 ## Final gate + live verify (controller)
 
-- [ ] Run the full canonical gate on the merged branch:
+- [x] Run the full canonical gate on the merged branch:
 ```bash
 pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
 ```
   (Solver pytest expected unaffected — no Python touched; run it per the gate contract anyway. `e2e_accuracy.py`/`e2e_journey.py` not run.)
-- [ ] **Live-verify** in a real browser (local dev, disposable account, purged after) across ≥2 models (p-median-us + one other): Landing dark band + green serif "Network Design Labs" + body "Labs"; auth band; Workspace band header; sidebar green left-rule active row; mono stats everywhere; band-colored routes + legend using the 5-color scale; map single/multi-select rings still distinguishable; 6px card radii; hairlines. Screenshot-check contrast (green-on-white, band-fg-on-band).
-- [ ] Update `CLAUDE.md` v0.3 progress with the Bundle 3 outcome.
-- [ ] Finish per `superpowers:finishing-a-development-branch` (merge to local main, push, deploy both Render services, prod-smoke).
+- [x] **Live-verify** in a real browser (local dev, disposable account, purged after) across ≥2 models (p-median-us + one other): Landing dark band + green serif "Network Design Labs" + body "Labs"; auth band; Workspace band header; sidebar green left-rule active row; mono stats everywhere; band-colored routes + legend using the 5-color scale; map single/multi-select rings still distinguishable; 6px card radii; hairlines. Screenshot-check contrast (green-on-white, band-fg-on-band).
+- [x] Update `CLAUDE.md` v0.3 progress with the Bundle 3 outcome.
+- [x] Finish per `superpowers:finishing-a-development-branch` (merge to local main, push, deploy both Render services, prod-smoke).
 
 ## Review comments (2026-09-03, rev 1, verbatim)
 
