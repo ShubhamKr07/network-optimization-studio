@@ -27,4 +27,13 @@ describe("AppFooter", () => {
     const footer = screen.getByTestId("app-footer");
     expect(footer.style.height).toBe(`${FOOTER_H}px`);
   });
+
+  it("uses the book-cover hairline rule and muted mono print styling", () => {
+    render(<AppFooter />);
+    const footer = screen.getByTestId("app-footer");
+    expect(footer.className).toContain("border-t");
+    expect(footer.className).toContain("border-[color:var(--line)]");
+    expect(footer.className).toContain("text-[color:var(--text-faint)]");
+    expect(footer.className).toContain("font-mono");
+  });
 });
