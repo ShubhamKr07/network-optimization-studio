@@ -1,0 +1,82 @@
+<!-- @dsCard group="Studio App" viewport="1280x800" subtitle="Login: dark cover shelf beside the paper form" name="Login" -->
+<!doctype html><html><head>
+<meta charset="utf-8">
+<title>Log in — SCND Optimization Studio</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../assets/ds-loader.js"></script>
+<style>
+html,body{margin:0;height:100%}
+body{font-family:var(--font-sans)}
+#root{height:100%}
+a{color:var(--link)}a:hover{color:var(--link-hover)}
+</style>
+</head><body><div id="root"></div>
+<script type="text/x-src" id="appsrc">
+loadDS("../../").then((NS) => {
+  const { Button, Input } = NS;
+  function Diamond(){ return <span style={{display:"inline-block",width:5,height:5,background:"var(--green-400)",transform:"rotate(45deg)",margin:"0 9px",verticalAlign:"middle"}}></span>; }
+  function Login(){
+    const [pending, setPending] = React.useState(false);
+    function submit(e){ e.preventDefault(); setPending(true); setTimeout(()=>{ window.location.href = "index.html"; }, 700); }
+    return (
+      <div style={{height:"100%",display:"flex",minHeight:560}}>
+        {/* dark cover panel */}
+        <div style={{flex:"0 0 44%",background:"var(--surface-band)",borderRight:"2px solid var(--green-400)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:26,padding:"40px 36px",boxSizing:"border-box"}}>
+          <img src="../../assets/book-cover.jpg" alt="Supply Chain Network Design book cover" style={{display:"block",maxWidth:290,width:"72%",boxShadow:"0 22px 48px rgba(0,0,0,.55)"}} />
+          <div style={{textAlign:"center",maxWidth:380}}>
+            <div style={{fontFamily:"var(--font-mono)",fontSize:"9.5px",letterSpacing:"var(--tracking-caps-wide)",textTransform:"uppercase",color:"var(--ink-300)"}}>
+              <Diamond />The textbook behind the labs<Diamond />
+            </div>
+          </div>
+        </div>
+        {/* form panel */}
+        <div style={{flex:1,background:"var(--surface-page)",display:"flex",flexDirection:"column"}}>
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
+            <div style={{width:360}}>
+              <div style={{fontFamily:"var(--font-mono)",fontSize:"10px",letterSpacing:"var(--tracking-caps-wide)",textTransform:"uppercase",color:"var(--text-muted)"}}>By Prof. Michael Watson</div>
+              <div style={{fontFamily:"var(--font-display)",fontWeight:700,fontSize:"32px",lineHeight:1.1,color:"var(--green-600)",margin:"8px 0 6px"}}>Optimization Studio</div>
+              <div style={{fontSize:"13px",color:"var(--text-muted)",lineHeight:1.5,marginBottom:22}}>Log in to continue your labs. Build a scenario on the map, solve it with a real optimizer, compare the results.</div>
+              <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:14}}>
+                <Input label="Email" type="email" required placeholder="you@university.edu" />
+                <Input label="Password" type="password" required placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" />
+                <Button type="submit" disabled={pending} style={{marginTop:4}}>{pending ? "Logging in…" : "Log in"}</Button>
+              </form>
+              <div style={{display:"flex",alignItems:"center",gap:10,margin:"18px 0 14px"}}>
+                <div style={{flex:1,height:1,background:"var(--line)"}}></div>
+                <span style={{fontFamily:"var(--font-mono)",fontSize:"9px",letterSpacing:"var(--tracking-caps)",textTransform:"uppercase",color:"var(--text-faint)"}}>or</span>
+                <div style={{flex:1,height:1,background:"var(--line)"}}></div>
+              </div>
+              <div style={{fontSize:"12.5px",color:"var(--text-muted)",textAlign:"center"}}>No account? <a href="#" onClick={(e)=>e.preventDefault()}>Register with your course email</a></div>
+              <div style={{marginTop:18,paddingTop:12,borderTop:"1px solid var(--line)",textAlign:"center"}}>
+                <div style={{fontFamily:"var(--font-mono)",fontSize:"10px",letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--text-muted)"}}>Developed by Shubham</div>
+                <div style={{marginTop:8,fontFamily:"var(--font-mono)",fontSize:"10px",letterSpacing:"0.08em",color:"var(--text-muted)"}}>Facing issues?</div>
+                <div style={{marginTop:4,display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontFamily:"var(--font-mono)",fontSize:"10px",letterSpacing:"0.08em",color:"var(--text-muted)"}}>
+                  <span>Reach me out at</span>
+                  <a href="https://www.linkedin.com/in/shubhamkumarcse/" target="_blank" rel="noopener" title="LinkedIn" style={{display:"inline-flex",color:"var(--green-600)"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-label="LinkedIn"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45z"></path></svg>
+                  </a>
+                  <a href="mailto:shubham.shubham4995@gmail.com" title="Email" style={{display:"inline-flex",color:"var(--green-600)"}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Email"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M3 6.5l9 6.5 9-6.5"></path></svg>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* labs footer strip */}
+          <div style={{borderTop:"1px solid var(--border-default)",background:"var(--surface-card)",padding:"12px 24px",display:"flex",justifyContent:"center",gap:26,flexWrap:"wrap"}}>
+            {["Ch 3 · p-median","Ch 5 · transport LP","Ch 5 · capacitated","Ch 10 · two-echelon"].map(function(l){
+              return <span key={l} style={{fontFamily:"var(--font-mono)",fontSize:"10px",letterSpacing:"0.08em",color:"var(--text-muted)"}}>{l}</span>;
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Login/>);
+}).catch(function(e){ console.error("LOADER ERR", e && e.message); });
+</script>
+<script>runBabelById("appsrc");</script>
+</body></html>

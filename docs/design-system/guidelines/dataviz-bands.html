@@ -1,0 +1,15 @@
+<!-- @dsCard group="Data Viz" viewport="700x150" subtitle="Distance-band scale — index 0 is nearest" name="Band palette" -->
+<!doctype html><html><head><link rel="stylesheet" href="../styles.css"><style>
+body{margin:0;padding:16px 20px;background:var(--surface-card);font-family:var(--font-mono)}
+.row{display:flex;gap:8px}.sw{flex:1}.chip{height:52px;border-radius:var(--radius-sm)}
+.l{font-size:10px;color:var(--text-muted);margin-top:6px}
+</style></head><body>
+<div class="row">
+<div class="sw"><div class="chip" style="background:var(--band-0)"></div><div class="l">band-0 · ≤200 mi</div></div>
+<div class="sw"><div class="chip" style="background:var(--band-1)"></div><div class="l">band-1 · ≤400 mi</div></div>
+<div class="sw"><div class="chip" style="background:var(--band-2)"></div><div class="l">band-2 · ≤600 mi</div></div>
+<div class="sw"><div class="chip" style="background:var(--band-3)"></div><div class="l">band-3 · ≤800 mi</div></div>
+<div class="sw"><div class="chip" style="background:var(--band-4)"></div><div class="l">band-4 · &gt;800 mi</div></div>
+</div>
+<div style="font-size:10px;color:var(--text-faint);margin-top:10px">shared by map routes/markers and coverage bars — a band index always means the same color</div>
+</body></html>

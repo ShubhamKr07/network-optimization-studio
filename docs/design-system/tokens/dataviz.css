@@ -1,0 +1,30 @@
+/* SCND Optimization Studio — data-viz tokens.
+   Band palette matches the solver's distance-band semantics
+   (index 0 = best/nearest .. 4 = worst/farthest). */
+:root {
+  --band-0: #16A34A;
+  --band-1: #84CC16;
+  --band-2: #F59E0B;
+  --band-3: #EF4444;
+  --band-4: #DC2626;
+
+  /* Map entities */
+  --map-warehouse: var(--ink-900);      /* triangle markers */
+  --map-warehouse-open: var(--green-600);
+  --map-customer: var(--green-400);     /* demand bubbles */
+  --map-customer-stroke: var(--green-700);
+  --map-flow: var(--green-500);         /* assignment/flow lines */
+  --map-water: #EDF0EA;
+  --map-land: #FFFFFF;
+  --map-inactive: var(--ink-300);
+
+  /* Charts */
+  --chart-1: var(--green-600);
+  --chart-2: var(--ink-700);
+  --chart-3: var(--green-300);
+  --chart-4: #B45309;
+  --chart-5: var(--ink-400);
+  --chart-grid: var(--line);
+  --chart-axis-label: var(--ink-500);
+  --utilization: var(--green-500);
+}

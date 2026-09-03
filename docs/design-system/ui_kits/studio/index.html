@@ -1,0 +1,66 @@
+<!-- @dsCard group="Studio App" viewport="1280x800" subtitle="Labs landing + tabbed scenario workspace (interactive)" name="Studio app" -->
+<!doctype html><html><head>
+<meta charset="utf-8">
+<title>SCND Optimization Studio</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../assets/ds-loader.js"></script>
+<style>
+html,body{margin:0;height:100%}
+body{background:var(--surface-page);font-family:var(--font-sans)}
+#root{height:100%}
+a{color:var(--link)}a:hover{color:var(--link-hover)}
+</style>
+</head><body><div id="root"></div>
+<script type="text/x-src" id="appsrc">
+loadDS("../../", ["ui_kits/studio/data.js","ui_kits/studio/NetworkMapMock.jsx","ui_kits/studio/Landing.jsx","ui_kits/studio/Workspace.jsx"]).then((NS) => {
+  const { Button, Landing, Workspace } = NS;
+  function App(){
+    const [page, setPage] = React.useState("landing");
+    const [wsInit, setWsInit] = React.useState(null);
+    return (
+      <div style={{height:"100%",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {(function(){
+          var ws = page==="workspace";
+          if (!ws) return null;
+          var mut = "var(--ink-300)";
+          return (
+        <header style={ws ? {flexShrink:0,borderBottom:"2px solid var(--green-400)",background:"var(--surface-band)",display:"flex",alignItems:"center",gap:12,padding:"8px 16px"} : {height:"var(--header-h)",flexShrink:0,borderBottom:"1px solid var(--border-default)",background:"var(--surface-card)",display:"flex",alignItems:"center",gap:12,padding:"0 16px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setPage("landing")}>
+            {ws ? <img src="../../assets/book-cover.jpg" alt="Supply Chain Network Design book cover" style={{display:"block",height:34,boxShadow:"0 4px 10px rgba(0,0,0,.45)"}} /> : null}
+            <div style={{lineHeight:1.15}}>
+              {ws
+                ? <div style={{fontFamily:"var(--font-display)",fontWeight:700,fontSize:"15px",color:"var(--green-400)"}}>SCND Optimization Studio</div>
+                : <div style={{fontWeight:600,fontSize:"13.5px",color:"var(--text-body)"}}>Optimization Studio</div>}
+            </div>
+          </div>
+          {ws ? <Button variant="ghost" size="sm" onClick={()=>setPage("landing")} style={{color:mut}}>&larr; Labs</Button> : null}
+          <div style={{flex:1}}></div>
+          <span style={{fontSize:"12px",color:mut}}>analyst@example.edu</span>
+          <Button variant="ghost" size="sm" style={{color:mut}}>Log out</Button>
+        </header>
+          );
+        })()}
+        {page==="landing" ? <Landing onOpenChapter={()=>{setWsInit(null);setPage("workspace");}} onOpenSolve={(scn)=>{setWsInit({scenario:scn,solved:true});setPage("workspace");}} /> : <Workspace scenario={wsInit&&wsInit.scenario} solved={wsInit&&wsInit.solved} />}
+        {page==="landing" ? <footer style={{flexShrink:0,borderTop:"1px solid var(--border-default)",background:"var(--surface-card)",padding:"8px 16px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,fontFamily:"var(--font-mono)",fontSize:"10px",letterSpacing:"0.08em",color:"var(--text-muted)"}}>
+          <span>Developed by Shubham</span>
+          <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+            <span>Facing issues? Reach me out at</span>
+            <a href="https://www.linkedin.com/in/shubhamkumarcse/" target="_blank" rel="noopener" title="LinkedIn" style={{display:"inline-flex",color:"var(--green-600)"}}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-label="LinkedIn"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45z"></path></svg>
+            </a>
+            <a href="mailto:shubham.shubham4995@gmail.com" title="Email" style={{display:"inline-flex",color:"var(--green-600)"}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Email"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M3 6.5l9 6.5 9-6.5"></path></svg>
+            </a>
+          </span>
+        </footer> : null}
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+}).catch(function(e){ console.error("LOADER ERR", e && e.message); document.getElementById("root").textContent = "load error: " + (e && e.message); });
+</script>
+<script>runBabelById("appsrc");</script>
+</body></html>

@@ -1,0 +1,47 @@
+<!-- @dsCard group="Components" viewport="700x400" subtitle="Workspace chrome: objective bar, chips, tabs, sidebar, legend, stale banner" name="Studio" -->
+<!doctype html><html><head>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../assets/ds-loader.js"></script>
+<style>body{margin:0;padding:14px 16px;background:var(--surface-page);font-family:var(--font-sans)}
+.lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin:12px 0 6px}</style>
+</head><body><div id="root"></div>
+<script type="text/x-src" id="appsrc">
+loadDS("../../").then((NS) => {
+const { ObjectiveBar, ConstraintChips, MapLegend, SidebarTree, TabBar, StaleOutputBanner } = NS;
+function Demo(){
+  return <div>
+    <ObjectiveBar kicker="Chapter 3" title="Al's Athletics — P-Median" scenarioName="Baseline"
+      description="Facility-location: choose which warehouses to open to minimize weighted distance to customers."
+      stats={["objective 2,384,911","avg distance 413 mi","run 0.24s"]} />
+    <div className="lbl">Constraint chips</div>
+    <div style={{border:"1px solid var(--border-default)",borderBottom:"none"}}>
+      <ConstraintChips chips={["p = 4","Capacity: uniform 60M","2 forced open","1 inactive"]} stale />
+    </div>
+    <div style={{display:"flex",gap:12,marginTop:14,alignItems:"stretch"}}>
+      <div style={{display:"flex",border:"1px solid var(--border-default)",height:230,flex:1.5,background:"var(--surface-card)"}}>
+        <SidebarTree activeId="in:map" width={150} sections={[
+          {title:"Scenarios",items:[{id:"s1",label:"Baseline"},{id:"s2",label:"Cap 60k"}],onAction:()=>{}},
+          {title:"Inputs",items:[{id:"in:wh",label:"Warehouses"},{id:"in:cust",label:"Customers"},{id:"in:map",label:"Input Map"}]},
+          {title:"Outputs",items:[{id:"out:map",label:"Output Map",disabled:true}]}
+        ]} />
+        <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+          <TabBar tabs={[{id:"in:wh",label:"Warehouses"},{id:"in:map",label:"Input Map"}]} activeTabId="in:map" onActivate={()=>{}} onClose={()=>{}} />
+          <div style={{flex:1,position:"relative",background:"var(--map-water)"}}>
+            <MapLegend style={{position:"absolute",bottom:10,left:10}} />
+          </div>
+        </div>
+      </div>
+      <div style={{flex:1,border:"1px solid var(--border-default)",background:"var(--surface-card)"}}>
+        <StaleOutputBanner solved onRunOptimizer={()=>{}} />
+      </div>
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+}).catch(function(e){ console.error("LOADER ERR", e && e.message); document.getElementById("root").textContent = "load error: " + (e && e.message); });
+</script>
+<script>runBabelById("appsrc");</script>
+</body></html>

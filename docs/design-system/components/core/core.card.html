@@ -1,0 +1,55 @@
+<!-- @dsCard group="Components" viewport="700x400" subtitle="Buttons, badges, inputs, card, table, tabs, dialog" name="Core" -->
+<!doctype html><html><head>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../assets/ds-loader.js"></script>
+<style>body{margin:0;padding:14px 16px;background:var(--surface-page);font-family:var(--font-sans)}
+.lbl{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin:12px 0 6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}</style>
+</head><body><div id="root"></div>
+<script type="text/x-src" id="appsrc">
+loadDS("../../").then((NS) => {
+const { Button, Badge, Input, Select, Checkbox, Card, Table, Tabs, Dialog } = NS;
+function Demo(){
+  const [tab, setTab] = React.useState("Flows");
+  return <div>
+    <div className="lbl">Buttons</div>
+    <div className="row">
+      <Button>Run Optimizer</Button><Button variant="secondary">Clone</Button><Button variant="outline">Cancel</Button>
+      <Button variant="ghost">Log out</Button><Button variant="destructive">Delete</Button><Button variant="link">View chapter</Button>
+      <Button size="sm">Save</Button><Button disabled>Disabled</Button>
+    </div>
+    <div className="lbl">Badges</div>
+    <div className="row">
+      <Badge variant="success">succeeded</Badge><Badge variant="warning">stale</Badge><Badge variant="danger">failed</Badge>
+      <Badge>Chapter 3</Badge><Badge variant="secondary">p-median</Badge><Badge variant="outline" mono>p = 4</Badge>
+    </div>
+    <div className="lbl">Inputs</div>
+    <div className="row" style={{alignItems:"flex-end"}}>
+      <div style={{width:170}}><Input label="Scenario name" placeholder="Baseline" /></div>
+      <div style={{width:130}}><Input label="p (warehouses)" mono type="number" defaultValue={4} /></div>
+      <div style={{width:170}}><Select label="Capacity mode" options={["none","uniform","per-warehouse"]} /></div>
+      <Checkbox checked label="Forced open" onChange={()=>{}} />
+    </div>
+    <div className="lbl">Tabs · Table · Card</div>
+    <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+      <div style={{flex:1.4}}>
+        <Tabs tabs={["Cost summary","Flows","Service stats"]} activeId={tab} onChange={setTab} />
+        <div style={{marginTop:8}}>
+        <Table compact columns={[{key:"n",label:"Warehouse"},{key:"s",label:"State"},{key:"d",label:"Demand",align:"right",mono:true}]}
+          rows={[{n:"Chicago DC",s:"IL",d:"18,240"},{n:"Dallas DC",s:"TX",d:"12,876"},{n:"Reno DC",s:"NV",d:"7,013"}]} />
+        </div>
+      </div>
+      <div style={{flex:1}}>
+        <Card kicker="Chapter 3" title="Al's Athletics — P-Median" description="Choose which warehouses to open to minimize weighted distance." />
+      </div>
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+}).catch(function(e){ console.error("LOADER ERR", e && e.message); document.getElementById("root").textContent = "load error: " + (e && e.message); });
+</script>
+<script>runBabelById("appsrc");</script>
+</body></html>
