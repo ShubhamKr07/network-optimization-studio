@@ -91,6 +91,14 @@ describe("Register", () => {
     expect(screen.getByTestId("app-footer")).toBeInTheDocument();
   });
 
+  it("renders the book-cover band with the studio title and kicker", () => {
+    render(<Register />);
+    const band = screen.getByTestId("auth-band");
+    expect(band.className).toContain("scnd-band");
+    expect(band).toHaveTextContent("SCND Optimization Studio");
+    expect(band).toHaveTextContent("By Prof. Michael Watson");
+  });
+
   it("keeps the footer un-clipped at a narrow (375px) viewport", () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
