@@ -85,7 +85,7 @@ Leave the `leaflet`, `tailwindcss`, `tw-animate-css` imports and the `.leaflet-c
 --sidebar-primary: 218 70% 52%   →  82 52% 33%
 --sidebar-primary-foreground     →  0 0% 100%      (unchanged)
 --sidebar-accent: 210 40% 96%    →  79 44% 50%
---sidebar-accent-foreground: 222 84% 12% → 0 0% 100%
+--sidebar-accent-foreground: 222 84% 12% → 84 11% 9%   (INK, not white — AA on green-400)
 --sidebar-ring: 218 70% 52%      →  81 50% 43%
 --popover: 0 0% 100%             →  0 0% 100%      (unchanged)
 --popover-foreground: 222 84% 12%→  84 11% 9%
@@ -96,8 +96,8 @@ Leave the `leaflet`, `tailwindcss`, `tw-animate-css` imports and the `.leaflet-c
 --secondary-foreground: 222 84% 12% → 84 11% 9%
 --muted: 210 40% 98%             →  72 22% 95%
 --muted-foreground: 215 16% 47%  →  82 6% 35%
---accent: 210 40% 96%            →  79 44% 50%
---accent-foreground: 222 84% 12% →  0 0% 100%
+--accent: 210 40% 96%            →  79 44% 50%   (green-400; kept for --accent-300/600/700 map derivation)
+--accent-foreground: 222 84% 12% →  84 11% 9%    (INK, not white — white-on-green-400 is 2.31:1, fails AA; ink is ~8.2:1)
 --destructive: 0 72% 51%         →  0 72% 51%      (unchanged)
 --destructive-foreground         →  0 0% 100%      (unchanged)
 --input: 214 32% 91%             →  72 16% 87%
@@ -158,12 +158,25 @@ DELETE the old `--band-3: #EF4444` line's absence of `--band-4` (add `--band-4`)
   --radius-lg: 6px;
   --radius-xl: 6px;
 
+  --shadow-xs: 0 1px 1px rgba(24,26,21,.04);
   --shadow-sm: 0 1px 2px rgba(24,26,21,.06);
   --shadow: 0 1px 2px rgba(24,26,21,.06);
   --shadow-md: 0 2px 8px rgba(24,26,21,.10);
   --shadow-lg: 0 8px 30px rgba(24,26,21,.18);
   --shadow-xl: 0 8px 30px rgba(24,26,21,.18);
 ```
+**Shadow-consumer audit (from `grep shadow* components/ui/*`):** small/utility depth — `card` (`shadow`),
+`button` (`shadow-xs`/`shadow-sm`), `badge` (`shadow-xs`), `select` trigger (`shadow-sm`), `switch` track
+(`shadow-sm`); overlay — `dialog` (`shadow-lg`), `dropdown-menu` (`shadow-lg`/`-md`), `popover`
+(`shadow-md`), `select` content (`shadow-md`). `--shadow-xs` **must** be defined (buttons/badges use it;
+omitting it silently reverts them to Tailwind's stock shadow). The one conflict: `switch.tsx`'s **thumb**
+uses `shadow-lg` (which is now the 30px overlay) — see Step 5b.
+
+- [ ] **Step 5b: decouple the Switch thumb from the overlay scale.** In `components/ui/switch.tsx` (L20),
+  change the thumb's `shadow-lg` → `shadow-sm` so the toggle thumb keeps a small shadow while `shadow-lg`
+  serves dialogs/dropdowns as the overlay. This is the only live consumer where overlay-`lg` would be
+  wrong; verify no other non-overlay control uses `shadow-lg` (grep confirmed: only switch thumb + the
+  overlay surfaces).
 
 - [ ] **Step 6: Retire `.scn-theme`.** Replace the entire `.scn-theme { … }` rule body (the Phase 3.1 override block) with an empty no-op comment `/* .scn-theme retired (Bundle 3): book-cover theme lives at :root now; class left on Workspace.tsx as a harmless no-op */ .scn-theme {}`. Leave `.studio-lab` and the `--arc-*` block untouched (dead Studio.tsx + T7's ObjectiveBar until rewritten).
 
@@ -172,9 +185,13 @@ DELETE the old `--band-3: #EF4444` line's absence of `--band-4` (add `--band-4`)
 @layer components {
   .scnd-band { background: var(--surface-band); color: var(--surface-band-fg); border-bottom: 2px solid var(--green-400); }
   .scnd-kicker { font-family: var(--app-font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+  /* On the dark band, --text-muted (#5B5F54) is only 2.68:1; --ink-300 (#ADB1A4) is 8.02:1 (matches the Landing kit). */
+  .scnd-band .scnd-kicker { color: var(--ink-300); }
   .scnd-display { font-family: var(--app-font-display); }
 }
 ```
+(T3/T4/T6 place kickers on the band; this contextual rule keeps them readable while light-surface
+kickers keep `--text-muted`.)
 
 - [ ] **Step 8: Build + smoke.** Run `pnpm --filter studio test` — expect some class/snapshot churn in later-task files but T1 itself should not break behavioral tests. Run `pnpm --filter studio run build` to confirm the CSS compiles (catches an invalid `@theme`/token). Fix any red.
 
@@ -201,27 +218,58 @@ function value(name: string): string {
 const HSL_TRIPLE = /^\d+(\.\d+)?\s+\d+(\.\d+)?%\s+\d+(\.\d+)?%$/;
 const HEX = /^#[0-9A-Fa-f]{3,8}$/;
 
+// EXHAUSTIVE — every color the `@theme inline` block maps via hsl(var(--x))
+// must be an HSL triple. Derived from the @theme `--color-*: hsl(var(--*))` lines.
+const HSL_MAPPED = [
+  "background","foreground","border","input","ring",
+  "card","card-foreground","card-border",
+  "popover","popover-foreground","popover-border",
+  "primary","primary-foreground","secondary","secondary-foreground",
+  "muted","muted-foreground","accent","accent-foreground",
+  "destructive","destructive-foreground",
+  "chart-1","chart-2","chart-3","chart-4","chart-5",
+  "sidebar","sidebar-foreground","sidebar-border",
+  "sidebar-primary","sidebar-primary-foreground",
+  "sidebar-accent","sidebar-accent-foreground","sidebar-ring",
+];
+// Complete raw-token inventory (bare var(--x), never hsl-wrapped).
+const HEX_RAW = [
+  "green-050","green-100","green-200","green-300","green-400","green-500","green-600","green-700","green-800",
+  "ink-900","ink-800","ink-700","ink-500","ink-400","ink-300",
+  "text-body","text-muted","text-faint","text-brand",
+  "surface-band","surface-band-fg","surface-selected","surface-sunken",
+  "line","line-strong","primary-hover","primary-active","link","link-hover","focus-ring",
+  "success","success-bg","success-border","warning","warning-bg","warning-border","danger","danger-bg","danger-border",
+  "band-0","band-1","band-2","band-3","band-4",
+  "map-warehouse","map-warehouse-open","map-customer","map-customer-stroke","map-flow","map-inactive",
+  "map-ring-forced-open","map-ring-select","map-ring-multiselect","map-default-stroke",
+  "chart-grid","chart-axis-label","utilization",
+];
+
 describe("design tokens — representation contract", () => {
-  it("shadcn/@theme-mapped tokens are HSL triples (never hex/red)", () => {
-    for (const n of ["background","foreground","primary","muted-foreground","accent","border","ring",
-                     "chart-1","chart-2","chart-3","chart-4","chart-5"]) {
-      expect(value(n), n).toMatch(HSL_TRIPLE);
-    }
+  it.each(HSL_MAPPED)("@theme-mapped --%s is an HSL triple", (n) => {
+    expect(value(n), n).toMatch(HSL_TRIPLE);
   });
-  it("raw complete-color tokens are hex", () => {
-    for (const n of ["green-600","ink-900","text-muted","surface-band","band-0","band-4",
-                     "map-flow","chart-grid","map-ring-select"]) {
-      expect(value(n), n).toMatch(HEX);
-    }
+  it.each(HEX_RAW)("raw --%s is a complete hex color", (n) => {
+    expect(value(n), n).toMatch(HEX);
   });
-  it("no leftover `red` chart placeholder and band scale is 5-wide", () => {
-    expect(css).not.toMatch(/--chart-[1-5]\s*:\s*red/);
-    expect(value("band-4")).toBeTruthy();
-  });
-  it("radii are pinned to the 3/4/6 print scale (no calc)", () => {
+  it("pins the critical values", () => {
+    expect(value("primary")).toBe("82 52% 33%");
+    expect(value("accent-foreground")).toBe("84 11% 9%");        // ink, not white (finding 1)
+    expect(value("sidebar-accent-foreground")).toBe("84 11% 9%");
     expect(value("radius-sm")).toBe("3px");
     expect(value("radius-lg")).toBe("6px");
     expect(value("radius-xl")).toBe("6px");
+    expect(value("surface-band")).toBe("#181A15");
+  });
+  it("no `red` placeholder and no transparent runtime shadow placeholders remain", () => {
+    expect(css).not.toMatch(/--chart-[1-5]\s*:\s*red/);
+    expect(css).not.toMatch(/--shadow[-a-z0-9]*\s*:[^;]*\/\s*0\.00/); // the old transparent placeholders
+  });
+  it("@theme declares the shadow namespace incl. xs (buttons/badges depend on it)", () => {
+    for (const s of ["--shadow-xs","--shadow-sm","--shadow-md","--shadow-lg"]) {
+      expect(css.includes(s), s).toBe(true);
+    }
   });
 });
 ```
@@ -235,14 +283,28 @@ describe("design tokens — representation contract", () => {
 
 ### Task 3: AppShell band hero + Landing + NotFound
 
-**Files:** Modify `components/AppShell.tsx`, `pages/Landing.tsx`, `pages/not-found.tsx`; update `AppShell.test.tsx` / `Landing.test.tsx` if present.
+**Files:** Modify `components/AppShell.tsx`, `App.tsx` (root route passes `heroTitle`), `pages/Landing.tsx`, `pages/not-found.tsx`; update `AppShell.test.tsx`, `App.test.tsx`, `Landing.test.tsx` (as present).
 
 **Interfaces:** `AppShell` gains `heroTitle?: string`. Consumes `.scnd-band`/`.scnd-kicker`/`.scnd-display` (T1).
 
-- [ ] **Step 1 (test first):** In `AppShell.test.tsx` (create if absent), assert: renders `data-testid="text-user-email"` + logout button (unchanged behavior); when `heroTitle="Network Design Labs"` is passed, that text renders; the header carries the `.scnd-band` class. Run → fails.
+**AppShell band markup (pin both branches):**
+```tsx
+<header className="scnd-band flex-shrink-0 flex items-center gap-3 px-4 py-3">
+  <div className="flex-1 min-w-0">
+    <div className="scnd-kicker">Optimization Studio by Prof. Michael Watson</div>
+    {heroTitle
+      ? <div className="scnd-display text-lg font-semibold" style={{ color: "var(--green-400)" }}>{heroTitle}</div>
+      : <div className="scnd-display text-sm font-semibold" style={{ color: "var(--surface-band-fg)" }}>SCND Optimization Studio</div>}
+  </div>
+  <span className="text-sm" style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
+  <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout" style={{ color: "var(--ink-300)" }}>Log out</Button>
+</header>
+```
+
+- [ ] **Step 1 (test first):** In `AppShell.test.tsx` (create if absent), assert: renders `data-testid="text-user-email"` + logout button (unchanged behavior); the header carries `.scnd-band`; **with** `heroTitle="Network Design Labs"` that title renders; **without** `heroTitle`, the fallback "SCND Optimization Studio" wordmark renders (both branches covered). Run → fails.
 - [ ] **Step 2:** `AppShell.tsx` — restyle the `<header>` (L35) from `bg-background` to `className="scnd-band …"`; keep `h-12`→ allow taller (e.g. `py-3`) for the hero; render kicker `<div className="scnd-kicker">Optimization Studio by Prof. Michael Watson</div>` + (if `heroTitle`) `<div className="scnd-display" style={{color:"var(--green-400)"}}>{heroTitle}</div>`; keep `{userEmail}` (testid intact) + logout button on the right, recolored for the band (`text-[color:var(--ink-300)]`/ghost). Add `heroTitle?: string` to props.
 - [ ] **Step 3:** `pages/Landing.tsx` — pass nothing new itself; Landing's parent `App.tsx` renders `<AppShell>` — **update `App.tsx:39/46`** so the `/` route passes `heroTitle="Network Design Labs"` (add an optional param to `authedOnly` or wrap Landing's AppShell explicitly). Keep the body `<h1>Labs</h1>` but render it `.scnd-display`; chapter-card `c.chapter` → `.scnd-kicker`; `CardTitle` serif; the recent-solves status badge → status tokens (`text-[color:var(--success)]` etc.); recent-solves stat spans get `font-mono` (also covered by T9 — idempotent).
-- [ ] **Step 4:** `pages/not-found.tsx` — no `heroTitle` (its AppShell shows kicker + small serif wordmark only); confirm it renders under AppShell unchanged.
+- [ ] **Step 4:** `pages/not-found.tsx` — passes no `heroTitle`, so its AppShell band shows the kicker + the small "SCND Optimization Studio" serif wordmark fallback (pinned above). Assert (in `App.test.tsx` or a not-found test) the fallback wordmark renders and the large green hero title does NOT.
 - [ ] **Step 5:** Run `pnpm --filter studio test` (AppShell/Landing/App tests) → green; update any snapshot/class assertion that is purely cosmetic. `typecheck`.
 - [ ] **Step 6: Commit** — `[bundle3-T3] AppShell band hero + Landing/NotFound`.
 
@@ -288,10 +350,19 @@ describe("design tokens — representation contract", () => {
 
 - [ ] **Step 1 (tests first):** for each, keep all existing tests green; add/adjust the specific cosmetic assertion noted below. DOM/roles/testids frozen.
 - [ ] **Step 2 — SidebarTree:** `rowClass(active)` — active state → `bg-[color:var(--surface-selected)] text-[color:var(--text-brand)] border-l-2 border-[color:var(--green-500)] font-medium` (replacing `bg-muted font-medium text-foreground`); `SidebarSection` header → add `font-mono` (kicker) to the existing `text-[10px] uppercase tracking-wide`.
-- [ ] **Step 3 — TabBar:** active tab → `bg-background` + a 2px green bottom rule (`border-b-2 border-[color:var(--green-500)]`) instead of just `font-medium`; keep `role=tablist/tab`, testids.
+- [ ] **Step 3 — TabBar:** active tab → `bg-background` + a **top** green rule matching the reference
+  `TabBar.jsx` (`boxShadow: active ? "inset 0 2px 0 var(--green-500)" : "none"`), NOT a bottom border;
+  apply via `style={{ boxShadow: isActive ? "inset 0 2px 0 var(--green-500)" : "none" }}`. Keep
+  `role=tablist/tab`, testids; test the active tab's inset boxShadow (or its class).
 - [ ] **Step 4 — StaleOutputBanner:** amber triangle kept; recolor text to tokens (`text-[color:var(--text-body)]`/`--text-muted`), status-statement tone unchanged.
 - [ ] **Step 5 — ConstraintChips:** chips already `font-mono`; reconcile the stale `Badge` amber classes to status tokens (`text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]`); chip border/hover to `--line`/`--primary`.
-- [ ] **Step 6 — MapLegend (input-map legend only):** move its entity/status/demand swatch colors to the map-entity tokens (`--map-warehouse`, `--map-warehouse-open`, `--map-customer`, `--map-inactive`, `--demand-*`). **Do NOT** add band swatches here (those live in NetworkMap's output legend, T10).
+- [ ] **Step 6 — MapLegend (input-map legend only):** move entity/status swatches to the map-entity
+  tokens. The **customer swatch must use exactly `--map-customer` (fill) + `--map-customer-stroke`
+  (stroke)** — the same pair T10 moves the actual markers to — so legend and markers can never diverge.
+  Use `--demand-*` **only** if a swatch genuinely represents the demand-bubble sizing scale (a distinct
+  legend row), not as a substitute for the customer entity color. Warehouse/mine swatches →
+  `--map-warehouse`/`--map-warehouse-open`/`--map-inactive`. **Do NOT** add distance-band swatches here
+  (those live in NetworkMap's output legend, T10).
 - [ ] **Step 7:** `pnpm --filter studio test` green (update cosmetic assertions); typecheck. **Commit** — `[bundle3-T8] close-match 5 studio components`.
 
 ### Task 10: Map palette → tokens (run before T9)
@@ -300,8 +371,18 @@ describe("design tokens — representation contract", () => {
 
 > Ordered before T9 in text but file-disjoint from T7/T8 → parallel with them; must merge before T9.
 
-- [ ] **Step 1 (test):** `bandPalette.test.ts` — update expected `BAND_COLORS` to the 5 `--band-*` values (unchanged hex actually: `#16A34A #84CC16 #F59E0B #EF4444 #DC2626`) — confirm still 5 entries, index semantics intact. NetworkMap: reuse the `e2e/workspace-ux-r1-r9.spec.ts` `getComputedStyle` precedent only at T11; here assert via the existing NetworkMap RTL tests that markers still render.
-- [ ] **Step 2 — bandPalette.ts:** keep `BAND_COLORS` values (already match `--band-0..4`); add a comment tying them to the tokens. (No visual change — this is the alignment point of record.)
+- [ ] **Step 1 (test):** `bandPalette.test.ts` — assert `BAND_COLORS` are the CSS-var references
+  `["var(--band-0)",…,"var(--band-4)"]` (a **static contract that the tokens are authoritative** — a
+  literal-hex array with the same values would fail this, which is the point), 5 entries, index semantics
+  intact (`getBandColor(6)` clamps to index 4). NetworkMap markers: assert via existing RTL tests they
+  still render; computed colors verified in T11.
+- [ ] **Step 2 — bandPalette.ts:** change `BAND_COLORS` to
+  `["var(--band-0)","var(--band-1)","var(--band-2)","var(--band-3)","var(--band-4)"]` so `--band-0..4` is
+  the single source of truth (consumers — NetworkMap `divIcon` SVG stroke/fill, and the band-coverage
+  bars' inline `style`/`backgroundColor` — all accept `var()` since they render in-document). Grep every
+  `BAND_COLORS`/`getBandColor` consumer to confirm each is a CSS context (SVG attr or inline style), not
+  a place that needs a resolved hex (e.g. a canvas API); if any needs a literal, resolve it via
+  `getComputedStyle` there rather than reverting the array.
 - [ ] **Step 3 — NetworkMap.tsx:** replace the hardcoded hexes in BOTH icon factories (`createTriangleIcon` + sibling, L34–L58 and L92–L116) and the built-in legend/marker SVGs (L446-447 leg colors, L498/509/514 default+multiselect, L593/600/606/607 legend icons, tooltip L176-188 grays) with the tokens: default stroke `#64748B`/`#94A3B8` → `var(--map-default-stroke)`; open `#16A34A`/`#15803D` → `var(--map-warehouse-open)` (+ a highlighted step); inactive `#DC2626` → keep `var(--danger)`; forced-open ring `#2D6CDF` → `var(--map-ring-forced-open)`; single-select `#FCD34D` → `var(--map-ring-select)`; multi-select `#7C3AED` → `var(--map-ring-multiselect)`; leg colors → `var(--map-warehouse-open)` / `var(--danger)`; tooltip grays → `var(--line)`/`var(--text-body)`/`var(--text-muted)`. **Note (confirmed, no landmine):** `var(--map-*)` in the SVG `stroke`/`fill` strings resolves directly — both `NetworkMap.tsx` (L72/L133) and `EntityMarkers.tsx` (L81/L91) build icons via `L.divIcon({html})`, i.e. in-document DOM SVG that inherits `:root` custom properties, NOT `data:` URIs. The only asset icon is stock Leaflet's default pin (`NetworkMap.tsx:22`), which we do not recolor. No literal-hex fallback needed.
 - [ ] **Step 4 — EntityMarkers.tsx:** align marker/bubble/flow colors to `--map-*` tokens (supply/demand already use `--accent-*`/`--demand-*`; reconcile any literal hex to tokens).
 - [ ] **Step 5:** test + typecheck green. **Commit** — `[bundle3-T10] map palette → book-cover tokens`.
@@ -309,9 +390,11 @@ describe("design tokens — representation contract", () => {
 ### Task 9: Mono-numbers pass (run LAST, after T7/T8/T10 merge)
 
 **Files (exhaustive, from `grep toLocaleString|toFixed|toExponential` + `type="number"`, excluding dead `pages/Studio.tsx`, recharts-internal `ui/chart.tsx`, unused `ui/calendar.tsx`, and `BrazilMap.tsx`/already-mono):**
-Formatters — `components/NetworkMap.tsx`* , `components/ObjectiveBar.tsx`* , `components/workspace/map/{MapActionMenu,MapDetailsCard,MapLegend}.tsx`, `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{AssignmentsTab,CostSummaryTab,CustomersTab,FlowsTab,MinesTab,OpenWarehousesTab,OptimizationParametersTab,OutputMapTab,StationsTab,WarehousesTab}.tsx`, `pages/Landing.tsx`*, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
-Numeric inputs (`type="number"` → also mono) — `components/MapBulkEditToolbar.tsx`, `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{LaneCostsTab,LegDistancesTab,OptimizationParametersTab,WarehousesTab,MinesTab,CustomersTab,DistancesTab,StationsTab}.tsx`, `components/workspace/map/dialogs/{EditWarehouseDialog,EditCustomerDialog,CreateEntityDialog}.tsx`, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
+Formatters — `components/NetworkMap.tsx`* , `components/ObjectiveBar.tsx`* , `components/workspace/map/{MapActionMenu,MapDetailsCard,MapLegend}.tsx`, `components/workspace/map/dialogs/MoveConfirmDialog.tsx` (raw `{newLat}`/`{newLng}`, testids `move-confirm-lat`/`-lng`), `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{AssignmentsTab,CostSummaryTab,CustomersTab,FlowsTab,MinesTab,OpenWarehousesTab,OptimizationParametersTab,OutputMapTab,StationsTab,WarehousesTab}.tsx`, `pages/Workspace.tsx` (result-history position, `data-testid="text-result-history-position"` ~L2367), `pages/Landing.tsx`*, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
+Numeric inputs (`type="number"` → also mono) — `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/{LaneCostsTab,LegDistancesTab,OptimizationParametersTab,WarehousesTab,MinesTab,CustomersTab,DistancesTab,StationsTab}.tsx`, `components/workspace/map/dialogs/{EditWarehouseDialog,EditCustomerDialog,CreateEntityDialog}.tsx`, `components/tables/{CustomerTable,MineTable,StationTable,WarehouseTable}.tsx`.
 (*already handled in T3/T7/T10 — re-verify only, don't double-edit.)
+**Excluded (dead):** `components/MapBulkEditToolbar.tsx` (rendered only by dead `Studio.tsx` — grep-confirmed consumers: `Studio.tsx` + its tests), `pages/Studio.tsx`, `ui/calendar.tsx` (no date UI), `ui/chart.tsx` (recharts internal), `BrazilMap.tsx` (already mono).
+**Also run a raw-numeric-JSX pass:** the formatter/`type="number"` greps miss identifier/stat displays that render a number via a bare `{someNumber}` or a `-stat`/`-position`/`-count`/`-value` testid (e.g. the result-history position above). During T9, grep each listed file for `data-testid=".*\(stat\|count\|position\|value\|distance\|objective\)"` and bare numeric JSX and mono those too.
 
 **Rule:** every rendered number and every numeric `<input>` value gets `font-mono` (Tailwind class, or `style={{fontFamily:"var(--app-font-mono)"}}` for inline-styled spots). Prose/labels stay sans. Kickers already mono via `.scnd-kicker`.
 
@@ -323,7 +406,13 @@ Numeric inputs (`type="number"` → also mono) — `components/MapBulkEditToolba
 
 **Files:** Create `artifacts/studio/e2e/design-system.spec.ts`.
 
-- [ ] **Step 1:** mirror the existing `e2e/workspace-ux-r1-r9.spec.ts` setup (dev-proxy, disposable account). Assert via real-browser `getComputedStyle`: Landing AppShell header background ≈ ink `#181A15`; a primary button color ≈ green-600; a `Card` `borderRadius` = `6px` (not 8); a `.shadow` element has a non-`none` boxShadow; a band-colored route/legend swatch resolves to a `--band-*` value. Also assert the band hero title "Network Design Labs" is visible and body "Labs" still present.
+- [ ] **Step 1:** mirror the existing `e2e/workspace-ux-r1-r9.spec.ts` setup (dev-proxy, disposable account). Assert via real-browser `getComputedStyle`:
+  - Landing AppShell header background ≈ ink `rgb(24, 26, 21)`; a primary button color ≈ green-600.
+  - a `Card` `borderRadius` = `6px` (not 8).
+  - a `Card`'s `boxShadow` equals the **exact expected** small shadow (`rgba(24, 26, 21, 0.06) 0px 1px 2px 0px`), NOT merely `!== "none"` — a transparent `rgba(.../0)` would pass `!== none` but be invisible; and a dialog's `boxShadow` is the overlay value while a Switch thumb's is the small value (proves Step 5b's decouple).
+  - **focus-state contrast:** open a `Select`/dropdown, focus an option, read the focused option's `color` (≈ ink `rgb(24,26,21)`) over its `background` (≈ green-400) — guards finding 1's AA fix.
+  - a band-colored route/legend swatch resolves to a `--band-*` value.
+  - the band hero title "Network Design Labs" is visible and body "Labs" still present.
 - [ ] **Step 2:** run locally per the repo's e2e instructions (start api-server + studio with `API_PROXY_TARGET`, then `npx playwright test design-system.spec.ts`). If the env can't run e2e in the execution sandbox, mark the spec written-but-not-run and flag for the live-verify step (same convention as prior bundles).
 - [ ] **Step 3: Commit** — `[bundle3-T11] design-system Playwright smoke`.
 
@@ -340,6 +429,59 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
 - [ ] **Live-verify** in a real browser (local dev, disposable account, purged after) across ≥2 models (p-median-us + one other): Landing dark band + green serif "Network Design Labs" + body "Labs"; auth band; Workspace band header; sidebar green left-rule active row; mono stats everywhere; band-colored routes + legend using the 5-color scale; map single/multi-select rings still distinguishable; 6px card radii; hairlines. Screenshot-check contrast (green-on-white, band-fg-on-band).
 - [ ] Update `CLAUDE.md` v0.3 progress with the Bundle 3 outcome.
 - [ ] Finish per `superpowers:finishing-a-development-branch` (merge to local main, push, deploy both Render services, prod-smoke).
+
+## Review comments (2026-09-03, rev 1, verbatim)
+
+> **Blockers.** (1) Accent foregrounds fail contrast on live Radix controls — T1 sets
+> `--accent-foreground`/`--sidebar-accent-foreground` white over green-400; `select.tsx` uses
+> `focus:bg-accent focus:text-accent-foreground`, so focused option text is only 2.31:1; readme reserves
+> green-400 for marks, green-600 for AA text, and rev-2 spec places `--sidebar-accent-foreground` in the
+> ink group — use ink on green-400 (or a pale-green surface with green-700/ink text) + a real-browser
+> focus contrast check; amend the spec too. (2) `.scnd-kicker` (`--text-muted` #5B5F54) is 2.68:1 on
+> `--surface-band` #181A15 where T3/T4/T6 use it — add `.scnd-band .scnd-kicker { color: var(--ink-300); }`
+> (8.02:1). (3) Global shadow remap unsafe — `--shadow-lg`→30px overlay also hits the Switch thumb
+> (`switch.tsx` uses `shadow-lg`); T1 deletes `--shadow-xs` though Buttons/Badges use it; separate overlay
+> from utility depth, keep Switch small, T11 must assert non-transparent/exact shadow (`!== "none"` passes
+> an invisible `rgba(.../0)`).
+> **Coverage.** (4) T9 mono list not exhaustive — omits `Workspace.tsx` `text-result-history-position`
+> and `MoveConfirmDialog.tsx` lat/lng; `MapBulkEditToolbar.tsx` is dead-Studio-only; supplement the grep
+> with raw numeric JSX. (5) T10 leaves `BAND_COLORS` as duplicated hex literals + a comment — return
+> `var(--band-N)` (or another single-source mechanism) + a static contract proving token refs. (6) T8 puts
+> the active TabBar rule on the bottom; the reference `TabBar.jsx` uses `inset 0 2px 0 var(--green-500)`, a
+> top rule — match it. (7) The contract test validates samples — enumerate every `@theme`-mapped token +
+> the complete raw inventory, assert pinned values, assert no transparent shadow placeholders. (8) T3 omits
+> `App.tsx` (Step 3 edits the root route there) — add it + `App.test.tsx`; pin the NotFound no-title
+> fallback markup + assert both branches. (9) T8 allows `--demand-*` in MapLegend, which can drift from
+> T10's `--map-customer`/`--map-customer-stroke` markers — require the exact token pair in both.
+
+## Review resolution (2026-09-03, rev 1)
+
+Reviewer raised 9 issues on the first plan draft; all verified against code and fixed:
+
+1. **Accent foreground contrast** — `select`/`dropdown` render `focus:text-accent-foreground` over
+   `--accent` (green-400); white was 2.31:1. Fixed to **ink** (`84 11% 9%`, ~8.2:1) for
+   `--accent-foreground` + `--sidebar-accent-foreground` in T1 Step 2; **spec amended** too; T11 adds a
+   real-browser focus-state contrast check. `--accent` kept green-400 (needed for `--accent-300/600/700`
+   map derivation).
+2. **On-band kicker contrast** — added `.scnd-band .scnd-kicker { color: var(--ink-300); }` (8.02:1) in
+   T1 Step 7; light-surface kickers keep `--text-muted`.
+3. **Shadow remap safety** — audited every `ui/*` shadow consumer; added `--shadow-xs` (buttons/badges
+   need it), and T1 Step 5b decouples the Switch thumb (`shadow-lg`→`shadow-sm`) so overlay-`lg` serves
+   dialogs/dropdowns only. T11 asserts exact (not `!== none`) shadows.
+4. **Mono list** — added `Workspace.tsx` (`text-result-history-position`) + `MoveConfirmDialog.tsx`
+   (lat/lng); removed dead `MapBulkEditToolbar.tsx` (Studio-only, grep-confirmed); added a raw-numeric-JSX
+   pass.
+5. **bandPalette authoritative** — `BAND_COLORS` returns `var(--band-N)` (single source of truth); test
+   is a static contract asserting the var refs (a literal-hex array would fail).
+6. **TabBar rule edge** — corrected to the reference's **top** inset rule (`inset 0 2px 0
+   var(--green-500)`), not a bottom border.
+7. **Contract test exhaustive** — T2 now enumerates every `@theme`-mapped token (HSL) + the complete
+   raw-token inventory (hex) via `it.each`, pins critical values, and asserts no transparent shadow
+   placeholders remain.
+8. **T3 file boundary** — added `App.tsx`/`App.test.tsx`; pinned the NotFound fallback wordmark markup
+   and both-branch assertions.
+9. **MapLegend/marker parity** — legend customer swatch must use the exact `--map-customer` /
+   `--map-customer-stroke` pair T10 gives the markers; `--demand-*` only for a genuine demand-scale row.
 
 ## Self-review (run before dispatch — the discipline the post-mortems named)
 

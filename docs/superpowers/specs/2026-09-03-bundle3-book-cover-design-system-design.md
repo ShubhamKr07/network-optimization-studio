@@ -81,8 +81,13 @@ triples; hexes are the source of truth from `docs/design-system/tokens/colors.cs
 **`*-foreground` enumeration (no ambiguity).** The current `:root` light block gives every foreground a
 blue-tinged ink (`222 84% 12%`) or white. Wave 1 retargets each explicitly: **ink group →** `84 11% 9%`:
 `--foreground`, `--card-foreground`, `--popover-foreground`, `--secondary-foreground`,
-`--sidebar-foreground`, `--sidebar-accent-foreground`; **white group →** `0 0% 100%`:
-`--primary-foreground`, `--accent-foreground`, `--destructive-foreground`, `--sidebar-primary-foreground`.
+`--sidebar-foreground`, `--accent-foreground`, `--sidebar-accent-foreground`; **white group →**
+`0 0% 100%`: `--primary-foreground`, `--destructive-foreground`, `--sidebar-primary-foreground`.
+**`--accent-foreground`/`--sidebar-accent-foreground` are ink, not white** — `--accent` stays green-400
+(needed for the `--accent-300/600/700` map-marker derivation), and shadcn menu primitives
+(`select.tsx`/`dropdown-menu.tsx`) render `focus:text-accent-foreground` over it: white on green-400 is
+only 2.31:1 (fail), ink on green-400 is ~8.2:1 (AA). A real-browser focus-state contrast check is added
+in T11.
 `--card-border`/`--popover-border` (today `214 32% 91%`, blue-derived) → line, so no blue-boilerplate
 shadcn token survives.
 
