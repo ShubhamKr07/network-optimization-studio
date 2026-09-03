@@ -14,7 +14,12 @@ vi.mock("@/pages/Landing", () => ({ Landing: () => <div>LandingPage</div> }));
 vi.mock("@/pages/Studio", () => ({ Studio: () => <div>StudioPage</div> }));
 vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> }));
 vi.mock("@/components/AppShell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => <div data-testid="app-shell">{children}</div>,
+  AppShell: ({ children, heroTitle }: { children: React.ReactNode; heroTitle?: string }) => (
+    <div data-testid="app-shell">
+      {heroTitle ? <div>{heroTitle}</div> : <div>SCND Optimization Studio</div>}
+      {children}
+    </div>
+  ),
 }));
 
 const mockUseGetCurrentAuthUser = vi.fn();
@@ -106,6 +111,20 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
   // reason). Studio.tsx itself is untouched and still exists (its deletion
   // is Phase D's D1.1, a separate task) but no live chapter route points at
   // it anymore.
+});
+
+describe("Gate routing — band hero title", () => {
+  it("passes heroTitle=\"Network Design Labs\" to AppShell at /", () => {
+    renderAt("/", { email: "student@example.com" });
+    expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
+    expect(screen.queryByText("SCND Optimization Studio")).not.toBeInTheDocument();
+  });
+
+  it("renders the small SCND Optimization Studio wordmark fallback, not the large green hero title, at an unknown authenticated path (NotFound)", () => {
+    renderAt("/some-unknown-path", { email: "student@example.com" });
+    expect(screen.getByText("SCND Optimization Studio")).toBeInTheDocument();
+    expect(screen.queryByText("Network Design Labs")).not.toBeInTheDocument();
+  });
 });
 
 describe("Gate routing — A5.1/A5.2/A5.3 fast-follow flips: every chapter route renders Workspace, not Studio", () => {

@@ -9,15 +9,15 @@ export function Landing() {
 
   return (
     <div className="max-w-3xl mx-auto p-8">
-      <h1 className="text-2xl font-semibold mb-1">Labs</h1>
+      <h1 className="scnd-display text-2xl font-semibold mb-1">Labs</h1>
       <p className="text-muted-foreground mb-6">Pick a chapter to start or continue a scenario.</p>
       <div className="grid gap-4 sm:grid-cols-2">
         {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => (
           <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
             <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full">
               <CardHeader>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{c.chapter}</p>
-                <CardTitle className="text-base">{c.title}</CardTitle>
+                <p className="scnd-kicker">{c.chapter}</p>
+                <CardTitle className="scnd-display text-base">{c.title}</CardTitle>
                 <CardDescription>{c.description}</CardDescription>
               </CardHeader>
               <CardContent />
@@ -28,7 +28,7 @@ export function Landing() {
 
       {history && history.length > 0 && (
         <div className="mt-10">
-          <h2 className="text-sm font-semibold text-foreground mb-3">Recent solves</h2>
+          <h2 className="scnd-display text-sm font-semibold text-foreground mb-3">Recent solves</h2>
           <div className="border rounded-lg divide-y bg-white">
             {history.map((h) => {
               const chapterPath = chapterPathForModelId(h.modelId);
@@ -39,15 +39,15 @@ export function Landing() {
                     <Badge
                       variant="outline"
                       className={`text-[10px] ${
-                        h.status === "succeeded" ? "text-green-700 border-green-300 bg-green-50" :
-                        h.status === "failed" ? "text-red-600 border-red-300 bg-red-50" :
-                        "text-amber-600 border-amber-300 bg-amber-50"
+                        h.status === "succeeded" ? "text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]" :
+                        h.status === "failed" ? "text-[color:var(--danger)] border-[color:var(--danger-border)] bg-[color:var(--danger-bg)]" :
+                        "text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
                       }`}
                     >
                       {h.status}
                     </Badge>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0">
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
                     {h.objective != null && <span>obj {h.objective.toExponential(2)}</span>}
                     {h.weightedAvgDistanceMi != null && <span>{h.weightedAvgDistanceMi.toFixed(1)} mi</span>}
                     {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}

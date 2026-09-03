@@ -8,9 +8,10 @@ import { AppFooter } from "@/components/AppFooter";
 interface AppShellProps {
   userEmail: string;
   children: ReactNode;
+  heroTitle?: string;
 }
 
-export function AppShell({ userEmail, children }: AppShellProps) {
+export function AppShell({ userEmail, children, heroTitle }: AppShellProps) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const logoutUser = useLogoutUser();
@@ -32,14 +33,15 @@ export function AppShell({ userEmail, children }: AppShellProps) {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      <header className="h-12 border-b flex items-center px-4 gap-3 flex-shrink-0 bg-background">
-        <div className="flex flex-col leading-tight">
-          <span className="font-semibold text-sm">SCND Optimization Studio</span>
-          <span className="text-xs text-muted-foreground">By Prof. Michael Watson</span>
+      <header className="scnd-band flex-shrink-0 flex items-center gap-3 px-4 py-3">
+        <div className="flex-1 min-w-0">
+          <div className="scnd-kicker">Optimization Studio by Prof. Michael Watson</div>
+          {heroTitle
+            ? <div className="scnd-display text-lg font-semibold" style={{ color: "var(--green-400)" }}>{heroTitle}</div>
+            : <div className="scnd-display text-sm font-semibold" style={{ color: "var(--surface-band-fg)" }}>SCND Optimization Studio</div>}
         </div>
-        <div className="flex-1" />
-        <span className="text-sm text-muted-foreground" data-testid="text-user-email">{userEmail}</span>
-        <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
+        <span className="text-sm" style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
+        <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout" style={{ color: "var(--ink-300)" }}>
           Log out
         </Button>
       </header>
