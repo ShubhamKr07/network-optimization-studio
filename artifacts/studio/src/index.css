@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Barlow:wght@400;500;700&family=Barlow+Condensed:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "leaflet/dist/leaflet.css";
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -165,43 +165,8 @@
    tokens into this app's HSL-triple variable format (see
    docs/superpowers/specs/2026-08-24-scn-v0.3-phase3.1-design-system-design.md
    for the source mapping table). */
-.scn-theme {
-  --background: 240 4% 95%;
-  --foreground: 200 5% 12%;
-  --border: 240 1% 82%;
-  --input: 240 1% 82%;
-  --ring: 210 30% 50%;
-
-  --card: 240 2% 92%;
-  --card-foreground: 200 5% 12%;
-  --card-border: 240 1% 82%;
-
-  --popover: 240 2% 92%;
-  --popover-foreground: 200 5% 12%;
-  --popover-border: 240 1% 82%;
-
-  --primary: 210 30% 50%;
-  --primary-foreground: 0 0% 100%;
-
-  --muted: 240 2% 92%;
-  --muted-foreground: 240 1% 48%;
-
-  --accent: 210 25% 56%;
-  --accent-foreground: 0 0% 100%;
-
-  --sidebar: 240 2% 92%;
-  --sidebar-foreground: 200 5% 12%;
-  --sidebar-border: 240 1% 82%;
-  --sidebar-primary: 210 30% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 210 25% 56%;
-  --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring: 210 30% 50%;
-
-  --radius: 0rem;
-  --app-font-sans: 'Barlow', system-ui, sans-serif;
-  --app-font-heading: 'Barlow Condensed', system-ui, sans-serif;
-}
+/* .scn-theme retired (Bundle 3): book-cover theme lives at :root now; class left on Workspace.tsx as a harmless no-op */
+.scn-theme {}
 
 @plugin "@tailwindcss/typography";
 
@@ -291,10 +256,17 @@
   --text-9xl: 8rem;
   --text-9xl--line-height: 1;
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 6px;
+
+  --shadow-xs: 0 1px 1px rgba(24,26,21,.04);
+  --shadow-sm: 0 1px 2px rgba(24,26,21,.06);
+  --shadow: 0 1px 2px rgba(24,26,21,.06);
+  --shadow-md: 0 2px 8px rgba(24,26,21,.10);
+  --shadow-lg: 0 8px 30px rgba(24,26,21,.18);
+  --shadow-xl: 0 8px 30px rgba(24,26,21,.18);
 }
 
 /* LIGHT MODE */
@@ -309,72 +281,86 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 0 0% 100%;
-  --foreground: 222 84% 12%;
+  --background: 60 20% 99%;
+  --foreground: 84 11% 9%;
 
-  --border: 214 32% 91%;
+  --border: 72 16% 87%;
 
   --card: 0 0% 100%;
-  --card-foreground: 222 84% 12%;
-  --card-border: 214 32% 91%;
+  --card-foreground: 84 11% 9%;
+  --card-border: 72 16% 87%;
 
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 222 84% 12%;
-  --sidebar-border: 214 32% 91%;
-  --sidebar-primary: 218 70% 52%;
+  --sidebar-foreground: 84 11% 9%;
+  --sidebar-border: 72 16% 87%;
+  --sidebar-primary: 82 52% 33%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 210 40% 96%;
-  --sidebar-accent-foreground: 222 84% 12%;
-  --sidebar-ring: 218 70% 52%;
+  --sidebar-accent: 79 44% 50%;
+  --sidebar-accent-foreground: 84 11% 9%;
+  --sidebar-ring: 81 50% 43%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 84% 12%;
-  --popover-border: 214 32% 91%;
+  --popover-foreground: 84 11% 9%;
+  --popover-border: 72 16% 87%;
 
-  --primary: 218 70% 52%;
+  --primary: 82 52% 33%;
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 84% 12%;
+  --secondary: 75 40% 95%;
+  --secondary-foreground: 84 11% 9%;
 
-  --muted: 210 40% 98%;
-  --muted-foreground: 215 16% 47%;
+  --muted: 72 22% 95%;
+  --muted-foreground: 82 6% 35%;
 
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 84% 12%;
+  --accent: 79 44% 50%;
+  --accent-foreground: 84 11% 9%;
 
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 214 32% 91%;
-  --ring: 218 70% 52%;
+  --input: 72 16% 87%;
+  --ring: 81 50% 43%;
 
-  --success: #16A34A;
-  --warning: #F59E0B;
-  --utilization: #7C3AED;
-  --band-0: #16A34A;
-  --band-1: #84CC16;
-  --band-2: #F59E0B;
-  --band-3: #EF4444;
-  --chart-1: red; /*replace with H S L */
-  --chart-2: red; /*replace with H S L */
-  --chart-3: red; /*replace with H S L */
-  --chart-4: red; /*replace with H S L */
-  --chart-5: red; /*replace with H S L */
+  /* status (full sets) */
+  --success: #16A34A; --success-bg: #F0FDF4; --success-border: #86EFAC;
+  --warning: #B45309; --warning-bg: #FFFBEB; --warning-border: #FCD34D;
+  --danger: #DC2626;  --danger-bg: #FEF2F2;  --danger-border: #FCA5A5;
+  --utilization: #7DA436;
 
-  --app-font-sans: 'Inter', sans-serif;
-  --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
-  --app-font-heading: 'Space Grotesk', system-ui, sans-serif;
-  --radius: .5rem; /* 8px */
-  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00); /*replace with H S L */
-  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00); /*replace with H S L */
-  --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  /* five-color distance bands (0=nearest .. 4=farthest) */
+  --band-0: #16A34A; --band-1: #84CC16; --band-2: #F59E0B; --band-3: #EF4444; --band-4: #DC2626;
+
+  /* charts: 1..5 HSL (@theme-mapped); grid/axis hex (not mapped) */
+  --chart-1: 82 52% 33%; --chart-2: 83 8% 20%; --chart-3: 79 44% 62%;
+  --chart-4: 26 90% 37%; --chart-5: 81 6% 51%;
+  --chart-grid: #E2E4DA; --chart-axis-label: #5B5F54;
+
+  /* green + ink scales */
+  --green-050: #F4F7EB; --green-100: #E7EED4; --green-200: #CDDCA6; --green-300: #AFC975;
+  --green-400: #93B747; --green-500: #7DA436; --green-600: #5F7F28; --green-700: #48611E; --green-800: #324414;
+  --ink-900: #181A15; --ink-800: #23261F; --ink-700: #33362E; --ink-500: #5B5F54; --ink-400: #83887A; --ink-300: #ADB1A4;
+
+  /* raw text (avoid hsl() wrap in utilities/inline styles) */
+  --text-body: #181A15; --text-muted: #5B5F54; --text-faint: #83887A; --text-brand: #5F7F28;
+
+  /* band motif + surfaces + structural */
+  --surface-band: #181A15; --surface-band-fg: #FCFCFA; --surface-selected: #F4F7EB; --surface-sunken: #F5F6F1;
+  --line: #E2E4DA; --line-strong: #C9CCBD;
+  --primary-hover: #48611E; --primary-active: #324414; --link: #48611E; --link-hover: #324414; --focus-ring: #7DA436;
+
+  /* map entities + interaction-state rings (functional affordance values kept) */
+  --map-warehouse: #181A15; --map-warehouse-open: #5F7F28; --map-customer: #93B747;
+  --map-customer-stroke: #48611E; --map-flow: #7DA436; --map-inactive: #ADB1A4;
+  --map-ring-forced-open: #2D6CDF; --map-ring-select: #FCD34D; --map-ring-multiselect: #7C3AED;
+  --map-default-stroke: #83887A;
+
+  /* fonts (all three serif vars → Source Serif 4) */
+  --app-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --app-font-serif: 'Source Serif 4', Georgia, serif;
+  --app-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --app-font-heading: 'Source Serif 4', Georgia, serif;
+  --app-font-display: 'Source Serif 4', Georgia, serif;
+  --radius: 4px;
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -492,21 +478,6 @@
 
   --input: 215 16% 47%;
   --ring: 218 70% 52%;
-  --chart-1: red; /*replace with H S L */
-  --chart-2: red; /*replace with H S L */
-  --chart-3: red; /*replace with H S L */
-  --chart-4: red; /*replace with H S L */
-  --chart-5: red; /*replace with H S L */
-
-  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
-
 }
 
 @layer base {
@@ -629,4 +600,12 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+}
+
+@layer components {
+  .scnd-band { background: var(--surface-band); color: var(--surface-band-fg); border-bottom: 2px solid var(--green-400); }
+  .scnd-kicker { font-family: var(--app-font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+  /* On the dark band, --text-muted (#5B5F54) is only 2.68:1; --ink-300 (#ADB1A4) is 8.02:1 (matches the Landing kit). */
+  .scnd-band .scnd-kicker { color: var(--ink-300); }
+  .scnd-display { font-family: var(--app-font-display); }
 }
