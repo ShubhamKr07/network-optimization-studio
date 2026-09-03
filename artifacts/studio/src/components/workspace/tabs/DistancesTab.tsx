@@ -319,7 +319,7 @@ export function DistancesTab({
         placeholder="Distance"
         value={newDistance}
         onChange={e => setNewDistance(e.target.value)}
-        className="h-7 text-xs w-24"
+        className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-distance-value"
       />
       <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-distance-confirm">
@@ -350,7 +350,7 @@ export function DistancesTab({
     <div className="mb-4 border rounded-md" data-testid="distances-reference-section">
       <div className="flex items-center justify-between px-2 py-1.5 border-b bg-muted/40">
         <span className="text-xs font-medium">Base distances (reference)</span>
-        <span className="text-[11px] text-muted-foreground" data-testid="distances-reference-total">
+        <span className="text-[11px] text-muted-foreground font-mono" data-testid="distances-reference-total">
           {referenceTotal} pair{referenceTotal === 1 ? "" : "s"}
         </span>
       </div>
@@ -389,7 +389,7 @@ export function DistancesTab({
                   >
                     <div className="w-1/3 font-mono">{pair.fromCode}</div>
                     <div className="w-1/3 font-mono">{pair.toCode}</div>
-                    <div className="w-1/3">
+                    <div className="w-1/3 font-mono">
                       {pair.distance} {referenceQuery.data?.distanceUnit ?? ""}
                     </div>
                   </div>
@@ -467,7 +467,7 @@ export function DistancesTab({
                           min={0}
                           value={drafts[key] ?? String(o.distance)}
                           onChange={e => updateDistance(o.fromId, o.toId, e.target.value)}
-                          className="h-7 text-xs w-24"
+                          className="h-7 text-xs w-24 font-mono"
                           data-testid={`input-distance-${o.fromId}-${o.toId}`}
                         />
                         {o.estimated && (

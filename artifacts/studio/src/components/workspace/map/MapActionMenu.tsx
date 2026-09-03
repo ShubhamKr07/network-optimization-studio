@@ -133,7 +133,9 @@ export function MapActionMenu({
   }
 
   const { entity: e, kind } = entity;
-  const subtitle = kind === "cs" ? ` · ${e.demand.toLocaleString()} u` : "";
+  const subtitle = kind === "cs" ? (
+    <span className="font-mono"> · {e.demand.toLocaleString()} u</span>
+  ) : null;
 
   return (
     <div

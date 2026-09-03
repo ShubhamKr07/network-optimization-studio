@@ -2376,7 +2376,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   >
                     ←
                   </button>
-                  <span className="text-[color:var(--ink-300)] w-10 text-center" data-testid="text-result-history-position">
+                  <span className="text-[color:var(--ink-300)] w-10 text-center font-mono" data-testid="text-result-history-position">
                     {resultHistoryState.index + 1}/{resultHistoryState.items.length}
                   </span>
                   <button

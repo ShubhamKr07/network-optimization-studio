@@ -268,7 +268,7 @@ export function LegDistancesTab({
         placeholder="Distance"
         value={newDistance}
         onChange={e => setNewDistance(e.target.value)}
-        className="h-7 text-xs w-24"
+        className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-legdistance-value"
       />
       <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-legdistance-confirm">
@@ -342,7 +342,7 @@ export function LegDistancesTab({
                           min={0}
                           value={drafts[key] ?? String(o.distance)}
                           onChange={e => updateDistance(o.fromId, o.toId, e.target.value)}
-                          className="h-7 text-xs w-24"
+                          className="h-7 text-xs w-24 font-mono"
                           data-testid={`input-legdistance-${o.fromId}-${o.toId}`}
                         />
                         {changed && (

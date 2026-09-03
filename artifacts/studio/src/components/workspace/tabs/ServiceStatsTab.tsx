@@ -59,11 +59,11 @@ export function ServiceStatsTab({ result, scenarioId, modelId }: ServiceStatsTab
         <div className="p-4 space-y-2">
           {bandCoverage.map(b => (
             <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
-              <span className="w-24 flex-shrink-0">≤ {b.band} {distanceUnit}</span>
+              <span className="w-24 flex-shrink-0 font-mono">≤ {b.band} {distanceUnit}</span>
               <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
                 <div className="bg-primary h-full" style={{ width: `${Math.min(b.percent, 100)}%` }} />
               </div>
-              <span className="w-10 text-right">{b.percent}%</span>
+              <span className="w-10 text-right font-mono">{b.percent}%</span>
             </div>
           ))}
         </div>

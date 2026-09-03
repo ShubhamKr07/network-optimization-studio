@@ -121,7 +121,7 @@ export function MapLegend({
                   style={{ width: size, height: size }}
                   dangerouslySetInnerHTML={{ __html: customerBubbleSvg(radius, tone) }}
                 />
-                <span className="text-muted-foreground">{bucketLabel(bucket, scale.thresholds)}</span>
+                <span className="text-muted-foreground font-mono">{bucketLabel(bucket, scale.thresholds)}</span>
               </div>
             );
           })}

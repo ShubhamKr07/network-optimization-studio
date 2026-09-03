@@ -182,12 +182,12 @@ function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void
         </div>
         <div style="margin-bottom:3px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Distance:</span>
-          <strong style="margin-left:4px">${info.distanceMi.toLocaleString()} mi</strong>
+          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${info.distanceMi.toLocaleString()} mi</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Band:</span>
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
-          <strong>Band ${info.band + 1}</strong>
+          <strong style="font-family:var(--app-font-mono)">Band ${info.band + 1}</strong>
         </div>
       </div>
     `;
@@ -475,7 +475,7 @@ export function NetworkMap({
                     <span className="text-xs">
                       {warehouse.city} → {toEntity.city}
                       <br />
-                      {edge.distance} {distanceUnit}
+                      <span className="font-mono">{edge.distance} {distanceUnit}</span>
                     </span>
                   </Tooltip>
                 </Polyline>
@@ -529,7 +529,8 @@ export function NetworkMap({
               <Tooltip direction="top" offset={[0, -4]} opacity={1}>
                 <span className="font-semibold text-xs">
                   {(c as unknown as { city?: string }).city ?? c.id}, {(c as unknown as { state?: string }).state ?? ""}
-                  {" · "}{c.demand.toLocaleString()} {assignment ? `· Band ${assignmentBand + 1}` : ""}
+                  {" · "}
+                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· Band ${assignmentBand + 1}` : ""}</span>
                 </span>
               </Tooltip>
             </CircleMarker>
@@ -573,7 +574,9 @@ export function NetworkMap({
                 <span className="font-semibold text-xs">
                   {w.id} — {w.city}, {w.state}
                   {w.kind === "mine" && " (mine)"}
-                  {result && isOpen ? ` · ${warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers` : ""}
+                  {result && isOpen ? (
+                    <span className="font-mono"> · {warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers</span>
+                  ) : ""}
                 </span>
               </Tooltip>
             </Marker>
@@ -618,7 +621,7 @@ export function NetworkMap({
             {bandColors.slice(0, bands.length).map((color, i) => (
               <div key={i} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                <span className="text-[10px] text-muted-foreground">Band {i + 1}</span>
+                <span className="text-[10px] text-muted-foreground font-mono">Band {i + 1}</span>
               </div>
             ))}
           </div>

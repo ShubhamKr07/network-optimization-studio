@@ -95,7 +95,7 @@ export function OptimizationParametersTab({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-            <span className="text-sm font-bold text-primary" data-testid="text-p-value">{p}</span>
+            <span className="text-sm font-bold text-primary font-mono" data-testid="text-p-value">{p}</span>
           </div>
           <Slider
             min={1}
@@ -113,7 +113,7 @@ export function OptimizationParametersTab({
                 type="button"
                 data-testid={`button-p-quick-${n}`}
                 onClick={() => onChange("p", n)}
-                className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${
                   p === n ? "bg-primary text-white border-primary" : "bg-white text-foreground border-border hover:border-primary"
                 }`}
               >
@@ -133,7 +133,7 @@ export function OptimizationParametersTab({
             step="0.01"
             value={gap}
             onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
-            className="h-8 text-sm mt-1"
+            className="h-8 text-sm mt-1 font-mono"
             data-testid="input-gap"
           />
         </div>
@@ -144,7 +144,7 @@ export function OptimizationParametersTab({
             type="number"
             value={timeLimitSec}
             onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
-            className="h-8 text-sm mt-1"
+            className="h-8 text-sm mt-1 font-mono"
             data-testid="input-time-limit"
           />
         </div>
@@ -236,7 +236,7 @@ export function OptimizationParametersTab({
         </div>
         <div className="flex flex-wrap gap-1.5">
           {distanceBands.map(b => (
-            <span key={b} className="inline-flex items-center gap-1 text-xs bg-muted border border-border rounded px-2 py-1">
+            <span key={b} className="inline-flex items-center gap-1 text-xs bg-muted border border-border rounded px-2 py-1 font-mono">
               {b.toLocaleString()}
               <button
                 type="button"
@@ -269,7 +269,7 @@ export function OptimizationParametersTab({
                   setNewBandValue("");
                 }
               }}
-              className="h-7 text-xs w-28"
+              className="h-7 text-xs w-28 font-mono"
               placeholder="e.g. 500"
               data-testid="input-new-band"
             />

@@ -384,7 +384,7 @@ export function WarehousesTab({
                             const raw = e.target.value;
                             upsertAdded(w.id, { capacity: raw === "" ? null : Math.max(0, parseFloat(raw) || 0) });
                           }}
-                          className="h-7 text-xs w-28"
+                          className="h-7 text-xs w-28 font-mono"
                           placeholder="uniform"
                           data-testid={`input-added-wh-capacity-${w.id}`}
                         />
@@ -451,7 +451,7 @@ export function WarehousesTab({
             value={newLat}
             onChange={e => setNewLat(e.target.value)}
             onFocus={touchLat}
-            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-warehouse-lat"
           />
           <Input
@@ -460,7 +460,7 @@ export function WarehousesTab({
             value={newLng}
             onChange={e => setNewLng(e.target.value)}
             onFocus={touchLng}
-            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-warehouse-lng"
           />
           <Input
@@ -472,7 +472,7 @@ export function WarehousesTab({
             data-testid="input-new-warehouse-display-code"
           />
           {capacityMode === "per_wh" && (
-            <Input type="number" placeholder="Capacity" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-warehouse-capacity" />
+            <Input type="number" placeholder="Capacity" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-24 font-mono" data-testid="input-new-warehouse-capacity" />
           )}
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-warehouse-confirm">
             Add

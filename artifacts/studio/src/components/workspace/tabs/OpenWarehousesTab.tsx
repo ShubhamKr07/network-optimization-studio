@@ -95,9 +95,9 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs }: OpenW
             {rows.map(r => (
               <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">
                 <td className="p-2">{codeById[r.warehouseId] ?? r.warehouseId}</td>
-                <td className="p-2 text-right">{r.totalFlow.toLocaleString()}</td>
+                <td className="p-2 text-right font-mono">{r.totalFlow.toLocaleString()}</td>
                 {showUtilization && (
-                  <td className="p-2 text-right">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
+                  <td className="p-2 text-right font-mono">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
                 )}
               </tr>
             ))}

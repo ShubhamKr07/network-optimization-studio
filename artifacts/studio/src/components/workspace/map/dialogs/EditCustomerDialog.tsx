@@ -100,11 +100,11 @@ export function EditCustomerDialog({
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p data-testid="edit-customer-lat">{entity.lat}</p>
+              <p className="font-mono" data-testid="edit-customer-lat">{entity.lat}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p data-testid="edit-customer-lng">{entity.lng}</p>
+              <p className="font-mono" data-testid="edit-customer-lng">{entity.lng}</p>
             </div>
           </div>
 
@@ -117,7 +117,7 @@ export function EditCustomerDialog({
                 value={demand}
                 onChange={e => applyDemand(Number(e.target.value) || 0)}
                 disabled={!demandEditable}
-                className="h-8 w-28 text-sm"
+                className="h-8 w-28 text-sm font-mono"
                 data-testid="edit-customer-demand-input"
               />
             </div>

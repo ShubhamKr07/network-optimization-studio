@@ -247,11 +247,11 @@ export function OutputMapTab({
           >
             <div>
               <span className="text-muted-foreground">Objective: </span>
-              <span className="font-medium">{result.objective.toLocaleString()}</span>
+              <span className="font-medium font-mono">{result.objective.toLocaleString()}</span>
             </div>
             <div>
               <span className="text-muted-foreground">Weighted avg distance: </span>
-              <span className="font-medium">
+              <span className="font-medium font-mono">
                 {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
               </span>
             </div>

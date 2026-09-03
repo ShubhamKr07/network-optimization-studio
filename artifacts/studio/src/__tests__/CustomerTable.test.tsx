@@ -102,4 +102,15 @@ describe("CustomerTable", () => {
       expect(onChange).toHaveBeenCalledWith([{ id: "C1", status: "excluded", demand: undefined }]);
     });
   });
+
+  // Bundle 3, T9 — mono-numbers pass: numeric table cells and numeric
+  // inputs render in the monospace font; prose/labels (city/state) don't.
+  it("renders numeric cells and the demand input with font-mono (Bundle 3, T9)", () => {
+    const withZip = [{ id: "ALN", city: "Allentown", state: "PA", lat: 40.6028, lng: -75.4704, zip: "18101", demand: 500 }];
+    render(<CustomerTable customers={withZip} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.getByText("40.6028")).toHaveClass("font-mono");
+    expect(screen.getByText("18101")).toHaveClass("font-mono");
+    expect(screen.getByTestId("input-customer-demand-ALN")).toHaveClass("font-mono");
+    expect(screen.getByText("Allentown")).not.toHaveClass("font-mono");
+  });
 });

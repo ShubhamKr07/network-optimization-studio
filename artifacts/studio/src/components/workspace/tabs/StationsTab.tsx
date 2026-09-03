@@ -299,7 +299,7 @@ export function StationsTab({
                           const parsed = Number(e.target.value);
                           if (Number.isFinite(parsed) && parsed >= 0) upsertAddedDemand(s.id, parsed);
                         }}
-                        className="h-7 text-xs w-28"
+                        className="h-7 text-xs w-28 font-mono"
                         data-testid={`input-added-station-demand-${s.id}`}
                       />
                     </TableCell>
@@ -346,7 +346,7 @@ export function StationsTab({
             value={newLat}
             onChange={e => setNewLat(e.target.value)}
             onFocus={touchLat}
-            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-station-lat"
           />
           <Input
@@ -355,7 +355,7 @@ export function StationsTab({
             value={newLng}
             onChange={e => setNewLng(e.target.value)}
             onFocus={touchLng}
-            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-station-lng"
           />
           <Input
@@ -366,7 +366,7 @@ export function StationsTab({
             className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-station-display-code"
           />
-          <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24" data-testid="input-new-station-demand" />
+          <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24 font-mono" data-testid="input-new-station-demand" />
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-station-confirm">
             Add
           </Button>

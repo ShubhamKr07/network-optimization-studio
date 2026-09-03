@@ -188,11 +188,11 @@ export function CreateEntityDialog({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <span className="text-xs text-muted-foreground">Latitude</span>
-              <p data-testid="create-entity-lat">{lat}</p>
+              <p className="font-mono" data-testid="create-entity-lat">{lat}</p>
             </div>
             <div>
               <span className="text-xs text-muted-foreground">Longitude</span>
-              <p data-testid="create-entity-lng">{lng}</p>
+              <p className="font-mono" data-testid="create-entity-lng">{lng}</p>
             </div>
           </div>
 
@@ -262,6 +262,7 @@ export function CreateEntityDialog({
                     min={0}
                     value={capacity}
                     onChange={e => setCapacity(e.target.value)}
+                    className="font-mono"
                     data-testid="create-entity-capacity"
                   />
                 </div>
@@ -279,6 +280,7 @@ export function CreateEntityDialog({
                   min={0}
                   value={demand}
                   onChange={e => setDemand(e.target.value)}
+                  className="font-mono"
                   data-testid="create-entity-demand"
                 />
               </div>

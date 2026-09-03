@@ -45,7 +45,7 @@ export function MineTable({ mines, overrides, onChange }: MineTableProps) {
                 <TableCell className="text-xs">{m.state}</TableCell>
                 <TableCell className="text-xs font-mono">{m.lat.toFixed(4)}</TableCell>
                 <TableCell className="text-xs font-mono">{m.lng.toFixed(4)}</TableCell>
-                {mines.some(x => x.zip) && <TableCell className="text-xs">{m.zip ?? "—"}</TableCell>}
+                {mines.some(x => x.zip) && <TableCell className="text-xs font-mono">{m.zip ?? "—"}</TableCell>}
                 <TableCell>
                   <Input
                     type="number"
@@ -56,7 +56,7 @@ export function MineTable({ mines, overrides, onChange }: MineTableProps) {
                       setDrafts(prev => ({ ...prev, [m.id]: raw }));
                       upsert(m.id, raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0));
                     }}
-                    className="h-7 text-xs w-32"
+                    className="h-7 text-xs w-32 font-mono"
                     placeholder="base capacity"
                     data-testid={`input-mine-capacity-${m.id}`}
                   />

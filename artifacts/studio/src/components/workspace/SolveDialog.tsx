@@ -115,7 +115,7 @@ export function SolveDialog({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold text-foreground">Warehouses to open (P)</Label>
-                <span className="text-sm font-bold text-primary" data-testid="solve-dialog-p-value">
+                <span className="text-sm font-bold text-primary font-mono" data-testid="solve-dialog-p-value">
                   {p}
                 </span>
               </div>
@@ -144,7 +144,7 @@ export function SolveDialog({
                 value={gap}
                 disabled={busy}
                 onChange={e => onChange("gap", parseFloat(e.target.value) || 0)}
-                className="h-8 text-sm mt-1"
+                className="h-8 text-sm mt-1 font-mono"
                 data-testid="solve-dialog-input-gap"
               />
             </div>
@@ -158,7 +158,7 @@ export function SolveDialog({
                 value={timeLimitSec}
                 disabled={busy}
                 onChange={e => onChange("timeLimitSec", parseInt(e.target.value, 10) || 120)}
-                className="h-8 text-sm mt-1"
+                className="h-8 text-sm mt-1 font-mono"
                 data-testid="solve-dialog-input-time-limit"
               />
             </div>
@@ -191,7 +191,7 @@ export function SolveDialog({
               {distanceBands.map(b => (
                 <span
                   key={b}
-                  className="inline-flex items-center gap-1 text-xs bg-muted border border-border rounded px-2 py-1"
+                  className="inline-flex items-center gap-1 text-xs bg-muted border border-border rounded px-2 py-1 font-mono"
                   data-testid={`solve-dialog-band-${b}`}
                 >
                   {b.toLocaleString()}
@@ -227,7 +227,7 @@ export function SolveDialog({
                       setNewBandValue("");
                     }
                   }}
-                  className="h-7 text-xs w-28"
+                  className="h-7 text-xs w-28 font-mono"
                   placeholder="e.g. 500"
                   data-testid="solve-dialog-input-new-band"
                 />

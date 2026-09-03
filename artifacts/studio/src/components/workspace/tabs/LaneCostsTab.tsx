@@ -235,7 +235,7 @@ export function LaneCostsTab({
         placeholder="Cost"
         value={newCost}
         onChange={e => setNewCost(e.target.value)}
-        className="h-7 text-xs w-24"
+        className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-lanecost-value"
       />
       <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-lanecost-confirm">
@@ -321,7 +321,7 @@ export function LaneCostsTab({
                           min={0}
                           value={drafts[key] ?? String(o.cost)}
                           onChange={e => updateCost(o.fromId, o.toId, e.target.value)}
-                          className="h-7 text-xs w-24"
+                          className="h-7 text-xs w-24 font-mono"
                           data-testid={`input-lanecost-${o.fromId}-${o.toId}`}
                         />
                         {changed && (

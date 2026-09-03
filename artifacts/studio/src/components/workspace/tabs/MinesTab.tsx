@@ -321,7 +321,7 @@ export function MinesTab({
                           const raw = e.target.value;
                           upsertAdded(m.id, { capacity: raw === "" ? null : Math.max(0, parseFloat(raw) || 0) });
                         }}
-                        className="h-7 text-xs w-28"
+                        className="h-7 text-xs w-28 font-mono"
                         placeholder="unconstrained"
                         data-testid={`input-added-mine-capacity-${m.id}`}
                       />
@@ -369,7 +369,7 @@ export function MinesTab({
             value={newLat}
             onChange={e => setNewLat(e.target.value)}
             onFocus={touchLat}
-            className={`h-7 text-xs w-20 ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!latTouched && newLat ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-mine-lat"
           />
           <Input
@@ -378,7 +378,7 @@ export function MinesTab({
             value={newLng}
             onChange={e => setNewLng(e.target.value)}
             onFocus={touchLng}
-            className={`h-7 text-xs w-20 ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
+            className={`h-7 text-xs w-20 font-mono ${!lngTouched && newLng ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-mine-lng"
           />
           <Input
@@ -389,7 +389,7 @@ export function MinesTab({
             className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-mine-display-code"
           />
-          <Input type="number" placeholder="Capacity (optional)" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-32" data-testid="input-new-mine-capacity" />
+          <Input type="number" placeholder="Capacity (optional)" value={newCapacity} onChange={e => setNewCapacity(e.target.value)} className="h-7 text-xs w-32 font-mono" data-testid="input-new-mine-capacity" />
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-mine-confirm">
             Add
           </Button>
