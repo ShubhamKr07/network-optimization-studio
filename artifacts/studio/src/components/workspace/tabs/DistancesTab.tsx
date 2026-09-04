@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@workspace/api-client-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -70,6 +69,51 @@ function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
 }
 
+// Bundle 5, T5 — module-scope so it's not re-created every render. A plain
+// Prev/Next + "Page X of Y" indicator shared by both the reference table and
+// the overrides table (idPrefix distinguishes their testids).
+function Pager({
+  page,
+  pageCount,
+  onPrev,
+  onNext,
+  idPrefix,
+}: {
+  page: number;
+  pageCount: number;
+  onPrev: () => void;
+  onNext: () => void;
+  idPrefix: string;
+}) {
+  return (
+    <div className="flex items-center justify-end gap-2 mt-1 text-xs">
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-6 px-2 text-xs"
+        disabled={page <= 1}
+        onClick={onPrev}
+        data-testid={`button-${idPrefix}-prev`}
+      >
+        Prev
+      </Button>
+      <span className="font-mono text-[11px] text-muted-foreground" data-testid={`${idPrefix}-page-indicator`}>
+        Page {page} of {pageCount}
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-6 px-2 text-xs"
+        disabled={page >= pageCount}
+        onClick={onNext}
+        data-testid={`button-${idPrefix}-next`}
+      >
+        Next
+      </Button>
+    </div>
+  );
+}
+
 // B5.1 — long-format `{fromId, toId, distance}` grid over scenario.inputs'
 // distanceOverrides array (B1.1). Thin wrapper following WarehousesTab.tsx's
 // shape (props in, onChange out, no internal data-fetching/save logic) — but
@@ -103,6 +147,12 @@ export function DistancesTab({
   const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
+  // Bundle 5, T5 — pagination state for both tables (reference is read-only,
+  // overrides is editable; each paginates independently).
+  const PAGE_SIZE = 50;
+  const [refPage, setRefPage] = useState(1);
+  const [ovPage, setOvPage] = useState(1);
+
   // B3 (Bundle 2.2) — called UNCONDITIONALLY (Rules of Hooks) with `enabled`
   // gating the actual request: an unsupported model (referenceCapable false,
   // e.g. Brazil) or an unresolved modelId must never fire this request (the
@@ -118,26 +168,21 @@ export function DistancesTab({
     },
   });
 
-  // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
-  // Rows use this component's own existing `row-distance-${fromId}-${toId}`
-  // testid pattern (reused, not a new one) — matches on either side, since
-  // the newly-added entity could be either fromId (a warehouse) or toId (a
-  // customer).
+  // Phase 3.2, Task 4 / Bundle 5 T5 — post-Save precheck toast's "jump to it"
+  // action, reworked to survive pagination (resolution #1): clear the
+  // filters (so the target row can't be filtered out of view), then select
+  // the target's page. Rows use this component's own existing
+  // `row-distance-${fromId}-${toId}` testid pattern (reused, not a new one)
+  // — matches on either side, since the newly-added entity could be either
+  // fromId (a warehouse) or toId (a customer).
   useEffect(() => {
     if (!focusEntityId) return;
-    const prefix = "row-distance-";
-    const rows = document.querySelectorAll(`[data-testid^="${prefix}"]`);
-    for (const row of Array.from(rows)) {
-      const testid = row.getAttribute("data-testid") ?? "";
-      // "row-distance-${fromId}-${toId}" — matched by boundary, not a naive
-      // split on "-", since either id can itself contain hyphens.
-      const suffix = testid.slice(prefix.length);
-      if (suffix.startsWith(`${focusEntityId}-`) || suffix.endsWith(`-${focusEntityId}`)) {
-        row.scrollIntoView({ block: "center" });
-        break;
-      }
-    }
-  }, [focusEntityId]);
+    setFromFilter("");
+    setToFilter("");
+    const idx = distanceOverrides.findIndex(o => o.fromId === focusEntityId || o.toId === focusEntityId);
+    if (idx < 0) return; // not an override row — nothing to jump to
+    setOvPage(Math.floor(idx / PAGE_SIZE) + 1);
+  }, [focusEntityId, distanceOverrides]);
 
   const warehouseIdSet = new Set(warehouseIds);
   const customerIdSet = new Set(customerIds);
@@ -157,26 +202,51 @@ export function DistancesTab({
     [excludedCustomerIds],
   );
   const referencePairs = referenceQuery.data?.pairs ?? [];
+  // Bundle 5, T5 — the same From/To filter text now ALSO filters the
+  // reference pairs (on fromCode/toCode), not just the overrides table.
   const visibleReferencePairs = useMemo(
     () =>
       referencePairs.filter(
-        p => !inactiveWarehouseIdSet.has(p.fromId) && !excludedCustomerIdSet.has(p.toId),
+        p =>
+          !inactiveWarehouseIdSet.has(p.fromId) &&
+          !excludedCustomerIdSet.has(p.toId) &&
+          p.fromCode.toLowerCase().includes(fromFilter.toLowerCase()) &&
+          p.toCode.toLowerCase().includes(toFilter.toLowerCase()),
       ),
-    [referencePairs, inactiveWarehouseIdSet, excludedCustomerIdSet],
+    [referencePairs, inactiveWarehouseIdSet, excludedCustomerIdSet, fromFilter, toFilter],
   );
-  const referenceScrollRef = useRef<HTMLDivElement>(null);
-  const referenceVirtualizer = useVirtualizer({
-    count: visibleReferencePairs.length,
-    getScrollElement: () => referenceScrollRef.current,
-    estimateSize: () => 28,
-    overscan: 10,
-  });
 
   const visibleRows = distanceOverrides.filter(
     o =>
       o.fromId.toLowerCase().includes(fromFilter.toLowerCase()) &&
       o.toId.toLowerCase().includes(toFilter.toLowerCase()),
   );
+
+  const refPageCount = Math.max(1, Math.ceil(visibleReferencePairs.length / PAGE_SIZE));
+  const ovPageCount = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+
+  // Clamp DOWN whenever the filtered length shrinks (delete/import overrides,
+  // toggle inactive/excluded) so we never strand on a now-empty page. This only
+  // ever reduces the page; it never fights the focus jump (which sets a valid
+  // in-range page).
+  useEffect(() => { if (refPage > refPageCount) setRefPage(refPageCount); }, [refPage, refPageCount]);
+  useEffect(() => { if (ovPage > ovPageCount) setOvPage(ovPageCount); }, [ovPage, ovPageCount]);
+
+  const pagedReferencePairs = visibleReferencePairs.slice((refPage - 1) * PAGE_SIZE, refPage * PAGE_SIZE);
+  const pagedRows = visibleRows.slice((ovPage - 1) * PAGE_SIZE, ovPage * PAGE_SIZE);
+
+  // Scroll once the target page has rendered (runs after ovPage updates above).
+  useEffect(() => {
+    if (!focusEntityId) return;
+    const prefix = "row-distance-";
+    for (const row of Array.from(document.querySelectorAll(`[data-testid^="${prefix}"]`))) {
+      const suffix = (row.getAttribute("data-testid") ?? "").slice(prefix.length);
+      if (suffix.startsWith(`${focusEntityId}-`) || suffix.endsWith(`-${focusEntityId}`)) {
+        row.scrollIntoView({ block: "center" });
+        break;
+      }
+    }
+  }, [focusEntityId, ovPage, pagedRows]);
 
   function isChanged(o: DistanceOverride): boolean {
     const saved = savedByKey.get(pairKey(o.fromId, o.toId));
@@ -271,14 +341,14 @@ export function DistancesTab({
       <Input
         placeholder="Filter from ID…"
         value={fromFilter}
-        onChange={e => setFromFilter(e.target.value)}
+        onChange={e => { setFromFilter(e.target.value); setRefPage(1); setOvPage(1); }}
         className="h-7 text-xs w-36"
         data-testid="input-filter-from"
       />
       <Input
         placeholder="Filter to ID…"
         value={toFilter}
-        onChange={e => setToFilter(e.target.value)}
+        onChange={e => { setToFilter(e.target.value); setRefPage(1); setOvPage(1); }}
         className="h-7 text-xs w-36"
         data-testid="input-filter-to"
       />
@@ -371,31 +441,29 @@ export function DistancesTab({
             <div className="w-1/3">To</div>
             <div className="w-1/3">Distance</div>
           </div>
-          <div
-            ref={referenceScrollRef}
-            className="max-h-[220px] overflow-y-auto relative"
-            data-testid="distances-reference-scroll"
-          >
-            <div style={{ height: referenceVirtualizer.getTotalSize(), position: "relative" }}>
-              {referenceVirtualizer.getVirtualItems().map(virtualRow => {
-                const pair = visibleReferencePairs[virtualRow.index];
-                if (!pair) return null;
-                return (
-                  <div
-                    key={`${pair.fromId}|${pair.toId}`}
-                    data-testid={`row-reference-distance-${pair.fromId}-${pair.toId}`}
-                    className="flex items-center text-xs px-2 border-b absolute top-0 left-0 w-full"
-                    style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
-                  >
-                    <div className="w-1/3 font-mono">{pair.fromCode}</div>
-                    <div className="w-1/3 font-mono">{pair.toCode}</div>
-                    <div className="w-1/3 font-mono">
-                      {pair.distance} {referenceQuery.data?.distanceUnit ?? ""}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="max-h-[220px] overflow-y-auto" data-testid="distances-reference-scroll">
+            {pagedReferencePairs.map(pair => (
+              <div
+                key={`${pair.fromId}|${pair.toId}`}
+                data-testid={`row-reference-distance-${pair.fromId}-${pair.toId}`}
+                className="flex items-center text-xs px-2 border-b"
+              >
+                <div className="w-1/3 font-mono">{pair.fromCode}</div>
+                <div className="w-1/3 font-mono">{pair.toCode}</div>
+                <div className="w-1/3 font-mono">
+                  {pair.distance} {referenceQuery.data?.distanceUnit ?? ""}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-2 pb-1.5">
+            <Pager
+              page={refPage}
+              pageCount={refPageCount}
+              onPrev={() => setRefPage(p => Math.max(1, p - 1))}
+              onNext={() => setRefPage(p => Math.min(refPageCount, p + 1))}
+              idPrefix="ref"
+            />
           </div>
         </div>
       )}
@@ -412,106 +480,115 @@ export function DistancesTab({
           No distance overrides yet — add one below, or upload a CSV/JSON file.
         </p>
       ) : (
-        <div className="max-h-[55vh] overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>From (warehouse)</TableHead>
-                <TableHead>To (customer)</TableHead>
-                <TableHead>Distance</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleRows.map(o => {
-                const key = pairKey(o.fromId, o.toId);
-                const changed = isChanged(o);
-                const fromUnknown = !warehouseIdSet.has(o.fromId);
-                const toUnknown = !customerIdSet.has(o.toId);
-                return (
-                  <TableRow
-                    key={key}
-                    data-testid={`row-distance-${o.fromId}-${o.toId}`}
-                    className={changed ? "bg-amber-50" : o.estimated ? "bg-sky-50" : undefined}
-                  >
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-1">
-                        {displayCodeById?.[o.fromId] ?? o.fromId}
-                        {fromUnknown && (
-                          <span
-                            title="Unknown warehouse ID — not found in this scenario's warehouses"
-                            data-testid={`warning-unknown-from-${o.fromId}-${o.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-1">
-                        {displayCodeById?.[o.toId] ?? o.toId}
-                        {toUnknown && (
-                          <span
-                            title="Unknown customer ID — not found in this scenario's customers"
-                            data-testid={`warning-unknown-to-${o.fromId}-${o.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={drafts[key] ?? String(o.distance)}
-                          onChange={e => updateDistance(o.fromId, o.toId, e.target.value)}
-                          className="h-7 text-xs w-24 font-mono"
-                          data-testid={`input-distance-${o.fromId}-${o.toId}`}
-                        />
-                        {o.estimated && (
-                          <span
-                            className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
-                            data-testid={`badge-distance-estimated-${o.fromId}-${o.toId}`}
-                          >
-                            Estimated
-                          </span>
-                        )}
-                        {changed && (
-                          <span
-                            className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
-                            data-testid={`badge-distance-changed-${o.fromId}-${o.toId}`}
-                          >
-                            Changed
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        type="button"
-                        aria-label={`Remove distance override ${o.fromId} → ${o.toId}`}
-                        onClick={() => removeRow(o.fromId, o.toId)}
-                        data-testid={`button-remove-distance-${o.fromId}-${o.toId}`}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+        <>
+          <div className="max-h-[55vh] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>From (warehouse)</TableHead>
+                  <TableHead>To (customer)</TableHead>
+                  <TableHead>Distance</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pagedRows.map(o => {
+                  const key = pairKey(o.fromId, o.toId);
+                  const changed = isChanged(o);
+                  const fromUnknown = !warehouseIdSet.has(o.fromId);
+                  const toUnknown = !customerIdSet.has(o.toId);
+                  return (
+                    <TableRow
+                      key={key}
+                      data-testid={`row-distance-${o.fromId}-${o.toId}`}
+                      className={changed ? "bg-amber-50" : o.estimated ? "bg-sky-50" : undefined}
+                    >
+                      <TableCell className="font-mono text-xs">
+                        <div className="flex items-center gap-1">
+                          {displayCodeById?.[o.fromId] ?? o.fromId}
+                          {fromUnknown && (
+                            <span
+                              title="Unknown warehouse ID — not found in this scenario's warehouses"
+                              data-testid={`warning-unknown-from-${o.fromId}-${o.toId}`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        <div className="flex items-center gap-1">
+                          {displayCodeById?.[o.toId] ?? o.toId}
+                          {toUnknown && (
+                            <span
+                              title="Unknown customer ID — not found in this scenario's customers"
+                              data-testid={`warning-unknown-to-${o.fromId}-${o.toId}`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="number"
+                            min={0}
+                            value={drafts[key] ?? String(o.distance)}
+                            onChange={e => updateDistance(o.fromId, o.toId, e.target.value)}
+                            className="h-7 text-xs w-24 font-mono"
+                            data-testid={`input-distance-${o.fromId}-${o.toId}`}
+                          />
+                          {o.estimated && (
+                            <span
+                              className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
+                              data-testid={`badge-distance-estimated-${o.fromId}-${o.toId}`}
+                            >
+                              Estimated
+                            </span>
+                          )}
+                          {changed && (
+                            <span
+                              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+                              data-testid={`badge-distance-changed-${o.fromId}-${o.toId}`}
+                            >
+                              Changed
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          aria-label={`Remove distance override ${o.fromId} → ${o.toId}`}
+                          onClick={() => removeRow(o.fromId, o.toId)}
+                          data-testid={`button-remove-distance-${o.fromId}-${o.toId}`}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {visibleRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-xs text-muted-foreground text-center py-3">
+                      No rows match the current filter.
                     </TableCell>
                   </TableRow>
-                );
-              })}
-              {visibleRows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-xs text-muted-foreground text-center py-3">
-                    No rows match the current filter.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <Pager
+            page={ovPage}
+            pageCount={ovPageCount}
+            onPrev={() => setOvPage(p => Math.max(1, p - 1))}
+            onNext={() => setOvPage(p => Math.min(ovPageCount, p + 1))}
+            idPrefix="ov"
+          />
+        </>
       )}
 
       {addRowUi}

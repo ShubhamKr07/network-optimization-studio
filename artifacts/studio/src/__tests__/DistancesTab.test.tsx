@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { useState } from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -61,6 +62,8 @@ beforeEach(() => {
   fetchMock.mockReset();
   (global.URL.createObjectURL as unknown) = vi.fn(() => "blob:mock");
   (global.URL.revokeObjectURL as unknown) = vi.fn();
+  // jsdom doesn't implement scrollIntoView — the focusEntityId effect calls it.
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 describe("DistancesTab — rendering", () => {
@@ -538,21 +541,6 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
 // Workspace.tsx call site; this file only proves the component's own
 // contract.
 describe("DistancesTab — reference distances (B3)", () => {
-  // jsdom reports offsetHeight:0 for every element by default, which would
-  // make the virtualizer compute an empty visible range and mount zero
-  // rows — give the scroll container (and everything else, harmlessly) a
-  // real measured height so a bounded, nonzero window of rows renders.
-  let originalOffsetHeight: PropertyDescriptor | undefined;
-  beforeEach(() => {
-    originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 220 });
-  });
-  afterEach(() => {
-    if (originalOffsetHeight) {
-      Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
-    }
-  });
-
   it("hides the reference section when referenceCapable is absent (back-compat default)", () => {
     renderWithQueryClient(
       <DistancesTab
@@ -762,7 +750,7 @@ describe("DistancesTab — reference distances (B3)", () => {
     expect(row).not.toHaveTextContent("999999");
   });
 
-  it("virtualization: only a windowed subset of reference rows is mounted in the DOM (not all 5200)", async () => {
+  it("pagination: only the first page (50 rows) of the reference table is mounted, with correct pager state", async () => {
     mockReferenceDistancesFetch();
     renderWithQueryClient(
       <DistancesTab
@@ -777,7 +765,190 @@ describe("DistancesTab — reference distances (B3)", () => {
     );
     await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
     const mountedRows = document.querySelectorAll('[data-testid^="row-reference-distance-"]');
-    expect(mountedRows.length).toBeGreaterThan(0);
-    expect(mountedRows.length).toBeLessThan(REFERENCE_TOTAL);
+    expect(mountedRows.length).toBe(50);
+    // 5200 rows / 50 per page = 104 pages.
+    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 1 of 104");
+    expect(screen.getByTestId("button-ref-prev")).toBeDisabled();
+    expect(screen.getByTestId("button-ref-next")).not.toBeDisabled();
+  });
+});
+
+describe("DistancesTab — pagination (Bundle 5, T5)", () => {
+  function buildManyOverrides(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      fromId: `WH${String((i % 26) + 1).padStart(2, "0")}`,
+      toId: `C${String(i + 1).padStart(3, "0")}`,
+      distance: 100 + i,
+    }));
+  }
+
+  it("overrides table: paginates at 50 rows per page, Prev disabled on page 1, Next advances", async () => {
+    const many = buildManyOverrides(120);
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={many}
+        savedDistanceOverrides={many}
+        warehouseIds={many.map(o => o.fromId)}
+        customerIds={many.map(o => o.toId)}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 1 of 3");
+    expect(screen.getByTestId("button-ov-prev")).toBeDisabled();
+    expect(screen.getByTestId(`row-distance-${many[0].fromId}-${many[0].toId}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`row-distance-${many[49].fromId}-${many[49].toId}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`row-distance-${many[50].fromId}-${many[50].toId}`)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("button-ov-next"));
+
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 3");
+    expect(screen.getByTestId(`row-distance-${many[50].fromId}-${many[50].toId}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`row-distance-${many[99].fromId}-${many[99].toId}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`row-distance-${many[0].fromId}-${many[0].toId}`)).not.toBeInTheDocument();
+  });
+
+  it("global From/To filter narrows BOTH tables and resets both pagers to page 1", async () => {
+    mockReferenceDistancesFetch();
+    const many = buildManyOverrides(120);
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={many}
+        savedDistanceOverrides={many}
+        warehouseIds={many.map(o => o.fromId)}
+        customerIds={many.map(o => o.toId)}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
+
+    // Move to page 2 of the overrides table first, so the filter's reset is observable.
+    await userEvent.click(screen.getByTestId("button-ov-next"));
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 3");
+
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
+
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 1 of");
+    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 1 of");
+    // Reference rows are filtered on fromCode too — WH01 has 200 pairs.
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("200"));
+  });
+
+  it("clamps down on delete: removing the last row on the last override page lands on the new last page (no empty page)", async () => {
+    const many = buildManyOverrides(101); // 3 pages: 50/50/1
+    let current = many;
+    const Wrapper = () => {
+      const [rows, setRows] = useState(current);
+      return (
+        <DistancesTab
+          distanceOverrides={rows}
+          savedDistanceOverrides={rows}
+          warehouseIds={rows.map(o => o.fromId)}
+          customerIds={rows.map(o => o.toId)}
+          onChange={next => { current = next; setRows(next); }}
+        />
+      );
+    };
+    renderWithQueryClient(<Wrapper />);
+
+    await userEvent.click(screen.getByTestId("button-ov-next"));
+    await userEvent.click(screen.getByTestId("button-ov-next"));
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 3 of 3");
+
+    const last = many[100];
+    await userEvent.click(screen.getByTestId(`button-remove-distance-${last.fromId}-${last.toId}`));
+
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 2");
+  });
+
+  it("reference clamp: tightening inactiveWarehouseIds after paging forward shrinks the filtered set below the current page", async () => {
+    mockReferenceDistancesFetch();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { rerender } = renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+        inactiveWarehouseIds={referencePairs
+          .filter(p => !["WH01", "WH02"].includes(p.fromId))
+          .map(p => p.fromId)
+          .filter((v, i, a) => a.indexOf(v) === i)}
+      />,
+      client,
+    );
+    // 2 warehouses x 200 customers = 400 pairs -> 8 pages of 50.
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("400"));
+    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 1 of 8");
+
+    await userEvent.click(screen.getByTestId("button-ref-next"));
+    await userEvent.click(screen.getByTestId("button-ref-next"));
+    await userEvent.click(screen.getByTestId("button-ref-next"));
+    await userEvent.click(screen.getByTestId("button-ref-next"));
+    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 5 of 8");
+
+    // Tighten down to just WH01 (200 pairs -> 4 pages). Page 5 > 4 must clamp.
+    rerender(
+      <QueryClientProvider client={client}>
+        <DistancesTab
+          distanceOverrides={[]}
+          savedDistanceOverrides={[]}
+          warehouseIds={["WH01"]}
+          customerIds={["C001"]}
+          onChange={vi.fn()}
+          modelId="p-median-us"
+          referenceCapable
+          inactiveWarehouseIds={referencePairs
+            .filter(p => p.fromId !== "WH01")
+            .map(p => p.fromId)
+            .filter((v, i, a) => a.indexOf(v) === i)}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("200"));
+    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 4 of 4");
+  });
+
+  it("focus across pages, starting on a non-empty filter (resolution #2): clears the filter and lands on the target's real page without snapping back to page 1", async () => {
+    const many = buildManyOverrides(120);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { rerender } = renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={many}
+        savedDistanceOverrides={many}
+        warehouseIds={many.map(o => o.fromId)}
+        customerIds={many.map(o => o.toId)}
+        onChange={vi.fn()}
+      />,
+      client,
+    );
+
+    // Set a non-empty filter first (real user typing — resets to page 1).
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
+    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 1 of");
+
+    // override #75 (index 74) — target its toId so the effect finds it.
+    const target = many[74];
+    rerender(
+      <QueryClientProvider client={client}>
+        <DistancesTab
+          distanceOverrides={many}
+          savedDistanceOverrides={many}
+          warehouseIds={many.map(o => o.fromId)}
+          customerIds={many.map(o => o.toId)}
+          onChange={vi.fn()}
+          focusEntityId={target.toId}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("input-filter-from")).toHaveValue("");
+    // Math.floor(74/50)+1 = 2 — the programmatic clear must NOT snap back to page 1.
+    await waitFor(() => expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 3"));
   });
 });
