@@ -10,6 +10,38 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-04-bundle6-ui-tweaks-design.md` (review-resolved). Read its resolutions log — it governs item 8 (hide everywhere), item 7 (shell parity), item 1 (one-shot seed), tests (update-not-add), and the logout constraint.
 
+## Plan review — resolutions (2026-09-05)
+
+Five findings; all fixed inline:
+
+1. **[P1] "Full Playwright suite" can't pass — `labs.spec.ts` is known debt.**
+   `e2e/labs.spec.ts` targets a stale remote + pre-D0 API shape (CLAUDE.md:218)
+   and would fail any real run. **Fixed (T7):** run the Bundle-6-affected + new
+   specs and explicitly **exclude `labs.spec.ts`** (via `--grep-invert`/an
+   ignore); the plan no longer claims a green "full suite." labs.spec.ts's port
+   stays a separate documented debt item, out of Bundle 6's scope.
+2. **[P1] T2 header overflows narrow viewports.** The proposed non-wrapping
+   flex row with a `flex-shrink-0` right cluster drops the current responsive
+   one-column behavior (`Workspace.test.tsx:1809`) and overflows 375px. **Fixed
+   (T2 Step 3):** the header stays a responsive grid —
+   `grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto]` (stacks to one column
+   below `md`); the narrow-viewport test is updated (T2 Step 5).
+3. **[P1] Shared `min-width` ≠ shared width.** `min-w` only helps when content
+   is narrower; either legend can grow past it (Input's wrapping demand row
+   especially). **Fixed (T4):** both legend boxes use a shared **fixed**
+   `w-[220px]` with `flex-wrap` on the marker rows (content wraps within the
+   fixed width — minor intentional wrap of the Output row is accepted to achieve
+   parity); T7 adds a real-browser assertion that the two legends'
+   bounding-box widths are equal.
+4. **[P2] Commit commands had shell placeholders.** `<the … test file>` parses
+   as shell input redirection — unexecutable. **Fixed:** every commit command
+   now uses exact paths (`artifacts/studio/src/__tests__/{Workspace,CostSummaryTab,Landing,Login,Register,AppShell}.test.tsx`;
+   no `AuthShell.test.tsx` exists — T5's strip is covered via `Login.test.tsx`).
+5. **[P2] T7 Login assertions need an unauthenticated state.** After the spec
+   registers a user, `Gate` redirects `/login` → Landing. **Fixed (T7):** the
+   Login assertions live in a separate unauthenticated `describe`/`test` using
+   `storageState: undefined` (mirroring `bundle4-auth-landing.spec.ts`).
+
 ## Global Constraints
 
 - Presentation-only except T1's `Scenario.solvedAt` + `LandingSummaryChapter.solvedScenarioCount` (both already computed server-side; no schema/DB change).
@@ -133,7 +165,9 @@ useEffect(() => {
 Replace the header's inner grid (Workspace.tsx:2284-2416) with a two-zone flex: left = back-arrow + chapter summary (moved from center, left-aligned); right = stepper + Save-as-scenario + Run Optimizer. Remove the `select-scenario-context` dropdown, the `text-user-email` span, and the `button-logout` Button.
 ```tsx
 <header className="scnd-band flex-shrink-0">
-  <div className="flex items-center justify-between gap-4 px-4 py-1.5 min-h-14">
+  {/* Responsive grid (resolution #2): two tracks at md+ (summary | controls),
+      collapses to one stacked column below md so nothing overflows 375px. */}
+  <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-4 px-4 py-1.5 min-h-14">
     {/* Left — back + chapter/summary */}
     <div className="flex items-center gap-2 min-w-0">
       <button onClick={() => navigate("/")} data-testid="button-page-back" title="Back to models"
@@ -153,8 +187,9 @@ Replace the header's inner grid (Workspace.tsx:2284-2416) with a two-zone flex: 
         );
       })()}
     </div>
-    {/* Right — stepper + save-as + run */}
-    <div className="flex items-center gap-2 flex-wrap justify-end flex-shrink-0">
+    {/* Right — stepper + save-as + run (own grid track at md+; wraps/stacks
+        below md, never forces horizontal overflow). */}
+    <div className="flex items-center gap-2 flex-wrap justify-end">
       {resultHistoryState.items.length > 0 && (
         <div className="flex items-center gap-1 text-xs">
           <button type="button" data-testid="button-result-back" disabled={!canGoBackResult} onClick={stepResultBack} title="Previous result"
@@ -187,7 +222,7 @@ Delete `handleLogout` and the `useLogoutUser` import/usage (Workspace.tsx:842-85
 
 - [ ] **Step 5: Update Workspace tests**
 
-In the Workspace RTL spec: remove/replace assertions about `select-scenario-context`, `text-user-email`, and `button-logout` (they're gone). Add:
+In `artifacts/studio/src/__tests__/Workspace.test.tsx`: remove/replace assertions about `select-scenario-context`, `text-user-email`, and `button-logout` (they're gone). **Update the narrow-viewport test (`Workspace.test.tsx:1809`)** — it currently anchors the responsive grid via `screen.getByTestId("select-scenario-context").closest('[class*="grid-cols-1"]')`; re-anchor on `workspace-chapter-summary` (or `button-page-back`) and assert the new responsive grid classes (`grid-cols-1` present, `md:grid-cols-[minmax(0,1fr)_auto]`) and that Run Optimizer + the stepper stay reachable at 375px. Add:
 - last-solved default: given scenarios with differing `solvedAt`, the header/active scenario is the greatest-`solvedAt` one; with none solved, the greatest-`updatedAt` one.
 - one-shot seed: on mount an `input:input-map` tab is open; **after closing the last tab, no tab is active and Input Map does NOT reopen** (dispatch close, assert `activeTabId` null / no tab rendered).
 - stepper: `button-result-back`/`button-result-forward` render (chevron icons) when history exists.
@@ -197,7 +232,7 @@ In the Workspace RTL spec: remove/replace assertions about `select-scenario-cont
 ```bash
 pnpm run typecheck && pnpm --filter studio test
 git commit -m "[bundle6-T2] Workspace: last-solved Input Map entry, header cleanup, pronounced stepper" -- \
-  artifacts/studio/src/pages/Workspace.tsx <the Workspace test file>
+  artifacts/studio/src/pages/Workspace.tsx artifacts/studio/src/__tests__/Workspace.test.tsx
 ```
 
 ---
@@ -229,7 +264,7 @@ Remove any assertion on `cost-summary-compare-utilization-*`. Add: a compare ren
 ```bash
 pnpm run typecheck && pnpm --filter studio test
 git commit -m "[bundle6-T3] Solution Summary compare: drop utilization, hyphenate city-state" -- \
-  artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx <the CostSummaryTab test file>
+  artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx artifacts/studio/src/__tests__/CostSummaryTab.test.tsx
 ```
 
 ---
@@ -244,13 +279,18 @@ Per resolution #2 — visual-shell parity + shared width, NOT pixel-identical. O
 
 In `MapLegend.tsx`, change the warehouse-status swatch from `w-[18px] h-[18px]` to `w-[14px] h-[14px]` (matches the Output legend's 14px markers).
 
-- [ ] **Step 2: Shared min-width on both legend boxes**
+- [ ] **Step 2: Shared FIXED width on both legend boxes (resolution #3)**
 
-Add `min-w-[210px]` to BOTH legend container divs so their widths match (Output's natural width already ≈ this with 4 markers, so it's a near-no-op there; Input grows to match):
-- `MapLegend.tsx`: the outer `className="absolute bottom-4 left-4 bg-card border border-border rounded-md shadow p-2 flex flex-col gap-2 z-10 text-xs pointer-events-none"` → add ` min-w-[210px]`.
-- `NetworkMap.tsx` (legend div, ~line 587): `className="absolute bottom-4 right-4 bg-white border border-border p-2 rounded-md shadow flex flex-col gap-2 z-10 text-xs"` → add ` min-w-[210px]`.
+A shared `min-width` does NOT equalize widths (either box can grow past it). Use
+a shared **fixed** `w-[220px]` on both boxes, and add `flex-wrap` to the marker
+rows so content wraps within that fixed width instead of widening the box:
+- `MapLegend.tsx`: outer `className="absolute bottom-4 left-4 bg-card border border-border rounded-md shadow p-2 flex flex-col gap-2 z-10 text-xs pointer-events-none"` → add ` w-[220px]`. (Its status row is `flex items-center gap-3` → add `flex-wrap`; its demand row already has `flex-wrap`.)
+- `NetworkMap.tsx` (legend div, ~line 587): `className="absolute bottom-4 right-4 bg-white border border-border p-2 rounded-md shadow flex flex-col gap-2 z-10 text-xs"` → add ` w-[220px]`. Add `flex-wrap` to its marker row (`flex items-center gap-3` → `flex items-center gap-3 flex-wrap`) so the 3-4 markers wrap within 220px rather than overflow (accepted minor wrap of the Output row — the only change to the Output legend, made to achieve equal width).
 
-(In the plan's implementation, first read both legends live to confirm 210px comfortably fits the Output legend's single-row content at `md`; bump the shared value if the Output row is wider. Do not otherwise restyle the Output legend.)
+Both boxes are now exactly 220px wide; heights vary with content. First read both
+legends live and confirm 220px comfortably wraps the Output legend's 3-4 markers
+(bump the shared constant if a marker+label pair is wider than 220px). The
+bounding-box-width equality is asserted in a real browser by T7.
 
 - [ ] **Step 3: Gate + commit**
 
@@ -300,7 +340,7 @@ Render the same strip (`auth-labs-strip` testid + styling) mapping `LABS` (now e
 pnpm run typecheck && pnpm --filter studio test
 git commit -m "[bundle6-T5] hide Ch5 everywhere on Landing + login footer active chapters" -- \
   artifacts/studio/src/lib/chapters.ts artifacts/studio/src/pages/Landing.tsx artifacts/studio/src/components/auth/AuthShell.tsx \
-  <the Landing/AuthShell test files>
+  artifacts/studio/src/__tests__/Landing.test.tsx artifacts/studio/src/__tests__/Login.test.tsx
 ```
 
 ---
@@ -336,14 +376,15 @@ In `Register.tsx`: change the email `Input` `placeholder="you@university.edu"` �
 pnpm run typecheck && pnpm --filter studio test
 git commit -m "[bundle6-T6] hero cover 96px, footer copy, login Register/placeholder" -- \
   artifacts/studio/src/components/AppShell.tsx artifacts/studio/src/components/DeveloperCredit.tsx \
-  artifacts/studio/src/pages/auth/Login.tsx artifacts/studio/src/pages/auth/Register.tsx <the affected test files>
+  artifacts/studio/src/pages/auth/Login.tsx artifacts/studio/src/pages/auth/Register.tsx \
+  artifacts/studio/src/__tests__/Login.test.tsx artifacts/studio/src/__tests__/AppShell.test.tsx
 ```
 
 ---
 
 ## Task T7 — QA (`[bundle6-T7]`, standing QA task)
 
-`qa-sdet`, real Playwright against local dev servers (api :3001 + studio proxy :5199). Runs in the shared worktree (deps installed). **Updates the affected existing e2e specs AND runs the FULL Playwright suite** (resolution #4).
+`qa-sdet`, real Playwright against local dev servers (api :3001 + studio proxy :5199). Runs in the shared worktree (deps installed). **Updates the affected existing e2e specs AND runs the Bundle-6-affected + new specs, explicitly EXCLUDING the known-debt `labs.spec.ts`** (resolutions #1/#4 — `labs.spec.ts` targets a stale remote/pre-D0 API shape per CLAUDE.md:218 and would fail any real run; its port is separate debt, not Bundle 6's job — do NOT claim a green "full suite").
 
 - [ ] **Step 1: Update affected existing specs**
 
@@ -351,16 +392,20 @@ git commit -m "[bundle6-T6] hero cover 96px, footer copy, login Register/placeho
 
 - [ ] **Step 2: New spec `e2e/bundle6-ui-tweaks.spec.ts`**
 
-Register a fresh account; seed via the real API. Cover:
+Two blocks. **(a) An authenticated block** (registers a fresh account; seeds via the real API):
 - **Last-solved entry:** create 2 scenarios, solve the 2nd; navigate to the chapter route with no `?scenario=` → the 2nd (last-solved) is active and the **Input Map** tab is open. Close the last tab → no tab active (Input Map does not reopen).
 - **Header:** no `select-scenario-context`, no `text-user-email`, no `button-logout`; `workspace-chapter-summary` present on the left; `button-result-back`/`-forward` render after a solve.
 - **Solution Summary compare:** open two solved p-median-us scenarios in compare → no `cost-summary-compare-utilization-*` cell; an open-facility city cell reads `"<City> - <State>"`.
+- **Legend parity (resolution #3):** on a solved p-median-us scenario, measure the Input Map's `map-legend` bounding-box width, then the Output Map's legend width; assert they are equal (both 220px).
 - **Landing:** no Ch5 cards; a `transport-coal` solve does NOT appear in Recent Solves; stats line counts visible-only; hero cover img is ~96px (`h-24`).
-- **Login:** "Register" link (not "Register with your course email"); email placeholder `you@example.com`; footer "Reach out at"; labs strip shows only "Chapter 3".
+
+**(b) A separate UNAUTHENTICATED block** (resolution #5 — `test.use({ storageState: undefined })`, mirroring `bundle4-auth-landing.spec.ts`; `Gate` would redirect `/login`→Landing in an authed context):
+- **Login/auth:** on `/login` — "Register" link (not "Register with your course email"); email placeholder `you@example.com`; footer "Reach out at"; labs strip (`auth-labs-strip`) shows only "Chapter 3".
 
 - [ ] **Step 3: Run for real + commit**
 
-Start dev servers (api `DATABASE_URL=… PORT=3001`, studio `PORT=5199 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001`); run `E2E_BASE_URL=http://localhost:5199 npx playwright test --project=chromium` (FULL suite — confirm the updated bundle4 spec + the new one both pass, and no other spec regressed). Kill dev servers after (no orphans). If a genuine product bug surfaces, STOP and report, don't patch source.
+Start dev servers (api `DATABASE_URL=… PORT=3001`, studio `PORT=5199 BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001`); run the Bundle-6-affected + new specs EXCLUDING `labs.spec.ts`, e.g.:
+`E2E_BASE_URL=http://localhost:5199 npx playwright test --project=chromium --grep-invert @labs` (tag `labs.spec.ts`'s describe with `@labs`, or pass the explicit spec list omitting `labs.spec.ts`). Confirm the updated `bundle4-auth-landing.spec.ts` + the new `bundle6-ui-tweaks.spec.ts` pass and no OTHER run spec regressed. Kill dev servers after (no orphans). If a genuine product bug surfaces, STOP and report, don't patch source.
 ```bash
 git commit -m "[bundle6-T7] e2e coverage + update auth-landing spec for Bundle 6" -- \
   artifacts/studio/e2e/bundle6-ui-tweaks.spec.ts artifacts/studio/e2e/bundle4-auth-landing.spec.ts
@@ -383,5 +428,5 @@ T1, T3, T4, T6 parallel (disjoint). **T2 and T5 after T1** (need its regenerated
 ## Self-review
 
 - Spec coverage: items 1(T1+T2)/2(T2)/3(T2)/4(T3)/5(T2)/7(T4)/8(T1+T5)/9(T6)/10(T6)/11(T6)/12(T5)/13(T6). All 12 + all 5 resolutions mapped.
-- Type consistency: `solvedAt`/`solvedScenarioCount` names consistent openapi↔route↔frontend; `didSeedTabRef`/`openTab`/`inputEntriesForModel` match Workspace's existing API; `hiddenModelIds`/`visiblePerChapter` consistent in Landing; legend `min-w-[210px]` shared.
-- No placeholders; each code step shows the concrete edit. Test-update steps name what to change (resolution #4).
+- Type consistency: `solvedAt`/`solvedScenarioCount` names consistent openapi↔route↔frontend; `didSeedTabRef`/`openTab`/`inputEntriesForModel` match Workspace's existing API; `hiddenModelIds`/`visiblePerChapter` consistent in Landing; legend shared fixed `w-[220px]`.
+- No placeholders: every commit command uses exact repository paths (resolution #4); each code step shows the concrete edit; test-update steps name what to change.
