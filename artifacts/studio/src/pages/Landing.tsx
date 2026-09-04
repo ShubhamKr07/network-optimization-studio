@@ -2,7 +2,8 @@ import { Link } from "wouter";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
-import { useGetSolveHistory } from "@workspace/api-client-react";
+import { useGetSolveHistory, useGetLandingSummary } from "@workspace/api-client-react";
+import { formatRelativeTime } from "@/lib/relativeTime";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0] ?? "";
@@ -11,11 +12,39 @@ function chapterNumber(chapterLabel: string): string {
 
 export function Landing() {
   const { data: history } = useGetSolveHistory({ limit: 5 });
+  const { data: summary, isPending, isError } = useGetLandingSummary();
+  // TanStack retains the last successful `data` through a background-refetch
+  // error, so `summary != null` alone would treat a stale-then-errored summary
+  // as ready. Gate on the flags too — pending OR errored falls back to the T2
+  // baseline (number + start →, no stats line), never a half-filled footer.
+  const ready = !isPending && !isError && summary != null;
+  const byModel = new Map((summary?.perChapter ?? []).map((r) => [r.modelId, r]));
+
+  // The single most-recently-solved chapter (across ALL rows, incl. hidden) —
+  // that card shows "active"; every other shows "start →".
+  let activeModelId: string | undefined;
+  let activeAt = -Infinity;
+  for (const r of summary?.perChapter ?? []) {
+    if (!r.lastSucceededSolveAt) continue;
+    const t = new Date(r.lastSucceededSolveAt).getTime();
+    if (t > activeAt) { activeAt = t; activeModelId = r.modelId; }
+  }
+
+  const visibleLabs = CHAPTERS.filter((c) => !c.hiddenFromLanding).length;
 
   return (
     <div className="max-w-[860px] mx-auto p-8">
-      <h1 className="scnd-display text-2xl font-semibold mb-1">Labs</h1>
-      <p className="text-muted-foreground mb-6">Pick a chapter to start or continue a scenario.</p>
+      <div className="flex items-baseline justify-between mb-6">
+        <div>
+          <h1 className="scnd-display text-2xl font-semibold mb-1">Labs</h1>
+          <p className="text-muted-foreground">Pick a chapter to start or continue a scenario.</p>
+        </div>
+        {ready && summary && (
+          <span data-testid="landing-stats-line" className="font-mono text-[10.5px] text-muted-foreground whitespace-nowrap">
+            {visibleLabs} labs · {summary.totals.scenarios} scenarios · {summary.totals.solvedScenarios} solved
+          </span>
+        )}
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => (
           <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
@@ -26,10 +55,28 @@ export function Landing() {
                 <CardDescription>{c.description}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between" data-testid={`landing-card-footer-${c.modelId}`}>
-                  <span className="scnd-display font-bold" style={{ fontSize: "15px", color: "var(--green-400)" }}>{chapterNumber(c.chapter)}</span>
-                  <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>
-                </div>
+                {(() => {
+                  const entry = byModel.get(c.modelId);
+                  const status = !ready
+                    ? null
+                    : !entry || entry.scenarioCount === 0
+                      ? "no scenarios yet"
+                      : entry.lastSucceededSolveAt
+                        ? `${entry.scenarioCount} scenarios · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
+                        : `${entry.scenarioCount} scenarios`;
+                  const isActive = ready && c.modelId === activeModelId;
+                  return (
+                    <div className="flex items-center justify-between gap-2" data-testid={`landing-card-footer-${c.modelId}`}>
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="scnd-display font-bold flex-shrink-0" style={{ fontSize: "15px", color: "var(--green-400)" }}>{chapterNumber(c.chapter)}</span>
+                        {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{status}</span>}
+                      </span>
+                      {isActive
+                        ? <Badge variant="outline" className="text-[10px] text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
+                        : <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           </Link>

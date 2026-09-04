@@ -1,12 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Router as WouterRouter } from "wouter";
 
-const { mockUseGetSolveHistory } = vi.hoisted(() => ({
+const { mockUseGetSolveHistory, mockUseGetLandingSummary } = vi.hoisted(() => ({
   mockUseGetSolveHistory: vi.fn(() => ({ data: [] as unknown[] })),
+  mockUseGetLandingSummary: vi.fn(() => ({ data: undefined as unknown, isPending: false, isError: false })),
 }));
 vi.mock("@workspace/api-client-react", () => ({
   useGetSolveHistory: mockUseGetSolveHistory,
+  useGetLandingSummary: mockUseGetLandingSummary,
 }));
 
 import { Landing } from "@/pages/Landing";
@@ -18,6 +20,10 @@ function renderLanding() {
     </WouterRouter>,
   );
 }
+
+beforeEach(() => {
+  mockUseGetLandingSummary.mockReturnValue({ data: undefined, isPending: false, isError: false });
+});
 
 describe("Landing", () => {
   it("lists Chapter 3 and both Chapter 5 labs", () => {
@@ -114,5 +120,64 @@ describe("Landing — Recent solves (G3.2)", () => {
     renderLanding();
     expect(screen.getByText("Refinery Base Case")).toBeInTheDocument();
     expect(screen.getByTestId("link-solve-history-42")).toHaveAttribute("href", "/chapter-10/gold-refinery?scenario=8");
+  });
+});
+
+describe("Landing — live summary (T4)", () => {
+  it("falls back to the baseline (number + start →, no stats line) while summary is unavailable", () => {
+    mockUseGetLandingSummary.mockReturnValue({ data: undefined, isPending: true, isError: false });
+    renderLanding();
+    expect(screen.queryByTestId("landing-stats-line")).not.toBeInTheDocument();
+    const footer = screen.getByTestId("landing-card-footer-p-median-us");
+    expect(footer).toHaveTextContent("03");
+    expect(footer).toHaveTextContent("start");
+  });
+
+  it("falls back to the baseline when a background refetch errors even though cached data is retained", () => {
+    // isError with stale data present must still render the T2 baseline —
+    // never a half-filled footer built from a summary the server rejected.
+    mockUseGetLandingSummary.mockReturnValue({
+      data: { perChapter: [{ modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2020-01-01T00:00:00Z" }], totals: { scenarios: 3, solvedScenarios: 1 } },
+      isPending: false,
+      isError: true,
+    });
+    renderLanding();
+    expect(screen.queryByTestId("landing-stats-line")).not.toBeInTheDocument();
+    const footer = screen.getByTestId("landing-card-footer-p-median-us");
+    expect(footer).toHaveTextContent("start");
+    expect(footer).not.toHaveTextContent("active");
+    expect(footer).not.toHaveTextContent("scenarios");
+  });
+
+  it("renders per-card status, the active badge, and the honest stats line", () => {
+    mockUseGetLandingSummary.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        perChapter: [
+          { modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2020-01-01T00:00:00Z" },
+          { modelId: "transport-coal", scenarioCount: 2, lastSucceededSolveAt: null },
+        ],
+        totals: { scenarios: 5, solvedScenarios: 1 },
+      },
+    });
+    renderLanding();
+
+    // stats line — distinct-solve count labelled "solved" (resolution #4)
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("3 labs · 5 scenarios · 1 solved");
+
+    // p-median-us: solved + active
+    const us = screen.getByTestId("landing-card-footer-p-median-us");
+    expect(us).toHaveTextContent(/3 scenarios · solved .* ago/);
+    expect(us).toHaveTextContent("active");
+
+    // transport-coal: scenarios, not yet solved, start →
+    const coal = screen.getByTestId("landing-card-footer-transport-coal");
+    expect(coal).toHaveTextContent("2 scenarios");
+    expect(coal).toHaveTextContent("start");
+    expect(coal).not.toHaveTextContent("active");
+
+    // brazil: absent from perChapter → "no scenarios yet"
+    expect(screen.getByTestId("landing-card-footer-p-median-brazil")).toHaveTextContent("no scenarios yet");
   });
 });
