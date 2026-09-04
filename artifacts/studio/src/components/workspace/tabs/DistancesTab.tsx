@@ -5,6 +5,7 @@ import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@wor
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
 
@@ -16,7 +17,7 @@ export interface DistanceOverride {
    * haversine normalizer (services/autoDistance.ts) rather than entered or
    * imported by the student. Matches distanceOverrideSchema's own optional
    * `estimated` field exactly. Purely a display flag — editing the distance
-   * (see `updateDistance`) drops it, treating the edit as a confirmation. */
+   * (see `editOverride`) drops it, treating the edit as a confirmation. */
   estimated?: boolean;
 }
 
@@ -47,18 +48,19 @@ interface DistancesTabProps {
   /** Followup — scenario-local added entities' `id -> displayCode` map (Workspace.tsx builds this from addedWarehouses/addedCustomers). From/To cells look up through this for DISPLAY ONLY — the underlying stored fromId/toId (the uuid) stays the join key everywhere else (existence checks, edits, removal). Base dataset ids have no entry here and fall back to showing the raw id, unchanged. */
   displayCodeById?: Record<string, string>;
   /** B3 (Bundle 2.2) — the active model's id, used to fetch its reference-distance
-   * matrix. Optional: absent (or `referenceCapable` false) hides the reference
-   * section entirely — T9 wires the real value at the Workspace.tsx call site. */
+   * matrix. Optional: absent (or `referenceCapable` false) means there is no
+   * base×base matrix at all — the merged table becomes override-rows-only. */
   modelId?: string;
   /** B3 — mirrors `manifest.capabilities.supportsReferenceDistances` for the
-   * active model. The reference section only renders (and the fetch only
-   * fires) when this is true AND `modelId` is set — an unsupported model
-   * (e.g. Brazil) must never issue the request (would 422 server-side). */
+   * active model. The reference fetch only fires when this is true AND
+   * `modelId` is set — an unsupported model (e.g. Brazil) must never issue
+   * the request (would 422 server-side). */
   referenceCapable?: boolean;
   /** B3 — base-dataset warehouse ids currently INACTIVE in the scenario's live
    * (unsaved) `localInputs` draft (status not potential/fixed-open). Purely a
    * view filter over the immutable reference matrix — never refetched, just
-   * hides rows whose warehouse endpoint is presently inactive. */
+   * hides rows whose warehouse endpoint is presently inactive (unless the
+   * pair carries a current or saved override — resolution #2/#3). */
   inactiveWarehouseIds?: string[];
   /** B3 — base-dataset customer ids currently EXCLUDED in the scenario's live
    * `localInputs` draft. Same filter semantics as `inactiveWarehouseIds`. */
@@ -69,9 +71,8 @@ function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
 }
 
-// Bundle 5, T5 — module-scope so it's not re-created every render. A plain
-// Prev/Next + "Page X of Y" indicator shared by both the reference table and
-// the overrides table (idPrefix distinguishes their testids).
+// Bundle 6.1, T2 — one shared pager over the single merged table (replaces
+// Bundle 5 T5's two independent reference/overrides pagers).
 function Pager({
   page,
   pageCount,
@@ -114,12 +115,28 @@ function Pager({
   );
 }
 
+// Bundle 6.1, T2 — one row of the merged base+override table. `base === null`
+// means there's genuinely no reference pair for this (fromId, toId) — either
+// it's a scenario-local added-entity pair, or the model has no reference
+// matrix at all (referenceCapable false).
+interface MergedRow {
+  fromId: string;
+  toId: string;
+  base: number | null;
+  override?: DistanceOverride;
+}
+
 // B5.1 — long-format `{fromId, toId, distance}` grid over scenario.inputs'
-// distanceOverrides array (B1.1). Thin wrapper following WarehousesTab.tsx's
-// shape (props in, onChange out, no internal data-fetching/save logic) — but
-// unlike WarehousesTab/CustomersTab there's no fixed dataset baseline to
-// enumerate rows from, so this component owns its own inline table rather
-// than wrapping a components/tables/*Table.tsx (mirrors
+// distanceOverrides array (B1.1), merged (Bundle 6.1, T2) with the model's
+// read-only base×base reference matrix (B3) into ONE Customers-tab-styled
+// table: every base pair shows its reference distance plus an editable
+// Override cell; scenario-local added-entity pairs (no base counterpart)
+// append with a "—" base and their override. Thin wrapper following
+// WarehousesTab.tsx's shape (props in, onChange out, no internal
+// data-fetching/save logic for the overrides themselves) — but unlike
+// WarehousesTab/CustomersTab there's no fixed dataset baseline to enumerate
+// rows from beyond the reference matrix, so this component owns its own
+// inline table rather than wrapping a components/tables/*Table.tsx (mirrors
 // OptimizationParametersTab.tsx's precedent of a Workspace tab with no
 // separate table component underneath it).
 export function DistancesTab({
@@ -140,6 +157,7 @@ export function DistancesTab({
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
@@ -147,11 +165,10 @@ export function DistancesTab({
   const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Bundle 5, T5 — pagination state for both tables (reference is read-only,
-  // overrides is editable; each paginates independently).
+  // Bundle 6.1, T2 — a single pager over the merged row list (was two
+  // independent pagers, one per table, before the merge).
   const PAGE_SIZE = 50;
-  const [refPage, setRefPage] = useState(1);
-  const [ovPage, setOvPage] = useState(1);
+  const [page, setPage] = useState(1);
 
   // B3 (Bundle 2.2) — called UNCONDITIONALLY (Rules of Hooks) with `enabled`
   // gating the actual request: an unsupported model (referenceCapable false,
@@ -168,74 +185,102 @@ export function DistancesTab({
     },
   });
 
-  // Phase 3.2, Task 4 / Bundle 5 T5 — post-Save precheck toast's "jump to it"
-  // action, reworked to survive pagination (resolution #1): clear the
-  // filters (so the target row can't be filtered out of view), then select
-  // the target's page. Rows use this component's own existing
-  // `row-distance-${fromId}-${toId}` testid pattern (reused, not a new one)
-  // — matches on either side, since the newly-added entity could be either
-  // fromId (a warehouse) or toId (a customer).
-  useEffect(() => {
-    if (!focusEntityId) return;
-    setFromFilter("");
-    setToFilter("");
-    const idx = distanceOverrides.findIndex(o => o.fromId === focusEntityId || o.toId === focusEntityId);
-    if (idx < 0) return; // not an override row — nothing to jump to
-    setOvPage(Math.floor(idx / PAGE_SIZE) + 1);
-  }, [focusEntityId, distanceOverrides]);
-
   const warehouseIdSet = new Set(warehouseIds);
   const customerIdSet = new Set(customerIds);
-  const savedByKey = new Map(savedDistanceOverrides.map(o => [pairKey(o.fromId, o.toId), o.distance]));
 
   // B3 — client-side view filter over the immutable base×base reference
   // matrix (DD-1: base data never mutates). Purely derived from live
   // `localInputs`-sourced status props — no refetch, instant recompute on
-  // every render. Only base-dataset rows are ever present in the reference
-  // response, so added entities never appear here regardless of status.
-  const inactiveWarehouseIdSet = useMemo(
-    () => new Set(inactiveWarehouseIds ?? []),
-    [inactiveWarehouseIds],
-  );
-  const excludedCustomerIdSet = useMemo(
-    () => new Set(excludedCustomerIds ?? []),
-    [excludedCustomerIds],
-  );
+  // every render.
+  const inactiveWarehouseIdSet = useMemo(() => new Set(inactiveWarehouseIds ?? []), [inactiveWarehouseIds]);
+  const excludedCustomerIdSet = useMemo(() => new Set(excludedCustomerIds ?? []), [excludedCustomerIds]);
   const referencePairs = referenceQuery.data?.pairs ?? [];
-  // Bundle 5, T5 — the same From/To filter text now ALSO filters the
-  // reference pairs (on fromCode/toCode), not just the overrides table.
-  const visibleReferencePairs = useMemo(
-    () =>
-      referencePairs.filter(
-        p =>
-          !inactiveWarehouseIdSet.has(p.fromId) &&
-          !excludedCustomerIdSet.has(p.toId) &&
-          p.fromCode.toLowerCase().includes(fromFilter.toLowerCase()) &&
-          p.toCode.toLowerCase().includes(toFilter.toLowerCase()),
-      ),
-    [referencePairs, inactiveWarehouseIdSet, excludedCustomerIdSet, fromFilter, toFilter],
+
+  // Resolution #3 (plan review) — the complete base-key set, built BEFORE any
+  // view filter, so a pair carrying a CURRENT or SAVED override can always be
+  // recognized as such regardless of its live status.
+  const baseByKey = useMemo(() => new Map(referencePairs.map(p => [pairKey(p.fromId, p.toId), p])), [referencePairs]);
+  const overrideByKey = useMemo(
+    () => new Map(distanceOverrides.map(o => [pairKey(o.fromId, o.toId), o])),
+    [distanceOverrides],
+  );
+  const savedByKey = useMemo(
+    () => new Map(savedDistanceOverrides.map(o => [pairKey(o.fromId, o.toId), o])),
+    [savedDistanceOverrides],
   );
 
-  const visibleRows = distanceOverrides.filter(
-    o =>
-      o.fromId.toLowerCase().includes(fromFilter.toLowerCase()) &&
-      o.toId.toLowerCase().includes(toFilter.toLowerCase()),
+  // Resolution #8 — a base pair's fromCode/toCode always echo its fromId/toId
+  // (ReferenceDistancePair's own contract: "base entities' id IS already a
+  // short display code"), and `displayCodeById` never carries an entry for a
+  // base id (only scenario-local added entities have one) — so filtering on
+  // `displayValue(id)` is exactly equivalent to filtering base rows on
+  // fromCode/toCode and added rows on displayCodeById?.[id] ?? id, without
+  // needing two separate filter predicates.
+  const displayValue = (id: string) => displayCodeById?.[id] ?? id;
+
+  // Resolution #2/#3 — complete, UNFILTERED (no text search) merged row list:
+  // a base pair passes when it's active/included OR it carries a current or
+  // saved override (a saved-but-now-cleared override is a pending deletion
+  // that must stay visible + "Changed" until Save). Used both to derive the
+  // text-filtered `mergedRows` below and — deliberately independent of the
+  // live fromFilter/toFilter state — to compute the focusEntityId page jump
+  // and the true "nothing here at all" empty state (Bundle 5 T5's original
+  // "compute against the unfiltered array" approach, retargeted to the
+  // merged shape).
+  const mergedRowsAll: MergedRow[] = useMemo(() => {
+    const base: MergedRow[] = referencePairs
+      .filter(p => {
+        const k = pairKey(p.fromId, p.toId);
+        const hasOverrideOrSaved = overrideByKey.has(k) || savedByKey.has(k);
+        const passesStatus = !inactiveWarehouseIdSet.has(p.fromId) && !excludedCustomerIdSet.has(p.toId);
+        return passesStatus || hasOverrideOrSaved;
+      })
+      .map(p => ({ fromId: p.fromId, toId: p.toId, base: p.distance, override: overrideByKey.get(pairKey(p.fromId, p.toId)) }));
+    const added: MergedRow[] = distanceOverrides
+      .filter(o => !baseByKey.has(pairKey(o.fromId, o.toId)))
+      .map(o => ({ fromId: o.fromId, toId: o.toId, base: null, override: o }));
+    return [...base, ...added];
+  }, [referencePairs, distanceOverrides, baseByKey, overrideByKey, savedByKey, inactiveWarehouseIdSet, excludedCustomerIdSet]);
+
+  function matchesText(fromDisp: string, toDisp: string): boolean {
+    return (
+      fromDisp.toLowerCase().includes(fromFilter.toLowerCase()) && toDisp.toLowerCase().includes(toFilter.toLowerCase())
+    );
+  }
+
+  const mergedRows: MergedRow[] = useMemo(
+    () => mergedRowsAll.filter(r => matchesText(displayValue(r.fromId), displayValue(r.toId))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mergedRowsAll, fromFilter, toFilter, displayCodeById],
   );
 
-  const refPageCount = Math.max(1, Math.ceil(visibleReferencePairs.length / PAGE_SIZE));
-  const ovPageCount = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(mergedRows.length / PAGE_SIZE));
 
   // Clamp DOWN whenever the filtered length shrinks (delete/import overrides,
-  // toggle inactive/excluded) so we never strand on a now-empty page. This only
-  // ever reduces the page; it never fights the focus jump (which sets a valid
-  // in-range page).
-  useEffect(() => { if (refPage > refPageCount) setRefPage(refPageCount); }, [refPage, refPageCount]);
-  useEffect(() => { if (ovPage > ovPageCount) setOvPage(ovPageCount); }, [ovPage, ovPageCount]);
+  // toggle inactive/excluded, narrow the filter) so we never strand on a
+  // now-empty page. This only ever reduces the page; it never fights the
+  // focus jump below (which sets a valid in-range page).
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
-  const pagedReferencePairs = visibleReferencePairs.slice((refPage - 1) * PAGE_SIZE, refPage * PAGE_SIZE);
-  const pagedRows = visibleRows.slice((ovPage - 1) * PAGE_SIZE, ovPage * PAGE_SIZE);
+  const pagedRows = mergedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Scroll once the target page has rendered (runs after ovPage updates above).
+  // Phase 3.2, Task 4 / Bundle 5 T5 (retargeted to the merged row list,
+  // Bundle 6.1 T2) — the post-Save precheck toast's "jump to it" action:
+  // clear the filters (so the target row can't be filtered out of view),
+  // then select the target's page, computed against the UNFILTERED merged
+  // list so the jump doesn't race the (async) filter-clearing state update.
+  useEffect(() => {
+    if (!focusEntityId) return;
+    setFromFilter("");
+    setToFilter("");
+    const idx = mergedRowsAll.findIndex(r => r.fromId === focusEntityId || r.toId === focusEntityId);
+    if (idx < 0) return;
+    setPage(Math.floor(idx / PAGE_SIZE) + 1);
+  }, [focusEntityId, mergedRowsAll]);
+
+  // Scroll once the target page has rendered (runs after `page` updates above).
   useEffect(() => {
     if (!focusEntityId) return;
     const prefix = "row-distance-";
@@ -246,29 +291,96 @@ export function DistancesTab({
         break;
       }
     }
-  }, [focusEntityId, ovPage, pagedRows]);
+  }, [focusEntityId, page, pagedRows]);
 
-  function isChanged(o: DistanceOverride): boolean {
-    const saved = savedByKey.get(pairKey(o.fromId, o.toId));
-    return saved === undefined || saved !== o.distance;
+  // Resolution #4 — true when the row's override presence/value differs from
+  // the SAVED state, including a just-cleared-but-unsaved override (saved had
+  // it, current doesn't) → still "Changed" until Save.
+  function isChangedRow(r: MergedRow): boolean {
+    const key = pairKey(r.fromId, r.toId);
+    const saved = savedByKey.get(key);
+    const current = r.override;
+    if (!saved && !current) return false;
+    if (!saved || !current) return true;
+    return saved.distance !== current.distance;
   }
 
-  function updateDistance(fromId: string, toId: string, raw: string) {
-    const key = pairKey(fromId, toId);
+  // Resolution #4/#7 — whole-value validation: `Number(raw.trim())`, NOT
+  // `parseFloat`, which would silently accept a numeric-prefix string like
+  // "12abc" as 12. An empty draft is the mid-clear state (no error, no
+  // commit); a non-empty draft that isn't a finite positive number is
+  // invalid (inline error, no onChange); a valid positive number upserts the
+  // override, dropping any `estimated` flag (editing is a confirm action).
+  function editOverride(r: MergedRow, raw: string) {
+    const key = pairKey(r.fromId, r.toId);
     setDrafts(prev => ({ ...prev, [key]: raw }));
-    const parsed = parseFloat(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return;
-    // Editing an estimated row is a confirm action — it stops being
-    // machine-filled the moment a student vouches for a number themselves.
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      setErrors(prev => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 0) {
+      setErrors(prev => ({ ...prev, [key]: "Distance must be a positive number." }));
+      return;
+    }
+    setErrors(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    const nextOverride: DistanceOverride = { fromId: r.fromId, toId: r.toId, distance: n, estimated: undefined };
     onChange(
-      distanceOverrides.map(o =>
-        o.fromId === fromId && o.toId === toId ? { ...o, distance: parsed, estimated: undefined } : o,
-      ),
+      overrideByKey.has(key)
+        ? distanceOverrides.map(o => (pairKey(o.fromId, o.toId) === key ? nextOverride : o))
+        : [...distanceOverrides, nextOverride],
     );
   }
 
-  function removeRow(fromId: string, toId: string) {
-    onChange(distanceOverrides.filter(o => !(o.fromId === fromId && o.toId === toId)));
+  // Resolution #4 — removes the override (base row reverts to base; an
+  // added-entity row disappears entirely) and drops any lingering draft/error
+  // for this key so a stale invalid draft doesn't linger after Clear.
+  function clearOverride(r: MergedRow) {
+    const key = pairKey(r.fromId, r.toId);
+    onChange(distanceOverrides.filter(o => pairKey(o.fromId, o.toId) !== key));
+    setDrafts(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setErrors(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function draftFor(r: MergedRow): string {
+    const key = pairKey(r.fromId, r.toId);
+    return drafts[key] ?? (r.override ? String(r.override.distance) : "");
+  }
+
+  // Resolution #6 — loading: base cells show a spinner (not "—"), added-entity
+  // override rows stay editable. Error: base cells show "unavailable",
+  // override rows stay editable. Only on SUCCESS does a genuinely base-absent
+  // pair (`base === null`) show "—". When the model has no reference matrix
+  // at all (`referenceCapable` falsy), there's no load/error state to report.
+  function baseCell(r: MergedRow) {
+    if (referenceCapable) {
+      if (referenceQuery.isLoading) {
+        return <Spinner className="w-3 h-3" data-testid={`spinner-distance-base-${r.fromId}-${r.toId}`} />;
+      }
+      if (referenceQuery.isError) return "unavailable";
+    }
+    return r.base == null ? "—" : r.base;
   }
 
   function handleAddRow() {
@@ -341,14 +453,20 @@ export function DistancesTab({
       <Input
         placeholder="Filter from ID…"
         value={fromFilter}
-        onChange={e => { setFromFilter(e.target.value); setRefPage(1); setOvPage(1); }}
+        onChange={e => {
+          setFromFilter(e.target.value);
+          setPage(1);
+        }}
         className="h-7 text-xs w-36"
         data-testid="input-filter-from"
       />
       <Input
         placeholder="Filter to ID…"
         value={toFilter}
-        onChange={e => { setToFilter(e.target.value); setRefPage(1); setOvPage(1); }}
+        onChange={e => {
+          setToFilter(e.target.value);
+          setPage(1);
+        }}
         className="h-7 text-xs w-36"
         data-testid="input-filter-to"
       />
@@ -411,185 +529,176 @@ export function DistancesTab({
     </Button>
   );
 
-  // B3 (Bundle 2.2) — read-only base×base reference-distance section, above
-  // the editable overrides grid. Gated on the `referenceCapable` prop alone
-  // (not `modelId`) per spec: an unsupported model must simply not render
-  // this section at all (back-compat default: both props absent → hidden).
-  const referenceTotal = visibleReferencePairs.length;
-  const referenceSection = referenceCapable ? (
-    <div className="mb-4 border rounded-md" data-testid="distances-reference-section">
-      <div className="flex items-center justify-between px-2 py-1.5 border-b bg-muted/40">
-        <span className="text-xs font-medium">Base distances (reference)</span>
-        <span className="text-[11px] text-muted-foreground font-mono" data-testid="distances-reference-total">
-          {referenceTotal} pair{referenceTotal === 1 ? "" : "s"}
-        </span>
-      </div>
-      {referenceQuery.isLoading && (
-        <p className="text-xs text-muted-foreground px-2 py-2" data-testid="distances-reference-loading">
-          Loading reference distances…
-        </p>
-      )}
-      {referenceQuery.isError && (
-        <p className="text-xs text-destructive px-2 py-2" data-testid="distances-reference-error">
-          Failed to load reference distances.
-        </p>
-      )}
-      {!referenceQuery.isLoading && !referenceQuery.isError && (
-        <div>
-          <div className="flex text-[11px] font-medium text-muted-foreground px-2 py-1 border-b">
-            <div className="w-1/3">From</div>
-            <div className="w-1/3">To</div>
-            <div className="w-1/3">Distance</div>
-          </div>
-          <div className="max-h-[220px] overflow-y-auto" data-testid="distances-reference-scroll">
-            {pagedReferencePairs.map(pair => (
-              <div
-                key={`${pair.fromId}|${pair.toId}`}
-                data-testid={`row-reference-distance-${pair.fromId}-${pair.toId}`}
-                className="flex items-center text-xs px-2 border-b"
-              >
-                <div className="w-1/3 font-mono">{pair.fromCode}</div>
-                <div className="w-1/3 font-mono">{pair.toCode}</div>
-                <div className="w-1/3 font-mono">
-                  {pair.distance} {referenceQuery.data?.distanceUnit ?? ""}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="px-2 pb-1.5">
-            <Pager
-              page={refPage}
-              pageCount={refPageCount}
-              onPrev={() => setRefPage(p => Math.max(1, p - 1))}
-              onNext={() => setRefPage(p => Math.min(refPageCount, p + 1))}
-              idPrefix="ref"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  ) : null;
+  const referenceErrorBanner = referenceCapable && referenceQuery.isError && (
+    <p className="text-xs text-destructive mb-2" data-testid="distances-reference-error">
+      Failed to load reference distances.
+    </p>
+  );
+  const referenceLoadingBanner = referenceCapable && referenceQuery.isLoading && (
+    <p className="text-xs text-muted-foreground mb-2" data-testid="distances-reference-loading">
+      Loading reference distances…
+    </p>
+  );
 
-  return (
-    <div data-testid="distances-tab">
-      {referenceSection}
-      {toolbar}
-
-      {distanceOverrides.length === 0 ? (
-        <p className="text-sm text-muted-foreground" data-testid="distances-tab-empty">
-          No distance overrides yet — add one below, or upload a CSV/JSON file.
-        </p>
-      ) : (
-        <>
-          <div className="max-h-[55vh] overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>From (warehouse)</TableHead>
-                  <TableHead>To (customer)</TableHead>
-                  <TableHead>Distance</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pagedRows.map(o => {
-                  const key = pairKey(o.fromId, o.toId);
-                  const changed = isChanged(o);
-                  const fromUnknown = !warehouseIdSet.has(o.fromId);
-                  const toUnknown = !customerIdSet.has(o.toId);
-                  return (
-                    <TableRow
-                      key={key}
-                      data-testid={`row-distance-${o.fromId}-${o.toId}`}
-                      className={changed ? "bg-amber-50" : o.estimated ? "bg-sky-50" : undefined}
-                    >
-                      <TableCell className="font-mono text-xs">
-                        <div className="flex items-center gap-1">
-                          {displayCodeById?.[o.fromId] ?? o.fromId}
-                          {fromUnknown && (
-                            <span
-                              title="Unknown warehouse ID — not found in this scenario's warehouses"
-                              data-testid={`warning-unknown-from-${o.fromId}-${o.toId}`}
-                            >
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        <div className="flex items-center gap-1">
-                          {displayCodeById?.[o.toId] ?? o.toId}
-                          {toUnknown && (
-                            <span
-                              title="Unknown customer ID — not found in this scenario's customers"
-                              data-testid={`warning-unknown-to-${o.fromId}-${o.toId}`}
-                            >
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={drafts[key] ?? String(o.distance)}
-                            onChange={e => updateDistance(o.fromId, o.toId, e.target.value)}
-                            className="h-7 text-xs w-24 font-mono"
-                            data-testid={`input-distance-${o.fromId}-${o.toId}`}
-                          />
-                          {o.estimated && (
-                            <span
-                              className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
-                              data-testid={`badge-distance-estimated-${o.fromId}-${o.toId}`}
-                            >
-                              Estimated
-                            </span>
-                          )}
-                          {changed && (
-                            <span
-                              className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
-                              data-testid={`badge-distance-changed-${o.fromId}-${o.toId}`}
-                            >
-                              Changed
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
+  // Bundle 6.1, T2 — ONE merged, Customers-tab-styled table (replaces Bundle
+  // 5's two separate reference/overrides sections). Columns: From / To /
+  // Base (read-only) / Override (editable) / actions — no city column
+  // (resolution #5).
+  const tableSection =
+    mergedRowsAll.length === 0 ? (
+      <p className="text-sm text-muted-foreground" data-testid="distances-tab-empty">
+        No distance overrides yet — add one below, or upload a CSV/JSON file.
+      </p>
+    ) : (
+      <>
+        <div className="max-h-[55vh] overflow-y-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>From</TableHead>
+                <TableHead>To</TableHead>
+                <TableHead>Base</TableHead>
+                <TableHead>Override</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pagedRows.map(r => {
+                const key = pairKey(r.fromId, r.toId);
+                const changed = isChangedRow(r);
+                const fromUnknown = !warehouseIdSet.has(r.fromId);
+                const toUnknown = !customerIdSet.has(r.toId);
+                const error = errors[key];
+                return (
+                  <TableRow
+                    key={key}
+                    data-testid={`row-distance-${r.fromId}-${r.toId}`}
+                    className={changed ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined}
+                  >
+                    <TableCell className="font-mono text-xs">
+                      <div className="flex items-center gap-1">
+                        {displayCodeById?.[r.fromId] ?? r.fromId}
+                        {fromUnknown && (
+                          <span
+                            title="Unknown warehouse ID — not found in this scenario's warehouses"
+                            data-testid={`warning-unknown-from-${r.fromId}-${r.toId}`}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      <div className="flex items-center gap-1">
+                        {displayCodeById?.[r.toId] ?? r.toId}
+                        {toUnknown && (
+                          <span
+                            title="Unknown customer ID — not found in this scenario's customers"
+                            data-testid={`warning-unknown-to-${r.fromId}-${r.toId}`}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{baseCell(r)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        {/* text (not type="number") — see the note on why below:
+                            a native number input's own value-sanitization
+                            algorithm silently strips a malformed string like
+                            "12abc" to "" before onChange ever fires, which
+                            would make the whole-value Number()-vs-parseFloat
+                            distinction below unreachable/untestable. */}
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          value={draftFor(r)}
+                          onChange={e => editOverride(r, e.target.value)}
+                          aria-invalid={error ? "true" : undefined}
+                          className={`h-7 text-xs w-24 font-mono ${error ? "border-destructive" : ""}`}
+                          data-testid={`input-distance-${r.fromId}-${r.toId}`}
+                        />
+                        {r.override?.estimated && (
+                          <span
+                            className="text-[10px] text-sky-700 bg-sky-100 border border-sky-300 rounded px-1"
+                            data-testid={`badge-distance-estimated-${r.fromId}-${r.toId}`}
+                          >
+                            Estimated
+                          </span>
+                        )}
+                        {changed && (
+                          <span
+                            className="text-[10px] text-amber-700 bg-amber-100 border border-amber-300 rounded px-1"
+                            data-testid={`badge-distance-changed-${r.fromId}-${r.toId}`}
+                          >
+                            Changed
+                          </span>
+                        )}
+                      </div>
+                      {error && (
+                        <p
+                          className="text-[11px] text-destructive mt-0.5"
+                          data-testid={`text-distance-error-${r.fromId}-${r.toId}`}
+                        >
+                          {error}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {(r.override || r.base == null) && (
                         <button
                           type="button"
-                          aria-label={`Remove distance override ${o.fromId} → ${o.toId}`}
-                          onClick={() => removeRow(o.fromId, o.toId)}
-                          data-testid={`button-remove-distance-${o.fromId}-${o.toId}`}
+                          aria-label={`Remove distance override ${r.fromId} → ${r.toId}`}
+                          onClick={() => clearOverride(r)}
+                          data-testid={`button-remove-distance-${r.fromId}-${r.toId}`}
                           className="text-muted-foreground hover:text-destructive"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {visibleRows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-xs text-muted-foreground text-center py-3">
-                      No rows match the current filter.
+                      )}
                     </TableCell>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          <Pager
-            page={ovPage}
-            pageCount={ovPageCount}
-            onPrev={() => setOvPage(p => Math.max(1, p - 1))}
-            onNext={() => setOvPage(p => Math.min(ovPageCount, p + 1))}
-            idPrefix="ov"
-          />
-        </>
-      )}
+                );
+              })}
+              {mergedRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-3">
+                    No rows match the current filter.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <Pager
+          page={page}
+          pageCount={pageCount}
+          onPrev={() => setPage(p => Math.max(1, p - 1))}
+          onNext={() => setPage(p => Math.min(pageCount, p + 1))}
+          idPrefix="distances"
+        />
+      </>
+    );
+
+  const mainSection = (
+    <>
+      {referenceErrorBanner}
+      {referenceLoadingBanner}
+      {tableSection}
+    </>
+  );
+
+  return (
+    <div data-testid="distances-tab">
+      {toolbar}
+      {/* `distances-reference-section` is a compat wrapper marking "this tab's
+          merged table includes reference-distance data" — present exactly
+          when the model actually has a base×base matrix (referenceCapable),
+          preserving the presence/absence contract other call sites already
+          depend on, even though (Bundle 6.1, T2) there's no longer a
+          separate read-only sub-table nested inside it. */}
+      {referenceCapable ? <div data-testid="distances-reference-section">{mainSection}</div> : mainSection}
 
       {addRowUi}
       {addError && (

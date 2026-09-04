@@ -5,10 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 
-// B5.1 — Distances grid tab: long-format `{fromId, toId, distance}` rows
-// (DD-2/B4.1's shape), no fixed baseline to enumerate (unlike Warehouses/
-// Customers) — the grid shows exactly the scenario's current
-// distanceOverrides array plus an add-row affordance.
+// Bundle 6.1, T2 — the two previously-separate sections (read-only reference
+// table + editable overrides table) are now ONE merged, Customers-tab-styled
+// table: every base pair shows its reference distance (read-only) plus an
+// editable Override cell; scenario-local added-entity pairs (no base
+// counterpart) append with a "—" base and their override.
 
 const overrides = [
   { fromId: "WH01", toId: "C001", distance: 120.5 },
@@ -18,8 +19,8 @@ const overrides = [
 
 // B3 (Bundle 2.2) — a 26-warehouse x 200-customer base×base matrix, matching
 // p-median-us's real dataset shape (26*200=5200), so the filter-count math in
-// the tests below (5200 -> 5000 -> 5174 -> 4975) matches the real dataset's
-// arithmetic, not an arbitrary fixture size.
+// the tests below matches the real dataset's arithmetic, not an arbitrary
+// fixture size.
 function buildReferencePairs() {
   const pairs: { fromId: string; fromCode: string; toId: string; toCode: string; distance: number }[] = [];
   for (let w = 1; w <= 26; w++) {
@@ -32,7 +33,6 @@ function buildReferencePairs() {
   return pairs;
 }
 const referencePairs = buildReferencePairs();
-const REFERENCE_TOTAL = referencePairs.length; // 5200
 
 function mockReferenceDistancesFetch() {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
@@ -53,8 +53,7 @@ function jsonResponse(body: unknown, contentType = "application/json") {
 
 function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient) {
   const client =
-    queryClient ??
-    new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
@@ -66,8 +65,8 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-describe("DistancesTab — rendering", () => {
-  it("renders the scenario's current distanceOverrides rows", () => {
+describe("DistancesTab — rendering (no reference matrix)", () => {
+  it("renders the scenario's current distanceOverrides as merged rows", () => {
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
@@ -80,10 +79,10 @@ describe("DistancesTab — rendering", () => {
     expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
     expect(screen.getByTestId("row-distance-WH01-C002")).toBeInTheDocument();
     expect(screen.getByTestId("row-distance-WH02-C001")).toBeInTheDocument();
-    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveValue(120.5);
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveValue("120.5");
   });
 
-  it("shows an empty message plus the add-row affordance when there are no overrides yet", () => {
+  it("shows an empty message plus the add-row affordance when there are no overrides and no reference matrix", () => {
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={[]}
@@ -95,6 +94,140 @@ describe("DistancesTab — rendering", () => {
     );
     expect(screen.getByTestId("distances-tab-empty")).toBeInTheDocument();
     expect(screen.getByTestId("button-add-distance-row")).toBeInTheDocument();
+  });
+
+  it("no separate reference section exists — the merged table is the only table (no old row-reference-distance- rows)", () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    expect(document.querySelectorAll('[data-testid^="row-reference-distance-"]').length).toBe(0);
+  });
+});
+
+describe("DistancesTab — merged table with a reference matrix", () => {
+  it("a base pair with no override shows its read-only base distance and a blank Override field", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    // WH01/C001's reference distance (buildReferencePairs) is 100+1+1=102.
+    expect(row).toHaveTextContent("102");
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveValue("");
+  });
+
+  it("compat: `distances-reference-section` wraps the merged table when referenceCapable is true (other call sites depend on this presence/absence)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-section")).toBeInTheDocument());
+    expect(screen.getByTestId("distances-reference-section")).toContainElement(screen.getByTestId("row-distance-WH01-C001"));
+  });
+
+  it("hides the compat wrapper when referenceCapable is absent (no reference matrix at all)", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+      />,
+    );
+    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
+  });
+
+  it("hides the compat wrapper when referenceCapable is explicitly false", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-brazil"
+        referenceCapable={false}
+      />,
+    );
+    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
+  });
+
+  it("an unsupported model (referenceCapable false) fires NO reference-distances request", () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-brazil"
+        referenceCapable={false}
+      />,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("remounting a supported tab under the same query client does not refetch (staleTime: Infinity)", async () => {
+    mockReferenceDistancesFetch();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { unmount } = renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+      client,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    unmount();
+
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+      client,
+    );
+    await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -145,10 +278,75 @@ describe("DistancesTab — from/to filters", () => {
     expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
     expect(screen.getByTestId("row-distance-WH02-C001")).toBeInTheDocument();
   });
+
+  it("resolution #8: an added entity is found by typing its DISPLAY code (not its raw uid) into the From filter", () => {
+    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH-CO-DENVER" } });
+    expect(screen.getByTestId("row-distance-aw-1234-C001")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    expect(screen.queryByTestId("row-distance-aw-1234-C001")).not.toBeInTheDocument();
+  });
+
+  it("global From/To filter narrows the merged table (base + added rows) and resets the pager to page 1", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("button-distances-next"));
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 2 of");
+
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
+
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of");
+    // WH01 has 200 base pairs -> 4 pages of 50.
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of 4");
+  });
 });
 
-describe("DistancesTab — inline edit", () => {
-  it("editing a row's distance value calls onChange with the updated array, leaving other rows untouched", () => {
+describe("DistancesTab — the 4 mandated override transitions (resolution #4)", () => {
+  it("ADD: editing a base row's blank Override field creates a new override, highlights Changed, and keeps the base value shown", async () => {
+    mockReferenceDistancesFetch();
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
+
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "WH01", toId: "C001", distance: 500, estimated: undefined }]);
+  });
+
+  it("EDIT: changing an existing override's value updates it in place, leaving other rows untouched", () => {
     const onChange = vi.fn();
     renderWithQueryClient(
       <DistancesTab
@@ -161,13 +359,254 @@ describe("DistancesTab — inline edit", () => {
     );
     fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
     expect(onChange).toHaveBeenCalledWith([
-      { fromId: "WH01", toId: "C001", distance: 500 },
+      { fromId: "WH01", toId: "C001", distance: 500, estimated: undefined },
       { fromId: "WH01", toId: "C002", distance: 340 },
       { fromId: "WH02", toId: "C001", distance: 88 },
     ]);
   });
 
-  it("removing a row calls onChange with that row dropped", () => {
+  it("CLEAR: removing a current (unsaved) override reverts the base row to base — no override, no Changed badge", () => {
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 999 }]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("CLEAR a previously-SAVED override: the row stays visible and Changed until Save (not just reverted silently)", async () => {
+    // A real base pair (WH01/C001, part of the mocked reference matrix) with
+    // no inactive/excluded status at all — clearing its saved override must
+    // still keep the row visible (it reverts to a plain base row) AND marked
+    // Changed until Save, since the override's ABSENCE now differs from what
+    // was last saved.
+    mockReferenceDistancesFetch();
+    const saved = [{ fromId: "WH01", toId: "C001", distance: 999 }];
+    const onChange = vi.fn();
+    const Wrapper = () => {
+      const [rows, setRows] = useState(saved);
+      return (
+        <DistancesTab
+          distanceOverrides={rows}
+          savedDistanceOverrides={saved}
+          warehouseIds={["WH01"]}
+          customerIds={["C001"]}
+          onChange={next => {
+            onChange(next);
+            setRows(next);
+          }}
+          modelId="p-median-us"
+          referenceCapable
+        />
+      );
+    };
+    renderWithQueryClient(<Wrapper />);
+    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    expect(screen.queryByTestId("badge-distance-changed-WH01-C001")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
+
+    expect(onChange).toHaveBeenCalledWith([]);
+    // The row stays visible (it's a real base pair, WH01/C001 = 102) —
+    // reverted to base — but marked Changed since the saved state had an
+    // override and the current state doesn't.
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).toBeInTheDocument();
+    expect(row).toHaveTextContent("102");
+    expect(screen.getByTestId("badge-distance-changed-WH01-C001")).toBeInTheDocument();
+  });
+});
+
+describe("DistancesTab — resolution #2 combined regression: inactive/excluded base pair + saved override + clear", () => {
+  it("an inactive-warehouse pair with a SAVED override, then cleared, stays visible and Changed until Save", async () => {
+    mockReferenceDistancesFetch();
+    const saved = [{ fromId: "WH01", toId: "C001", distance: 55 }];
+    const onChange = vi.fn();
+    const Wrapper = () => {
+      const [rows, setRows] = useState(saved);
+      return (
+        <DistancesTab
+          distanceOverrides={rows}
+          savedDistanceOverrides={saved}
+          warehouseIds={["WH01"]}
+          customerIds={["C001"]}
+          onChange={next => {
+            onChange(next);
+            setRows(next);
+          }}
+          modelId="p-median-us"
+          referenceCapable
+          inactiveWarehouseIds={["WH01"]}
+        />
+      );
+    };
+    renderWithQueryClient(<Wrapper />);
+    // Wait for the reference matrix to fully resolve (not just the row's
+    // first appearance, which can happen mid-loading as a base===null "added"
+    // row before baseByKey picks it up) so isChangedRow's saved/current
+    // comparison reflects the real base pair, not a transient loading state.
+    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
+    expect(screen.queryByTestId("badge-distance-changed-WH01-C001")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
+
+    expect(onChange).toHaveBeenCalledWith([]);
+    expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-distance-changed-WH01-C001")).toBeInTheDocument();
+  });
+
+  it("an excluded-customer pair with a SAVED override, then cleared, stays visible and Changed until Save", async () => {
+    mockReferenceDistancesFetch();
+    const saved = [{ fromId: "WH01", toId: "C001", distance: 55 }];
+    const onChange = vi.fn();
+    const Wrapper = () => {
+      const [rows, setRows] = useState(saved);
+      return (
+        <DistancesTab
+          distanceOverrides={rows}
+          savedDistanceOverrides={saved}
+          warehouseIds={["WH01"]}
+          customerIds={["C001"]}
+          onChange={next => {
+            onChange(next);
+            setRows(next);
+          }}
+          modelId="p-median-us"
+          referenceCapable
+          excludedCustomerIds={["C001"]}
+        />
+      );
+    };
+    renderWithQueryClient(<Wrapper />);
+    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
+
+    expect(onChange).toHaveBeenCalledWith([]);
+    expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-distance-changed-WH01-C001")).toBeInTheDocument();
+  });
+});
+
+describe("DistancesTab — resolution #3: an override on an inactive/excluded base pair stays visible (not just cleared ones)", () => {
+  it("a CURRENT override on an inactive warehouse's base pair is not hidden by the status filter", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 55 }]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+        inactiveWarehouseIds={["WH01"]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
+    expect(screen.getByTestId("badge-distance-changed-WH01-C001")).toBeInTheDocument();
+  });
+
+  it("a base pair with NO override on an inactive warehouse IS hidden (no bypass reason)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+        inactiveWarehouseIds={["WH01"]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("row-distance-WH02-C001")).toBeInTheDocument());
+    expect(screen.queryByTestId("row-distance-WH01-C001")).not.toBeInTheDocument();
+  });
+});
+
+describe("DistancesTab — added-entity override rows", () => {
+  it("an added-entity override (key not in the base matrix) appends with Base '—'", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "aw-1234", toId: "C001", distance: 42 }]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    // Once the 5200-pair base matrix has loaded, the added row sorts after
+    // all of it (page ~104) — filter down to it so it's on the current page.
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    const row = screen.getByTestId("row-distance-aw-1234-C001");
+    expect(row).toHaveTextContent("—");
+  });
+
+  it("editing an added entity's row still writes the uid-keyed row to onChange, not the displayCode", () => {
+    const onChange = vi.fn();
+    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-aw-1234-C001"), { target: { value: "99" } });
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "aw-1234", toId: "C001", distance: 99, estimated: undefined }]);
+  });
+
+  it("renders an added entity's displayCode instead of its raw uid", () => {
+    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={uidOverrides}
+        savedDistanceOverrides={uidOverrides}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-aw-1234-C001");
+    expect(row).toHaveTextContent("WH-CO-DENVER-01");
+    expect(row).not.toHaveTextContent("aw-1234");
+  });
+
+  it("falls back to the raw id for a base dataset id with no displayCode entry", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
+      />,
+    );
+    expect(screen.getByTestId("row-distance-WH01-C001")).toHaveTextContent("WH01");
+  });
+});
+
+describe("DistancesTab — resolution #7: invalid input handling (whole-value validation, not a numeric prefix)", () => {
+  it("typing 0 sets aria-invalid + shows the inline error and does NOT call onChange", () => {
     const onChange = vi.fn();
     renderWithQueryClient(
       <DistancesTab
@@ -178,59 +617,164 @@ describe("DistancesTab — inline edit", () => {
         onChange={onChange}
       />,
     );
-    fireEvent.click(screen.getByTestId("button-remove-distance-WH01-C001"));
-    expect(onChange).toHaveBeenCalledWith([
-      { fromId: "WH01", toId: "C002", distance: 340 },
-      { fromId: "WH02", toId: "C001", distance: 88 },
-    ]);
-  });
-});
-
-describe("DistancesTab — changed-row highlight", () => {
-  it("marks a row changed when its distance differs from the saved baseline", () => {
-    const edited = [{ fromId: "WH01", toId: "C001", distance: 999 }, overrides[1], overrides[2]];
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={edited}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("badge-distance-changed-WH01-C001")).toBeInTheDocument();
-    expect(screen.queryByTestId("badge-distance-changed-WH01-C002")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "0" } });
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("text-distance-error-WH01-C001")).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("marks a brand-new row (absent from the saved baseline) as changed", () => {
-    const withNew = [...overrides, { fromId: "WH02", toId: "C002", distance: 42 }];
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={withNew}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("badge-distance-changed-WH02-C002")).toBeInTheDocument();
-  });
-
-  it("a row unchanged from the saved baseline has no changed badge", () => {
+  it("typing a negative value sets aria-invalid + shows the inline error and does NOT call onChange", () => {
+    const onChange = vi.fn();
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
         savedDistanceOverrides={overrides}
         warehouseIds={["WH01", "WH02"]}
         customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
+        onChange={onChange}
       />,
     );
-    expect(screen.queryByTestId("badge-distance-changed-WH01-C001")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "-5" } });
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("text-distance-error-WH01-C001")).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("typing a malformed value ('12abc') sets aria-invalid + shows the inline error and does NOT call onChange (whole-value Number(), not parseFloat's numeric-prefix)", () => {
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "12abc" } });
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("text-distance-error-WH01-C001")).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    // parseFloat("12abc") would silently accept 12 — Number() must not.
+    expect(onChange).not.toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ distance: 12 })]));
+  });
+
+  it("an empty draft (mid-clear) shows no error and does NOT call onChange", () => {
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "" } });
+    expect(screen.getByTestId("input-distance-WH01-C001")).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByTestId("text-distance-error-WH01-C001")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("a valid positive number after an invalid draft clears the error and commits", () => {
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "-5" } });
+    expect(screen.getByTestId("text-distance-error-WH01-C001")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "42" } });
+    expect(screen.queryByTestId("text-distance-error-WH01-C001")).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith([
+      { fromId: "WH01", toId: "C001", distance: 42, estimated: undefined },
+      { fromId: "WH01", toId: "C002", distance: 340 },
+      { fromId: "WH02", toId: "C001", distance: 88 },
+    ]);
   });
 });
 
-describe("DistancesTab — add row", () => {
+describe("DistancesTab — load/error states (resolution #6)", () => {
+  it("loading: base cells show a spinner (not '—'), and added-entity override rows still render + are editable", async () => {
+    let resolveFetch: (r: Response) => void = () => {};
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>(resolve => {
+          resolveFetch = resolve;
+        }),
+    );
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "aw-1234", toId: "C001", distance: 42 }]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    expect(screen.getByTestId("distances-reference-loading")).toBeInTheDocument();
+    // No reference matrix has resolved yet, so `aw-1234|C001` is treated as an
+    // added row (base===null) — during loading its Base cell must still show
+    // a spinner, not "—", per resolution #6.
+    expect(screen.getByTestId("spinner-distance-base-aw-1234-C001")).toBeInTheDocument();
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
+    // still editable during loading
+    fireEvent.change(screen.getByTestId("input-distance-aw-1234-C001"), { target: { value: "10" } });
+
+    resolveFetch(jsonResponse({ pairs: referencePairs, distanceUnit: "mi" }));
+    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+  });
+
+  it("error: base cells show 'unavailable', and override rows stay editable", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "aw-1234", toId: "C001", distance: 42 }]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-reference-error")).toBeInTheDocument());
+    const row = screen.getByTestId("row-distance-aw-1234-C001");
+    expect(row).toHaveTextContent("unavailable");
+    expect(screen.getByTestId("input-distance-aw-1234-C001")).not.toBeDisabled();
+  });
+
+  it("success + a genuinely base-absent pair shows '—' (only after the query has succeeded)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "aw-1234", toId: "C001", distance: 42 }]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["aw-1234"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.queryByTestId("distances-reference-loading")).not.toBeInTheDocument());
+    // The added row (aw-1234|C001) sorts after all 5200 base rows once the
+    // matrix has loaded — filter down to it so it's actually on the current
+    // page (this test is about its Base cell's content, not pagination).
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    expect(screen.getByTestId("row-distance-aw-1234-C001")).toHaveTextContent("—");
+  });
+});
+
+describe("DistancesTab — add row (unchanged form, separate from the merged table's inline Override editing)", () => {
   it("adding a new row via the form produces a new distanceOverrides entry", async () => {
     const onChange = vi.fn();
     renderWithQueryClient(
@@ -391,61 +935,6 @@ describe("DistancesTab — estimated rows (T9)", () => {
   });
 });
 
-// Followup — displayCodeById: added-entity uids show their human-readable
-// displayCode in the From/To columns; base ids (never present in the map)
-// keep showing the raw id. The underlying stored row (and what onChange
-// receives on edit) always stays keyed by the uid — displayCodeById only
-// affects what's rendered.
-describe("DistancesTab — displayCodeById (Followup)", () => {
-  it("renders an added entity's displayCode instead of its raw uid", () => {
-    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={uidOverrides}
-        savedDistanceOverrides={uidOverrides}
-        warehouseIds={["aw-1234"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
-      />,
-    );
-    const row = screen.getByTestId("row-distance-aw-1234-C001");
-    expect(row).toHaveTextContent("WH-CO-DENVER-01");
-    expect(row).not.toHaveTextContent("aw-1234");
-  });
-
-  it("falls back to the raw id for a base dataset id with no displayCode entry", () => {
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
-      />,
-    );
-    expect(screen.getByTestId("row-distance-WH01-C001")).toHaveTextContent("WH01");
-  });
-
-  it("editing an added entity's row still writes the uid-keyed row to onChange, not the displayCode", () => {
-    const onChange = vi.fn();
-    const uidOverrides = [{ fromId: "aw-1234", toId: "C001", distance: 55 }];
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={uidOverrides}
-        savedDistanceOverrides={uidOverrides}
-        warehouseIds={["aw-1234"]}
-        customerIds={["C001"]}
-        onChange={onChange}
-        displayCodeById={{ "aw-1234": "WH-CO-DENVER-01" }}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("input-distance-aw-1234-C001"), { target: { value: "99" } });
-    expect(onChange).toHaveBeenCalledWith([{ fromId: "aw-1234", toId: "C001", distance: 99 }]);
-  });
-});
-
 describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     renderWithQueryClient(
@@ -463,7 +952,9 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
   });
 
   it("Download CSV triggers the export fetch scoped to entity=distances&format=csv", async () => {
-    fetchMock.mockResolvedValue(new Response("fromId,toId,distance\nWH01,C001,120.5", { status: 200, headers: { "content-type": "text/csv" } }));
+    fetchMock.mockResolvedValue(
+      new Response("fromId,toId,distance\nWH01,C001,120.5", { status: 200, headers: { "content-type": "text/csv" } }),
+    );
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
@@ -534,246 +1025,7 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
   });
 });
 
-// B3 (Bundle 2.2) — read-only base×base reference-distance section, above
-// the editable overrides grid. `modelId`/`referenceCapable`/the
-// `inactiveWarehouseIds`/`excludedCustomerIds` filter props are all new and
-// OPTIONAL — T9 wires the real localInputs-derived values at the
-// Workspace.tsx call site; this file only proves the component's own
-// contract.
-describe("DistancesTab — reference distances (B3)", () => {
-  it("hides the reference section when referenceCapable is absent (back-compat default)", () => {
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-      />,
-    );
-    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
-  });
-
-  it("hides the reference section when referenceCapable is explicitly false", () => {
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        modelId="p-median-brazil"
-        referenceCapable={false}
-      />,
-    );
-    expect(screen.queryByTestId("distances-reference-section")).not.toBeInTheDocument();
-  });
-
-  it("renders the reference section when referenceCapable is true", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-    );
-    expect(screen.getByTestId("distances-reference-section")).toBeInTheDocument();
-    expect(screen.getByText("Base distances (reference)")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-  });
-
-  it("an unsupported model (referenceCapable false) fires NO reference-distances request", () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        modelId="p-median-brazil"
-        referenceCapable={false}
-      />,
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("remounting a supported tab under the same query client does not refetch (staleTime: Infinity)", async () => {
-    mockReferenceDistancesFetch();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    const { unmount } = renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-      client,
-    );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    unmount();
-
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001", "C002"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-      client,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("client-side filter: total starts at the full base matrix", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-  });
-
-  it("client-side filter: one inactive base warehouse drops its 200 pairs (5200 -> 5000)", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-        inactiveWarehouseIds={["WH01"]}
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("5000"));
-    expect(fetchMock).toHaveBeenCalledTimes(1); // filter is instant client-side, no refetch
-  });
-
-  it("client-side filter: one excluded base customer drops its 26 pairs (5200 -> 5174)", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-        excludedCustomerIds={["C001"]}
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("5174"));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("client-side filter: an inactive warehouse AND an excluded customer together (5200 -> 4975)", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-        inactiveWarehouseIds={["WH01"]}
-        excludedCustomerIds={["C001"]}
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("4975"));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("added entities never appear in the reference section (base-only, DD-1)", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01", "aw-1234"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-    expect(screen.queryByTestId(/row-reference-distance-aw-1234-/)).not.toBeInTheDocument();
-    expect(document.querySelectorAll('[data-testid^="row-reference-distance-aw-1234-"]').length).toBe(0);
-  });
-
-  it("a base×base distanceOverrides entry does not change the reference baseline distance value", async () => {
-    mockReferenceDistancesFetch();
-    // WH01/C001's reference distance (from buildReferencePairs) is 100+1+1=102.
-    // An override for the exact same pair, at a very different value, must
-    // not leak into the read-only reference row.
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 999999 }]}
-        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 999999 }]}
-        warehouseIds={["WH01"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-    const row = document.querySelector('[data-testid="row-reference-distance-WH01-C001"]');
-    expect(row).toBeTruthy();
-    expect(row).toHaveTextContent("102");
-    expect(row).not.toHaveTextContent("999999");
-  });
-
-  it("pagination: only the first page (50 rows) of the reference table is mounted, with correct pager state", async () => {
-    mockReferenceDistancesFetch();
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-    const mountedRows = document.querySelectorAll('[data-testid^="row-reference-distance-"]');
-    expect(mountedRows.length).toBe(50);
-    // 5200 rows / 50 per page = 104 pages.
-    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 1 of 104");
-    expect(screen.getByTestId("button-ref-prev")).toBeDisabled();
-    expect(screen.getByTestId("button-ref-next")).not.toBeDisabled();
-  });
-});
-
-describe("DistancesTab — pagination (Bundle 5, T5)", () => {
+describe("DistancesTab — pagination (single pager over the merged set)", () => {
   function buildManyOverrides(n: number) {
     return Array.from({ length: n }, (_, i) => ({
       fromId: `WH${String((i % 26) + 1).padStart(2, "0")}`,
@@ -782,7 +1034,7 @@ describe("DistancesTab — pagination (Bundle 5, T5)", () => {
     }));
   }
 
-  it("overrides table: paginates at 50 rows per page, Prev disabled on page 1, Next advances", async () => {
+  it("paginates at 50 rows per page, Prev disabled on page 1, Next advances", async () => {
     const many = buildManyOverrides(120);
     renderWithQueryClient(
       <DistancesTab
@@ -793,128 +1045,47 @@ describe("DistancesTab — pagination (Bundle 5, T5)", () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 1 of 3");
-    expect(screen.getByTestId("button-ov-prev")).toBeDisabled();
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of 3");
+    expect(screen.getByTestId("button-distances-prev")).toBeDisabled();
     expect(screen.getByTestId(`row-distance-${many[0].fromId}-${many[0].toId}`)).toBeInTheDocument();
     expect(screen.getByTestId(`row-distance-${many[49].fromId}-${many[49].toId}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`row-distance-${many[50].fromId}-${many[50].toId}`)).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByTestId("button-ov-next"));
+    await userEvent.click(screen.getByTestId("button-distances-next"));
 
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 3");
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 2 of 3");
     expect(screen.getByTestId(`row-distance-${many[50].fromId}-${many[50].toId}`)).toBeInTheDocument();
     expect(screen.getByTestId(`row-distance-${many[99].fromId}-${many[99].toId}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`row-distance-${many[0].fromId}-${many[0].toId}`)).not.toBeInTheDocument();
   });
 
-  it("global From/To filter narrows BOTH tables and resets both pagers to page 1", async () => {
-    mockReferenceDistancesFetch();
-    const many = buildManyOverrides(120);
-    renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={many}
-        savedDistanceOverrides={many}
-        warehouseIds={many.map(o => o.fromId)}
-        customerIds={many.map(o => o.toId)}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent(String(REFERENCE_TOTAL)));
-
-    // Move to page 2 of the overrides table first, so the filter's reset is observable.
-    await userEvent.click(screen.getByTestId("button-ov-next"));
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 3");
-
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
-
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 1 of");
-    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 1 of");
-    // Reference rows are filtered on fromCode too — WH01 has 200 pairs.
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("200"));
-  });
-
-  it("clamps down on delete: removing the last row on the last override page lands on the new last page (no empty page)", async () => {
+  it("clamps down on delete: removing the last row on the last page lands on the new last page (no empty page)", async () => {
     const many = buildManyOverrides(101); // 3 pages: 50/50/1
-    let current = many;
     const Wrapper = () => {
-      const [rows, setRows] = useState(current);
+      const [rows, setRows] = useState(many);
       return (
         <DistancesTab
           distanceOverrides={rows}
           savedDistanceOverrides={rows}
           warehouseIds={rows.map(o => o.fromId)}
           customerIds={rows.map(o => o.toId)}
-          onChange={next => { current = next; setRows(next); }}
+          onChange={next => setRows(next)}
         />
       );
     };
     renderWithQueryClient(<Wrapper />);
 
-    await userEvent.click(screen.getByTestId("button-ov-next"));
-    await userEvent.click(screen.getByTestId("button-ov-next"));
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 3 of 3");
+    await userEvent.click(screen.getByTestId("button-distances-next"));
+    await userEvent.click(screen.getByTestId("button-distances-next"));
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 3 of 3");
 
     const last = many[100];
     await userEvent.click(screen.getByTestId(`button-remove-distance-${last.fromId}-${last.toId}`));
 
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 2");
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 2 of 2");
   });
 
-  it("reference clamp: tightening inactiveWarehouseIds after paging forward shrinks the filtered set below the current page", async () => {
-    mockReferenceDistancesFetch();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    const { rerender } = renderWithQueryClient(
-      <DistancesTab
-        distanceOverrides={[]}
-        savedDistanceOverrides={[]}
-        warehouseIds={["WH01", "WH02"]}
-        customerIds={["C001"]}
-        onChange={vi.fn()}
-        modelId="p-median-us"
-        referenceCapable
-        inactiveWarehouseIds={referencePairs
-          .filter(p => !["WH01", "WH02"].includes(p.fromId))
-          .map(p => p.fromId)
-          .filter((v, i, a) => a.indexOf(v) === i)}
-      />,
-      client,
-    );
-    // 2 warehouses x 200 customers = 400 pairs -> 8 pages of 50.
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("400"));
-    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 1 of 8");
-
-    await userEvent.click(screen.getByTestId("button-ref-next"));
-    await userEvent.click(screen.getByTestId("button-ref-next"));
-    await userEvent.click(screen.getByTestId("button-ref-next"));
-    await userEvent.click(screen.getByTestId("button-ref-next"));
-    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 5 of 8");
-
-    // Tighten down to just WH01 (200 pairs -> 4 pages). Page 5 > 4 must clamp.
-    rerender(
-      <QueryClientProvider client={client}>
-        <DistancesTab
-          distanceOverrides={[]}
-          savedDistanceOverrides={[]}
-          warehouseIds={["WH01"]}
-          customerIds={["C001"]}
-          onChange={vi.fn()}
-          modelId="p-median-us"
-          referenceCapable
-          inactiveWarehouseIds={referencePairs
-            .filter(p => p.fromId !== "WH01")
-            .map(p => p.fromId)
-            .filter((v, i, a) => a.indexOf(v) === i)}
-        />
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(screen.getByTestId("distances-reference-total")).toHaveTextContent("200"));
-    expect(screen.getByTestId("ref-page-indicator")).toHaveTextContent("Page 4 of 4");
-  });
-
-  it("focus across pages, starting on a non-empty filter (resolution #2): clears the filter and lands on the target's real page without snapping back to page 1", async () => {
+  it("focus across pages, starting on a non-empty filter: clears the filter and lands on the target's real page without snapping back to page 1", async () => {
     const many = buildManyOverrides(120);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const { rerender } = renderWithQueryClient(
@@ -930,7 +1101,7 @@ describe("DistancesTab — pagination (Bundle 5, T5)", () => {
 
     // Set a non-empty filter first (real user typing — resets to page 1).
     fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "WH01" } });
-    expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 1 of");
+    expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of");
 
     // override #75 (index 74) — target its toId so the effect finds it.
     const target = many[74];
@@ -949,6 +1120,26 @@ describe("DistancesTab — pagination (Bundle 5, T5)", () => {
 
     expect(screen.getByTestId("input-filter-from")).toHaveValue("");
     // Math.floor(74/50)+1 = 2 — the programmatic clear must NOT snap back to page 1.
-    await waitFor(() => expect(screen.getByTestId("ov-page-indicator")).toHaveTextContent("Page 2 of 3"));
+    await waitFor(() => expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 2 of 3"));
+  });
+
+  it("pagination over a reference matrix: the base table paginates too (5200 base pairs -> 104 pages)", async () => {
+    mockReferenceDistancesFetch();
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        modelId="p-median-us"
+        referenceCapable
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("distances-page-indicator")).toHaveTextContent("Page 1 of 104"));
+    const mountedRows = document.querySelectorAll('[data-testid^="row-distance-"]');
+    expect(mountedRows.length).toBe(50);
+    expect(screen.getByTestId("button-distances-prev")).toBeDisabled();
+    expect(screen.getByTestId("button-distances-next")).not.toBeDisabled();
   });
 });
