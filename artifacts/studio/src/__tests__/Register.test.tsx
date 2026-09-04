@@ -86,34 +86,32 @@ describe("Register", () => {
     expect(screen.getByText("Log in")).toBeInTheDocument();
   });
 
-  it("mounts the app footer", () => {
+  it("does not mount the global app footer (inline credit replaces it)", () => {
     render(<Register />);
-    expect(screen.getByTestId("app-footer")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-footer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("auth-credit")).toHaveTextContent("Developed by Shubham");
   });
 
-  it("renders the book-cover band with the studio title and kicker", () => {
+  it("renders the cover panel, heading, and kicker", () => {
     render(<Register />);
-    const band = screen.getByTestId("auth-band");
-    expect(band.className).toContain("scnd-band");
-    expect(band).toHaveTextContent("SCND Optimization Studio");
-    expect(band).toHaveTextContent("By Prof. Michael Watson");
+    expect(screen.getByTestId("auth-cover")).toBeInTheDocument();
+    expect(screen.getByAltText(/book cover/i)).toBeInTheDocument();
+    expect(screen.getByText("Optimization Studio")).toBeInTheDocument();
+    expect(screen.getByText("By Prof. Michael Watson")).toBeInTheDocument();
   });
 
-  it("keeps the footer un-clipped at a narrow (375px) viewport", () => {
-    const originalWidth = window.innerWidth;
-    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
-    window.dispatchEvent(new Event("resize"));
-    try {
-      render(<Register />);
-      const footer = screen.getByTestId("app-footer");
-      const root = footer.closest("div.min-h-screen") as HTMLElement;
-      // min-h-screen + flex-col + flex-shrink-0 footer: the footer always
-      // reserves its own row below the centered card, regardless of
-      // viewport width — never overlapped or clipped by page content.
-      expect(root.className).toContain("flex-col");
-      expect(footer.className).toContain("flex-shrink-0");
-    } finally {
-      Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
-    }
+  it("exposes the developer contact links (mockup values)", () => {
+    render(<Register />);
+    expect(screen.getByTitle("LinkedIn").closest("a")).toHaveAttribute("href", "https://www.linkedin.com/in/shubhamkumarcse/");
+    expect(screen.getByTitle("Email").closest("a")).toHaveAttribute("href", "mailto:shubham.shubham4995@gmail.com");
+  });
+
+  it("uses a stacked-on-narrow / side-by-side-on-wide split layout", () => {
+    render(<Register />);
+    const shell = screen.getByTestId("auth-shell");
+    expect(shell.className).toContain("flex-col");
+    expect(shell.className).toContain("md:flex-row");
+    // cover collapses to a top band on narrow, becomes the left rail on wide
+    expect(screen.getByTestId("auth-cover").className).toContain("md:basis-[44%]");
   });
 });

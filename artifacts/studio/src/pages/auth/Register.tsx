@@ -5,9 +5,8 @@ import { useRegisterUser, getGetCurrentAuthUserQueryKey } from "@workspace/api-c
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AppFooter } from "@/components/AppFooter";
+import { AuthShell } from "@/components/auth/AuthShell";
 
 export function Register() {
   const [, navigate] = useLocation();
@@ -42,69 +41,36 @@ export function Register() {
     : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <header className="scnd-band flex-shrink-0 px-4 py-3 text-center" data-testid="auth-band">
-        <div className="scnd-kicker">By Prof. Michael Watson</div>
-        <div className="scnd-display text-lg font-semibold" style={{ color: "var(--surface-band-fg)" }}>
-          SCND Optimization Studio
+    <AuthShell tagline="Register to start solving labs. Build a scenario on the map, solve it with a real optimizer, compare the results.">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+        {errorMessage && (
+          <Alert variant="destructive" data-testid="alert-register-error">
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" type="email" required autoComplete="email" placeholder="you@university.edu" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
         </div>
-      </header>
-      <div className="flex-1 flex items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardHeader>
-            <CardTitle>Create your account</CardTitle>
-            <CardDescription>Register to start solving labs.</CardDescription>
-          </CardHeader>
-          <form onSubmit={handleSubmit}>
-            <CardContent className="flex flex-col gap-4">
-              {errorMessage && (
-                <Alert variant="destructive" data-testid="alert-register-error">
-                  <AlertDescription>{errorMessage}</AlertDescription>
-                </Alert>
-              )}
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  data-testid="input-email"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  data-testid="input-password"
-                />
-                {passwordTooShort && (
-                  <p className="text-xs text-destructive" data-testid="text-password-hint">
-                    Password must be at least 8 characters.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-3 items-stretch">
-              <Button type="submit" disabled={registerUser.isPending} data-testid="button-register">
-                {registerUser.isPending ? "Creating account…" : "Register"}
-              </Button>
-              <p className="text-sm text-muted-foreground text-center">
-                Already have an account? <Link href="/login" className="underline">Log in</Link>
-              </p>
-            </CardFooter>
-          </form>
-        </Card>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="password">Password</Label>
+          <Input id="password" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
+          {passwordTooShort && (
+            <p className="text-xs text-destructive" data-testid="text-password-hint">Password must be at least 8 characters.</p>
+          )}
+        </div>
+        <Button type="submit" disabled={registerUser.isPending} data-testid="button-register" className="mt-1">
+          {registerUser.isPending ? "Creating account…" : "Register"}
+        </Button>
+      </form>
+      <div className="flex items-center gap-2.5 my-4">
+        <div className="flex-1 h-px" style={{ background: "var(--line)" }} />
+        <span className="uppercase" style={{ fontFamily: "var(--app-font-mono)", fontSize: "9px", letterSpacing: "0.1em", color: "var(--text-faint)" }}>or</span>
+        <div className="flex-1 h-px" style={{ background: "var(--line)" }} />
       </div>
-      <AppFooter />
-    </div>
+      <div className="text-center" style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
+        Already have an account? <Link href="/login" className="underline" style={{ color: "var(--link)" }}>Log in</Link>
+      </div>
+    </AuthShell>
   );
 }
