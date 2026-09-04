@@ -9,8 +9,11 @@
  *      "Developed by Shubham" credit footer (and the ABSENCE of the global
  *      AppFooter on "/"), and a chapter card's sunken full-bleed footer
  *      strip.
- *   3. Distances tab pagination + the From/To filter applying live to both
- *      the reference and overrides tables.
+ *   3. Distances tab pagination + the From/To filter applying live. Bundle
+ *      6.1 (T2) merged the old separate reference/overrides tables into ONE
+ *      table over the full base×base matrix — this section paginates/
+ *      filters that single merged table now (see bundle6.1-legend-
+ *      distances.spec.ts for the fuller base+override merge coverage).
  *
  * Target: E2E_BASE_URL env var. Requires a local dev proxy (vite's
  * API_PROXY_TARGET) so the browser sees one origin — see CLAUDE.md and
@@ -132,12 +135,19 @@ test.describe("Bundle 5 — homepage chrome", () => {
 });
 
 test.describe("Bundle 5 — Distances pagination + global filter", () => {
-  test("overrides and reference tables paginate at 50/page and the From/To filter applies to both live", async ({ page }) => {
+  test("the merged table paginates over the full base matrix and the From/To filter narrows it live", async ({ page }) => {
     test.setTimeout(60_000);
     await registerAndGoHome(page, "distances");
 
     // Build 120 distanceOverrides using real dataset ids (26 warehouses,
-    // 200 customers) so every row passes server-side validation.
+    // 200 customers) so every row passes server-side validation. Bundle 6.1
+    // (T2) merged the reference/overrides tables into ONE row list keyed by
+    // the base×base matrix — an override on an EXISTING base pair (as these
+    // all are: fromId/toId both drawn from the real dataset) decorates that
+    // row rather than adding a new one, so seeding 120 overrides no longer
+    // changes the merged table's row COUNT (still exactly 26*200=5200); it's
+    // still useful here to prove an override renders inline in the SAME row
+    // as its base value (asserted below), not just to inflate a page count.
     const datasetResp = await page.request.get("/api/dataset?modelId=p-median-us");
     expect(datasetResp.status()).toBe(200);
     const dataset = await datasetResp.json();
@@ -163,41 +173,60 @@ test.describe("Bundle 5 — Distances pagination + global filter", () => {
       await page.getByTestId("sidebar-input-distances").click();
       await expect(page.getByTestId("distances-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      // Overrides table: 120 rows -> 3 pages of 50.
-      const ovIndicator = page.getByTestId("ov-page-indicator");
-      await expect(ovIndicator).toHaveText("Page 1 of 3");
-      await expect(page.getByTestId("button-ov-prev")).toBeDisabled();
-      await expect(page.getByTestId("button-ov-next")).toBeEnabled();
+      // Single merged table paginates over the full base matrix (26
+      // warehouses x 200 customers = 5200 pairs -> 104 pages of 50).
+      const pageIndicator = page.getByTestId("distances-page-indicator");
+      await expect(pageIndicator).toHaveText("Page 1 of 104");
+      await expect(page.getByTestId("button-distances-prev")).toBeDisabled();
+      await expect(page.getByTestId("button-distances-next")).toBeEnabled();
 
-      await page.getByTestId("button-ov-next").click();
-      await expect(ovIndicator).toHaveText("Page 2 of 3");
+      await page.getByTestId("button-distances-next").click();
+      await expect(pageIndicator).toHaveText("Page 2 of 104");
 
-      // Reference table also paginates (26 warehouses x 200 customers =
-      // 5200 pairs -> 104 pages).
-      const refIndicator = page.getByTestId("ref-page-indicator");
-      await expect(refIndicator).toHaveText("Page 1 of 104");
-      await expect(page.getByTestId("button-ref-prev")).toBeDisabled();
-
-      // Global From filter: typing a specific warehouse id resets both
-      // tables to page 1 and narrows the visible rows on each.
+      // Global From filter: typing a specific warehouse id resets to page 1
+      // and narrows the merged table to just that warehouse's 200 customer
+      // pairs -> 4 pages of 50.
       await page.getByTestId("input-filter-from").fill(warehouseIds[0]);
-      await expect(ovIndicator).toContainText("Page 1 of");
-      await expect(refIndicator).toContainText("Page 1 of");
+      await expect(pageIndicator).toHaveText("Page 1 of 4");
 
-      const overridesRows = page.locator('[data-testid^="row-distance-"]');
-      const referenceRows = page.locator('[data-testid^="row-reference-distance-"]');
-      const ovCount = await overridesRows.count();
-      const refCount = await referenceRows.count();
-      expect(ovCount).toBeGreaterThan(0);
-      expect(refCount).toBeGreaterThan(0);
-      for (let i = 0; i < ovCount; i++) {
-        const testid = await overridesRows.nth(i).getAttribute("data-testid");
+      const rows = page.locator('[data-testid^="row-distance-"]');
+      const rowCount = await rows.count();
+      expect(rowCount).toBeGreaterThan(0);
+      for (let i = 0; i < rowCount; i++) {
+        const testid = await rows.nth(i).getAttribute("data-testid");
         expect(testid).toContain(`row-distance-${warehouseIds[0]}-`);
       }
-      for (let i = 0; i < refCount; i++) {
-        const testid = await referenceRows.nth(i).getAttribute("data-testid");
-        expect(testid).toContain(`row-reference-distance-${warehouseIds[0]}-`);
-      }
+
+      // Narrowing further with the To filter isolates one exact pair that
+      // ALSO carries one of the 120 seeded overrides — distanceOverrides[26]
+      // targets (fromId=warehouseIds[0], toId=customerIds[26]) since
+      // 26 % warehouseIds.length === 0 — so this row's override renders
+      // inline with a real base value, proving the merge (not just the
+      // filter). customerIds[26] ("C27" in the real dataset) is used
+      // instead of customerIds[0] ("C1") deliberately: a short numeric
+      // suffix like "1" is a SUBSTRING of "C10"/"C100"-"C199" too under the
+      // filter's plain `.includes()` match, so "C1" alone doesn't isolate a
+      // single row — "C27" has no such collision (nothing else contains it).
+      const toFilterId = customerIds[26];
+      await page.getByTestId("input-filter-to").fill(toFilterId);
+      await expect(pageIndicator).toHaveText("Page 1 of 1");
+      const isolatedRow = page.getByTestId(`row-distance-${warehouseIds[0]}-${toFilterId}`);
+      await expect(isolatedRow).toBeVisible();
+
+      // This override was seeded via the scenario-creation API, so it IS
+      // the scenario's SAVED state (not an unsaved edit) — the "Changed"
+      // badge only lights up for a delta from the saved state, so it does
+      // NOT apply here (there's dedicated "add an override -> Changed"
+      // coverage in bundle6.1-legend-distances.spec.ts). What this DOES
+      // prove is the merge itself: the override's distance (126, i.e.
+      // 100+26) renders in the editable Override input, alongside a real,
+      // DIFFERENT base value in the read-only Base column of the SAME row.
+      await expect(page.getByTestId(`input-distance-${warehouseIds[0]}-${toFilterId}`)).toHaveValue("126");
+      const baseValue = (await isolatedRow.locator("td").nth(2).textContent())?.trim();
+      expect(baseValue).toBeTruthy();
+      expect(baseValue).not.toBe("—");
+      expect(baseValue).not.toBe("unavailable");
+      expect(baseValue).not.toBe("126");
     } finally {
       await page.request.delete(`/api/scenarios/${scenarioId}`);
     }
