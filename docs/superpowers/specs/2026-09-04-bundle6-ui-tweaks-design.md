@@ -1,7 +1,43 @@
 # Bundle 6 — Workspace + Landing/auth UI tweaks
 
 **Date:** 2026-09-04
-**Status:** Design (pending written-spec review)
+**Status:** Design — written-spec review resolved (see resolutions log)
+
+## Written-spec review — resolutions (2026-09-04)
+
+Five findings; all resolved inline:
+
+1. **[P1] Item 8 hid cards, not models (user chose: hide everywhere).**
+   `hiddenFromLanding` only filters the card grid; Recent Solves, the stats
+   line, and the active badge still counted hidden models. **Resolved:** item 8
+   now hides Ch5 EVERYWHERE on Landing — cards + Recent Solves + stats totals +
+   active-badge pick all filter to non-hidden modelIds. Needs one small backend
+   field (`LandingSummaryChapter.solvedScenarioCount`, already computed in the
+   landing-summary solve query but not yet exposed) so the visible "N solved"
+   total is derivable frontend-side. Folded into T1's backend contract work;
+   Landing.tsx filtering added to T5.
+2. **[P1] Item 7 had no measurable "equal size."** Both legends are
+   content-driven; copying `p-2`/`gap-2`/`text-xs` can't equalize the boxes.
+   **Resolved:** item 7 targets **visual-shell parity + a shared fixed width** —
+   match padding, typography, gap, border/radius, and a 14px marker/swatch
+   scale, and pin both legend boxes to the same `min-width` so they read as the
+   same box; height still varies with content (documented, not pixel-identical).
+3. **[P2] Item 1 Input-Map seeding must be one-shot.** An effect that opens
+   Input Map whenever `activeTab` is null would reopen it after the user closes
+   the last tab, defeating the reducer's empty state. **Resolved:** seed the
+   Input Map tab exactly ONCE per Workspace mount/model entry (a ref-guarded
+   one-shot), never a reactive open-when-null; T2 test asserts closing the final
+   tab leaves no tab active.
+4. **[P2] Tests must be UPDATED, not only added.** Items 8/12 invalidate
+   existing auth-strip/labs-count assertions; items 2/3 invalidate Workspace
+   picker/email/logout assertions. **Resolved:** each task updates its OWN
+   affected unit tests (T2 Workspace, T5 Landing/AuthShell); T6 (QA) updates the
+   affected e2e specs (`e2e/bundle4-auth-landing.spec.ts:50-51,110-114`) AND
+   runs the FULL Playwright suite, not just new coverage.
+5. **[P2] Global logout constraint contradicted item 3.** **Resolved:** the
+   constraint is reworded to "preserve every unrelated `data-testid`/`aria-*`,
+   all UNRELATED mutation logic, and Landing's logout behavior" — item 3 removes
+   Workspace's own logout deliberately.
 
 ## Goal
 
@@ -32,19 +68,28 @@ bundle: metric replaces the textbook matrix (requires an explicit
 ## Item 1 — Land on the last-solved scenario's Input Map
 
 **Files:** `lib/api-spec/openapi.yaml` + `routes/scenarios.ts` (`toApiScenario`)
-+ Orval regen (backend); `pages/Workspace.tsx` (frontend).
++ `routes/landingSummary.ts` + Orval regen (backend, all in T1);
+`pages/Workspace.tsx` (frontend, T2).
 
-- **Backend:** add `solvedAt: string|null (date-time)` to the `Scenario`
+- **Backend (T1):** add `solvedAt: string|null (date-time)` to the `Scenario`
   response schema and populate it in `toApiScenario` (the column exists on the
   `scenarios` table; `stale` is already derived from it server-side). Regen.
-- **Frontend:** when the route has **no** `?scenario=` param, pick the default
-  scenario as the one with the greatest non-null `solvedAt` (the last-solved);
-  if none is solved, fall back to the greatest `updatedAt` (most-recently
-  edited). Currently `currentScenario` defaults to `scenarios?.[0]`
-  (Workspace.tsx:876) — replace that fallback with this selection.
-- On entry, open that scenario's **Input Map** tab by default (dispatch an
-  `open input input-map` tab if no tab is active). A `?scenario=` deep link
-  (e.g. from Landing's recent-solves) still wins and is respected.
+  (T1 also adds `solvedScenarioCount` to `LandingSummaryChapter` for item 8 —
+  see resolution #1.)
+- **Frontend (T2):** when the route has **no** `?scenario=` param, pick the
+  default scenario as the one with the greatest non-null `solvedAt` (the
+  last-solved); if none is solved, fall back to the greatest `updatedAt`
+  (most-recently edited). Currently `currentScenario` defaults to
+  `scenarios?.[0]` (Workspace.tsx:876) — replace that fallback with this
+  selection.
+- **One-shot Input Map seeding (resolution #3):** on entry, open that
+  scenario's **Input Map** tab ONCE per Workspace mount/model entry — guard with
+  a ref (e.g. `didSeedTabRef`) so it fires a single time after the scenario
+  resolves, NOT a reactive "open Input Map whenever `activeTab` is null" (which
+  would reopen it the instant the user closes the last tab, defeating
+  `lib/workspaceTabs.ts`'s intentional empty-tab state). A `?scenario=` deep
+  link (e.g. from Landing's recent-solves) still wins. **T2 test:** closing the
+  final tab leaves no tab active (Input Map does NOT auto-reopen).
 
 ## Item 2 — Remove header scenario dropdown; chapter+summary to far left
 
@@ -103,24 +148,46 @@ bundle: metric replaces the textbook matrix (requires an explicit
 call sites).
 
 - The Input Map renders the standalone `MapLegend`
-  (`components/workspace/map/MapLegend.tsx`, `absolute bottom-4 left-4 … p-2 …
-  text-xs`, swatches `w-[18px] h-[18px]`); the Output Map uses NetworkMap's own
-  built-in legend (`OutputMapTab.tsx:241`, `NetworkMap.tsx:~590`). Size the
-  Input Map `MapLegend` box (padding, width/min-width, font size, swatch size)
-  to match the Output Map legend's box exactly. **The Output Map legend's
-  dimensions are the reference** — read NetworkMap's legend styling in the plan
-  and align MapLegend to it (no restyle of the Output legend). Preserve all
-  `legend-*` testids.
+  (`components/workspace/map/MapLegend.tsx:83-130`, `absolute bottom-4 left-4 …
+  p-2 … text-xs`, swatches `w-[18px] h-[18px]`); the Output Map uses NetworkMap's
+  own built-in legend (`OutputMapTab.tsx:241`, `NetworkMap.tsx:587-634`).
+- **"Equal size" = visual-shell parity + shared width (resolution #2).** The two
+  legends have content-driven heights (conditional mine/band/hint rows;
+  variable demand buckets), so they cannot be pixel-identical without
+  truncation. Instead make them read as the same box: align MapLegend's
+  padding, typography, gap, and border/radius to NetworkMap's legend (the
+  **Output legend is the reference** — do NOT restyle it), normalize the
+  marker/swatch scale to a shared **14px**, and pin BOTH legend boxes to the
+  same `min-width` so their widths match. Height still varies with content —
+  this is documented, not pixel-identical. Read NetworkMap's exact legend
+  styling in the plan to derive the shared `min-width`/padding values. Preserve
+  all `legend-*` testids.
 
-## Item 8 — Hide Chapter 5 models from Landing
+## Item 8 — Hide Chapter 5 models from Landing (everywhere)
 
-**Files:** `lib/chapters.ts`.
+**Files:** `lib/chapters.ts`; `pages/Landing.tsx` (+ test);
+`LandingSummaryChapter.solvedScenarioCount` from T1 (backend).
 
-- Set `hiddenFromLanding: true` on `transport-coal` and `p-median-brazil` (the
-  two Chapter 5 models), same mechanism as `two-echelon-gold-au`. Routes stay
-  registered (deep links/scenarios still work); they simply don't appear in the
-  Landing card grid. `visibleLabs`/stats and item 12's footer both derive from
-  the `!hiddenFromLanding` filter, so they update automatically.
+- **`chapters.ts`:** set `hiddenFromLanding: true` on `transport-coal` and
+  `p-median-brazil` (the two Chapter 5 models), same mechanism as
+  `two-echelon-gold-au`. Routes stay registered (deep links/scenarios still
+  work).
+- **`Landing.tsx` — hide everywhere (resolution #1, user chose "everywhere"):**
+  the card grid already filters `!hiddenFromLanding`. Additionally:
+  - **Recent Solves:** filter the `useGetSolveHistory` entries to non-hidden
+    modelIds (drop rows whose `modelId` maps to a hidden chapter).
+  - **Active badge:** compute `activeModelId` over only the non-hidden
+    `perChapter` rows.
+  - **Stats line:** compute the visible totals frontend-side over non-hidden
+    `perChapter` — scenarios = Σ `scenarioCount`, solved = Σ
+    `solvedScenarioCount` (the new T1 field) — instead of the endpoint's global
+    `totals`. `labs` = non-hidden chapter count (already so).
+- **`LandingSummary` (T1 backend):** add `solvedScenarioCount: integer` to each
+  `LandingSummaryChapter` (the value is already computed per-model as
+  `countDistinct(scenarioId)` in `routes/landingSummary.ts`'s solve query — just
+  include it per row). Regen. This is what makes the visible "N solved"
+  derivable without trusting the global total.
+- Item 12's footer also derives from `!hiddenFromLanding` (unchanged).
 
 ## Item 9 — Homepage hero cover fuller, beside the text
 
@@ -167,31 +234,46 @@ call sites).
 
 ## Global constraints (bind every item)
 
-- Presentation-only except item 1's added `solvedAt` field. Tokens only from the
-  theme; light theme; `designTokens.contract.test.ts` stays green.
-- Preserve every unrelated `data-testid`/`aria-*` and all mutation/logout logic.
+- Presentation-only except T1's added read-only API fields (`Scenario.solvedAt`,
+  `LandingSummaryChapter.solvedScenarioCount` — both already computed
+  server-side, no schema/DB change). Tokens only from the theme; light theme;
+  `designTokens.contract.test.ts` stays green.
+- Preserve every UNRELATED `data-testid`/`aria-*`, all UNRELATED mutation logic,
+  and Landing's logout behavior (resolution #5). Item 3 removes Workspace's own
+  logout deliberately; that is not a violation.
+- Each task UPDATES its own affected existing tests (not just adds) —
+  resolution #4.
 - Never hand-edit generated code; regenerate via Orval and commit spec +
-  output together (item 1).
+  output together (T1).
 - One commit per task, message `[bundle6-T<n>] <summary>`.
 
 ## Execution (agent team, file-disjoint tasks + standing QA)
 
-- **T1** (backend) — `Scenario.solvedAt` on the API: `openapi.yaml` +
-  `routes/scenarios.ts` (`toApiScenario`) + regen + `routes.test.ts`.
-- **T2** (frontend) — `Workspace.tsx` items 1(frontend)/2/3/5 (+ its tests).
-  **Depends on T1** (needs the regenerated `solvedAt` on the Scenario type).
-- **T3** (frontend) — `CostSummaryTab.tsx` item 4 (+ its tests).
+- **T1** (backend) — API contract additions: `Scenario.solvedAt` (in
+  `toApiScenario`) + `LandingSummaryChapter.solvedScenarioCount` (in
+  `routes/landingSummary.ts`'s solve group): `openapi.yaml` +
+  `routes/scenarios.ts` + `routes/landingSummary.ts` + Orval regen +
+  `routes.test.ts`.
+- **T2** (frontend) — `Workspace.tsx` items 1(frontend)/2/3/5 (+ updates its own
+  picker/email/logout unit tests). **Depends on T1** (`Scenario.solvedAt`).
+- **T3** (frontend) — `CostSummaryTab.tsx` item 4 (+ tests).
 - **T4** (frontend) — `MapLegend.tsx` item 7 (+ tests).
-- **T5** (frontend) — Landing/auth tweaks items 8/9/10/11/12/13: `chapters.ts`,
-  `AppShell.tsx`, `DeveloperCredit.tsx`, `Login.tsx`, `Register.tsx`,
-  `AuthShell.tsx` (+ their tests). All six files disjoint from T1-T4.
-- **T6** (QA) — `qa-sdet` real Playwright: last-solved landing + Input Map, header
-  has no picker/email/logout + chapter summary left, pronounced stepper,
-  Solution Summary compare has no utilization + hyphenated city-state, Landing
-  hides Ch5 + bigger cover, login "Register"/generic placeholder/"Reach out
-  at"/single-chapter footer strip. **Standing per memory — QA is a first-class
-  plan task.**
+- **T5** (frontend) — item 8-everywhere + item 12: `chapters.ts`, `Landing.tsx`,
+  `AuthShell.tsx` (+ update their tests — auth-strip labels, labs count).
+  **Depends on T1** (`LandingSummaryChapter.solvedScenarioCount` for the stats).
+- **T6** (frontend) — auth/homepage copy items 9/10/11/13: `AppShell.tsx`,
+  `DeveloperCredit.tsx`, `Login.tsx`, `Register.tsx` (+ tests). Independent of
+  T1. (File-disjoint from T5 — item 12's `AuthShell.tsx` is T5; the auth pages
+  are T6.)
+- **T7** (QA) — `qa-sdet` real Playwright: last-solved landing + Input Map (+
+  closing last tab leaves none open), header has no picker/email/logout +
+  chapter summary left, pronounced stepper, Solution Summary compare has no
+  utilization + hyphenated city-state, Landing hides Ch5 EVERYWHERE (cards +
+  recent solves + stats) + bigger cover, login "Register"/generic
+  placeholder/"Reach out at"/single-chapter footer strip. **UPDATES the affected
+  existing e2e specs** (`bundle4-auth-landing.spec.ts`) and runs the FULL
+  Playwright suite. Standing QA task per memory.
 
-T1/T3/T4/T5 run in parallel (disjoint); T2 after T1; QA after all. Controller
-cherry-picks each onto main + re-gates; final whole-branch review; then surface
-deploy.
+T1/T3/T4/T6 run in parallel (disjoint); **T2 and T5 both after T1** (need its
+regenerated types); T7 (QA) after all. Controller cherry-picks each onto main +
+re-gates; final whole-branch review; then surface deploy.
