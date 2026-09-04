@@ -25,6 +25,13 @@ const LEGEND_DEMAND_SCALE = 0.55;
 // here from NetworkMap.tsx's old inline legend so the shared legend can
 // never drift from what the map actually renders for a solved-result view.
 const MINE_STAR_SVG = `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L14.2 8.9L21.5 8.9L15.6 13.2L17.9 20.1L12 15.8L6.1 20.1L8.4 13.2L2.5 8.9L9.8 8.9Z" fill="none" stroke="var(--map-default-stroke)" stroke-width="2" /></svg>`;
+
+// Output "Potential" (un-opened candidate) marker: NetworkMap's
+// createTriangleIcon("potential") strokes it with --map-default-stroke (gray),
+// NOT --map-warehouse (dark ink) which warehouseTriangleSvg("outline") uses.
+// A dedicated SVG here keeps the legend swatch's hue matching the actual map
+// marker (the old inline NetworkMap legend used exactly this).
+const POTENTIAL_OUTPUT_SVG = `<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polygon points="12,2 22,20 2,20" fill="none" stroke="var(--map-default-stroke)" stroke-width="2" /></svg>`;
 // Same --map-customer/--map-customer-stroke pair NetworkMap's own
 // CircleMarker + customerBubbleSvg use for a solved-result customer dot
 // (fill-opacity 0.8, stroke-width 1 — matches the unselected/unfocused
@@ -156,7 +163,7 @@ export function MapLegend({
           ? [{ key: "mine", testid: "legend-output-mine", svg: MINE_STAR_SVG, label: "Mine (fixed)" }]
           : []),
         ...(showWarehouseLayer
-          ? [{ key: "potential", testid: "legend-output-potential", svg: warehouseTriangleSvg("outline"), label: "Potential" }]
+          ? [{ key: "potential", testid: "legend-output-potential", svg: POTENTIAL_OUTPUT_SVG, label: "Potential" }]
           : []),
         ...(showWarehouseLayer
           ? [{ key: "open", testid: "legend-output-open", svg: warehouseTriangleSvg("filled"), label: "Open" }]
