@@ -39,7 +39,8 @@
     "components/studio/MapLegend.jsx",
     "components/studio/SidebarTree.jsx",
     "components/studio/TabBar.jsx",
-    "components/studio/StaleOutputBanner.jsx"
+    "components/studio/StaleOutputBanner.jsx",
+    "components/studio/AssistantPanel.jsx"
   ];
   window.runBabelById = function (id) {
     var code = document.getElementById(id).textContent;

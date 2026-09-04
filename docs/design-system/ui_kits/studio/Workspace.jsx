@@ -10,6 +10,7 @@ import { ConstraintChips } from "../../components/studio/ConstraintChips.jsx";
 import { SidebarTree } from "../../components/studio/SidebarTree.jsx";
 import { TabBar } from "../../components/studio/TabBar.jsx";
 import { StaleOutputBanner } from "../../components/studio/StaleOutputBanner.jsx";
+import { AssistantPanel } from "../../components/studio/AssistantPanel.jsx";
 import { NetworkMapMock } from "./NetworkMapMock.jsx";
 import { WAREHOUSES, CUSTOMERS, SOLUTION } from "./data.js";
 
@@ -21,7 +22,7 @@ var TAB_DEFS = {
 
 export function Workspace(props) {
   var init = props || {};
-  var s = React.useState({ tabs: init.solved ? ["in:map", "in:wh", "out:map"] : ["in:map", "in:wh"], active: init.solved ? "out:map" : "in:map", scenario: init.scenario || "Baseline", solved: !!init.solved, stale: false, solving: false, dialog: false, p: 4 });
+  var s = React.useState({ tabs: init.solved ? ["in:map", "in:wh", "out:map"] : ["in:map", "in:wh"], active: init.solved ? "out:map" : "in:map", scenario: init.scenario || "Baseline", solved: !!init.solved, stale: false, solving: false, dialog: false, p: 4, assistant: false });
   var st = s[0], set = s[1];
   function patch(p2) { set(function (prev) { return Object.assign({}, prev, p2); }); }
   function openTab(id) {
@@ -98,12 +99,14 @@ export function Workspace(props) {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 10px", background: "var(--surface-sunken)", borderLeft: "1px solid var(--border-default)" }}>
               {st.stale ? <Badge variant="warning">stale</Badge> : st.solved ? <Badge variant="success">solved</Badge> : null}
+              <Button variant={st.assistant ? "secondary" : "outline"} size="sm" onClick={function () { patch({ assistant: !st.assistant }); }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z" /></svg>Assistant</Button>
               <Button size="sm" disabled={st.solving} onClick={function () { patch({ dialog: true }); }}>{st.solving ? "Solving…" : "Run Optimizer"}</Button>
             </div>
           </div>
           <ConstraintChips chips={chips} stale={st.stale} />
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{body()}</div>
         </div>
+        {st.assistant ? <AssistantPanel scenario={st.scenario} solved={st.solved} stale={st.stale} p={st.p} onClose={function () { patch({ assistant: false }); }} /> : null}
       </div>
       <Dialog open={st.dialog} title="Run optimizer?" description={"p = " + st.p + ", capacity mode none, 1 forced open, 1 inactive. Solves a capacitated p-median ILP with CBC."}
         onClose={function () { patch({ dialog: false }); }}

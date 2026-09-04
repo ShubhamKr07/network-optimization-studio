@@ -10,7 +10,7 @@
 </head><body><div id="root"></div>
 <script type="text/x-src" id="appsrc">
 loadDS("../../").then((NS) => {
-const { ObjectiveBar, ConstraintChips, MapLegend, SidebarTree, TabBar, StaleOutputBanner } = NS;
+const { ObjectiveBar, ConstraintChips, MapLegend, SidebarTree, TabBar, StaleOutputBanner, AssistantPanel } = NS;
 function Demo(){
   return <div>
     <ObjectiveBar kicker="Chapter 3" title="Al's Athletics — P-Median" scenarioName="Baseline"
@@ -37,6 +37,10 @@ function Demo(){
       <div style={{flex:1,border:"1px solid var(--border-default)",background:"var(--surface-card)"}}>
         <StaleOutputBanner solved onRunOptimizer={()=>{}} />
       </div>
+    </div>
+    <div className="lbl">Assistant panel</div>
+    <div style={{height:300,width:300,border:"1px solid var(--border-default)"}}>
+      <AssistantPanel scenario="Baseline" solved stale={false} p={4} onClose={()=>{}} />
     </div>
   </div>;
 }
