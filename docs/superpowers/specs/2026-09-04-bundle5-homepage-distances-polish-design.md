@@ -1,7 +1,48 @@
 # Bundle 5 — Homepage polish + Distances pagination
 
 **Date:** 2026-09-04
-**Status:** Design (pending written-spec review)
+**Status:** Design — written-spec review resolved (see resolutions log)
+
+## Written-spec review — resolutions (2026-09-04)
+
+Seven findings; all resolved inline:
+
+1. **[P1] Distances "jump to row" across pagination.** With 50/page, a
+   `focusEntityId` target can live on a later page, so the DOM-only scroll finds
+   nothing. **Resolved (item 6/T5):** on `focusEntityId`, clear the From/To
+   filters first (so the target isn't filtered out), locate its index in the
+   full overrides list, set `ovPage` to that row's page, then scroll after the
+   page renders. Regression test targets a row beyond the first 50.
+2. **[P1] Preserve `data-testid="auth-credit"`.** The item-5 wrapper dropped it;
+   Login/Register tests assert it. **Resolved (item 5):** AuthShell's wrapper
+   around `<DeveloperCredit />` keeps `data-testid="auth-credit"`; the homepage
+   footer uses its own testid.
+3. **[P2] Clamp page state when the filtered set shrinks (not just on filter
+   text).** Deleting/importing overrides or toggling inactive/excluded can
+   invalidate a page. **Resolved (item 6):** derive `pageCount = max(1,
+   ceil(n/50))`, clamp each page into `[1, pageCount]` via an effect on the
+   filtered length; zero rows → the existing empty/no-match body + a pager
+   reading "Page 1 of 1" (never "Page 1 of 0" / "Page 2 of 1"). Tests: delete
+   the sole row on the last page; reference status-filter while on a later page.
+4. **[P2] Keep `/solve-history` bounded in SQL.** Fetching all jobs + JS dedupe
+   grows with lifetime solve count. **Resolved (item 3/T4):** select the newest
+   row per scenario in SQL (`DISTINCT ON (scenario_id)` in a subquery ordered
+   `scenario_id, queuedAt DESC, id DESC`), then outer-order `queuedAt DESC, id
+   DESC` and apply the SQL `LIMIT`. `id DESC` is the stable tiebreaker. No index
+   added — the existing `IDX_solve_jobs_user_id` covers the user scope at pilot
+   scale; the "no schema change" constraint holds. (If a real query plan later
+   shows pain, add a composite index and revise this line explicitly.)
+5. **[P2] Update the OpenAPI contract.** **Resolved (T4):** `openapi.yaml`'s
+   `/solve-history` summary + `limit` description change to "latest job per
+   scenario"; Orval regen in the same commit (response fields unchanged).
+6. **[P2] "Homepage only" vs AppShell-wide.** AppShell wraps homepage AND authed
+   not-found. **Resolved (item 5):** gate the credit footer on the existing
+   `hero` prop — `hero` is passed **only** by the `/` route (App.tsx), so
+   not-found (no `hero`) keeps `<AppFooter/>`. No new prop / no App.tsx change
+   needed; homepage-only is honored by construction.
+7. **[P3] Clip the card footer to the radius.** `Card` is `rounded-xl` without
+   `overflow-hidden`, so the sunken footer paints square corners. **Resolved
+   (item 2):** add `overflow-hidden` to the card wrapper; covered in the test.
 
 ## Goal
 
@@ -58,8 +99,11 @@ task (T1) to avoid a three-way merge on that file.
 Match the provided screenshot: white card body (kicker + title + description),
 then a **full-bleed sunken footer strip** at the bottom.
 
-- Card wrapper: add `flex flex-col` so the footer pins to the bottom of an
-  `h-full` card. Title size up: `CardTitle` `text-base` → `text-lg`.
+- Card wrapper: add `flex flex-col overflow-hidden` so the footer pins to the
+  bottom of an `h-full` card AND the sunken strip is clipped to the card's
+  `rounded-xl` corners (Card has no `overflow-hidden` of its own — without it the
+  full-width footer paints square bottom corners). Title size up: `CardTitle`
+  `text-base` → `text-lg`. Assert `overflow-hidden` in the card-restyle test.
 - Replace the current `<CardContent>{footer}</CardContent>` with a footer
   `<div>` that is a **sibling** of `CardHeader` (so it spans full card width;
   `Card` has no horizontal padding of its own — the children do):
@@ -76,22 +120,41 @@ then a **full-bleed sunken footer strip** at the bottom.
 ## Item 3 — Recent solves: latest per scenario
 
 **Files:** `artifacts/api-server/src/routes/solveHistory.ts` (+ its test in
-`routes.test.ts`); `artifacts/studio/src/pages/Landing.tsx` (subtitle copy).
+`routes.test.ts`); `lib/api-spec/openapi.yaml` + Orval regen
+(`lib/api-zod`/`lib/api-client-react` generated); `artifacts/studio/src/pages/Landing.tsx`
+(subtitle copy).
 
-- **Backend:** `/solve-history` currently orders by `queuedAt desc` and applies
-  a SQL `.limit(limit)`, so a re-solved scenario appears multiple times. Change
-  to: drop the SQL limit, fetch the user's jobs ordered `queuedAt desc`, then
-  **dedupe by `scenarioId` in JS** (first occurrence = newest wins), then take
-  the top `limit`. Response shape and every field are unchanged; `limit` now
-  means "N scenarios" (default 5). Ownership scoping (`eq(userId)`) unchanged.
+- **Backend (bounded in SQL — resolution #4):** `/solve-history` currently
+  orders by `queuedAt desc` + SQL `.limit(limit)`, so a re-solved scenario
+  appears multiple times. Change to a two-level SQL query so the DB (not the app)
+  does the dedupe and the row set stays bounded:
+  1. Inner: `SELECT DISTINCT ON (solve_jobs.scenario_id) <cols>` from the
+     `solve_jobs ⋈ scenarios` join, `WHERE solve_jobs.user_id = req.userId`,
+     `ORDER BY solve_jobs.scenario_id, solve_jobs.queued_at DESC, solve_jobs.id DESC`
+     — one newest row per scenario (`id DESC` is the stable tiebreaker for equal
+     `queued_at`).
+  2. Outer: select from that subquery, `ORDER BY queued_at DESC, id DESC`,
+     `LIMIT limit`.
+  Use Drizzle's `selectDistinctOn([...], {...})` for the inner query and a
+  subquery (`.as("latest")`) for the outer (fall back to a raw `sql` fragment
+  only if the Drizzle API can't express `DISTINCT ON` cleanly). Response shape
+  and every field unchanged; `limit` now means "N scenarios" (default 5).
+  Ownership scoping unchanged. No index added — `IDX_solve_jobs_user_id` covers
+  the user scope at pilot scale; "no schema change" holds.
+- **OpenAPI (resolution #5):** update `openapi.yaml`'s `/solve-history` operation
+  `summary` and the `limit` param description to "latest solve job per scenario"
+  semantics; regenerate with Orval, committing spec + generated output together.
+  Response schema (`SolveHistoryEntry`) is unchanged.
 - **Frontend:** update the recent-solves subtitle copy from "Recent solve
   attempts — click to open one." to **"Most recent solve per scenario — click
   to open one."** No other Landing change (rows already render one per entry).
-- **Test:** seed a user with scenario A having 3 jobs (different `queuedAt`) and
-  scenario B with 1 job; assert the response has exactly 2 rows — A's newest job
-  and B's — in `queuedAt desc` order. (`routes.test.ts` mocks Drizzle, so the
-  dedupe runs on the mocked ordered rows the `.orderBy` chain returns; assert
-  the JS dedupe/limit output for a mocked row set.)
+- **Test:** seed a user whose (mocked) inner-query result already reflects the
+  `DISTINCT ON` dedupe — scenario A's newest job + scenario B's — and assert the
+  route returns exactly those 2 rows in `queuedAt DESC, id DESC` order, limited.
+  Assert the query is built with `selectDistinctOn` partitioned on
+  `scenariosTable`/`solveJobsTable`'s `scenarioId` and both `queuedAt`/`id`
+  orderings (query-shape assertion, since `routes.test.ts` mocks Drizzle and
+  runs no SQL).
 
 ## Item 4 — Log out hover
 
@@ -117,13 +180,17 @@ then a **full-bleed sunken footer strip** at the bottom.
   at" + LinkedIn/email icon links, mockup values unchanged). No outer
   border/margin in the component itself.
 - `AuthShell.tsx`: replace the inline `AuthCredit` with its existing wrapper
-  around `<DeveloperCredit />` (`<div className="mt-4 pt-3 border-t text-center" style={{ borderColor: "var(--line)" }}><DeveloperCredit /></div>`) — login/register render byte-identically (their tests still pass).
-- `AppShell.tsx`: replace `<AppFooter />` with
-  `<footer className="flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}><DeveloperCredit /></footer>`.
-  This affects only AppShell-wrapped routes (homepage + not-found); Workspace
-  mounts its own `AppFooter` and is untouched. Drop the now-unused `AppFooter`
-  import from `AppShell.tsx` (keep the `AppFooter` component — Workspace still
-  uses it).
+  around `<DeveloperCredit />`, **keeping `data-testid="auth-credit"` on that
+  wrapper** (resolution #2 — Login/Register tests assert it):
+  `<div data-testid="auth-credit" className="mt-4 pt-3 border-t text-center" style={{ borderColor: "var(--line)" }}><DeveloperCredit /></div>`.
+  Login/register render byte-identically (their tests still pass).
+- `AppShell.tsx`: **gate the footer on the `hero` prop** (resolution #6) — the
+  `/` route is the only caller that passes `hero`, so not-found (no `hero`) keeps
+  the plain `AppFooter`, honoring the "homepage only" decision without an App.tsx
+  change:
+  `{hero ? <footer data-testid="homepage-credit-footer" className="flex-shrink-0 border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}><DeveloperCredit /></footer> : <AppFooter />}`.
+  Keep the `AppFooter` import (still used in the non-hero branch and by
+  Workspace). The homepage footer uses its own testid, NOT `auth-credit`.
 
 ## Item 6 — Distances tab: pagination + global filter
 
@@ -131,11 +198,21 @@ then a **full-bleed sunken footer strip** at the bottom.
 (+ `DistancesTab.test.tsx` if present, else add coverage).
 
 - **Pagination (both tables, 50/page):** add `PAGE_SIZE = 50` and two 1-based
-  page states (`refPage`, `ovPage`). Slice the filtered reference pairs and the
-  filtered override rows to the current page; render a pager under each table:
-  Prev / Next buttons (disabled at ends) + a "Page X of Y" indicator + the total
-  count. Testids: `button-ref-prev`/`button-ref-next`/`ref-page-indicator` and
+  page states (`refPage`, `ovPage`). For each table derive
+  `pageCount = Math.max(1, Math.ceil(filteredLen / PAGE_SIZE))`; slice the
+  filtered set to the current page; render a pager under each table: Prev / Next
+  (disabled at ends) + a "Page X of Y" indicator + total count. Testids:
+  `button-ref-prev`/`button-ref-next`/`ref-page-indicator` and
   `button-ov-prev`/`button-ov-next`/`ov-page-indicator`.
+- **Clamp on shrink (resolution #3):** resetting only on filter-text change is
+  insufficient — deleting/importing overrides, or toggling
+  `inactiveWarehouseIds`/`excludedCustomerIds`, can shrink a filtered set and
+  strand a page. Clamp each page into `[1, pageCount]` via a `useEffect` that
+  runs whenever the corresponding **filtered length** (not just the filter text)
+  changes: `if (refPage > refPageCount) setRefPage(refPageCount)` (same for
+  `ovPage`). A filter-text change additionally resets to page 1. Zero filtered
+  rows → `pageCount = 1`, the pager reads "Page 1 of 1" (never "Page 1 of 0" or
+  "Page 2 of 1") and the table body shows the existing empty/no-match message.
 - **Drop the reference virtualizer:** remove `useVirtualizer` + the scroll ref +
   the absolute-positioned virtual rows; render the current page's rows as a
   plain list (react-virtual is used nowhere else — stop importing it here; leave
@@ -143,12 +220,25 @@ then a **full-bleed sunken footer strip** at the bottom.
 - **Global From/To filter:** the existing `fromFilter`/`toFilter` inputs
   currently filter only the overrides grid. Extend them to **also** filter the
   reference pairs (match `fromCode`/`toCode` case-insensitively, same as the
-  overrides match on `fromId`/`toId`). Filters stay **live** (no button). A
-  filter change resets **both** page states to 1 (`useEffect` on
-  `[fromFilter, toFilter]`).
+  overrides match on `fromId`/`toId`). Filters stay **live** (no button).
+- **`focusEntityId` across pages (resolution #1):** the post-Save "jump to it"
+  effect currently scrolls to a DOM row, which fails if the target override sits
+  on a later page or is hidden by an active filter. Rework it: when
+  `focusEntityId` is set, (a) clear `fromFilter`/`toFilter` so the target can't
+  be filtered out; (b) find the first index in the FULL `distanceOverrides`
+  (unfiltered) whose `fromId` or `toId` equals `focusEntityId`; (c)
+  `setOvPage(Math.floor(idx / PAGE_SIZE) + 1)`; (d) scroll to its
+  `row-distance-…` testid in a follow-up effect after the target page has
+  rendered (e.g. depend on `[focusEntityId, ovPage]`, scroll once the row exists
+  in the DOM). If no override matches, no-op (unchanged). Regression test: a
+  target override beyond the first 50 rows → correct page selected + scrolled.
 - Empty/loading/error states preserved. The "Base distances (reference)" total
-  count now reflects the filtered set (already does — it reads
-  `visibleReferencePairs.length`).
+  count reflects the filtered set.
+- **Tests (resolutions #1/#3):** pagination slices + Prev/Next + indicator for
+  both tables; From/To filters both tables live; page clamps when the sole row on
+  the last override page is deleted; reference status-filter (`inactiveWarehouseIds`)
+  while on a later page clamps correctly; `focusEntityId` beyond row 50 selects
+  the right `ovPage` and scrolls.
 
 ---
 
@@ -169,7 +259,8 @@ then a **full-bleed sunken footer strip** at the bottom.
 - **T3** — Landing card restyle + recent-solves subtitle (items 2, 3-frontend):
   `Landing.tsx`, `Landing.test.tsx`.
 - **T4** — solve-history dedupe (item 3-backend): `solveHistory.ts`,
-  `routes.test.ts`.
+  `routes.test.ts`, `lib/api-spec/openapi.yaml` + Orval-regenerated
+  `lib/api-zod`/`lib/api-client-react` (spec + generated in the same commit).
 - **T5** — Distances pagination + global filter (item 6): `DistancesTab.tsx`
   (+ its test).
 
