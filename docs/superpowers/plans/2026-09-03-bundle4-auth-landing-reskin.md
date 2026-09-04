@@ -10,6 +10,40 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-03-bundle4-auth-landing-reskin-design.md` (review-resolved). Read its resolutions log — T3/T4 encode resolutions #1–#4.
 
+## Plan review — resolutions (2026-09-04)
+
+Seven plan-review findings; all fixed inline:
+
+1. **[P1] T3 route typecheck.** `max(finishedAt)` is `Date | null`; the TS `Date`
+   ctor rejects a `Date`. Fixed: serialize with `?.toISOString() ?? null`
+   directly (T3 Step 1).
+2. **[P1] Query-count off by one.** `loginAs()` consumes one `db.select`
+   before the endpoint's two. Fixed: `mockDb.select.mockClear()` immediately
+   after `loginAs()` returns, then queue the two endpoint results and assert
+   exactly two calls (T3 Step 6).
+3. **[P1] Ownership markers indistinguishable.** Both `userId` columns mocked
+   as `"user_id"`, so `arrayContaining` passed with one predicate missing.
+   Fixed: table-qualified markers (`"scenarios.user_id"` /
+   `"solve_jobs.user_id"`), an exact `toEqual` on the `and(...)` array, and
+   assertions on both `select()` projections (T3 Steps 5–6). **Coverage claim
+   revised:** the suite mocks SQL, so a literal cross-linked-row *exclusion* is
+   not executable at this layer; the both-side-ownership proof is the
+   distinct-marker query-shape assertion (both predicates individually present
+   in the route's `where`). The security *requirement* (both predicates in the
+   route) is unchanged — only the test mechanism is stated honestly.
+4. **[P1] Worktree-locked asset copy.** Removed the hardcoded
+   `.claude/worktrees/...` path and the ineffective `cd`. Every task runs from
+   its own assigned worktree root using repo-relative paths (T1 Step 1 +
+   Execution note).
+5. **[P2] Error fallback with cached data.** `summary != null` treated stale
+   retained data as ready after a background-refetch error. Fixed:
+   `ready = !isPending && !isError && summary != null`; a test covers
+   error-with-cached-data → baseline (T4 Steps 3–4).
+6. **[P2] Dead `vite-env.d.ts` step.** `tsconfig.json` already lists
+   `"vite/client"` in `types`; the step is removed (T1).
+7. **[P2] Missing pytest in final gate.** Added a post-T4 whole-bundle gate
+   including the solver pytest suite (Final gate section).
+
 ## Global Constraints
 
 - Presentation-only except T3 (new read endpoint) and T4's one added query. No other API/DB/solver/behavior change.
@@ -29,7 +63,6 @@
 **Files:**
 - Create: `artifacts/studio/src/components/auth/AuthShell.tsx`
 - Create: `artifacts/studio/src/assets/book-cover.jpg` (copied binary)
-- Create: `artifacts/studio/src/vite-env.d.ts` (only if absent — enables typed `*.jpg` import)
 - Modify: `artifacts/studio/src/pages/auth/Login.tsx`
 - Modify: `artifacts/studio/src/pages/auth/Register.tsx`
 - Test: `artifacts/studio/src/__tests__/Login.test.tsx`, `artifacts/studio/src/__tests__/Register.test.tsx`
@@ -37,26 +70,23 @@
 **Interfaces:**
 - Produces: `AuthShell({ tagline: string, children: ReactNode })` — renders the dark cover panel (book-cover image + mono diamond caption), the right panel's fixed kicker (`BY PROF. MICHAEL WATSON`) + green serif heading (`Optimization Studio`) + `tagline`, then `children` (the page's form + OR divider + cross-link), then the fixed dev-credit block + labs footer strip. `data-testid`s: `auth-shell`, `auth-cover`, `auth-credit`, `auth-labs-strip`.
 
+All commands below are repo-relative — run them from **your assigned worktree
+root** (the checkout this task was dispatched into). Do NOT `cd` into any other
+worktree.
+
 - [ ] **Step 1: Copy the book-cover asset**
 
 ```bash
-cd /Users/shubhamkr/network-optimization-studio/.claude/worktrees/scn-v0.3-phase3.1
 mkdir -p artifacts/studio/src/assets
 cp docs/design-system/assets/book-cover.jpg artifacts/studio/src/assets/book-cover.jpg
 ls -l artifacts/studio/src/assets/book-cover.jpg   # expect ~264KB
 ```
 
-- [ ] **Step 2: Ensure typed asset imports**
+(No asset type-declaration step: `artifacts/studio/tsconfig.json` already lists
+`"vite/client"` in `types`, so `import coverUrl from "@/assets/book-cover.jpg"`
+is typed. Do not add a `vite-env.d.ts`.)
 
-If `artifacts/studio/src/vite-env.d.ts` does not exist, create it:
-
-```ts
-/// <reference types="vite/client" />
-```
-
-(Provides the `*.jpg` module declaration so `import coverUrl from "@/assets/book-cover.jpg"` typechecks. If the file already exists and references `vite/client`, skip.)
-
-- [ ] **Step 3: Write `AuthShell.tsx`**
+- [ ] **Step 2: Write `AuthShell.tsx`**
 
 Create `artifacts/studio/src/components/auth/AuthShell.tsx`:
 
@@ -134,7 +164,7 @@ export function AuthShell({ tagline, children }: { tagline: string; children: Re
 }
 ```
 
-- [ ] **Step 4: Rewrite `Login.tsx`**
+- [ ] **Step 3: Rewrite `Login.tsx`**
 
 Replace the whole file. Mutation logic and the `setQueryData`-before-`navigate` comment are unchanged; only the returned JSX changes (AuthShell + form as children, no Card, no AppFooter/band).
 
@@ -210,7 +240,7 @@ export function Login() {
 }
 ```
 
-- [ ] **Step 5: Rewrite `Register.tsx`**
+- [ ] **Step 4: Rewrite `Register.tsx`**
 
 Same shape; keep `passwordTooShort` guard and 409/generic error branching.
 
@@ -293,7 +323,7 @@ export function Register() {
 }
 ```
 
-- [ ] **Step 6: Update `Login.test.tsx`**
+- [ ] **Step 5: Update `Login.test.tsx`**
 
 Keep the behavioral tests (submit, cache-write+navigate, error alert, disabled-while-pending). Replace the footer/band/narrow-viewport tests (the band and global AppFooter are gone) and the register-link text:
 
@@ -340,22 +370,21 @@ it("links to the register page", () => {
 });
 ```
 
-- [ ] **Step 7: Update `Register.test.tsx`**
+- [ ] **Step 6: Update `Register.test.tsx`**
 
 Mirror Step 6 for Register: keep submit, cache-write+navigate, password-hint-blocks-submit, 409, generic-error, and login-link tests. Delete the `mounts the app footer` test (add the "does not mount … auth-credit" variant), replace the band test with the cover/heading/kicker + contact-links tests, and replace the narrow-viewport test with the split-layout check. The `it("links to the login page")` test (`getByText("Log in")`) stays valid.
 
-- [ ] **Step 8: Typecheck + run studio tests**
+- [ ] **Step 7: Typecheck + run studio tests**
 
 ```bash
 pnpm run typecheck && pnpm --filter studio test
 ```
 Expected: PASS. Fix only cosmetic/structural assertions; never a behavioral one.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add artifacts/studio/src/components/auth/AuthShell.tsx artifacts/studio/src/assets/book-cover.jpg artifacts/studio/src/pages/auth/Login.tsx artifacts/studio/src/pages/auth/Register.tsx artifacts/studio/src/__tests__/Login.test.tsx artifacts/studio/src/__tests__/Register.test.tsx
-# add vite-env.d.ts only if you created it
 git commit -m "[bundle4-T1] auth split-screen" -- artifacts/studio/src/components/auth/AuthShell.tsx artifacts/studio/src/assets/book-cover.jpg artifacts/studio/src/pages/auth/Login.tsx artifacts/studio/src/pages/auth/Register.tsx artifacts/studio/src/__tests__/Login.test.tsx artifacts/studio/src/__tests__/Register.test.tsx
 ```
 
@@ -589,11 +618,12 @@ router.get("/landing-summary", async (req, res) => {
 
   const perChapter = scenarioRows.map((r) => {
     const s = solveByModel.get(r.modelId);
-    const last = s?.lastSucceededSolveAt ?? null;
     return {
       modelId: r.modelId,
       scenarioCount: Number(r.scenarioCount),
-      lastSucceededSolveAt: last ? new Date(last).toISOString() : null,
+      // max() over a timestamp column is typed `Date | null`; serialize it
+      // directly — the TS `Date` constructor's types reject another `Date`.
+      lastSucceededSolveAt: s?.lastSucceededSolveAt?.toISOString() ?? null,
     };
   });
 
@@ -695,15 +725,24 @@ vi.mock("drizzle-orm", () => ({
   countDistinct: vi.fn((_col: unknown) => ({ countDistinct: _col })),
 }));
 ```
-- Add `finishedAt`, `scenarioId`, `userId` to the mocked `solveJobsTable` and `modelId`, `userId`, `id` to `scenariosTable` (extend the existing `@workspace/db` mock objects) so the route's column references resolve:
+- **Table-qualify the mocked column markers** so the two independent `userId`
+  columns are distinguishable (resolution #3). Both were `"user_id"`, which let
+  an `arrayContaining` pass with one predicate missing. No existing test asserts
+  these marker strings (verified by grep — only the mock definition references
+  them), so changing them is safe. Extend the `@workspace/db` mock objects:
 ```ts
-  scenariosTable: { id: "id", name: "name", userId: "user_id", modelId: "model_id", createdAt: "created_at", updatedAt: "updated_at" },
-  solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status", finishedAt: "finished_at" },
+  scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at" },
 ```
 
 - [ ] **Step 6: Write the endpoint tests**
 
-Add to `routes.test.ts`. Uses the existing `loginAs` helper (its own `db.select` mock is consumed by the time it returns, so the next two selects are the route's).
+Add to `routes.test.ts`. Uses the existing `loginAs` helper. `loginAs()`
+consumes one `db.select` for its user lookup; call `mockDb.select.mockClear()`
+right after it returns so the endpoint's two selects are `calls[0]`/`calls[1]`
+and the count assertion sees exactly 2 (resolution #2). Markers are
+table-qualified (Step 5) so the two ownership predicates are distinguishable
+(resolution #3).
 
 ```ts
 import { scenariosTable, solveJobsTable } from "@workspace/db"; // (already imported in this file)
@@ -718,9 +757,8 @@ describe("GET /landing-summary", () => {
 
   it("returns zeros for a user with no scenarios or solves", async () => {
     const cookie = await loginAs("user-A");
-    const scen = makeChain([]);
-    const solve = makeChain([]);
-    mockDb.select.mockReturnValueOnce(scen).mockReturnValueOnce(solve);
+    mockDb.select.mockClear(); // drop loginAs's own select from the call history
+    mockDb.select.mockReturnValueOnce(makeChain([])).mockReturnValueOnce(makeChain([]));
 
     const res = await request(app).get("/api/landing-summary").set("Cookie", cookie);
     expect(res.status).toBe(200);
@@ -728,34 +766,47 @@ describe("GET /landing-summary", () => {
     expect(mockDb.select).toHaveBeenCalledTimes(2);
   });
 
-  it("builds both tenant-scoped grouped queries (query-shape guard, resolutions #1/#2)", async () => {
+  it("builds exactly two grouped queries, both tenant-scoped, with the right projections (resolutions #1/#2/#3)", async () => {
     const cookie = await loginAs("user-A");
+    mockDb.select.mockClear();
     const scen = makeChain([{ modelId: "p-median-us", scenarioCount: 3 }]);
     const solve = makeChain([{ modelId: "p-median-us", lastSucceededSolveAt: new Date("2026-09-03T12:00:00Z"), solvedScenarios: 1 }]);
     mockDb.select.mockReturnValueOnce(scen).mockReturnValueOnce(solve);
 
     await request(app).get("/api/landing-summary").set("Cookie", cookie);
 
-    // exactly two selects
+    // exactly two selects (loginAs's was cleared)
     expect(mockDb.select).toHaveBeenCalledTimes(2);
-    // scenarios query: scoped to the user, grouped by model
+
+    // --- projections (proves both aggregations are issued) ---
+    // count() → { count: true }; max(col) → { max: col }; countDistinct(col) → { countDistinct: col }
+    const scenProj = mockDb.select.mock.calls[0][0];
+    expect(scenProj.scenarioCount).toEqual({ count: true });
+    const solveProj = mockDb.select.mock.calls[1][0];
+    expect(solveProj.lastSucceededSolveAt).toEqual({ max: solveJobsTable.finishedAt });
+    expect(solveProj.solvedScenarios).toEqual({ countDistinct: solveJobsTable.scenarioId });
+
+    // --- scenarios query: user-scoped, grouped by model ---
     expect(scen.where).toHaveBeenCalledWith({ col: scenariosTable.userId, val: "user-A" });
     expect(scen.groupBy).toHaveBeenCalledWith(scenariosTable.modelId);
-    // solve query: BOTH user_id predicates + succeeded status, grouped by model.
+
+    // --- solve query: BOTH independent user_id predicates + succeeded status ---
+    // Exact toEqual (not arrayContaining): with table-qualified markers the two
+    // ownership predicates are distinct, so this fails if either is dropped.
     // Filtering solve_jobs.user_id ALONE is insufficient — scenarios.user_id is
-    // an independent column, so its predicate is what actually excludes a
-    // cross-linked B-scenario from A's summary.
+    // an independent column with no DB constraint tying it to the job's owner.
     const whereArg = (solve.where as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(whereArg.and).toEqual(expect.arrayContaining([
-      { col: solveJobsTable.userId, val: "user-A" },
-      { col: scenariosTable.userId, val: "user-A" },
+    expect(whereArg.and).toEqual([
+      { col: solveJobsTable.userId, val: "user-A" },   // "solve_jobs.user_id"
+      { col: scenariosTable.userId, val: "user-A" },   // "scenarios.user_id"
       { col: solveJobsTable.status, val: "succeeded" },
-    ]));
+    ]);
     expect(solve.groupBy).toHaveBeenCalledWith(scenariosTable.modelId);
   });
 
   it("maps grouped rows to perChapter + honest totals; distinct-scenario solves (resolution #4)", async () => {
     const cookie = await loginAs("user-A");
+    mockDb.select.mockClear();
     const scen = makeChain([
       { modelId: "p-median-us", scenarioCount: 3 },
       { modelId: "transport-coal", scenarioCount: 2 },
@@ -776,6 +827,13 @@ describe("GET /landing-summary", () => {
   });
 });
 ```
+
+**Note on cross-link coverage (resolution #3, honest scope):** this suite mocks
+Drizzle, so no SQL executes and a literal "A-owned job → B-owned scenario" row
+cannot be *filtered* here. The both-side-ownership proof is the exact
+`whereArg.and` assertion above: it fails if the route omits either the
+`scenarios.user_id` or `solve_jobs.user_id` predicate. A runtime row-exclusion
+test would require a real-Postgres harness, which this suite does not have.
 
 - [ ] **Step 7: Typecheck + api-server tests**
 
@@ -859,8 +917,12 @@ import { formatRelativeTime } from "@/lib/relativeTime";
 ```
 At the top of the component:
 ```tsx
-const { data: summary } = useGetLandingSummary();
-const ready = summary != null;
+const { data: summary, isPending, isError } = useGetLandingSummary();
+// TanStack retains the last successful `data` through a background-refetch
+// error, so `summary != null` alone would treat a stale-then-errored summary
+// as ready. Gate on the flags too — pending OR errored falls back to the T2
+// baseline (number + start →, no stats line), never a half-filled footer.
+const ready = !isPending && !isError && summary != null;
 const byModel = new Map((summary?.perChapter ?? []).map((r) => [r.modelId, r]));
 
 // The single most-recently-solved chapter (across ALL rows, incl. hidden) —
@@ -924,18 +986,18 @@ Add `useGetLandingSummary` to the mock and cover the new branches:
 ```tsx
 const { mockUseGetSolveHistory, mockUseGetLandingSummary } = vi.hoisted(() => ({
   mockUseGetSolveHistory: vi.fn(() => ({ data: [] as unknown[] })),
-  mockUseGetLandingSummary: vi.fn(() => ({ data: undefined as unknown })),
+  mockUseGetLandingSummary: vi.fn(() => ({ data: undefined as unknown, isPending: false, isError: false })),
 }));
 vi.mock("@workspace/api-client-react", () => ({
   useGetSolveHistory: mockUseGetSolveHistory,
   useGetLandingSummary: mockUseGetLandingSummary,
 }));
 ```
-Add (reset `mockUseGetLandingSummary` to `{ data: undefined }` in a `beforeEach` or per-test):
+Reset `mockUseGetLandingSummary` to the default (`{ data: undefined, isPending: false, isError: false }`) in a `beforeEach` (or per-test) so the pre-existing Landing tests see the baseline and are unaffected.
 ```tsx
 describe("Landing — live summary (T4)", () => {
   it("falls back to the baseline (number + start →, no stats line) while summary is unavailable", () => {
-    mockUseGetLandingSummary.mockReturnValue({ data: undefined });
+    mockUseGetLandingSummary.mockReturnValue({ data: undefined, isPending: true, isError: false });
     renderLanding();
     expect(screen.queryByTestId("landing-stats-line")).not.toBeInTheDocument();
     const footer = screen.getByTestId("landing-card-footer-p-median-us");
@@ -943,8 +1005,26 @@ describe("Landing — live summary (T4)", () => {
     expect(footer).toHaveTextContent("start");
   });
 
+  it("falls back to the baseline when a background refetch errors even though cached data is retained", () => {
+    // isError with stale data present must still render the T2 baseline —
+    // never a half-filled footer built from a summary the server rejected.
+    mockUseGetLandingSummary.mockReturnValue({
+      data: { perChapter: [{ modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2020-01-01T00:00:00Z" }], totals: { scenarios: 3, solvedScenarios: 1 } },
+      isPending: false,
+      isError: true,
+    });
+    renderLanding();
+    expect(screen.queryByTestId("landing-stats-line")).not.toBeInTheDocument();
+    const footer = screen.getByTestId("landing-card-footer-p-median-us");
+    expect(footer).toHaveTextContent("start");
+    expect(footer).not.toHaveTextContent("active");
+    expect(footer).not.toHaveTextContent("scenarios");
+  });
+
   it("renders per-card status, the active badge, and the honest stats line", () => {
     mockUseGetLandingSummary.mockReturnValue({
+      isPending: false,
+      isError: false,
       data: {
         perChapter: [
           { modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2020-01-01T00:00:00Z" },
@@ -995,9 +1075,26 @@ git commit -m "[bundle4-T4] landing consumes landing-summary" -- \
 
 ---
 
+## Final gate (after T4 lands)
+
+Run the repository's complete verification gate on the integrated bundle
+(`CLAUDE.md`/`AGENTS.md`), including the solver pytest suite — Bundle 4 touches
+no Python, so pytest is a no-regression confirmation, but the gate is not
+complete without it:
+
+```bash
+pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test \
+  && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
+```
+Expected: all green. If `resultEnvelope.test.ts`'s p-median-brazil case times
+out under the parallel run, confirm it is the documented environmental flake via
+`npx vitest run src/__tests__/resultEnvelope.test.ts` (isolated → passes);
+Bundle 4 changes no api-server solver path. `e2e_accuracy.py` is not required
+(no solver/dataset change).
+
 ## Execution order
 
-T1 ∥ T2 ∥ T3 are file-disjoint (auth pages / AppShell+App+Landing-baseline / backend) and run in parallel. **T4 is last** — it needs T3's generated hook and edits the same `Landing.tsx` T2 touched. In the shared worktree, serialize the two Landing.tsx writers (T2 then T4) and commit each task with an explicit pathspec.
+T1 ∥ T2 ∥ T3 are file-disjoint (auth pages / AppShell+App+Landing-baseline / backend) and run in parallel. **T4 is last** — it needs T3's generated hook and edits the same `Landing.tsx` T2 touched. In the shared worktree, serialize the two Landing.tsx writers (T2 then T4) and commit each task with an explicit pathspec. Each task runs from its own assigned worktree root; all commands are repo-relative (resolution #4).
 
 ## Self-review notes (author)
 

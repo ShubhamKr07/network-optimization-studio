@@ -24,8 +24,12 @@ Four review findings; all resolved inline:
    malformed A-owned job referencing a B-owned scenario contaminate A's totals
    and leak B's model grouping. **Resolved (T3):** the joined solve query
    filters **both** `solveJobsTable.userId = req.userId` AND
-   `scenariosTable.userId = req.userId`; the isolation test seeds a
-   deliberately cross-linked row and asserts it is excluded.
+   `scenariosTable.userId = req.userId`. The suite mocks Drizzle (no SQL runs),
+   so isolation is proven by asserting the solve query's `where` contains
+   **both** ownership predicates as distinct table-qualified markers
+   (`solve_jobs.user_id`, `scenarios.user_id`) — the assertion fails if either
+   is dropped. A literal cross-linked-row exclusion would need a real-Postgres
+   harness this suite lacks.
 3. **[P2] Recent-solves subtitle over-claims.** `/solve-history?limit=5` is the
    five newest jobs globally (any status, possibly several from one chapter) —
    not "last completed solve per chapter." Endpoint scope is unchanged.
