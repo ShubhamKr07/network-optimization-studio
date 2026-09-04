@@ -13,7 +13,12 @@
  *         stepper renders once a result exists.
  *       - T3 item 4: Solution Summary compare drops the Aggregate
  *         utilization row and hyphenates city-state.
- *       - T4 item 7: Input Map and Output Map legends are equal-width.
+ *       - T4 item 7 (Bundle 6.1, T1, resolution #4): Input Map and Output
+ *         Map legends both use the shared `map-legend` component and are
+ *         content-fit (no more fixed 220px equal-width contract — Bundle
+ *         6.1's T1 replaced the fixed-width legend with a content-fit
+ *         `max-w` box; see bundle6.1-legend-distances.spec.ts for the
+ *         full legend-ramp/Output-states coverage).
  *       - T1+T5 item 8: Landing hides every Chapter 5/10 card and excludes
  *         them from Recent Solves and the stats line.
  *       - T6 item 9: the Landing hero cover image is ~96px (h-24).
@@ -189,7 +194,7 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
     }
   });
 
-  test("Input Map and Output Map legends are equal-width (220px)", async ({ page }) => {
+  test("Input Map and Output Map legends both render via the shared map-legend component, content-fit (not a fixed 220px)", async ({ page }) => {
     test.setTimeout(120_000);
     await registerFreshAccount(page, "bundle6-legend");
 
@@ -203,21 +208,36 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
       await page.getByTestId("sidebar-input-input-map").click();
       const inputLegend = page.getByTestId("map-legend");
       await expect(inputLegend).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // Bundle 6.1 (T1, resolution #4) — content-fit (`w-fit max-w-[260px]`),
+      // not a fixed 220px box.
+      await expect(inputLegend).toHaveClass(/max-w-\[260px\]/);
       const inputBox = await inputLegend.boundingBox();
       expect(inputBox).not.toBeNull();
+      expect(inputBox!.width).toBeLessThanOrEqual(260);
+      // Every swatch cell contains its SVG without overflowing it (the
+      // literal DoD bundle6.1-legend-distances.spec.ts asserts in full for
+      // every bucket/status — spot-checked here too since this file is the
+      // one that originally caught the pre-T1 clipping/220px regression).
+      const firstStatusCell = page.getByTestId("legend-status-active");
+      await expect(firstStatusCell).toBeVisible();
+      const cellBox = await firstStatusCell.boundingBox();
+      const svgBox = await firstStatusCell.locator("svg").boundingBox();
+      expect(cellBox).not.toBeNull();
+      expect(svgBox).not.toBeNull();
+      expect(svgBox!.width).toBeLessThanOrEqual(cellBox!.width + 0.5);
+      expect(svgBox!.height).toBeLessThanOrEqual(cellBox!.height + 0.5);
 
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      // NetworkMap's own (Output Map) legend has no data-testid of its own —
-      // scoped by its unique position/width classes within output-map-tab.
-      const outputLegend = page.locator('[data-testid="output-map-tab"] div.absolute.bottom-4.right-4');
+      // Bundle 6.1 (T1, resolution #4) — the Output legend is now the SAME
+      // shared component (`data-testid="map-legend"`), not a class-only
+      // selector scoped to output-map-tab's old bespoke inline legend.
+      const outputLegend = page.locator('[data-testid="output-map-tab"] [data-testid="map-legend"]');
       await expect(outputLegend).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(outputLegend).toHaveClass(/max-w-\[260px\]/);
       const outputBox = await outputLegend.boundingBox();
       expect(outputBox).not.toBeNull();
-
-      expect(Math.round(inputBox!.width)).toBe(220);
-      expect(Math.round(outputBox!.width)).toBe(220);
-      expect(Math.round(inputBox!.width)).toBe(Math.round(outputBox!.width));
+      expect(outputBox!.width).toBeLessThanOrEqual(260);
     } finally {
       await page.request.delete(`/api/scenarios/${scenarioId}`);
     }
