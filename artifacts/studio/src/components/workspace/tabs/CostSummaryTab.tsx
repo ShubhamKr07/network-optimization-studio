@@ -6,9 +6,9 @@ import { downloadEntityExport } from "@/lib/exportEntity";
 interface CostSummaryTabProps {
   result: SolveResult | null;
   scenarioId: number;
-  // R6+R8 — `modelId` sources distanceUnit + the supportsP capability flag
-  // off GET /api/models, same pattern T3 already established for
-  // ServiceStatsTab (fetch useListModels internally, take modelId as a
+  // R6+R8 — `modelId` sources distanceUnit + the supportsFacilityStatus
+  // capability flag off GET /api/models, same pattern T3 already established
+  // for ServiceStatsTab (fetch useListModels internally, take modelId as a
   // prop) rather than threading a distanceUnit prop through Workspace.tsx a
   // second way. Optional so pre-existing call sites (and this file's own
   // pre-T5 tests) keep compiling unchanged, defaulting to "mi"/no
@@ -41,20 +41,6 @@ function openFacilityIds(result: SolveResult): Set<string> {
     ids.add(e.fromId);
   }
   return ids;
-}
-
-// R6+R8 — aggregate utilization is the mean of utilizationByNode[].utilization
-// over OPENED nodes only, never all nodes: transport-coal has no
-// facility-location concept at all (every mine "opens"), and two-echelon's
-// utilizationByNode carries closed refineries at a real 0 — averaging over
-// every row would silently misrepresent both, which is exactly why this
-// metric is gated on the supportsP capability at the call site below (never
-// computed for those two models to begin with).
-function aggregateUtilization(result: SolveResult): number | null {
-  const opened = openFacilityIds(result);
-  const relevant = (result.metrics.utilizationByNode ?? []).filter(u => opened.has(u.warehouseId));
-  if (relevant.length === 0) return null;
-  return relevant.reduce((sum, u) => sum + u.utilization, 0) / relevant.length;
 }
 
 function bandBoundaries(result: SolveResult): number[] {
@@ -97,11 +83,11 @@ interface BaseFacilityLike {
 function facilityCityLabel(id: string, baseFacilities: BaseFacilityLike[], addedFacilities: AddedFacilityLike[]): string {
   const added = addedFacilities.find(f => f.id === id);
   if (added) {
-    if (added.city) return added.state ? `${added.city}, ${added.state}` : added.city;
+    if (added.city) return added.state ? `${added.city} - ${added.state}` : added.city;
     return added.displayCode ?? id;
   }
   const base = baseFacilities.find(f => f.id === id);
-  if (base?.city) return base.state ? `${base.city}, ${base.state}` : base.city;
+  if (base?.city) return base.state ? `${base.city} - ${base.state}` : base.city;
   return id;
 }
 
@@ -132,14 +118,12 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
   // "mi"/no facility rows rather than blocking render on it resolving.
   const { data: models } = useListModels();
   const activeModel = models?.find(m => m.id === modelId) as
-    | { distanceUnit?: string; capabilities?: { supportsP?: boolean; supportsFacilityStatus?: boolean } }
+    | { distanceUnit?: string; capabilities?: { supportsFacilityStatus?: boolean } }
     | undefined;
   const distanceUnit = activeModel?.distanceUnit ?? "mi";
-  const supportsP = activeModel?.capabilities?.supportsP ?? false;
-  // T5 (B5) — the open-facility-by-city row is gated independently of
-  // supportsP: two-echelon has no P (openFacilities/aggregate-utilization
-  // rows below stay hidden for it) but DOES have a real open/closed
-  // facility-status concept, so it still gets the city list.
+  // T5 (B5) — the open-facility-by-city row is gated independently: two-echelon
+  // has no P but DOES have a real open/closed facility-status concept, so it
+  // still gets the city list.
   const supportsFacilityStatus = activeModel?.capabilities?.supportsFacilityStatus ?? false;
 
   // T5 (B5) — base facility id -> city/state, single fetch (compare is
@@ -296,12 +280,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
-            {/* T5 (B5) — open-facility set by city, gated independently on
+            {/* T5 (B5) — open-facility set by city, gated on
                 supportsFacilityStatus (present for p-median-us/brazil AND
                 two-echelon, absent for transport-coal — no facility-location
-                concept there). Replaces the old "Open facilities" COUNT row
-                that used to live inside the supportsP fragment below; not
-                duplicated alongside it. */}
+                concept there). */}
             {supportsFacilityStatus && (
               <tr>
                 <td className="p-2 text-muted-foreground">Open facilities</td>
@@ -328,27 +310,6 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
-            {/* R6+R8 — aggregate utilization is omitted entirely (not just an
-                N/A cell) for models without a real facility-location
-                concept, per capabilities.supportsP — transport-coal (every
-                mine "open") and two-echelon-gold-au (utilizationByNode holds
-                closed refineries at 0) never get this row. (The former
-                "Open facilities" COUNT row that used to live here is gone —
-                T5 replaced it with the city-list row above, gated
-                independently on supportsFacilityStatus.) */}
-            {supportsP && (
-              <tr>
-                <td className="p-2 text-muted-foreground">Aggregate utilization</td>
-                {compareScenarios.map(s => {
-                  const util = aggregateUtilization(s.result!);
-                  return (
-                    <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-utilization-${s.id}`}>
-                      {util != null ? `${Math.round(util)}%` : "N/A"}
-                    </td>
-                  );
-                })}
-              </tr>
-            )}
             {sharedBands &&
               bandBoundaries(results[0]).map(band => (
                 <tr key={band}>

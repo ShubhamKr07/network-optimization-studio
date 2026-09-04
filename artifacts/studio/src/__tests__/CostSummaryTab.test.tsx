@@ -181,20 +181,12 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     }
   });
 
-  it("aggregate utilization (opened nodes only) present for p-median-us, gated on supportsP as before", () => {
+  it("no aggregate-utilization cell is rendered in compare mode (removed, T3)", () => {
     render(<CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} />);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
-    // s1: WH1=50, WH2=90 both opened -> mean 70; s2: only WH1=70 opened -> 70
-    expect(screen.getByTestId("cost-summary-compare-utilization-1")).toHaveTextContent("70%");
-    expect(screen.getByTestId("cost-summary-compare-utilization-2")).toHaveTextContent("70%");
-  });
-
-  it("aggregate utilization absent for transport-coal (every mine 'open', no supportsP)", () => {
-    const t1 = withModel(s1, "transport-coal");
-    const t2 = withModel(s2, "transport-coal");
-    render(<CostSummaryTab result={t1.result} scenarioId={1} modelId="transport-coal" scenarios={[t1, t2]} />);
-    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.queryByTestId("cost-summary-compare-utilization-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cost-summary-compare-utilization-2")).not.toBeInTheDocument();
+    expect(screen.queryByText("Aggregate utilization")).not.toBeInTheDocument();
   });
 
   // ── T5 (B5) — open-facility set by city ──────────────────────────────
@@ -213,14 +205,14 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toBeInTheDocument();
   });
 
-  it("resolves base facility ids to their dataset city names", () => {
+  it("resolves base facility ids to their dataset city names, hyphen-separated from state (T3)", () => {
     render(<CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} />);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
-    // s1 opens WH1 (Chicago, IL) + WH2 (Dallas, TX); s2 opens WH1 only.
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Chicago, IL");
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Dallas, TX");
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-2")).toHaveTextContent("Chicago, IL");
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-2")).not.toHaveTextContent("Dallas, TX");
+    // s1 opens WH1 (Chicago - IL) + WH2 (Dallas - TX); s2 opens WH1 only.
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Chicago - IL");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Dallas - TX");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-2")).toHaveTextContent("Chicago - IL");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-2")).not.toHaveTextContent("Dallas - TX");
   });
 
   it("gates the city-list row independently on supportsFacilityStatus, not supportsP (absent for transport-coal)", () => {
@@ -239,7 +231,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     });
     render(<CostSummaryTab result={added.result} scenarioId={20} modelId="p-median-us" scenarios={[added, s2]} />);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
-    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-20")).toHaveTextContent("Newtown, PA");
+    expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-20")).toHaveTextContent("Newtown - PA");
   });
 
   it("falls back to the raw facility id when it can't be resolved against either the base dataset or added inputs", () => {
@@ -293,7 +285,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       render(<CostSummaryTab result={g1.result} scenarioId={10} modelId="two-echelon-gold-au" scenarios={[g1, g2]} />);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
       expect(screen.queryAllByText("Open facilities")).toHaveLength(1);
-      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-10")).toHaveTextContent("Daggar Hills, QLD");
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-10")).toHaveTextContent("Daggar Hills - QLD");
       expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-10")).not.toHaveTextContent("Kalgoorlie");
       expect(screen.queryByTestId("cost-summary-compare-utilization-10")).not.toBeInTheDocument();
     });
@@ -312,7 +304,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       });
       render(<CostSummaryTab result={addedRef.result} scenarioId={30} modelId="two-echelon-gold-au" scenarios={[addedRef, g2]} />);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
-      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-30")).toHaveTextContent("Toowoomba, QLD");
+      expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-30")).toHaveTextContent("Toowoomba - QLD");
     });
   });
 
