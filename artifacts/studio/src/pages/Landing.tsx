@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
 import { useGetSolveHistory, useGetLandingSummary } from "@workspace/api-client-react";
@@ -48,36 +48,38 @@ export function Landing() {
       <div className="grid gap-4 sm:grid-cols-2">
         {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => (
           <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
-            <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full">
+            <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full flex flex-col overflow-hidden">
               <CardHeader>
                 <p className="scnd-kicker">{c.chapter}</p>
-                <CardTitle className="scnd-display text-base">{c.title}</CardTitle>
+                <CardTitle className="scnd-display text-lg">{c.title}</CardTitle>
                 <CardDescription>{c.description}</CardDescription>
               </CardHeader>
-              <CardContent>
-                {(() => {
-                  const entry = byModel.get(c.modelId);
-                  const status = !ready
-                    ? null
-                    : !entry || entry.scenarioCount === 0
-                      ? "no scenarios yet"
-                      : entry.lastSucceededSolveAt
-                        ? `${entry.scenarioCount} scenarios · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
-                        : `${entry.scenarioCount} scenarios`;
-                  const isActive = ready && c.modelId === activeModelId;
-                  return (
-                    <div className="flex items-center justify-between gap-2" data-testid={`landing-card-footer-${c.modelId}`}>
-                      <span className="flex items-center gap-2 min-w-0">
-                        <span className="scnd-display font-bold flex-shrink-0" style={{ fontSize: "15px", color: "var(--green-400)" }}>{chapterNumber(c.chapter)}</span>
-                        {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{status}</span>}
-                      </span>
-                      {isActive
-                        ? <Badge variant="outline" className="text-[10px] text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
-                        : <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>}
-                    </div>
-                  );
-                })()}
-              </CardContent>
+              {(() => {
+                const entry = byModel.get(c.modelId);
+                const status = !ready
+                  ? null
+                  : !entry || entry.scenarioCount === 0
+                    ? "no scenarios yet"
+                    : entry.lastSucceededSolveAt
+                      ? `${entry.scenarioCount} scenarios · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
+                      : `${entry.scenarioCount} scenarios`;
+                const isActive = ready && c.modelId === activeModelId;
+                return (
+                  <div
+                    className="mt-auto flex items-center justify-between gap-2 border-t px-6 py-3"
+                    style={{ background: "var(--surface-sunken)", borderColor: "var(--line)" }}
+                    data-testid={`landing-card-footer-${c.modelId}`}
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="scnd-display font-bold flex-shrink-0" style={{ fontSize: "15px", color: "var(--green-700)" }}>{chapterNumber(c.chapter)}</span>
+                      {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{status}</span>}
+                    </span>
+                    {isActive
+                      ? <Badge variant="outline" className="text-[10px] text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
+                      : <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>}
+                  </div>
+                );
+              })()}
             </Card>
           </Link>
         ))}
@@ -86,7 +88,7 @@ export function Landing() {
       {history && history.length > 0 && (
         <div className="mt-10">
           <h2 className="scnd-display text-sm font-semibold text-foreground mb-1">Recent solves</h2>
-          <p className="text-xs text-muted-foreground mb-3">Recent solve attempts — click to open one.</p>
+          <p className="text-xs text-muted-foreground mb-3">Most recent solve per scenario — click to open one.</p>
           <div className="border rounded-lg divide-y bg-white">
             {history.map((h) => {
               const chapterPath = chapterPathForModelId(h.modelId);

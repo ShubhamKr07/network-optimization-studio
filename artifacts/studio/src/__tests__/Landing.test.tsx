@@ -59,6 +59,15 @@ describe("Landing", () => {
     expect(footer).toHaveTextContent("start");
   });
 
+  it("clips the card and gives the footer a sunken full-bleed strip", () => {
+    mockUseGetLandingSummary.mockReturnValue({ data: { perChapter: [], totals: { scenarios: 0, solvedScenarios: 0 } }, isPending: false, isError: false });
+    renderLanding();
+    const footer = screen.getByTestId("landing-card-footer-p-median-us");
+    const card = footer.closest("[class*='overflow-hidden']");
+    expect(card).not.toBeNull();
+    expect(footer.className).toContain("border-t");
+  });
+
   it("prefixes recent-solve rows with the chapter label", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{ id: 10, scenarioId: 1, scenarioName: "Baseline", modelId: "p-median-us", status: "succeeded", objective: 1, weightedAvgDistanceMi: 1, runTimeSec: 1, queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z" }],
