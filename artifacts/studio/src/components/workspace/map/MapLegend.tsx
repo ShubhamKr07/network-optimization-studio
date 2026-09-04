@@ -86,17 +86,17 @@ export function MapLegend({
       // no interactive elements — without this its bottom-left rect intercepts
       // map clicks (swallowing a "+ Add on map" pin drop near the corner). Let
       // clicks pass through to the Leaflet canvas underneath.
-      className="absolute bottom-4 left-4 bg-card border border-border rounded-md shadow p-2 flex flex-col gap-2 z-10 text-xs pointer-events-none"
+      className="absolute bottom-4 left-4 bg-card border border-border rounded-md shadow p-2 flex flex-col gap-2 z-10 text-xs pointer-events-none w-[220px]"
       data-testid="map-legend"
     >
       {showStatusGroup && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {STATUSES.map((status) => {
             const { label, marker } = warehouseStatusPresentation[status];
             return (
               <div key={status} className="flex items-center gap-1" data-testid={`legend-status-${status}`}>
                 <span
-                  className="inline-block w-[18px] h-[18px]"
+                  className="inline-block w-[14px] h-[14px]"
                   // eslint-disable-next-line react/no-danger -- static, locally-built SVG string, no user input
                   dangerouslySetInnerHTML={{ __html: warehouseTriangleSvg(marker) }}
                 />

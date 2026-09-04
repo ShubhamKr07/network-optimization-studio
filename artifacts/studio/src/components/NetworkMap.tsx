@@ -584,8 +584,8 @@ export function NetworkMap({
         })}
       </MapContainer>
 
-      <div className="absolute bottom-4 right-4 bg-white border border-border p-2 rounded-md shadow flex flex-col gap-2 z-10 text-xs">
-        <div className="flex items-center gap-3">
+      <div className="absolute bottom-4 right-4 bg-white border border-border p-2 rounded-md shadow flex flex-col gap-2 z-10 text-xs w-[220px]">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Only shown when the dataset actually has a mine (two-echelon-
               gold-au) — every other model's legend is unchanged. Without
               this, the star icon (createStarIcon) had no legend entry
