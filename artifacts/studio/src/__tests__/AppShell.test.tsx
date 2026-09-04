@@ -169,4 +169,24 @@ describe("AppShell layout", () => {
       Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
     }
   });
+
+  it("renders the book-cover icon in the hero band", () => {
+    render(<AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero><div>c</div></AppShell>);
+    const header = screen.getByTestId("text-user-email").closest("header") as HTMLElement;
+    expect(header.querySelector("img")).toBeInTheDocument();
+  });
+
+  it("shows the developer-credit footer in hero mode and the plain footer otherwise", () => {
+    const { rerender } = render(<AppShell userEmail="a@b.edu" heroTitle="X" hero><div>c</div></AppShell>);
+    expect(screen.getByTestId("homepage-credit-footer")).toHaveTextContent("Developed by Shubham");
+    expect(screen.queryByTestId("app-footer")).not.toBeInTheDocument();
+    rerender(<AppShell userEmail="a@b.edu"><div>c</div></AppShell>);
+    expect(screen.queryByTestId("homepage-credit-footer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("app-footer")).toBeInTheDocument();
+  });
+
+  it("gives the log-out button a hover-highlight class", () => {
+    render(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
+    expect(screen.getByTestId("button-logout").className).toContain("hover:bg-white/10");
+  });
 });
