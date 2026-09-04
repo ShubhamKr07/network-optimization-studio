@@ -766,3 +766,145 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     expect(container).toBeDefined();
   });
 });
+
+// ── Bundle 6.1 (T1) — shared MapLegend, Output variant ──────────────────────
+// NetworkMap now renders the shared <MapLegend variant="output" corner="br">
+// in place of its old inline legend block. These tests cover the resolutions
+// the plan review called out: #7 (Output shows "Open", never a separate
+// "Forced Open" entry, and the marker→legend mapping matches getStatus),
+// #3 (the layer toggles gate their own legend entries independently), and
+// #5 (route-band swatches use getBandColor, which doesn't clamp the SWATCH
+// COUNT — only the color — past 5 bands).
+describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
+  const legendDataset = {
+    warehouses: [
+      { id: "W1", city: "Forced", state: "TS", lat: 40, lng: -90 },
+      { id: "W2", city: "Potential", state: "TS", lat: 41, lng: -91 },
+    ],
+    customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 40.5, lng: -90.5, demand: 5000 }],
+  };
+  // W1 is forced_open in warehouseStatuses AND is the warehouse the solver
+  // actually opened (in openWarehouseIds) — exactly the case getStatus
+  // resolves to "open" for a forced-open facility in a solved result.
+  const forcedOpenResult = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [{ fromId: "W1", toId: "C1", flow: 5000, distance: 50 }],
+    metrics: { weightedAvgDistance: 50, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["W1"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("shows 'Open' (not a separate 'Forced Open' entry) for a solved result with a forced-open facility — the marker→legend mapping matches getStatus", () => {
+    const { container, getByTestId } = render(
+      <NetworkMap
+        dataset={legendDataset}
+        warehouseStatuses={[{ warehouseId: "W1", status: "forced_open" }]}
+        result={forcedOpenResult}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const legend = getByTestId("map-legend");
+    expect(legend.textContent).toContain("Open");
+    expect(legend.textContent).not.toContain("Forced Open");
+    expect(legend.textContent).not.toContain("Fixed-Open");
+    // W1's rendered marker actually resolves to the "open" fill (getStatus:
+    // result present + W1 in openWarehouseIds -> "open"), matching the
+    // legend's single "Open" entry — not a distinct forced-open state.
+    const markerSvg = container.querySelector(".leaflet-marker-pane .leaflet-marker-icon")?.innerHTML ?? "";
+    expect(markerSvg).toContain("var(--map-warehouse-open)");
+  });
+
+  it("shows a Mine entry when the dataset has a mine (parity with the pre-existing 'Mine (fixed)' behavior)", () => {
+    const mineDataset = {
+      warehouses: [{ id: "M1", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const }],
+      customers: [],
+    };
+    const { getByTestId } = render(
+      <NetworkMap
+        dataset={mineDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    expect(getByTestId("legend-output-mine")).toBeInTheDocument();
+    expect(getByTestId("map-legend").textContent).toContain("Mine (fixed)");
+  });
+
+  it("hides the facility/mine legend entries (but not Customer) when showWarehouseMarkers is false", () => {
+    const { getByTestId, queryByText, getByText } = render(
+      <NetworkMap
+        dataset={legendDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        showWarehouseMarkers={false}
+      />,
+    );
+    const legend = getByTestId("map-legend");
+    expect(legend.textContent).not.toContain("Potential");
+    expect(legend.textContent).not.toContain("Open");
+    expect(getByText("Customer")).toBeInTheDocument();
+    expect(queryByText("Mine (fixed)")).not.toBeInTheDocument();
+  });
+
+  it("hides the Customer legend entry (but not facility entries) when showCustomerMarkers is false", () => {
+    const { getByTestId } = render(
+      <NetworkMap
+        dataset={legendDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        showCustomerMarkers={false}
+      />,
+    );
+    const legend = getByTestId("map-legend");
+    expect(legend.textContent).toContain("Potential");
+    expect(legend.textContent).not.toContain("Customer");
+  });
+
+  it("renders exactly one route-band swatch per band, even past the 5-entry BAND_COLORS palette (6 bands)", () => {
+    const sixBands = [500, 1000, 1500, 2000, 2500, 3000];
+    const { container } = render(
+      <NetworkMap
+        dataset={legendDataset}
+        warehouseStatuses={[{ warehouseId: "W1", status: "forced_open" }]}
+        result={forcedOpenResult}
+        showRoutes={true}
+        bands={sixBands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const legend = container.querySelector('[data-testid="map-legend"]')!;
+    const swatches = legend.querySelectorAll('[data-testid^="legend-band-"]');
+    expect(swatches.length).toBe(6);
+    expect(legend.textContent).toContain("Band 6");
+  });
+});

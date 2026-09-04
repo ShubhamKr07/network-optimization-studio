@@ -6,8 +6,9 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
 import { assignBand } from "@/lib/bands";
-import { BAND_COLORS as bandColors, getBandColor } from "@/lib/bandPalette";
+import { getBandColor } from "@/lib/bandPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
+import { MapLegend } from "@/components/workspace/map/MapLegend";
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -584,54 +585,17 @@ export function NetworkMap({
         })}
       </MapContainer>
 
-      <div className="absolute bottom-4 right-4 bg-white border border-border p-2 rounded-md shadow flex flex-col gap-2 z-10 text-xs w-[220px]">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Only shown when the dataset actually has a mine (two-echelon-
-              gold-au) — every other model's legend is unchanged. Without
-              this, the star icon (createStarIcon) had no legend entry
-              explaining what it meant. */}
-          {dataset.warehouses.some((w) => w.kind === "mine") && (
-            <div className="flex items-center gap-1">
-              <svg width="14" height="14" viewBox="0 0 24 24">
-                <path d="M12 2L14.2 8.9L21.5 8.9L15.6 13.2L17.9 20.1L12 15.8L6.1 20.1L8.4 13.2L2.5 8.9L9.8 8.9Z" fill="none" stroke="var(--map-default-stroke)" strokeWidth="2" />
-              </svg>
-              <span className="text-muted-foreground">Mine (fixed)</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <svg width="14" height="14" viewBox="0 0 24 24">
-              <polygon points="12,2 22,20 2,20" fill="none" stroke="var(--map-default-stroke)" strokeWidth="2" />
-            </svg>
-            <span className="text-muted-foreground">Potential</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <svg width="14" height="14" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" fill="none" stroke="var(--map-ring-forced-open)" strokeWidth="1.5" strokeDasharray="3" />
-              <polygon points="12,2 22,20 2,20" fill="var(--map-warehouse-open)" stroke="var(--map-warehouse-open)" strokeWidth="2" />
-            </svg>
-            <span className="text-muted-foreground">Forced Open</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full bg-slate-400 border border-slate-500 opacity-70"></div>
-            <span className="text-muted-foreground">Customer</span>
-          </div>
-        </div>
-        {result && showRoutes && (
-          <div className="flex items-center gap-2 pt-1 border-t border-border">
-            {bandColors.slice(0, bands.length).map((color, i) => (
-              <div key={i} className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                <span className="text-[10px] text-muted-foreground font-mono">Band {i + 1}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {hintText && (
-          <div className="text-[10px] text-muted-foreground pt-0.5 italic">
-            {hintText}
-          </div>
-        )}
-      </div>
+      <MapLegend
+        variant="output"
+        corner="br"
+        hasMine={dataset.warehouses.some((w) => w.kind === "mine")}
+        showWarehouseLayer={showWarehouseMarkers}
+        showCustomerLayer={showCustomerMarkers}
+        result={result}
+        showRoutes={showRoutes}
+        bands={bands}
+        hintText={hintText}
+      />
     </div>
   );
 }
