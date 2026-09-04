@@ -7,8 +7,10 @@ vi.mock("@/hooks/use-toast", () => ({ toast: mockToast }));
 
 // ── Mock wouter ───────────────────────────────────────────────────────────────
 // `mockNavigate` is a single persistent fn (not a fresh vi.fn() per call) so
-// tests can assert on call order/arguments — needed for the
-// cache-write-before-navigate regression tests below.
+// tests can assert on call order/arguments — needed for the back-to-Landing
+// navigation regression test below. `useSearch` is a real vi.fn() (not an
+// inline arrow) so Bundle 6 T2's last-solved-default tests can override its
+// return value per-test (e.g. no `?scenario=` at all).
 const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 vi.mock("wouter", () => ({
   useSearch: vi.fn(() => "?scenario=1"),
@@ -67,9 +69,6 @@ const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: fa
 const mockCreateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockCloneScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockDeleteScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
-// Task 10 — logout mutation, mocked the same way as every other generated
-// mutation hook in this file (mock at the generated-hooks level).
-const mockLogoutUser = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
   useListScenarios: vi.fn(() => ({ data: [scenario, scenario2] })),
@@ -147,19 +146,19 @@ vi.mock("@workspace/api-client-react", () => ({
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
-  useLogoutUser: vi.fn(() => mockLogoutUser),
-  getGetCurrentAuthUserQueryKey: vi.fn(() => ["getCurrentAuthUser"]),
   getGetDatasetQueryKey: vi.fn(() => ["dataset"]),
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
 import { Workspace } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario } from "@workspace/api-client-react";
+import { useSearch } from "wouter";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUsePrecheckScenario = vi.mocked(usePrecheckScenario);
 const mockUseGetScenario = vi.mocked(useGetScenario);
+const mockUseSearch = vi.mocked(useSearch);
 
 function renderWorkspace() {
   return render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
@@ -180,7 +179,6 @@ beforeEach(() => {
   mockCreateScenario.mutate.mockReset();
   mockCloneScenario.mutate.mockReset();
   mockDeleteScenario.mutate.mockReset();
-  mockLogoutUser.mutate.mockReset();
   mockUpdateScenario.isPending = false;
   mockSolveScenario.isPending = false;
   mockCreateScenario.isPending = false;
@@ -192,6 +190,7 @@ beforeEach(() => {
   mockUseListScenarios.mockReturnValue({ data: [scenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
   mockUsePrecheckScenario.mockReturnValue({ data: { ok: true, errors: [] } } as unknown as ReturnType<typeof usePrecheckScenario>);
   mockUseGetScenario.mockReturnValue({ data: scenario } as unknown as ReturnType<typeof useGetScenario>);
+  mockUseSearch.mockReturnValue("?scenario=1");
 });
 
 describe("Workspace — Warehouses tab", () => {
@@ -311,6 +310,27 @@ describe("Workspace — placeholder tabs", () => {
   // toolbar" — not a moving target that the next model fast-follow would
   // obsolete again.
   it("does not show a Save toolbar for an output tab (isEditableInputTab is input-only)", () => {
+    // Bundle 6 T2 (item 1) — Output Map's sidebar entry is disabled until a
+    // solved run exists (SidebarTree's hasSolvedRun gate), so this needs a
+    // solved scenario for the click to actually activate the output-map
+    // tab (replacing the one-shot-seeded Input Map tab as the active tab).
+    const solvedScenario = {
+      ...scenario,
+      result: {
+        status: "optimal" as const,
+        objective: 1,
+        runTimeSec: 0.1,
+        quality: "Proven optimal",
+        edges: [],
+        metrics: {},
+        details: {},
+        solverUsed: "CBC",
+        infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
     renderWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
     expect(screen.queryByTestId("button-save")).not.toBeInTheDocument();
@@ -1654,53 +1674,28 @@ describe("Workspace — rename scenario", () => {
   });
 });
 
-// Task 10 — Workspace's self-contained header (chosen instead of wrapping in
-// AppShell, to avoid a double-header — see A0.2's review) had no logout
-// button and no way back to Landing, leaving the pilot route (/chapter-3)
-// with zero logout affordance. Fixed by reusing AppShell.tsx's exact logout
-// pattern (see AppShell.test.tsx) and Studio.tsx's exact page-back
-// convention (button-page-back, navigate("/")) rather than inventing new UX.
-describe("Workspace — logout / back to Landing", () => {
+// Bundle 6 T2 (items 2/3) — Workspace's self-contained header (chosen
+// instead of wrapping in AppShell, to avoid a double-header — see A0.2's
+// review) still needs a way back to Landing, but no longer offers its own
+// logout: the scenario dropdown / user-email / logout button were all
+// removed from the header (Landing's own header still has logout).
+describe("Workspace — back to Landing", () => {
   it("the back-to-Landing control navigates to \"/\", matching Studio.tsx's page-back convention", () => {
     renderWorkspace();
     fireEvent.click(screen.getByTestId("button-page-back"));
     expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 
-  it("clicking logout calls the logout mutation and, on success, writes the auth-user cache to { user: null } BEFORE navigating to /login — mirroring AppShell.tsx's documented race fix", () => {
-    const callOrder: string[] = [];
-    mockQueryClient.setQueryData.mockImplementation(() => callOrder.push("setQueryData"));
-    mockNavigate.mockImplementation(() => callOrder.push("navigate"));
-    mockLogoutUser.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
-      opts.onSuccess();
-    });
-
+  it("no longer renders the scenario dropdown, user-email span, or logout button", () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("button-logout"));
-
-    expect(mockLogoutUser.mutate).toHaveBeenCalledTimes(1);
-    // Same race this repo already documented and fixed once in AppShell.tsx:
-    // navigating to "/login" before the auth-user cache is updated used to
-    // race Gate()'s auth-gated render against an async invalidate+refetch,
-    // producing a 404. The synchronous cache write must happen strictly
-    // before navigate, not merely "eventually" via invalidateQueries.
-    expect(callOrder).toEqual(["setQueryData", "navigate"]);
-    expect(mockQueryClient.setQueryData).toHaveBeenCalledWith(["getCurrentAuthUser"], { user: null });
-    expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
-  });
-
-  it("does not navigate to /login if the logout mutation never succeeds", () => {
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("button-logout"));
-
-    expect(mockLogoutUser.mutate).toHaveBeenCalledTimes(1);
-    expect(mockQueryClient.setQueryData).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("select-scenario-context")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("text-user-email")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-logout")).not.toBeInTheDocument();
   });
 });
 
-describe("Workspace — header centered chapter/summary + divider layout (B2.1-T3, items 4/5)", () => {
-  it("item 4: renders a centered chapter+summary block with the chapter and description for p-median-us", () => {
+describe("Workspace — header chapter/summary (B2.1-T3, items 4/5; Bundle 6 T2 items 2/3)", () => {
+  it("item 4: renders a chapter+summary block with the chapter and description for p-median-us", () => {
     renderWorkspace();
     const summary = screen.getByTestId("workspace-chapter-summary");
     expect(summary).toHaveTextContent("Chapter 3");
@@ -1719,55 +1714,53 @@ describe("Workspace — header centered chapter/summary + divider layout (B2.1-T
     expect(summary).toHaveTextContent("Transportation LP: route coal from mines to power stations at minimum cost.");
   });
 
-  it("item 5: header controls (result-history stepper's save-as-scenario, Run Optimizer) still render alongside the centered summary", () => {
+  it("item 5: header controls (result-history stepper's save-as-scenario, Run Optimizer) still render alongside the summary", () => {
     renderWorkspace();
     expect(screen.getByTestId("workspace-chapter-summary")).toBeInTheDocument();
     expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
-    expect(screen.getByTestId("button-logout")).toBeInTheDocument();
-    expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
+  });
+
+  // Bundle 6 T2 (item 3) — the chapter summary now lives in the LEFT zone,
+  // beside the back arrow, rather than centered across the whole header.
+  it("item 3: the chapter summary follows the back-arrow in DOM order, in the same left-hand zone", () => {
+    renderWorkspace();
+    const back = screen.getByTestId("button-page-back");
+    const summary = screen.getByTestId("workspace-chapter-summary");
+    // eslint-disable-next-line no-bitwise
+    expect(back.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const leftZone = back.closest('[class*="min-w-0"]') as HTMLElement;
+    expect(leftZone).toContainElement(summary);
   });
 });
 
-// T9 — C2 (items 13/14/15): 3-track grid header (selector left / summary
-// centered in its own track / account+stepper+solve right), replacing the
-// old absolute-centering layout. Below `md` the grid collapses to a single
-// column so the three zones stack into rows.
-describe("Workspace — header grid layout (T9, C2)", () => {
+// Bundle 6 T2 (items 2/3, resolution #2) — responsive two-track grid header
+// (left: back-arrow + chapter summary; right: result-history stepper +
+// "Save as scenario" + Run Optimizer), replacing the old 3-track
+// selector/summary/account layout. Below `md` the grid collapses to a
+// single stacked column so nothing overflows a 375px viewport.
+describe("Workspace — header grid layout (Bundle 6 T2)", () => {
   it("removes the old title/subtitle block (text-app-name) entirely", () => {
     renderWorkspace();
     expect(screen.queryByTestId("text-app-name")).not.toBeInTheDocument();
   });
 
-  it("lays out the scenario selector (left) before the centered summary (center) before email/logout (right), in that DOM order", () => {
-    renderWorkspace();
-    const selector = screen.getByTestId("select-scenario-context");
-    const summary = screen.getByTestId("workspace-chapter-summary");
-    const email = screen.getByTestId("text-user-email");
-    // eslint-disable-next-line no-bitwise
-    expect(selector.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // eslint-disable-next-line no-bitwise
-    expect(summary.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("the summary is full/untruncated text at rest — no more max-w-[38%]/absolute positioning against the whole header", () => {
+  it("lays out the chapter summary (left) before Run Optimizer (right), in that DOM order", () => {
     renderWorkspace();
     const summary = screen.getByTestId("workspace-chapter-summary");
-    expect(summary.className).not.toContain("absolute");
-    expect(summary.className).not.toContain("max-w-[38%]");
-    expect(summary).toHaveTextContent(
-      "Chapter 3 · Facility-location: choose which warehouses to open to minimize weighted distance to customers."
-    );
+    const runOptimizer = screen.getByTestId("button-run-optimizer");
+    // eslint-disable-next-line no-bitwise
+    expect(summary.compareDocumentPosition(runOptimizer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("the header uses a responsive grid-cols-1 -> md:grid-cols-[auto_1fr_auto] track layout, not a fixed-width flex row", () => {
+  it("the header uses a responsive grid-cols-1 -> md:grid-cols-[minmax(0,1fr)_auto] track layout, not a fixed-width flex row", () => {
     renderWorkspace();
-    const grid = screen.getByTestId("select-scenario-context").closest('[class*="grid-cols"]') as HTMLElement;
+    const grid = screen.getByTestId("workspace-chapter-summary").closest('[class*="grid-cols"]') as HTMLElement;
     expect(grid).not.toBeNull();
     expect(grid.className).toContain("grid-cols-1");
-    expect(grid.className).toContain("md:grid-cols-[auto_1fr_auto]");
+    expect(grid.className).toContain("md:grid-cols-[minmax(0,1fr)_auto]");
   });
 
-  it("the result-history stepper, Save as scenario, and Run Optimizer stay in the right zone, directly below email/logout — unmoved relative position", () => {
+  it("the result-history stepper, Save as scenario, and Run Optimizer share the right-hand grid track", () => {
     const solvedScenario = {
       ...scenario,
       result: {
@@ -1786,17 +1779,43 @@ describe("Workspace — header grid layout (T9, C2)", () => {
     mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
     renderWorkspace();
-    const email = screen.getByTestId("text-user-email");
     const runOptimizer = screen.getByTestId("button-run-optimizer");
     const saveAsScenario = screen.getByTestId("button-save-as-scenario");
     // Both live in the SAME right-hand zone (share a common ancestor closer
-    // than the header itself), and the stepper/Run-Optimizer row follows the
-    // email/logout row within it — exactly the pre-T9 relative order.
-    const rightZone = email.closest('[class*="items-end"]') as HTMLElement;
-    expect(rightZone).toContainElement(runOptimizer);
+    // than the header itself).
+    const rightZone = runOptimizer.closest('[class*="justify-end"]') as HTMLElement;
     expect(rightZone).toContainElement(saveAsScenario);
-    // eslint-disable-next-line no-bitwise
-    expect(email.compareDocumentPosition(runOptimizer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Bundle 6 T2 (item 3) — the stepper now uses lucide ChevronLeft/
+  // ChevronRight icons (svgs), not literal "←"/"→" glyph text.
+  it("the result-history stepper renders ChevronLeft/ChevronRight icon buttons, not literal arrow-glyph text", () => {
+    const solvedScenario = {
+      ...scenario,
+      result: {
+        status: "optimal" as const,
+        objective: 1,
+        runTimeSec: 0.1,
+        quality: "Proven optimal",
+        edges: [],
+        metrics: {},
+        details: {},
+        solverUsed: "CBC",
+        infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    const back = screen.getByTestId("button-result-back");
+    const forward = screen.getByTestId("button-result-forward");
+    expect(back).toBeInTheDocument();
+    expect(forward).toBeInTheDocument();
+    expect(back.querySelector("svg")).not.toBeNull();
+    expect(forward.querySelector("svg")).not.toBeNull();
+    expect(back.textContent).not.toContain("←");
+    expect(forward.textContent).not.toContain("→");
   });
 
   // Narrow-viewport behavior — the grid collapses to one column (via
@@ -1804,26 +1823,29 @@ describe("Workspace — header grid layout (T9, C2)", () => {
   // control stays reachable in the DOM regardless of viewport (jsdom doesn't
   // evaluate media queries, so this asserts the RESPONSIVE CLASSES that
   // drive that collapse are present, matching AppShell.test.tsx's own
-  // established narrow-viewport convention for this repo).
-  it("at a narrow (375px) viewport, every header control stays reachable and the summary carries truncating classes instead of forcing overflow", () => {
+  // established narrow-viewport convention for this repo). Re-anchored
+  // (Bundle 6 T2) off `workspace-chapter-summary`/`button-page-back` — the
+  // old anchor, `select-scenario-context`, no longer exists.
+  it("at a narrow (375px) viewport, every header control stays reachable and the responsive grid classes are present", () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
     try {
       renderWorkspace();
       expect(screen.getByTestId("button-page-back")).toBeInTheDocument();
-      expect(screen.getByTestId("select-scenario-context")).toBeInTheDocument();
       expect(screen.getByTestId("workspace-chapter-summary")).toBeInTheDocument();
-      expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
-      expect(screen.getByTestId("button-logout")).toBeInTheDocument();
       expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
+      expect(screen.queryByTestId("select-scenario-context")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("text-user-email")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("button-logout")).not.toBeInTheDocument();
 
       const summary = screen.getByTestId("workspace-chapter-summary");
       expect(summary.className).toContain("truncate");
       expect(summary.className).toContain("min-w-0");
 
-      const grid = screen.getByTestId("select-scenario-context").closest('[class*="grid-cols-1"]') as HTMLElement;
+      const grid = screen.getByTestId("workspace-chapter-summary").closest('[class*="grid-cols-1"]') as HTMLElement;
       expect(grid).not.toBeNull();
+      expect(grid.className).toContain("md:grid-cols-[minmax(0,1fr)_auto]");
     } finally {
       Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: originalWidth });
     }
@@ -1836,19 +1858,79 @@ describe("Workspace — header grid layout (T9, C2)", () => {
 describe("Workspace — header band (Bundle 3, T6)", () => {
   it("the header carries the scnd-band utility class", () => {
     renderWorkspace();
-    const header = screen.getByTestId("select-scenario-context").closest("header") as HTMLElement;
+    const header = screen.getByTestId("workspace-chapter-summary").closest("header") as HTMLElement;
     expect(header).not.toBeNull();
     expect(header.className).toContain("scnd-band");
   });
 
-  it("every header control (back arrow, selector, summary, account/logout, run optimizer) is still present after the recolor", () => {
+  it("every header control (back arrow, summary, run optimizer) is still present after the recolor", () => {
     renderWorkspace();
     expect(screen.getByTestId("button-page-back")).toBeInTheDocument();
-    expect(screen.getByTestId("select-scenario-context")).toBeInTheDocument();
     expect(screen.getByTestId("workspace-chapter-summary")).toBeInTheDocument();
-    expect(screen.getByTestId("text-user-email")).toBeInTheDocument();
-    expect(screen.getByTestId("button-logout")).toBeInTheDocument();
     expect(screen.getByTestId("button-run-optimizer")).toBeInTheDocument();
+  });
+});
+
+// Bundle 6 T2 (item 1, Step 1) — when there's no `?scenario=` in the URL,
+// the default scenario is the most-recently-solved one (greatest non-null
+// `solvedAt`), falling back to the most-recently-updated one when none are
+// solved — replacing the old `scenarios?.[0]` (array-order, not meaningful)
+// fallback.
+describe("Workspace — last-solved scenario default (Bundle 6 T2)", () => {
+  it("with no ?scenario= and some scenarios solved, the greatest-solvedAt scenario is active", () => {
+    const sOld = { ...scenario, id: 101, name: "Old solve", solvedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z" };
+    const sNewest = { ...scenario, id: 102, name: "Newest solve", solvedAt: "2026-03-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z" };
+    const sUnsolved = { ...scenario, id: 103, name: "Never solved", solvedAt: null, updatedAt: "2026-05-01T00:00:00Z" };
+    mockUseSearch.mockReturnValue("");
+    mockUseGetScenario.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [sOld, sNewest, sUnsolved] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-scenario-102")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByTestId("sidebar-scenario-101")).toHaveAttribute("aria-current", "false");
+    expect(screen.getByTestId("sidebar-scenario-103")).toHaveAttribute("aria-current", "false");
+  });
+
+  it("with no ?scenario= and none solved, the greatest-updatedAt scenario is active", () => {
+    const sOlder = { ...scenario, id: 201, name: "Older edit", solvedAt: null, updatedAt: "2026-01-01T00:00:00Z" };
+    const sNewer = { ...scenario, id: 202, name: "Newer edit", solvedAt: null, updatedAt: "2026-04-01T00:00:00Z" };
+    mockUseSearch.mockReturnValue("");
+    mockUseGetScenario.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [sOlder, sNewer] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-scenario-202")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByTestId("sidebar-scenario-201")).toHaveAttribute("aria-current", "false");
+  });
+
+  it("an explicit ?scenario= in the URL still wins over the last-solved default", () => {
+    const sNewest = { ...scenario, id: 301, name: "Newest solve", solvedAt: "2026-03-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z" };
+    const sExplicit = { ...scenario, id: 302, name: "Explicitly selected", solvedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
+    mockUseSearch.mockReturnValue("?scenario=302");
+    mockUseGetScenario.mockReturnValue({ data: sExplicit } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [sNewest, sExplicit] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+    expect(screen.getByTestId("sidebar-scenario-302")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByTestId("sidebar-scenario-301")).toHaveAttribute("aria-current", "false");
+  });
+});
+
+// Bundle 6 T2 (item 1, Step 2, resolution #3) — one-shot Input Map seeding:
+// opens the Input Map tab exactly once per model entry, keyed on `modelId`
+// (not reactively on `activeTab === null`, which would reopen Input Map
+// after the user deliberately closes the last tab).
+describe("Workspace — one-shot Input Map seeding (Bundle 6 T2)", () => {
+  it("opens the Input Map tab on mount", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("tab-input:input-map")).toBeInTheDocument();
+  });
+
+  it("closing the last (seeded) tab leaves no tab active and does NOT reopen Input Map", () => {
+    renderWorkspace();
+    expect(screen.getByTestId("tab-input:input-map")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("tab-close-input:input-map"));
+
+    expect(screen.queryByTestId("tab-input:input-map")).not.toBeInTheDocument();
+    expect(screen.getByTestId("tab-bar-empty")).toBeInTheDocument();
   });
 });
 

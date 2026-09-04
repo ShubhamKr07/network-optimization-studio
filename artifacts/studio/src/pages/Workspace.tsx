@@ -12,19 +12,17 @@ import {
   useDeleteScenario,
   useGetSolveJob,
   useListModels,
-  useLogoutUser,
   usePrecheckScenario,
   precheckScenario,
   getGetScenarioQueryKey,
   getListScenariosQueryKey,
   getGetSolveJobQueryKey,
-  getGetCurrentAuthUserQueryKey,
   getGetDatasetQueryKey,
   getPrecheckScenarioQueryKey,
   type Scenario,
   type SolveResult,
 } from "@workspace/api-client-react";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { AppFooter } from "@/components/AppFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -828,28 +826,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const scenarioIdStr = new URLSearchParams(search).get("scenario");
   const scenarioIdFromUrl = scenarioIdStr ? parseInt(scenarioIdStr, 10) : undefined;
 
-  // Task 10 — logout. Workspace renders its own self-contained header
-  // (deliberately not wrapped in AppShell, to avoid a double-header — see
-  // App.tsx's A0.2 comment), so it needs its own logout affordance rather
-  // than inheriting AppShell's. Reuses AppShell.tsx's exact pattern verbatim
-  // rather than reinventing it: navigating to "/login" immediately after the
-  // logout mutation used to race Gate()'s auth-gated render against an async
-  // cache invalidate+refetch (same bug class as the Login.tsx/Register.tsx/
-  // Gate() race documented in this repo's CLAUDE.md), producing a 404. The
-  // fix is writing { user: null } into the auth-user query cache
-  // SYNCHRONOUSLY in onSuccess, strictly BEFORE navigate — not relying on
-  // invalidateQueries alone before leaving an authed route.
-  const logoutUser = useLogoutUser();
-
-  function handleLogout() {
-    logoutUser.mutate(undefined, {
-      onSuccess: () => {
-        queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), { user: null });
-        navigate("/login", { replace: true });
-      },
-    });
-  }
-
   const { data: scenarios } = useListScenarios({ modelId });
   const { data: scenarioFromApi } = useGetScenario(scenarioIdFromUrl!, {
     query: { enabled: !!scenarioIdFromUrl, queryKey: getGetScenarioQueryKey(scenarioIdFromUrl!) },
@@ -873,7 +849,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const { data: models } = useListModels();
   const activeModelManifest = models?.find(m => m.id === modelId);
 
-  const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? scenarios?.[0];
+  // Bundle 6 T2 (item 1) — default scenario when there's no `?scenario=` in
+  // the URL: prefer the most-recently-solved scenario (greatest non-null
+  // `solvedAt`), falling back to the most-recently-updated one when none are
+  // solved yet — replaces the old `scenarios?.[0]` (array order, not
+  // meaningful) fallback.
+  const defaultScenario = useMemo(() => {
+    const list = scenarios ?? [];
+    if (!list.length) return undefined;
+    const solved = list.filter(s => s.solvedAt != null);
+    if (solved.length) {
+      return solved.reduce((best, s) => (s.solvedAt! > best.solvedAt! ? s : best));
+    }
+    return list.reduce((best, s) => (s.updatedAt > best.updatedAt ? s : best));
+  }, [scenarios]);
+  const currentScenario = scenarioFromApi ?? scenarios?.find(s => s.id === scenarioIdFromUrl) ?? defaultScenario;
 
   // B5.2 — B2.1's semantic precheck (completeness/id-collision/reference-
   // integrity), fetched whenever a p-median-us scenario is active (auto,
@@ -1254,6 +1244,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
   }
+
+  // Bundle 6 T2 (item 1, resolution #3) — one-shot Input Map seeding: opens
+  // the Input Map tab exactly once per model entry, keyed on `modelId` (not
+  // reactively on `activeTab === null`, which would reopen Input Map after
+  // the user deliberately closes the last tab). Navigating to a different
+  // chapter re-seeds once; closing the last tab does NOT reopen it — the
+  // ref guard is already tripped for this model.
+  const didSeedTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentScenario) return;
+    if (didSeedTabRef.current === modelId) return; // already seeded for this model
+    didSeedTabRef.current = modelId;
+    const entry = inputEntriesForModel(modelId).find(e => e.id === "input-map");
+    if (entry) openTab("input", entry);
+  }, [currentScenario, modelId]);
 
   // Phase 3.2, Task 4 — Input Map click-to-place. `pendingPrefill` flows one
   // shot into whichever *Tab's prefillCoords prop, cleared via
@@ -2263,155 +2268,65 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden scn-theme" data-testid="workspace-page">
-      {/* T9 (C2, items 13/14/15) — replaces the old absolute-centering
-          layout (fixed-width left/right flex children + an
-          absolutely-positioned center overlay) with a real 3-track grid:
-          `auto` (selector) / `1fr` (summary, centered in ITS OWN track
-          rather than the whole header) / `auto` (account+stepper+solve).
-          Below `md` (768px) the grid collapses to a single column so the
-          three zones stack into rows (selector / summary / account)
-          instead of overflowing — `min-w-0` throughout so children can
-          actually shrink/wrap rather than forcing horizontal scroll. The
-          old title/subtitle block ("SCND Optimization Studio" / "By Prof.
-          Michael Watson", `text-app-name`) is gone — ObjectiveBar/
-          Studio.tsx already carry that branding elsewhere; Workspace's own
-          header doesn't need to repeat it. */}
+      {/* Bundle 6 T2 (items 1/2/3) — the old 3-track grid (scenario
+          selector / centered chapter summary / email+logout+stepper) is
+          gone: the scenario dropdown, user-email span, and logout button
+          are all removed (Workspace no longer offers logout — Landing's
+          own header still does), and the chapter/description summary moves
+          into the LEFT zone next to the back-arrow instead of being
+          centered. What's left is a responsive two-track grid — left
+          (back-arrow + chapter summary) / right (result-history stepper +
+          "Save as scenario" + Run Optimizer) — that stacks to one column
+          below `md` (768px) so nothing overflows a 375px viewport. */}
       {/* Bundle 3 (T6) — book-cover dark band, matching the AppShell/auth
           band motif (T1's .scnd-band utility) instead of the plain
-          bg-background bar. Grid/testids/handlers all unchanged — this is
-          a recolor pass only. */}
+          bg-background bar. */}
       <header className="scnd-band flex-shrink-0">
-        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-2 md:gap-4 px-4 py-1.5 min-h-14">
-          {/* Left zone — back arrow + scenario selector. */}
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            {/* Task 10 — back-to-Landing, matching Studio.tsx's page-back
-                convention verbatim (same testid/icon/onClick target) rather
-                than inventing new UX: Workspace was the only authed page
-                with no way back to "/" other than the browser's own back
-                button. */}
-            <button
-              onClick={() => navigate("/")}
-              data-testid="button-page-back"
-              title="Back to models"
-              className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 transition-colors"
-            >
+        {/* Responsive grid (resolution #2): two tracks at md+ (summary | controls),
+            collapses to one stacked column below md so nothing overflows 375px. */}
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-4 px-4 py-1.5 min-h-14">
+          {/* Left — back + chapter/summary */}
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => navigate("/")} data-testid="button-page-back" title="Back to models"
+              className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 transition-colors">
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-2 text-sm text-[color:var(--ink-300)] min-w-0">
-              <span className="flex-shrink-0">Scenario:</span>
-              <select
-                aria-label="Scenario"
-                data-testid="select-scenario-context"
-                className="bg-transparent border border-[color:var(--ink-500)] rounded px-1.5 py-0.5 text-[color:var(--surface-band-fg)] text-sm max-w-[220px] truncate"
-                value={currentScenario?.id ?? ""}
-                onChange={e => handleSelectScenario(parseInt(e.target.value, 10))}
-                disabled={!scenarios?.length}
-              >
-                {!scenarios?.length && <option value="">No scenarios yet</option>}
-                {scenarios?.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Center zone — "Chapter N · <description>" summary, centered
-              WITHIN its own `1fr` grid track (not absolutely positioned
-              against the whole header any more), full untruncated text at
-              `md`+. Below `md` it truncates instead of forcing horizontal
-              overflow (the grid collapses to one column there, so this
-              zone is a full-width row on its own). Renders nothing for an
-              unrecognized modelId. */}
-          {(() => {
-            const activeChapter = chapterForModelId(modelId);
-            if (!activeChapter) return null;
-            return (
-              <div
-                data-testid="workspace-chapter-summary"
-                className="min-w-0 truncate md:overflow-visible md:whitespace-normal md:text-clip text-xs text-center"
-                title={`${activeChapter.chapter} · ${activeChapter.description}`}
-              >
-                <span className="scnd-kicker">{activeChapter.chapter}</span>
-                <span className="text-[color:var(--ink-300)]"> · </span>
-                <span className="scnd-display text-[color:var(--surface-band-fg)]">{activeChapter.description}</span>
-              </div>
-            );
-          })()}
-
-          {/* Right zone — email+logout, then (unchanged relative position,
-              directly below it) the result-history stepper/"Save as
-              scenario"/Run Optimizer cluster. */}
-          <div className="flex flex-col items-end gap-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <span className="text-sm text-[color:var(--ink-300)]" data-testid="text-user-email">
-                {userEmail}
-              </span>
-              {/* Task 10 — logout, reusing AppShell.tsx's exact handleLogout
-                  pattern (see the comment on that function above). */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                data-testid="button-logout"
-                className="text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10"
-              >
-                Log out
-              </Button>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              {/* Task 6 (C5.1) — result-history stepper, only shown once there's
-                  at least one result to step through (Studio.tsx's own gate,
-                  mirrored here). */}
-              {resultHistoryState.items.length > 0 && (
-                <div className="flex items-center gap-1 text-xs">
-                  <button
-                    type="button"
-                    data-testid="button-result-back"
-                    disabled={!canGoBackResult}
-                    onClick={stepResultBack}
-                    title="Previous result"
-                    className="w-6 h-6 rounded flex items-center justify-center text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                  >
-                    ←
-                  </button>
-                  <span className="text-[color:var(--ink-300)] w-10 text-center font-mono" data-testid="text-result-history-position">
-                    {resultHistoryState.index + 1}/{resultHistoryState.items.length}
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="button-result-forward"
-                    disabled={!canGoForwardResult}
-                    onClick={stepResultForward}
-                    title="Next result"
-                    className="w-6 h-6 rounded flex items-center justify-center text-[color:var(--ink-300)] hover:text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                  >
-                    →
-                  </button>
-                  {/* Task 7 (C5.1) — "Save as scenario" from the currently-viewed
-                      history entry (DD-7). Same conditional gate as the stepper
-                      itself (both need at least one history entry to make sense). */}
-                  <button
-                    type="button"
-                    data-testid="button-save-as-scenario"
-                    onClick={handleSaveAsScenario}
-                    disabled={createScenario.isPending}
-                    className="text-xs border border-[color:var(--ink-500)] text-[color:var(--ink-300)] rounded px-2 py-1 hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]"
-                  >
-                    Save as scenario
-                  </button>
+            {(() => {
+              const activeChapter = chapterForModelId(modelId);
+              if (!activeChapter) return null;
+              return (
+                <div data-testid="workspace-chapter-summary" className="min-w-0 truncate text-xs"
+                  title={`${activeChapter.chapter} · ${activeChapter.description}`}>
+                  <span className="scnd-kicker">{activeChapter.chapter}</span>
+                  <span className="text-[color:var(--ink-300)]"> · </span>
+                  <span className="scnd-display text-[color:var(--surface-band-fg)]">{activeChapter.description}</span>
                 </div>
-              )}
-              <Button
-                size="sm"
-                disabled={!currentScenario}
-                onClick={openSolveDialog}
-                data-testid="button-run-optimizer"
-              >
-                Run Optimizer
-              </Button>
-            </div>
+              );
+            })()}
+          </div>
+          {/* Right — stepper + save-as + run (own grid track at md+; wraps/stacks
+              below md, never forces horizontal overflow). */}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {resultHistoryState.items.length > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <button type="button" data-testid="button-result-back" disabled={!canGoBackResult} onClick={stepResultBack} title="Previous result"
+                  className="w-8 h-8 rounded flex items-center justify-center border border-[color:var(--ink-500)] text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-[color:var(--ink-300)] w-10 text-center font-mono" data-testid="text-result-history-position">
+                  {resultHistoryState.index + 1}/{resultHistoryState.items.length}
+                </span>
+                <button type="button" data-testid="button-result-forward" disabled={!canGoForwardResult} onClick={stepResultForward} title="Next result"
+                  className="w-8 h-8 rounded flex items-center justify-center border border-[color:var(--ink-500)] text-[color:var(--surface-band-fg)] hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button type="button" data-testid="button-save-as-scenario" onClick={handleSaveAsScenario} disabled={createScenario.isPending}
+                  className="text-xs border border-[color:var(--ink-500)] text-[color:var(--ink-300)] rounded px-2 py-1 hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]">
+                  Save as scenario
+                </button>
+              </div>
+            )}
+            <Button size="sm" disabled={!currentScenario} onClick={openSolveDialog} data-testid="button-run-optimizer">Run Optimizer</Button>
           </div>
         </div>
       </header>
