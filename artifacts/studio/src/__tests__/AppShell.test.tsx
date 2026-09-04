@@ -86,6 +86,28 @@ describe("AppShell band hero", () => {
   });
 });
 
+describe("AppShell hero variant", () => {
+  it("renders the tagline and heroTitle in the expanded band when hero is set", () => {
+    render(
+      <AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero>
+        <div>content</div>
+      </AppShell>,
+    );
+    expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
+    expect(screen.getByTestId("hero-tagline")).toHaveTextContent(/build a scenario/i);
+    expect(screen.getByTestId("text-user-email")).toHaveTextContent("a@b.edu");
+  });
+
+  it("omits the tagline in the compact (non-hero) band", () => {
+    render(
+      <AppShell userEmail="a@b.edu" heroTitle="Network Design Labs">
+        <div>content</div>
+      </AppShell>,
+    );
+    expect(screen.queryByTestId("hero-tagline")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppShell layout", () => {
   it("clamps its root to exactly one viewport height and scopes scrolling to <main>", () => {
     render(

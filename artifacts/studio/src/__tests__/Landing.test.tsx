@@ -44,6 +44,22 @@ describe("Landing", () => {
     renderLanding();
     expect(screen.queryByText("Recent solves")).not.toBeInTheDocument();
   });
+
+  it("shows a chapter number and a start affordance on each card (baseline)", () => {
+    mockUseGetSolveHistory.mockReturnValue({ data: [] });
+    renderLanding();
+    const footer = screen.getByTestId("landing-card-footer-p-median-us");
+    expect(footer).toHaveTextContent("03");
+    expect(footer).toHaveTextContent("start");
+  });
+
+  it("prefixes recent-solve rows with the chapter label", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{ id: 10, scenarioId: 1, scenarioName: "Baseline", modelId: "p-median-us", status: "succeeded", objective: 1, weightedAvgDistanceMi: 1, runTimeSec: 1, queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z" }],
+    });
+    renderLanding();
+    expect(screen.getByText(/Chapter 3 ·/)).toBeInTheDocument();
+  });
 });
 
 describe("Landing — Recent solves (G3.2)", () => {
