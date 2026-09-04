@@ -124,10 +124,12 @@ then a **full-bleed sunken footer strip** at the bottom.
 (`lib/api-zod`/`lib/api-client-react` generated); `artifacts/studio/src/pages/Landing.tsx`
 (subtitle copy).
 
-- **Backend (bounded in SQL — resolution #4):** `/solve-history` currently
-  orders by `queuedAt desc` + SQL `.limit(limit)`, so a re-solved scenario
-  appears multiple times. Change to a two-level SQL query so the DB (not the app)
-  does the dedupe and the row set stays bounded:
+- **Backend (SQL dedupe, bounded response — resolution #4):** `/solve-history`
+  currently orders by `queuedAt desc` + SQL `.limit(limit)`, so a re-solved
+  scenario appears multiple times. Change to a two-level SQL query so the DB (not
+  the app) does the dedupe and the **response** returned to Node is bounded to
+  `limit` rows (the DB still filters+sorts the user's jobs under the `user_id`
+  index — an O(user jobs) scan, fine at pilot scale; NOT a bounded scan):
   1. Inner: `SELECT DISTINCT ON (solve_jobs.scenario_id) <cols>` from the
      `solve_jobs ⋈ scenarios` join, `WHERE solve_jobs.user_id = req.userId`,
      `ORDER BY solve_jobs.scenario_id, solve_jobs.queued_at DESC, solve_jobs.id DESC`

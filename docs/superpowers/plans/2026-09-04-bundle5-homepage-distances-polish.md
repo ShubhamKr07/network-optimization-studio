@@ -10,6 +10,45 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-04-bundle5-homepage-distances-polish-design.md` (review-resolved). Read its resolutions log — T4/T5 encode resolutions #1/#3/#4/#5, T1 encodes #2/#6, T3 encodes #7.
 
+## Plan review — resolutions (2026-09-04)
+
+Six plan-review findings; all fixed inline:
+
+1. **[P1] Existing solve-history tests break under the two-query shape.** The
+   rewritten route calls `selectDistinctOn` (inner) THEN `select` (outer); the
+   existing `/solve-history` tests (routes.test.ts ~2163, incl. the oversized-
+   limit test at ~2204 asserting `chain.limit`) configure only `mockDb.select`
+   and would crash on the un-mocked `selectDistinctOn`. Fixed (T4 Step 3): a
+   shared `configureSolveHistoryMocks(rows)` helper wires BOTH the inner
+   `selectDistinctOn(...).as("latest")` chain and the outer `select()` chain;
+   every existing history test uses it; the limit test asserts the OUTER chain's
+   `.limit`; the mocked `solveJobsTable` gains concrete `queuedAt`/`resultSummary`
+   markers so query-shape assertions don't compare `undefined`.
+2. **[P1] Focus/filter page-reset race.** The focus effect cleared the filters
+   and set `ovPage`, but a general `useEffect([fromFilter,toFilter])` page-reset
+   would then observe the programmatic clear and snap `ovPage` back to 1. Fixed
+   (T5 Steps 3/7): move the "reset to page 1 on filter change" INTO the From/To
+   input `onChange` handlers (user-driven only), so a programmatic clear doesn't
+   reset the page; the focus regression test now starts on a NON-EMPTY filter.
+3. **[P2] "Bounded SQL scan" overclaimed.** `DISTINCT ON` bounds the RESPONSE to
+   Node, but Postgres still filters+sorts the user's jobs (only a `user_id`
+   index). Fixed (spec resolution #4 + T4 route comment): described accurately as
+   **database-side dedupe with a bounded response** — NOT a bounded scan. No
+   index at pilot scale; add a composite index only if a real `EXPLAIN` shows
+   pain.
+4. **[P2] Obsolete virtualization test + wrong mock claim.** Fixed (T5 Step 8):
+   the Distances test mocks `global.fetch` (`fetchMock`) + `renderWithQueryClient`
+   — NOT the `useGetReferenceDistances` hook; Step 8 now reuses that real pattern,
+   and any virtualization-specific assertion (offsetHeight/scroll-window) is
+   removed/renamed to assert exact first-page size + pager state.
+5. **[P2] Favicon verification must actually build.** Fixed (T2 Step 3): run
+   `pnpm --filter studio build` and confirm `dist/public/book-cover.png` + the
+   emitted favicon `<link>` exist before committing (typecheck alone never
+   processes `index.html`/`public/`).
+6. **[P3] OpenAPI 200-response description.** Fixed (T4 Step 2): the `200`
+   response description also changes to "at most one latest solve job per
+   scenario, newest first."
+
 ## Global Constraints
 
 - Presentation-only except T4's `/solve-history` change. No schema/DB/solver change. Tokens ONLY from `artifacts/studio/src/index.css`; `designTokens.contract.test.ts` stays green; light theme only.
@@ -173,13 +212,22 @@ with:
 ```
 (Title line untouched. Leave `favicon.svg` in place — just no longer referenced.)
 
-- [ ] **Step 3: Verify build serves it + commit**
+- [ ] **Step 3: Actually build + verify the asset ships (resolution #5)**
 
+`typecheck` never processes `index.html` or `public/` — build for real:
 ```bash
 pnpm run typecheck
+PORT=5183 BASE_PATH=/ pnpm --filter studio run build
+ls -l artifacts/studio/dist/public/book-cover.png            # asset copied to the build output
+grep -o 'href="[^"]*book-cover.png"' artifacts/studio/dist/public/index.html   # favicon link emitted
+```
+Both must exist. (If the build fails on a native-binary issue — the documented lightningcss/oxide darwin-arm64 gotcha — resolve per CLAUDE.md before trusting the result.)
+
+- [ ] **Step 4: Commit**
+
+```bash
 git commit -m "[bundle5-T2] book-cover favicon" -- artifacts/studio/index.html artifacts/studio/public/book-cover.png
 ```
-(No test — static asset + markup. `typecheck` confirms nothing broke.)
 
 ---
 
@@ -288,9 +336,12 @@ const router = Router();
 router.use(requireAuth);
 
 // Bundle 5 — one row per scenario: the newest solve job (any status) per
-// scenario, newest-first, limited. The dedupe runs in SQL (DISTINCT ON) so the
-// scanned/returned set stays bounded regardless of the user's lifetime solve
-// count — never fetch-all-then-dedupe in the app.
+// scenario, newest-first, limited. The dedupe runs in SQL (DISTINCT ON) — the
+// DB does the dedupe and the RESPONSE to Node is bounded to `limit` rows
+// (never fetch-all-then-dedupe in the app). Note: Postgres still filters+sorts
+// the user's jobs under the `user_id` index; that scan is O(user's jobs), which
+// is fine at pilot scale. Add a composite index only if a real EXPLAIN shows
+// pain — no schema change here.
 router.get("/solve-history", async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 50);
 
@@ -346,9 +397,13 @@ In `lib/api-spec/openapi.yaml`, update the `/solve-history` operation:
 ```yaml
       summary: The caller's most recent solve job per scenario (latest per scenario, newest first)
 ```
-and the `limit` param description:
+the `limit` param description:
 ```yaml
           description: Max number of scenarios to return (one row each = that scenario's latest solve job)
+```
+and the `200` response description (resolution #6) — currently "Recent solve jobs, newest first":
+```yaml
+          description: At most one latest solve job per scenario, newest first
 ```
 Then:
 ```bash
@@ -356,51 +411,63 @@ pnpm --filter @workspace/api-spec run codegen
 ```
 Response schema `SolveHistoryEntry` is unchanged; commit whatever generated files change (verify with `git status`) alongside the spec.
 
-- [ ] **Step 3: Extend the test mocks + add the dedupe test**
+- [ ] **Step 3: Adapt the mocks + all existing solve-history tests, add the dedupe test (resolution #1)**
 
 In `artifacts/api-server/src/__tests__/routes.test.ts`:
-- Add `selectDistinctOn` to `mockDb` (hoisted): `selectDistinctOn: vi.fn(),`.
+- Add `selectDistinctOn` to the hoisted `mockDb`: `selectDistinctOn: vi.fn(),`.
 - Add `as` to `makeChain`'s method list so the inner subquery chains:
 ```ts
   ["select","from","where","orderBy","insert","values",
    "returning","update","set","delete","innerJoin","limit","groupBy","as"].forEach(m => {
 ```
-- Add the test (uses the existing `loginAs`; `mockClear` the relevant spies after login):
+- Give the mocked `solveJobsTable` the columns the new query references (add `scenarioId`/`queuedAt`/`resultSummary`; keep the rest):
 ```ts
-describe("GET /solve-history (latest per scenario)", () => {
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary" },
+```
+- **Shared helper** (define once, near `makeChain`) that wires BOTH queries the route now issues — the inner `selectDistinctOn(...).as("latest")` and the outer `select().from(latest)...limit()` — and returns the outer chain so a test can assert `.limit`/`.orderBy` on it:
+```ts
+function configureSolveHistoryMocks(rows: unknown[]) {
+  const inner = makeChain([]);
+  const sub = { __sub: "latest", queuedAt: "latest.queued_at", id: "latest.id" };
+  (inner.as as ReturnType<typeof vi.fn>).mockReturnValue(sub);
+  mockDb.selectDistinctOn.mockReturnValueOnce(inner);
+  const outer = makeChain(rows);
+  mockDb.select.mockReturnValueOnce(outer);
+  return { inner, outer, sub };
+}
+```
+- **Update every existing `GET /api/solve-history` test** (the describe at ~line 2163: the unauthenticated case is unchanged; the authed happy-path and the oversized-limit case both currently do `mockDb.select.mockReturnValueOnce(chain)` and one asserts `chain.limit`). Replace each authed setup with `const { outer } = configureSolveHistoryMocks([...])` (clear `mockDb.selectDistinctOn`/`mockDb.select` after `loginAs` as the other tests do), and change the oversized-limit assertion to `expect(outer.limit).toHaveBeenCalledWith(50)`.
+- **Add the dedupe/query-shape test:**
+```ts
+describe("GET /api/solve-history (latest per scenario)", () => {
   beforeEach(() => { resetLoginRateLimiterForTests(); });
 
-  it("builds a DISTINCT ON (scenario_id) subquery ordered by scenario, queuedAt desc, id desc", async () => {
+  it("dedupes to one row per scenario via a DISTINCT ON subquery, newest-first with id tiebreaker", async () => {
     const cookie = await loginAs("user-A");
     mockDb.selectDistinctOn.mockClear();
     mockDb.select.mockClear();
-    const inner = makeChain([]);            // inner chain; .as() returns a subquery marker
-    (inner.as as ReturnType<typeof vi.fn>).mockReturnValue({ __sub: "latest", queuedAt: "q", id: "i" });
-    mockDb.selectDistinctOn.mockReturnValueOnce(inner);
-    const outer = makeChain([
+    const { inner, outer } = configureSolveHistoryMocks([
       { id: 10, scenarioId: 1, status: "succeeded", resultSummary: { objective: 5, runTimeSec: 1 }, queuedAt: new Date("2026-09-04T12:00:00Z"), finishedAt: new Date("2026-09-04T12:00:01Z"), scenarioName: "A", modelId: "p-median-us" },
       { id: 8, scenarioId: 2, status: "failed", resultSummary: null, queuedAt: new Date("2026-09-04T11:00:00Z"), finishedAt: null, scenarioName: "B", modelId: "transport-coal" },
     ]);
-    mockDb.select.mockReturnValueOnce(outer);
 
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
 
-    // dedupe is in SQL: selectDistinctOn partitioned on scenarioId
+    // dedupe is in SQL: selectDistinctOn partitioned on scenario_id
     expect(mockDb.selectDistinctOn).toHaveBeenCalledWith([solveJobsTable.scenarioId], expect.any(Object));
-    // inner ordering leads with the distinct column, then newest tiebreaker
+    // inner ordering leads with the distinct column, then the newest tiebreaker
     expect(inner.orderBy).toHaveBeenCalledWith(solveJobsTable.scenarioId, { desc: solveJobsTable.queuedAt }, { desc: solveJobsTable.id });
-    // outer orders newest-first with id tiebreaker and applies the limit
+    // outer newest-first + id tiebreaker + the requested limit
     expect(outer.limit).toHaveBeenCalledWith(5);
 
-    // one row per scenario, mapped
     expect(res.body).toHaveLength(2);
     expect(res.body[0]).toMatchObject({ scenarioId: 1, scenarioName: "A", status: "succeeded", objective: 5 });
     expect(res.body[1]).toMatchObject({ scenarioId: 2, scenarioName: "B", status: "failed", objective: null });
   });
 });
 ```
-(`desc(x)` is mocked to `{ desc: x }` in this suite; `solveJobsTable.scenarioId`/`queuedAt`/`id` are the mocked marker strings.)
+(`desc(x)` is mocked to `{ desc: x }`; `solveJobsTable.scenarioId`/`queuedAt`/`id` are the mocked marker strings.)
 
 - [ ] **Step 4: Gate + commit**
 
@@ -456,17 +523,33 @@ const visibleReferencePairs = useMemo(
 const refPageCount = Math.max(1, Math.ceil(visibleReferencePairs.length / PAGE_SIZE));
 const ovPageCount = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
 
-// Clamp whenever the filtered length shrinks (delete/import overrides, toggle
-// inactive/excluded, or a tighter filter) so we never strand on an empty page.
+// Clamp DOWN whenever the filtered length shrinks (delete/import overrides,
+// toggle inactive/excluded) so we never strand on a now-empty page. This only
+// ever reduces the page; it never fights the focus jump (which sets a valid
+// in-range page).
 useEffect(() => { if (refPage > refPageCount) setRefPage(refPageCount); }, [refPage, refPageCount]);
 useEffect(() => { if (ovPage > ovPageCount) setOvPage(ovPageCount); }, [ovPage, ovPageCount]);
-// A filter-text change jumps back to page 1 for both tables.
-useEffect(() => { setRefPage(1); setOvPage(1); }, [fromFilter, toFilter]);
 
 const pagedReferencePairs = visibleReferencePairs.slice((refPage - 1) * PAGE_SIZE, refPage * PAGE_SIZE);
 const pagedRows = visibleRows.slice((ovPage - 1) * PAGE_SIZE, ovPage * PAGE_SIZE);
 ```
 (`visibleRows` is the existing filtered overrides array — keep its definition; render `pagedRows` instead of `visibleRows` in the table body.)
+
+**Reset-to-page-1 lives in the input handlers, NOT an effect (resolution #2).** A
+general `useEffect([fromFilter,toFilter])` reset would fire on the focus effect's
+*programmatic* filter clear and snap `ovPage` back to 1, undoing the jump. Instead,
+edit the `toolbar`'s From/To `<Input>`s so the RESET happens only on real user
+typing:
+```tsx
+<Input placeholder="Filter from ID…" value={fromFilter}
+  onChange={e => { setFromFilter(e.target.value); setRefPage(1); setOvPage(1); }}
+  className="h-7 text-xs w-36" data-testid="input-filter-from" />
+<Input placeholder="Filter to ID…" value={toFilter}
+  onChange={e => { setToFilter(e.target.value); setRefPage(1); setOvPage(1); }}
+  className="h-7 text-xs w-36" data-testid="input-filter-to" />
+```
+The focus effect (Step 7) clears the filters via `setFromFilter("")`/`setToFilter("")`
+directly — with no filter-watching effect, that clear does not reset the page.
 
 - [ ] **Step 4: A reusable pager**
 
@@ -540,18 +623,18 @@ useEffect(() => {
 }, [focusEntityId, ovPage, pagedRows]);
 ```
 
-- [ ] **Step 8: Update `DistancesTab.test.tsx`**
+- [ ] **Step 8: Update `DistancesTab.test.tsx` (resolutions #1/#4)**
 
-Keep existing tests green (rows now come from `pagedRows`/`pagedReferencePairs` — fixtures under 50 rows are unaffected). Add:
-```tsx
-// pagination: 120 override rows → 3 pages of 50/50/20
-// - page 1 shows the first 50, Prev disabled; Next → page 2; indicator "Page 1 of 3"
-// - From/To filter re-pages to 1 and filters both tables
-// - delete the sole row on the last page → page clamps to the new last page (no empty page)
-// - reference status filter (inactiveWarehouseIds) while on page 2 clamps correctly
-// - focusEntityId pointing at override #75 selects ov page 2 (Math.floor(74/50)+1 = 2)
-```
-Write these as concrete RTL cases: render `DistancesTab` with a 120-row `distanceOverrides` fixture; assert `ov-page-indicator` text, Prev/Next disabled states, that page 2 shows rows 51–100, that typing in `input-filter-from` resets to "Page 1 of …", that a `focusEntityId` beyond row 50 flips `ov-page-indicator` to "Page 2 of 3". For the reference table, render with a `referenceCapable` + mocked `useGetReferenceDistances` returning 120 pairs (mock the hook as the existing tests do) and assert `ref-page-indicator` + slicing.
+This suite mocks `global.fetch` (`fetchMock`) and renders via `renderWithQueryClient` — it does NOT mock `useGetReferenceDistances`. Reuse that exact pattern for every new/changed test (the reference table's data still arrives through the `/reference-distances` fetch the existing `fetchMock.mockImplementation` already serves). Keep existing tests green (rows now come from `pagedRows`/`pagedReferencePairs` — the existing fixtures are under 50 rows, unaffected).
+
+- **Remove/replace any virtualization-specific assertion.** If a test asserts the old windowed behavior (an `offsetHeight`/scroll-window/absolute-transform setup, or that not all 5200 reference rows mount), delete that setup and replace it with an explicit **first-page-size + pager-state** assertion (the existing `fetchMock` returns 5200 pairs → 104 pages of 50; page 1 mounts exactly 50 `row-reference-distance-*` rows, `ref-page-indicator` reads "Page 1 of 104", `button-ref-prev` disabled). If no such test exists, add this as a new case.
+
+- **Add concrete cases:**
+  - Overrides pagination: render with a 120-row `distanceOverrides` fixture → `ov-page-indicator` "Page 1 of 3", first 50 rows shown, `button-ov-prev` disabled; click `button-ov-next` → "Page 2 of 3" showing override rows 51–100.
+  - Global filter + re-page: typing in `input-filter-from` filters BOTH the overrides table and the reference rows, and resets `ov-page-indicator`/`ref-page-indicator` to "Page 1 of …".
+  - Clamp on delete: on the last override page with a single row, remove it (`button-remove-distance-…`) → the page clamps to the new last page (no empty page, no "Page N of N-1").
+  - Reference clamp: with a later `refPage` selected, tighten `inactiveWarehouseIds` (rerender prop) so the filtered reference set shrinks below that page → `ref-page-indicator` clamps into range.
+  - **Focus across pages, starting filtered (resolution #2):** render 120 overrides, set a non-empty `fromFilter` first (type into `input-filter-from`), then rerender with `focusEntityId` = the id of override #75's endpoint → assert the filters cleared AND `ov-page-indicator` shows "Page 2 of 3" (`Math.floor(74/50)+1 = 2`), i.e. the programmatic clear did NOT snap back to page 1.
 
 - [ ] **Step 9: Gate + commit**
 
