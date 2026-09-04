@@ -394,7 +394,7 @@ export const getGetSolveHistoryUrl = (params?: GetSolveHistoryParams,) => {
 }
 
 /**
- * @summary List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+ * @summary The caller's most recent solve job per scenario (latest per scenario, newest first)
  */
 export const getSolveHistory = async (params?: GetSolveHistoryParams, options?: RequestInit): Promise<SolveHistoryEntry[]> => {
 
@@ -441,7 +441,7 @@ export type GetSolveHistoryQueryError = ErrorType<void>
 
 
 /**
- * @summary List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+ * @summary The caller's most recent solve job per scenario (latest per scenario, newest first)
  */
 
 export function useGetSolveHistory<TData = Awaited<ReturnType<typeof getSolveHistory>>, TError = ErrorType<void>>(

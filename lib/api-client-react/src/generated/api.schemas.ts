@@ -539,6 +539,9 @@ export const GetDatasetModelId = {
 } as const;
 
 export type GetSolveHistoryParams = {
+/**
+ * Max number of scenarios to return (one row each = that scenario's latest solve job)
+ */
 limit?: number;
 };
 

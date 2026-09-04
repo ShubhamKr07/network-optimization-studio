@@ -7,25 +7,40 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Phase 3.5 (G3.2) — no new table needed; solve_jobs already carries
-// everything a "recent solves" list needs, joined to the scenario's name.
+// Bundle 5 — one row per scenario: the newest solve job (any status) per
+// scenario, newest-first, limited. The dedupe runs in SQL (DISTINCT ON) — the
+// DB does the dedupe and the RESPONSE to Node is bounded to `limit` rows
+// (never fetch-all-then-dedupe in the app). Note: Postgres still filters+sorts
+// the user's jobs under the `user_id` index; that scan is O(user's jobs), which
+// is fine at pilot scale. Add a composite index only if a real EXPLAIN shows
+// pain — no schema change here.
 router.get("/solve-history", async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 50);
 
-  const rows = await db.select({
-    id: solveJobsTable.id,
-    scenarioId: solveJobsTable.scenarioId,
-    status: solveJobsTable.status,
-    resultSummary: solveJobsTable.resultSummary,
-    queuedAt: solveJobsTable.queuedAt,
-    finishedAt: solveJobsTable.finishedAt,
-    scenarioName: scenariosTable.name,
-    modelId: scenariosTable.modelId,
-  })
+  // Inner: DISTINCT ON (scenario_id) keeps the first row per scenario under the
+  // ORDER BY, so scenario_id must lead the ordering; queued_at DESC then id DESC
+  // (stable tiebreaker for equal timestamps) picks that scenario's newest job.
+  const latest = db
+    .selectDistinctOn([solveJobsTable.scenarioId], {
+      id: solveJobsTable.id,
+      scenarioId: solveJobsTable.scenarioId,
+      status: solveJobsTable.status,
+      resultSummary: solveJobsTable.resultSummary,
+      queuedAt: solveJobsTable.queuedAt,
+      finishedAt: solveJobsTable.finishedAt,
+      scenarioName: scenariosTable.name,
+      modelId: scenariosTable.modelId,
+    })
     .from(solveJobsTable)
     .innerJoin(scenariosTable, eq(solveJobsTable.scenarioId, scenariosTable.id))
     .where(eq(solveJobsTable.userId, req.userId!))
-    .orderBy(desc(solveJobsTable.queuedAt))
+    .orderBy(solveJobsTable.scenarioId, desc(solveJobsTable.queuedAt), desc(solveJobsTable.id))
+    .as("latest");
+
+  const rows = await db
+    .select()
+    .from(latest)
+    .orderBy(desc(latest.queuedAt), desc(latest.id))
     .limit(limit);
 
   res.json(rows.map((r) => {

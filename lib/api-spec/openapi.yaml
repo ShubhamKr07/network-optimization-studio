@@ -115,17 +115,18 @@ paths:
     get:
       operationId: getSolveHistory
       tags: [scenarios]
-      summary: List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+      summary: The caller's most recent solve job per scenario (latest per scenario, newest first)
       parameters:
         - name: limit
           in: query
           required: false
+          description: Max number of scenarios to return (one row each = that scenario's latest solve job)
           schema:
             type: integer
             default: 5
       responses:
         "200":
-          description: Recent solve jobs, newest first
+          description: At most one latest solve job per scenario, newest first
           content:
             application/json:
               schema:

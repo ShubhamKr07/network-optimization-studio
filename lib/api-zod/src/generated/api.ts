@@ -110,12 +110,12 @@ export const GetReferenceDistancesResponse = zod.object({
 
 
 /**
- * @summary List the caller's most recent solve jobs across all scenarios (Phase 3.5, G3.2)
+ * @summary The caller's most recent solve job per scenario (latest per scenario, newest first)
  */
 export const getSolveHistoryQueryLimitDefault = 5;
 
 export const GetSolveHistoryQueryParams = zod.object({
-  "limit": zod.coerce.number().default(getSolveHistoryQueryLimitDefault)
+  "limit": zod.coerce.number().default(getSolveHistoryQueryLimitDefault).describe('Max number of scenarios to return (one row each = that scenario\'s latest solve job)')
 })
 
 export const GetSolveHistoryResponseItem = zod.object({

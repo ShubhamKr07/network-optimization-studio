@@ -4,6 +4,7 @@ import argon2 from "argon2";
 
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
+  selectDistinctOn: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
@@ -16,7 +17,7 @@ const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
 vi.mock("@workspace/db", () => ({
   db: mockDb,
   scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
-  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at" },
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -51,12 +52,25 @@ import { scenariosTable, solveJobsTable } from "@workspace/db";
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
   ["select","from","where","orderBy","insert","values",
-   "returning","update","set","delete","innerJoin","limit","groupBy"].forEach(m => {
+   "returning","update","set","delete","innerJoin","limit","groupBy","as"].forEach(m => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
     Promise.resolve(returnValue).then(resolve);
   return chain;
+}
+
+// solve-history's route issues TWO queries: an inner `selectDistinctOn(...).as("latest")`
+// subquery, then an outer `select().from(latest)...limit()`. This wires both in one call
+// and returns the outer chain so a test can assert `.limit`/`.orderBy` on it.
+function configureSolveHistoryMocks(rows: unknown[]) {
+  const inner = makeChain([]);
+  const sub = { __sub: "latest", queuedAt: "latest.queued_at", id: "latest.id" };
+  (inner.as as ReturnType<typeof vi.fn>).mockReturnValue(sub);
+  mockDb.selectDistinctOn.mockReturnValueOnce(inner);
+  const outer = makeChain(rows);
+  mockDb.select.mockReturnValueOnce(outer);
+  return { inner, outer, sub };
 }
 
 // ---------------------------------------------------------------------------
@@ -2183,7 +2197,9 @@ describe("GET /api/solve-history", () => {
 
   it("returns the caller's jobs newest first, joined to scenario name/modelId", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([historyRow1, historyRow2]));
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([historyRow1, historyRow2]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
@@ -2195,7 +2211,9 @@ describe("GET /api/solve-history", () => {
 
   it("defaults resultSummary fields to null for a failed job with no summary", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([historyRow2]));
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([historyRow2]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body[0]).toMatchObject({ status: "failed", objective: null, weightedAvgDistanceMi: null, runTimeSec: null });
@@ -2203,18 +2221,49 @@ describe("GET /api/solve-history", () => {
 
   it("defaults limit to 5 and caps an oversized limit at 50", async () => {
     const cookie = await loginAs(OWNER);
-    const chain = makeChain([]);
-    mockDb.select.mockReturnValue(chain);
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    const { outer } = configureSolveHistoryMocks([]);
     await request(app).get("/api/solve-history?limit=9999").set("Cookie", cookie);
-    expect(chain.limit).toHaveBeenCalledWith(50);
+    expect(outer.limit).toHaveBeenCalledWith(50);
   });
 
   it("returns an empty array when the caller has never solved anything", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([]));
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+});
+
+describe("GET /api/solve-history (latest per scenario)", () => {
+  beforeEach(() => { resetLoginRateLimiterForTests(); });
+
+  it("dedupes to one row per scenario via a DISTINCT ON subquery, newest-first with id tiebreaker", async () => {
+    const cookie = await loginAs("user-A");
+    mockDb.selectDistinctOn.mockClear();
+    mockDb.select.mockClear();
+    const { inner, outer } = configureSolveHistoryMocks([
+      { id: 10, scenarioId: 1, status: "succeeded", resultSummary: { objective: 5, runTimeSec: 1 }, queuedAt: new Date("2026-09-04T12:00:00Z"), finishedAt: new Date("2026-09-04T12:00:01Z"), scenarioName: "A", modelId: "p-median-us" },
+      { id: 8, scenarioId: 2, status: "failed", resultSummary: null, queuedAt: new Date("2026-09-04T11:00:00Z"), finishedAt: null, scenarioName: "B", modelId: "transport-coal" },
+    ]);
+
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+
+    // dedupe is in SQL: selectDistinctOn partitioned on scenario_id
+    expect(mockDb.selectDistinctOn).toHaveBeenCalledWith([solveJobsTable.scenarioId], expect.any(Object));
+    // inner ordering leads with the distinct column, then the newest tiebreaker
+    expect(inner.orderBy).toHaveBeenCalledWith(solveJobsTable.scenarioId, { desc: solveJobsTable.queuedAt }, { desc: solveJobsTable.id });
+    // outer newest-first + id tiebreaker + the requested limit
+    expect(outer.limit).toHaveBeenCalledWith(5);
+
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0]).toMatchObject({ scenarioId: 1, scenarioName: "A", status: "succeeded", objective: 5 });
+    expect(res.body[1]).toMatchObject({ scenarioId: 2, scenarioName: "B", status: "failed", objective: null });
   });
 });
 
