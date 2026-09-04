@@ -82,6 +82,7 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
     result: row.result ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    solvedAt: row.solvedAt ? row.solvedAt.toISOString() : null,
     stale: isStale(row),
   };
 }

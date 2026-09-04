@@ -292,6 +292,8 @@ export interface Scenario {
   result: SolveResult | null;
   createdAt: string;
   updatedAt: string;
+  /** @nullable */
+  solvedAt: string | null;
   /** Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null. */
   stale: boolean;
 }
@@ -354,6 +356,7 @@ export type LandingSummaryTotals = {
 export interface LandingSummaryChapter {
   modelId: string;
   scenarioCount: number;
+  solvedScenarioCount: number;
   /** @nullable */
   lastSucceededSolveAt: string | null;
 }

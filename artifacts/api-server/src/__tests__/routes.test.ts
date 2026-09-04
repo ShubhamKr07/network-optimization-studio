@@ -671,6 +671,7 @@ describe("Scenario.stale", () => {
     mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
     expect(res.body.stale).toBe(false);
+    expect(res.body.solvedAt).toBeNull();
   });
 
   it("a freshly solved scenario (solvedAt >= inputsUpdatedAt) is not stale", async () => {
@@ -684,6 +685,7 @@ describe("Scenario.stale", () => {
     const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.stale).toBe(false);
+    expect(res.body.solvedAt).toBe(solvedAt.toISOString());
   });
 
   it("patching inputs on a previously-solved scenario marks it stale", async () => {
@@ -2340,8 +2342,8 @@ describe("GET /landing-summary", () => {
     const res = await request(app).get("/api/landing-summary").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.perChapter).toEqual([
-      { modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2026-09-03T12:00:00.000Z" },
-      { modelId: "transport-coal", scenarioCount: 2, lastSucceededSolveAt: null },
+      { modelId: "p-median-us", scenarioCount: 3, solvedScenarioCount: 1, lastSucceededSolveAt: "2026-09-03T12:00:00.000Z" },
+      { modelId: "transport-coal", scenarioCount: 2, solvedScenarioCount: 0, lastSucceededSolveAt: null },
     ]);
     expect(res.body.totals).toEqual({ scenarios: 5, solvedScenarios: 1 });
   });

@@ -43,6 +43,7 @@ router.get("/landing-summary", async (req, res) => {
     return {
       modelId: r.modelId,
       scenarioCount: Number(r.scenarioCount),
+      solvedScenarioCount: Number(s?.solvedScenarios ?? 0),
       // max() over a timestamp column is typed `Date | null`; serialize it
       // directly — the TS `Date` constructor's types reject another `Date`.
       lastSucceededSolveAt: s?.lastSucceededSolveAt?.toISOString() ?? null,

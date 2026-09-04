@@ -9,6 +9,7 @@
 export interface LandingSummaryChapter {
   modelId: string;
   scenarioCount: number;
+  solvedScenarioCount: number;
   /** @nullable */
   lastSucceededSolveAt: Date | null;
 }

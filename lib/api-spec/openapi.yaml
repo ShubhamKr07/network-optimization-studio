@@ -940,6 +940,9 @@ components:
         updatedAt:
           type: string
           format: date-time
+        solvedAt:
+          type: ["string", "null"]
+          format: date-time
         stale:
           type: boolean
           description: Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.
@@ -951,6 +954,7 @@ components:
         - result
         - createdAt
         - updatedAt
+        - solvedAt
         - stale
 
     SolveJobQueued:
@@ -1037,10 +1041,12 @@ components:
           type: string
         scenarioCount:
           type: integer
+        solvedScenarioCount:
+          type: integer
         lastSucceededSolveAt:
           type: ["string", "null"]
           format: date-time
-      required: [modelId, scenarioCount, lastSucceededSolveAt]
+      required: [modelId, scenarioCount, solvedScenarioCount, lastSucceededSolveAt]
 
     ScenarioInput:
       type: object

@@ -140,6 +140,7 @@ export const GetLandingSummaryResponse = zod.object({
   "perChapter": zod.array(zod.object({
   "modelId": zod.string(),
   "scenarioCount": zod.number(),
+  "solvedScenarioCount": zod.number(),
   "lastSucceededSolveAt": zod.coerce.date().nullable()
 })),
   "totals": zod.object({
@@ -201,6 +202,7 @@ export const ListScenariosResponseItem = zod.object({
 }).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
+  "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
@@ -270,6 +272,7 @@ export const GetScenarioResponse = zod.object({
 }).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
+  "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 
@@ -333,6 +336,7 @@ export const UpdateScenarioResponse = zod.object({
 }).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
+  "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 })
 
@@ -481,6 +485,7 @@ export const ApplyScenarioImportResponse = zod.object({
 }).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
+  "solvedAt": zod.coerce.date().nullable(),
   "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
 }).optional(),
   "applied": zod.number(),
