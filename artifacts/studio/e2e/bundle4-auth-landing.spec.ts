@@ -47,8 +47,11 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     await expect(page.getByText("Optimization Studio")).toBeVisible();
     await expect(page.getByText("By Prof. Michael Watson")).toBeVisible();
 
-    await expect(page.getByTestId("auth-labs-strip")).toContainText("Ch 3 · p-median");
-    await expect(page.getByTestId("auth-labs-strip")).toContainText("Ch 10 · two-echelon");
+    // Bundle 6 (T5, item 12): AuthShell's labs strip is now derived from
+    // CHAPTERS' non-hidden chapters (deduped by `chapter`), not a hardcoded
+    // per-model list — with transport-coal/p-median-brazil/two-echelon-gold-au
+    // all hiddenFromLanding, only "Chapter 3" remains.
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3");
 
     const credit = page.getByTestId("auth-credit");
     await expect(credit).toBeVisible();
@@ -107,17 +110,25 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
     await expect(page.getByText("Network Design Labs")).toBeVisible();
     await expect(page.getByTestId("hero-tagline")).toContainText(/build a scenario/i);
 
-    // 3 chapters are visible on Landing (two-echelon-gold-au is
-    // hiddenFromLanding per lib/chapters.ts).
+    // Bundle 6 (T5, item 8): only Chapter 3 (p-median-us) is visible on
+    // Landing now — transport-coal/p-median-brazil joined two-echelon-gold-au
+    // as hiddenFromLanding, and the stats line is computed from the
+    // visible-only perChapter rows.
     const stats = page.getByTestId("landing-stats-line");
     await expect(stats).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(stats).toHaveText("3 labs · 0 scenarios · 0 solved");
+    await expect(stats).toHaveText("1 labs · 0 scenarios · 0 solved");
 
-    for (const modelId of ["p-median-us", "transport-coal", "p-median-brazil"]) {
-      const footer = page.getByTestId(`landing-card-footer-${modelId}`);
-      await expect(footer).toContainText("no scenarios yet");
-      await expect(footer).toContainText("start");
-      await expect(footer).not.toContainText("active");
+    const footer = page.getByTestId("landing-card-footer-p-median-us");
+    await expect(footer).toContainText("no scenarios yet");
+    await expect(footer).toContainText("start");
+    await expect(footer).not.toContainText("active");
+
+    const hiddenChapterPaths = ["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"];
+    for (const path of hiddenChapterPaths) {
+      await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);
+    }
+    for (const modelId of ["transport-coal", "p-median-brazil", "two-echelon-gold-au"]) {
+      await expect(page.getByTestId(`landing-card-footer-${modelId}`)).toHaveCount(0);
     }
   });
 });
@@ -129,9 +140,11 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
     await page.goto("/");
     await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
 
-    // Baseline before any scenario exists.
+    // Baseline before any scenario exists. Bundle 6 (T5): only Chapter 3
+    // (p-median-us) is visible, so this and every stats-line assertion below
+    // reads "1 labs" instead of the pre-Bundle-6 "3 labs".
     await expect(page.getByTestId("landing-stats-line")).toHaveText(
-      "3 labs · 0 scenarios · 0 solved",
+      "1 labs · 0 scenarios · 0 solved",
       { timeout: HEADER_TIMEOUT },
     );
 
@@ -161,7 +174,7 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // should reflect the scenario count without a solved badge yet.
       await page.reload();
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "3 labs · 1 scenarios · 0 solved",
+        "1 labs · 1 scenarios · 0 solved",
         { timeout: HEADER_TIMEOUT },
       );
       const footerUnsolved = page.getByTestId("landing-card-footer-p-median-us");
@@ -190,7 +203,7 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // completed solve.
       await page.reload();
       const stats = page.getByTestId("landing-stats-line");
-      await expect(stats).toHaveText("3 labs · 1 scenarios · 1 solved", {
+      await expect(stats).toHaveText("1 labs · 1 scenarios · 1 solved", {
         timeout: HEADER_TIMEOUT,
       });
 
