@@ -81,7 +81,28 @@ vi.mock("@workspace/api-client-react", () => ({
   useDeleteScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useResetScenarioToBaseline: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useGetSolveJob: vi.fn(() => ({ data: undefined })),
-  useListModels: vi.fn(() => ({ data: [{ id: "p-median-us", countryBounds: { sw: [24, -125], ne: [50, -66] } }] })),
+  // Bundle 6 T2 fix — Input Map now auto-opens on mount (one-shot seed), so
+  // PMedianInputMap renders unconditionally and calls
+  // useSupportsAddedCustomerExclusion, which unconditionally reads
+  // `.capabilities` off this mock; a bare id/countryBounds entry (never
+  // exercised before, since Input Map was never rendered by default) crashes.
+  useListModels: vi.fn(() => ({
+    data: [
+      {
+        id: "p-median-us",
+        countryBounds: { sw: [24, -125], ne: [50, -66] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: ["none", "uniform", "per_wh"],
+          demandEditable: true,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+          supportsFacilityStatus: true,
+          supportsReferenceDistances: true,
+          supportsAddedCustomerExclusion: true,
+        },
+      },
+    ],
+  })),
   getGetScenarioQueryKey: vi.fn((id: number) => ["scenarios", id]),
   getListScenariosQueryKey: vi.fn(() => ["scenarios"]),
   getGetSolveJobQueryKey: vi.fn((scenarioId: number, jobId: number) => ["solve-jobs", scenarioId, jobId]),
