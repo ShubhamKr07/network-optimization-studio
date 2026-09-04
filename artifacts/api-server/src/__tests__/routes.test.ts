@@ -15,8 +15,8 @@ const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
-  scenariosTable: { id: "id", name: "name", userId: "user_id", modelId: "model_id", createdAt: "created_at", updatedAt: "updated_at" },
-  solveJobsTable: { id: "id", scenarioId: "scenario_id", userId: "user_id", status: "status" },
+  scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -25,6 +25,9 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conds: unknown[]) => ({ and: conds })),
   desc: vi.fn((_col: unknown) => ({ desc: _col })),
   inArray: vi.fn((_col: unknown, vals: unknown) => ({ inArray: _col, vals })),
+  max: vi.fn((_col: unknown) => ({ max: _col })),
+  count: vi.fn(() => ({ count: true })),
+  countDistinct: vi.fn((_col: unknown) => ({ countDistinct: _col })),
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({
@@ -48,7 +51,7 @@ import { scenariosTable, solveJobsTable } from "@workspace/db";
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
   ["select","from","where","orderBy","insert","values",
-   "returning","update","set","delete","innerJoin","limit"].forEach(m => {
+   "returning","update","set","delete","innerJoin","limit","groupBy"].forEach(m => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
@@ -2212,6 +2215,86 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+});
+
+describe("GET /landing-summary", () => {
+  beforeEach(() => { resetLoginRateLimiterForTests(); });
+
+  it("401s when unauthenticated", async () => {
+    const res = await request(app).get("/api/landing-summary");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns zeros for a user with no scenarios or solves", async () => {
+    const cookie = await loginAs("user-A");
+    mockDb.select.mockClear(); // drop loginAs's own select from the call history
+    mockDb.select.mockReturnValueOnce(makeChain([])).mockReturnValueOnce(makeChain([]));
+
+    const res = await request(app).get("/api/landing-summary").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ perChapter: [], totals: { scenarios: 0, solvedScenarios: 0 } });
+    expect(mockDb.select).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds exactly two grouped queries, both tenant-scoped, with the right projections (resolutions #1/#2/#3)", async () => {
+    const cookie = await loginAs("user-A");
+    mockDb.select.mockClear();
+    const scen = makeChain([{ modelId: "p-median-us", scenarioCount: 3 }]);
+    const solve = makeChain([{ modelId: "p-median-us", lastSucceededSolveAt: new Date("2026-09-03T12:00:00Z"), solvedScenarios: 1 }]);
+    mockDb.select.mockReturnValueOnce(scen).mockReturnValueOnce(solve);
+
+    await request(app).get("/api/landing-summary").set("Cookie", cookie);
+
+    // exactly two selects (loginAs's was cleared)
+    expect(mockDb.select).toHaveBeenCalledTimes(2);
+
+    // --- projections (proves both aggregations are issued) ---
+    // count() → { count: true }; max(col) → { max: col }; countDistinct(col) → { countDistinct: col }
+    const scenProj = mockDb.select.mock.calls[0][0];
+    expect(scenProj.scenarioCount).toEqual({ count: true });
+    const solveProj = mockDb.select.mock.calls[1][0];
+    expect(solveProj.lastSucceededSolveAt).toEqual({ max: solveJobsTable.finishedAt });
+    expect(solveProj.solvedScenarios).toEqual({ countDistinct: solveJobsTable.scenarioId });
+
+    // --- scenarios query: user-scoped, grouped by model ---
+    expect(scen.where).toHaveBeenCalledWith({ col: scenariosTable.userId, val: "user-A" });
+    expect(scen.groupBy).toHaveBeenCalledWith(scenariosTable.modelId);
+
+    // --- solve query: BOTH independent user_id predicates + succeeded status ---
+    // Exact toEqual (not arrayContaining): with table-qualified markers the two
+    // ownership predicates are distinct, so this fails if either is dropped.
+    // Filtering solve_jobs.user_id ALONE is insufficient — scenarios.user_id is
+    // an independent column with no DB constraint tying it to the job's owner.
+    const whereArg = (solve.where as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(whereArg.and).toEqual([
+      { col: solveJobsTable.userId, val: "user-A" },   // "solve_jobs.user_id"
+      { col: scenariosTable.userId, val: "user-A" },   // "scenarios.user_id"
+      { col: solveJobsTable.status, val: "succeeded" },
+    ]);
+    expect(solve.groupBy).toHaveBeenCalledWith(scenariosTable.modelId);
+  });
+
+  it("maps grouped rows to perChapter + honest totals; distinct-scenario solves (resolution #4)", async () => {
+    const cookie = await loginAs("user-A");
+    mockDb.select.mockClear();
+    const scen = makeChain([
+      { modelId: "p-median-us", scenarioCount: 3 },
+      { modelId: "transport-coal", scenarioCount: 2 },
+    ]);
+    // p-median-us: one scenario solved many times → solvedScenarios stays 1
+    const solve = makeChain([
+      { modelId: "p-median-us", lastSucceededSolveAt: new Date("2026-09-03T12:00:00Z"), solvedScenarios: 1 },
+    ]);
+    mockDb.select.mockReturnValueOnce(scen).mockReturnValueOnce(solve);
+
+    const res = await request(app).get("/api/landing-summary").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.perChapter).toEqual([
+      { modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2026-09-03T12:00:00.000Z" },
+      { modelId: "transport-coal", scenarioCount: 2, lastSucceededSolveAt: null },
+    ]);
+    expect(res.body.totals).toEqual({ scenarios: 5, solvedScenarios: 1 });
   });
 });
 

@@ -135,6 +135,21 @@ paths:
         "401":
           description: Not authenticated
 
+  /landing-summary:
+    get:
+      operationId: getLandingSummary
+      tags: [scenarios]
+      summary: Per-chapter + total scenario/solve counts for the caller (Bundle 4)
+      responses:
+        "200":
+          description: The caller's landing summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LandingSummary"
+        "401":
+          description: Not authenticated
+
   /scenarios:
     get:
       operationId: listScenarios
@@ -996,6 +1011,35 @@ components:
           type: ["string", "null"]
           format: date-time
       required: [id, scenarioId, scenarioName, modelId, status, objective, weightedAvgDistanceMi, runTimeSec, queuedAt, finishedAt]
+
+    LandingSummary:
+      type: object
+      properties:
+        perChapter:
+          type: array
+          items:
+            $ref: "#/components/schemas/LandingSummaryChapter"
+        totals:
+          type: object
+          properties:
+            scenarios:
+              type: integer
+            solvedScenarios:
+              type: integer
+          required: [scenarios, solvedScenarios]
+      required: [perChapter, totals]
+
+    LandingSummaryChapter:
+      type: object
+      properties:
+        modelId:
+          type: string
+        scenarioCount:
+          type: integer
+        lastSucceededSolveAt:
+          type: ["string", "null"]
+          format: date-time
+      required: [modelId, scenarioCount, lastSucceededSolveAt]
 
     ScenarioInput:
       type: object

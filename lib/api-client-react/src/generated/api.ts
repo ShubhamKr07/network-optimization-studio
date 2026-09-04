@@ -32,6 +32,7 @@ import type {
   ImportApplyResult,
   ImportPreview,
   ImportRequest,
+  LandingSummary,
   ListScenariosParams,
   LoginRequest,
   LogoutSuccess,
@@ -449,6 +450,83 @@ export function useGetSolveHistory<TData = Awaited<ReturnType<typeof getSolveHis
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetSolveHistoryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetLandingSummaryUrl = () => {
+
+
+
+
+  return `/api/landing-summary`
+}
+
+/**
+ * @summary Per-chapter + total scenario/solve counts for the caller (Bundle 4)
+ */
+export const getLandingSummary = async ( options?: RequestInit): Promise<LandingSummary> => {
+
+  return customFetch<LandingSummary>(getGetLandingSummaryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLandingSummaryQueryKey = () => {
+    return [
+    `/api/landing-summary`
+    ] as const;
+    }
+
+
+export const getGetLandingSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getLandingSummary>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLandingSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLandingSummaryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLandingSummary>>> = ({ signal }) => getLandingSummary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLandingSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLandingSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getLandingSummary>>>
+export type GetLandingSummaryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Per-chapter + total scenario/solve counts for the caller (Bundle 4)
+ */
+
+export function useGetLandingSummary<TData = Awaited<ReturnType<typeof getLandingSummary>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLandingSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLandingSummaryQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

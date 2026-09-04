@@ -346,6 +346,23 @@ export interface SolveHistoryEntry {
   finishedAt: string | null;
 }
 
+export type LandingSummaryTotals = {
+  scenarios: number;
+  solvedScenarios: number;
+};
+
+export interface LandingSummaryChapter {
+  modelId: string;
+  scenarioCount: number;
+  /** @nullable */
+  lastSucceededSolveAt: string | null;
+}
+
+export interface LandingSummary {
+  perChapter: LandingSummaryChapter[];
+  totals: LandingSummaryTotals;
+}
+
 export type ScenarioInputModelId = typeof ScenarioInputModelId[keyof typeof ScenarioInputModelId];
 
 

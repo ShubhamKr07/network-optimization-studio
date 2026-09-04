@@ -134,6 +134,22 @@ export const GetSolveHistoryResponse = zod.array(GetSolveHistoryResponseItem)
 
 
 /**
+ * @summary Per-chapter + total scenario/solve counts for the caller (Bundle 4)
+ */
+export const GetLandingSummaryResponse = zod.object({
+  "perChapter": zod.array(zod.object({
+  "modelId": zod.string(),
+  "scenarioCount": zod.number(),
+  "lastSucceededSolveAt": zod.coerce.date().nullable()
+})),
+  "totals": zod.object({
+  "scenarios": zod.number(),
+  "solvedScenarios": zod.number()
+})
+})
+
+
+/**
  * @summary List all scenarios
  */
 export const ListScenariosQueryParams = zod.object({
