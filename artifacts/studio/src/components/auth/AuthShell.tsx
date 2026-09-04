@@ -1,8 +1,10 @@
 import { ReactNode } from "react";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
+import { CHAPTERS } from "@/lib/chapters";
 
-const LABS = ["Ch 3 · p-median", "Ch 5 · transport LP", "Ch 5 · capacitated", "Ch 10 · two-echelon"];
+// distinct non-hidden chapters, one label per chapter (dedupe by `chapter`)
+const LABS = Array.from(new Set(CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => c.chapter)));
 const MONO = "var(--app-font-mono)";
 
 function Diamond() {

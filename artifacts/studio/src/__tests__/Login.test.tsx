@@ -95,6 +95,18 @@ describe("Login", () => {
     expect(screen.getByTitle("Email").closest("a")).toHaveAttribute("href", "mailto:shubham.shubham4995@gmail.com");
   });
 
+  it("shows only non-hidden chapter labels in the footer labs strip", () => {
+    render(<Login />);
+    const strip = screen.getByTestId("auth-labs-strip");
+    expect(strip).toHaveTextContent("Chapter 3");
+    // Ch5 (transport-coal, p-median-brazil) and Ch10 (two-echelon-gold-au)
+    // are hiddenFromLanding — the footer strip must not show them.
+    expect(strip).not.toHaveTextContent("Ch 5");
+    expect(strip).not.toHaveTextContent("Ch 10");
+    expect(strip).not.toHaveTextContent("Chapter 5");
+    expect(strip).not.toHaveTextContent("Chapter 10");
+  });
+
   it("uses a stacked-on-narrow / side-by-side-on-wide split layout", () => {
     render(<Login />);
     const shell = screen.getByTestId("auth-shell");

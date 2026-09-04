@@ -26,11 +26,13 @@ beforeEach(() => {
 });
 
 describe("Landing", () => {
-  it("lists Chapter 3 and both Chapter 5 labs", () => {
+  it("lists Chapter 3 only — Ch5 and Ch10 are hidden from the grid", () => {
     renderLanding();
     expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
-    expect(screen.getByText(/Coal Transport LP/)).toBeInTheDocument();
-    expect(screen.getByText(/Brazil Capacity/)).toBeInTheDocument();
+    // transport-coal and p-median-brazil (both Chapter 5) are hidden from
+    // the Landing grid but still registered as routes.
+    expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Brazil Capacity/)).not.toBeInTheDocument();
     // two-echelon-gold-au is hidden from the Landing grid but still
     // registered as a route; it must NOT appear in the card grid.
     expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
@@ -39,9 +41,9 @@ describe("Landing", () => {
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    expect(screen.getByTestId("link-/chapter-5/transport")).toHaveAttribute("href", "/chapter-5/transport");
-    expect(screen.getByTestId("link-/chapter-5/brazil")).toHaveAttribute("href", "/chapter-5/brazil");
-    // Hidden chapter is not rendered in the grid.
+    // Hidden chapters are not rendered in the grid.
+    expect(screen.queryByTestId("link-/chapter-5/transport")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-/chapter-5/brazil")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
   });
 
@@ -87,7 +89,7 @@ describe("Landing — Recent solves (G3.2)", () => {
           queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
         },
         {
-          id: 9, scenarioId: 8, scenarioName: "Coal Base Case", modelId: "transport-coal",
+          id: 9, scenarioId: 2, scenarioName: "5 Warehouses", modelId: "p-median-us",
           status: "failed", objective: null, weightedAvgDistanceMi: null, runTimeSec: null,
           queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:05Z",
         },
@@ -100,8 +102,23 @@ describe("Landing — Recent solves (G3.2)", () => {
     expect(screen.getByText("succeeded")).toBeInTheDocument();
     expect(screen.getByText("412.6 mi")).toBeInTheDocument();
     expect(screen.getByText("0.40s")).toBeInTheDocument();
-    expect(screen.getByText("Coal Base Case")).toBeInTheDocument();
+    expect(screen.getByText("5 Warehouses")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
+  });
+
+  it("does not render a Recent-Solves entry for a hidden model (transport-coal)", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 11, scenarioId: 3, scenarioName: "Coal Base Case", modelId: "transport-coal",
+        status: "succeeded", objective: 1, weightedAvgDistanceMi: 1, runTimeSec: 1,
+        queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    // Every history entry is for a hidden model, so the whole section is
+    // gated off (mirrors the "no rows" empty state).
+    expect(screen.queryByText("Recent solves")).not.toBeInTheDocument();
+    expect(screen.queryByText("Coal Base Case")).not.toBeInTheDocument();
   });
 
   it("clicking a recent solve links to its chapter route with the scenario id", () => {
@@ -116,9 +133,9 @@ describe("Landing — Recent solves (G3.2)", () => {
     expect(screen.getByTestId("link-solve-history-10")).toHaveAttribute("href", "/chapter-3?scenario=1");
   });
 
-  it("a recent solve whose chapter is hidden from the grid still renders and links to its route", () => {
-    // two-echelon-gold-au is hiddenFromLanding on the card grid, but Recent
-    // Solves must remain unfiltered — a solve for it still renders and links through.
+  it("a recent solve whose chapter is hidden from the grid is also hidden from Recent Solves (item 8: hide everywhere)", () => {
+    // two-echelon-gold-au is hiddenFromLanding — as of Bundle 6 T5, Recent
+    // Solves is filtered consistently with the card grid, not left unfiltered.
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 42, scenarioId: 8, scenarioName: "Refinery Base Case", modelId: "two-echelon-gold-au",
@@ -127,8 +144,8 @@ describe("Landing — Recent solves (G3.2)", () => {
       }],
     });
     renderLanding();
-    expect(screen.getByText("Refinery Base Case")).toBeInTheDocument();
-    expect(screen.getByTestId("link-solve-history-42")).toHaveAttribute("href", "/chapter-10/gold-refinery?scenario=8");
+    expect(screen.queryByText("Refinery Base Case")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-solve-history-42")).not.toBeInTheDocument();
   });
 });
 
@@ -146,7 +163,7 @@ describe("Landing — live summary (T4)", () => {
     // isError with stale data present must still render the T2 baseline —
     // never a half-filled footer built from a summary the server rejected.
     mockUseGetLandingSummary.mockReturnValue({
-      data: { perChapter: [{ modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2020-01-01T00:00:00Z" }], totals: { scenarios: 3, solvedScenarios: 1 } },
+      data: { perChapter: [{ modelId: "p-median-us", scenarioCount: 3, solvedScenarioCount: 1, lastSucceededSolveAt: "2020-01-01T00:00:00Z" }], totals: { scenarios: 3, solvedScenarios: 1 } },
       isPending: false,
       isError: true,
     });
@@ -158,35 +175,36 @@ describe("Landing — live summary (T4)", () => {
     expect(footer).not.toHaveTextContent("scenarios");
   });
 
-  it("renders per-card status, the active badge, and the honest stats line", () => {
+  it("renders per-card status, the active badge, and the honest stats line — computed from visible (non-hidden) chapters only", () => {
     mockUseGetLandingSummary.mockReturnValue({
       isPending: false,
       isError: false,
       data: {
         perChapter: [
-          { modelId: "p-median-us", scenarioCount: 3, lastSucceededSolveAt: "2020-01-01T00:00:00Z" },
-          { modelId: "transport-coal", scenarioCount: 2, lastSucceededSolveAt: null },
+          { modelId: "p-median-us", scenarioCount: 3, solvedScenarioCount: 1, lastSucceededSolveAt: "2020-01-01T00:00:00Z" },
+          // transport-coal is hiddenFromLanding — its counts must NOT leak
+          // into the stats line or affect which card shows "active".
+          { modelId: "transport-coal", scenarioCount: 2, solvedScenarioCount: 2, lastSucceededSolveAt: "2025-01-01T00:00:00Z" },
         ],
-        totals: { scenarios: 5, solvedScenarios: 1 },
+        totals: { scenarios: 5, solvedScenarios: 3 },
       },
     });
     renderLanding();
 
-    // stats line — distinct-solve count labelled "solved" (resolution #4)
-    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("3 labs · 5 scenarios · 1 solved");
+    // stats line — computed from visiblePerChapter only (p-median-us), not
+    // summary.totals, which would incorrectly include the hidden transport-coal row.
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("1 labs · 3 scenarios · 1 solved");
 
-    // p-median-us: solved + active
+    // p-median-us: solved + active (the only visible chapter, so it's the
+    // most-recently-solved-among-visible even though transport-coal's own
+    // lastSucceededSolveAt is more recent).
     const us = screen.getByTestId("landing-card-footer-p-median-us");
     expect(us).toHaveTextContent(/3 scenarios · solved .* ago/);
     expect(us).toHaveTextContent("active");
 
-    // transport-coal: scenarios, not yet solved, start →
-    const coal = screen.getByTestId("landing-card-footer-transport-coal");
-    expect(coal).toHaveTextContent("2 scenarios");
-    expect(coal).toHaveTextContent("start");
-    expect(coal).not.toHaveTextContent("active");
-
-    // brazil: absent from perChapter → "no scenarios yet"
-    expect(screen.getByTestId("landing-card-footer-p-median-brazil")).toHaveTextContent("no scenarios yet");
+    // transport-coal and p-median-brazil are hidden from the grid entirely —
+    // no card, no footer testid.
+    expect(screen.queryByTestId("landing-card-footer-transport-coal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("landing-card-footer-p-median-brazil")).not.toBeInTheDocument();
   });
 });

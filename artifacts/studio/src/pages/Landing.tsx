@@ -20,17 +20,23 @@ export function Landing() {
   const ready = !isPending && !isError && summary != null;
   const byModel = new Map((summary?.perChapter ?? []).map((r) => [r.modelId, r]));
 
-  // The single most-recently-solved chapter (across ALL rows, incl. hidden) —
-  // that card shows "active"; every other shows "start →".
+  const hiddenModelIds = new Set<string>(CHAPTERS.filter((c) => c.hiddenFromLanding).map((c) => c.modelId));
+  const visibleHistory = history?.filter((h) => !hiddenModelIds.has(h.modelId));
+  const visiblePerChapter = (summary?.perChapter ?? []).filter((r) => !hiddenModelIds.has(r.modelId));
+
+  // The single most-recently-solved VISIBLE chapter — that card shows
+  // "active"; every other shows "start →".
   let activeModelId: string | undefined;
   let activeAt = -Infinity;
-  for (const r of summary?.perChapter ?? []) {
+  for (const r of visiblePerChapter) {
     if (!r.lastSucceededSolveAt) continue;
     const t = new Date(r.lastSucceededSolveAt).getTime();
     if (t > activeAt) { activeAt = t; activeModelId = r.modelId; }
   }
 
   const visibleLabs = CHAPTERS.filter((c) => !c.hiddenFromLanding).length;
+  const visibleScenarios = visiblePerChapter.reduce((sum, r) => sum + r.scenarioCount, 0);
+  const visibleSolved = visiblePerChapter.reduce((sum, r) => sum + r.solvedScenarioCount, 0);
 
   return (
     <div className="max-w-[860px] mx-auto p-8">
@@ -41,7 +47,7 @@ export function Landing() {
         </div>
         {ready && summary && (
           <span data-testid="landing-stats-line" className="font-mono text-[10.5px] text-muted-foreground whitespace-nowrap">
-            {visibleLabs} labs · {summary.totals.scenarios} scenarios · {summary.totals.solvedScenarios} solved
+            {visibleLabs} labs · {visibleScenarios} scenarios · {visibleSolved} solved
           </span>
         )}
       </div>
@@ -85,12 +91,12 @@ export function Landing() {
         ))}
       </div>
 
-      {history && history.length > 0 && (
+      {visibleHistory && visibleHistory.length > 0 && (
         <div className="mt-10">
           <h2 className="scnd-display text-sm font-semibold text-foreground mb-1">Recent solves</h2>
           <p className="text-xs text-muted-foreground mb-3">Most recent solve per scenario — click to open one.</p>
           <div className="border rounded-lg divide-y bg-white">
-            {history.map((h) => {
+            {visibleHistory.map((h) => {
               const chapterPath = chapterPathForModelId(h.modelId);
               const row = (
                 <div className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors">
