@@ -46,7 +46,7 @@ export function Login() {
         )}
         <div className="flex flex-col gap-2">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" required autoComplete="email" placeholder="you@university.edu" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
+          <Input id="email" type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">Password</Label>
@@ -62,7 +62,7 @@ export function Login() {
         <div className="flex-1 h-px" style={{ background: "var(--line)" }} />
       </div>
       <div className="text-center" style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
-        No account? <Link href="/register" className="underline" style={{ color: "var(--link)" }}>Register with your course email</Link>
+        No account? <Link href="/register" className="underline" style={{ color: "var(--link)" }}>Register</Link>
       </div>
     </AuthShell>
   );

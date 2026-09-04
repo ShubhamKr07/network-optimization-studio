@@ -72,7 +72,7 @@ describe("Login", () => {
 
   it("links to the register page", () => {
     render(<Login />);
-    expect(screen.getByText(/Register with your course email/)).toBeInTheDocument();
+    expect(screen.getByText(/^Register$/)).toBeInTheDocument();
   });
 
   it("does not mount the global app footer (inline credit replaces it)", () => {

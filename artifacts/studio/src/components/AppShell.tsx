@@ -39,7 +39,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
       {hero ? (
         <header className="scnd-band flex-shrink-0">
           <div className="max-w-[860px] mx-auto px-6 py-[30px] flex items-start gap-4">
-            <img src={coverUrl} alt="" className="h-12 w-auto rounded-sm flex-shrink-0" style={{ boxShadow: "0 4px 12px rgba(0,0,0,.4)" }} />
+            <img src={coverUrl} alt="" className="h-24 w-auto rounded-sm flex-shrink-0" style={{ boxShadow: "0 4px 12px rgba(0,0,0,.4)" }} />
             <div className="flex-1 min-w-0">
               <div className="scnd-kicker">Optimization Studio by Prof. Michael Watson</div>
               <div className="scnd-display font-bold" style={{ fontSize: "32px", lineHeight: 1.1, color: "var(--green-400)" }}>{heroTitle}</div>

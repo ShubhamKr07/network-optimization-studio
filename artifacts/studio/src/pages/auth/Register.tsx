@@ -50,7 +50,7 @@ export function Register() {
         )}
         <div className="flex flex-col gap-2">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" required autoComplete="email" placeholder="you@university.edu" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
+          <Input id="email" type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="input-email" />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">Password</Label>
