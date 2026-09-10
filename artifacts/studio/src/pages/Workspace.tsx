@@ -2396,7 +2396,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           )}
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
-              {activeTab ? renderTabContent() : <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>}
+              {!currentScenario ? (
+                // First-run empty state: with no scenario, the input tabs'
+                // own `!localInputs` branches would otherwise sit on a
+                // permanent, misleading "Loading…" (localInputs only fills
+                // once a scenario exists). Show one clear centered call to
+                // action instead, from any tab, so the user's first move is
+                // obvious.
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center" data-testid="create-first-scenario-cta">
+                  <p className="text-muted-foreground max-w-sm">
+                    No scenarios yet — create one to start building and solving this model.
+                  </p>
+                  <Button size="sm" onClick={handleCreateScenario} data-testid="button-create-first-scenario">
+                    Create your first scenario
+                  </Button>
+                </div>
+              ) : activeTab ? (
+                renderTabContent()
+              ) : (
+                <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>
+              )}
             </div>
           </div>
         </div>

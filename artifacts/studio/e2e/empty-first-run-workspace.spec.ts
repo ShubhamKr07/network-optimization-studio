@@ -62,13 +62,19 @@ test.describe("Empty-first-run Workspace state", () => {
     await expect(page.getByTestId("text-user-email")).toHaveCount(0);
     await expect(page.getByTestId("button-logout")).toHaveCount(0);
 
-    // 4. Content area with no scenario: a sensible prompt, not blank/broken.
-    await expect(page.getByText("Pick an item from the sidebar to open it as a tab.")).toBeVisible();
+    // 4. Content area with no scenario: a centered "create your first
+    // scenario" call to action, not blank/broken and not a permanent
+    // misleading "Loading…".
+    await expect(page.getByTestId("create-first-scenario-cta")).toBeVisible();
+    await expect(page.getByTestId("button-create-first-scenario")).toBeVisible();
 
-    // 5. Every sidebar Inputs entry opens without crashing; Outputs stay
-    // disabled throughout (hasSolvedRun is false with no scenario at all).
+    // 5. Every sidebar Inputs entry opens without crashing AND — with no
+    // scenario — shows the same CTA rather than a stuck "Loading…"
+    // placeholder; Outputs stay disabled (hasSolvedRun is false).
     for (const entity of ["warehouses", "customers", "optimization-parameters", "input-map", "distances"]) {
       await page.getByTestId(`sidebar-input-${entity}`).click();
+      await expect(page.getByTestId("create-first-scenario-cta")).toBeVisible();
+      await expect(page.getByTestId("tab-content-loading")).toHaveCount(0);
     }
     await expect(page.getByTestId("sidebar-output-output-map")).toBeDisabled();
     await expect(page.getByTestId("sidebar-output-open-warehouses")).toBeDisabled();
