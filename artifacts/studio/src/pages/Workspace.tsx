@@ -23,7 +23,6 @@ import {
   type SolveResult,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
-import { AppFooter } from "@/components/AppFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -2490,16 +2489,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         </DialogContent>
       </Dialog>
 
-      {/* T9 (C1) — footer, mounted as the LAST child of this root
-          `h-screen flex flex-col` column, inside `.scn-theme`. `AppFooter`
-          is `flex-shrink-0` (FOOTER_H fixed height), so it simply reserves
-          its own space as a flex sibling of the body region's `flex-1
-          min-h-0` wrapper above — no overlap, no extra height math needed
-          here (flexbox already shrinks the body region to make room). Order
-          relative to the Dialogs above is irrelevant — both Dialog and
-          SolveDialog render via a Radix portal to document.body, not in
-          this flex flow. */}
-      <AppFooter />
     </div>
   );
 }

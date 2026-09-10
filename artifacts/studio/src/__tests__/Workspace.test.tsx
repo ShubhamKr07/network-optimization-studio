@@ -1945,23 +1945,13 @@ describe("Workspace — one-shot Input Map seeding (Bundle 6 T2)", () => {
   });
 });
 
-// T9 — C1: AppFooter mounted inside the root scn-theme shell, as the last
-// child (after the body region), so it never overlaps the map/tab content.
-describe("Workspace — footer (T9, C1)", () => {
-  it("mounts AppFooter inside the root workspace-page shell", () => {
+// The global "Developed by hx1" AppFooter is intentionally NOT mounted on the
+// model page (removed per user request) — it stays on AppShell/Landing and the
+// auth pages (DeveloperCredit) only.
+describe("Workspace — footer", () => {
+  it("does not render the global AppFooter on the model page", () => {
     renderWorkspace();
-    const root = screen.getByTestId("workspace-page");
-    const footer = screen.getByTestId("app-footer");
-    expect(root).toContainElement(footer);
-  });
-
-  it("the footer follows the body/tab-content region in DOM order and is flex-shrink-0 (reserves its own row, never overlapped)", () => {
-    renderWorkspace();
-    const bodyRegion = screen.getByTestId("tab-content-region");
-    const footer = screen.getByTestId("app-footer");
-    // eslint-disable-next-line no-bitwise
-    expect(bodyRegion.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(footer.className).toContain("flex-shrink-0");
+    expect(screen.queryByTestId("app-footer")).not.toBeInTheDocument();
   });
 });
 
