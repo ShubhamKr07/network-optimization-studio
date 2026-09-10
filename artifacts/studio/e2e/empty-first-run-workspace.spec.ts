@@ -106,4 +106,49 @@ test.describe("Empty-first-run Workspace state", () => {
       await page.request.delete(`/api/scenarios/${s.id}`);
     }
   });
+
+  test("deleting the last scenario from the sidebar returns to the create-first-scenario CTA (no phantom scenario)", async ({ page }) => {
+    test.setTimeout(60_000);
+
+    // Regression for the delete-all-then-reopen bug: the optimistic list
+    // cache update wrote a phantom query key (getListScenariosQueryKey()
+    // with no modelId) so the deleted scenario lingered in the cached list,
+    // and the deleted scenario's per-id cache was never purged — either kept
+    // `currentScenario` truthy, hiding the CTA after the last scenario was
+    // deleted.
+    const consoleErrors: string[] = [];
+    page.on("console", msg => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+
+    await registerFreshAccount(page);
+    await page.goto("/chapter-3");
+    await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
+
+    // Create one scenario (becomes active).
+    await page.getByTestId("button-create-scenario").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await dialog.getByRole("button", { name: /create/i }).click();
+    await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("create-first-scenario-cta")).not.toBeVisible();
+
+    // Grab its id from the sidebar delete button, then delete it via the
+    // real sidebar confirm flow (SidebarTree's inline confirm row).
+    const deleteBtn = page.locator('[data-testid^="button-delete-scenario-"]').first();
+    const testId = await deleteBtn.getAttribute("data-testid");
+    const id = testId!.replace("button-delete-scenario-", "");
+    await deleteBtn.click();
+    await page.getByTestId(`button-confirm-delete-${id}`).click();
+
+    // Server truly returns [] and the CTA comes back synchronously — no
+    // phantom scenario, no stuck loading, no lingering ?scenario= param.
+    await expect(page.getByTestId("create-first-scenario-cta")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("tab-content-loading")).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("scenario")).toBeNull();
+
+    const check = await page.request.get("/api/scenarios?modelId=p-median-us");
+    expect(await check.json()).toEqual([]);
+    expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+  });
 });

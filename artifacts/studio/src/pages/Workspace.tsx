@@ -1533,7 +1533,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       {
         onSuccess: created => {
           setShowCreateDialog(false);
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? [...prev, created] : [created],
           );
           navigate(`?scenario=${created.id}`);
@@ -1548,7 +1548,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id },
       {
         onSuccess: cloned => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? [...prev, cloned] : [cloned],
           );
           navigate(`?scenario=${cloned.id}`);
@@ -1563,7 +1563,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id },
       {
         onSuccess: () => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? prev.filter(s => s.id !== id) : prev,
           );
           if (id === currentScenario?.id) {
@@ -1574,6 +1574,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               navigate(chapterPath);
             }
           }
+          // Purge the deleted scenario's per-id cache so a lingering
+          // ?scenario=<deletedId> (or a stale scenarioFromApi read) can't
+          // resurrect it as a truthy currentScenario — the delete-all-then-
+          // reopen path that otherwise hid the "create your first scenario"
+          // CTA behind a phantom scenario.
+          queryClient.removeQueries({ queryKey: getGetScenarioQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
       },
@@ -1594,7 +1600,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id, data: { name } },
       {
         onSuccess: updated => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
           );
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
@@ -1741,7 +1747,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { data: { name, modelId, inputs: entry.inputs } },
       {
         onSuccess: created => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? [...prev, created] : [created],
           );
           navigate(`?scenario=${created.id}`);

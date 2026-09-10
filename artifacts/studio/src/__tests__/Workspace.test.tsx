@@ -18,7 +18,7 @@ vi.mock("wouter", () => ({
 }));
 
 // ── Mock React Query ──────────────────────────────────────────────────────────
-const mockQueryClient = { invalidateQueries: vi.fn(), setQueryData: vi.fn() };
+const mockQueryClient = { invalidateQueries: vi.fn(), setQueryData: vi.fn(), removeQueries: vi.fn() };
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: vi.fn(() => mockQueryClient),
 }));
@@ -151,7 +151,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace } from "@/pages/Workspace";
-import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario } from "@workspace/api-client-react";
+import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
@@ -186,6 +186,7 @@ beforeEach(() => {
   mockDeleteScenario.isPending = false;
   mockQueryClient.invalidateQueries.mockReset();
   mockQueryClient.setQueryData.mockReset();
+  mockQueryClient.removeQueries.mockReset();
   mockUseGetSolveJob.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetSolveJob>);
   mockUseListScenarios.mockReturnValue({ data: [scenario, scenario2] } as unknown as ReturnType<typeof useListScenarios>);
   mockUsePrecheckScenario.mockReturnValue({ data: { ok: true, errors: [] } } as unknown as ReturnType<typeof usePrecheckScenario>);
@@ -1626,6 +1627,16 @@ describe("Workspace — delete scenario", () => {
     fireEvent.click(screen.getByTestId("button-confirm-delete-1"));
 
     expect(mockNavigate).toHaveBeenCalledWith("/chapter-3");
+    // Regression (delete-all CTA bug): the deleted scenario's per-id cache
+    // must be purged so a lingering ?scenario=<deletedId> / stale
+    // scenarioFromApi can't resurrect it and hide the create-first CTA.
+    expect(mockQueryClient.removeQueries).toHaveBeenCalledWith({
+      queryKey: getGetScenarioQueryKey(1),
+    });
+    // And the optimistic list update must derive its key from the real
+    // modelId-scoped params (not the phantom no-arg key that silently
+    // no-op'd against the live ['/api/scenarios', {modelId}] cache entry).
+    expect(getListScenariosQueryKey).toHaveBeenCalledWith({ modelId: "p-median-us" });
   });
 });
 
