@@ -46,8 +46,11 @@ test.describe("Empty-first-run Workspace state", () => {
     // 1. Page renders, no crash.
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-    // 2. Scenarios sidebar: empty state + reachable create control.
-    await expect(page.getByText("No scenarios yet")).toBeVisible();
+    // 2. Scenarios sidebar: empty state + reachable create control. Scoped
+    // to the sidebar section testid — the new content-area CTA (item 4
+    // below) also contains the substring "No scenarios yet", which makes an
+    // unscoped getByText a strict-mode ambiguity violation.
+    await expect(page.getByTestId("sidebar-section-scenarios").getByText("No scenarios yet")).toBeVisible();
     const createBtn = page.getByTestId("button-create-scenario");
     await expect(createBtn).toBeVisible();
     await expect(createBtn).toBeEnabled();
@@ -89,7 +92,8 @@ test.describe("Empty-first-run Workspace state", () => {
     await dialog.getByRole("button", { name: /create/i }).click();
 
     await expect(page.getByTestId("input-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByText("No scenarios yet")).not.toBeVisible();
+    await expect(page.getByTestId("sidebar-section-scenarios").getByText("No scenarios yet")).not.toBeVisible();
+    await expect(page.getByTestId("create-first-scenario-cta")).not.toBeVisible();
     await expect(page.getByTestId("button-run-optimizer")).toBeEnabled();
 
     expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
