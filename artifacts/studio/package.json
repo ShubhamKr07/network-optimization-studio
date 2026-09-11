@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.10",
-    "html-to-image": "^1.11.13"
+    "html-to-image": "^1.11.13",
+    "posthog-js": "^1.430.2"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
