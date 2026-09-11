@@ -9,6 +9,7 @@
     "migrate-scenario-inputs": "tsx ./src/migrate-scenario-inputs.ts",
     "strip-network-edits": "tsx ./src/strip-network-edits.ts",
     "harness:record": "tsx ./src/harness/record-task.ts",
+    "smoke": "tsx ./src/deploy/smoke.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

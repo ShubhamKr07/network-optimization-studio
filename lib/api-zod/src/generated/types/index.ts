@@ -26,6 +26,7 @@ export * from './getDatasetModelId';
 export * from './getDatasetParams';
 export * from './getSolveHistoryParams';
 export * from './healthStatus';
+export * from './healthStatusDb';
 export * from './importApplyRequest';
 export * from './importApplyRequestEntity';
 export * from './importApplyRequestMode';

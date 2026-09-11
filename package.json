@@ -10,7 +10,8 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "harness:record": "pnpm --filter @workspace/scripts harness:record --",
     "e2e:gate": "pnpm --filter studio e2e:gate --",
-    "e2e:quarantine": "pnpm --filter studio e2e:quarantine --"
+    "e2e:quarantine": "pnpm --filter studio e2e:quarantine --",
+    "smoke": "pnpm --filter @workspace/scripts smoke --"
   },
   "private": true,
   "devDependencies": {

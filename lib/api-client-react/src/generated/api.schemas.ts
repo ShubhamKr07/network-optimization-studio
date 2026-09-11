@@ -44,8 +44,21 @@ export interface ErrorEnvelope {
   error: string;
 }
 
+/**
+ * Database reachability (a SELECT 1 against the pool). `down` still returns 200 — the API process is up.
+ */
+export type HealthStatusDb = typeof HealthStatusDb[keyof typeof HealthStatusDb];
+
+
+export const HealthStatusDb = {
+  ok: 'ok',
+  down: 'down',
+} as const;
+
 export interface HealthStatus {
   status: string;
+  /** Database reachability (a SELECT 1 against the pool). `down` still returns 200 — the API process is up. */
+  db: HealthStatusDb;
 }
 
 export type WarehouseCandidateKind = typeof WarehouseCandidateKind[keyof typeof WarehouseCandidateKind];

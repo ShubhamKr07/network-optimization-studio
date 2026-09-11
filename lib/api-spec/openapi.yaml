@@ -628,8 +628,13 @@ components:
       properties:
         status:
           type: string
+        db:
+          type: string
+          enum: [ok, down]
+          description: Database reachability (a SELECT 1 against the pool). `down` still returns 200 — the API process is up.
       required:
         - status
+        - db
 
     WarehouseCandidate:
       type: object

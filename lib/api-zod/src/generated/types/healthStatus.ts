@@ -5,7 +5,10 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { HealthStatusDb } from './healthStatusDb';
 
 export interface HealthStatus {
   status: string;
+  /** Database reachability (a SELECT 1 against the pool). `down` still returns 200 — the API process is up. */
+  db: HealthStatusDb;
 }

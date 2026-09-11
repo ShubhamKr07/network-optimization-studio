@@ -13,9 +13,28 @@ const mockDb = vi.hoisted(() => ({
 
 const mockEnqueueSolveJob = vi.hoisted(() => vi.fn());
 const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
+const mockPool = vi.hoisted(() => ({ query: vi.fn(async () => ({ rows: [{ "?column?": 1 }] })) }));
+// POSTHOG-2 — posthog is null in this test process (no POSTHOG_API_KEY), so
+// `posthog?.capture(...)` in scenarios.ts is normally a silent no-op. Mock a
+// minimal stand-in so the 429 capture assertion has something to spy on.
+// `withContext`/`options` are only present so app.ts's real
+// `setupExpressRequestContext`/`setupExpressErrorHandler` (gated on
+// `if (posthog)`, unconditionally registered as middleware for the whole
+// test file) don't throw when they wrap every request — no test in this
+// file triggers the error-handler path, so `capture`/`withContext` are the
+// only members that actually matter.
+const mockPosthogCapture = vi.hoisted(() => vi.fn());
+vi.mock("../lib/posthog.js", () => ({
+  posthog: {
+    capture: mockPosthogCapture,
+    withContext: (_ctx: unknown, fn: () => unknown) => fn(),
+    options: {},
+  },
+}));
 
 vi.mock("@workspace/db", () => ({
   db: mockDb,
+  pool: mockPool,
   scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
   solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary" },
   usersTable: { id: "id", email: "email" },
@@ -211,10 +230,23 @@ beforeEach(() => {
 
 // ── Health ─────────────────────────────────────────────────────────────────
 describe("GET /api/healthz", () => {
-  it("returns 200 with status ok", async () => {
+  beforeEach(() => {
+    mockPool.query.mockReset();
+    mockPool.query.mockResolvedValue({ rows: [{ "?column?": 1 }] });
+  });
+
+  it("returns 200 with status ok and db ok when the pool responds", async () => {
     const res = await request(app).get("/api/healthz");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ status: "ok" });
+    expect(res.body).toMatchObject({ status: "ok", db: "ok" });
+    expect(mockPool.query).toHaveBeenCalled();
+  });
+
+  it("reports db down (still 200) when the pool query throws", async () => {
+    mockPool.query.mockRejectedValueOnce(new Error("connection refused"));
+    const res = await request(app).get("/api/healthz");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "ok", db: "down" });
   });
 });
 
@@ -1864,6 +1896,30 @@ describe("POST /api/scenarios/:id/solve", () => {
     // of 429; asserting 429 here proves the capacity check ran first.
     const res = await request(app).post("/api/scenarios/999999/solve").set("Cookie", cookie);
     expect(res.status).toBe(429);
+  });
+
+  // POSTHOG-2 — the 429 backpressure branch captures a "scenario solve
+  // rejected" event. No `model_id`: the queue check runs before the
+  // scenario row is loaded, so it isn't known yet at this point.
+  it("captures 'scenario solve rejected' when the queue is at capacity", async () => {
+    const cookie = await loginAs(OWNER);
+    mockGetQueueDepth.mockReturnValue(30); // mocked QUEUE_DEPTH_LIMIT is 30
+
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+
+    expect(res.status).toBe(429);
+    expect(mockPosthogCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: OWNER,
+        event: "scenario solve rejected",
+        // Exact payload — model_id is NOT present (see comment above). Use a
+        // strict object match, not objectContaining, to catch any extra key.
+        properties: {
+          scenario_id: 1,
+          queue_depth: expect.any(Number),
+        },
+      }),
+    );
   });
 
   // B2.1 — semantic precheck runs after shape validation, before enqueue.
