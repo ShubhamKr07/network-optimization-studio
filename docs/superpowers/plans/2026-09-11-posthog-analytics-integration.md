@@ -23,6 +23,19 @@
 
 ---
 
+## Review notes added to this plan
+
+**Review status:** Approved with clarifications. This is materially stronger than the earlier draft and correctly aligns to the existing backend integration, but there are two implementation-level points to lock down before execution.
+
+- **Important:** the Anthropic model string in the synthesis task should be pinned to a repo-approved value, not left as a guessed model name. The plan currently reads like a future-proof default rather than a concrete runtime dependency, and the implementation will fail at runtime if the model is not valid in the configured Anthropic account.
+- **Important:** the 429 event contract should be explicit about the failure point. If the queue check happens before the scenario lookup, then `model_id` may not be available. The event payload should still satisfy the global allowlist exactly — meaning the task should state a concrete fallback contract such as `{ scenario_id, queue_depth }` or `{ scenario_id, model_id, queue_depth }` based on the actual event ordering, not leave it as an optional property decision.
+- **Good:** the plan correctly reuses the existing PostHog backend and avoids the earlier greenfield mistake; the event taxonomy and allowlist are much more grounded in the repo reality.
+- **Good:** the plan keeps the identity contract anchored to the actual `user.id` / `req.userId` equivalence and the no-op/no-break pattern for missing keys.
+
+These are implementation clarifications rather than conceptual blockers. Once the model name and 429-payload fallback are pinned, the plan is ready to execute.
+
+---
+
 ### Task 1: Existing-PostHog inventory + identity-equality confirmation
 
 Read-only audit that de-risks every later task. Produces a committed inventory doc and pins the single load-bearing assumption (frontend `user.id` === backend `req.userId`) before any `identify` call is written.
@@ -71,7 +84,7 @@ The only backend code change. Adds one capture at the backpressure site, matchin
 
 **Interfaces:**
 - Consumes: existing `posthog` singleton (`import { posthog } from "../lib/posthog.js"`, already imported at `scenarios.ts:4`); existing `getQueueDepth`, `QUEUE_DEPTH_LIMIT`.
-- Produces: event `"scenario solve rejected"`, props `{ scenario_id, model_id, queue_depth }`.
+- Produces: event `"scenario solve rejected"`, props **exactly** `{ scenario_id, queue_depth }`. `model_id` is deliberately excluded: the queue check at `scenarios.ts:292` is fail-fast **before** the scenario row is loaded (`db.select` at `scenarios.ts:300`), so `modelId` is not yet known at this point. Both keys are in the allowlist.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -95,11 +108,12 @@ it("captures 'scenario solve rejected' when the queue is at capacity", async () 
     expect.objectContaining({
       distinctId: expect.any(String),
       event: "scenario solve rejected",
-      properties: expect.objectContaining({
+      // Exact payload — model_id is NOT present (see Interfaces). Use a
+      // strict object match, not objectContaining, to catch any extra key.
+      properties: {
         scenario_id: scenarioId,
-        model_id: expect.any(String),
         queue_depth: expect.any(Number),
-      }),
+      },
     }),
   );
 });
@@ -114,7 +128,7 @@ Expected: FAIL — no such capture.
 
 - [ ] **Step 3: Add the capture at the 429 block**
 
-At `scenarios.ts:292`, before/after sending the 429 response (must run even though the request is rejected — it does not enqueue). The scenario row has not been loaded at this point (the queue check is fail-fast before DB work), so `model_id` must come from the already-loaded scenario if available, else omit it. Confirm ordering against the real handler: if the scenario lookup happens AFTER the queue check, capture only `{ scenario_id, queue_depth }` (still allowlisted). Use `req.params` for `scenario_id`:
+At `scenarios.ts:292`, immediately inside the queue-limit branch, before sending the 429 response (it must run even though the request is rejected — the request never enqueues). The scenario row is NOT loaded here — the queue check is fail-fast before the `db.select` at `scenarios.ts:300` — so the payload is exactly `{ scenario_id, queue_depth }`, no `model_id`. Use `req.params` for `scenario_id`:
 
 ```ts
 if (getQueueDepth() >= QUEUE_DEPTH_LIMIT) {
@@ -122,13 +136,13 @@ if (getQueueDepth() >= QUEUE_DEPTH_LIMIT) {
     distinctId: req.userId!,
     event: "scenario solve rejected",
     properties: {
-      scenario_id: Number(req.params.id),
+      scenario_id: Number(req.params.scenarioId),
       queue_depth: getQueueDepth(),
     },
   });
   res.status(429)
     .set("Retry-After", String(SOLVE_RETRY_AFTER_SECONDS))
-    .json({ error: "Solve queue is full. Retry shortly." });
+    .json({ error: "Solver is at capacity, try again shortly" });
   return;
 }
 ```
@@ -753,7 +767,12 @@ export async function synthesizeReport(agg: WeeklyAggregates, opts: { anthropicA
     "```",
   ].join("\n");
   const msg = await client.messages.create({
-    model: "claude-opus-4-8",
+    // Pinned concrete model id (valid current Anthropic model). Sonnet 5 is
+    // deliberately chosen over Opus for a weekly summarization/synthesis job:
+    // capable enough for aggregate-to-prose, materially cheaper for a cron.
+    // If the configured Anthropic account lacks this model, change it here to
+    // an id that account has (e.g. "claude-opus-4-8"); do NOT leave it unpinned.
+    model: "claude-sonnet-5",
     max_tokens: 2000,
     messages: [{ role: "user", content: prompt }],
   });
