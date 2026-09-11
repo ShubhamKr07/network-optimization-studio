@@ -21,6 +21,11 @@ const KNOWN_SCHEMAS: Record<string, ZodType> = {
   "two-echelon-gold-au": twoEchelonInputsSchema,
 };
 
+// The model ids that are fully implemented (have a Zod input validator here). This is the
+// authoritative "implemented" set the OBS-5 registration-points gate cross-checks against
+// VALID_MODEL_IDS, buildPayload, and solve.py's dispatcher.
+export const KNOWN_MODEL_IDS: readonly string[] = Object.keys(KNOWN_SCHEMAS);
+
 function discoverManifests(): Map<string, Manifest> {
   const map = new Map<string, Manifest>();
   for (const entry of fs.readdirSync(SOLVERS_ROOT, { withFileTypes: true })) {

@@ -10,3 +10,7 @@ date,task_id,phase,cause,test_or_check,notes,gate_proposed,gate_accepted
 2026-09-11,OBS-3-audit,review,spec_gap,input-map-v2.spec.ts::marker right-click menu/ghost copy/move,create-entity-dialog interaction flow drifted (Input Map v2 map-first edits),pnpm e2e:gate in CI,
 2026-09-11,OBS-3-audit,review,spec_gap,workspace-ux-r1-r9.spec.ts::p-median-us R1-R9 + facility compare,cost-summary-compare-open-facilities-<id> seed-coupled + Bundle 6 Solution Summary compare rework,pnpm e2e:gate in CI,
 2026-09-11,OBS-3-audit,review,spec_gap,bundle2-fastfollow.spec.ts::add mine+station→Save→Solve,toContain assertion on generated lane-cost content drifted,pnpm e2e:gate in CI,
+2026-07-24,chapter-10-R1,integration,registration_point,registration.test.ts,"header title fell back to 'Al's Athletics' — chapterForModelId not extended for two-echelon-gold-au (per-model allowlist updated for one model, not the sibling)",registration.test.ts,yes
+2026-07-24,chapter-10-R1,integration,registration_point,registration.test.ts,refinery import/export missing — override-entity registration (services/templates.ts) not extended for the new model,registration.test.ts,yes
+2026-07-24,chapter-10-R1,integration,registration_point,registration.test.ts,map multi-select allowlist excluded two-echelon-gold-au entirely,registration.test.ts,yes
+2026-07-24,chapter-10-R4,integration,registration_point,registration.test.ts,CONSTRAINTS panel had no two-echelon entry — silently fell back to p-median-us's constraint list,registration.test.ts,yes
