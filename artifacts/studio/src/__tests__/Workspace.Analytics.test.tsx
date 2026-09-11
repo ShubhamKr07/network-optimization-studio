@@ -228,5 +228,61 @@ describe("Workspace — analytics: tab activation (POSTHOG-5)", () => {
   });
 });
 
-// POSTHOG-6's "override edited"/"distance override set" tests are appended
-// to this same file by that task (extends this file, per the plan).
+describe("Workspace — analytics: override edits (POSTHOG-6)", () => {
+  it("tracks 'override edited' with entity/field when a warehouse status changes", async () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    fireEvent.click(screen.getByTestId("button-wh-CHI-forced_open"));
+
+    await waitFor(() =>
+      expect(mockTrack).toHaveBeenCalledWith(
+        "override edited",
+        expect.objectContaining({ entity: "warehouses", field: "status", model_id: "p-median-us", scenario_id: 1 }),
+      ),
+    );
+  });
+
+  it("never includes the new status/value in the event payload", async () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    fireEvent.click(screen.getByTestId("button-wh-CHI-forced_open"));
+
+    await waitFor(() => expect(mockTrack).toHaveBeenCalledWith("override edited", expect.anything()));
+    const call = mockTrack.mock.calls.find(c => c[0] === "override edited")!;
+    expect(call[1]).not.toHaveProperty("status");
+    expect(call[1]).not.toHaveProperty("value");
+    expect(Object.keys(call[1] as object).sort()).toEqual(["entity", "field", "model_id", "scenario_id"]);
+  });
+
+  it("tracks 'override edited' with entity 'customers' and field 'demand' when a customer demand changes", async () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    fireEvent.change(screen.getByTestId("input-customer-demand-C1"), { target: { value: "250" } });
+
+    await waitFor(() =>
+      expect(mockTrack).toHaveBeenCalledWith(
+        "override edited",
+        expect.objectContaining({ entity: "customers", field: "demand", model_id: "p-median-us" }),
+      ),
+    );
+  });
+});
+
+describe("Workspace — analytics: distance override set (POSTHOG-6)", () => {
+  it("tracks 'distance override set' when a distance override is entered", async () => {
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    fireEvent.click(screen.getByTestId("button-add-distance-row"));
+    fireEvent.change(screen.getByTestId("input-new-distance-from"), { target: { value: "CHI" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-to"), { target: { value: "C1" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-value"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("button-add-distance-confirm"));
+
+    await waitFor(() =>
+      expect(mockTrack).toHaveBeenCalledWith(
+        "distance override set",
+        expect.objectContaining({ model_id: "p-median-us", scenario_id: 1 }),
+      ),
+    );
+  });
+});

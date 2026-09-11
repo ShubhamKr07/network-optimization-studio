@@ -114,6 +114,32 @@ function customerOverridesFromInputs(inputs: Record<string, unknown> | null): Cu
   return Array.isArray(raw) ? (raw as CustomerOverride[]) : [];
 }
 
+// POSTHOG-6 — best-effort field-name inference for the "override edited"
+// event. WarehouseTable/CustomerTable's own upsert() always patches exactly
+// one field per onChange call, but they hand back the FULL next overrides
+// array (not a {id, field} delta) — diff against the array just before this
+// call to recover which field changed, without ever reading (let alone
+// capturing) the row's actual new value, which is never allowlisted (see
+// the plan's Global Constraints — status/capacity/demand VALUES are
+// forbidden, only the field NAME is captured). A row dropping out of the
+// array entirely (reverted to the "active"/no-capacity no-op WarehouseTable/
+// CustomerTable already collapse to) is reported as "status" — the common
+// case — since which field a removed row's now-inaccessible prior state
+// changed last isn't recoverable from the array alone; this is telemetry,
+// not business logic, so an approximate default here is acceptable.
+function overrideEditedField(
+  prev: { id: string; status?: string; capacity?: number | null; demand?: number | null }[],
+  next: { id: string; status?: string; capacity?: number | null; demand?: number | null }[],
+): string {
+  for (const n of next) {
+    const p = prev.find(x => x.id === n.id);
+    if ((p?.status ?? "active") !== (n.status ?? "active")) return "status";
+    if ((p?.capacity ?? null) !== (n.capacity ?? null)) return "capacity";
+    if ((p?.demand ?? null) !== (n.demand ?? null)) return "demand";
+  }
+  return "status";
+}
+
 function capacityModeFromInputs(inputs: Record<string, unknown> | null): "none" | "uniform" | "per_wh" {
   const raw = inputs?.capacityMode;
   return raw === "uniform" || raw === "per_wh" ? raw : "none";
@@ -1892,7 +1918,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           warehouses={dataset.warehouses}
           overrides={warehouseOverridesFromInputs(localInputs)}
           capacityMode={capacityModeFromInputs(localInputs)}
-          onChange={next => updateInputsField("warehouseOverrides", next)}
+          onChange={next => {
+            track("override edited", {
+              scenario_id: currentScenario?.id,
+              model_id: modelId,
+              entity: "warehouses",
+              field: overrideEditedField(warehouseOverridesFromInputs(localInputs), next),
+            });
+            updateInputsField("warehouseOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           addedWarehouses={addedWarehousesFromInputs(localInputs)}
@@ -1947,7 +1981,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         <CustomersTab
           customers={dataset.customers}
           overrides={customerOverridesFromInputs(localInputs)}
-          onChange={next => updateInputsField("customerOverrides", next)}
+          onChange={next => {
+            track("override edited", {
+              scenario_id: currentScenario?.id,
+              model_id: modelId,
+              entity: "customers",
+              field: overrideEditedField(customerOverridesFromInputs(localInputs), next),
+            });
+            updateInputsField("customerOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           prefillCoords={pendingPrefill}
@@ -2057,7 +2099,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
           warehouseIds={knownWarehouseIds(dataset, localInputs)}
           customerIds={knownCustomerIds(dataset, localInputs)}
-          onChange={next => updateInputsField("distanceOverrides", next)}
+          onChange={next => {
+            track("distance override set", { scenario_id: currentScenario?.id, model_id: modelId });
+            updateInputsField("distanceOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
@@ -2089,7 +2134,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           mineIds={knownGoldMineIds(dataset)}
           refineryIds={knownGoldRefineryIds(dataset, localInputs)}
           customerIds={knownGoldCustomerIds(dataset, localInputs)}
-          onChange={next => updateInputsField("distanceOverrides", next)}
+          onChange={next => {
+            track("distance override set", { scenario_id: currentScenario?.id, model_id: modelId });
+            updateInputsField("distanceOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
