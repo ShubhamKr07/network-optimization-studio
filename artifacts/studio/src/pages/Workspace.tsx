@@ -23,7 +23,6 @@ import {
   type SolveResult,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
-import { AppFooter } from "@/components/AppFooter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,6 +83,7 @@ import {
   completenessCountForStation,
   type PrecheckErrorLike,
 } from "@/lib/precheckDisplay";
+import { track } from "@/lib/analytics";
 
 // A5.1-A5.3 — every model's default `inputs` shape for a brand-new scenario,
 // copied verbatim from Studio.tsx's handleCreateConfirm switch
@@ -112,6 +112,32 @@ function warehouseOverridesFromInputs(inputs: Record<string, unknown> | null): W
 function customerOverridesFromInputs(inputs: Record<string, unknown> | null): CustomerOverride[] {
   const raw = inputs?.customerOverrides;
   return Array.isArray(raw) ? (raw as CustomerOverride[]) : [];
+}
+
+// POSTHOG-6 — best-effort field-name inference for the "override edited"
+// event. WarehouseTable/CustomerTable's own upsert() always patches exactly
+// one field per onChange call, but they hand back the FULL next overrides
+// array (not a {id, field} delta) — diff against the array just before this
+// call to recover which field changed, without ever reading (let alone
+// capturing) the row's actual new value, which is never allowlisted (see
+// the plan's Global Constraints — status/capacity/demand VALUES are
+// forbidden, only the field NAME is captured). A row dropping out of the
+// array entirely (reverted to the "active"/no-capacity no-op WarehouseTable/
+// CustomerTable already collapse to) is reported as "status" — the common
+// case — since which field a removed row's now-inaccessible prior state
+// changed last isn't recoverable from the array alone; this is telemetry,
+// not business logic, so an approximate default here is acceptable.
+function overrideEditedField(
+  prev: { id: string; status?: string; capacity?: number | null; demand?: number | null }[],
+  next: { id: string; status?: string; capacity?: number | null; demand?: number | null }[],
+): string {
+  for (const n of next) {
+    const p = prev.find(x => x.id === n.id);
+    if ((p?.status ?? "active") !== (n.status ?? "active")) return "status";
+    if ((p?.capacity ?? null) !== (n.capacity ?? null)) return "capacity";
+    if ((p?.demand ?? null) !== (n.demand ?? null)) return "demand";
+  }
+  return "status";
 }
 
 function capacityModeFromInputs(inputs: Record<string, unknown> | null): "none" | "uniform" | "per_wh" {
@@ -1245,6 +1271,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
   }
 
+  // POSTHOG-5 — tab-activation chokepoint (passed to <TabBar onActivate>
+  // below). Fires "scenario tab viewed" when the user activates an
+  // already-open tab from the tab strip. (Opening a NEW tab from the
+  // sidebar dispatches "open" directly via openTab() above, not through
+  // this handler — that's a distinct "tab opened" moment, not a "viewed"
+  // one, and is out of this task's scope.)
+  function handleActivateTab(id: string) {
+    dispatch({ type: "activate", id });
+    track("scenario tab viewed", { tab: id, model_id: modelId });
+  }
+
   // Bundle 6 T2 (item 1, resolution #3) — one-shot Input Map seeding: opens
   // the Input Map tab exactly once per model entry, keyed on `modelId` (not
   // reactively on `activeTab === null`, which would reopen Input Map after
@@ -1305,6 +1342,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function handleAddedArrayChange<T extends { id: string }>(kind: string, fieldKey: string, current: T[], next: T[]) {
     updateInputsField(fieldKey, next);
     if (next.length > current.length) {
+      track("map entity added", { entity: kind, model_id: modelId, scenario_id: currentScenario?.id });
       const currentIds = new Set(current.map(e => e.id));
       const added = next.find(e => !currentIds.has(e.id));
       if (added) handleEntityAdded(kind, added.id);
@@ -1533,7 +1571,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       {
         onSuccess: created => {
           setShowCreateDialog(false);
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? [...prev, created] : [created],
           );
           navigate(`?scenario=${created.id}`);
@@ -1548,7 +1586,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id },
       {
         onSuccess: cloned => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? [...prev, cloned] : [cloned],
           );
           navigate(`?scenario=${cloned.id}`);
@@ -1563,7 +1601,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id },
       {
         onSuccess: () => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? prev.filter(s => s.id !== id) : prev,
           );
           if (id === currentScenario?.id) {
@@ -1574,6 +1612,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               navigate(chapterPath);
             }
           }
+          // Purge the deleted scenario's per-id cache so a lingering
+          // ?scenario=<deletedId> (or a stale scenarioFromApi read) can't
+          // resurrect it as a truthy currentScenario — the delete-all-then-
+          // reopen path that otherwise hid the "create your first scenario"
+          // CTA behind a phantom scenario.
+          queryClient.removeQueries({ queryKey: getGetScenarioQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
         },
       },
@@ -1594,7 +1638,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { scenarioId: id, data: { name } },
       {
         onSuccess: updated => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? prev.map(s => (s.id === id ? updated : s)) : prev,
           );
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
@@ -1635,6 +1679,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (!currentScenario) return;
     setSolveError(null);
     const scenarioId = currentScenario.id;
+
+    track("solve triggered", { scenario_id: currentScenario.id, model_id: modelId });
+    if (currentScenario.stale) {
+      track("scenario stale resolved", { scenario_id: currentScenario.id, model_id: modelId });
+    }
 
     const runSolve = () => {
       setSolvePhase("solving");
@@ -1741,7 +1790,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       { data: { name, modelId, inputs: entry.inputs } },
       {
         onSuccess: created => {
-          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey(), prev =>
+          queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
             prev ? [...prev, created] : [created],
           );
           navigate(`?scenario=${created.id}`);
@@ -1869,7 +1918,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           warehouses={dataset.warehouses}
           overrides={warehouseOverridesFromInputs(localInputs)}
           capacityMode={capacityModeFromInputs(localInputs)}
-          onChange={next => updateInputsField("warehouseOverrides", next)}
+          onChange={next => {
+            track("override edited", {
+              scenario_id: currentScenario?.id,
+              model_id: modelId,
+              entity: "warehouses",
+              field: overrideEditedField(warehouseOverridesFromInputs(localInputs), next),
+            });
+            updateInputsField("warehouseOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           addedWarehouses={addedWarehousesFromInputs(localInputs)}
@@ -1924,7 +1981,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         <CustomersTab
           customers={dataset.customers}
           overrides={customerOverridesFromInputs(localInputs)}
-          onChange={next => updateInputsField("customerOverrides", next)}
+          onChange={next => {
+            track("override edited", {
+              scenario_id: currentScenario?.id,
+              model_id: modelId,
+              entity: "customers",
+              field: overrideEditedField(customerOverridesFromInputs(localInputs), next),
+            });
+            updateInputsField("customerOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           prefillCoords={pendingPrefill}
@@ -2034,7 +2099,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
           warehouseIds={knownWarehouseIds(dataset, localInputs)}
           customerIds={knownCustomerIds(dataset, localInputs)}
-          onChange={next => updateInputsField("distanceOverrides", next)}
+          onChange={next => {
+            track("distance override set", { scenario_id: currentScenario?.id, model_id: modelId });
+            updateInputsField("distanceOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
@@ -2066,7 +2134,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           mineIds={knownGoldMineIds(dataset)}
           refineryIds={knownGoldRefineryIds(dataset, localInputs)}
           customerIds={knownGoldCustomerIds(dataset, localInputs)}
-          onChange={next => updateInputsField("distanceOverrides", next)}
+          onChange={next => {
+            track("distance override set", { scenario_id: currentScenario?.id, model_id: modelId });
+            updateInputsField("distanceOverrides", next);
+          }}
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
@@ -2363,7 +2434,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <TabBar
             tabs={tabState.tabs}
             activeTabId={tabState.activeTabId}
-            onActivate={id => dispatch({ type: "activate", id })}
+            onActivate={handleActivateTab}
             onClose={id => dispatch({ type: "close", id })}
           />
           {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && (
@@ -2484,16 +2555,6 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         </DialogContent>
       </Dialog>
 
-      {/* T9 (C1) — footer, mounted as the LAST child of this root
-          `h-screen flex flex-col` column, inside `.scn-theme`. `AppFooter`
-          is `flex-shrink-0` (FOOTER_H fixed height), so it simply reserves
-          its own space as a flex sibling of the body region's `flex-1
-          min-h-0` wrapper above — no overlap, no extra height math needed
-          here (flexbox already shrinks the body region to make room). Order
-          relative to the Dialogs above is irrelevant — both Dialog and
-          SolveDialog render via a Radix portal to document.body, not in
-          this flex flow. */}
-      <AppFooter />
     </div>
   );
 }

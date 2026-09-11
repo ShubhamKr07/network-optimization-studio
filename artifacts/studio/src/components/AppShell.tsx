@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AppFooter } from "@/components/AppFooter";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
+import { resetUser } from "@/lib/analytics";
 
 interface AppShellProps {
   userEmail: string;
@@ -29,6 +30,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
         // URL, and AuthedRouter has no "/login" route — 404. Clear the
         // cache synchronously instead of waiting on a refetch.
         queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), { user: null });
+        resetUser();
         navigate("/login", { replace: true });
       },
     });
