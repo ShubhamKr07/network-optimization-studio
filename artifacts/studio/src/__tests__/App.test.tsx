@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import * as analytics from "@/lib/analytics";
 
 // Real wouter, real react-query — this bug (a real production 404 after
 // login/register/logout) was a routing/timing issue that a fully-mocked
@@ -29,7 +30,7 @@ vi.mock("@workspace/api-client-react", () => ({
 
 import { Gate } from "@/App";
 
-function renderAt(path: string, user: { email: string } | null) {
+function renderAt(path: string, user: { email: string; id?: string } | null) {
   mockUseGetCurrentAuthUser.mockReturnValue({ data: { user }, isLoading: false });
   const { hook } = memoryLocation({ path });
   const queryClient = new QueryClient();
@@ -153,4 +154,24 @@ describe("Gate routing — A5.1/A5.2/A5.3 fast-follow flips: every chapter route
       expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
     },
   );
+});
+
+describe("Gate — analytics (POSTHOG-4): identify on auth, $pageview on nav", () => {
+  it("identifies the user by id when authenticated", async () => {
+    vi.spyOn(analytics, "identifyUser");
+    renderAt("/", { email: "student@example.com", id: "u1" });
+    await waitFor(() => expect(analytics.identifyUser).toHaveBeenCalledWith("u1"));
+  });
+
+  it("does not identify when unauthenticated (no user id)", async () => {
+    const identifySpy = vi.spyOn(analytics, "identifyUser");
+    renderAt("/login", null);
+    expect(identifySpy).not.toHaveBeenCalled();
+  });
+
+  it("fires a $pageview on every render (including navigation)", async () => {
+    const trackSpy = vi.spyOn(analytics, "track");
+    renderAt("/", { email: "student@example.com", id: "u1" });
+    await waitFor(() => expect(trackSpy).toHaveBeenCalledWith("$pageview"));
+  });
 });

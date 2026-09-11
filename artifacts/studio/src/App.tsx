@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +13,7 @@ import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
 import { AppShell } from "@/components/AppShell";
 import { CHAPTERS } from "@/lib/chapters";
+import { identifyUser, track } from "@/lib/analytics";
 
 const queryClient = new QueryClient();
 
@@ -28,12 +30,25 @@ const queryClient = new QueryClient();
 // Redirect rather than a dead end.
 export function Gate() {
   const { data, isLoading } = useGetCurrentAuthUser();
+  const [location] = useLocation();
+  const user = data?.user;
+
+  // Both effects are declared unconditionally, before the isLoading early
+  // return below — hooks must run in the same order on every render of this
+  // component, and an early return placed before a hook call would make
+  // these effects "appear" only once loading finishes, tripping React's
+  // rules-of-hooks invariant.
+  useEffect(() => {
+    if (user?.id) identifyUser(user.id);
+  }, [user?.id]);
+
+  useEffect(() => {
+    track("$pageview");
+  }, [location]);
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading…</div>;
   }
-
-  const user = data?.user;
 
   function authedOnly(children: ReactNode, heroTitle?: string, hero?: boolean) {
     return user ? <AppShell userEmail={user.email} heroTitle={heroTitle} hero={hero}>{children}</AppShell> : <Redirect to="/login" />;
