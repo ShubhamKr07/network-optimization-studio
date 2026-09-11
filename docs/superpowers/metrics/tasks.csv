@@ -1,0 +1,1 @@
+task_id,branch,started_at,finished_at,dispatch_cycles,first_gate_pass,cherrypick_conflict,e2e_runs_to_green,wallclock_min,tokens,merged_sha,reverted_within_7d,escaped_defects
