@@ -1,139 +1,181 @@
 # PostHog Analytics Integration — Design Spec
 
 **Date:** 2026-09-11
-**Status:** Approved (brainstorming), pending spec review → implementation plan
-**Topic:** Product-usage tracking (PostHog) across the studio frontend and api-server backend, plus a weekly LLM-generated product-recommendations report.
+**Status:** Revised after Review 1 (repo-alignment). Pending re-review → implementation plan.
+**Topic:** Extend the **existing** PostHog integration to the studio frontend, close one backend gap (429), and add a weekly LLM-generated product-recommendations report.
+
+## Correction from the first draft
+
+The first draft of this spec assumed a greenfield integration. That was wrong. An audit of the repo (Review 1) found the **backend is already fully instrumented**. This spec is rewritten to **extend** the existing integration, not duplicate or replace it. See "Existing State (audited)" below — it is the ground truth this design builds on.
 
 ## Goal
 
-Instrument Network Optimization Studio so we can see how students actually use the tool — where they succeed, stall, or abandon — and turn that signal into concrete product recommendations. Two outcomes:
+See how students actually use the tool — where they succeed, stall, or abandon — and turn that into product recommendations. Two outcomes:
 
-1. **Metrics** — curated product-usage events flowing to PostHog from both the React studio and the Express api-server, stitched per student.
-2. **Recommendations** — a weekly automated report that reads the week's PostHog aggregates, has Claude synthesize prioritized product recommendations, and commits them to the repo.
+1. **Metrics** — the frontend (currently uninstrumented) starts emitting curated product-usage events to the **same** PostHog project the backend already uses, stitched per student by `user_id`.
+2. **Recommendations** — a weekly GitHub Actions job reads the week's PostHog aggregates, has Claude synthesize prioritized recommendations, and commits them to the repo.
 
-Non-goals: no A/B experiments now (feature flags come free later, out of scope); no session replay at launch; no schema/API-contract change.
+Non-goals: no A/B experiments now (feature flags free later, out of scope); no session replay at launch; no schema/API-contract change; **no rename or removal of any existing event**; no change to the existing backend PostHog client, its env names, or its config.
 
-## Locked Decisions (from brainstorming)
+## Existing State (audited 2026-09-11)
+
+| Area | Current state | File |
+|---|---|---|
+| Backend client | `posthog-node` singleton, null when key unset (no-op), `enableExceptionAutocapture: true` | `artifacts/api-server/src/lib/posthog.ts` |
+| Env names | `POSTHOG_API_KEY`, `POSTHOG_HOST` (default `https://us.i.posthog.com`) | `lib/posthog.ts` |
+| Session/identity linking | `setupExpressRequestContext` reads `X-POSTHOG-DISTINCT-ID` / `X-POSTHOG-SESSION-ID`; `setupExpressErrorHandler` for exceptions | `artifacts/api-server/src/app.ts:63,83` |
+| Shutdown flush | `posthog?.shutdown()` already wired into SIGTERM | `artifacts/api-server/src/index.ts:39,44` |
+| Deploy env | `POSTHOG_API_KEY` (sync:false) + `POSTHOG_HOST` already on `nos-api` | `render.yaml:22-27` |
+| Existing events (26 captures) | `user registered/logged in/logged out`; `scenario created/updated/deleted/solve enqueued/solve completed/solve failed/data exported/data imported/cloned` | `auth.ts`, `scenarios.ts`, `jobRunner.ts` |
+| Event convention | Event names = space-separated `"noun verbed"`; **property keys = `snake_case`** (`scenario_id`, `model_id`, `job_id`); `distinctId: req.userId` | all captures |
+| Frontend | **No PostHog at all** | `artifacts/studio` |
+
+**The only real gaps:** (1) frontend is uninstrumented; (2) the `429` backpressure path (`scenarios.ts:292`) emits no event; (3) no recommendations loop.
+
+## Locked Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Hosting | **PostHog Cloud (US region)** | Free tier (~1M events/mo) covers pilot scale; no infra to run; US matches Render US infra. |
-| Identification | **`identify(user_id)`, never email** | Stitches a student's frontend+backend journey without putting email PII in a 3rd party. |
-| Input privacy | **Masked** | Autocapture masks all text; `ph-no-capture` on data/auth fields; event props carry shape/counts, never scenario values. |
-| Surfaces | **Both frontend + backend, curated events** | Backend holds solver truth (runtime, cache hits, 429s) the frontend can't see. |
-| Rec delivery | **PostHog dashboards + weekly LLM cron → markdown in repo** | Dashboards for interactive/free analysis; cron for recurring synthesized recs, versioned in git. |
-| Cron host | **GitHub Actions scheduled workflow** | Native repo write via `GITHUB_TOKEN`; no push creds to manage; secrets in repo secrets. |
-| Session replay | **Off at launch** | Education data + replay needs a privacy review first; flippable later. |
+| Client | **Extend existing** | Reuse `lib/posthog.ts`, `POSTHOG_API_KEY`/`POSTHOG_HOST`. No new backend client, no second config surface. |
+| Hosting | PostHog Cloud (US) | Already the configured host (`us.i.posthog.com`). |
+| Identification | `distinctId = user_id`, never email | Backend already does this; frontend matches. |
+| Event convention | **Adopt existing** — space-separated names, `snake_case` props | Consistency with the 26 live events; new events additive. |
+| Existing events | **Unchanged** — no rename, no migration, no alias window | Renaming orphans history and breaks live dashboards. |
+| Rec delivery | PostHog dashboards + weekly GitHub Actions LLM cron → markdown in repo | Dashboards free/interactive; cron for recurring synthesized recs, versioned. |
+| Session replay | Off at launch | Education data needs a privacy review first. |
 
 ## Architecture
 
-Three loosely-coupled parts:
-
 ```
-[studio React] --posthog-js--> PostHog Cloud <--posthog-node-- [api-server jobRunner/routes]
-                                     ^
-                                     | HogQL query API (weekly, personal key)
-                          [GitHub Actions cron] --Claude (Anthropic API)-->
-                          commit docs/product-insights/YYYY-MM-DD.md
+[studio React]  --posthog-js-->  PostHog Cloud (existing project)  <--posthog-node (existing)--  [api-server]
+   NEW                                     ^                                                       (unchanged + 429 event)
+                                           | HogQL query API (weekly, personal key)
+                                [GitHub Actions cron] --Claude (Anthropic API)--> commit docs/product-insights/YYYY-MM-DD.md
 ```
 
-- Frontend and backend send to the **same PostHog project**; `distinctId = user_id` unifies a student's frontend + backend events into one person timeline.
-- Capture is **fire-and-forget**: PostHog being down, slow, or misconfigured must never break a solve, a request, or a render. Every capture path swallows its own errors — same "never throw" invariant `jobRunner.ts` already holds.
-- The weekly recommendations job reads **PostHog**, not the app DB, so the recs loop is fully decoupled from app runtime and deploys.
+- Frontend joins the **same** project. `distinctId` must be the **same `user_id` string** the backend already uses, so Web + API events land in one person profile.
+- Fire-and-forget both sides. Frontend mirrors the backend's existing null-guard no-op pattern — PostHog unavailable never breaks render, request, or solve.
+- Weekly job reads PostHog, not the app DB — decoupled from runtime and deploys.
 
 ### Isolation boundaries
 
-- **`studio/src/lib/analytics.ts`** — thin wrapper (`initAnalytics`, `track(event, props)`, `identifyUser(id)`, `resetUser()`). Components never touch the `posthog` global directly. No-op when `VITE_POSTHOG_KEY` is unset. Trivially mockable in RTL.
-- **`api-server/src/services/analytics.ts`** — singleton (`capture(distinctId, event, props)`, `shutdownAnalytics()`). No-op when `POSTHOG_KEY` is unset.
-- **`scripts/product-insights/`** — standalone TS: query PostHog → synthesize with Claude → emit markdown. The GitHub workflow only invokes it. Logic is testable, not buried in YAML.
+- **`studio/src/lib/analytics.ts`** (NEW) — thin wrapper: `initAnalytics()`, `track(event, props)`, `identifyUser(id)`, `resetUser()`. Components never touch the `posthog` global directly. No-op when `VITE_POSTHOG_KEY` unset (mirrors backend's null-guard). Mockable in RTL.
+- **Backend** — no new module. Add exactly one `posthog?.capture(...)` at the 429 site using the existing singleton, matching the existing event/prop convention.
+- **`scripts/product-insights/`** (NEW) — standalone TS: query PostHog → synthesize with Claude → emit markdown. The GitHub workflow only invokes it.
+
+## Identity / DistinctId Flow (Review 3)
+
+1. Backend: every capture already uses `distinctId: req.userId` (auth-derived, no PII). **Unchanged.**
+2. Frontend: on auth success (`useGetCurrentAuthUser` data present), call `identifyUser(user.id)`. `resetUser()` on logout.
+3. **Field-equality invariant (to verify in the audit task):** the `user.id` returned by `useGetCurrentAuthUser` is the same DB `users.id` that `req.userId` resolves to. If the API returns a different key name/shape, the frontend must identify with whatever field equals `req.userId`. This equality is the single load-bearing assumption for profile stitching — the plan's Task 1 confirms it against the real auth response before any `identify` call is written.
+4. posthog-js, once initialized, auto-sends `X-POSTHOG-DISTINCT-ID` / `X-POSTHOG-SESSION-ID` on same-origin/allowed requests; the existing `setupExpressRequestContext` already consumes them for session linking. No backend change needed for this to work.
+5. Result: same `user_id` on both sides ⇒ one person profile, no duplicate/conflicting identity records.
 
 ## Event Catalog
 
-Custom events, `snake_case`, minimal props. Source: **f** = frontend (posthog-js), **b** = backend (posthog-node). Autocapture stays ON underneath as a safety net; these named events are what funnels and recommendations actually consume.
+Convention: event names space-separated `"noun verbed"`; property keys `snake_case`. Source: **f** = frontend (new), **b** = backend.
 
-**Solve lifecycle**
-- `solve_triggered { modelId }` — f
-- `solve_enqueued { modelId }` — b
-- `solve_succeeded { modelId, runTimeSec, cacheHit, objective }` — b
-- `solve_failed { modelId, reason }` — b
-- `queue_429 { modelId }` — b
-- `stale_resolve { modelId }` — f (re-solve after a stale badge)
+### Existing — DO NOT TOUCH (kept for reference / dashboard continuity)
+`user registered` (b), `user logged in` (b), `user logged out` (b), `scenario created` (b), `scenario updated` (b), `scenario deleted` (b), `scenario solve enqueued` (b), `scenario solve completed` (b), `scenario solve failed` (b), `scenario data exported` (b), `scenario data imported` (b), `scenario cloned` (b).
 
-**Editing**
-- `scenario_created { modelId }` — f
-- `override_edited { modelId, entity, field }` — f
-- `map_entity_added { modelId, entity }` — f
-- `distance_override_set { modelId }` — f
+### New — backend (one event)
+- `scenario solve rejected` (b) — at `scenarios.ts:292` when `getQueueDepth() >= QUEUE_DEPTH_LIMIT`. Props: `{ scenario_id, model_id, queue_depth }`.
 
-**Import / export**
-- `import_applied { modelId, entity, rows }` — f
-- `export_clicked { modelId, entity, format }` — f
+### New — frontend
+- `solve triggered` — f — `{ scenario_id, model_id }` (the click, distinct from the backend's `enqueued`/`completed`)
+- `scenario stale resolved` — f — `{ scenario_id, model_id }` (re-solve after a stale badge)
+- `override edited` — f — `{ scenario_id, model_id, entity, field }`
+- `map entity added` — f — `{ scenario_id, model_id, entity }`
+- `distance override set` — f — `{ scenario_id, model_id }`
+- `scenario tab viewed` — f — `{ model_id, tab }`
+- `$pageview` — f — fired on wouter location change (SPA client-nav is invisible to autocapture)
 
-**Navigation**
-- `$pageview` on wouter route change — f (manual; SPA client-nav is invisible to autocapture)
-- `tab_viewed { modelId, tab }` — f
+Autocapture stays ON as a safety net; named events drive funnels/recs.
 
-Property rule: props carry **shape and counts only** (`rows`, `entity`, `field` name, `format`, `modelId`, numeric `objective`/`runTimeSec`) — **never** scenario input values, city names, or any free text.
+## Privacy Boundary (Review 4)
 
-## Privacy & Masking
+**Allowed event props (allowlist — nothing else ships):** `scenario_id` (integer), `model_id` (enum string), `job_id`, `queue_depth` (int), `entity` (enum: `warehouses|customers|mines|stations|refineries|distances`), `field` (enum column name, never a value), `format` (`csv|json`), `tab` (enum tab id), `rows` (int count), `run_time_sec` (number), `cache_hit` (bool), `objective` (number). No other keys permitted on any event.
 
-- `identifyUser(user.id)` in the `useGetCurrentAuthUser` success path; `resetUser()` in the logout handler. DB `user_id` only — **never email**.
-- posthog-js config: `mask_all_text: true`, `mask_all_element_attributes: true`, `autocapture: true`.
-- `ph-no-capture` class applied to any input rendering scenario values (demands, capacities, city/state, distances, BOM ratio) and to auth email/password fields — belt-and-suspenders over autocapture masking.
-- Backend event props never include raw `inputs`; only counts/shape as above.
-- Session replay: **disabled** (`disable_session_recording: true`) at launch.
-- Region: PostHog **US** cloud.
+**Forbidden — never a prop, never captured:** email, name, any scenario `inputs` value (demand, capacity, distance, BOM ratio, lat/lng), city/state strings, free text, cookies/session tokens.
+
+**Frontend redaction:**
+- posthog-js config: `mask_all_text: true`, `mask_all_element_attributes: true`, `autocapture: true`, `disable_session_recording: true`.
+- `ph-no-capture` class on: warehouse/customer/mine/station/refinery table value inputs (capacity, demand, city, state, lat, lng), distance/lane-cost override inputs, BOM-ratio slider, import file picker, and auth email/password fields.
+
+**Backend redaction:** existing captures already send counts/ids only — the audit task re-confirms each of the 26 captures' props against the allowlist. The new 429 event uses only allowlisted props.
+
+## No-Op / Fire-and-Forget (Review 5)
+
+- Backend keeps its exact pattern (`posthog?.capture`, null when `POSTHOG_API_KEY` unset). **No change to the client or its config surface.**
+- Frontend `initAnalytics()` no-ops when `VITE_POSTHOG_KEY` unset (same as the existing `VITE_API_BASE_URL` optional pattern). `track/identify/reset` are safe no-ops when uninitialized.
+- Neither side ever throws into render/request/solve.
 
 ## SDK Wiring
 
-### Frontend (`artifacts/studio`)
+### Frontend (`artifacts/studio`) — the bulk of the work
 - Add dependency `posthog-js`.
-- `lib/analytics.ts` wrapper as above; `initAnalytics()` called from `main.tsx` **after** `setBaseUrl(...)`, guarded by `import.meta.env.VITE_POSTHOG_KEY` (unset locally ⇒ no-op, same pattern as `VITE_API_BASE_URL`).
-- `identifyUser` / `resetUser` wired at auth success / logout.
-- `track(...)` calls at each frontend event site in the catalog. `$pageview` fired on wouter location change.
+- `lib/analytics.ts` wrapper; `initAnalytics()` in `main.tsx` **after** `setBaseUrl(...)`, guarded by `import.meta.env.VITE_POSTHOG_KEY`.
+- `identifyUser(user.id)` / `resetUser()` at auth success / logout.
+- `track(...)` at each frontend event site; `$pageview` on wouter location change.
 
-### Backend (`artifacts/api-server`)
-- Add dependency `posthog-node`.
-- `services/analytics.ts` singleton; no-op when `POSTHOG_KEY` unset.
-- `capture(...)` calls in `jobRunner.ts` (solve lifecycle: enqueued/succeeded/failed) and `routes/scenarios.ts` (`queue_429`).
-- `shutdownAnalytics()` (flushes buffered events) added to the existing SIGTERM path (introduced in `9251d4a`) so a redeploy doesn't drop in-flight events.
+### Backend (`artifacts/api-server`) — minimal
+- Add one `posthog?.capture({ distinctId: req.userId!, event: "scenario solve rejected", properties: {...} })` at `scenarios.ts:292`.
+- **Nothing else.** No new module, no env change, no client change, no SIGTERM change (already wired).
 
 ## Recommendations Loop (GitHub Actions)
 
-- New `.github/workflows/product-insights.yml`: `schedule` (weekly cron) + `workflow_dispatch` (manual trigger).
-- Steps:
-  1. Query PostHog **HogQL query API** for the week's aggregates:
-     - per-model funnel: `scenario_created` → `solve_triggered` → `solve_succeeded` → `export_clicked`, with drop-off at each step;
-     - stale-without-resolve rate (`stale_resolve` vs. staleness occurrences);
-     - `solve_failed` / `queue_429` counts by model and reason;
-     - solve-runtime distribution (`runTimeSec`) and `cacheHit` rate.
-  2. Pass **aggregates only** (never raw PII) to Claude via the Anthropic API.
-  3. Claude writes a prioritized product-recommendations report.
-  4. Commit `docs/product-insights/YYYY-MM-DD.md` using the default `GITHUB_TOKEN`.
-- Repo secrets: `POSTHOG_PROJECT_KEY`, `POSTHOG_PERSONAL_API_KEY` (query API requires a personal API key, distinct from the ingest key), `ANTHROPIC_API_KEY`.
-- The query + synthesis live in `scripts/product-insights/` (TS); the workflow only runs the script.
+- New `.github/workflows/product-insights.yml`: weekly `schedule` + `workflow_dispatch`.
+- Steps: query PostHog **HogQL API** for the week's aggregates → pass **aggregates only** (never raw PII) to Claude (Anthropic API) → Claude writes prioritized recs → commit `docs/product-insights/YYYY-MM-DD.md` with `GITHUB_TOKEN`.
+- Aggregates: per-model funnel (`scenario created` → `solve triggered` → `scenario solve completed` → `scenario data exported`) with drop-off; stale-without-resolve rate; `scenario solve failed` / `scenario solve rejected` counts by model; solve-runtime distribution + `cache_hit` rate.
+- Repo secrets: `POSTHOG_PROJECT_KEY`, `POSTHOG_PERSONAL_API_KEY` (query API needs a personal key, distinct from ingest key), `ANTHROPIC_API_KEY`.
+- Query + synthesis in `scripts/product-insights/` (TS); workflow only runs it.
 
 ## Config & Deploy
 
-- `render.yaml`: add `POSTHOG_KEY` and `POSTHOG_HOST` to **both** `nos-api` and `nos-studio`, `sync: false`.
-- No OpenAPI, no DB schema, no Drizzle change. `inputs` contract untouched.
-- **posthog-cli** (per standing user preference): a CI step uploads studio build sourcemaps to PostHog so future error/replay stack traces deminify. **Optional** — cut if error/replay tracking isn't wanted at launch.
+- `render.yaml`: `nos-api` already has `POSTHOG_API_KEY`/`POSTHOG_HOST` — **unchanged**. Add `VITE_POSTHOG_KEY` (+ optional `VITE_POSTHOG_HOST`) to **`nos-studio`** (`sync: false`) — this is the only render.yaml change.
+- No OpenAPI, no DB schema, no Drizzle change.
+- **posthog-cli** (standing preference): optional CI step to upload studio sourcemaps so error/replay stacks deminify. Cut if error/replay tracking not wanted at launch.
 
-## Testing
+## Testing & Acceptance (Reviews 6 & 7)
 
-- `analytics.ts` wrappers (both): unit-test that they no-op when the key is unset and emit the correct `{event, props, distinctId}` when set.
-- Frontend event sites: RTL asserts the mocked wrapper was called with the right event + props on the right interaction. Real PostHog never hit in tests.
-- Backend event sites: existing route/jobRunner tests assert `capture(...)` called with the right args (wrapper mocked).
-- Insights script: tested against a **fixture** PostHog query response (no live PostHog in any gate).
-- No test in the verification gate depends on network access to PostHog or Anthropic.
-- Verification gate unchanged in shape: `pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test` (+ solver pytest — Python untouched here, no re-run needed).
+**No-regression (must pass):**
+- All 26 existing events unchanged in name and props; existing captures compile and fire exactly as before.
+- Env names unchanged (`POSTHOG_API_KEY`/`POSTHOG_HOST` still read); no new backend env var.
+- Backend no-op still holds when key unset; SIGTERM flush still present.
+- Existing api-server tests still green (no event-name churn).
+
+**New coverage:**
+- `lib/analytics.ts` (frontend): unit-tests no-op when key unset; correct `{event, props}` when set.
+- Frontend event sites: RTL asserts the mocked wrapper called with right event + allowlisted props on the right interaction. Real PostHog never hit.
+- 429 event: api-server test asserts `capture(...)` called with `"scenario solve rejected"` + allowlisted props when at queue limit.
+- Prop-allowlist guard: a test (or lint) that fails if any tracked prop key is outside the allowlist.
+- Insights script: tested against a **fixture** PostHog response (no live PostHog/Anthropic in any gate).
+
+**Verification gate (unchanged shape):** `pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test` (+ solver pytest — Python untouched, no re-run).
 
 ## Deferred / Cut (YAGNI)
 
-- Session replay — deferred (privacy review); config flag already off.
-- posthog-cli sourcemap upload — optional at launch.
-- Feature flags / experiments — not scoped now; available free once the SDK is in.
+- Session replay — deferred (privacy review); flag off.
+- posthog-cli sourcemaps — optional at launch.
+- Feature flags / experiments — not scoped; free once posthog-js is in.
+- Any change to existing backend events — explicitly out of scope.
 
 ## Execution Note
 
-Per standing preference, the implementation plan will be executed via **agent-team dispatch** (frontend-engineer / backend-engineer / devops-engineer / qa-sdet), not subagent-driven-development. The plan will include a real-browser / qa-sdet QA task by default. Spec/plan docs merge to local `main` on creation and re-merge after review rounds.
+Implementation plan executed via **agent-team dispatch** (frontend-engineer / backend-engineer / devops-engineer / qa-sdet), not subagent-driven-development. **Plan Task 1 = existing-PostHog inventory** (Review 6): confirm env names, the 26 event names/props, the `user.id === req.userId` identity equality, and the SIGTERM flush, before any new analytics path is written. Plan includes a real-browser / qa-sdet QA task by default. Spec/plan docs merge to local `main` on creation and re-merge after review rounds.
+
+---
+
+## Review comments (Review 1 — repo-alignment)
+
+*Retained verbatim as the review record. Each is resolved in the rewritten body above.*
+
+| # | Comment | Resolution |
+|---|---|---|
+| R1 | Existing PostHog impl already exists; extend or replace? | **Extend.** Reuse `lib/posthog.ts` + `POSTHOG_API_KEY`/`POSTHOG_HOST`. Invented `services/analytics.ts`/`POSTHOG_KEY` removed. See "Existing State" + "Locked Decisions". |
+| R2 | Existing event names must be reconciled | Adopt existing space-separated + `snake_case`-props convention; **no rename** of the 26 events; only additive new events. See "Event Catalog". |
+| R3 | Specify actual distinctId flow | Backend already `distinctId: req.userId` + header linking; frontend `identify(user.id)` with a pinned field-equality invariant. See "Identity / DistinctId Flow". |
+| R4 | Concrete privacy boundary | Explicit allowlist + forbidden list + exact `ph-no-capture` surfaces. See "Privacy Boundary". |
+| R5 | Reuse the no-op convention | Backend client/config untouched; frontend mirrors null-guard no-op. See "No-Op / Fire-and-Forget". |
+| R6 | Start from existing code, audit first | Audit performed (this rewrite); baked in as plan Task 1. See "Execution Note". |
+| R7 | Acceptance must include no-regression | Added no-regression acceptance block. See "Testing & Acceptance". |
