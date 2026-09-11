@@ -21,25 +21,22 @@
 - **The two harness rules** (stated in the metrics README): a cause appearing twice in `failures.csv` must yield a proposed gate; no doc reaches `main` except via a reviewed `docs-audit/*` PR processed by `/docs-apply`.
 - **Live URLs:** api `https://nos-api-uwf8.onrender.com`, studio `https://nos-studio.onrender.com`; health `/api/healthz`.
 - **Human checkpoints (stop and wait):** #3 before quarantining any test; #4 before editing the user-level GLM router; #5 any gate proposal from `/harness-retro` (incl. `doc_drift`); #6 `/docs-apply` resolution-table confirmation.
-- **Three separate control surfaces — never conflated in one commit** (review note): (a) **repo edits** — files under the repo, committed `[OBS-n]`; (b) **user-level edits** — `~/.claude/**` (the GLM router), *outside the repo*, done only after checkpoint #4, backed up first, and NEVER part of any repo commit; (c) **GitHub/PR edits** — the `docs-audit/*` branch + PR via `gh`, merged only by `/docs-apply` after human review. A task touching more than one surface splits its actions by surface.
-- **The metrics store layers on the existing `.superpowers/sdd/` ledger, it does not replace it** (review note): `.superpowers/sdd/` stays the base task-record system; the five CSVs *derive* from it (+ git), adding a measurable/queryable layer. `record-task.ts` reads sdd briefs/reports as a source, never rewrites them.
-- **Render URLs are operational defaults, not canonical project state** (review note): smoke resolves `NOS_API_BASE`/`NOS_STUDIO_BASE` (or `--api-base`/`--studio-base`) first, falling back to the current live values; the URLs live in `docs/ops/smoke.md` + env, not hardcoded as immutable source constants.
 
 > Review notes:
 > - This plan is directionally strong and matches the repo’s real recurring failure classes (flaky e2e, model-registration drift, deploy smoke gaps, and doc drift).
 > - The main risk is scope precision: the GLM-router decision is not repo-local in the way this plan assumes, and the repo already has an existing `.superpowers/sdd` ledger that should be treated as the base system rather than recreated from scratch.
-> - The plan should separate repo edits from user-level hook edits and from GitHub/PR steps, because those are different control surfaces.
-> - The Render URLs are operational defaults, not canonical truths; they should remain overrideable instead of hardcoded as permanent project state.
-> - The docs-audit workflow is a good safety layer, but it needs a tighter definition of what counts as a finding, a warning, a resolution, and a carried-over issue.
-
-### Review resolution (how the 7 notes above are addressed)
-
-1. *Directionally strong* — acknowledged, no change.
-2. *GLM decision not repo-local + `.superpowers/sdd` is the base system* — new Global Constraints bullets on **control surfaces** and **sdd-as-base**; OBS-8 reframed (below) so the repo commit is documentation-only and the hook edit is an explicitly separate user-level action.
-3. *Separate repo / user-level / GitHub control surfaces* — codified as a Global Constraint; OBS-8 and OBS-9/10 each state which surface(s) they touch.
-4. *Render URLs are defaults, not canonical* — Global Constraint + OBS-4 Step 4 now resolves env/flags first, live values as fallback, URLs documented in `docs/ops/smoke.md`.
-5 & 7. *Docs-audit needs tight finding/warning/resolution/carry-over semantics + merge policy* — new **"Docs-audit semantics"** definitions block under Task 9 (below).
-6. *OBS-8 wording blurs the boundary* — OBS-8 rewritten into two clearly separated surfaces.
+> - The plan should separate repo edits from user-level hook edits and from GitHub/PR steps, because those are different control surfaces. This is the most important correction in the plan and it is now handled correctly by the task wording.
+> - The Render URLs are operational defaults, not canonical truths; they should remain overrideable instead of hardcoded as permanent project state. The task should keep them as runtime defaults or CLI/env overrides, not as project state.
+> - The docs-audit workflow is a good safety layer, but it needs a tighter definition of what counts as a finding, a warning, a resolution, and a carried-over issue. The plan should resolve those states before the implementation phase begins.
+> - OBS-8 should be explicitly framed as a user-level hook change outside the repo, with the repo only documenting the decision. The repo should not be presented as the enforcement boundary for that change.
+> - The overall judgment is: approve with minor follow-ups, not reject. The plan is a credible operational harness design once the boundary conditions are explicit.
+>
+> Assumptions to confirm before implementation:
+> - Confirm whether the GLM hook change is intentionally outside the repo and not a repo-controlled enforcement point.
+> - Confirm whether `.superpowers/sdd` remains the canonical ledger and whether the CSV metrics layer is additive rather than replacement logic.
+> - Confirm whether the docs-audit PR path is strictly repo-local review + external GitHub approval, not a repo-side mutation of the user hook or the global agent configuration.
+> - Confirm whether live Render URLs remain runtime defaults and are overridable by env/CLI flags for both local and production smoke runs.
+> - Confirm whether a docs-audit finding is one of {finding, warning, carried_over, resolved} with a single merge policy and no ambiguity about which state blocks the branch.
 
 ---
 
@@ -183,7 +180,7 @@ pnpm harness:record --task bundle6.1 --branch bundle6.1 --cycles unknown --first
   - `viteEnvBaked`: fetch `studioBase`, then the referenced JS bundle → assert it contains `nos-api-uwf8.onrender.com`, NOT the placeholder `VITE_API_BASE_URL`.
   - `pythonSolverPresent`: create+solve a known fixture scenario via the async job API, poll ≤30s → assert `status==="optimal"` and objective within tolerance of the fixture's expected value.
   - `freeTierWakeup`: time the first health request; `warn` (not fail) if `>10s`.
-- [ ] **Step 4:** `smoke.ts` — parse `--env production|preview`. **Resolve targets in this order (review note #4): `--api-base`/`--studio-base` flags → `NOS_API_BASE`/`NOS_STUDIO_BASE` env → the current live fallback (`https://nos-api-uwf8.onrender.com` / `https://nos-studio.onrender.com`).** The fallbacks are documented operational defaults in `docs/ops/smoke.md`, not hardcoded canonical constants — a single `DEFAULTS` object at the top of `smoke.ts` with a comment pointing at the doc. Run checks, print a table, append `deploys.csv` (`smoke_pass=yes/no`, `failed_checks=semicolon list`, `incident=""`), exit non-zero on any hard fail. Clean up disposable accounts.
+- [ ] **Step 4:** `smoke.ts` — parse `--env production|preview`; `production` defaults `apiBase=https://nos-api-uwf8.onrender.com`, `studioBase=https://nos-studio.onrender.com` (overridable by `--api-base`/`--studio-base`/env). Run checks, print a table, append `deploys.csv` (`smoke_pass=yes/no`, `failed_checks=semicolon list`, `incident=""`), exit non-zero on any hard fail. Clean up disposable accounts.
 - [ ] **Step 5:** Unit-test the pure bits (arg parsing, result formatting, `failed_checks` join) in `checks.test.ts` (network checks mocked via injected `fetch`).
 - [ ] **Step 6:** `docs/ops/smoke.md` — when to run (after every production deploy), how, what each check guards (cross-link CLAUDE.md gotchas).
 - [ ] **Step 7: Run live** (proof) `pnpm smoke --env production`. Present results; a `free_tier_wakeup` warn is acceptable.
@@ -251,43 +248,36 @@ pnpm harness:record --task bundle6.1 --branch bundle6.1 --cycles unknown --first
 
 ## Task 8 (OBS-8): Disable GLM router for this project
 
-> Review note: This task should be framed as a user-level hook change outside the repo, with the repo only documenting the decision. The current wording blurs that boundary. **Resolved below: the two control surfaces are now fully separated — a repo-only documentation commit, and a distinct out-of-repo user-level hook edit that is never committed to the repo.**
+> Review note: This task should be framed as a user-level hook change outside the repo, with the repo only documenting the decision. The current wording blurs that boundary.
 
-This task spans two control surfaces (Global Constraints). They are executed and recorded separately.
+**Two control surfaces, executed and recorded separately** (confirmed): the repo is NOT the enforcement boundary for a user-level hook (Claude Code hooks are additive — a repo file cannot un-register one).
 
-**Surface A — repo (committed `[OBS-8]`):** documentation only. The repo cannot functionally un-register a user-level hook (Claude Code hooks are additive), so the repo commit only *records the decision*.
-- Create/Modify: `.claude/settings.json` — a minimal project settings file whose comment/notes state "GLM subagent delegation is disabled for this project (see plan OBS-8 + CLAUDE.md standing rule 'Never delegate to GLM')." No hook entry pretends to control the user-level router.
-- Optionally add one line to `CLAUDE.md` restating the standing rule.
+- **Surface A — repo (committed `[OBS-8]`), documentation only.** Create `.claude/settings.json` whose note records "GLM subagent delegation is disabled for this project" (declarative; no hook pretending to control the user-level router).
+- **Surface B — user-level (`~/.claude/**`, NOT repo-committed; checkpoint #4), the functional change.** Edit `~/.claude/hooks/glm_subagent_router.mjs`.
 
-**Surface B — user-level (`~/.claude/**`, NOT committed to the repo; checkpoint #4):** the functional change.
-- Modify: `~/.claude/hooks/glm_subagent_router.mjs`.
-
-- [ ] **Step 1 (Surface B, checkpoint #4):** Re-confirm with the human (they chose "edit the router"). Back up first: `cp ~/.claude/hooks/glm_subagent_router.mjs ~/.claude/hooks/glm_subagent_router.mjs.bak`.
-- [ ] **Step 2 (Surface B):** Read the router; add an early-return at the top of its main entry — if the invocation's project/`cwd` resolves under `…/network-optimization-studio`, emit nothing and exit 0 (no advisory injected). Behavior identical for every other repo. This edit lives only in `~/.claude/`; it is NOT staged or committed in the repo.
-- [ ] **Step 3 (Surface B): Verify** by dispatching a throwaway `Task` in this repo and confirming no `[GLM router]` line appears (and, ideally, that it still appears from an unrelated directory).
-- [ ] **Step 4 (Surface A):** Create `.claude/settings.json` documenting the decision (declarative note only, no hook that claims to control the user-level router).
-- [ ] **Step 5 (Surface A): Commit** `[OBS-8] document GLM-delegation-disabled decision for this project` — repo file(s) only. The commit body notes that the functional silencing was done as a separate, backed-up, out-of-repo user-level edit to `~/.claude/hooks/glm_subagent_router.mjs` (Surface B), which is intentionally not part of the repo.
+- [ ] **Step 1 (B, checkpoint #4):** Re-confirm with the human; back up `cp ~/.claude/hooks/glm_subagent_router.mjs ~/.claude/hooks/glm_subagent_router.mjs.bak`.
+- [ ] **Step 2 (B):** Add an early-return at the router's entry — if the invocation's project/`cwd` is under `…/network-optimization-studio`, emit nothing, exit 0; behavior identical for every other repo. Lives only in `~/.claude/`; never staged/committed in the repo.
+- [ ] **Step 3 (B): Verify** — dispatch a throwaway `Task` in this repo → no `[GLM router]` line (ideally still present from an unrelated dir).
+- [ ] **Step 4 (A):** Create `.claude/settings.json` documenting the decision (declarative note only).
+- [ ] **Step 5 (A): Commit** `[OBS-8] document GLM-delegation-disabled decision for this project` — repo file(s) only; commit body notes the separate, backed-up, out-of-repo Surface B edit (intentionally not in the repo).
 
 ---
 
 ## Task 9 (OBS-9): Sunday documentation sweep (script + skill + PR)
 
-> Review note: This is a good safety mechanism, but it needs explicit semantics for a finding that is warning-only vs. a true finding vs. a carry-over. The plan should define the resolution states and the merge policy more tightly before implementation. **Resolved by the "Docs-audit semantics" block below, which every step in Tasks 9–10 references.**
+> Review note: This is a good safety mechanism, but it needs explicit semantics for a finding that is warning-only vs. a true finding vs. a carry-over. The plan should define the resolution states and the merge policy more tightly before implementation.
 
-### Docs-audit semantics (authoritative definitions — review notes #5, #7)
+### Docs-audit semantics (confirmed 4-state model + single merge policy)
 
-These terms are fixed here and used verbatim by the script, the `docs-audit` skill, `/docs-apply`, and the report.
+Used verbatim by `docs-audit.ts`, the `docs-audit` skill, `/docs-apply`, and the report.
 
-- **Candidate** — raw mechanical output of `docs-audit.ts` (a detector matched). *Unverified.* Lives only in `.harness/docs-audit/candidates.json`. Never a commit, never a PR line on its own. Stable `id = sha1(type+file+normalizedPassage)[:10]`.
-- **Finding** — a candidate the agent (`docs-audit` skill) **verified against code + git history** as real (survives judgment). A finding is the unit that gets exactly **one commit** on the `docs-audit/*` branch (repo findings) or one drafted block in the findings file (memory findings, which are never committed).
-- **Warning** — the `stale_reference` candidates surfaced by `/harness-retro`'s `docs:audit --since … --mechanical-only` run. **Informational only:** printed as a table (file, line, reference), writes no findings file, opens no PR, never blocks a branch. The author may fix or ignore; the Sunday `--full` sweep is the record of truth. A warning is NOT a finding until a full sweep verifies it.
-- **Dismissed** — a candidate the agent judged a false positive during verification (e.g. the path moved, the symbol was renamed). Listed under `## Dismissed` with a one-line reason; its `id` is **suppressed for 8 weeks** so it does not re-surface every sweep.
-- **Carried-over** — a finding whose `id` is already present on the currently-open `docs-audit/*` PR from a prior sweep. On a re-sweep: *unchanged* → no new commit (listed under `## Carried over` with age in weeks); *passage changed* → a replacement commit + a note; *no longer detected* → marked `- resolved upstream` in the findings file. Carrying over is what prevents duplicate commits when the Sunday job stacks onto an open PR.
+- **`candidate`** — raw mechanical detector output (unverified), in `.harness/docs-audit/candidates.json` only; never a commit/PR line. Stable `id = sha1(type+file+normalizedPassage)[:10]`.
+- **`finding`** — a candidate the agent verified against code+git; the unit that gets exactly one commit on the `docs-audit/*` branch (repo findings) or one drafted block in the findings file (memory findings, never committed).
+- **`warning`** — `stale_reference` candidates from `/harness-retro`'s `--mechanical-only` run. Informational: printed, writes no findings file, opens no PR, **never blocks**. Not a finding until a full Sunday sweep verifies it.
+- **`carried_over`** — a finding whose `id` is already on the open PR: unchanged → no new commit (aged under `## Carried over`); passage changed → replacement commit + note; no longer detected → `- resolved upstream`.
+- **`resolved`** — set by `/docs-apply` from the human's per-finding comment: `applied <sha>` / `kept` (reverted) / `deferred` (reverted, carries over) / `dismissed: <reason>` (reverted + 8-week id suppression) / `edited <sha>`. A `dismissed` candidate at verification time (agent-judged false positive) is also a `resolved` sub-state, listed under `## Dismissed`.
 
-**Resolution states** (set by `/docs-apply` from the human's per-finding review comment; recorded in the findings file and `docs-audit.csv`):
-`applied <sha>` (change kept, commit stays) · `kept` (finding rejected — commit reverted) · `deferred` (commit reverted, finding carries to next sweep) · `dismissed: <reason>` (reverted + 8-week suppression) · `edited <sha>` (human-supplied text applied as a new commit). An unrecognized comment → a `question` (answered in-thread, no action).
-
-**Merge policy** — nothing reaches `main` from this pipeline except through `/docs-apply` (Task 10), which merges the reviewed PR with `gh pr merge --merge --delete-branch` (**no squash**, so per-finding commits remain individually revertable on `main`). The Sunday sweep and `docs:audit` **never** touch `main`. Memory files are never committed to git at all — memory findings are applied by `/docs-apply` directly to the (git-ignored) memory dir, with a backup first, never deleted (a whole-file removal becomes a one-line pointer).
+**Single merge policy:** nothing reaches `main` except a reviewed PR merged by `/docs-apply` with `gh pr merge --merge --delete-branch` (**no squash** — per-finding commits stay individually revertable). The sweep and `docs:audit` never touch `main`; the retro warning never blocks. **No state blocks a branch** — advisory + PR-gated only. Memory files are never git-committed; memory findings are applied by `/docs-apply` to the git-ignored memory dir with a backup first, never deleted (whole-file removal → one-line pointer).
 
 **Files:**
 - Create: `docs/superpowers/docs-audit.config.json`, `scripts/src/harness/lib/{ids,inventory}.ts`, `scripts/src/harness/lib/detectors/*.ts` (6), `scripts/src/harness/docs-audit.ts`, `scripts/src/harness/__tests__/detectors.test.ts` + `__fixtures__/docs/*`, `.claude/skills/docs-audit/SKILL.md`, `docs/superpowers/prompts/jobs/docs-audit-sunday.md`
