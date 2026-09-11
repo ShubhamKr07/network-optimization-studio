@@ -1,0 +1,12 @@
+date,task_id,phase,cause,test_or_check,notes,gate_proposed,gate_accepted
+2026-09-11,OBS-3-audit,review,spec_gap,import.spec.ts::export→edit one demand→import applies exactly one change,expects Studio header 'Al's Athletics · Model Lab'; chapter routes render Workspace now (Studio retired) — Bundle 6,pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,design-system.spec.ts::auth chrome,getByTestId('auth-band') removed; Bundle 4 AuthShell exposes auth-cover/auth-shell/auth-labs-strip,pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,design-system.spec.ts::workspace chrome,brittle CSS selector div.flex.items-center.gap-1 hasText 'Band 1' no longer matches DOM,pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,tab-coverage.spec.ts::p-median-us sweeps every Inputs tab,getByTestId('input-map-draft-panel') removed (0 src refs); Input Map v2 replaced draft-panel with CreateEntityDialog/MapDetailsCard,pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,tab-coverage.spec.ts::transport-coal sweeps every Inputs tab,same: input-map-draft-panel removed (Input Map v2),pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,tab-coverage.spec.ts::two-echelon-gold-au sweeps every Inputs tab,same: input-map-draft-panel removed (Input Map v2),pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,two-echelon.spec.ts::BOM sweep flips selected refinery + Compare diff,button-scenario-dropdown: Bundle 6 removed the header scenario dropdown (sidebar-only switching); Compare page also removed (Phase 3.2),pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,input-map-v2.spec.ts::add on map→Save→estimated-distance toast→solve,badge-distance-estimated- flow/seed changed; testid exists but path to it drifted,pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,input-map-v2.spec.ts::marker right-click menu/ghost copy/move,create-entity-dialog interaction flow drifted (Input Map v2 map-first edits),pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,workspace-ux-r1-r9.spec.ts::p-median-us R1-R9 + facility compare,cost-summary-compare-open-facilities-<id> seed-coupled + Bundle 6 Solution Summary compare rework,pnpm e2e:gate in CI,
+2026-09-11,OBS-3-audit,review,spec_gap,bundle2-fastfollow.spec.ts::add mine+station→Save→Solve,toContain assertion on generated lane-cost content drifted,pnpm e2e:gate in CI,

@@ -197,7 +197,9 @@ test.describe("Bundle 6.1 — Map legend (Input size ramp, Output states, layer-
 });
 
 test.describe("Bundle 6.1 — Distances tab (merged base + override table)", () => {
-  test("p-median-us: one merged table (no separate reference sub-table / old two-pager), base row stays read-only while its override marks Changed", async ({ page }) => {
+  // @flaky (OBS-3, checkpoint #3): intermittent 1/20 in the frozen-commit audit (4be058f).
+  // Quarantined from `pnpm e2e:gate`; runs via `pnpm e2e:quarantine`.
+  test("p-median-us: one merged table (no separate reference sub-table / old two-pager), base row stays read-only while its override marks Changed", { tag: "@flaky" }, async ({ page }) => {
     test.setTimeout(90_000);
     await registerAndGoHome(page, "b61-distances-merge");
 
@@ -256,7 +258,9 @@ test.describe("Bundle 6.1 — Distances tab (merged base + override table)", () 
 });
 
 test.describe("Bundle 6.1 — Leg distances (two-echelon-gold-au, T2b audit confirmed no-op)", () => {
-  test("Leg distances tab renders the restyled table with its leg badge column", async ({ page }) => {
+  // @flaky (OBS-3, checkpoint #3): intermittent 2/20 in the frozen-commit audit (4be058f).
+  // Quarantined from `pnpm e2e:gate`; runs via `pnpm e2e:quarantine`.
+  test("Leg distances tab renders the restyled table with its leg badge column", { tag: "@flaky" }, async ({ page }) => {
     test.setTimeout(90_000);
     await registerAndGoHome(page, "b61-legdistances");
 

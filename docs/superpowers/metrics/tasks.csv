@@ -1,0 +1,12 @@
+task_id,branch,started_at,finished_at,dispatch_cycles,first_gate_pass,cherrypick_conflict,e2e_runs_to_green,wallclock_min,tokens,merged_sha,reverted_within_7d,escaped_defects
+bundle6.1,bundle6.1,2026-09-05T03:04:52+05:30,2026-09-05T03:23:02+05:30,unknown,unknown,unknown,unknown,18,unknown,b43fe1f02cc8ec02a40696b69442104059bb06c0,unknown,unknown
+bundle6,bundle6,2026-09-05T00:26:21+05:30,2026-09-05T01:37:43+05:30,unknown,unknown,unknown,unknown,71,unknown,b35239639a9badb577af9b8242a00de730005953,unknown,unknown
+bundle5,bundle5,2026-09-04T18:02:31+05:30,2026-09-04T18:37:37+05:30,unknown,unknown,unknown,unknown,35,unknown,19785c726397d70fdfb2983fbf4d8dadbd06d700,unknown,unknown
+bundle4,bundle4,2026-09-04T15:24:02+05:30,2026-09-04T16:08:42+05:30,unknown,unknown,unknown,unknown,45,unknown,26085eb8311a9ef0b332e67af8da40410fecd44d,unknown,unknown
+bundle3,bundle3,2026-09-03T16:51:04+05:30,2026-09-03T17:56:54+05:30,unknown,unknown,unknown,unknown,66,unknown,5ea9e1ad86efe20936d9d50a2edc3337e6a1daa7,unknown,unknown
+C6.1,C6.1,2026-08-24T10:43:10+05:30,2026-08-24T10:54:46+05:30,unknown,unknown,unknown,unknown,12,unknown,cb14f022dcd538fda169ec16dea2bfc1de12bdc7,unknown,unknown
+C4.2,C4.2,2026-08-24T16:36:54+05:30,2026-08-24T16:40:27+05:30,unknown,unknown,unknown,unknown,4,unknown,d0616b26dc7ad5ac3083313ea25cb2bf6d8e91db,unknown,unknown
+C5.1,C5.1,2026-08-24T02:13:58+05:30,2026-08-24T07:56:42+05:30,unknown,unknown,unknown,unknown,343,unknown,07681cae3fe2b390787e0a7d0be28a03c1a50760,unknown,unknown
+F2.1,F2.1,2026-07-23T14:45:24.236Z,2026-07-23T21:16:55+05:30,unknown,unknown,unknown,unknown,62,unknown,c4e5137ce672fad262a79990175a4eb38ee39ccd,unknown,unknown
+P1.1,P1.1,2026-07-23T15:50:57.030Z,2026-07-23T21:33:37+05:30,unknown,unknown,unknown,unknown,13,unknown,456401f5e0df41aece2c6e5f29743613172db75b,unknown,unknown
+R0.1,R0.1,2026-07-24T04:47:08.498Z,2026-07-24T10:20:29+05:30,unknown,unknown,unknown,unknown,3,unknown,c532dcbe1802bf9b1b5d35d276e9d883ee0c37bb,unknown,unknown

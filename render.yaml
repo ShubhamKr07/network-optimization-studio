@@ -52,6 +52,13 @@ services:
         value: https://nos-api-uwf8.onrender.com
       - key: NODE_VERSION
         value: "24"
+      # Frontend PostHog (public project key — safe to expose, it's an ingest
+      # key, not the personal API key). Unset ⇒ analytics no-ops (see
+      # studio/src/lib/analytics.ts). nos-api keeps its own POSTHOG_API_KEY.
+      - key: VITE_POSTHOG_KEY
+        sync: false
+      - key: VITE_POSTHOG_HOST
+        value: https://us.i.posthog.com
 
 databases:
   - name: nos-postgres

@@ -8,6 +8,7 @@
     "migrate-scenario-owners": "tsx ./src/migrate-scenario-owners.ts",
     "migrate-scenario-inputs": "tsx ./src/migrate-scenario-inputs.ts",
     "strip-network-edits": "tsx ./src/strip-network-edits.ts",
+    "harness:record": "tsx ./src/harness/record-task.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
