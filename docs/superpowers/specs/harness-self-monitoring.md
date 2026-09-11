@@ -147,6 +147,21 @@ docs-audit.csv: audited_at,run_id,files_scanned,stale,redundant,conflicting,orph
 - Live proofs (your scope): 20× flake audit, production smoke, a real docs-audit PR stacked twice +
   `/docs-apply`, `/harness-retro` on this very task, first weekly report.
 
+## Review-driven refinements (plan review 2026-09-11)
+
+- **Three control surfaces stay separate, never conflated in one commit:** repo edits (`[OBS-n]`),
+  user-level edits (`~/.claude/**`, out-of-repo, checkpoint #4, backed up, never repo-committed),
+  GitHub/PR edits (`docs-audit/*` via `gh`, merged only by `/docs-apply`). OBS-8 is split into a
+  repo-documentation commit (Surface A) and a distinct out-of-repo hook edit (Surface B).
+- **The CSV store layers on `.superpowers/sdd/`, not replaces it** — sdd stays the base task-record
+  system; the recorder derives from it + git.
+- **Render URLs are operational defaults, not canonical state** — smoke resolves flags → env
+  (`NOS_API_BASE`/`NOS_STUDIO_BASE`) → live fallback; URLs documented in `docs/ops/smoke.md`.
+- **Docs-audit terms are fixed** (candidate / finding / warning / dismissed / carried-over /
+  resolution states / merge policy) — see the plan's "Docs-audit semantics" block; every skill and
+  script uses them verbatim. Merge policy: nothing reaches `main` except a reviewed PR merged by
+  `/docs-apply` with `--merge --delete-branch` (no squash).
+
 ## Risks
 
 - Playwright flake audit needs local dev servers (api + studio via the `API_PROXY_TARGET` dev proxy)
