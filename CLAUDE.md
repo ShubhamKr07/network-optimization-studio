@@ -39,6 +39,8 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
   && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
 ```
 
+**Re-gating e2e:** run `pnpm e2e:gate` (Playwright, excludes `@flaky`-tagged tests). Quarantined tests run separately via `pnpm e2e:quarantine`. `labs.spec.ts` stays excluded (pre-D0, dead). Flakiness is quantified on a frozen commit with `bash scripts/harness/flake-audit.sh --runs 20` (writes `docs/superpowers/metrics/flake.csv`); e2e should seed solver results and leave real CBC timing to pytest.
+
 ## Hard rules
 
 1. **Never edit generated code.** Anything under `lib/api-zod/src/generated/` or `lib/api-client-react/src/generated/` comes from codegen. To change API shapes: edit `lib/api-spec/openapi.yaml`, re-run Orval (config: `lib/api-spec/orval.config.ts`), commit spec + regenerated output together.

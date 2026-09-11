@@ -6,10 +6,16 @@ const BASE_URL =
 
 export default defineConfig({
   testDir: "./e2e",
+  // labs.spec.ts is pre-D0 dead (asserts the old Replit API shape); excluded from every lane.
+  testIgnore: "**/labs.spec.ts",
   fullyParallel: false,
   retries: 1,
   timeout: 30_000,
-  reporter: [["list"], ["html", { outputFolder: "e2e/report", open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "e2e/report", open: "never" }],
+    ["json", { outputFile: "e2e/report/results.json" }],
+  ],
   use: {
     baseURL: BASE_URL,
     // Browser stores session so auth runs once per project

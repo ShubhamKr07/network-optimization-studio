@@ -61,3 +61,6 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+
+# harness scratch (flake runs, docs-audit candidates, memory backups)
+.harness/
