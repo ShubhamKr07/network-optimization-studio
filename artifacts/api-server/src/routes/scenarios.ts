@@ -290,6 +290,16 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   // sheds load as cheaply as possible — same ordering as auth.ts's login
   // rate limiter, which checks before querying the DB.
   if (getQueueDepth() >= QUEUE_DEPTH_LIMIT) {
+    // No model_id: the scenario row isn't loaded yet (this check is
+    // fail-fast, before the db.select below), so it isn't known here.
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario solve rejected",
+      properties: {
+        scenario_id: Number(req.params.scenarioId),
+        queue_depth: getQueueDepth(),
+      },
+    });
     res.status(429)
       .set("Retry-After", String(SOLVE_RETRY_AFTER_SECONDS))
       .json({ error: "Solver is at capacity, try again shortly" });
