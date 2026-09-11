@@ -10,6 +10,7 @@
     "strip-network-edits": "tsx ./src/strip-network-edits.ts",
     "harness:record": "tsx ./src/harness/record-task.ts",
     "smoke": "tsx ./src/deploy/smoke.ts",
+    "harness:report": "tsx ./src/harness/report.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
