@@ -83,6 +83,7 @@ import {
   completenessCountForStation,
   type PrecheckErrorLike,
 } from "@/lib/precheckDisplay";
+import { track } from "@/lib/analytics";
 
 // A5.1-A5.3 — every model's default `inputs` shape for a brand-new scenario,
 // copied verbatim from Studio.tsx's handleCreateConfirm switch
@@ -1244,6 +1245,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
   }
 
+  // POSTHOG-5 — tab-activation chokepoint (passed to <TabBar onActivate>
+  // below). Fires "scenario tab viewed" when the user activates an
+  // already-open tab from the tab strip. (Opening a NEW tab from the
+  // sidebar dispatches "open" directly via openTab() above, not through
+  // this handler — that's a distinct "tab opened" moment, not a "viewed"
+  // one, and is out of this task's scope.)
+  function handleActivateTab(id: string) {
+    dispatch({ type: "activate", id });
+    track("scenario tab viewed", { tab: id, model_id: modelId });
+  }
+
   // Bundle 6 T2 (item 1, resolution #3) — one-shot Input Map seeding: opens
   // the Input Map tab exactly once per model entry, keyed on `modelId` (not
   // reactively on `activeTab === null`, which would reopen Input Map after
@@ -1304,6 +1316,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   function handleAddedArrayChange<T extends { id: string }>(kind: string, fieldKey: string, current: T[], next: T[]) {
     updateInputsField(fieldKey, next);
     if (next.length > current.length) {
+      track("map entity added", { entity: kind, model_id: modelId, scenario_id: currentScenario?.id });
       const currentIds = new Set(current.map(e => e.id));
       const added = next.find(e => !currentIds.has(e.id));
       if (added) handleEntityAdded(kind, added.id);
@@ -1640,6 +1653,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (!currentScenario) return;
     setSolveError(null);
     const scenarioId = currentScenario.id;
+
+    track("solve triggered", { scenario_id: currentScenario.id, model_id: modelId });
+    if (currentScenario.stale) {
+      track("scenario stale resolved", { scenario_id: currentScenario.id, model_id: modelId });
+    }
 
     const runSolve = () => {
       setSolvePhase("solving");
@@ -2368,7 +2386,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <TabBar
             tabs={tabState.tabs}
             activeTabId={tabState.activeTabId}
-            onActivate={id => dispatch({ type: "activate", id })}
+            onActivate={handleActivateTab}
             onClose={id => dispatch({ type: "close", id })}
           />
           {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && (
