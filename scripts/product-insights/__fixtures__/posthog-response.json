@@ -1,0 +1,23 @@
+{
+  "columns": ["event", "model_id", "c"],
+  "results": [
+    ["scenario created", "p-median-us", 40],
+    ["scenario created", "transport-coal", 12],
+    ["solve triggered", "p-median-us", 30],
+    ["solve triggered", "transport-coal", 9],
+    ["scenario solve completed", "p-median-us", 25],
+    ["scenario solve completed", "transport-coal", 7],
+    ["scenario data exported", "p-median-us", 10],
+    ["scenario data exported", "transport-coal", 2],
+    ["scenario solve failed", "p-median-us", 3],
+    ["scenario solve failed", "transport-coal", 1],
+    ["scenario solve rejected", "p-median-us", 2],
+    ["scenario solve rejected", "transport-coal", 0],
+    ["scenario stale resolved", "p-median-us", 8],
+    ["scenario stale resolved", "transport-coal", 3],
+    ["run_time_sec_p50", null, 1.8],
+    ["run_time_sec_p95", null, 6.4],
+    ["cache_hit_total", null, 14],
+    ["cache_query_total", null, 39]
+  ]
+}
