@@ -67,3 +67,8 @@ __pycache__/
 
 # product-insights: transient query output, not the committed report
 docs/product-insights/aggregates.json
+
+# accidentally-added scratch (untracked again)
+.pnpm-store/
+graphify-out/
+*.pdf
