@@ -37,13 +37,15 @@ Not quarantined (quarantine would mask consistent failures). Each needs a select
 | `workspace-ux-r1-r9.spec.ts › p-median-us R1-R9 + compare` | `cost-summary-compare-open-facilities-<id>` | seed-coupled id + Bundle 6 Solution Summary compare rework. |
 | `bundle2-fastfollow.spec.ts › add mine+station→Solve` | `expect(...).toContain(...)` | generated lane-cost content assertion drifted. |
 
-## Proposed gate (checkpoint #5 — pending human approval)
+## Proposed gate (checkpoint #5 — DECISION: SKIP for now)
 
 11 occurrences of cause `spec_gap` in one audit (all logged in `failures.csv`, `gate_proposed=pnpm
-e2e:gate in CI`). The harness rule (a cause twice → propose a gate) is decisively tripped. **Proposed
-gate: add `pnpm e2e:gate` to `.github/workflows/ci.yml`** so a DOM/testid/text change that rots a spec
-fails CI instead of silently rotting. Not enabling until (a) the 11 specs are repaired and the gate
-lane is green, and (b) the human approves — otherwise CI would be red on day one.
+e2e:gate in CI`). The harness rule (a cause twice → propose a gate) is decisively tripped. The
+proposed gate was **adding `pnpm e2e:gate` to `.github/workflows/ci.yml`**. **Human decision
+(2026-09-12): SKIP** — CI has no Playwright-browser / app-boot / seed infrastructure, so this is a
+substantial infra build, not a one-line gate, and it would be red on the 11 stale specs regardless.
+The `failures.csv` rows keep `gate_proposed=pnpm e2e:gate in CI` as the record; enabling it is a
+separate future effort gated on (a) building the CI e2e infra and (b) repairing the 11 specs below.
 
 ## Recommended follow-up (separate task, not part of the harness build)
 

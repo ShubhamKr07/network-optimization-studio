@@ -1,7 +1,9 @@
 # Gate proposal: doc_drift
 
-**Status:** proposed — NOT enabled. Enable only after (a) the human approves and (b) the baseline is
-clean (no existing stale references in non-exempt docs), else CI would be red on day one.
+**Status:** DEFERRED (checkpoint #5, 2026-09-12). Human decision: enable `docs:lint` in CI **after the
+first docs-audit PR merges** and cleans the real stale references, so the baseline is near-clean first
+— else CI would block on ~88 candidates on day one. `pnpm docs:lint` exists and is runnable now; it is
+not yet a required gate. Revisit once the docs-audit PR has landed.
 
 **Symptom:** a documentation file references a path / `pnpm` script / env var / HTTP route / symbol
 that no longer exists in the code, because a change renamed/removed it and the doc wasn't updated.
