@@ -1,0 +1,62 @@
+[
+  {
+    "id": "4501234567",
+    "title": "TypeError: Cannot read properties of undefined (reading 'scenarioId')",
+    "culprit": "artifacts/api-server/src/routes/scenarios.ts in patchScenario",
+    "count": 42,
+    "userCount": 11,
+    "firstSeen": "2026-08-30T02:14:00Z",
+    "lastSeen": "2026-09-12T18:41:00Z",
+    "permalink": "https://sentry.io/organizations/nos/issues/4501234567/"
+  },
+  {
+    "id": "4501234568",
+    "title": "Error: solve job timed out after 300000ms",
+    "culprit": "artifacts/api-server/src/solver/jobRunner.ts in runJob",
+    "count": 19,
+    "userCount": 9,
+    "firstSeen": "2026-09-01T09:02:00Z",
+    "lastSeen": "2026-09-12T14:20:00Z",
+    "permalink": "https://sentry.io/organizations/nos/issues/4501234568/"
+  },
+  {
+    "id": "4501234569",
+    "title": "RangeError: Invalid array length",
+    "culprit": "artifacts/studio/src/components/tables/CustomerTable.tsx",
+    "count": 8,
+    "userCount": 6,
+    "firstSeen": "2026-09-05T11:00:00Z",
+    "lastSeen": "2026-09-11T20:03:00Z",
+    "permalink": "https://sentry.io/organizations/nos/issues/4501234569/"
+  },
+  {
+    "id": "4501234570",
+    "title": "NetworkError: Failed to fetch",
+    "culprit": "artifacts/studio/src/lib/custom-fetch.ts",
+    "count": 5,
+    "userCount": 5,
+    "firstSeen": "2026-09-08T03:44:00Z",
+    "lastSeen": "2026-09-10T07:12:00Z",
+    "permalink": "https://sentry.io/organizations/nos/issues/4501234570/"
+  },
+  {
+    "id": "4501234571",
+    "title": "TypeError: Failed to fetch dynamically imported module",
+    "culprit": "artifacts/studio/src/pages/Workspace.tsx",
+    "count": 4,
+    "userCount": 3,
+    "firstSeen": "2026-09-09T16:10:00Z",
+    "lastSeen": "2026-09-11T05:55:00Z",
+    "permalink": "https://sentry.io/organizations/nos/issues/4501234571/"
+  },
+  {
+    "id": "4501234572",
+    "title": "ZodError: Invalid input",
+    "culprit": "artifacts/api-server/src/validation/inputs/pMedian.ts",
+    "count": 2,
+    "userCount": 2,
+    "firstSeen": "2026-09-10T22:00:00Z",
+    "lastSeen": "2026-09-10T22:30:00Z",
+    "permalink": "https://sentry.io/organizations/nos/issues/4501234572/"
+  }
+]
