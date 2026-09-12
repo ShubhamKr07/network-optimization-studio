@@ -36,7 +36,10 @@ jobs:
             Write a prioritized, concrete product-recommendations report in
             markdown to docs/product-insights/${{ env.REPORT_DATE }}.md, focused
             on funnel drop-offs, solve failures/rejections, and stale-without-resolve
-            behavior. Use only the aggregates provided; do not invent data. Do NOT
+            behavior. Base every claim ONLY on the aggregates provided; never invent
+            data. ALWAYS write the file, even if activity is low or every count is
+            zero — in that case say plainly that there was little or no activity this
+            week and recommend nothing beyond continuing to collect data. Do NOT
             commit — just write the file.
       - name: Open report PR
         env:
