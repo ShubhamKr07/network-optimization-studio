@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { setupExpressRequestContext, setupExpressErrorHandler } from "posthog-node";
+import * as Sentry from "@sentry/node";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { posthog } from "./lib/posthog";
@@ -83,6 +84,12 @@ app.use("/api", router);
 if (posthog) {
   setupExpressErrorHandler(posthog, app);
 }
+
+// Sentry's Express error handler: forwards unhandled exceptions to Sentry
+// (scrubbed via instrument.ts's beforeSend) — a no-op when SENTRY_DSN is
+// unset, since Sentry.init() never ran. Must also come before the project's
+// own 500 handler for the same reason as PostHog's, above.
+Sentry.setupExpressErrorHandler(app);
 
 app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   logger.error({ err }, "Unhandled error in request");

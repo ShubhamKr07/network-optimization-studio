@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@sentry/node": "^10.74.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/dataset-schema": "workspace:*",
     "@workspace/db": "workspace:*",

@@ -1,3 +1,5 @@
+import "./instrument"; // MUST be first — instruments modules imported below
+import * as Sentry from "@sentry/node";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { reapStuckJobs } from "./solver/jobRunner.js";
@@ -35,12 +37,15 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
 });
 
-// Flush any queued PostHog events before the process exits so they are not lost.
+// Flush any queued PostHog events and Sentry errors before the process exits
+// so they are not lost.
 process.on("SIGTERM", async () => {
   await posthog?.shutdown();
+  await Sentry.close(2000);
   process.exit(0);
 });
 process.on("SIGINT", async () => {
   await posthog?.shutdown();
+  await Sentry.close(2000);
   process.exit(0);
 });
