@@ -212,7 +212,9 @@
       }
     ],
     "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
     "references": {
       "paths": [],
       "scripts": [
@@ -332,15 +334,15 @@
       },
       {
         "text": "Hard rules",
-        "line": 91
+        "line": 94
       },
       {
         "text": "v2 implementation progress",
-        "line": 102
+        "line": 105
       },
       {
         "text": "Gotchas",
-        "line": 263
+        "line": 266
       }
     ],
     "lastChange": "2026-09-12",
@@ -1879,76 +1881,6 @@
     }
   },
   {
-    "path": "docs/ops/sample-a.md",
-    "origin": "repo",
-    "title": "Sample A (docs-apply test)",
-    "headings": [
-      {
-        "text": "Sample A (docs-apply test)",
-        "line": 1
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "docs/ops/sample-b.md",
-    "origin": "repo",
-    "title": "Sample B (docs-apply test)",
-    "headings": [
-      {
-        "text": "Sample B (docs-apply test)",
-        "line": 1
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": [
-        "artifacts/ghost/sample-b-target.ts"
-      ]
-    }
-  },
-  {
-    "path": "docs/ops/sample-c.md",
-    "origin": "repo",
-    "title": "Sample C (docs-apply test)",
-    "headings": [
-      {
-        "text": "Sample C (docs-apply test)",
-        "line": 1
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [
-        "bogus:not-a-real-script"
-      ],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
     "path": "docs/ops/smoke.md",
     "origin": "repo",
     "title": "Post-deploy smoke checks",
@@ -2249,75 +2181,6 @@
     }
   },
   {
-    "path": "docs/superpowers/prompts/jobs/docs-audit-sunday.md",
-    "origin": "repo",
-    "title": "Cron job: Sunday documentation sweep",
-    "headings": [
-      {
-        "text": "Cron job: Sunday documentation sweep",
-        "line": 1
-      },
-      {
-        "text": "Steps",
-        "line": 7
-      },
-      {
-        "text": "Guardrails",
-        "line": 23
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [
-        "docs/superpowers/specs/**",
-        "docs/superpowers/plans/**"
-      ],
-      "scripts": [
-        "docs:audit"
-      ],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": [
-        "docs/superpowers/docs-audit/inventory.json"
-      ]
-    }
-  },
-  {
-    "path": "docs/superpowers/prompts/jobs/harness-weekly.md",
-    "origin": "repo",
-    "title": "Cron job: weekly harness report",
-    "headings": [
-      {
-        "text": "Cron job: weekly harness report",
-        "line": 1
-      },
-      {
-        "text": "Steps",
-        "line": 7
-      },
-      {
-        "text": "Guardrails",
-        "line": 36
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [
-        "docs/superpowers/metrics/flake.csv"
-      ],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
     "path": "model-integration-precheck.md",
     "origin": "repo",
     "title": "Model integration pre-check",
@@ -2428,122 +2291,6 @@
         "lib/entityId.ts",
         "lib/gazetteer.ts"
       ]
-    }
-  },
-  {
-    "path": "MEMORY.md",
-    "origin": "memory",
-    "title": "MEMORY.md",
-    "headings": [],
-    "lastChange": "2026-09-04",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_merge_spec_plan_docs_to_main.md",
-    "origin": "memory",
-    "title": "feedback_merge_spec_plan_docs_to_main.md",
-    "headings": [],
-    "lastChange": "2026-09-01",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_no_unilateral_decision_changes.md",
-    "origin": "memory",
-    "title": "feedback_no_unilateral_decision_changes.md",
-    "headings": [],
-    "lastChange": "2026-08-31",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_orchestration_next_phase.md",
-    "origin": "memory",
-    "title": "feedback_orchestration_next_phase.md",
-    "headings": [],
-    "lastChange": "2026-08-22",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_posthog_cli.md",
-    "origin": "memory",
-    "title": "feedback_posthog_cli.md",
-    "headings": [],
-    "lastChange": "2026-07-26",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_qa_default_in_plans.md",
-    "origin": "memory",
-    "title": "feedback_qa_default_in_plans.md",
-    "headings": [],
-    "lastChange": "2026-09-04",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [
-        "API_PROXY_TARGET"
-      ],
-      "symbols": [
-        "API_PROXY_TARGET"
-      ],
-      "routes": [],
-      "services": [],
-      "files": []
     }
   }
 ]
