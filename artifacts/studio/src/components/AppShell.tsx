@@ -7,6 +7,7 @@ import { AppFooter } from "@/components/AppFooter";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
 import { resetUser } from "@/lib/analytics";
+import { clearErrorUser } from "@/lib/errorTracking";
 
 interface AppShellProps {
   userEmail: string;
@@ -31,6 +32,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
         // cache synchronously instead of waiting on a refetch.
         queryClient.setQueryData(getGetCurrentAuthUserQueryKey(), { user: null });
         resetUser();
+        clearErrorUser();
         navigate("/login", { replace: true });
       },
     });

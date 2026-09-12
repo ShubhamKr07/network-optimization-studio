@@ -14,6 +14,7 @@ import { Register } from "@/pages/auth/Register";
 import { AppShell } from "@/components/AppShell";
 import { CHAPTERS } from "@/lib/chapters";
 import { identifyUser, track } from "@/lib/analytics";
+import { setErrorUser } from "@/lib/errorTracking";
 
 const queryClient = new QueryClient();
 
@@ -39,7 +40,7 @@ export function Gate() {
   // these effects "appear" only once loading finishes, tripping React's
   // rules-of-hooks invariant.
   useEffect(() => {
-    if (user?.id) identifyUser(user.id);
+    if (user?.id) { identifyUser(user.id); setErrorUser(user.id); }
   }, [user?.id]);
 
   useEffect(() => {
