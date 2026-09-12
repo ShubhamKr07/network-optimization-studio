@@ -62,7 +62,12 @@ async function buildAll() {
       "@swc/*",
       "@aws-sdk/*",
       "@azure/*",
-      "@opentelemetry/*",
+      // NOTE: @opentelemetry/* is intentionally NOT externalized. @sentry/node
+      // (error tracking, tracesSampleRate:0, no profiling) pulls OpenTelemetry
+      // in as plain-JS deps; externalizing them makes the bundled server crash
+      // at startup with ERR_MODULE_NOT_FOUND under pnpm's non-hoisted layout
+      // (the import runs even when SENTRY_DSN is unset). They bundle cleanly and
+      // error capture doesn't need OTel's require-hook auto-instrumentation.
       "@google-cloud/*",
       "@google/*",
       "googleapis",
