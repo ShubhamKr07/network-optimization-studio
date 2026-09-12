@@ -44,7 +44,7 @@ jobs:
             usage aggregate counts only — no PII).
 
             Step 1 — Write a prioritized, concrete product-recommendations report
-            in markdown to docs/product-insights/${{ env.REPORT_DATE }}.md, focused
+            in markdown to docs/product-insights/${{ env.REPORT_DATE }}-${{ github.run_number }}.md, focused
             on funnel drop-offs, solve failures/rejections, and
             stale-without-resolve behavior. Base every claim ONLY on the
             aggregates provided; never invent data. ALWAYS write the file, even if
@@ -56,11 +56,11 @@ jobs:
             the Bash tool, in order:
               git config user.name "github-actions[bot]"
               git config user.email "github-actions[bot]@users.noreply.github.com"
-              git checkout -b product-insights/${{ env.REPORT_DATE }}
-              git add docs/product-insights/${{ env.REPORT_DATE }}.md
+              git checkout -b product-insights/${{ env.REPORT_DATE }}-${{ github.run_number }}
+              git add docs/product-insights/${{ env.REPORT_DATE }}-${{ github.run_number }}.md
               git commit -m "docs: weekly product insights ${{ env.REPORT_DATE }}"
-              git push -u origin product-insights/${{ env.REPORT_DATE }}
-              gh pr create --base main --head product-insights/${{ env.REPORT_DATE }} --title "Weekly product insights ${{ env.REPORT_DATE }}" --body "Automated PostHog weekly insights report (aggregate counts only, no PII). Review the recommendations before merging."
+              git push -u origin product-insights/${{ env.REPORT_DATE }}-${{ github.run_number }}
+              gh pr create --base main --head product-insights/${{ env.REPORT_DATE }}-${{ github.run_number }} --title "Weekly product insights ${{ env.REPORT_DATE }}" --body "Automated PostHog weekly insights report (aggregate counts only, no PII). Review the recommendations before merging."
             Report the PR URL when done.
       # Keep only the newest open weekly-insights PR. The action above just
       # created this week's; close every older open product-insights/* PR and
