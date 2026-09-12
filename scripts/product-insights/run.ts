@@ -15,7 +15,10 @@ import { queryWeeklyAggregates } from "./queryPosthog";
 async function main() {
   const projectKey = process.env.POSTHOG_PROJECT_KEY!;
   const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY!;
-  const host = process.env.POSTHOG_HOST ?? "https://us.i.posthog.com";
+  // The HogQL query API lives on the PostHog APP host (us.posthog.com), NOT
+  // the ingest host (us.i.posthog.com) used for event capture. Defaulting to
+  // the ingest host makes /api/projects/@current/query/ return 400.
+  const host = process.env.POSTHOG_HOST ?? "https://us.posthog.com";
   const weekEnding = process.env.REPORT_DATE!; // injected by the workflow (no Date.now in-script needed)
 
   const aggregates = await queryWeeklyAggregates({ projectKey, personalApiKey, host });

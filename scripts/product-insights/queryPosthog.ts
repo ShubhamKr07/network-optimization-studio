@@ -71,7 +71,10 @@ export async function queryHogQL(query: string, opts: QueryOpts): Promise<HogQLR
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.personalApiKey}` },
     body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
   });
-  if (!res.ok) throw new Error(`PostHog query failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`PostHog query failed: ${res.status} ${body.slice(0, 500)}`);
+  }
   return res.json() as Promise<HogQLResponse>;
 }
 
