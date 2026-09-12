@@ -62,3 +62,19 @@ jobs:
               git push -u origin product-insights/${{ env.REPORT_DATE }}
               gh pr create --base main --head product-insights/${{ env.REPORT_DATE }} --title "Weekly product insights ${{ env.REPORT_DATE }}" --body "Automated PostHog weekly insights report (aggregate counts only, no PII). Review the recommendations before merging."
             Report the PR URL when done.
+      # Keep only the newest open weekly-insights PR. The action above just
+      # created this week's; close every older open product-insights/* PR and
+      # delete its branch, so the review queue never accumulates stale reports.
+      - name: Supersede older insight PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OLD=$(gh pr list --state open --json number,headRefName,createdAt \
+            --jq '[.[] | select(.headRefName | startswith("product-insights/"))]
+                  | sort_by(.createdAt) | reverse | .[1:] | .[].number')
+          for n in $OLD; do
+            echo "Superseding PR #$n"
+            gh pr close "$n" \
+              --comment "Superseded by a newer weekly product-insights report." \
+              --delete-branch
+          done
