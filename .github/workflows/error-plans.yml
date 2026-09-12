@@ -1,0 +1,79 @@
+name: Error Plans
+on:
+  schedule:
+    - cron: "0 14 * * 1"   # Mondays 14:00 UTC (offset from product-insights' 13:00)
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+jobs:
+  error-plans:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 1 }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .node-version, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Query Sentry issues
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: |
+          REPORT_DATE=$(date -u +%Y-%m-%d)
+          echo "REPORT_DATE=$REPORT_DATE" >> "$GITHUB_ENV"
+          mkdir -p docs/error-plans
+          REPORT_DATE=$REPORT_DATE npx tsx scripts/error-plans/run.ts
+      # Claude does the whole job atomically: write the report file AND branch,
+      # commit, push, open the PR. A separate bash step doesn't see the file the
+      # action writes (its edits don't persist to the runner working tree for
+      # later steps), so the git ops must happen inside the action via Bash.
+      # Auth: the Claude GitHub App (no github_token input) provides git push +
+      # PR permission; GH_TOKEN env lets the gh CLI open the PR.
+      - name: Synthesize fix plan and open PR
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--max-turns 25 --allowedTools "Read,Write,Edit,Bash"'
+          prompt: |
+            Read docs/error-plans/aggregates.json (persisting Sentry issues —
+            metadata only, no PII).
+
+            Step 1 — Write a prioritized fix plan in markdown to
+            docs/error-plans/${{ env.REPORT_DATE }}.md. For each issue: title,
+            frequency (count × users affected), a root-cause hypothesis, a
+            concrete suggested fix, and the affected model/route if inferable
+            from the culprit. Base everything ONLY on the provided metadata;
+            never invent data. ALWAYS write the file — if there are no issues,
+            write a report that plainly states "No actionable issues this week".
+
+            Step 2 — Open a pull request. Run with the Bash tool, in order:
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git checkout -b error-plans/${{ env.REPORT_DATE }}-${{ github.run_number }}
+              git add docs/error-plans/${{ env.REPORT_DATE }}.md
+              git commit -m "docs: weekly error fix plan ${{ env.REPORT_DATE }}"
+              git push -u origin error-plans/${{ env.REPORT_DATE }}-${{ github.run_number }}
+              gh pr create --base main --head error-plans/${{ env.REPORT_DATE }}-${{ github.run_number }} --title "Weekly error fix plan ${{ env.REPORT_DATE }}" --body "Automated Sentry persisting-issues fix plan (issue metadata only, no PII). Review before acting."
+            Report the PR URL when done.
+      # Keep only the newest open weekly-error-plan PR. The action above just
+      # created this week's; close every older open error-plans/* PR and
+      # delete its branch, so the review queue never accumulates stale reports.
+      - name: Supersede older error-plan PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OLD=$(gh pr list --state open --json number,headRefName,createdAt \
+            --jq '[.[] | select(.headRefName | startswith("error-plans/"))]
+                  | sort_by(.createdAt) | reverse | .[1:] | .[].number')
+          for n in $OLD; do
+            echo "Superseding PR #$n"
+            gh pr close "$n" \
+              --comment "Superseded by a newer weekly error fix plan." \
+              --delete-branch
+          done
