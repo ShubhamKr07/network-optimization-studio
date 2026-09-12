@@ -1,6 +1,6 @@
 # Network Optimization Studio
 
-Educational web app for learning network optimization (facility location / p-median and transportation LP) through interactive scenarios and gamified quests ("Arcadia"). Build a scenario on a map, solve it with a real ILP/LP solver, compare results, and progress through quests, badges, and a leaderboard.
+Educational web app for learning network optimization (facility location / p-median and transportation LP) through interactive scenarios. Build a scenario on a map, solve it with a real ILP/LP solver, and compare results.
 
 ## Stack
 
@@ -18,10 +18,8 @@ artifacts/
     src/routes/       health, dataset, auth, scenarios (CRUD/clone/solve/compare), progress
     src/solver/        pmedian.ts (TS wrapper) + solve.py (PuLP/CBC), tests/ (pytest incl. E2E)
   studio/        React frontend (the actual "Studio" app)
-    src/pages/         Studio.tsx (scenario builder/solver), Compare.tsx
-    src/pages/arcadia/ LoginPage, Dashboard, QuestMap, Leaderboard, Badges (gamification)
-    src/components/    NetworkMap, BrazilMap, ObjectiveBar, ArcadiaShell, UI primitives
-    src/context/       GamificationContext
+    src/pages/         Workspace.tsx (tabbed scenario builder/solver), Landing.tsx, auth/
+    src/components/    NetworkMap, BrazilMap, ObjectiveBar, UI primitives
     e2e/               Playwright specs
   mockup-sandbox/ design/prototype sandbox
 lib/
@@ -61,8 +59,6 @@ Two optimization models are playable as "labs":
 
 - **P-Median** (facility location) — capacitated warehouse/region placement, distance-band coverage, forced-open/inactive constraints. Reference dataset validated against the source textbook's full distance matrix.
 - **Transportation LP** — coal mine/station supply-demand routing.
-
-On top of the solver sits **Arcadia**, a gamification layer: quests tied to problem type, a quest map, XP/badges/leaderboard, and session-persistent progress (login, dashboard, progress tracked per user in Postgres).
 
 ## Contributing notes
 
