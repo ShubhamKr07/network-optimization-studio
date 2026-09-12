@@ -1,0 +1,24 @@
+{
+  "include": ["git ls-files '*.md' (resolved at runtime, minus exclude globs)"],
+  "exclude": [
+    "node_modules/**",
+    "docs/superpowers/specs/**",
+    "docs/superpowers/plans/**",
+    "docs/superpowers/docs-audit/**",
+    "docs/superpowers/metrics/reports/**",
+    "docs/telemetry/reports/**",
+    "docs/ops/*/plans/**",
+    "CHANGELOG.md",
+    "replit.md"
+  ],
+  "memoryDir": "/Users/shubhamkr/.claude/projects/-Users-shubhamkr-network-optimization-studio/memory",
+  "authority": [
+    "CLAUDE.md",
+    "model-integration-precheck.md",
+    "docs/superpowers/gates/**",
+    "lib/api-spec/openapi.yaml",
+    "docs/ops/**",
+    "README.md",
+    "*"
+  ]
+}

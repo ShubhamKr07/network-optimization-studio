@@ -1,0 +1,2234 @@
+[
+  {
+    "path": ".agents/memory/MEMORY.md",
+    "origin": "repo",
+    "title": "MEMORY.md",
+    "headings": [],
+    "lastChange": "2026-06-20",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": ".agents/memory/solver-pulp.md",
+    "origin": "repo",
+    "title": "Solver architecture",
+    "headings": [
+      {
+        "text": "Solver architecture",
+        "line": 6
+      },
+      {
+        "text": "ILP formulation (from Al's Athletics notebook Chapter 3)",
+        "line": 11
+      },
+      {
+        "text": "Performance",
+        "line": 22
+      },
+      {
+        "text": "Path resolution",
+        "line": 26
+      },
+      {
+        "text": "Validation",
+        "line": 31
+      }
+    ],
+    "lastChange": "2026-06-20",
+    "inboundLinks": [
+      ".agents/memory/MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/solve.py",
+        "artifacts/api-server/src/solver/pmedian.ts"
+      ]
+    }
+  },
+  {
+    "path": ".agents/memory/solver-utilization.md",
+    "origin": "repo",
+    "title": "Utilization computation rule",
+    "headings": [
+      {
+        "text": "Utilization computation rule",
+        "line": 6
+      },
+      {
+        "text": "Frontend display note",
+        "line": 14
+      }
+    ],
+    "lastChange": "2026-06-20",
+    "inboundLinks": [
+      ".agents/memory/MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": ".agents/memory/studio-dataset.md",
+    "origin": "repo",
+    "title": "Data source",
+    "headings": [
+      {
+        "text": "Data source",
+        "line": 6
+      },
+      {
+        "text": "Warehouses (26 cities → string IDs)",
+        "line": 10
+      },
+      {
+        "text": "Customers (200 real US cities)",
+        "line": 19
+      },
+      {
+        "text": "Distance table",
+        "line": 23
+      },
+      {
+        "text": "Total demand",
+        "line": 28
+      },
+      {
+        "text": "Seed scenarios",
+        "line": 32
+      }
+    ],
+    "lastChange": "2026-06-20",
+    "inboundLinks": [
+      ".agents/memory/MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": ".agents/memory/studio-stack.md",
+    "origin": "repo",
+    "title": "Solver decision",
+    "headings": [
+      {
+        "text": "Solver decision",
+        "line": 6
+      },
+      {
+        "text": "API compare endpoint",
+        "line": 12
+      },
+      {
+        "text": "Schema: result stored in scenarios table",
+        "line": 18
+      },
+      {
+        "text": "Utilization: API returns 0-100 integers",
+        "line": 22
+      }
+    ],
+    "lastChange": "2026-06-20",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [
+        "POST /api/scenarios/compare",
+        "GET /scenarios/:id/compare"
+      ],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": ".claude/glm-delegation-disabled.md",
+    "origin": "repo",
+    "title": "GLM subagent delegation is disabled for this project",
+    "headings": [
+      {
+        "text": "GLM subagent delegation is disabled for this project",
+        "line": 1
+      },
+      {
+        "text": "Why two surfaces",
+        "line": 6
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": ".claude/skills/harness-retro/SKILL.md",
+    "origin": "repo",
+    "title": "Harness retro",
+    "headings": [
+      {
+        "text": "Harness retro",
+        "line": 6
+      },
+      {
+        "text": "Cause taxonomy (finite — use exactly one per failure row)",
+        "line": 15
+      },
+      {
+        "text": "Steps",
+        "line": 22
+      },
+      {
+        "text": "Notes",
+        "line": 75
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "CLAUDE.md",
+    "origin": "repo",
+    "title": "CLAUDE.md — Network Optimization Studio",
+    "headings": [
+      {
+        "text": "CLAUDE.md — Network Optimization Studio",
+        "line": 1
+      },
+      {
+        "text": "Architecture (30 seconds)",
+        "line": 7
+      },
+      {
+        "text": "Commands",
+        "line": 22
+      },
+      {
+        "text": "Hard rules",
+        "line": 46
+      },
+      {
+        "text": "v2 implementation progress",
+        "line": 57
+      },
+      {
+        "text": "Gotchas",
+        "line": 218
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [
+      ".claude/glm-delegation-disabled.md",
+      "NETWORK_MIGRATION_PLAN.md",
+      "docs/ops/smoke.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "VITE_API_BASE_URL",
+        "AND"
+      ],
+      "symbols": [],
+      "routes": [
+        "POST /scenarios/:id/solve",
+        "POST /auth/register",
+        "GET /scenarios",
+        "GET /scenarios/:id/export",
+        "POST /scenarios/:id/import",
+        "POST /scenarios/:id/import/apply",
+        "POST /scenarios/:id/reset-to-baseline",
+        "GET /api/models",
+        "GET /scenarios/:id/solve-jobs/:jobId",
+        "GET /solve-history",
+        "POST /scenarios/compare",
+        "DELETE /scenarios/:id",
+        "DELETE /api/scenarios/:id",
+        "POST /solve",
+        "GET /dataset",
+        "GET /models/:id/reference-distances",
+        "GET /landing-summary",
+        "POST /login"
+      ],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "lib/api-spec/openapi.yaml"
+      ]
+    }
+  },
+  {
+    "path": "IMPLEMENTATION_PLAN.md",
+    "origin": "repo",
+    "title": "Network Optimization Studio v2 — Technical Implementation Plan",
+    "headings": [
+      {
+        "text": "Network Optimization Studio v2 — Technical Implementation Plan",
+        "line": 1
+      },
+      {
+        "text": "0. Operating instructions for Claude Code",
+        "line": 11
+      },
+      {
+        "text": "0.1 Ground rules (non-negotiable)",
+        "line": 15
+      },
+      {
+        "text": "0.2 Repo map (verified)",
+        "line": 26
+      },
+      {
+        "text": "0.3 Commands",
+        "line": 52
+      },
+      {
+        "text": "Codegen: check lib/api-spec/ and root scripts/ for the orval invocation",
+        "line": 62
+      },
+      {
+        "text": "(likely `npx orval --config lib/api-spec/orval.config.ts` or a package script — locate once, then reuse).",
+        "line": 63
+      },
+      {
+        "text": "0.4 Verification gate (run before closing every task)",
+        "line": 68
+      },
+      {
+        "text": "0.5 Pre-resolved decisions (PRD open questions)",
+        "line": 79
+      },
+      {
+        "text": "0.5a Scalability decisions (v0.2 — from the plugin-architecture critique)",
+        "line": 88
+      },
+      {
+        "text": "Phase 1 — Auth, ownership, de-gamification (A1, A2, A3, B1, B2)",
+        "line": 101
+      },
+      {
+        "text": "Task A1.1 — OpenAPI: real auth endpoints",
+        "line": 103
+      },
+      {
+        "text": "Task A1.2 — Schema: extend users table",
+        "line": 113
+      },
+      {
+        "text": "Task A1.3 — Auth routes implementation",
+        "line": 119
+      },
+      {
+        "text": "Task A2.1 — Scenario ownership: schema + migration",
+        "line": 126
+      },
+      {
+        "text": "Task A2.2 — Ownership enforcement in routes",
+        "line": 131
+      },
+      {
+        "text": "Task A3.1 — Remove gamification (backend)",
+        "line": 137
+      },
+      {
+        "text": "Task A3.2 — Remove gamification (frontend) + new auth pages",
+        "line": 142
+      },
+      {
+        "text": "Task B1.1 — Chapter landing + routes",
+        "line": 148
+      },
+      {
+        "text": "Task B2.1 — problemType locked server-side",
+        "line": 153
+      },
+      {
+        "text": "Phase 2 — Data layer extraction into model packages (C1, C2, X3)",
+        "line": 160
+      },
+      {
+        "text": "Task C1.1 — Canonical dataset files as model packages",
+        "line": 164
+      },
+      {
+        "text": "Task C1.2 — Solver reads canonical data by model ID",
+        "line": 174
+      },
+      {
+        "text": "Task C1.3 — API serves canonical data + drift guard",
+        "line": 179
+      },
+      {
+        "text": "Task C2.1 — Dataset defect audit ⚠ STOP-AND-ASK",
+        "line": 183
+      },
+      {
+        "text": "Phase 3 — Inputs epic (D1–D6, X1) — largest phase",
+        "line": 190
+      },
+      {
+        "text": "Task D1.1 — Solver: per-WH capacity + demand overrides",
+        "line": 207
+      },
+      {
+        "text": "Task D1.2 — Left panel rework",
+        "line": 212
+      },
+      {
+        "text": "Task D2.1 / D3.1 — Warehouse & customer tables",
+        "line": 217
+      },
+      {
+        "text": "Task D4.1 — Export",
+        "line": 222
+      },
+      {
+        "text": "Task D5.1 — Import: parse + validate + preview",
+        "line": 227
+      },
+      {
+        "text": "Task D5.2 — Import UI",
+        "line": 232
+      },
+      {
+        "text": "Task D6.1 — Reset to baseline",
+        "line": 237
+      },
+      {
+        "text": "Task X1.1 — Staleness guard",
+        "line": 240
+      },
+      {
+        "text": "Phase 3.5 — Model registry, result envelope, async job queue (new in v0.2)",
+        "line": 248
+      },
+      {
+        "text": "Task G1.1 — Model manifests",
+        "line": 252
+      },
+      {
+        "text": "Task G1.2 — Registry service",
+        "line": 257
+      },
+      {
+        "text": "Task G2.1 — Standardized result envelope",
+        "line": 262
+      },
+      {
+        "text": "Task G3.1 — solve_jobs table + async dispatch",
+        "line": 268
+      },
+      {
+        "text": "Task G3.2 — Solve history from solve_jobs (absorbs A4)",
+        "line": 274
+      },
+      {
+        "text": "Phase 4 — Results & map UX (E1–E5) — may interleave with late Phase 3.5",
+        "line": 283
+      },
+      {
+        "text": "Task E3.1 — Achieved metrics display",
+        "line": 285
+      },
+      {
+        "text": "Task E1.1 — Client-side distance bands (right panel)",
+        "line": 288
+      },
+      {
+        "text": "Task E4.1 — Auto-show routes colored by band",
+        "line": 293
+      },
+      {
+        "text": "Task E5.1 — Map bounds per model",
+        "line": 297
+      },
+      {
+        "text": "Task E2.1 — Constraint chip bar",
+        "line": 301
+      },
+      {
+        "text": "Phase 5 — Compare v2 (F1, F2)",
+        "line": 308
+      },
+      {
+        "text": "Task F1.1 — Compare contract + validation",
+        "line": 310
+      },
+      {
+        "text": "Task F2.1 — Diff engine + UI",
+        "line": 315
+      },
+      {
+        "text": "Phase 6 (P1, optional) — Solve worker-pool scaling",
+        "line": 324
+      },
+      {
+        "text": "Final acceptance checklist (maps to PRD goals)",
+        "line": 333
+      },
+      {
+        "text": "Known risks & mitigations",
+        "line": 347
+      }
+    ],
+    "lastChange": "2026-07-20",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "NETWORK_MIGRATION_PLAN.md",
+      "chapter-10-two-echelon-gold-refinery-integration.md"
+    ],
+    "references": {
+      "paths": [
+        "lib/api-zod/src/generated/",
+        "lib/api-client-react/src/generated/",
+        "attached_assets/"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [
+        "POST /api/auth/register",
+        "POST /api/auth/login",
+        "POST /api/auth/logout",
+        "GET /api/auth/user",
+        "POST /scenarios",
+        "POST /scenarios/:id/solve",
+        "GET /scenarios/:id/export",
+        "POST /scenarios/:id/import",
+        "POST /scenarios/:id/import/apply",
+        "POST /scenarios/:id/reset-to-baseline",
+        "GET /api/models",
+        "GET /scenarios/:id/solve-jobs/:jobId"
+      ],
+      "services": [],
+      "files": [
+        "lib/api-spec/openapi.yaml",
+        "lib/api-spec/orval.config.ts",
+        "artifacts/api-server/src/solver/tests/e2e_accuracy.py"
+      ]
+    }
+  },
+  {
+    "path": "NETWORK_MIGRATION_PLAN.md",
+    "origin": "repo",
+    "title": "Network Optimization Studio — Render Migration Plan",
+    "headings": [
+      {
+        "text": "Network Optimization Studio — Render Migration Plan",
+        "line": 1
+      },
+      {
+        "text": "0. Target architecture",
+        "line": 10
+      },
+      {
+        "text": "1. Why this isn't a lift-and-shift",
+        "line": 24
+      },
+      {
+        "text": "2. Tasks",
+        "line": 44
+      },
+      {
+        "text": "Task R0.1 — Postgres TLS",
+        "line": 46
+      },
+      {
+        "text": "Task R0.2 — CORS allowlist",
+        "line": 57
+      },
+      {
+        "text": "Task R0.3 — Cross-origin cookie flags",
+        "line": 79
+      },
+      {
+        "text": "Task R0.4 — Cross-origin frontend wiring",
+        "line": 96
+      },
+      {
+        "text": "Task R0.5 — Dockerfile for `nos-api`",
+        "line": 110
+      },
+      {
+        "text": "syntax=docker/dockerfile:1",
+        "line": 121
+      },
+      {
+        "text": "Python for the solver (artifacts/api-server/src/solver/solve.py).",
+        "line": 124
+      },
+      {
+        "text": "build-essential is for native Node modules (argon2, if Task A1.3 picks it",
+        "line": 125
+      },
+      {
+        "text": "over bcryptjs — harmless to keep either way; drop it if the fallback wins).",
+        "line": 126
+      },
+      {
+        "text": "pnpm via corepack, pinned to match pnpm-lock.yaml's lockfileVersion (9.0 ->",
+        "line": 131
+      },
+      {
+        "text": "pnpm 9.x). Bump the major here if the lockfile version ever changes.",
+        "line": 132
+      },
+      {
+        "text": "Build only api-server and the workspace packages it depends on. This",
+        "line": 140
+      },
+      {
+        "text": "deliberately skips `studio` (which needs PORT/BASE_PATH at build time and",
+        "line": 141
+      },
+      {
+        "text": "is deployed separately as a static site — see render.yaml) and avoids a",
+        "line": 142
+      },
+      {
+        "text": "monorepo-wide build inside the API image.",
+        "line": 143
+      },
+      {
+        "text": "Render injects PORT at runtime and routes to it — do not hardcode it here.",
+        "line": 150
+      },
+      {
+        "text": "Task R0.6 — `render.yaml` blueprint",
+        "line": 169
+      },
+      {
+        "text": "Task R0.7 — README deploy section (P1, optional)",
+        "line": 228
+      },
+      {
+        "text": "3. Env vars — full inventory",
+        "line": 235
+      },
+      {
+        "text": "R0.8 — STOP AND ASK (human step)",
+        "line": 250
+      },
+      {
+        "text": "4. Verification gate",
+        "line": 260
+      },
+      {
+        "text": "5. Risk table",
+        "line": 280
+      },
+      {
+        "text": "6. Explicitly out of scope for Phase 0",
+        "line": 292
+      }
+    ],
+    "lastChange": "2026-07-23",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [
+        "attached_assets/",
+        "artifacts/api-server",
+        "artifacts/studio",
+        "lib/api-client-react"
+      ],
+      "scripts": [],
+      "envVars": [
+        "VITE_API_BASE_URL",
+        "PATH",
+        "PORT",
+        "BASE_PATH"
+      ],
+      "symbols": [
+        "Dockerfile",
+        "Origin",
+        "PATH",
+        "PORT",
+        "BASE_PATH"
+      ],
+      "routes": [
+        "GET /api/healthz"
+      ],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": [
+        "artifacts/api-server/src/solver/solve.py",
+        "artifacts/api-server/src/routes/auth.ts",
+        "lib/db/src/index.ts",
+        "artifacts/studio/vite.config.ts"
+      ]
+    }
+  },
+  {
+    "path": "PRD-network-optimization-studio-v2.md",
+    "origin": "repo",
+    "title": "PRD — Network Optimization Studio v2: From Gamified Demo to Classroom Tool",
+    "headings": [
+      {
+        "text": "PRD — Network Optimization Studio v2: From Gamified Demo to Classroom Tool",
+        "line": 1
+      },
+      {
+        "text": "1. Problem statement",
+        "line": 13
+      },
+      {
+        "text": "2. Goals",
+        "line": 17
+      },
+      {
+        "text": "3. Non-goals",
+        "line": 25
+      },
+      {
+        "text": "4. Users & personas",
+        "line": 34
+      },
+      {
+        "text": "5. User stories",
+        "line": 40
+      },
+      {
+        "text": "6. Requirements",
+        "line": 69
+      },
+      {
+        "text": "WS-A — Accounts, ownership, and de-gamification *(source items 1, 2)*",
+        "line": 73
+      },
+      {
+        "text": "WS-B — Chapter navigation *(source items 3, 4)*",
+        "line": 97
+      },
+      {
+        "text": "WS-C — Data layer extraction *(prerequisite for WS-D; from critique of items 5–7)*",
+        "line": 108
+      },
+      {
+        "text": "WS-D — Scenario inputs: left panel, tables, import/export *(source items 5, 6, 7)*",
+        "line": 120
+      },
+      {
+        "text": "WS-E — Results & map UX *(source items 8, 9, 10, 11, 12)*",
+        "line": 155
+      },
+      {
+        "text": "WS-F — Compare v2 *(source item 13)*",
+        "line": 179
+      },
+      {
+        "text": "Cross-cutting",
+        "line": 194
+      },
+      {
+        "text": "7. Success metrics",
+        "line": 213
+      },
+      {
+        "text": "8. Open questions",
+        "line": 232
+      },
+      {
+        "text": "9. Timeline & phasing",
+        "line": 245
+      },
+      {
+        "text": "10. Explicitly rejected alternatives (from design critique)",
+        "line": 266
+      }
+    ],
+    "lastChange": "2026-07-19",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "IMPLEMENTATION_PLAN.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "GamificationContext",
+        "ArcadiaShell"
+      ],
+      "routes": [
+        "POST /solve"
+      ],
+      "services": [],
+      "files": [
+        "lib/api-spec/openapi.yaml"
+      ]
+    }
+  },
+  {
+    "path": "README.md",
+    "origin": "repo",
+    "title": "Network Optimization Studio",
+    "headings": [
+      {
+        "text": "Network Optimization Studio",
+        "line": 1
+      },
+      {
+        "text": "Stack",
+        "line": 5
+      },
+      {
+        "text": "Repo layout",
+        "line": 13
+      },
+      {
+        "text": "Run & operate",
+        "line": 35
+      },
+      {
+        "text": "Testing",
+        "line": 49
+      },
+      {
+        "text": "Product",
+        "line": 58
+      },
+      {
+        "text": "Contributing notes",
+        "line": 67
+      },
+      {
+        "text": "Deploying",
+        "line": 72
+      }
+    ],
+    "lastChange": "2026-07-24",
+    "inboundLinks": [
+      ".claude/skills/harness-retro/SKILL.md",
+      "NETWORK_MIGRATION_PLAN.md",
+      "application-audit-and-remediation-plan.md",
+      "model-integration-precheck.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "VITE_API_BASE_URL"
+      ],
+      "symbols": [],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": []
+    }
+  },
+  {
+    "path": "application-audit-and-remediation-plan.md",
+    "origin": "repo",
+    "title": "Application audit & remediation plan",
+    "headings": [
+      {
+        "text": "Application audit & remediation plan",
+        "line": 1
+      },
+      {
+        "text": "A. Security",
+        "line": 16
+      },
+      {
+        "text": "A1 — Session secret falls back to a public constant `[C0]`",
+        "line": 18
+      },
+      {
+        "text": "A2 — No server-side session store `[C1]`",
+        "line": 56
+      },
+      {
+        "text": "A3 — No security headers `[C2]`",
+        "line": 69
+      },
+      {
+        "text": "A4 — Rate limiting is per-process, per-IP, and login-only `[C2]`",
+        "line": 77
+      },
+      {
+        "text": "A5 — CORS misconfiguration fails silently in production `[C2]`",
+        "line": 91
+      },
+      {
+        "text": "A6 — CSV formula injection `[C2, verify]`",
+        "line": 104
+      },
+      {
+        "text": "B. Documentation drift",
+        "line": 115
+      },
+      {
+        "text": "B1 — The README describes a subsystem that does not exist `[C1 for planning]`",
+        "line": 117
+      },
+      {
+        "text": "B2 — Three model ids are accepted but unimplementable `[C2]`",
+        "line": 149
+      },
+      {
+        "text": "C. Reliability & operations",
+        "line": 165
+      },
+      {
+        "text": "C1 — `/healthz` is a stub `[C1]`",
+        "line": 167
+      },
+      {
+        "text": "C2 — Solve jobs orphaned on restart `[C1]`",
+        "line": 183
+      },
+      {
+        "text": "C3 — Cache failures are invisible `[C2]`",
+        "line": 200
+      },
+      {
+        "text": "C4 — No production migration path `[C1]`",
+        "line": 208
+      },
+      {
+        "text": "C5 — Single-process assumptions block horizontal scaling `[C2]`",
+        "line": 217
+      },
+      {
+        "text": "C6 — Python runtime unverified at boot `[C2]`",
+        "line": 226
+      },
+      {
+        "text": "C7 — Solver stderr discarded `[C2]`",
+        "line": 233
+      },
+      {
+        "text": "D. Frontend",
+        "line": 243
+      },
+      {
+        "text": "D1 — No error boundary `[C1]`",
+        "line": 245
+      },
+      {
+        "text": "D2 — Query client has no defaults `[C2]`",
+        "line": 257
+      },
+      {
+        "text": "D3 — Job polling has no terminal bound `[C2]`",
+        "line": 266
+      },
+      {
+        "text": "D4 — Map bounds already generalized `[no action]`",
+        "line": 273
+      },
+      {
+        "text": "E. Remediation plan",
+        "line": 282
+      },
+      {
+        "text": "Phase R0 — Security & safety (do first, ship alone)",
+        "line": 284
+      },
+      {
+        "text": "Phase R1 — Operational correctness",
+        "line": 297
+      },
+      {
+        "text": "Phase R2 — Hardening & hygiene",
+        "line": 309
+      },
+      {
+        "text": "Sequencing note",
+        "line": 324
+      },
+      {
+        "text": "F. Severity summary",
+        "line": 334
+      },
+      {
+        "text": "G. What this audit did not cover",
+        "line": 350
+      }
+    ],
+    "lastChange": "2026-07-24",
+    "inboundLinks": [
+      "chapter-10-two-echelon-gold-refinery-integration.md",
+      "model-integration-precheck.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "Returns"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/app.ts"
+      ]
+    }
+  },
+  {
+    "path": "chapter-10-two-echelon-gold-refinery-implementation.md",
+    "origin": "repo",
+    "title": "Technical implementation plan — `two-echelon-gold-au`",
+    "headings": [
+      {
+        "text": "Technical implementation plan — `two-echelon-gold-au`",
+        "line": 1
+      },
+      {
+        "text": "Phase H — Hardening (land first, no new model)",
+        "line": 10
+      },
+      {
+        "text": "H2 — Capture solver stderr `[R1, R2]`",
+        "line": 14
+      },
+      {
+        "text": "H3 — Solver-code hash in the cache key `[S2]`",
+        "line": 64
+      },
+      {
+        "text": "H4 — Contain dataset-load blast radius `[R3]`",
+        "line": 80
+      },
+      {
+        "text": "H5 — Contain manifest blast radius `[R4]`",
+        "line": 99
+      },
+      {
+        "text": "H1 — Registration consistency test `[§1 miss-one table]`",
+        "line": 116
+      },
+      {
+        "text": "H6 — CI guards `[R1, C6]`",
+        "line": 140
+      },
+      {
+        "text": "Phase M0 — Dataset extraction",
+        "line": 153
+      },
+      {
+        "text": "M0.1 Extraction script",
+        "line": 155
+      },
+      {
+        "text": "M0.2 Extraction assertions",
+        "line": 184
+      },
+      {
+        "text": "Phase M1 — Registration (listable, not solvable)",
+        "line": 199
+      },
+      {
+        "text": "M1.1 `solvers/two-echelon-gold-au/manifest.json`",
+        "line": 201
+      },
+      {
+        "text": "M1.2 `PACKAGE_SPECS` entry `[#5]`",
+        "line": 255
+      },
+      {
+        "text": "Phase M2 — Solver",
+        "line": 286
+      },
+      {
+        "text": "M2.1 Dataset loading (via `_safe_load` from H4)",
+        "line": 290
+      },
+      {
+        "text": "M2.2 `solve_two_echelon(inp)`",
+        "line": 304
+      },
+      {
+        "text": "M2.3 Results — per-leg metrics and tagged edges `[S1, C2, C4, C5]`",
+        "line": 386
+      },
+      {
+        "text": "M2.4 Dispatcher `[#8]`",
+        "line": 471
+      },
+      {
+        "text": "Phase M3 — API contract",
+        "line": 492
+      },
+      {
+        "text": "M3.1 Envelope schema — same commit as M2 `[S1 — CRITICAL]`",
+        "line": 494
+      },
+      {
+        "text": "M3.2 Input schema",
+        "line": 523
+      },
+      {
+        "text": "M3.3 Registry + allowlist `[#3, #4]`",
+        "line": 551
+      },
+      {
+        "text": "M3.4 Payload builder `[#6]`",
+        "line": 570
+      },
+      {
+        "text": "M3.5 OpenAPI + codegen `[#7]`",
+        "line": 601
+      },
+      {
+        "text": "Phase M4 — Frontend",
+        "line": 613
+      },
+      {
+        "text": "Phase M5 — Arcadia quest",
+        "line": 627
+      },
+      {
+        "text": "Test matrix",
+        "line": 634
+      },
+      {
+        "text": "Commit sequence",
+        "line": 660
+      }
+    ],
+    "lastChange": "2026-07-24",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "Include",
+        "Each"
+      ],
+      "routes": [
+        "GET /api/models",
+        "POST /scenarios"
+      ],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/jobRunner.ts"
+      ]
+    }
+  },
+  {
+    "path": "chapter-10-two-echelon-gold-refinery-integration.md",
+    "origin": "repo",
+    "title": "Chapter 10 — Two-echelon gold refinery siting",
+    "headings": [
+      {
+        "text": "Chapter 10 — Two-echelon gold refinery siting",
+        "line": 1
+      },
+      {
+        "text": "1. The problem",
+        "line": 14
+      },
+      {
+        "text": "2. Model",
+        "line": 39
+      },
+      {
+        "text": "Correction to the source notebook",
+        "line": 55
+      },
+      {
+        "text": "3. Dataset",
+        "line": 74
+      },
+      {
+        "text": "4. Contract extensions",
+        "line": 102
+      },
+      {
+        "text": "5. Distance bands",
+        "line": 127
+      },
+      {
+        "text": "6. Inputs",
+        "line": 139
+      },
+      {
+        "text": "7. Phases",
+        "line": 156
+      },
+      {
+        "text": "Frontend notes",
+        "line": 171
+      },
+      {
+        "text": "8. Prerequisite hardening",
+        "line": 184
+      },
+      {
+        "text": "9. Tests",
+        "line": 200
+      },
+      {
+        "text": "10. Out of scope",
+        "line": 221
+      },
+      {
+        "text": "11. Commit sequence",
+        "line": 239
+      }
+    ],
+    "lastChange": "2026-07-24",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/dataset-audit.md",
+    "origin": "repo",
+    "title": "Dataset label audit (C2.1)",
+    "headings": [
+      {
+        "text": "Dataset label audit (C2.1)",
+        "line": 1
+      },
+      {
+        "text": "Why this ran now, out of its normal Phase 2 sequence position",
+        "line": 5
+      },
+      {
+        "text": "Methodology",
+        "line": 9
+      },
+      {
+        "text": "Findings",
+        "line": 16
+      },
+      {
+        "text": "What was fixed and what was not",
+        "line": 35
+      },
+      {
+        "text": "Resolution of PRD open question OQ3",
+        "line": 44
+      }
+    ],
+    "lastChange": "2026-07-22",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "IMPLEMENTATION_PLAN.md"
+    ],
+    "references": {
+      "paths": [
+        "solvers/p-median-us/dataset/"
+      ],
+      "scripts": [],
+      "envVars": [
+        "STL",
+        "SFO",
+        "TPA",
+        "LUB",
+        "LBB",
+        "DISTANCE"
+      ],
+      "symbols": [
+        "Lubbock",
+        "DISTANCE"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "solvers/p-median-us/dataset/{warehouses,customers}.json",
+        "artifacts/api-server/src/data/dataset.ts",
+        "solvers/p-median-us/dataset/*.json",
+        "solvers/p-median-us/dataset/warehouses.json"
+      ]
+    }
+  },
+  {
+    "path": "docs/design-system/DECISIONS.md",
+    "origin": "repo",
+    "title": "Bundle 3 — Book-cover design system: locked decisions",
+    "headings": [
+      {
+        "text": "Bundle 3 — Book-cover design system: locked decisions",
+        "line": 1
+      },
+      {
+        "text": "Goal",
+        "line": 8
+      },
+      {
+        "text": "Locked decisions",
+        "line": 14
+      },
+      {
+        "text": "Design shape (3 layers → 3 build waves)",
+        "line": 36
+      },
+      {
+        "text": "Layer 1 — Foundations (tokens + fonts), promoted to global `:root`",
+        "line": 38
+      },
+      {
+        "text": "Layer 2 — Band motif + chrome (markup, not just CSS)",
+        "line": 53
+      },
+      {
+        "text": "Layer 3 — Studio components close-match + mono-numbers",
+        "line": 62
+      },
+      {
+        "text": "Execution",
+        "line": 72
+      },
+      {
+        "text": "Open item (decide at spec time)",
+        "line": 83
+      }
+    ],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SidebarTree",
+        "TabBar",
+        "ObjectiveBar",
+        "ConstraintChips",
+        "StaleOutputBanner",
+        "MapLegend",
+        "AppFooter"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/SKILL.md",
+    "origin": "repo",
+    "title": "SKILL.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Badge.prompt.md",
+    "origin": "repo",
+    "title": "Badge.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Button.prompt.md",
+    "origin": "repo",
+    "title": "Button.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Card.prompt.md",
+    "origin": "repo",
+    "title": "Card.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Checkbox.prompt.md",
+    "origin": "repo",
+    "title": "Checkbox.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Dialog.prompt.md",
+    "origin": "repo",
+    "title": "Dialog.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Input.prompt.md",
+    "origin": "repo",
+    "title": "Input.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Select.prompt.md",
+    "origin": "repo",
+    "title": "Select.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Table.prompt.md",
+    "origin": "repo",
+    "title": "Table.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/core/Tabs.prompt.md",
+    "origin": "repo",
+    "title": "Tabs.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/AssistantPanel.prompt.md",
+    "origin": "repo",
+    "title": "AssistantPanel.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-04",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/ConstraintChips.prompt.md",
+    "origin": "repo",
+    "title": "ConstraintChips.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/MapLegend.prompt.md",
+    "origin": "repo",
+    "title": "MapLegend.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/ObjectiveBar.prompt.md",
+    "origin": "repo",
+    "title": "ObjectiveBar.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/SidebarTree.prompt.md",
+    "origin": "repo",
+    "title": "SidebarTree.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/StaleOutputBanner.prompt.md",
+    "origin": "repo",
+    "title": "StaleOutputBanner.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/components/studio/TabBar.prompt.md",
+    "origin": "repo",
+    "title": "TabBar.prompt.md",
+    "headings": [],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/github.md",
+    "origin": "repo",
+    "title": "Last sync",
+    "headings": [
+      {
+        "text": "Last sync",
+        "line": 5
+      },
+      {
+        "text": "Updated in this project",
+        "line": 8
+      },
+      {
+        "text": "Screen map",
+        "line": 13
+      }
+    ],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/readme.md",
+    "origin": "repo",
+    "title": "SCND Optimization Studio — Design System",
+    "headings": [
+      {
+        "text": "SCND Optimization Studio — Design System",
+        "line": 1
+      },
+      {
+        "text": "Content fundamentals",
+        "line": 11
+      },
+      {
+        "text": "Visual foundations",
+        "line": 23
+      },
+      {
+        "text": "Iconography",
+        "line": 36
+      },
+      {
+        "text": "Index",
+        "line": 43
+      }
+    ],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/studio/src"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/design-system/ui_kits/studio/README.md",
+    "origin": "repo",
+    "title": "Studio UI kit",
+    "headings": [
+      {
+        "text": "Studio UI kit",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-03",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/studio/src\\",
+        "lib/chapters.ts\\"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/ops/e2e-stale-specs.md",
+    "origin": "repo",
+    "title": "Stale e2e specs (surfaced by the OBS-3 flake audit, 2026-09-11)",
+    "headings": [
+      {
+        "text": "Stale e2e specs (surfaced by the OBS-3 flake audit, 2026-09-11)",
+        "line": 1
+      },
+      {
+        "text": "The 2 genuinely flaky (quarantined `@flaky`)",
+        "line": 13
+      },
+      {
+        "text": "The 11 broken (test-rot — NOT flaky, NOT product bugs)",
+        "line": 22
+      },
+      {
+        "text": "Proposed gate (checkpoint #5 — pending human approval)",
+        "line": 40
+      },
+      {
+        "text": "Recommended follow-up (separate task, not part of the harness build)",
+        "line": 48
+      }
+    ],
+    "lastChange": "2026-09-11",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "e2e:gate",
+        "e2e:quarantine"
+      ],
+      "envVars": [],
+      "symbols": [
+        "CreateEntityDialog",
+        "MapDetailsCard"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        ".github/workflows/ci.yml"
+      ]
+    }
+  },
+  {
+    "path": "docs/ops/smoke.md",
+    "origin": "repo",
+    "title": "Post-deploy smoke checks",
+    "headings": [
+      {
+        "text": "Post-deploy smoke checks",
+        "line": 1
+      },
+      {
+        "text": "Usage",
+        "line": 9
+      },
+      {
+        "text": "override targets (defaults are operational, not canonical):",
+        "line": 13
+      },
+      {
+        "text": "What each check guards (cross-refs CLAUDE.md \"Gotchas\" + the R0.x migration)",
+        "line": 23
+      },
+      {
+        "text": "Notes",
+        "line": 38
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "docs/superpowers/metrics/deploys.csv"
+      ],
+      "scripts": [
+        "smoke"
+      ],
+      "envVars": [
+        "VITE_API_BASE_URL"
+      ],
+      "symbols": [],
+      "routes": [
+        "GET /api/auth/user"
+      ],
+      "services": [
+        "nos-api",
+        "nos-studio"
+      ],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/product-insights/POSTHOG-AUDIT.md",
+    "origin": "repo",
+    "title": "PostHog Integration Audit (2026-09-12)",
+    "headings": [
+      {
+        "text": "PostHog Integration Audit (2026-09-12)",
+        "line": 1
+      },
+      {
+        "text": "Existing events (backend, 26 captures)",
+        "line": 5
+      },
+      {
+        "text": "Identity equality (load-bearing for POSTHOG-4)",
+        "line": 24
+      },
+      {
+        "text": "Backend invariants already present (do NOT re-add)",
+        "line": 31
+      },
+      {
+        "text": "Required GitHub secrets (for POSTHOG-9)",
+        "line": 45
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "lib/api-spec/openapi.yaml:573-584",
+        "lib/posthog.ts:18",
+        "lib/posthog.ts:3-4",
+        "lib/posthog.ts:21"
+      ],
+      "scripts": [],
+      "envVars": [
+        "POSTHOG_API_KEY",
+        "POSTHOG_HOST",
+        "POSTHOG_PROJECT_KEY",
+        "POSTHOG_PERSONAL_API_KEY",
+        "ANTHROPIC_API_KEY"
+      ],
+      "symbols": [
+        "AuthUser",
+        "User",
+        "POSTHOG_API_KEY",
+        "POSTHOG_HOST",
+        "POSTHOG_PROJECT_KEY",
+        "POSTHOG_PERSONAL_API_KEY",
+        "ANTHROPIC_API_KEY"
+      ],
+      "routes": [],
+      "services": [
+        "nos-api"
+      ],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/superpowers/metrics/README.md",
+    "origin": "repo",
+    "title": "Harness metrics store",
+    "headings": [
+      {
+        "text": "Harness metrics store",
+        "line": 1
+      },
+      {
+        "text": "The two harness rules",
+        "line": 11
+      },
+      {
+        "text": "Never fabricate a metric",
+        "line": 20
+      },
+      {
+        "text": "Files & column semantics",
+        "line": 24
+      },
+      {
+        "text": "`tasks.csv` — one row per finished task",
+        "line": 26
+      },
+      {
+        "text": "`failures.csv` — one row per gate failure",
+        "line": 43
+      },
+      {
+        "text": "`flake.csv` — one row per test per audit",
+        "line": 55
+      },
+      {
+        "text": "`deploys.csv` — one row per service per smoke run",
+        "line": 67
+      },
+      {
+        "text": "`docs-audit.csv` — one row per sweep",
+        "line": 78
+      },
+      {
+        "text": "Finding states (docs pipeline)",
+        "line": 93
+      }
+    ],
+    "lastChange": "2026-09-11",
+    "inboundLinks": [
+      ".claude/skills/harness-retro/SKILL.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "harness:record",
+        "smoke",
+        "harness:report",
+        "e2e:gate"
+      ],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio"
+      ],
+      "files": [
+        "docs/superpowers/gates/<cause>.md"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/prompts/jobs/harness-weekly.md",
+    "origin": "repo",
+    "title": "Cron job: weekly harness report",
+    "headings": [
+      {
+        "text": "Cron job: weekly harness report",
+        "line": 1
+      },
+      {
+        "text": "Steps",
+        "line": 7
+      },
+      {
+        "text": "Guardrails",
+        "line": 36
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "docs/superpowers/metrics/flake.csv"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "model-integration-precheck.md",
+    "origin": "repo",
+    "title": "Model integration pre-check",
+    "headings": [
+      {
+        "text": "Model integration pre-check",
+        "line": 1
+      },
+      {
+        "text": "Gate 0 — Before writing any code",
+        "line": 14
+      },
+      {
+        "text": "Gate 1 — The ten registration points",
+        "line": 32
+      },
+      {
+        "text": "Gate 2 — Dataset integrity",
+        "line": 89
+      },
+      {
+        "text": "Gate 3 — Solver hygiene",
+        "line": 115
+      },
+      {
+        "text": "Gate 4 — Distance bands",
+        "line": 141
+      },
+      {
+        "text": "Gate 5 — Contract & caching",
+        "line": 155
+      },
+      {
+        "text": "Gate 6 — Frontend",
+        "line": 170
+      },
+      {
+        "text": "Gate 6.5 — Input Map v2 editor (Workspace tabbed surface)",
+        "line": 201
+      },
+      {
+        "text": "Gate 7 — Tests",
+        "line": 256
+      },
+      {
+        "text": "Gate 8 — Rollout",
+        "line": 289
+      },
+      {
+        "text": "Quick reference — the nine silent failures",
+        "line": 306
+      }
+    ],
+    "lastChange": "2026-09-01",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "chapter-10-two-echelon-gold-refinery-integration.md"
+    ],
+    "references": {
+      "paths": [
+        "lib/api-client-react",
+        "lib/api-zod",
+        "lib/dataset-schema"
+      ],
+      "scripts": [
+        "codegen"
+      ],
+      "envVars": [
+        "KNOWN_SCHEMAS",
+        "VALID_MODEL_IDS",
+        "PACKAGE_SPECS",
+        "COLUMNS",
+        "ENTITY_HAS_VALUE",
+        "VALID_STATUSES",
+        "CHAPTERS",
+        "TRUCKLOAD_KG"
+      ],
+      "symbols": [
+        "KNOWN_SCHEMAS",
+        "VALID_MODEL_IDS",
+        "PACKAGE_SPECS",
+        "SolveInput",
+        "ImportEntity",
+        "COLUMNS",
+        "ENTITY_HAS_VALUE",
+        "VALID_STATUSES",
+        "WarehouseEntry",
+        "MineEntry",
+        "CHAPTERS",
+        "InputMapTab",
+        "MapWarehouse",
+        "MapCustomer",
+        "DistancesTab",
+        "TRUCKLOAD_KG"
+      ],
+      "routes": [
+        "GET /api/models",
+        "POST /scenarios"
+      ],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/resultEnvelope.ts",
+        "solvers/<model-id>/manifest.json",
+        "solvers/<model-id>/dataset/version.json",
+        "lib/dataset-schema/src/index.ts",
+        "lib/api-spec/openapi.yaml",
+        "lib/mapBounds.ts",
+        "lib/entityId.ts",
+        "lib/gazetteer.ts"
+      ]
+    }
+  },
+  {
+    "path": "MEMORY.md",
+    "origin": "memory",
+    "title": "MEMORY.md",
+    "headings": [],
+    "lastChange": "2026-09-04",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "feedback_merge_spec_plan_docs_to_main.md",
+    "origin": "memory",
+    "title": "feedback_merge_spec_plan_docs_to_main.md",
+    "headings": [],
+    "lastChange": "2026-09-01",
+    "inboundLinks": [
+      "MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "feedback_no_unilateral_decision_changes.md",
+    "origin": "memory",
+    "title": "feedback_no_unilateral_decision_changes.md",
+    "headings": [],
+    "lastChange": "2026-08-31",
+    "inboundLinks": [
+      "MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "feedback_orchestration_next_phase.md",
+    "origin": "memory",
+    "title": "feedback_orchestration_next_phase.md",
+    "headings": [],
+    "lastChange": "2026-08-22",
+    "inboundLinks": [
+      "MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "feedback_posthog_cli.md",
+    "origin": "memory",
+    "title": "feedback_posthog_cli.md",
+    "headings": [],
+    "lastChange": "2026-07-26",
+    "inboundLinks": [
+      "MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "feedback_qa_default_in_plans.md",
+    "origin": "memory",
+    "title": "feedback_qa_default_in_plans.md",
+    "headings": [],
+    "lastChange": "2026-09-04",
+    "inboundLinks": [
+      "MEMORY.md"
+    ],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "API_PROXY_TARGET"
+      ],
+      "symbols": [
+        "API_PROXY_TARGET"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  }
+]

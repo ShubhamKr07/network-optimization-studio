@@ -12,7 +12,8 @@
     "e2e:gate": "pnpm --filter studio e2e:gate --",
     "e2e:quarantine": "pnpm --filter studio e2e:quarantine --",
     "smoke": "pnpm --filter @workspace/scripts smoke --",
-    "harness:report": "pnpm --filter @workspace/scripts harness:report --"
+    "harness:report": "pnpm --filter @workspace/scripts harness:report --",
+    "docs:audit": "pnpm --filter @workspace/scripts docs:audit --"
   },
   "private": true,
   "devDependencies": {
