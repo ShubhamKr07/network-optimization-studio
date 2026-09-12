@@ -9,12 +9,6 @@ The solver is a pure TypeScript greedy + 1-opt local search. Python/PuLP was the
 
 **Why this matters:** If future work tries to add Python, be aware that `uv` is not in PATH. Test with `which uv` first.
 
-# API compare endpoint
-
-The compare endpoint is `POST /api/scenarios/compare` with a body `{ ids: number[] }` — not `GET /scenarios/:id/compare`. This was chosen because comparing requires a list of scenario IDs, not a single ID. The generated API client and frontend hooks match this pattern.
-
-**Why:** A GET route with a single ID cannot express multi-scenario comparison. POST body is more flexible.
-
 # Schema: result stored in scenarios table
 
 Solver results are stored as JSONB in the `scenarios` table (`result` column) rather than a separate `solve_results` table. This keeps the data model simple for an educational app with modest scale.
