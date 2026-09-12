@@ -19,8 +19,13 @@ Summary: 3 findings (3 commits), 0 dismissed.
 - **Where:** `docs/ops/sample-c.md:2` — references undefined `pnpm bogus:not-a-real-script`.
 - **Proposal:** delete the file.
 
+## Resolution (docs-apply 2026-09-12)
+- `30b926f3f2` — applied ead2e1b (sample-a.md deleted).
+- `4ade1ede44` — edited 332c1ca (sample-b.md renamed to sample-b-renamed.md, per human review).
+- `93111fbe38` — kept (delete reverted; sample-c.md stays, finding carries over).
+
 ## Carried over
-(none — sample PR.)
+- `93111fbe38` — kept by review; re-surfaces next sweep (age 0 weeks).
 
 ## Dismissed
 (none.)
