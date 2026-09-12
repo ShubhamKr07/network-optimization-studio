@@ -63,7 +63,9 @@ One shared-shape `scrubEvent(event)` applied via `beforeSend` on both SDKs.
 
 **Forbidden — stripped in `beforeSend`, never sent:** `sendDefaultPii: false`; request/response bodies; scenario `inputs` values (demand, capacity, distance, lat/lng, BOM ratio); query-string values; cookies; `Authorization`/session headers; email; user IP; any free text or city/state strings.
 
-Note: the fix-plan **query** side is inherently PII-safe — Sentry issue metadata (title, culprit/code location, event count, users-affected count, first/last seen, permalink) is code + frequency data, not student data. No scrubbing needed there.
+**Tag sources (pinned — Review 1):** `user_id` = `user.id` from `useGetCurrentAuthUser` (frontend) and `req.userId` (backend) — the **same value**, confirmed equal in the PostHog audit (`AuthUser.id` ≡ `req.userId`); **never email**. `model_id`/`scenario_id` = derived from the active route / currently-loaded scenario context, **never** user-entered or free-form values. `route`/`method`/`status_code` = from the Express request, **path only** (no query-string values). No tag ever sourced from a request body or header.
+
+**Query-stage boundary (Review 3):** the fix-plan loop reads **only issue-level metadata** — title, culprit/code location, event count, users-affected count, first/last seen, permalink. It does **not** query, fetch, or persist raw event payloads, request/response bodies, cookies, auth headers, or any free-text request data. The generated markdown contains **only aggregated issue-level reasoning** — never student data or unredacted exception payloads. This is a hard boundary to prevent the automation drifting into over-collection; the query side is lower-risk than the capture side but is not unbounded.
 
 ## SDK Wiring
 
@@ -85,6 +87,7 @@ Cloned from `product-insights.yml`, adapted to Sentry:
 - New `.github/workflows/error-plans.yml`: weekly `schedule` + `workflow_dispatch`, `permissions: contents/id-token/pull-requests: write`.
 - **Query step** (`scripts/error-plans/run.ts` via `npx tsx`, env `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT`): call the Sentry Issues API (`GET /api/0/projects/{org}/{project}/issues/?query=is:unresolved&statsPeriod=<window>&sort=freq`), filter to events ≥ threshold, keep the PII-safe fields, write `docs/error-plans/aggregates.json`.
 - **Synthesize + PR step** (`anthropics/claude-code-action@v1`, `claude_code_oauth_token`, `GH_TOKEN` env, `--allowedTools "Read,Write,Edit,Bash"`): read `aggregates.json`, write a prioritized fix plan to `docs/error-plans/${REPORT_DATE}.md` (per issue: title, frequency × users, root-cause hypothesis, suggested fix, affected model/route; always write, even on zero issues), then branch `error-plans/${REPORT_DATE}-${run_number}`, commit, push, `gh pr create`.
+- **Zero-issue behavior (first-class — Review 2):** when the query returns no qualifying issues, the run still does the full path — branch, write a report whose body clearly states "no actionable issues this week", commit, open the PR, and supersede older `error-plans/*` PRs. A quiet week produces a normal (superseding) PR with an explicit no-issues note, never a silent no-op.
 - **Supersede step**: close every older open `error-plans/*` PR + delete its branch, keeping only the newest.
 - Secrets: `SENTRY_AUTH_TOKEN` (Issues API, read scope) + `SENTRY_ORG`/`SENTRY_PROJECT` (repo variables); reuse `CLAUDE_CODE_OAUTH_TOKEN`.
 
@@ -111,6 +114,51 @@ Cloned from `product-insights.yml`, adapted to Sentry:
 - Solver (`@sentry/python`) — excluded (never-throw contract).
 - Sourcemap upload — high-value but flagged optional at launch.
 - Auto-implementing fixes — out of scope; the plan is a human/`@claude`/local-superpowers intake queue.
+
+## Review Comments Added (2026-09-12)
+
+These notes capture the spec review before implementation planning begins.
+
+### Review 1 — specify the exact identity mapping
+The spec should explicitly define the exact `user_id` / `model_id` / `scenario_id` tag sources on both runtime surfaces.
+
+- Frontend: the user identifier should come from the auth response object (`user.id` from the current auth query), not from email or any other profile field.
+- Backend: the server-side tag should come from `req.userId`, not from the body or headers.
+- Model/scenario tags should come from the active route/context or the currently loaded scenario, not from free-form or user-entered values.
+
+This is an implementation detail that matters for cross-surface correlation and should be pinned down in the plan before the code lands.
+
+### Review 2 — define the zero-issue weekly PR behavior explicitly
+The “always write the report, even on zero issues” rule is good, but the workflow should also specify the success path when there are no issues to fix.
+
+Required behavior:
+- still create the branch and commit
+- still write the markdown report
+- still open a PR, with a clear “no actionable issues this week” note
+- still supersede older error-plans PRs
+
+This should be a first-class workflow requirement, not just an implied outcome.
+
+### Review 3 — harden the PII-safety rule for the query/report stage
+The design is correct to say the Sentry issue query stage is fundamentally lower risk than the runtime event stage, but the spec should state a strict boundary:
+
+- the fix-plan loop reads only issue metadata (frequency, users affected, first/last seen, title, code location, permalink)
+- it does not query or persist raw event payloads, request/response bodies, cookies, auth headers, or any free-text request data
+- the generated markdown should contain only aggregated issue-level reasoning, not student data or unredacted exception payloads
+
+The design should explicitly call this out to prevent the automation from drifting into over-collection.
+
+### Review 4 — keep the sourcemap upload step optional at launch
+The sourcemap upload idea is valuable, but it should remain a high-value optional enhancement rather than a launch requirement. The initial launch should focus on captured errors + scrubbed context + issue-to-plan automation, with sourcemap deminification as a follow-on optimization if needed.
+
+### Review 5 — this deserves a short implementation-task checklist
+The plan should contain a short Task 1 that confirms the existing repo state before code lands:
+- no Sentry is present
+- the backend error middleware ordering is correct
+- the frontend currently has no error boundary
+- the auth identity field is `user.id` on the frontend and `req.userId` on the backend
+
+This is exactly the sort of repo-state confirmation that keeps the integration disciplined and avoids re-inventing patterns that are already settled.
 
 ## Execution Note
 
