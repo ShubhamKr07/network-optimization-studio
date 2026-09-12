@@ -11,8 +11,9 @@ import { redundantPassage } from "./lib/detectors/redundantPassage.js";
 import { conflictingInstruction } from "./lib/detectors/conflictingInstruction.js";
 import { orphan } from "./lib/detectors/orphan.js";
 import { memoryContradiction } from "./lib/detectors/memoryContradiction.js";
+import { factContradiction } from "./lib/detectors/factContradiction.js";
 
-const DETECTORS: Detector[] = [staleReference, superseded, redundantPassage, conflictingInstruction, orphan, memoryContradiction];
+const DETECTORS: Detector[] = [staleReference, superseded, redundantPassage, conflictingInstruction, orphan, memoryContradiction, factContradiction];
 
 export function loadConfig(root: string): AuditConfig {
   return JSON.parse(readFileSync(join(root, "docs/superpowers/docs-audit.config.json"), "utf8"));

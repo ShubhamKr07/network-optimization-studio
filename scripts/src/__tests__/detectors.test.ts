@@ -10,6 +10,7 @@ import { redundantPassage } from "../harness/lib/detectors/redundantPassage.js";
 import { conflictingInstruction } from "../harness/lib/detectors/conflictingInstruction.js";
 import { orphan } from "../harness/lib/detectors/orphan.js";
 import { memoryContradiction } from "../harness/lib/detectors/memoryContradiction.js";
+import { factContradiction } from "../harness/lib/detectors/factContradiction.js";
 import { isExcluded } from "../harness/docs-audit.js";
 import type { AuditConfig } from "../harness/lib/detectors/types.js";
 
@@ -98,6 +99,19 @@ describe("docs-audit detectors", () => {
     const cands = memoryContradiction([mem], CFG, ROOT);
     expect(cands.length).toBeGreaterThanOrEqual(1);
     expect(cands[0].origin).toBe("memory");
+  });
+
+  it("fact_contradiction: catches a present-tense claim the repo contradicts (semantic staleness)", () => {
+    const bad = rec(".agents/memory/studio-stack.md", "# Solver\nThe solver is a pure TypeScript greedy + 1-opt local search. Python/PuLP was unavailable.\n");
+    const cands = factContradiction([bad], CFG, ROOT);
+    expect(cands.length).toBeGreaterThanOrEqual(1);
+    expect(cands[0].type).toBe("stale_reference");
+    expect(cands[0].evidence).toMatch(/contradicts repo fact/);
+  });
+
+  it("fact_contradiction: does NOT flag historical/removal prose (past-tense)", () => {
+    const ok = rec("CLAUDE.md", "# Notes\nRemoved the dead openid-client dep. Don't touch the Replit deploy files (`.replit`, `replit.md`).\n");
+    expect(factContradiction([ok], CFG, ROOT)).toEqual([]);
   });
 
   it("exemption: an excluded glob path and the ignore marker are never in scope", () => {
