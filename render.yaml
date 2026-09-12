@@ -25,6 +25,8 @@ services:
         value: phc_wLZvqpCAco2WwSiqjo5TFVEUzbLzKTLGtaA8EdxKmPmn
       - key: POSTHOG_HOST
         value: https://us.i.posthog.com
+      - key: SENTRY_DSN
+        sync: false
 
   - type: web
     name: nos-studio
@@ -59,6 +61,9 @@ services:
         sync: false
       - key: VITE_POSTHOG_HOST
         value: https://us.i.posthog.com
+      # Public DSN — safe to expose in the browser bundle (like the PostHog phc_ key).
+      - key: VITE_SENTRY_DSN
+        sync: false
 
 databases:
   - name: nos-postgres
