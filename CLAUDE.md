@@ -43,6 +43,51 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
 
 **A branch is not finished until `/harness-retro <task_id>` has run** — it records the task's metrics row (`docs/superpowers/metrics/tasks.csv`), logs each gate failure by cause, and fires the second-occurrence gate rule (a failure cause appearing twice with no proposed gate → drafts `docs/superpowers/gates/<cause>.md` and stops for approval). See `.claude/skills/harness-retro/SKILL.md`.
 
+## Harness self-monitoring (OBS-1…OBS-11)
+
+A measurement + self-correction layer that makes the dev process observable. Spec/plan:
+`docs/superpowers/{specs,plans}/harness-self-monitoring.md`. It **layers on** the existing
+`.superpowers/sdd/` ledger (derives from it + git), never replaces it. Never fabricate a metric —
+underivable values are the literal `unknown`.
+
+**Metrics store** (`docs/superpowers/metrics/`, five append-only CSVs + README with the two rules):
+`tasks` (one row per finished task), `failures` (per gate failure, taxonomy `cause`), `flake`,
+`deploys`, `docs-audit`. Weekly report → `reports/YYYY-WW.md`.
+
+**Commands** (TS under `scripts/src/harness/` + `scripts/src/deploy/`, `tsx`-run; shell at
+`scripts/harness/`; root `pnpm` aliases delegate):
+- `pnpm harness:record --task <id> …` — append a task row (derives timestamps/merged_sha; `tokens`
+  always `unknown` — no job token source). Refuses duplicates without `--force`.
+- `pnpm harness:report [--week YYYY-WW]` — write the weekly report (medians, flake top-5, deploy
+  rollup, failure causes + 2nd-occurrence flags, `## Documentation`).
+- `pnpm smoke --env production|preview` — 7 post-deploy checks from outside Render
+  (`cors_preflight`, `cookie_attributes`, `fetch_credentials`, `postgres_tls`, `vite_env_baked`,
+  `python_solver_present`, `free_tier_wakeup`); targets resolve `--api-base`/`--studio-base` →
+  `NOS_API_BASE`/`NOS_STUDIO_BASE` → live fallback. See `docs/ops/smoke.md`.
+- `bash scripts/harness/flake-audit.sh --runs 20` — frozen-commit flake quant → `flake.csv`.
+- `pnpm docs:audit --full | --since <ref> [--mechanical-only]` — mechanical doc candidates (6
+  detectors) → `.harness/docs-audit/candidates.json` + `docs/superpowers/docs-audit/inventory.json`.
+- `pnpm docs:lint` — the proposed `doc_drift` gate (stale_reference only, exit non-zero). Runnable,
+  **not** wired to CI yet.
+
+**Gates:** the registration-points test (`registration.test.ts`, in the fast api-server gate) is
+live. Two proposed gates are **not enabled**: e2e-in-CI (**skipped** — no CI browser/app/seed infra),
+`doc_drift`/`docs:lint` (**deferred** until the stale-ref baseline is clean). See
+`docs/superpowers/gates/` + `docs/ops/e2e-stale-specs.md`.
+
+**Docs pipeline (weekly, human-gated):** the Sunday job (`docs/superpowers/prompts/jobs/
+docs-audit-sunday.md` → `/docs-audit` skill) verifies candidates → one-commit-per-finding on a
+`docs-audit/YYYY-WW` PR (stacks onto the open one; no dup commits). A human reviews with one comment
+per finding (`keep|apply|edit:|delete|defer|dismiss:`); `/docs-apply <pr>` processes + merges
+`--no-squash`. **Nothing reaches `main` except via a reviewed docs-audit PR.** `docs/superpowers/
+specs/**` + `plans/**` are historical — never audited.
+
+**Cron:** system crontab runs the weekly report (Mon 09:00) + Sunday sweep (Sun 22:00) via
+`scripts/harness/run-cron-job.sh` (headless `claude -p`). `.harness/` is gitignored scratch.
+
+**GLM delegation is disabled here** (`.claude/glm-delegation-disabled.md`) — the standing rule is
+never delegate to GLM for this repo.
+
 ## Hard rules
 
 1. **Never edit generated code.** Anything under `lib/api-zod/src/generated/` or `lib/api-client-react/src/generated/` comes from codegen. To change API shapes: edit `lib/api-spec/openapi.yaml`, re-run Orval (config: `lib/api-spec/orval.config.ts`), commit spec + regenerated output together.
