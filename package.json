@@ -13,7 +13,8 @@
     "e2e:quarantine": "pnpm --filter studio e2e:quarantine --",
     "smoke": "pnpm --filter @workspace/scripts smoke --",
     "harness:report": "pnpm --filter @workspace/scripts harness:report --",
-    "docs:audit": "pnpm --filter @workspace/scripts docs:audit --"
+    "docs:audit": "pnpm --filter @workspace/scripts docs:audit --",
+    "docs:lint": "pnpm --filter @workspace/scripts docs:lint --"
   },
   "private": true,
   "devDependencies": {

@@ -12,6 +12,7 @@
     "smoke": "tsx ./src/deploy/smoke.ts",
     "harness:report": "tsx ./src/harness/report.ts",
     "docs:audit": "tsx ./src/harness/docs-audit.ts",
+    "docs:lint": "tsx ./src/harness/docs-lint.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
