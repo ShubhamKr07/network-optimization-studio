@@ -64,7 +64,7 @@ deploy_config | solver_timeout | migration_order | zod_strip | doc_drift | other
    Print the resulting `stale_reference` candidates as a warning table (file, line, reference) so the
    author can fix obvious drift before merging. This writes no findings file, opens no PR, and never
    blocks the branch. If it is non-empty and the author leaves it, that is expected — the Sunday
-   sweep (docs-audit-sunday) is the record of truth.
+   weekly sweep (the harness-weekly workflow) is the record of truth.
 
 6. **Open-PR reminder.** If a docs-audit PR is open:
    ```bash

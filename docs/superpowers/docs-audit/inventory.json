@@ -141,29 +141,22 @@
         "line": 6
       },
       {
-        "text": "API compare endpoint",
+        "text": "Schema: result stored in scenarios table",
         "line": 12
       },
       {
-        "text": "Schema: result stored in scenarios table",
-        "line": 18
-      },
-      {
         "text": "Utilization: API returns 0-100 integers",
-        "line": 22
+        "line": 16
       }
     ],
-    "lastChange": "2026-06-20",
+    "lastChange": "2026-09-12",
     "inboundLinks": [],
     "references": {
       "paths": [],
       "scripts": [],
       "envVars": [],
       "symbols": [],
-      "routes": [
-        "POST /api/scenarios/compare",
-        "GET /scenarios/:id/compare"
-      ],
+      "routes": [],
       "services": [],
       "files": []
     }
@@ -183,7 +176,9 @@
       }
     ],
     "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
     "references": {
       "paths": [],
       "scripts": [],
@@ -192,6 +187,90 @@
       "routes": [],
       "services": [],
       "files": []
+    }
+  },
+  {
+    "path": ".claude/skills/docs-apply/SKILL.md",
+    "origin": "repo",
+    "title": "docs-apply (review protocol processor)",
+    "headings": [
+      {
+        "text": "docs-apply (review protocol processor)",
+        "line": 6
+      },
+      {
+        "text": "Refuse to run when",
+        "line": 14
+      },
+      {
+        "text": "Steps",
+        "line": 19
+      },
+      {
+        "text": "Notes",
+        "line": 64
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "docs:lint"
+      ],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/superpowers/plans/harness-self-monitoring.md",
+        "scripts/src/harness/lib/reviewComments.ts",
+        "docs/superpowers/gates/doc_drift.md"
+      ]
+    }
+  },
+  {
+    "path": ".claude/skills/docs-audit/SKILL.md",
+    "origin": "repo",
+    "title": "docs-audit (judgment + PR)",
+    "headings": [
+      {
+        "text": "docs-audit (judgment + PR)",
+        "line": 6
+      },
+      {
+        "text": "Precondition",
+        "line": 16
+      },
+      {
+        "text": "Protocol",
+        "line": 20
+      },
+      {
+        "text": "Review protocol (include verbatim in the PR body)",
+        "line": 70
+      },
+      {
+        "text": "docs-audit.csv columns",
+        "line": 85
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "docs:audit"
+      ],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/superpowers/plans/harness-self-monitoring.md",
+        "docs/superpowers/docs-audit/*.md",
+        "docs/superpowers/docs-audit/YYYY-WW.md"
+      ]
     }
   },
   {
@@ -248,23 +327,28 @@
         "line": 22
       },
       {
-        "text": "Hard rules",
+        "text": "Harness self-monitoring (OBS-1…OBS-11)",
         "line": 46
       },
       {
+        "text": "Hard rules",
+        "line": 91
+      },
+      {
         "text": "v2 implementation progress",
-        "line": 57
+        "line": 102
       },
       {
         "text": "Gotchas",
-        "line": 218
+        "line": 263
       }
     ],
     "lastChange": "2026-09-12",
     "inboundLinks": [
       ".claude/glm-delegation-disabled.md",
       "NETWORK_MIGRATION_PLAN.md",
-      "docs/ops/smoke.md"
+      "docs/ops/smoke.md",
+      "docs/superpowers/gates/doc_drift.md"
     ],
     "references": {
       "paths": [],
@@ -829,26 +913,26 @@
       },
       {
         "text": "Run & operate",
-        "line": 35
+        "line": 33
       },
       {
         "text": "Testing",
-        "line": 49
+        "line": 47
       },
       {
         "text": "Product",
-        "line": 58
+        "line": 56
       },
       {
         "text": "Contributing notes",
-        "line": 67
+        "line": 63
       },
       {
         "text": "Deploying",
-        "line": 72
+        "line": 68
       }
     ],
-    "lastChange": "2026-07-24",
+    "lastChange": "2026-09-12",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md",
       "NETWORK_MIGRATION_PLAN.md",
@@ -1764,16 +1848,18 @@
         "line": 22
       },
       {
-        "text": "Proposed gate (checkpoint #5 — pending human approval)",
+        "text": "Proposed gate (checkpoint #5 — DECISION: SKIP for now)",
         "line": 40
       },
       {
         "text": "Recommended follow-up (separate task, not part of the harness build)",
-        "line": 48
+        "line": 50
       }
     ],
-    "lastChange": "2026-09-11",
-    "inboundLinks": [],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
     "references": {
       "paths": [],
       "scripts": [
@@ -1790,6 +1876,76 @@
       "files": [
         ".github/workflows/ci.yml"
       ]
+    }
+  },
+  {
+    "path": "docs/ops/sample-a.md",
+    "origin": "repo",
+    "title": "Sample A (docs-apply test)",
+    "headings": [
+      {
+        "text": "Sample A (docs-apply test)",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": "docs/ops/sample-b.md",
+    "origin": "repo",
+    "title": "Sample B (docs-apply test)",
+    "headings": [
+      {
+        "text": "Sample B (docs-apply test)",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/ghost/sample-b-target.ts"
+      ]
+    }
+  },
+  {
+    "path": "docs/ops/sample-c.md",
+    "origin": "repo",
+    "title": "Sample C (docs-apply test)",
+    "headings": [
+      {
+        "text": "Sample C (docs-apply test)",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [
+        "bogus:not-a-real-script"
+      ],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": []
     }
   },
   {
@@ -1819,7 +1975,9 @@
       }
     ],
     "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
     "references": {
       "paths": [
         "docs/superpowers/metrics/deploys.csv"
@@ -1839,6 +1997,47 @@
         "nos-studio"
       ],
       "files": []
+    }
+  },
+  {
+    "path": "docs/product-insights/POSTHOG-2-attribution-note.md",
+    "origin": "repo",
+    "title": "Commit-attribution note — POSTHOG-2 test",
+    "headings": [
+      {
+        "text": "Commit-attribution note — POSTHOG-2 test",
+        "line": 1
+      },
+      {
+        "text": "What happened",
+        "line": 5
+      },
+      {
+        "text": "Net effect",
+        "line": 11
+      },
+      {
+        "text": "Decision",
+        "line": 18
+      },
+      {
+        "text": "Root cause / prevention",
+        "line": 22
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/__tests__/routes.test.ts",
+        "artifacts/api-server/src/routes/scenarios.ts"
+      ]
     }
   },
   {
@@ -1882,6 +2081,7 @@
         "POSTHOG_HOST",
         "POSTHOG_PROJECT_KEY",
         "POSTHOG_PERSONAL_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
         "ANTHROPIC_API_KEY"
       ],
       "symbols": [
@@ -1891,6 +2091,7 @@
         "POSTHOG_HOST",
         "POSTHOG_PROJECT_KEY",
         "POSTHOG_PERSONAL_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
         "ANTHROPIC_API_KEY"
       ],
       "routes": [],
@@ -1898,6 +2099,83 @@
         "nos-api"
       ],
       "files": []
+    }
+  },
+  {
+    "path": "docs/product-insights/README.md",
+    "origin": "repo",
+    "title": "Product Insights — weekly report",
+    "headings": [
+      {
+        "text": "Product Insights — weekly report",
+        "line": 1
+      },
+      {
+        "text": "Required GitHub secrets",
+        "line": 15
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "VITE_POSTHOG_KEY",
+        "POSTHOG_PROJECT_KEY",
+        "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY"
+      ],
+      "symbols": [
+        "POSTHOG_PROJECT_KEY",
+        "POSTHOG_PERSONAL_API_KEY",
+        "VITE_POSTHOG_KEY",
+        "POSTHOG_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        ".github/workflows/product-insights.yml",
+        "scripts/product-insights/run.ts",
+        "docs/product-insights/aggregates.json",
+        "docs/product-insights/<date>.md"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/gates/doc_drift.md",
+    "origin": "repo",
+    "title": "Gate proposal: doc_drift",
+    "headings": [
+      {
+        "text": "Gate proposal: doc_drift",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [
+      ".claude/skills/docs-apply/SKILL.md"
+    ],
+    "references": {
+      "paths": [
+        "docs/superpowers/metrics/failures.csv"
+      ],
+      "scripts": [
+        "docs:lint"
+      ],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "scripts/src/harness/docs-lint.ts",
+        "scripts/src/harness/lib/detectors/staleReference.ts",
+        ".github/workflows/ci.yml"
+      ]
     }
   },
   {
@@ -1967,6 +2245,43 @@
       ],
       "files": [
         "docs/superpowers/gates/<cause>.md"
+      ]
+    }
+  },
+  {
+    "path": "docs/superpowers/prompts/jobs/docs-audit-sunday.md",
+    "origin": "repo",
+    "title": "Cron job: Sunday documentation sweep",
+    "headings": [
+      {
+        "text": "Cron job: Sunday documentation sweep",
+        "line": 1
+      },
+      {
+        "text": "Steps",
+        "line": 7
+      },
+      {
+        "text": "Guardrails",
+        "line": 23
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "docs/superpowers/specs/**",
+        "docs/superpowers/plans/**"
+      ],
+      "scripts": [
+        "docs:audit"
+      ],
+      "envVars": [],
+      "symbols": [],
+      "routes": [],
+      "services": [],
+      "files": [
+        "docs/superpowers/docs-audit/inventory.json"
       ]
     }
   },

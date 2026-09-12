@@ -1,0 +1,100 @@
+name: Harness Weekly
+
+# One combined weekly job (replaces the old local crontab weekly-report + Sunday-sweep):
+# writes the metrics report, runs the mechanical docs-audit, then opens ONE PR with a FYI
+# "Weekly report" section + reviewable "Docs-audit findings". Apply is @claude-driven on the PR.
+on:
+  schedule:
+    - cron: "0 13 * * 1" # Mondays 13:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  harness-weekly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — report/derive + docs-audit read git log/dates
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compute week + write metrics report and docs-audit candidates
+        run: |
+          WEEK=$(date -u +%G-%V)
+          echo "WEEK=$WEEK" >> "$GITHUB_ENV"
+          pnpm harness:report --week "$WEEK"
+          pnpm docs:audit --full
+
+      - name: Build the combined weekly PR
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--max-turns 60 --allowedTools "Read,Write,Edit,Bash"'
+          prompt: |
+            You are the weekly harness sweep. Produce ONE combined pull request.
+
+            Inputs already generated on the runner working tree:
+            - Metrics report: docs/superpowers/metrics/reports/${{ env.WEEK }}.md (FYI — DO NOT modify it).
+            - Mechanical docs-audit candidates: .harness/docs-audit/candidates.json
+              (+ refreshed docs/superpowers/docs-audit/inventory.json).
+
+            Follow the repo's docs-audit skill at .claude/skills/docs-audit/SKILL.md for the judgment
+            pass and the "Docs-audit semantics" block in
+            docs/superpowers/plans/harness-self-monitoring.md. Steps:
+
+            1. git config user.name "github-actions[bot]" && git config user.email "github-actions[bot]@users.noreply.github.com"
+            2. git checkout -b harness-weekly/${{ env.WEEK }}-${{ github.run_number }}
+            3. Commit the report + inventory first:
+                 git add docs/superpowers/metrics/reports/${{ env.WEEK }}.md docs/superpowers/docs-audit/inventory.json
+                 git commit -m "docs: harness weekly report ${{ env.WEEK }}"
+            4. Verify each candidate in candidates.json against code + git history (git log --follow /
+               git log -S). DROP false positives (list them under ## Dismissed in the findings file).
+               For each REAL finding, draft a complete concrete fix and apply it as ONE commit:
+               subject "docs-audit <finding-id> <type> <action> <file>". One finding = one commit = one
+               hunk. Skip anything genuinely ambiguous (note it in the PR body instead of guessing).
+            5. Write the findings file docs/superpowers/docs-audit/${{ env.WEEK }}.md (summary; one block
+               per finding with id/type/confidence/action/commit + evidence + the fact it rests on; then
+               ## Dismissed). Commit it. Append one row to docs/superpowers/metrics/docs-audit.csv
+               (audited_at,run_id=${{ env.WEEK }},files_scanned,stale,redundant,conflicting,orphan,memory_findings,new,carried_over,pr_url(fill after create),pr_state=open,,,). Commit it.
+            6. git push -u origin harness-weekly/${{ env.WEEK }}-${{ github.run_number }}
+            7. Open ONE PR with gh pr create --base main --label docs-audit --title
+               "Harness weekly ${{ env.WEEK }}" and a body containing TWO sections:
+
+               ## Weekly report (FYI — no action needed)
+               <paste the key metrics from the report file: task count, first-gate-pass rate, top
+               flaky tests + quarantine count, deploy/smoke failures, failure causes with
+               second-occurrence flags. Link the committed report file.>
+
+               ## Docs-audit findings (review these)
+               <a table: finding id | type | confidence | file | commit link>. Then the review protocol:
+               review with ONE comment per finding using @claude, e.g. "@claude apply <finding-id>",
+               "@claude keep <finding-id>", "@claude edit <finding-id>: <text>", "@claude dismiss
+               <finding-id>: <reason>". When all are decided, comment "@claude apply the review" and
+               Claude (via .claude/skills/docs-apply/SKILL.md) rewrites the branch accordingly and
+               merges (--no-squash). The report section is FYI and merges as-is.
+
+            8. Report the PR URL.
+
+      - name: Supersede older harness-weekly PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OLD=$(gh pr list --state open --json number,headRefName,createdAt \
+            --jq '[.[] | select(.headRefName | startswith("harness-weekly/"))]
+                  | sort_by(.createdAt) | reverse | .[1:] | .[].number')
+          for n in $OLD; do
+            echo "Superseding PR #$n"
+            gh pr close "$n" --comment "Superseded by a newer harness weekly PR." --delete-branch
+          done

@@ -75,15 +75,18 @@ live. Two proposed gates are **not enabled**: e2e-in-CI (**skipped** — no CI b
 `doc_drift`/`docs:lint` (**deferred** until the stale-ref baseline is clean). See
 `docs/superpowers/gates/` + `docs/ops/e2e-stale-specs.md`.
 
-**Docs pipeline (weekly, human-gated):** the Sunday job (`docs/superpowers/prompts/jobs/
-docs-audit-sunday.md` → `/docs-audit` skill) verifies candidates → one-commit-per-finding on a
-`docs-audit/YYYY-WW` PR (stacks onto the open one; no dup commits). A human reviews with one comment
-per finding (`keep|apply|edit:|delete|defer|dismiss:`); `/docs-apply <pr>` processes + merges
-`--no-squash`. **Nothing reaches `main` except via a reviewed docs-audit PR.** `docs/superpowers/
-specs/**` + `plans/**` are historical — never audited.
-
-**Cron:** system crontab runs the weekly report (Mon 09:00) + Sunday sweep (Sun 22:00) via
-`scripts/harness/run-cron-job.sh` (headless `claude -p`). `.harness/` is gitignored scratch.
+**Weekly job + docs pipeline (one combined PR, human-gated):** the GitHub Actions workflow
+`.github/workflows/harness-weekly.yml` runs **Mondays 13:00 UTC** (+ `workflow_dispatch`). It writes
+the metrics report (`pnpm harness:report`) and the mechanical candidates (`pnpm docs:audit --full`),
+then (via `anthropics/claude-code-action` + the `docs-audit` skill) opens **one PR** with two
+sections: a **FYI `## Weekly report`** (the committed scorecard, no action) and reviewable
+**`## Docs-audit findings`** (one commit per verified finding). Older `harness-weekly/*` PRs are
+auto-superseded. **Apply is `@claude`-driven on the PR:** comment `@claude apply|keep|edit|dismiss
+<finding-id>` per finding, then `@claude apply the review` — `claude.yml` (now `contents`+`pull-requests:
+write`) follows `.claude/skills/docs-apply/SKILL.md` to rewrite the branch (revert/edit) and merge
+`--no-squash`. `/docs-apply <pr>` still works locally. **Nothing reaches `main` except via a reviewed
+PR.** `docs/superpowers/specs/**` + `plans/**` are historical — never audited. (`.harness/` is
+gitignored scratch.)
 
 **GLM delegation is disabled here** (`.claude/glm-delegation-disabled.md`) — the standing rule is
 never delegate to GLM for this repo.
