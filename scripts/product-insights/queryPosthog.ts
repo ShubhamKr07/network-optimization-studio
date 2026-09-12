@@ -51,11 +51,11 @@ GROUP BY event, model_id`;
 // funnel query returns and reduced by one shared `toAggregates` pass.
 export const RUNTIME_CACHE_HOGQL = `/* runtime percentiles + cache-hit totals, last 7 days */
 SELECT 'run_time_sec_p50' AS event, NULL AS model_id,
-       quantile(0.5)(toFloat64(properties.run_time_sec)) AS c
+       quantile(0.5)(toFloat(properties.run_time_sec)) AS c
 FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = 'scenario solve completed'
 UNION ALL
 SELECT 'run_time_sec_p95' AS event, NULL AS model_id,
-       quantile(0.95)(toFloat64(properties.run_time_sec)) AS c
+       quantile(0.95)(toFloat(properties.run_time_sec)) AS c
 FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = 'scenario solve completed'
 UNION ALL
 SELECT 'cache_hit_total' AS event, NULL AS model_id,
