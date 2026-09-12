@@ -82,7 +82,7 @@ describe("scrubEvent", () => {
         cookies: "nos_session=secret",
         headers: { authorization: "Bearer x", cookie: "nos_session=secret", "user-agent": "UA" },
         query_string: "scenario=1&token=abc",
-        url: "https://api/scenarios/1/solve",
+        url: "https://api.example.com/scenarios/1/solve?token=abc&scenario=1",
         method: "POST",
       },
       user: { id: "u1", email: "a@b.c", ip_address: "1.2.3.4" },
@@ -93,6 +93,7 @@ describe("scrubEvent", () => {
     expect(scrubbed!.request?.data).toBeUndefined();
     expect(scrubbed!.request?.cookies).toBeUndefined();
     expect(scrubbed!.request?.query_string).toBeUndefined();
+    expect(scrubbed!.request?.url).toBe("/scenarios/1/solve"); // path-only, query stripped (Review 5)
     expect(scrubbed!.request?.headers).toEqual({ "user-agent": "UA" }); // auth/cookie removed
     expect(scrubbed!.user).toEqual({ id: "u1" }); // email + ip removed
     expect(scrubbed!.tags).toEqual({ user_id: "u1", model_id: "p-median-us" });
@@ -108,6 +109,8 @@ Expected: FAIL — `./sentry` not found.
 
 - [ ] **Step 4: Implement `lib/sentry.ts`**
 
+> Review note: sanitize the request URL itself, not just `request.query_string`, because raw Sentry request objects often still include a URL with query params. The production contract should be path-only (`/api/...`), never full URLs with student input embedded.
+
 ```ts
 // artifacts/api-server/src/lib/sentry.ts
 import type { ErrorEvent } from "@sentry/node";
@@ -121,6 +124,14 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent | null {
     delete event.request.data;
     delete event.request.cookies;
     delete event.request.query_string;
+    if (event.request.url) {
+      try {
+        const url = new URL(event.request.url);
+        event.request.url = `${url.pathname}${url.hash ? url.hash : ""}`;
+      } catch {
+        event.request.url = event.request.url.split("?")[0];
+      }
+    }
     if (event.request.headers) {
       const kept: Record<string, string> = {};
       for (const [k, v] of Object.entries(event.request.headers)) {
@@ -248,15 +259,21 @@ describe("errorTracking", () => {
     expect(setUser).toHaveBeenCalledWith({ id: "u1" }); // id only, never email
   });
 
-  it("scrubEvent strips body/email/cookies", async () => {
+  it("scrubEvent strips body/email/cookies and reduces url to path-only", async () => {
     const m = await import("./errorTracking");
     const out = m.scrubEvent({
-      request: { data: { inputs: { demand: 5 } }, cookies: "x", headers: { authorization: "b", "user-agent": "UA" } },
+      request: {
+        data: { inputs: { demand: 5 } },
+        cookies: "x",
+        headers: { authorization: "b", "user-agent": "UA" },
+        url: "https://nos-studio.onrender.com/chapter-3?scenario=1&token=abc",
+      },
       user: { id: "u1", email: "a@b.c" },
     } as any);
     expect(out!.request?.data).toBeUndefined();
     expect(out!.request?.cookies).toBeUndefined();
     expect(out!.request?.headers).toEqual({ "user-agent": "UA" });
+    expect(out!.request?.url).toBe("/chapter-3"); // path-only, query stripped (Review 5)
     expect(out!.user).toEqual({ id: "u1" });
   });
 });
@@ -268,6 +285,8 @@ Run: `pnpm --filter studio test -- errorTracking.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Implement `lib/errorTracking.ts`**
+
+> Review note: sanitize the request URL on the browser side too, and keep the path-only rule consistent with the backend. The browser request object may still carry a full URL with query params or embedded identifiers.
 
 ```ts
 // artifacts/studio/src/lib/errorTracking.ts
@@ -281,6 +300,14 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent | null {
     delete event.request.data;
     delete event.request.cookies;
     delete event.request.query_string;
+    if (event.request.url) {
+      try {
+        const url = new URL(event.request.url);
+        event.request.url = `${url.pathname}${url.hash ? url.hash : ""}`;
+      } catch {
+        event.request.url = event.request.url.split("?")[0];
+      }
+    }
     if (event.request.headers) {
       const kept: Record<string, string> = {};
       for (const [k, v] of Object.entries(event.request.headers)) {
@@ -518,7 +545,15 @@ git commit -m "[SENTRY-5] Sentry issues query script (recurring-issue filter, me
 
 ### Task 6: Fix-plan workflow
 
+> Review note: the workflow must explicitly define the empty-issue path. If there are no persisted issues, the job still writes the markdown report, still creates the branch and PR, and still closes older error-plan PRs. It should not silently skip the branch or fail the workflow.
+
+> Review note: the implementation should be strict about the metadata-only boundary for the query stage. The Sentry Issues API may be queried only for issue metadata; raw event payloads, request bodies, cookies, headers, or any unredacted event data may never be included in the generated markdown or stored in the repo.
+
 Clone `.github/workflows/product-insights.yml` verbatim, swap the query + prompt + paths. Reuse its proven shape (unique per-run branch `error-plans/<date>-<run#>`, atomic claude-code-action write+PR, auto-supersede, always-write).
+
+**Empty-issue path (first-class — Review 3a):** a zero-issue run is NOT a no-op. It is guaranteed by three unconditional mechanisms, none of which branch on issue count: (a) the prompt's ALWAYS-write rule (writes a "No actionable issues this week" report), (b) the branch/`git add`/commit/push/`gh pr create` commands run unconditionally after the write, (c) the Supersede step runs unconditionally and closes older `error-plans/*` PRs. Task 7 validates this with a dispatch run against a project that returns zero qualifying issues → assert a PR is still opened with the no-issues note. The job must never silently skip the branch or fail on an empty query.
+
+**Metadata-only boundary (Review 3b):** the query stage (`scripts/error-plans/`) only ever hits the Issues API and keeps the allowlisted `IssueSummary` fields (enforced by `toIssuesSummary` + its test). No step fetches per-event detail, request bodies, cookies, headers, or unredacted payloads; none reach the markdown or the repo. If a future change adds an event-detail fetch, it must re-scrub — but this plan adds none.
 
 **Files:**
 - Create: `.github/workflows/error-plans.yml`
@@ -626,7 +661,9 @@ git commit -m "[SENTRY-6] weekly Sentry fix-plan workflow (PR + auto-supersede)"
 
 - [ ] **Step 3: No-regression sweep** — `pnpm run typecheck`; `DATABASE_URL=... pnpm --filter api-server test`; `pnpm --filter studio test`. Confirm the catch-all JSON error middleware still returns `{error:...}` (Sentry handler runs before, doesn't replace). Known env flake (`cors`/`resultEnvelope-brazil` under load) → re-run isolated to confirm environmental.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Empty-issue workflow validation** (post-secrets; deferred until `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` are set — mirrors the PostHog live-validation we did). `gh workflow run error-plans.yml`; watch to green; confirm a `error-plans/<date>-<run#>` PR **is opened even with zero qualifying issues**, its report body states "No actionable issues this week", and a second dispatch supersedes (closes) the first. If secrets aren't set yet at build time, record this as an explicit post-deploy checklist item rather than skipping silently.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add artifacts/studio/e2e/sentry-capture.spec.ts
@@ -636,6 +673,9 @@ git commit -m "[SENTRY-7] e2e: ErrorBoundary + Sentry capture, no PII in payload
 ---
 
 ## Self-Review
+
+> Review note: add a short explicit assertion in the test suite that `request.url` is path-only and stripped of query parameters, not just `request.query_string`. This is the key privacy edge case that should be covered by both backend and frontend tests.
+
 
 **Spec coverage:** Capture frontend (T3) + backend (T2); scrub both (T2/T3 `scrubEvent` + tests); tag sources pinned (Global Constraints + T2/T3); fix-plan loop (T5 query + T6 workflow); zero-issue PR (T6 prompt); query-stage PII boundary (T5 metadata-only + test asserting no leak); DSN config (T4); sourcemap deferred (not built — matches spec); repo-state Task 1 (T1, Review 5); QA (T7). ✅
 
