@@ -59,10 +59,10 @@ SELECT 'run_time_sec_p95' AS event, NULL AS model_id,
 FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = 'scenario solve completed'
 UNION ALL
 SELECT 'cache_hit_total' AS event, NULL AS model_id,
-       countIf(properties.cache_hit = true) AS c
+       toFloat(countIf(toString(properties.cache_hit) = 'true')) AS c
 FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = 'scenario solve completed'
 UNION ALL
-SELECT 'cache_query_total' AS event, NULL AS model_id, count() AS c
+SELECT 'cache_query_total' AS event, NULL AS model_id, toFloat(count()) AS c
 FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = 'scenario solve completed'`;
 
 export async function queryHogQL(query: string, opts: QueryOpts): Promise<HogQLResponse> {
