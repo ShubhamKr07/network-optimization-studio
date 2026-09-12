@@ -1,23 +1,29 @@
 // Entry point for the weekly product-insights job (POSTHOG-9's GitHub
-// Actions workflow invokes this directly via `npx tsx`). Queries PostHog,
-// synthesizes a markdown report with Claude, and writes it to
-// docs/product-insights/${REPORT_DATE}.md.
+// Actions workflow invokes this directly via `npx tsx`). Queries PostHog for
+// the past week's aggregates and writes them to
+// docs/product-insights/aggregates.json as pretty JSON. This script is
+// query-only — no LLM call happens here. The workflow's own
+// `anthropics/claude-code-action@v1` step reads this file and writes the
+// final markdown report (see .github/workflows/product-insights.yml);
+// authenticating that step via a Claude Max subscription OAuth token instead
+// of an Anthropic API key is the whole reason the synthesis step lives in
+// the workflow YAML now, not in this script.
 
 import { writeFileSync } from "node:fs";
 import { queryWeeklyAggregates } from "./queryPosthog";
-import { synthesizeReport } from "./buildReport";
 
 async function main() {
   const projectKey = process.env.POSTHOG_PROJECT_KEY!;
   const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY!;
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY!;
   const host = process.env.POSTHOG_HOST ?? "https://us.i.posthog.com";
   const weekEnding = process.env.REPORT_DATE!; // injected by the workflow (no Date.now in-script needed)
 
-  const agg = await queryWeeklyAggregates({ projectKey, personalApiKey, host });
-  const md = await synthesizeReport(agg, { anthropicApiKey, weekEnding });
-  writeFileSync(`docs/product-insights/${weekEnding}.md`, md);
-  console.log(`Wrote docs/product-insights/${weekEnding}.md`);
+  const aggregates = await queryWeeklyAggregates({ projectKey, personalApiKey, host });
+  writeFileSync(
+    "docs/product-insights/aggregates.json",
+    JSON.stringify({ weekEnding, aggregates }, null, 2),
+  );
+  console.log("Wrote docs/product-insights/aggregates.json");
 }
 
 main().catch((e) => {

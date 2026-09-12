@@ -3,7 +3,7 @@
 // aggregates for the weekly product-insights report (POSTHOG-8/9).
 //
 // `toAggregates` is kept pure and dependency-free so it can be exercised
-// against a fixture with zero network access (see buildReport.test.ts) —
+// against a fixture with zero network access (see queryPosthog.test.ts) —
 // `queryHogQL`/`queryWeeklyAggregates` are the only impure boundaries in
 // this file.
 

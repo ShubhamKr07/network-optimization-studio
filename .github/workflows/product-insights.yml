@@ -1,42 +1,46 @@
 name: Product Insights
-
 on:
   schedule:
-    - cron: "0 13 * * 1" # Mondays 13:00 UTC
+    - cron: "0 13 * * 1"
   workflow_dispatch: {}
-
 permissions:
-  contents: write # commit the report with the default GITHUB_TOKEN
-
+  contents: write
+  id-token: write
 jobs:
   insights:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 1 }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-          cache: pnpm
+        with: { node-version-file: .node-version, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - name: Generate report
+      - name: Query PostHog aggregates
         env:
           POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           REPORT_DATE=$(date -u +%Y-%m-%d)
           echo "REPORT_DATE=$REPORT_DATE" >> "$GITHUB_ENV"
           mkdir -p docs/product-insights
           REPORT_DATE=$REPORT_DATE npx tsx scripts/product-insights/run.ts
+      - name: Synthesize report
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--max-turns 3"
+          prompt: |
+            Read the aggregates at docs/product-insights/aggregates.json.
+            Write a prioritized, concrete product-recommendations report in
+            markdown to docs/product-insights/${{ env.REPORT_DATE }}.md, focused
+            on funnel drop-offs, solve failures/rejections, and stale-without-resolve
+            behavior. Use only the aggregates provided; do not invent data. Do NOT
+            commit — just write the file.
       - name: Commit report
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/product-insights/*.md
-          if git diff --staged --quiet; then
-            echo "No new report to commit."
-          else
-            git commit -m "docs: weekly product insights ${{ env.REPORT_DATE }}"
-            git push
-          fi
+          if git diff --staged --quiet; then echo "No new report."; else \
+            git commit -m "docs: weekly product insights ${{ env.REPORT_DATE }}"; git push; fi

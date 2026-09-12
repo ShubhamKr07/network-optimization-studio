@@ -64,3 +64,6 @@ __pycache__/
 
 # harness scratch (flake runs, docs-audit candidates, memory backups)
 .harness/
+
+# product-insights: transient query output, not the committed report
+docs/product-insights/aggregates.json

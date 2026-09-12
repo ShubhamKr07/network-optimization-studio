@@ -47,4 +47,4 @@ Task POSTHOG-1. Read-only inventory of the **existing** PostHog wiring, done bef
 Set in GitHub → Settings → Secrets before the first scheduled run:
 - `POSTHOG_PROJECT_KEY`
 - `POSTHOG_PERSONAL_API_KEY` — **distinct** from the ingest key; the HogQL query API requires a personal API key.
-- `ANTHROPIC_API_KEY`
+- `CLAUDE_CODE_OAUTH_TOKEN` — Claude Max subscription OAuth token (`claude setup-token`), consumed by the workflow's `anthropics/claude-code-action@v1` synthesis step. Not `ANTHROPIC_API_KEY` — this job does not use API billing.

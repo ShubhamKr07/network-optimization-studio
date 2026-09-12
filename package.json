@@ -18,7 +18,6 @@
   },
   "private": true,
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
     "@rollup/rollup-darwin-arm64": "^4.62.2",
     "@tailwindcss/oxide-darwin-arm64": "4.3.0",
     "lightningcss-darwin-arm64": "^1.33.0",
