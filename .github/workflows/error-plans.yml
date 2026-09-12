@@ -20,8 +20,8 @@ jobs:
       - name: Query Sentry issues
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: |
           REPORT_DATE=$(date -u +%Y-%m-%d)
           echo "REPORT_DATE=$REPORT_DATE" >> "$GITHUB_ENV"
