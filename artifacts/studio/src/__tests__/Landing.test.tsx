@@ -26,25 +26,25 @@ beforeEach(() => {
 });
 
 describe("Landing", () => {
-  it("lists Chapter 3 only — Ch5 and Ch10 are hidden from the grid", () => {
+  it("lists Chapter 3 and Chapter 10 — Ch5 is hidden from the grid", () => {
     renderLanding();
     expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
-    // transport-coal and p-median-brazil (both Chapter 5) are hidden from
-    // the Landing grid but still registered as routes.
+    // two-echelon-gold-au (Chapter 10) is now unhidden — it appears in the grid.
+    expect(screen.getByText(/Gold Refinery Siting/)).toBeInTheDocument();
+    // transport-coal and p-median-brazil (both Chapter 5) are still hidden
+    // from the Landing grid but remain registered as routes.
     expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Brazil Capacity/)).not.toBeInTheDocument();
-    // two-echelon-gold-au is hidden from the Landing grid but still
-    // registered as a route; it must NOT appear in the card grid.
-    expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
   });
 
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    // Hidden chapters are not rendered in the grid.
+    // Chapter 10 is unhidden — its card links to its route.
+    expect(screen.getByTestId("link-/chapter-10/gold-refinery")).toHaveAttribute("href", "/chapter-10/gold-refinery");
+    // Chapter 5 stays hidden — not rendered in the grid.
     expect(screen.queryByTestId("link-/chapter-5/transport")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-/chapter-5/brazil")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
   });
 
   it("shows no Recent solves section when history is empty", () => {
@@ -134,17 +134,18 @@ describe("Landing — Recent solves (G3.2)", () => {
   });
 
   it("a recent solve whose chapter is hidden from the grid is also hidden from Recent Solves (item 8: hide everywhere)", () => {
-    // two-echelon-gold-au is hiddenFromLanding — as of Bundle 6 T5, Recent
-    // Solves is filtered consistently with the card grid, not left unfiltered.
+    // p-median-brazil (Chapter 5) is hiddenFromLanding — as of Bundle 6 T5,
+    // Recent Solves is filtered consistently with the card grid, not left
+    // unfiltered. (Ch10 was unhidden, so this uses a still-hidden model.)
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
-        id: 42, scenarioId: 8, scenarioName: "Refinery Base Case", modelId: "two-echelon-gold-au",
+        id: 42, scenarioId: 8, scenarioName: "Brazil Base Case", modelId: "p-median-brazil",
         status: "succeeded", objective: 650000, weightedAvgDistanceMi: null, runTimeSec: 0.9,
         queuedAt: "2026-01-03T00:00:00Z", finishedAt: "2026-01-03T00:00:01Z",
       }],
     });
     renderLanding();
-    expect(screen.queryByText("Refinery Base Case")).not.toBeInTheDocument();
+    expect(screen.queryByText("Brazil Base Case")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-solve-history-42")).not.toBeInTheDocument();
   });
 });
@@ -191,9 +192,11 @@ describe("Landing — live summary (T4)", () => {
     });
     renderLanding();
 
-    // stats line — computed from visiblePerChapter only (p-median-us), not
-    // summary.totals, which would incorrectly include the hidden transport-coal row.
-    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("1 labs · 3 scenarios · 1 solved");
+    // stats line — labs counts every visible chapter (Ch3 + Ch10 = 2, Ch10
+    // has no summary row so contributes 0 scenarios/solved); scenarios/solved
+    // come from visiblePerChapter only (p-median-us), not summary.totals,
+    // which would incorrectly include the hidden transport-coal row.
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("2 labs · 3 scenarios · 1 solved");
 
     // p-median-us: solved + active (the only visible chapter, so it's the
     // most-recently-solved-among-visible even though transport-coal's own

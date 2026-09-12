@@ -98,13 +98,13 @@ describe("Login", () => {
   it("shows only non-hidden chapter labels in the footer labs strip", () => {
     render(<Login />);
     const strip = screen.getByTestId("auth-labs-strip");
+    // Chapter 3 (p-median-us) and Chapter 10 (two-echelon-gold-au) are visible.
     expect(strip).toHaveTextContent("Chapter 3");
-    // Ch5 (transport-coal, p-median-brazil) and Ch10 (two-echelon-gold-au)
-    // are hiddenFromLanding — the footer strip must not show them.
+    expect(strip).toHaveTextContent("Chapter 10");
+    // Ch5 (transport-coal, p-median-brazil) stays hiddenFromLanding — the
+    // footer strip must not show it.
     expect(strip).not.toHaveTextContent("Ch 5");
-    expect(strip).not.toHaveTextContent("Ch 10");
     expect(strip).not.toHaveTextContent("Chapter 5");
-    expect(strip).not.toHaveTextContent("Chapter 10");
   });
 
   it("uses a stacked-on-narrow / side-by-side-on-wide split layout", () => {

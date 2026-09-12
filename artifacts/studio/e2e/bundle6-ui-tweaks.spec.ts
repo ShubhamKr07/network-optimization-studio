@@ -245,7 +245,7 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
 });
 
 test.describe("Bundle 6 — Landing (authenticated)", () => {
-  test("hides Ch5/Ch10 cards and solves, visible-only stats, hero cover ~96px", async ({ page }) => {
+  test("hides Ch5 cards and solves (Ch10 visible), visible-only stats, hero cover ~96px", async ({ page }) => {
     test.setTimeout(120_000);
     await registerFreshAccount(page, "bundle6-landing");
 
@@ -258,16 +258,17 @@ test.describe("Bundle 6 — Landing (authenticated)", () => {
       await page.goto("/");
       await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: 8_000 });
 
-      // T5 item 8 — no Ch5/Ch10 cards, only Chapter 3.
+      // T5 item 8 — no Ch5 cards; Chapter 3 and Chapter 10 are visible.
       await expect(page.getByTestId("link-/chapter-3")).toBeVisible();
-      for (const path of ["/chapter-5/transport", "/chapter-5/brazil", "/chapter-10/gold-refinery"]) {
+      await expect(page.getByTestId("link-/chapter-10/gold-refinery")).toBeVisible();
+      for (const path of ["/chapter-5/transport", "/chapter-5/brazil"]) {
         await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);
       }
 
       // T1+T5 item 8 — stats line counts visible-only (the transport-coal
-      // solve is excluded).
+      // solve is excluded; Chapter 10 is visible but has no scenarios here).
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "1 labs · 1 scenarios · 1 solved",
+        "2 labs · 1 scenarios · 1 solved",
         { timeout: HEADER_TIMEOUT },
       );
 
@@ -309,7 +310,7 @@ test.describe("Bundle 6 — Login/auth copy (unauthenticated)", () => {
     await expect(page.getByTestId("auth-credit")).toContainText("Reach out at");
     await expect(page.getByTestId("auth-credit")).not.toContainText("Reach me out at");
 
-    // T5 item 12 — the labs strip shows only "Chapter 3".
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3");
+    // The labs strip shows the visible chapters — Chapter 3 and Chapter 10.
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 10");
   });
 });
