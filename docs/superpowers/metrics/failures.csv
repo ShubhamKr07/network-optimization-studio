@@ -14,3 +14,4 @@ date,task_id,phase,cause,test_or_check,notes,gate_proposed,gate_accepted
 2026-07-24,chapter-10-R1,integration,registration_point,registration.test.ts,refinery import/export missing — override-entity registration (services/templates.ts) not extended for the new model,registration.test.ts,yes
 2026-07-24,chapter-10-R1,integration,registration_point,registration.test.ts,map multi-select allowlist excluded two-echelon-gold-au entirely,registration.test.ts,yes
 2026-07-24,chapter-10-R4,integration,registration_point,registration.test.ts,CONSTRAINTS panel had no two-echelon entry — silently fell back to p-median-us's constraint list,registration.test.ts,yes
+2026-09-12,OBS,review,flaky_test,resultEnvelope.test.ts + cors.test.ts,5s timeouts on the full api-server run under CPU contention (subprocess-heavy real-CBC tests); both pass in isolation,serialize subprocess-heavy api tests or raise their per-test timeout,

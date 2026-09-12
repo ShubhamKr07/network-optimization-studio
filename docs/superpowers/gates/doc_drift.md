@@ -14,7 +14,7 @@ by `/docs-apply` whenever a file is flagged with the same finding type in two co
 docs-audit PRs.
 
 **Proposed automated gate:** `pnpm docs:lint` — runs the `stale_reference` detector
-(`scripts/src/harness/docs-lint.ts`, reusing `lib/detectors/staleReference.ts`) over the non-exempt
+(`scripts/src/harness/docs-lint.ts`, reusing `scripts/src/harness/lib/detectors/staleReference.ts`) over the non-exempt
 docs and **exits non-zero on any NEW stale path/script/env var/route** in a doc. It is the fast-gate
 counterpart to the weekly sweep: catches drift at commit/CI time instead of days later.
 
