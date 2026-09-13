@@ -35,6 +35,11 @@ describe("Landing", () => {
     // from the Landing grid but remain registered as routes.
     expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Brazil Capacity/)).not.toBeInTheDocument();
+    // two-echelon-jade-us (Chapter 9) is hiddenFromLanding until the full
+    // JADE build is browser-verified and unhidden (mirrors Ch10's own
+    // hiddenFromLanding-until-verified convention) — registered as a route
+    // but must not appear in the Landing grid.
+    expect(screen.queryByText(/JADE Network/)).not.toBeInTheDocument();
   });
 
   it("links each visible chapter to its route", () => {
