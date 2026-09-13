@@ -143,3 +143,32 @@ describe("OptimizationParametersTab — model-specific fields", () => {
     expect(onChange).toHaveBeenCalledWith("singleSource", true);
   });
 });
+
+// T11 (Chapter 9 JADE) — the P slider's semantic maximum tracks the
+// effective active-warehouse count (spec §5: "there is no stale static
+// maximum of 25"), not a fixed 50, when the caller (Workspace.tsx, T15.5)
+// wires `pMax`.
+describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
+  it("defaults to a max of 50 when pMax is omitted (every existing model unaffected)", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "50");
+    // Quick-select 25 still renders (25 <= 50).
+    expect(screen.getByTestId("button-p-quick-25")).toBeInTheDocument();
+  });
+
+  it("clamps the slider's max to the supplied pMax (tracks effective active warehouse count)", () => {
+    render(<OptimizationParametersTab {...baseProps} pMax={5} onChange={vi.fn()} />);
+    const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "5");
+  });
+
+  it("hides quick-select values above pMax", () => {
+    render(<OptimizationParametersTab {...baseProps} pMax={5} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-p-quick-2")).toBeInTheDocument();
+    expect(screen.getByTestId("button-p-quick-3")).toBeInTheDocument();
+    expect(screen.getByTestId("button-p-quick-4")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-10")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-p-quick-25")).not.toBeInTheDocument();
+  });
+});

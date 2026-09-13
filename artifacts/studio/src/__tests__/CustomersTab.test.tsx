@@ -493,3 +493,177 @@ describe("CustomersTab — Input Map prefill (Phase 3.2, Task 4)", () => {
     expect(onPrefillConsumed).not.toHaveBeenCalled();
   });
 });
+
+// T11 (Chapter 9 JADE) — per-product demand editing. productMode only turns
+// on when BOTH `products` (non-empty) AND `onProductOverridesChange` are
+// wired — mirrors every other tab's "gate on the actual capability, not
+// just a truthy prop" fix (WarehousesTab/CustomersTab's own established
+// pattern for addedWarehouses/addedCustomers).
+describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
+  const products = [
+    { id: "product-1", name: "Copper" },
+    { id: "product-2", name: "Aluminum" },
+  ];
+  const jadeCustomers = [
+    { id: "customer-1", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07, demand: 30, demands: { "product-1": 10, "product-2": 20 } },
+    { id: "customer-2", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 15, demands: { "product-1": 5, "product-2": 10 } },
+  ];
+
+  it("does not switch into product mode when products is omitted (every non-JADE model unaffected)", () => {
+    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("customer-product-table")).not.toBeInTheDocument();
+    expect(screen.getByText("C1")).toBeInTheDocument();
+  });
+
+  it("does not switch into product mode when products is set but onProductOverridesChange isn't wired (defensive, capability-gated)", () => {
+    render(<CustomersTab customers={jadeCustomers} overrides={[]} onChange={vi.fn()} products={products} />);
+    expect(screen.queryByTestId("customer-product-table")).not.toBeInTheDocument();
+  });
+
+  it("renders one demand column per product, seeded from base Customer.demands, when the full capability is wired", () => {
+    render(
+      <CustomersTab
+        customers={jadeCustomers}
+        overrides={[]}
+        onChange={vi.fn()}
+        products={products}
+        productOverrides={[]}
+        onProductOverridesChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("customer-product-table")).toBeInTheDocument();
+    expect(screen.getByText("Copper")).toBeInTheDocument();
+    expect(screen.getByText("Aluminum")).toBeInTheDocument();
+    expect(screen.getByTestId("input-customer-demand-customer-1-product-1")).toHaveValue(10);
+    expect(screen.getByTestId("input-customer-demand-customer-1-product-2")).toHaveValue(20);
+    // Legacy scalar "Demand" column/input is NOT rendered in product mode.
+    expect(screen.queryByTestId("input-customer-demand-customer-1")).not.toBeInTheDocument();
+  });
+
+  it("editing one product's demand cell calls onProductOverridesChange with a sparse per-product override, leaving the other product's demand untouched", () => {
+    const onProductOverridesChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={jadeCustomers}
+        overrides={[]}
+        onChange={vi.fn()}
+        products={products}
+        productOverrides={[]}
+        onProductOverridesChange={onProductOverridesChange}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-customer-demand-customer-1-product-1"), { target: { value: "99" } });
+    expect(onProductOverridesChange).toHaveBeenCalledWith([
+      { id: "customer-1", status: "active", demands: { "product-1": 99 } },
+    ]);
+  });
+
+  it("Active/Excluded status toggle still works in product mode, via the productOverrides callback", () => {
+    const onProductOverridesChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={jadeCustomers}
+        overrides={[]}
+        onChange={vi.fn()}
+        products={products}
+        productOverrides={[]}
+        onProductOverridesChange={onProductOverridesChange}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("button-customer-customer-1-excluded"));
+    expect(onProductOverridesChange).toHaveBeenCalledWith([{ id: "customer-1", status: "excluded", demands: undefined }]);
+  });
+
+  it("the Added customers section renders one demand input per product (not a single scalar Demand field) in product mode", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={jadeCustomers}
+        overrides={[]}
+        onChange={vi.fn()}
+        products={products}
+        productOverrides={[]}
+        onProductOverridesChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    expect(screen.queryByTestId("input-new-customer-demand")).not.toBeInTheDocument();
+    expect(screen.getByTestId("input-new-customer-demand-product-1")).toBeInTheDocument();
+    expect(screen.getByTestId("input-new-customer-demand-product-2")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand-product-1"), "40");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand-product-2"), "60");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedCustomersChange.mock.calls[0][0];
+    expect(added).toMatchObject({
+      city: "Denver",
+      state: "CO",
+      demands: { "product-1": 40, "product-2": 60 },
+      demand: 100,
+    });
+  });
+
+  it("a blank product demand cell on the add-row form defaults to 0, not a blocking error", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={jadeCustomers}
+        overrides={[]}
+        onChange={vi.fn()}
+        products={products}
+        productOverrides={[]}
+        onProductOverridesChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Denver");
+    await userEvent.type(screen.getByTestId("input-new-customer-state"), "CO");
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "39.74");
+    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "-104.99");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand-product-1"), "40");
+    // product-2 left blank
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedCustomersChange.mock.calls[0][0];
+    expect(added.demands).toEqual({ "product-1": 40, "product-2": 0 });
+    expect(added.demand).toBe(40);
+  });
+
+  it("an added customer row in product mode renders one demand column per product, and editing one cell recomputes the scalar demand sum", () => {
+    const onAddedCustomersChange = vi.fn();
+    const added = [
+      { id: "ac-jade-1", city: "Denver", state: "CO", lat: 39.74, lng: -104.99, demand: 40, demands: { "product-1": 40, "product-2": 0 } },
+    ];
+    render(
+      <CustomersTab
+        customers={jadeCustomers}
+        overrides={[]}
+        onChange={vi.fn()}
+        products={products}
+        productOverrides={[]}
+        onProductOverridesChange={vi.fn()}
+        addedCustomers={added}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-1")).toHaveValue(40);
+    expect(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-2")).toHaveValue(0);
+    fireEvent.change(screen.getByTestId("input-added-customer-demand-ac-jade-1-product-2"), { target: { value: "25" } });
+    const [nextAdded] = onAddedCustomersChange.mock.calls[0][0];
+    expect(nextAdded).toMatchObject({ demands: { "product-1": 40, "product-2": 25 }, demand: 65 });
+  });
+});
