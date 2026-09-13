@@ -1,0 +1,38 @@
+{
+  "plant-1": {
+    "id": "plant-1",
+    "sourceId": 1,
+    "name": "Plant 1",
+    "city": "Ashland",
+    "state": "KY",
+    "lat": 38.448338,
+    "lng": -82.66621175
+  },
+  "plant-2": {
+    "id": "plant-2",
+    "sourceId": 2,
+    "name": "Plant 2",
+    "city": "Dayton",
+    "state": "OH",
+    "lat": 39.74513948979592,
+    "lng": -84.18873704081632
+  },
+  "plant-3": {
+    "id": "plant-3",
+    "sourceId": 3,
+    "name": "Plant 3",
+    "city": "Baltimore",
+    "state": "MD",
+    "lat": 39.31362598484849,
+    "lng": -76.61557987878788
+  },
+  "plant-4": {
+    "id": "plant-4",
+    "sourceId": 4,
+    "name": "Plant 4- Imports",
+    "city": "Long Beach",
+    "state": "CA",
+    "lat": 33.79856248571428,
+    "lng": -118.18454957142855
+  }
+}

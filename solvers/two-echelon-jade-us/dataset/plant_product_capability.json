@@ -1,0 +1,82 @@
+[
+  {
+    "plantId": "plant-1",
+    "productId": "product-1",
+    "capacity": 210000000
+  },
+  {
+    "plantId": "plant-1",
+    "productId": "product-2",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-1",
+    "productId": "product-3",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-1",
+    "productId": "product-4",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-2",
+    "productId": "product-1",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-2",
+    "productId": "product-2",
+    "capacity": 210000000
+  },
+  {
+    "plantId": "plant-2",
+    "productId": "product-3",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-2",
+    "productId": "product-4",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-3",
+    "productId": "product-1",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-3",
+    "productId": "product-2",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-3",
+    "productId": "product-3",
+    "capacity": 210000000
+  },
+  {
+    "plantId": "plant-3",
+    "productId": "product-4",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-4",
+    "productId": "product-1",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-4",
+    "productId": "product-2",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-4",
+    "productId": "product-3",
+    "capacity": 0
+  },
+  {
+    "plantId": "plant-4",
+    "productId": "product-4",
+    "capacity": 210000000
+  }
+]

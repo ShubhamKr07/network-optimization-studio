@@ -1,0 +1,252 @@
+{
+  "wh-1": {
+    "id": "wh-1",
+    "sourceId": 1,
+    "name": "Los Angeles",
+    "city": "Los Angeles",
+    "state": "CA",
+    "zip": "90001",
+    "lat": 33.974044,
+    "lng": -118.248849
+  },
+  "wh-2": {
+    "id": "wh-2",
+    "sourceId": 2,
+    "name": "New York City",
+    "city": "New York City",
+    "state": "NY",
+    "zip": "10001",
+    "lat": 40.75012,
+    "lng": -73.997846
+  },
+  "wh-3": {
+    "id": "wh-3",
+    "sourceId": 3,
+    "name": "Chicago",
+    "city": "Chicago",
+    "state": "IL",
+    "zip": "60602",
+    "lat": 41.88331,
+    "lng": -87.624713
+  },
+  "wh-7": {
+    "id": "wh-7",
+    "sourceId": 7,
+    "name": "Houston",
+    "city": "Houston",
+    "state": "TX",
+    "zip": "77001",
+    "lat": 29.757317,
+    "lng": -95.365005
+  },
+  "wh-8": {
+    "id": "wh-8",
+    "sourceId": 8,
+    "name": "Atlanta",
+    "city": "Atlanta",
+    "state": "GA",
+    "zip": "30301",
+    "lat": 33.753693,
+    "lng": -84.389544
+  },
+  "wh-9": {
+    "id": "wh-9",
+    "sourceId": 9,
+    "name": "Dallas",
+    "city": "Dallas",
+    "state": "TX",
+    "zip": "75201",
+    "lat": 32.787642,
+    "lng": -96.799525
+  },
+  "wh-11": {
+    "id": "wh-11",
+    "sourceId": 11,
+    "name": "Phoenix",
+    "city": "Phoenix",
+    "state": "AZ",
+    "zip": "85001",
+    "lat": 33.451015,
+    "lng": -112.068554
+  },
+  "wh-14": {
+    "id": "wh-14",
+    "sourceId": 14,
+    "name": "New York",
+    "city": "Nassau-Suffolk",
+    "state": "NY",
+    "zip": "12123",
+    "lat": 42.526891,
+    "lng": -73.609283
+  },
+  "wh-15": {
+    "id": "wh-15",
+    "sourceId": 15,
+    "name": "St. Louis",
+    "city": "St. Louis",
+    "state": "MO",
+    "zip": "63101",
+    "lat": 38.631358,
+    "lng": -90.192246
+  },
+  "wh-16": {
+    "id": "wh-16",
+    "sourceId": 16,
+    "name": "Baltimore",
+    "city": "Baltimore",
+    "state": "MD",
+    "zip": "21201",
+    "lat": 39.294398,
+    "lng": -76.622747
+  },
+  "wh-17": {
+    "id": "wh-17",
+    "sourceId": 17,
+    "name": "Pittsburgh",
+    "city": "Pittsburgh",
+    "state": "PA",
+    "zip": "15201",
+    "lat": 40.474802,
+    "lng": -79.95449
+  },
+  "wh-19": {
+    "id": "wh-19",
+    "sourceId": 19,
+    "name": "Seattle",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101",
+    "lat": 47.611601,
+    "lng": -122.333038
+  },
+  "wh-25": {
+    "id": "wh-25",
+    "sourceId": 25,
+    "name": "Denver",
+    "city": "Denver",
+    "state": "CO",
+    "zip": "80201",
+    "lat": 39.75071,
+    "lng": -104.996225
+  },
+  "wh-27": {
+    "id": "wh-27",
+    "sourceId": 27,
+    "name": "Kansas City",
+    "city": "Kansas City",
+    "state": "MO",
+    "zip": "64101",
+    "lat": 39.103883,
+    "lng": -94.600613
+  },
+  "wh-28": {
+    "id": "wh-28",
+    "sourceId": 28,
+    "name": "San Francisco",
+    "city": "San Francisco",
+    "state": "CA",
+    "zip": "94102",
+    "lat": 37.779887,
+    "lng": -122.418066
+  },
+  "wh-38": {
+    "id": "wh-38",
+    "sourceId": 38,
+    "name": "Orlando",
+    "city": "Orlando",
+    "state": "FL",
+    "zip": "32801",
+    "lat": 28.541627,
+    "lng": -81.37397
+  },
+  "wh-39": {
+    "id": "wh-39",
+    "sourceId": 39,
+    "name": "Columbus",
+    "city": "Columbus",
+    "state": "OH",
+    "zip": "43085",
+    "lat": 40.099395,
+    "lng": -83.016823
+  },
+  "wh-43": {
+    "id": "wh-43",
+    "sourceId": 43,
+    "name": "New Orleans",
+    "city": "New Orleans",
+    "state": "LA",
+    "zip": "70112",
+    "lat": 29.956664,
+    "lng": -90.077506
+  },
+  "wh-44": {
+    "id": "wh-44",
+    "sourceId": 44,
+    "name": "Las Vegas",
+    "city": "Las Vegas",
+    "state": "NV",
+    "zip": "89101",
+    "lat": 36.17269,
+    "lng": -115.121117
+  },
+  "wh-45": {
+    "id": "wh-45",
+    "sourceId": 45,
+    "name": "Salt Lake City",
+    "city": "Salt Lake City",
+    "state": "UT",
+    "zip": "84101",
+    "lat": 40.755074,
+    "lng": -111.89849
+  },
+  "wh-52": {
+    "id": "wh-52",
+    "sourceId": 52,
+    "name": "Memphis",
+    "city": "Memphis",
+    "state": "TN",
+    "zip": "37501",
+    "lat": 35.033731,
+    "lng": -89.934319
+  },
+  "wh-55": {
+    "id": "wh-55",
+    "sourceId": 55,
+    "name": "Raleigh",
+    "city": "Raleigh",
+    "state": "NC",
+    "zip": "27601",
+    "lat": 35.773856,
+    "lng": -78.634051
+  },
+  "wh-57": {
+    "id": "wh-57",
+    "sourceId": 57,
+    "name": "Oklahoma City",
+    "city": "Oklahoma City",
+    "state": "OK",
+    "zip": "73101",
+    "lat": 35.467763,
+    "lng": -97.520977
+  },
+  "wh-60": {
+    "id": "wh-60",
+    "sourceId": 60,
+    "name": "Louisville",
+    "city": "Louisville",
+    "state": "KY",
+    "zip": "40201",
+    "lat": 38.253601,
+    "lng": -85.768124
+  },
+  "wh-99": {
+    "id": "wh-99",
+    "sourceId": 99,
+    "name": "Columbia",
+    "city": "Columbia",
+    "state": "SC",
+    "zip": "29201",
+    "lat": 33.984705,
+    "lng": -81.028435
+  }
+}
