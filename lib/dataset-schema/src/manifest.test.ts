@@ -228,6 +228,49 @@ describe("ManifestSchema — inputsSchema.addedCustomers[].status (Bundle 2.2, B
   });
 });
 
+describe("ManifestSchema — capabilities.supportsPlantProductCapability (Chapter 9, jade-T2)", () => {
+  const baseManifest = {
+    id: "p-median-us",
+    name: "Al's Athletics",
+    chapter: "Chapter 3",
+    datasetDir: "solvers/p-median-us/dataset",
+    countryBounds: { sw: [25, -125] as [number, number], ne: [50, -66] as [number, number] },
+    capabilities: {
+      supportsP: true,
+      capacityModes: ["none", "uniform", "per_wh"],
+      demandEditable: true,
+      outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+    },
+    inputsSchema: {},
+  };
+
+  it("parses and retains an explicit supportsPlantProductCapability: true", () => {
+    const parsed = ManifestSchema.parse({
+      ...baseManifest,
+      capabilities: { ...baseManifest.capabilities, supportsPlantProductCapability: true },
+    });
+    expect(parsed.capabilities.supportsPlantProductCapability).toBe(true);
+  });
+
+  it("defaults to false when supportsPlantProductCapability is absent", () => {
+    const parsed = ManifestSchema.parse(baseManifest);
+    expect(parsed.capabilities.supportsPlantProductCapability).toBe(false);
+  });
+
+  it("real manifest: two-echelon-jade-us carries supportsPlantProductCapability: true", async () => {
+    const { readManifest } = await import("./index");
+    expect(readManifest("two-echelon-jade-us").capabilities.supportsPlantProductCapability).toBe(true);
+  });
+
+  it("real manifests: p-median-us, transport-coal, p-median-brazil, two-echelon-gold-au default to false (not set)", async () => {
+    const { readManifest } = await import("./index");
+    expect(readManifest("p-median-us").capabilities.supportsPlantProductCapability).toBe(false);
+    expect(readManifest("transport-coal").capabilities.supportsPlantProductCapability).toBe(false);
+    expect(readManifest("p-median-brazil").capabilities.supportsPlantProductCapability).toBe(false);
+    expect(readManifest("two-echelon-gold-au").capabilities.supportsPlantProductCapability).toBe(false);
+  });
+});
+
 describe("ManifestSchema — all real manifests still validate (Bundle 2.2, B2.2-T0)", () => {
   it("every model's manifest.json parses cleanly against ManifestSchema", async () => {
     const { readManifest, MODEL_IDS } = await import("./index");

@@ -1,0 +1,137 @@
+{
+  "id": "two-echelon-jade-us",
+  "name": "JADE Investment Decision — Multi-Product Two-Echelon",
+  "chapter": "Chapter 9",
+  "datasetDir": "solvers/two-echelon-jade-us/dataset",
+  "countryBounds": { "sw": [25.78, -122.69], "ne": [47.61, -71.05] },
+  "capabilities": {
+    "supportsP": true,
+    "capacityModes": [],
+    "demandEditable": true,
+    "outputGrids": ["openWarehouses", "assignments", "flows", "costSummary", "serviceStats"],
+    "supportsFacilityStatus": true,
+    "supportsReferenceDistances": true,
+    "supportsAddedCustomerExclusion": true,
+    "supportsPlantProductCapability": true
+  },
+  "distanceUnit": "mi",
+  "inputsSchema": {
+    "type": "object",
+    "properties": {
+      "p": { "type": "integer", "minimum": 1 },
+      "distanceBands": {
+        "type": "array",
+        "items": { "type": "integer", "exclusiveMinimum": 0 },
+        "minItems": 4,
+        "maxItems": 4,
+        "default": [200, 400, 800, 1600]
+      },
+      "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 },
+      "warehouseOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "customerOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "demands": {
+              "type": "object",
+              "additionalProperties": { "type": "number", "minimum": 0 }
+            },
+            "status": { "type": "string", "enum": ["active", "excluded"] }
+          },
+          "required": ["id", "status"]
+        }
+      },
+      "plantProductCapability": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "plantId": { "type": "string" },
+            "productId": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          },
+          "required": ["plantId", "productId", "enabled"]
+        }
+      },
+      "addedPlants": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "displayCode": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          },
+          "required": ["id", "city", "state", "lat", "lng"]
+        }
+      },
+      "addedWarehouses": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "displayCode": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] }
+          },
+          "required": ["id", "city", "state", "lat", "lng", "status"]
+        }
+      },
+      "addedCustomers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "displayCode": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "demands": {
+              "type": "object",
+              "additionalProperties": { "type": "number", "minimum": 0 }
+            },
+            "status": { "type": "string", "enum": ["active", "excluded"] }
+          },
+          "required": ["id", "city", "state", "lat", "lng", "demands", "status"]
+        }
+      },
+      "distanceOverrides": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "leg": { "type": "string", "enum": ["plant_to_warehouse", "warehouse_to_customer"] },
+            "fromId": { "type": "string", "minLength": 1 },
+            "toId": { "type": "string", "minLength": 1 },
+            "distance": { "type": "number", "minimum": 0 },
+            "estimated": { "type": "boolean" }
+          },
+          "required": ["leg", "fromId", "toId", "distance"]
+        }
+      }
+    },
+    "required": ["p", "distanceBands", "gap", "timeLimitSec"]
+  }
+}
