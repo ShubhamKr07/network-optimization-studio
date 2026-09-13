@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { assignBand, computeBandCoverage, computeAutoBands } from "@/lib/bands";
+import {
+  assignBand,
+  computeBandCoverage,
+  computeAutoBands,
+  assignBandOrOverflow,
+  computeCumulativeBandCoverage,
+  OVERFLOW_BAND,
+} from "@/lib/bands";
 
 describe("assignBand", () => {
   it("returns the first band whose boundary the distance is <= to", () => {
@@ -97,5 +104,126 @@ describe("computeAutoBands", () => {
       const bands = computeAutoBands([{ distance: max, flow: 1 }]);
       expect(bands[bands.length - 1]).toBeGreaterThanOrEqual(max);
     }
+  });
+});
+
+// jade-T14 — model-integration-precheck.md Gate 4 [BLOCKER]: an explicit
+// overflow bucket, additive-only. These are NEW functions; every test above
+// this point is byte-for-byte unmodified from before this task and still
+// exercises `assignBand`/`computeBandCoverage`/`computeAutoBands` exactly as
+// p-median-us and Ch10 (two-echelon-gold-au) already rely on them — proof
+// those two models' band rendering is unregressed by this change.
+describe("no regression to existing models' band helpers (p-median-us / Ch10 scale)", () => {
+  it("assignBand still folds an out-of-range distance into the LAST band (p-median-us-scale bands) — unchanged, pre-existing behavior", () => {
+    // p-median-us's own default-scale bands; a distance past every boundary
+    // still resolves to the last index exactly as before this task.
+    expect(assignBand(5000, [250, 500, 750, 1000])).toBe(3);
+  });
+
+  it("assignBand still folds an out-of-range distance into the LAST band (Ch10/JADE-scale bands) — unchanged, pre-existing behavior", () => {
+    // Bands sized like Ch10's/JADE's default [200,400,800,1600]; a distance
+    // well past 1600 still resolves to index 3 via the untouched `assignBand`
+    // — only the new `assignBandOrOverflow` sibling below changes this.
+    expect(assignBand(3219.9609, [200, 400, 800, 1600])).toBe(3);
+  });
+
+  it("computeBandCoverage stays exclusive per-band with no overflow row, even when a distance exceeds every boundary", () => {
+    // A p-median-us/Ch10-style result never gets a spurious `-1` overflow
+    // entry from this function — it silently excludes out-of-range flow from
+    // every band (pre-existing behavior, verified unchanged).
+    const edges = [
+      { distance: 100, flow: 50 },
+      { distance: 3219.9609, flow: 50 },
+    ];
+    const coverage = computeBandCoverage(edges, [200, 400, 800, 1600]);
+    expect(coverage.find((b) => b.band === OVERFLOW_BAND)).toBeUndefined();
+    expect(coverage).toEqual([
+      { band: 200, percent: 50 },
+      { band: 400, percent: 0 },
+      { band: 800, percent: 0 },
+      { band: 1600, percent: 0 },
+    ]);
+  });
+});
+
+describe("assignBandOrOverflow (jade-T14)", () => {
+  it("matches assignBand for every in-range distance", () => {
+    expect(assignBandOrOverflow(150, [200, 400, 800])).toBe(assignBand(150, [200, 400, 800]));
+    expect(assignBandOrOverflow(200, [200, 400, 800])).toBe(assignBand(200, [200, 400, 800]));
+  });
+
+  it("returns OVERFLOW_BAND instead of the last band index when distance exceeds every boundary", () => {
+    expect(assignBandOrOverflow(2907.302, [200, 400, 800, 1600])).toBe(OVERFLOW_BAND);
+    // Contrast with the unchanged assignBand, which folds it into the last band:
+    expect(assignBand(2907.302, [200, 400, 800, 1600])).toBe(3);
+  });
+
+  it("returns 0 for empty bands", () => {
+    expect(assignBandOrOverflow(100, [])).toBe(0);
+  });
+
+  it("sorts unsorted band input before assigning", () => {
+    expect(assignBandOrOverflow(250, [800, 200, 400])).toBe(1);
+  });
+});
+
+describe("computeCumulativeBandCoverage (jade-T14)", () => {
+  it("returns cumulative percent per boundary — each boundary counts ALL flow at or under it, not just the flow strictly between boundaries", () => {
+    const edges = [
+      { distance: 100, flow: 50 },
+      { distance: 300, flow: 30 },
+      { distance: 900, flow: 20 },
+    ];
+    expect(computeCumulativeBandCoverage(edges, [200, 400, 800])).toEqual([
+      { band: 200, percent: 50 }, // <=200: the 100mi edge only
+      { band: 400, percent: 80 }, // <=400: 100mi + 300mi edges (cumulative, not just the 300mi one)
+      { band: 800, percent: 80 }, // <=800: still just those two
+      { band: OVERFLOW_BAND, percent: 20 }, // the 900mi edge is past the last boundary — a separate overflow row, never folded into 800
+    ]);
+  });
+
+  it("appends a separately labelled overflow row for flow beyond the last boundary, never folded into it", () => {
+    // JADE-shaped case: plant->warehouse/warehouse->customer distances up to
+    // 2907.302/3219.9609 mi against the default last band of 1600 mi.
+    const edges = [
+      { distance: 100, flow: 10 },
+      { distance: 1600, flow: 75 },
+      { distance: 3219.9609, flow: 15 },
+    ];
+    const coverage = computeCumulativeBandCoverage(edges, [200, 400, 800, 1600]);
+    expect(coverage).toEqual([
+      { band: 200, percent: 10 },
+      { band: 400, percent: 10 },
+      { band: 800, percent: 10 },
+      { band: 1600, percent: 85 }, // <=1600: 10+75, the overflow edge NOT folded in here
+      { band: OVERFLOW_BAND, percent: 15 }, // separately labelled, sums to 100% with the 1600 row
+    ]);
+    const total = coverage.reduce((sum, b) => (b.band === 1600 || b.band === OVERFLOW_BAND ? sum + b.percent : sum), 0);
+    expect(total).toBe(100);
+  });
+
+  it("omits the overflow row entirely when nothing exceeds the last boundary", () => {
+    const edges = [{ distance: 100, flow: 10 }];
+    const coverage = computeCumulativeBandCoverage(edges, [200, 400]);
+    expect(coverage.find((b) => b.band === OVERFLOW_BAND)).toBeUndefined();
+  });
+
+  it("returns an empty array for empty bands", () => {
+    expect(computeCumulativeBandCoverage([{ distance: 100, flow: 50 }], [])).toEqual([]);
+  });
+
+  it("returns 0% for every boundary when there are no edges (and no overflow row)", () => {
+    expect(computeCumulativeBandCoverage([], [200, 400])).toEqual([
+      { band: 200, percent: 0 },
+      { band: 400, percent: 0 },
+    ]);
+  });
+
+  it("sorts unsorted band input before computing", () => {
+    const edges = [{ distance: 300, flow: 100 }];
+    expect(computeCumulativeBandCoverage(edges, [400, 200])).toEqual([
+      { band: 200, percent: 0 },
+      { band: 400, percent: 100 },
+    ]);
   });
 });

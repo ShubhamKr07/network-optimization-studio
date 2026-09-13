@@ -57,15 +57,30 @@ export function ServiceStatsTab({ result, scenarioId, modelId }: ServiceStatsTab
         <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-no-bands">No band coverage data for this solve.</div>
       ) : (
         <div className="p-4 space-y-2">
-          {bandCoverage.map(b => (
-            <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
-              <span className="w-24 flex-shrink-0 font-mono">≤ {b.band} {distanceUnit}</span>
-              <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
-                <div className="bg-primary h-full" style={{ width: `${Math.min(b.percent, 100)}%` }} />
-              </div>
-              <span className="w-10 text-right font-mono">{b.percent}%</span>
-            </div>
-          ))}
+          {/* jade-T14 — model-integration-precheck.md Gate 4: a `band: -1`
+              entry (Ch10's own existing overflow convention, extended to
+              Chapter 9 JADE) is flow beyond every configured boundary and
+              gets a distinct "> {last boundary}" label — never rendered as
+              "≤ -1", and never folded into the last real boundary's row. The
+              boundary shown is derived from the OTHER rows in this same
+              array (not hardcoded to 1600), so this works for any model's
+              band configuration. */}
+          {(() => {
+            const maxBoundary = bandCoverage.reduce((max, b) => (b.band !== -1 && b.band > max ? b.band : max), 0);
+            return bandCoverage.map(b => {
+              const isOverflow = b.band === -1;
+              const label = isOverflow ? `> ${maxBoundary} ${distanceUnit}` : `≤ ${b.band} ${distanceUnit}`;
+              return (
+                <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
+                  <span className="w-24 flex-shrink-0 font-mono">{label}</span>
+                  <div className="flex-1 bg-muted rounded h-3 overflow-hidden">
+                    <div className="bg-primary h-full" style={{ width: `${Math.min(b.percent, 100)}%` }} />
+                  </div>
+                  <span className="w-10 text-right font-mono">{b.percent}%</span>
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
     </div>

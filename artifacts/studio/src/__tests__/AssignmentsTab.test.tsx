@@ -74,6 +74,46 @@ describe("AssignmentsTab", () => {
     });
   });
 
+  // jade-T14 — semantic-leg classification (Chapter 9 JADE)
+  describe("Chapter 9 JADE — facility->demand leg classification", () => {
+    const jadeResult = {
+      status: "optimal" as const, objective: 254060828.6157, runTimeSec: 1.2, quality: "Proven optimal",
+      edges: [
+        { fromId: "plant-1", toId: "wh-11", flow: 1000, distance: 293.66, leg: "plant_to_warehouse" as const, productId: "product-1" },
+        { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 42.1, leg: "warehouse_to_customer" as const },
+        { fromId: "wh-14", toId: "customer-2", flow: 300, distance: 812.4, leg: "warehouse_to_customer" as const },
+      ],
+      metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+
+    it("shows only warehouse_to_customer edges, excluding plant_to_warehouse", () => {
+      render(<AssignmentsTab result={jadeResult} scenarioId={1} />);
+      expect(screen.getByTestId("assignment-row-customer-1")).toHaveTextContent("wh-11");
+      expect(screen.getByTestId("assignment-row-customer-2")).toHaveTextContent("wh-14");
+      expect(screen.queryByTestId("assignment-row-wh-11")).not.toBeInTheDocument();
+    });
+
+    it("renders exactly one row per customer (aggregated, not per-edge)", () => {
+      render(<AssignmentsTab result={jadeResult} scenarioId={1} />);
+      const rows = screen.getAllByTestId(/^assignment-row-/);
+      expect(rows).toHaveLength(2);
+    });
+
+    it("aggregates multiple facility->demand edges for the same customer into one row (defensive; JADE's own envelope is already single-source)", () => {
+      const multiEdgeSameCustomer = {
+        ...jadeResult,
+        edges: [
+          ...jadeResult.edges,
+          { fromId: "wh-11", toId: "customer-1", flow: 100, distance: 42.1, leg: "warehouse_to_customer" as const },
+        ],
+      };
+      render(<AssignmentsTab result={multiEdgeSameCustomer} scenarioId={1} />);
+      const rows = screen.getAllByTestId(/^assignment-row-/);
+      expect(rows).toHaveLength(2);
+      expect(screen.getByTestId("assignment-row-customer-1")).toHaveTextContent("600");
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // Same rationale as OpenWarehousesTab's equivalent test: this component

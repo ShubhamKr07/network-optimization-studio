@@ -19,6 +19,8 @@ const mockUseListModels = vi.fn(() => ({
     // Bundle 2 (B2-T1) relabels two-echelon-gold-au "km" -> "mi" (its base
     // numbers are geographically miles; zero data change).
     { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
+    // jade-T14 — Chapter 9 JADE has real facility open/closed status (no P).
+    { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
   ],
 }));
 
@@ -118,6 +120,35 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveClass("font-mono");
     expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveClass("font-mono");
     expect(screen.getByTestId("cost-summary-value-quality")).not.toHaveClass("font-mono");
+  });
+});
+
+// jade-T14 — Chapter 9 JADE inbound/outbound cost split (single-scenario view)
+describe("CostSummaryTab — Chapter 9 JADE inbound/outbound cost split", () => {
+  const jadeResult = {
+    status: "optimal" as const, objective: 254060828.6157, runTimeSec: 1.2, quality: "Proven optimal",
+    edges: [],
+    metrics: { weightedAvgDistance: 500, inboundCost: 100000000, outboundCost: 154060828 },
+    details: {}, solverUsed: "CBC", infeasibilityReason: null,
+  };
+
+  it("shows Inbound cost and Outbound cost rows when the metrics carry them", () => {
+    render(<CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" />);
+    expect(screen.getByTestId("cost-summary-value-inbound-cost")).toHaveTextContent("100,000,000");
+    expect(screen.getByTestId("cost-summary-value-outbound-cost")).toHaveTextContent("154,060,828");
+  });
+
+  it("places Inbound/Outbound cost rows between Objective and Weighted avg. distance", () => {
+    render(<CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" />);
+    const list = screen.getByTestId("cost-summary-list");
+    const labels = [...list.querySelectorAll("dt")].map(dt => dt.textContent);
+    expect(labels).toEqual(["Objective", "Inbound cost", "Outbound cost", "Weighted avg. distance", "Runtime", "Quality", "Solver"]);
+  });
+
+  it("does not show Inbound/Outbound cost rows for a model whose envelope omits them (no regression)", () => {
+    render(<CostSummaryTab result={result} scenarioId={1} modelId="p-median-us" />);
+    expect(screen.queryByTestId("cost-summary-value-inbound-cost")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cost-summary-value-outbound-cost")).not.toBeInTheDocument();
   });
 });
 
@@ -305,6 +336,40 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       render(<CostSummaryTab result={addedRef.result} scenarioId={30} modelId="two-echelon-gold-au" scenarios={[addedRef, g2]} />);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
       expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-30")).toHaveTextContent("Toowoomba - QLD");
+    });
+  });
+
+  // jade-T14 — Chapter 9 JADE's open-facility set uses the authoritative
+  // metrics.openFacilityIds (incl. a zero-flow open warehouse), not edges.
+  describe("two-echelon-jade-us", () => {
+    const j1 = scenario({
+      id: 50, name: "JADE A", modelId: "two-echelon-jade-us",
+      result: {
+        ...result,
+        objective: 254060828.6157,
+        metrics: { weightedAvgDistance: 500, openFacilityIds: ["wh-11", "wh-14"] },
+        edges: [
+          { fromId: "plant-1", toId: "wh-11", flow: 900, distance: 200, leg: "plant_to_warehouse" as const, productId: "product-1" },
+          { fromId: "wh-11", toId: "customer-1", flow: 900, distance: 42.1, leg: "warehouse_to_customer" as const },
+          // wh-14 is open (in metrics.openFacilityIds) but has zero outbound
+          // edges — it must still appear in the city list.
+        ],
+      },
+    });
+    const j2 = scenario({
+      id: 51, name: "JADE B", modelId: "two-echelon-jade-us",
+      result: { ...result, objective: 260000000, metrics: { weightedAvgDistance: 520, openFacilityIds: ["wh-11"] }, edges: [] },
+    });
+
+    it("uses metrics.openFacilityIds (not derived edges), including a zero-flow open warehouse, and excludes the plant", () => {
+      render(<CostSummaryTab result={j1.result} scenarioId={50} modelId="two-echelon-jade-us" scenarios={[j1, j2]} />);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
+      const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
+      expect(cities).not.toHaveTextContent("plant-1");
+      // Dataset not mocked for this modelId -> falls back to raw ids (still
+      // proves both wh-11 AND the zero-flow wh-14 are present).
+      expect(cities).toHaveTextContent("wh-11");
+      expect(cities).toHaveTextContent("wh-14");
     });
   });
 

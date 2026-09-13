@@ -32,12 +32,20 @@ interface CostSummaryTabProps {
 const MAX_COMPARE = 4;
 
 // Mirrors OpenWarehousesTab.tsx's/templates.ts's own `buildOpenWarehouseRows`
-// derivation (distinct `fromId` across non-mine_to_refinery edges) so
+// derivation (distinct `fromId` across non-source->facility-leg edges) so
 // "open facility count" here never disagrees with the Open Warehouses tab.
+//
+// jade-T14 — prefers the authoritative `metrics.openFacilityIds` (Chapter 9
+// JADE) when present, which correctly includes a forced-open warehouse
+// serving zero outbound flow (never derivable from edges alone, since a
+// zero-flow warehouse never appears as a `fromId`). Falls back to the
+// edge-derived Set when the field is absent — every pre-existing model never
+// populates it, so this is byte-identical to before this task for them.
 function openFacilityIds(result: SolveResult): Set<string> {
+  if (result.metrics.openFacilityIds) return new Set(result.metrics.openFacilityIds);
   const ids = new Set<string>();
   for (const e of result.edges) {
-    if (e.leg === "mine_to_refinery") continue;
+    if (e.leg === "mine_to_refinery" || e.leg === "plant_to_warehouse") continue;
     ids.add(e.fromId);
   }
   return ids;
@@ -205,13 +213,24 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       );
     }
 
-    const rows: Array<[string, string, boolean]> = [
-      ["Objective", result.objective.toLocaleString(), true],
+    // jade-T14 — Chapter 9 JADE inbound/outbound cost split. Purely additive:
+    // gated on the presence of each optional metric, never on modelId — the
+    // fields are simply absent for every pre-existing model's envelope, so
+    // these two rows never appear for them (byte-identical row set to before
+    // this task).
+    const rows: Array<[string, string, boolean]> = [["Objective", result.objective.toLocaleString(), true]];
+    if (result.metrics.inboundCost != null) {
+      rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
+    }
+    if (result.metrics.outboundCost != null) {
+      rows.push(["Outbound cost", result.metrics.outboundCost.toLocaleString(), true]);
+    }
+    rows.push(
       ["Weighted avg. distance", result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—", true],
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
       ["Quality", result.quality, false],
       ["Solver", result.solverUsed, false],
-    ];
+    );
 
     return (
       <div className="flex flex-col h-full overflow-hidden">
