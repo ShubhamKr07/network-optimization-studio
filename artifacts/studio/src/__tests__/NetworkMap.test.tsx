@@ -663,6 +663,167 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
   });
 });
 
+// ── jade-T13 — JADE's two legs (plant_to_warehouse / warehouse_to_customer),
+// leg layer toggles, unknown-leg neutral fallback, and per-product inbound
+// edge coalescing ───────────────────────────────────────────────────────────
+describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
+  const jadeDataset = {
+    // "warehouses" doubles as the generic facility array — plants and
+    // JADE's actual warehouses are both facility-role entities as far as
+    // NetworkMap's route lookup (dataset.warehouses.find) is concerned,
+    // mirroring how two-echelon-gold-au's mine/refinery share `warehouses`.
+    warehouses: [
+      { id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 },
+      { id: "wh-11", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 },
+      { id: "wh-14", city: "New York", state: "NY", lat: 40.71, lng: -74.01 },
+    ],
+    customers: [
+      { id: "customer-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 500 },
+    ],
+  };
+
+  const jadeResult = {
+    status: "optimal" as const,
+    objective: 254060828.6157,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [
+      { fromId: "plant-1", toId: "wh-11", flow: 100, distance: 1500, leg: "plant_to_warehouse" as const, productId: "product-1" },
+      { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 900, leg: "warehouse_to_customer" as const },
+    ],
+    metrics: { weightedAvgDistance: 1000, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["wh-11"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("renders plant_to_warehouse (inbound) and warehouse_to_customer (outbound) with distinct colors", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={jadeDataset}
+        warehouseStatuses={[]}
+        result={jadeResult}
+        showRoutes={true}
+        bands={[200, 400, 800, 1600]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeSvg = container.querySelector(".leaflet-route-pane svg");
+    const routeHtml = routeSvg?.innerHTML ?? "";
+    // Inbound (plant_to_warehouse) shares mine_to_refinery's color; outbound
+    // (warehouse_to_customer) shares refinery_to_customer's color — same
+    // semantic-role classification, distinct from each other.
+    expect(routeHtml).toContain("var(--map-warehouse-open)");
+    expect(routeHtml).toContain("var(--danger)");
+  });
+
+  it("toggling a leg layer off hides only that leg's routes (visibleLegs prop)", () => {
+    const { container: inboundOnly } = render(
+      <NetworkMap
+        dataset={jadeDataset}
+        warehouseStatuses={[]}
+        result={jadeResult}
+        showRoutes={true}
+        bands={[200, 400, 800, 1600]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        visibleLegs={["plant_to_warehouse"]}
+      />,
+    );
+    const inboundHtml = inboundOnly.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    expect(inboundHtml).toContain("var(--map-warehouse-open)");
+    expect(inboundHtml).not.toContain("var(--danger)");
+
+    const { container: outboundOnly } = render(
+      <NetworkMap
+        dataset={jadeDataset}
+        warehouseStatuses={[]}
+        result={jadeResult}
+        showRoutes={true}
+        bands={[200, 400, 800, 1600]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        visibleLegs={["warehouse_to_customer"]}
+      />,
+    );
+    const outboundHtml = outboundOnly.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    expect(outboundHtml).toContain("var(--danger)");
+    expect(outboundHtml).not.toContain("var(--map-warehouse-open)");
+  });
+
+  it("renders an unknown leg value with the neutral fallback color, never throws", () => {
+    // An unrecognized leg value follows the "usual" facility->demand shape
+    // (fromId=warehouse, toId=customer) — a genuinely unknown/future leg has
+    // no known role semantics to special-case an inbound-style lookup for,
+    // so this exercises exactly the entity-lookup path every single-echelon
+    // model already uses, plus the neutral fallback color.
+    const unknownLegResult = {
+      ...jadeResult,
+      edges: [
+        { fromId: "wh-11", toId: "customer-1", flow: 100, distance: 900, leg: "some_future_leg" as unknown as "plant_to_warehouse" },
+      ],
+    };
+    let container: HTMLElement;
+    expect(() => {
+      ({ container } = render(
+        <NetworkMap
+          dataset={jadeDataset}
+          warehouseStatuses={[]}
+          result={unknownLegResult}
+          showRoutes={true}
+          bands={[200, 400, 800, 1600]}
+          multiSelectedWarehouseIds={[]}
+          multiSelectedCustomerIds={[]}
+          onToggleWarehouseMultiSelect={() => {}}
+          onToggleCustomerMultiSelect={() => {}}
+        />,
+      ));
+    }).not.toThrow();
+    const routeHtml = container!.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    expect(routeHtml).toContain("var(--map-default-stroke)");
+    expect(routeHtml).not.toContain("var(--map-warehouse-open)");
+    expect(routeHtml).not.toContain("var(--danger)");
+  });
+
+  it("coalesces per-product inbound edges sharing (leg,fromId,toId) into a single line with summed flow", () => {
+    const multiProductResult = {
+      ...jadeResult,
+      edges: [
+        { fromId: "plant-1", toId: "wh-11", flow: 100, distance: 1500, leg: "plant_to_warehouse" as const, productId: "product-1" },
+        { fromId: "plant-1", toId: "wh-11", flow: 250, distance: 1500, leg: "plant_to_warehouse" as const, productId: "product-2" },
+        { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 900, leg: "warehouse_to_customer" as const },
+      ],
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={jadeDataset}
+        warehouseStatuses={[]}
+        result={multiProductResult}
+        showRoutes={true}
+        bands={[200, 400, 800, 1600]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeSvg = container.querySelector(".leaflet-route-pane svg");
+    const routeHtml = routeSvg?.innerHTML ?? "";
+    // Two distinct (leg,fromId,toId) groups exist here: the two
+    // plant-1->wh-11 product edges collapse into ONE line, plus the one
+    // wh-11->customer-1 line — 2 <path> elements total, not 3.
+    const pathCount = (routeHtml.match(/<path/g) ?? []).length;
+    expect(pathCount).toBe(2);
+  });
+});
+
 // ── B2.2-T4 (A4) — route hover tooltip, model-unit-aware ────────────────────
 describe("NetworkMap route hover tooltip (A4)", () => {
   const routeDataset = {
