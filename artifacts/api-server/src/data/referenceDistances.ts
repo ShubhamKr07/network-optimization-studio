@@ -28,6 +28,8 @@ export interface ReferenceDistancePair {
   toId: string;
   toCode: string;
   distance: number;
+  /** Chapter 9 JADE only — which leg this pair belongs to, since its single distances.json mixes both leg key-namespaces (plant->warehouse + warehouse->customer). Absent for single-leg models. */
+  leg?: "plant_to_warehouse" | "warehouse_to_customer";
 }
 
 export interface ReferenceDistancesData {
@@ -81,8 +83,52 @@ function buildPMedianUsReferenceDistances(): ReferenceDistancesData {
   };
 }
 
+// Chapter 9 (jade-T10) — JADE's distances.json is a single composite-key map
+// covering BOTH legs (`"plant-1,wh-8"` for the 100 inbound plant->warehouse
+// pairs, `"wh-11,customer-76"` for the 2500 outbound warehouse->customer
+// pairs), keyed directly by canonical id (not ordinal, unlike p-median-us) —
+// so this needs its own builder rather than reusing
+// buildReferenceDistancePairs. The leg is derived from each id's own
+// canonical prefix (`plant-`/`wh-`/`customer-`), never guessed from key
+// position, and a pair whose prefixes don't match either known leg throws
+// (same "fail loud on corruption" contract as the ordinal builder above).
+export function buildJadeReferenceDistancePairs(
+  distancesRaw: Record<string, number>,
+): ReferenceDistancePair[] {
+  const pairs: ReferenceDistancePair[] = [];
+  for (const [key, distance] of Object.entries(distancesRaw)) {
+    const [fromId, toId] = key.split(",");
+    if (!fromId || !toId) {
+      throw new Error(`referenceDistances: malformed JADE distance key "${key}"`);
+    }
+    let leg: "plant_to_warehouse" | "warehouse_to_customer";
+    if (fromId.startsWith("plant-") && toId.startsWith("wh-")) {
+      leg = "plant_to_warehouse";
+    } else if (fromId.startsWith("wh-") && toId.startsWith("customer-")) {
+      leg = "warehouse_to_customer";
+    } else {
+      throw new Error(`referenceDistances: unrecognized JADE leg for pair "${key}" (fromId=${fromId}, toId=${toId})`);
+    }
+    pairs.push({ fromId, fromCode: fromId, toId, toCode: toId, distance, leg });
+  }
+  return pairs;
+}
+
+function buildJadeReferenceDistances(): ReferenceDistancesData {
+  const distancesPath = path.join(SOLVERS_ROOT, "two-echelon-jade-us", "dataset", "distances.json");
+  const raw = JSON.parse(readFileSync(distancesPath, "utf8")) as Record<string, number>;
+  const pairs = buildJadeReferenceDistancePairs(raw);
+  const { sha256 } = readVersion("two-echelon-jade-us");
+  return {
+    modelId: "two-echelon-jade-us",
+    pairs,
+    etag: `"${sha256}"`,
+  };
+}
+
 const REFERENCE_DISTANCES_BY_MODEL: Record<string, ReferenceDistancesData> = {
   "p-median-us": buildPMedianUsReferenceDistances(),
+  "two-echelon-jade-us": buildJadeReferenceDistances(),
 };
 
 /** Undefined for any model that hasn't registered a builder above (route 422s on that, gated first by the manifest capability). */

@@ -42,6 +42,10 @@ export interface WarehouseCandidate {
   /** Distinguishes non-overridable supply nodes (e.g. two-echelon-gold-au's mine) from overridable ones. Omitted where every row is overridable. */
   kind?: "mine" | "facility";
   zip?: string;
+  /** Display name (Chapter 9 JADE — the notebook's plant/warehouse label). Optional; other models leave it absent and render city/state instead. */
+  name?: string;
+  /** Original notebook/textbook integer id, retained display-only (Chapter 9 JADE — canonical string id is the only valid join key). Optional; absent for models with no colliding source-id namespace. */
+  sourceId?: number;
 }
 
 export interface Customer {
@@ -52,6 +56,12 @@ export interface Customer {
   lng: number;
   demand: number;
   zip?: string;
+  /** Display name (Chapter 9 JADE — the notebook's customer label). Optional; other models leave it absent and render city/state instead. */
+  name?: string;
+  /** Original notebook/textbook integer id, retained display-only (Chapter 9 JADE). Optional; absent for models with no colliding source-id namespace. */
+  sourceId?: number;
+  /** Optional per-product demand breakdown, keyed by product id (Chapter 9 JADE — `{productId: tons}`). Absent for single-product models; `demand` remains the scalar total. */
+  demands?: Record<string, number>;
 }
 
 function loadJson(filename: string): Record<string, unknown> {
