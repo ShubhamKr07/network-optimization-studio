@@ -124,6 +124,33 @@ const twoEchelonRow = {
   updatedAt: new Date("2026-01-04T00:00:00Z"),
 };
 
+// jade-T7 — two-echelon-jade-us (Chapter 9, JADE).
+const jadeInputs = {
+  p: 2,
+  distanceBands: [200, 400, 800, 1600],
+  gap: 0,
+  timeLimitSec: 120,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  plantProductCapability: [],
+  addedPlants: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const jadeRow = {
+  id: 14,
+  name: "JADE Base Case",
+  modelId: "two-echelon-jade-us",
+  userId: OWNER,
+  inputs: jadeInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-05T00:00:00Z"),
+  updatedAt: new Date("2026-01-05T00:00:00Z"),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
@@ -279,5 +306,177 @@ describe("Multi-model CSV round trip — displayCode collision blocks the real H
     expect(res.status).toBe(200); // preview always 200s — errors surface inside the body
     expect(res.body.errors[0]).toMatchObject({ errorClass: "logic" });
     expect(res.body.changes).toEqual([]);
+  });
+});
+
+// jade-T7 — two-echelon-jade-us (Chapter 9, JADE) real HTTP round trip:
+// export every JADE entity (warehouses/customers/plants/plantCapabilities/
+// legDistances) 200s, a sibling model's entity 422s, legDistances round-trips
+// export->import for both legs, import-apply persists into the right
+// `inputs` field. Note: no reset-to-baseline coverage here — that endpoint
+// (`POST /scenarios/:id/reset-to-baseline`) was removed repo-wide in SCN
+// v0.3 Phase 3.2 (see CLAUDE.md's Phase 3.2 Task 1 entry), before this JADE
+// plan was written; there is nothing to register JADE into.
+describe("JADE (two-echelon-jade-us) — export every entity 200s", () => {
+  it.each(["warehouses", "customers", "plants", "plantCapabilities", "legDistances"])("entity=%s -> 200", async (entity) => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).get(`/api/scenarios/14/export?entity=${entity}&format=json`).set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe(entity);
+  });
+
+  it("plants export CSV has no capacity/status column", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).get("/api/scenarios/14/export?entity=plants&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.text.split("\n")[0]).toBe("template_version,id,display_code,city,state,lat,lng");
+  });
+
+  it("plantCapabilities export CSV emits the real 16-cell matrix", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).get("/api/scenarios/14/export?entity=plantCapabilities&format=csv").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const lines = res.text.trim().split("\n");
+    expect(lines).toHaveLength(1 + 16); // header + 16 (plant x product) cells
+  });
+});
+
+describe("JADE (two-echelon-jade-us) — a sibling model's entity is rejected (422)", () => {
+  it("refineries (two-echelon-gold-au's entity) is rejected for a JADE scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).get("/api/scenarios/14/export?entity=refineries&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("laneCosts (transport-coal's entity) is rejected for a JADE scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).get("/api/scenarios/14/export?entity=laneCosts&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("plants (JADE's own entity) is rejected for a two-echelon-gold-au scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([twoEchelonRow]));
+    const res = await request(app).get("/api/scenarios/11/export?entity=plants&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("plantCapabilities (JADE's own entity) is rejected for a p-median-us scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    const pMedianRow = { id: 1, name: "US Base Case", modelId: "p-median-us", userId: OWNER, inputs: {}, result: null, solvedAt: null, createdAt: new Date(), updatedAt: new Date() };
+    mockDb.select.mockReturnValueOnce(makeChain([pMedianRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=plantCapabilities&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+});
+
+describe("JADE (two-echelon-jade-us) — legDistances export/import round-trips both legs", () => {
+  it("a plant->warehouse override round-trips through export then import (preview, no DB write)", async () => {
+    const cookie = await loginAs(OWNER);
+    const rowWithOverride = { ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 123.4 }] } };
+    mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
+    const exportRes = await request(app).get("/api/scenarios/14/export?entity=legDistances&format=csv").set("Cookie", cookie);
+    expect(exportRes.status).toBe(200);
+    expect(exportRes.text).toContain("plant-1,wh-1,123.4");
+
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const importRes = await request(app).post("/api/scenarios/14/import").set("Cookie", cookie)
+      .send({ entity: "legDistances", csvText: exportRes.text });
+    expect(importRes.status).toBe(200);
+    expect(importRes.body.errors).toEqual([]);
+    expect(importRes.body.changes).toEqual([{
+      id: "plant-1|wh-1", line: 2,
+      before: { status: "active", value: null }, after: { status: "active", value: 123.4 },
+      fromId: "plant-1", toId: "wh-1",
+    }]);
+  });
+
+  it("a warehouse->customer override round-trips through export then import", async () => {
+    const cookie = await loginAs(OWNER);
+    const rowWithOverride = { ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "warehouse_to_customer", fromId: "wh-1", toId: "customer-1", distance: 42.1 }] } };
+    mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
+    const exportRes = await request(app).get("/api/scenarios/14/export?entity=legDistances&format=csv").set("Cookie", cookie);
+    expect(exportRes.status).toBe(200);
+    expect(exportRes.text).toContain("wh-1,customer-1,42.1");
+
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const importRes = await request(app).post("/api/scenarios/14/import").set("Cookie", cookie)
+      .send({ entity: "legDistances", csvText: exportRes.text });
+    expect(importRes.status).toBe(200);
+    expect(importRes.body.errors).toEqual([]);
+    expect(importRes.body.changes).toHaveLength(1);
+    expect(importRes.body.changes[0]).toMatchObject({ fromId: "wh-1", toId: "customer-1", after: { value: 42.1 } });
+  });
+
+  it("import/apply persists a plant->warehouse legDistances change with the `leg` field attached (never trusted from the client, resolved from id spaces)", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,from_id,to_id,distance\n1,plant-1,wh-1,123.4\n";
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 123.4 }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
+      .send({ entity: "legDistances", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const distanceOverrides = setArgs.inputs.distanceOverrides as Array<{ leg: string; fromId: string; toId: string; distance: number }>;
+    expect(distanceOverrides).toHaveLength(1);
+    expect(distanceOverrides[0]).toEqual({ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 123.4 });
+  });
+
+  it("import/apply persists a warehouse->customer legDistances change with the `leg` field attached", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,from_id,to_id,distance\n1,wh-1,customer-1,42.1\n";
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "warehouse_to_customer", fromId: "wh-1", toId: "customer-1", distance: 42.1 }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
+      .send({ entity: "legDistances", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const distanceOverrides = setArgs.inputs.distanceOverrides as Array<{ leg: string; fromId: string; toId: string; distance: number }>;
+    expect(distanceOverrides).toEqual([{ leg: "warehouse_to_customer", fromId: "wh-1", toId: "customer-1", distance: 42.1 }]);
+  });
+});
+
+describe("JADE (two-echelon-jade-us) — plants import/apply persists into addedPlants", () => {
+  it("a blank-id add row's minted 'ap-' uid + displayCode reach the real db.update().set() payload's addedPlants", async () => {
+    const cookie = await loginAs(OWNER);
+    const addCsv = "template_version,id,display_code,city,state,lat,lng\n1,,PL-NEW,Reno,NV,39.5,-119.8\n";
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, addedPlants: [{ id: "ap-x", displayCode: "PL-NEW", city: "Reno", state: "NV", lat: 39.5, lng: -119.8 }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
+      .send({ entity: "plants", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const added = setArgs.inputs.addedPlants as Array<{ id: string; displayCode: string; city: string }>;
+    expect(added).toHaveLength(1);
+    expect(added[0].id).toMatch(/^ap-/);
+    expect(added[0].displayCode).toBe("PL-NEW");
+    expect(added[0].city).toBe("Reno");
+  });
+});
+
+describe("JADE (two-echelon-jade-us) — plantCapabilities import/apply persists into plantProductCapability", () => {
+  it("a flipped cell reaches the real db.update().set() payload's plantProductCapability array", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-1,false\n";
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const chain = makeChain([{ ...jadeRow, inputs: { ...jadeInputs, plantProductCapability: [{ plantId: "plant-1", productId: "product-1", enabled: false }] } }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios/14/import/apply").set("Cookie", cookie)
+      .send({ entity: "plantCapabilities", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(1);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as { inputs: Record<string, unknown> };
+    const capability = setArgs.inputs.plantProductCapability as Array<{ plantId: string; productId: string; enabled: boolean }>;
+    expect(capability).toEqual([{ plantId: "plant-1", productId: "product-1", enabled: false }]);
   });
 });

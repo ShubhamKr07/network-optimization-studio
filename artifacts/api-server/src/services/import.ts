@@ -1,9 +1,10 @@
 import Papa from "papaparse";
 import { randomUUID } from "node:crypto";
-import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 import { BRAZIL_TOTAL_DEMAND } from "../data/brazilDataset.js";
-import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, BRAZIL_DATASET } from "./precheck.js";
+import { JADE_PRODUCTS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
+import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildJadeIdSpaces, BRAZIL_DATASET } from "./precheck.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -63,23 +64,31 @@ export interface ImportPreview {
   warnings: string[];
 }
 
-export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances";
+// jade-T7 — "plants" is a single-id entity (like warehouses/customers/
+// mines/stations/refineries); "plantCapabilities" is a genuinely new
+// composite-keyed (plantId,productId) MATRIX entity — see this file's
+// header comment on `distances` for why composite-keyed entities don't fit
+// the generic single-id loop, and PLANT_CAPABILITY_COLUMNS below for its own
+// dedicated parsing function (parsePlantCapabilityRows).
+export type ImportEntity = "warehouses" | "customers" | "mines" | "stations" | "refineries" | "plants" | "distances" | "laneCosts" | "legDistances" | "plantCapabilities";
 
 // Entities that fit the generic single-id-row model below — everything
-// EXCEPT the three composite-keyed (fromId,toId) entities (distances,
-// laneCosts, legDistances), which have their own dedicated parsing
-// functions (see this file's header comment on `distances`, Task 30's
-// laneCosts addition, and B6.2's legDistances addition below).
-type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances">;
+// EXCEPT the composite-keyed entities (distances, laneCosts, legDistances,
+// plantCapabilities), which have their own dedicated parsing functions (see
+// this file's header comment on `distances`, Task 30's laneCosts addition,
+// B6.2's legDistances addition below, and jade-T7's plantCapabilities
+// addition).
+type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDistances" | "plantCapabilities">;
 
-// `distances`/`laneCosts`/`legDistances` are intentionally absent from
-// COLUMNS/ENTITY_HAS_VALUE/VALID_STATUSES below — they don't fit the
-// single-id row model those tables describe (composite key, no status
-// column, no baseline "current override list" to diff unknown-ness
-// against). Their column layouts are DISTANCES_COLUMNS/LANE_COST_COLUMNS
-// just below, and they're each parsed by a wholly separate function
-// (parseDistancesRows/parseLaneCostRows/parseLegDistanceRows), not this
-// file's generic per-row loop.
+// `distances`/`laneCosts`/`legDistances`/`plantCapabilities` are
+// intentionally absent from COLUMNS/ENTITY_HAS_VALUE/VALID_STATUSES below —
+// they don't fit the single-id row model those tables describe (composite
+// key, no status column, no baseline "current override list" to diff
+// unknown-ness against). Their column layouts are
+// DISTANCES_COLUMNS/LANE_COST_COLUMNS/PLANT_CAPABILITY_COLUMNS just below,
+// and they're each parsed by a wholly separate function
+// (parseDistancesRows/parseLaneCostRows/parseLegDistanceRows/
+// parsePlantCapabilityRows), not this file's generic per-row loop.
 const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
 // Task 30 (B6.1 stage 4) — transport-coal's composite-keyed entity, the
 // laneCostOverrides analogue of p-median-us's distanceOverrides. Named
@@ -91,6 +100,14 @@ const LANE_COST_COLUMNS = ["template_version", "from_id", "to_id", "cost"];
 // shape as DISTANCES_COLUMNS (this model's own vocabulary is "distance",
 // not "cost" — B6.2 stage 1's naming decision) — reuses DISTANCES_COLUMNS
 // directly rather than a duplicate constant with the identical header.
+// jade-T7 — two-echelon-jade-us ALSO reuses the "legDistances" entity
+// string + DISTANCES_COLUMNS header (parseAndValidateImport's dispatch below
+// picks which id-space triple to resolve against based on `modelId`, the
+// same disambiguation "customers" already needs).
+
+// jade-T7 — plantCapabilities' own 4-column shape: a plant x product
+// "can-make" toggle (`enabled`, a boolean, not a numeric distance/cost).
+const PLANT_CAPABILITY_COLUMNS = ["template_version", "plant_id", "product_id", "enabled"];
 
 // Singular display label per entity, used in a handful of free-text error
 // messages below (id-collision, add-mode "lat/lng required"/"city and state
@@ -103,6 +120,7 @@ const ENTITY_SINGULAR_LABEL: Record<SingleIdEntity, string> = {
   mines: "mine",
   stations: "station",
   refineries: "refinery",
+  plants: "plant",
 };
 
 // T11 — mints a stable opaque uid for a brand-new added warehouse/customer/
@@ -114,9 +132,12 @@ const ENTITY_SINGULAR_LABEL: Record<SingleIdEntity, string> = {
 // unconditionally — there is no distinct refinery uid kind on the frontend
 // to mirror. Mines/stations (Step A) DO get their own distinct kinds —
 // `MinesTab.tsx`/`StationsTab.tsx` were migrated to `newUid("mn"/"st")` as
-// part of this same pass, unlike refineries' pre-existing reuse.
-function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries" | "mines" | "stations"): string {
-  const prefix = entity === "customers" ? "ac" : entity === "mines" ? "am" : entity === "stations" ? "as" : "aw";
+// part of this same pass, unlike refineries' pre-existing reuse. jade-T7 —
+// plants joins with its own "ap-" prefix (this model's own added-plant
+// entity, no frontend precedent to mirror yet — T11-equivalent frontend
+// wiring for JADE is a later task).
+function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries" | "mines" | "stations" | "plants"): string {
+  const prefix = entity === "customers" ? "ac" : entity === "mines" ? "am" : entity === "stations" ? "as" : entity === "plants" ? "ap" : "aw";
   return `${prefix}-${randomUUID()}`;
 }
 
@@ -152,6 +173,11 @@ function mintAddedEntityUid(entity: "warehouses" | "customers" | "refineries" | 
 // newUid/nextDisplayCode first, so this CSV change now matches what those
 // forms already produce, closing the frontend/backend identity-model fork
 // that existed while Step A was still pending.
+// jade-T7 — plants gains the same 7-column shape as mines (no value column),
+// minus even the value column mines has: plants have NEITHER a value NOR a
+// status column at all (see templates.ts's applyPlantOverrides header
+// comment — the only per-plant lever is plantCapabilities, a separate
+// composite-keyed entity, below).
 const COLUMNS: Record<SingleIdEntity, string[]> = {
   warehouses: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "capacity", "status"],
   customers: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "demand", "status"],
@@ -161,6 +187,7 @@ const COLUMNS: Record<SingleIdEntity, string[]> = {
   // has no per-refinery capacity concept) — the only entity with a status
   // column and no value column.
   refineries: ["template_version", "id", "display_code", "city", "state", "lat", "lng", "status"],
+  plants: ["template_version", "id", "display_code", "city", "state", "lat", "lng"],
 };
 
 // Which entities carry lat/lng columns (see COLUMNS' comment above) — used
@@ -174,6 +201,7 @@ const ENTITY_HAS_LATLNG: Record<SingleIdEntity, boolean> = {
   mines: true,
   stations: true,
   refineries: true,
+  plants: true,
 };
 
 // T11 — which entities carry the display_code column (see COLUMNS' comment
@@ -190,6 +218,7 @@ const ENTITY_HAS_DISPLAY_CODE: Record<SingleIdEntity, boolean> = {
   mines: true,
   stations: true,
   refineries: true,
+  plants: true,
 };
 
 // Whether this entity's rows carry a capacity/demand value column at all.
@@ -198,22 +227,33 @@ const ENTITY_HAS_DISPLAY_CODE: Record<SingleIdEntity, boolean> = {
 // value semantics (see this file's header comment): they're parsed by their
 // own dedicated functions, never by the generic per-row loop below that
 // consults this table.
+// jade-T7 — plants gets `false` too (no value column at all, see COLUMNS'
+// comment above). Note: "customers" stays globally `true` here even though
+// JADE's own customerOverrideSchema has no scalar `demand` field — the
+// PHYSICAL CSV column layout (COLUMNS.customers) is unchanged for every
+// model sharing this entity name, so the column-position math below must
+// stay unchanged too; JADE's real distinction (demand edits never persist)
+// lives at the routes/scenarios.ts merge layer, not here (see
+// applyJadeCustomerOverrides' header comment in templates.ts).
 const ENTITY_HAS_VALUE: Record<SingleIdEntity, boolean> = {
   warehouses: true,
   customers: true,
   mines: true,
   stations: true,
   refineries: false,
+  plants: false,
 };
 
 const VALID_STATUSES: Record<SingleIdEntity, string[]> = {
   warehouses: ["active", "forced_open", "inactive"],
   customers: ["active", "excluded"],
-  // Mines/stations have no status column (no open/close concept) — never
-  // consulted because the per-row status validation is gated on entityHasStatus.
+  // Mines/stations/plants have no status column (no open/close concept) —
+  // never consulted because the per-row status validation is gated on
+  // entityHasStatus.
   mines: [],
   stations: [],
   refineries: ["active", "forced_open", "inactive"],
+  plants: [],
 };
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
@@ -244,6 +284,13 @@ interface AddedRefineryRef { id: string; displayCode?: string; status?: "active"
 // MineOverride/StationOverride above).
 interface AddedMineRef { id: string; displayCode?: string; capacity?: number | null; }
 interface AddedStationRef { id: string; displayCode?: string; demand?: number; }
+// jade-T7 — two-echelon-jade-us' added-plant ref. No value/status field at
+// all (plants have neither concept, see templates.ts's applyPlantOverrides
+// header comment).
+interface AddedPlantRef { id: string; displayCode?: string; }
+// jade-T7 — plantProductCapability's element shape, needed for
+// plantCapabilities' baseline diff (parsePlantCapabilityRows).
+interface CapabilityOverrideRef { plantId: string; productId: string; enabled: boolean; }
 
 export interface ImportCurrentOverrides {
   warehouseOverrides?: WarehouseOverride[];
@@ -281,6 +328,15 @@ export interface ImportCurrentOverrides {
   // AddedEntityRef to AddedRefineryRef (displayCode + status), same reason
   // addedWarehouses/addedCustomers were upgraded above.
   addedRefineries?: AddedRefineryRef[];
+  // jade-T7 — two-echelon-jade-us' own added-entity id space, needed for
+  // legDistances' reference-integrity check (via precheck.ts's
+  // buildJadeIdSpaces) and plantCapabilities' plant-id-space check.
+  // `distanceOverrides`/`addedWarehouses`/`addedCustomers` above are ALREADY
+  // reused directly for this model (a deliberate jade-T5 naming choice
+  // mirroring B6.2's own) — only addedPlants/plantProductCapability are
+  // genuinely new here.
+  addedPlants?: AddedPlantRef[];
+  plantProductCapability?: CapabilityOverrideRef[];
 }
 
 export function parseAndValidateImport(
@@ -323,8 +379,13 @@ export function parseAndValidateImport(
     entity === "distances" ? DISTANCES_COLUMNS
     : entity === "laneCosts" ? LANE_COST_COLUMNS
     // B6.2 stage 4 — legDistances reuses DISTANCES_COLUMNS' identical header
-    // (this model's own vocabulary is "distance", not "cost").
+    // (this model's own vocabulary is "distance", not "cost"). jade-T7 —
+    // two-echelon-jade-us reuses the SAME entity string + header too (see
+    // this file's header comment on DISTANCES_COLUMNS).
     : entity === "legDistances" ? DISTANCES_COLUMNS
+    // jade-T7 — plantCapabilities' own 4-column shape (plant_id/product_id/
+    // enabled, not from_id/to_id/distance).
+    : entity === "plantCapabilities" ? PLANT_CAPABILITY_COLUMNS
     : COLUMNS[entity];
   const header = rows[0]?.map(h => h.trim()) ?? [];
   const headerMatches = header.length === expectedColumns.length && expectedColumns.every((c, i) => header[i] === c);
@@ -374,9 +435,37 @@ export function parseAndValidateImport(
   // customer leg, the same rule precheckTwoEchelonInputs/merge_inputs.py's
   // build_merged_two_echelon_dataset both enforce.
   if (entity === "legDistances") {
+    // jade-T7 — two-echelon-jade-us ALSO uses the "legDistances" entity
+    // string (see this file's header comment on DISTANCES_COLUMNS), but
+    // resolves against its own THREE id spaces (plant/warehouse/customer,
+    // the warehouse sitting in the middle of both legs) instead of two-
+    // echelon-gold-au's (mine/refinery/customer). parseLegDistanceRows
+    // doesn't care about role NAMES, only which of the three spaces each
+    // side belongs to — plant->warehouse is structurally identical to
+    // mine->refinery, warehouse->customer to refinery->customer, so the
+    // exact same function is reused unchanged.
+    if (modelId === "two-echelon-jade-us") {
+      const { plantIdSpace, warehouseIdSpace, customerIdSpace } = buildJadeIdSpaces(currentOverrides);
+      const jadeLegDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], plantIdSpace, warehouseIdSpace, customerIdSpace);
+      return { errors: jadeLegDistanceResult.errors, changes: jadeLegDistanceResult.changes, warnings: [] };
+    }
     const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(currentOverrides);
     const legDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], mineIdSpace, refineryIdSpace, customerIdSpace);
     return { errors: legDistanceResult.errors, changes: legDistanceResult.changes, warnings: [] };
+  }
+
+  // jade-T7 — plantCapabilities is a genuinely different shape from every
+  // composite-keyed entity above: a FULL MATRIX (every plant x every
+  // product), not a sparse "only the overridden pairs" export, and its value
+  // is a boolean (`enabled`), not a numeric distance/cost. "Unknown" means a
+  // plant_id/product_id that doesn't resolve against this scenario's plant
+  // id space (base + added) / the dataset's 4 canonical product ids.
+  if (entity === "plantCapabilities") {
+    const { plantIdSpace } = buildJadeIdSpaces(currentOverrides);
+    const productIdSpace = new Set(JADE_PRODUCTS.map(p => p.id));
+    const baseCapacityByPair = new Map(JADE_PLANT_PRODUCT_CAPABILITIES.map(c => [`${c.plantId}|${c.productId}`, c.capacity]));
+    const capabilityResult = parsePlantCapabilityRows(rows.slice(1), currentOverrides.plantProductCapability ?? [], plantIdSpace, productIdSpace, baseCapacityByPair);
+    return { errors: capabilityResult.errors, changes: capabilityResult.changes, warnings: [] };
   }
 
   // Mines/stations store overrides as sparse dicts (mineCapacities/
@@ -395,6 +484,8 @@ export function parseAndValidateImport(
     entity === "warehouses" ? (
         modelId === "p-median-brazil"
           ? applyBrazilWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+          : modelId === "two-echelon-jade-us"
+          ? applyJadeWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
           : applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
       )
     : entity === "customers" ? (
@@ -402,14 +493,24 @@ export function parseAndValidateImport(
           ? applyGoldCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : modelId === "p-median-brazil"
           ? applyBrazilCustomerOverrides(currentOverrides.customerOverrides ?? [])
+          : modelId === "two-echelon-jade-us"
+          ? applyJadeCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
       )
     : entity === "mines" ? applyMineOverrides(Object.entries(currentOverrides.mineCapacities ?? {}).map(([id, capacity]) => ({ id, capacity })))
     : entity === "refineries" ? applyRefineryOverrides(currentOverrides.refineryOverrides ?? [])
+    // jade-T7 — plants has no "overrides" concept at all (see
+    // templates.ts's applyPlantOverrides header comment) — its baseline is
+    // just the base dataset, called with no args (mirroring every other
+    // baseline call site here, which never passes addedX either — see
+    // ENTITY_HAS_DISPLAY_CODE's own comment: added entities are matched via
+    // `addedById` below, never through `baseline`).
+    : entity === "plants" ? applyPlantOverrides()
     : applyStationOverrides(Object.entries(currentOverrides.stationDemands ?? {}).map(([id, demand]) => ({ id, demand })));
   const baselineById = new Map(baseline.map(r => [r.id, r] as const));
-  // Mines/stations carry no status column, so status parsing/validation is
-  // skipped for them (only warehouses/customers/refineries validate status).
+  // Mines/stations/plants carry no status column, so status parsing/
+  // validation is skipped for them (only warehouses/customers/refineries
+  // validate status).
   const entityHasStatus = entity === "warehouses" || entity === "customers" || entity === "refineries";
   const entityHasValue = ENTITY_HAS_VALUE[entity];
   const validStatuses = VALID_STATUSES[entity];
@@ -447,9 +548,18 @@ export function parseAndValidateImport(
   // exists and WarehousesTab.tsx (reused for entity="refineries") already
   // mints uid+displayCode client-side — CSV add-mode brings the backend in
   // line with what the frontend already does.
+  // jade-T7 — plants joins the add-mode set (addedPlantSchema, jadeInputs.ts,
+  // needs only id/city/state/lat/lng/displayCode — all satisfiable by this
+  // generic CSV format). "customers" deliberately does NOT gain
+  // two-echelon-jade-us here: jadeInputs.ts's addedCustomerSchema requires a
+  // REQUIRED-COMPLETE per-product `demands` map (all 4 canonical product
+  // ids), which this single-value-column CSV format has no room to supply —
+  // add-mode for JADE customers stays disabled (a blank id row 422s as
+  // "Unknown id"), matching this model's own precheck.ts header comment on
+  // why per-product demand editing isn't a CSV concern in this pass.
   const canAdd = entity === "warehouses"
     || (entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au"))
-    || entity === "mines" || entity === "stations" || entity === "refineries";
+    || entity === "mines" || entity === "stations" || entity === "refineries" || entity === "plants";
   // T11 — whether this row uses the uid+displayCode identity model (a blank
   // `id` cell means "add a new one", the server mints a fresh opaque uid,
   // and an already-added entity can be matched by uid for a real UPDATE).
@@ -462,12 +572,13 @@ export function parseAndValidateImport(
   // T11 — added-entity lookup by real uid, so a CSV row whose id matches an
   // already-added entity is recognized as an UPDATE instead of the old
   // "unrecognized id, reject as duplicate" model.
-  const addedById: Map<string, AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef> =
+  const addedById: Map<string, AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef | AddedPlantRef> =
     entity === "warehouses" ? new Map((currentOverrides.addedWarehouses ?? []).map(a => [a.id, a] as const))
     : entity === "customers" ? new Map((currentOverrides.addedCustomers ?? []).map(a => [a.id, a] as const))
     : entity === "refineries" ? new Map((currentOverrides.addedRefineries ?? []).map(a => [a.id, a] as const))
     : entity === "mines" ? new Map((currentOverrides.addedMines ?? []).map(a => [a.id, a] as const))
     : entity === "stations" ? new Map((currentOverrides.addedStations ?? []).map(a => [a.id, a] as const))
+    : entity === "plants" ? new Map((currentOverrides.addedPlants ?? []).map(a => [a.id, a] as const))
     : new Map();
   // T11 — existing added-entity displayCodes, for the ADD-row collision
   // check (displayCode-keyed now, not uid-keyed — mirrors WarehousesTab/
@@ -502,7 +613,7 @@ export function parseAndValidateImport(
     let isAdd = false;
     let isUpdateAdded = false;
     let baselineRow: (typeof baseline)[number] | undefined;
-    let addedRow: AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef | undefined;
+    let addedRow: AddedWarehouseRef | AddedCustomerRef | AddedRefineryRef | AddedMineRef | AddedStationRef | AddedPlantRef | undefined;
 
     // T11 — uid+displayCode identity model. `usesUidIdentityModel` (=
     // `entityHasDisplayCode`) is `true` for every entity in `SingleIdEntity`
@@ -654,7 +765,7 @@ export function parseAndValidateImport(
         // always blank (that's the ADD trigger); mint the real stable id
         // here rather than deferring to the apply route, so the preview
         // already reflects the id that will actually be persisted.
-        id: usesUidIdentityModel ? mintAddedEntityUid(entity as "warehouses" | "customers" | "refineries" | "mines" | "stations") : id,
+        id: usesUidIdentityModel ? mintAddedEntityUid(entity as "warehouses" | "customers" | "refineries" | "mines" | "stations" | "plants") : id,
         line,
         before: { status: "not_present", value: null },
         after: { status, value },
@@ -690,12 +801,12 @@ export function parseAndValidateImport(
         ? ((addedRow as AddedMineRef).capacity ?? null)
         : entity === "stations"
         ? ((addedRow as AddedStationRef).demand ?? null)
-        : null; // refineries — no value/capacity concept at all
+        : null; // refineries/plants — no value/capacity concept at all
       const beforeStatus = entity === "warehouses"
         ? ((addedRow as AddedWarehouseRef).status ?? "active")
         : entity === "refineries"
         ? ((addedRow as AddedRefineryRef).status ?? "active")
-        : "active"; // customers/mines/stations — none of these added-entity schemas has a status field
+        : "active"; // customers/mines/stations/plants — none of these added-entity schemas has a status field
 
       if (beforeStatus !== status || beforeValue !== value) {
         changes.push({
@@ -712,8 +823,8 @@ export function parseAndValidateImport(
 
     const beforeValue = !entityHasValue ? null
       : entity === "warehouses" || entity === "mines"
-      ? (baselineRow as { capacity: number | null }).capacity
-      : (baselineRow as { demand: number }).demand;
+      ? (baselineRow as unknown as { capacity: number | null }).capacity
+      : (baselineRow as unknown as { demand: number }).demand;
     const beforeStatus = entityHasStatus ? (baselineRow as unknown as { status: string }).status : "active";
 
     if (beforeStatus !== status || beforeValue !== value) {
@@ -990,6 +1101,90 @@ function parseLegDistanceRows(
         after: { status: "active", value: parsedDistance },
         fromId,
         toId,
+      });
+    }
+  }
+
+  return { errors, changes };
+}
+
+// jade-T7 — composite-key (plant_id,product_id) parsing branch for the
+// plantCapabilities entity, structurally different from every composite-key
+// entity above: a full MATRIX (every plant x every product has a baseline
+// row — see templates.ts's applyPlantCapabilityOverrides), not a sparse
+// "only the overridden pairs" export, and its value is a BOOLEAN (`enabled`),
+// not a numeric distance/cost. `fromId`/`toId` on the resulting
+// ImportRowChange carry plantId/productId respectively (reusing the same
+// composite-key fields distances/laneCosts/legDistances already use — no
+// new field needed on ImportRowChange); `value` encodes the boolean as 1/0
+// (mirrors the existing `value: number | null` shape rather than widening
+// it). `dataRows` excludes the header row (already consumed/validated by
+// the caller).
+function parsePlantCapabilityRows(
+  dataRows: string[][],
+  currentCapabilityOverrides: CapabilityOverrideRef[],
+  plantIdSpace: Set<string>,
+  productIdSpace: Set<string>,
+  baseCapacityByPair: Map<string, number>,
+): { errors: ImportError[]; changes: ImportRowChange[] } {
+  const errors: ImportError[] = [];
+  const changes: ImportRowChange[] = [];
+  const currentByPairKey = new Map<string, boolean>(
+    currentCapabilityOverrides.map(o => [`${o.plantId}|${o.productId}`, o.enabled]),
+  );
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const line = i + 2; // 1-indexed, +1 for header row
+    const cols = dataRows[i];
+
+    if (cols.length !== PLANT_CAPABILITY_COLUMNS.length) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${PLANT_CAPABILITY_COLUMNS.length} columns, got ${cols.length}` });
+      continue;
+    }
+
+    const [tvStr, plantId, productId, enabledStr] = cols;
+
+    if (Number(tvStr) !== TEMPLATE_VERSION) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+      continue;
+    }
+
+    if (!plantId || !plantIdSpace.has(plantId)) {
+      errors.push({ errorClass: "logic", line, message: `Unknown plant_id "${plantId}" — must reference a plant (base dataset or this scenario's added plants)` });
+      continue;
+    }
+    if (!productId || !productIdSpace.has(productId)) {
+      errors.push({ errorClass: "logic", line, message: `Unknown product_id "${productId}"` });
+      continue;
+    }
+
+    const pairKey = `${plantId}|${productId}`;
+    if (seenPairs.has(pairKey)) {
+      errors.push({ errorClass: "logic", line, message: `Duplicate (plant_id,product_id) pair "${pairKey}"` });
+      continue;
+    }
+    seenPairs.add(pairKey);
+
+    const normalized = enabledStr.trim().toLowerCase();
+    if (normalized !== "true" && normalized !== "false") {
+      errors.push({ errorClass: "logic", line, message: `enabled must be "true" or "false", got "${enabledStr}"` });
+      continue;
+    }
+    const enabled = normalized === "true";
+
+    const overrideValue = currentByPairKey.get(pairKey);
+    const baseEnabled = (baseCapacityByPair.get(pairKey) ?? 0) > 0;
+    const beforeEnabled = overrideValue !== undefined ? overrideValue : baseEnabled;
+
+    if (beforeEnabled !== enabled) {
+      changes.push({
+        id: pairKey,
+        line,
+        before: { status: String(beforeEnabled), value: beforeEnabled ? 1 : 0 },
+        after: { status: String(enabled), value: enabled ? 1 : 0 },
+        fromId: plantId,
+        toId: productId,
       });
     }
   }

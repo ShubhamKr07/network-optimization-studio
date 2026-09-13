@@ -2,8 +2,9 @@ import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
-import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET } from "./precheck.js";
-import type { PrecheckDataset, TwoEchelonPrecheckDataset } from "./precheck.js";
+import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
+import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
+import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 
 // D4.1 export. CSV format choice: plain columns with template_version
@@ -544,6 +545,270 @@ export function refineryRowsToCsv(rows: RefineryTemplateRow[]): string {
     [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng, r.status].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// ---------------------------------------------------------------------------
+// jade-T7 — two-echelon-jade-us's own warehouse/customer/plant/
+// plantCapability entities (Chapter 9, JADE). warehouses/customers reuse the
+// SAME WarehouseTemplateRow/CustomerTemplateRow row shapes as every other
+// model (CSV/JSON serialization doesn't care which dataset a row came from),
+// but need their OWN apply* functions because JADE's own schema shapes
+// diverge from p-median's:
+//   - warehouseOverrideSchema has NO capacity field (capacityModes: [] —
+//     this model has no per-warehouse capacity concept at all, only the
+//     plant x product capability matrix), so `capacity` is always null.
+//   - customerOverrideSchema has NO scalar `demand` field, only a sparse
+//     per-product `demands` map — this task (T7) scopes CSV editing to
+//     STATUS ONLY for JADE customers (per-product demand editing is a
+//     dedicated matrix/table concern for a later frontend task, not a
+//     single-value CSV column); `demand` in the exported row is therefore
+//     the base customer's own read-only total (JADE_CUSTOMERS' precomputed
+//     `demand` field, already the sum across products) — never derived from
+//     an override, and an import route change to this column is never
+//     persisted (see routes/scenarios.ts's mergeChangesIntoOverrides, which
+//     drops the value for this (entity, modelId) pair before writing).
+// ---------------------------------------------------------------------------
+
+interface JadeAddedCustomer { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; demands: Record<string, number>; status?: "active" | "excluded"; }
+
+export function applyJadeWarehouseOverrides(
+  overrides: WarehouseOverride[],
+  addedWarehouses: AddedWarehouse[] = [],
+): WarehouseTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: WarehouseTemplateRow[] = JADE_WAREHOUSES.map(w => {
+    const o = byId.get(w.id);
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: w.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity: null, // no per-warehouse capacity concept in this model
+      status,
+      overridden: status !== "active",
+    };
+  });
+  const addedRows: WarehouseTemplateRow[] = addedWarehouses.map(w => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: w.id,
+    displayCode: w.displayCode ?? null,
+    city: w.city,
+    state: w.state,
+    lat: w.lat,
+    lng: w.lng,
+    capacity: null,
+    status: w.status,
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+export function applyJadeCustomerOverrides(
+  overrides: CustomerOverride[],
+  addedCustomers: JadeAddedCustomer[] = [],
+): CustomerTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: CustomerTemplateRow[] = JADE_CUSTOMERS.map(c => {
+    const o = byId.get(c.id);
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: c.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      // Read-only aggregate total — this model's per-product `demands` map
+      // is never edited via this single-value CSV column (see this
+      // section's header comment).
+      demand: c.demand,
+      status,
+      overridden: status !== "active",
+    };
+  });
+  const addedRows: CustomerTemplateRow[] = addedCustomers.map(c => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: c.id,
+    displayCode: c.displayCode ?? null,
+    city: c.city,
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: Object.values(c.demands).reduce((s, v) => s + v, 0),
+    status: c.status ?? "active",
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+// jade-T7 — plants have NO override-able fields at all (no status/capacity
+// concept anywhere in this model, see jadeInputs.ts's file header comment) —
+// the ONLY lever for a plant is `plantProductCapability` (a separate entity,
+// below). So unlike every other apply* function above, there's no first
+// "overrides" parameter at all — just the base dataset plus this scenario's
+// addedPlants.
+interface AddedPlant { id: string; displayCode?: string; city: string; state: string; lat: number; lng: number; }
+
+export interface PlantTemplateRow {
+  templateVersion: number;
+  id: string;
+  displayCode: string | null;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+}
+
+export function applyPlantOverrides(addedPlants: AddedPlant[] = []): PlantTemplateRow[] {
+  const baseRows: PlantTemplateRow[] = JADE_PLANTS.map(p => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: p.id,
+    displayCode: null, // base entities have no displayCode concept
+    city: p.city,
+    state: p.state,
+    lat: p.lat,
+    lng: p.lng,
+  }));
+  const addedRows: PlantTemplateRow[] = addedPlants.map(p => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: p.id,
+    displayCode: p.displayCode ?? null,
+    city: p.city,
+    state: p.state,
+    lat: p.lat,
+    lng: p.lng,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+export function plantRowsToCsv(rows: PlantTemplateRow[]): string {
+  const header = "template_version,id,display_code,city,state,lat,lng";
+  const lines = rows.map(r =>
+    [r.templateVersion, r.id, csvEscape(r.displayCode ?? ""), csvEscape(r.city), r.state, r.lat, r.lng].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+// jade-T7 — plantCapability is a genuinely new entity SHAPE: a full MATRIX
+// (every base-or-added plant x every one of the 4 products), not a sparse
+// "only the overridden pairs" export like distances/laneCosts/legDistances.
+// `enabled` merges plantProductCapability[] overrides onto the base
+// capability matrix (a base pair is "enabled" iff its dataset capacity > 0 —
+// same rule precheck.ts's capacity check uses); an added plant has no base
+// cell at all, so every one of its pairs defaults to disabled unless
+// overridden (mirrors merge_inputs.py's "added plant defaults every
+// capability cell to 0/disabled" rule, per jadeInputs.ts's own header
+// comment).
+export interface PlantCapabilityTemplateRow {
+  templateVersion: number;
+  plantId: string;
+  productId: string;
+  enabled: boolean;
+  overridden: boolean;
+}
+
+interface CapabilityOverride { plantId: string; productId: string; enabled: boolean; }
+
+export function applyPlantCapabilityOverrides(
+  overrides: CapabilityOverride[],
+  addedPlants: AddedPlant[] = [],
+): PlantCapabilityTemplateRow[] {
+  const overrideByPair = new Map(overrides.map(o => [`${o.plantId}|${o.productId}`, o.enabled]));
+  const baseCapacityByPair = new Map(JADE_PLANT_PRODUCT_CAPABILITIES.map(c => [`${c.plantId}|${c.productId}`, c.capacity]));
+  const allPlantIds = [...JADE_PLANTS.map(p => p.id), ...addedPlants.map(p => p.id)];
+  const rows: PlantCapabilityTemplateRow[] = [];
+  for (const plantId of allPlantIds) {
+    for (const product of JADE_PRODUCTS) {
+      const key = `${plantId}|${product.id}`;
+      const override = overrideByPair.get(key);
+      const baseEnabled = (baseCapacityByPair.get(key) ?? 0) > 0;
+      const enabled = override !== undefined ? override : baseEnabled;
+      rows.push({
+        templateVersion: TEMPLATE_VERSION,
+        plantId,
+        productId: product.id,
+        enabled,
+        overridden: override !== undefined,
+      });
+    }
+  }
+  return rows;
+}
+
+export function plantCapabilityRowsToCsv(rows: PlantCapabilityTemplateRow[]): string {
+  const header = "template_version,plant_id,product_id,enabled";
+  const lines = rows.map(r => [r.templateVersion, r.plantId, r.productId, r.enabled].join(","));
+  return [header, ...lines].join("\n") + "\n";
+}
+
+// jade-T7 — the JADE analogue of buildLegDistanceStubRows (B6.2, above):
+// this model has THREE roles across two legs too (plant/warehouse/
+// customer), but the WAREHOUSE sits in the middle (adjacent to both legs),
+// not the refinery — structurally identical shape to two-echelon-gold-au's
+// mine/refinery/customer, just different role names, so this mirrors that
+// function's own logic exactly (plant<->mine, warehouse<->refinery,
+// customer<->customer).
+export interface JadeStubGeneratorInputs {
+  addedPlants?: Array<{ id: string; city: string; state: string; lat: number; lng: number }>;
+  addedWarehouses?: Array<{ id: string; city: string; state: string; lat: number; lng: number; status?: string }>;
+  addedCustomers?: Array<{ id: string; city: string; lat: number; lng: number }>;
+  warehouseOverrides?: Array<{ id: string; status?: string }>;
+  customerOverrides?: Array<{ id: string; status?: string }>;
+}
+
+// Returns null when `targetId` resolves as neither a known plant, warehouse,
+// nor customer in this scenario (base dataset or added) — the caller
+// (routes/scenarios.ts) turns that into a 422, same contract as
+// buildDistanceStubRows/buildLaneCostStubRows/buildLegDistanceStubRows.
+export function buildJadeLegDistanceStubRows(
+  targetId: string,
+  inputs: JadeStubGeneratorInputs,
+  dataset: JadePrecheckDataset = JADE_DATASET,
+): DistanceStubRow[] | null {
+  const { plantIdSpace, warehouseIdSpace, customerIdSpace } = buildJadeIdSpaces(inputs, dataset);
+  const { activePlantIds, activeWarehouseIds, activeCustomerIds } = buildActiveJadeIds(inputs, dataset);
+
+  if (plantIdSpace.has(targetId)) {
+    // Plant -> every active warehouse.
+    return activeWarehouseIds.map(whId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: targetId,
+      toId: whId,
+      distance: null,
+    }));
+  }
+  if (warehouseIdSpace.has(targetId)) {
+    // A warehouse is adjacent to BOTH legs — every plant (plant->warehouse)
+    // AND every active customer (warehouse->customer).
+    const plantRows = activePlantIds.map(plantId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: plantId,
+      toId: targetId,
+      distance: null,
+    }));
+    const customerRows = activeCustomerIds.map(custId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: targetId,
+      toId: custId,
+      distance: null,
+    }));
+    return [...plantRows, ...customerRows];
+  }
+  if (customerIdSpace.has(targetId)) {
+    // Every active warehouse -> this customer.
+    return activeWarehouseIds.map(whId => ({
+      templateVersion: TEMPLATE_VERSION,
+      fromId: whId,
+      toId: targetId,
+      distance: null,
+    }));
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

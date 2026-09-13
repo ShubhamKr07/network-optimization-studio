@@ -1022,3 +1022,242 @@ describe("parseAndValidateImport — legDistances (composite key, three id space
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/template_version/) }]);
   });
 });
+
+// jade-T7 — two-echelon-jade-us (Chapter 9, JADE) reuses "warehouses" (25
+// real base rows), "customers" (100 real base rows, disambiguated from
+// p-median-us's 200 by modelId), and "legDistances" (this model's own
+// plant/warehouse/customer id-space triple), plus two genuinely new
+// entities: "plants" and "plantCapabilities". Real base ids from the actual
+// dataset package: plant-1..4, wh-1..25 (wh-2/wh-4/wh-5/wh-6 etc. don't
+// exist — ids are NOT contiguous, wh-1/wh-2/wh-3/wh-7/wh-8/... per the real
+// warehouses.json), customer-1..100.
+describe("parseAndValidateImport — 'customers' entity disambiguated by modelId: two-echelon-jade-us resolves against its own 100-row dataset, not p-median-us's 200", () => {
+  it("a real JADE customer id (customer-1) is a known UPDATE, not an unknown-id error", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,customer-1,,Los Angeles,CA,,,1,excluded\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: "customer-1", after: { status: "excluded" } });
+  });
+
+  it("a p-median-us-only id (C1, not a real JADE customer) is rejected as unknown, proving the dataset actually switched", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,Springfield,IL,,,1,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.changes).toEqual([]);
+  });
+
+  it("add-mode is DISABLED for JADE customers (blank id 422s as unknown, not an add) — this model's addedCustomerSchema requires a complete per-product demands map this single-value CSV column has no room for", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,,CUST-NEW,Reno,NV,39.5,-119.8,1,active\n";
+    const result = parseAndValidateImport("customers", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.changes).toEqual([]);
+  });
+});
+
+describe("parseAndValidateImport — JADE warehouses (add-mode reachable, no capacity concept)", () => {
+  it("a real JADE warehouse id (wh-1) is a known UPDATE", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,wh-1,,X,Y,,,,forced_open\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: "wh-1", after: { status: "forced_open" } });
+  });
+
+  it("add-mode IS reachable for JADE warehouses (blank id + valid coordinates)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW,Reno,NV,39.5,-119.8,,active\n";
+    const result = parseAndValidateImport("warehouses", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ changeType: "add", id: expect.stringMatching(/^aw-/), displayCode: "WH-NEW" });
+  });
+});
+
+describe("parseAndValidateImport — plants (single-id entity, no value/status column, add-mode)", () => {
+  it("a real base plant id (plant-1) is a known no-op UPDATE (plants have zero editable base-row fields)", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng\n1,plant-1,,X,Y,,\n";
+    const result = parseAndValidateImport("plants", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("add-mode mints an 'ap-' uid + displayCode", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng\n1,,PL-NEW,Reno,NV,39.5,-119.8\n";
+    const result = parseAndValidateImport("plants", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      id: expect.stringMatching(/^ap-/),
+      changeType: "add",
+      city: "Reno",
+      state: "NV",
+      lat: 39.5,
+      lng: -119.8,
+      displayCode: "PL-NEW",
+    });
+  });
+
+  it("rejects an unknown non-blank id", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng\n1,bogus-id,,X,Y,,\n";
+    const result = parseAndValidateImport("plants", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+  });
+
+  it("rejects lat/lng missing on an add row", () => {
+    const csv = "template_version,id,display_code,city,state,lat,lng\n1,,PL-NEW,Reno,NV,,\n";
+    const result = parseAndValidateImport("plants", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/lat\/lng/i);
+  });
+
+  it("still enforces the shared header-check machinery (wrong columns -> single format error)", () => {
+    const csv = "template_version,id,city,state,capacity\n1,plant-1,X,Y,1000\n";
+    const result = parseAndValidateImport("plants", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
+  });
+});
+
+// jade-T7 — plantCapabilities is a full-matrix composite-keyed entity: real
+// base pairs from plant_product_capability.json (plant-1/product-1 is
+// enabled=true in the base data; plant-1/product-2 is enabled=false).
+describe("parseAndValidateImport — plantCapabilities (composite key matrix, boolean value)", () => {
+  it("no change when the imported value matches the current effective (base) enabled value", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-1,true\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("flipping a base-enabled cell to false registers as a real change", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-1,false\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "plant-1|product-1",
+      line: 2,
+      before: { status: "true", value: 1 },
+      after: { status: "false", value: 0 },
+      fromId: "plant-1",
+      toId: "product-1",
+    }]);
+  });
+
+  it("diffs against an existing plantProductCapability override, not just the base value", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-2,true\n";
+    const result = parseAndValidateImport(
+      "plantCapabilities",
+      csv,
+      { plantProductCapability: [{ plantId: "plant-1", productId: "product-2", enabled: false }] },
+      0,
+      "two-echelon-jade-us",
+    );
+    // Base plant-1/product-2 is disabled; overridden to false explicitly
+    // (still false) — importing "true" now IS a real change.
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ before: { value: 0 }, after: { value: 1 } });
+  });
+
+  it("rejects an unknown plant_id", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,bogus-plant,product-1,true\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/plant_id/i);
+  });
+
+  it("rejects an unknown product_id", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,bogus-product,true\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+    expect(result.errors[0].message).toMatch(/product_id/i);
+  });
+
+  it("rejects a non-true/false enabled value", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-1,maybe\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/true.*false/i);
+  });
+
+  it("rejects a duplicate (plant_id,product_id) pair within one file", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,plant-1,product-1,true\n1,plant-1,product-1,false\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toMatch(/duplicate/i);
+  });
+
+  it("resolves against an added plant's own cells too", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n1,ap-x,product-1,true\n";
+    const result = parseAndValidateImport(
+      "plantCapabilities",
+      csv,
+      { addedPlants: [{ id: "ap-x" }] },
+      0,
+      "two-echelon-jade-us",
+    );
+    expect(result.errors).toEqual([]);
+    // Added plant defaults every cell disabled -> importing "true" is a change.
+    expect(result.changes).toHaveLength(1);
+  });
+
+  it("still enforces the shared template_version mismatch check", () => {
+    const csv = "template_version,plant_id,product_id,enabled\n2,plant-1,product-1,true\n";
+    const result = parseAndValidateImport("plantCapabilities", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/template_version/) }]);
+  });
+});
+
+// jade-T7 (fix #4) — two-echelon-jade-us ALSO uses the "legDistances" entity
+// string + DISTANCES_COLUMNS header (see import.ts's own header comment),
+// resolving against its own plant/warehouse/customer id-space triple instead
+// of two-echelon-gold-au's mine/refinery/customer. Real base ids: plant-1,
+// wh-1, customer-1.
+describe("parseAndValidateImport — legDistances for two-echelon-jade-us (plant/warehouse/customer id spaces)", () => {
+  it("valid plant->warehouse rows parse correctly as a real change", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,plant-1,wh-1,123.4\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "plant-1|wh-1",
+      line: 2,
+      before: { status: "active", value: null },
+      after: { status: "active", value: 123.4 },
+      fromId: "plant-1",
+      toId: "wh-1",
+    }]);
+  });
+
+  it("valid warehouse->customer rows parse correctly as a real change", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,wh-1,customer-1,55.5\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ fromId: "wh-1", toId: "customer-1", after: { value: 55.5 } });
+  });
+
+  it("rejects a pair that skips a leg entirely (plant -> customer directly)", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,plant-1,customer-1,999\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+  });
+
+  it("rejects a backwards row (from_id=a real customer, to_id=a real warehouse)", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,customer-1,wh-1,999\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+  });
+
+  it("a real two-echelon-gold-au id (kalgoorlie) is unresolvable against JADE's id space, proving the dataset actually switched", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,kalgoorlie,customer-1,100\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0, "two-echelon-jade-us");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("logic");
+  });
+});
