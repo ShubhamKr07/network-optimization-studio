@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import request from "supertest";
 import {
   getManifest,
+  listModels,
   validateInputs,
   KNOWN_MODEL_IDS,
 } from "../modelRegistry.js";
@@ -48,6 +50,38 @@ describe("model registration consistency", () => {
       });
     });
   }
+});
+
+// ── Listability (JADE Wave 1, Task 3) — manifest-scan only, NOT SOLVABLE ──────────────────────
+// two-echelon-jade-us (Chapter 9) lands its manifest+dataset package (T1/T2) before its solver
+// dispatcher/Zod schema/allowlist entries (T4/T5). It must be *listable* via GET /api/models the
+// moment its manifest exists (proving the registry's dynamic fs.readdirSync scan works with zero
+// code changes), while staying deliberately absent from SOLVABLE/KNOWN_SCHEMAS above until T5 —
+// adding it there now would fail buildPayload/solve.py dispatch checks for a model that isn't
+// wired yet. See docs/superpowers/plans/2026-09-13-chapter-9-jade-two-echelon.md Task 3.
+describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable pre-solve", () => {
+  it("appears in the registry's scanned model list (listModels())", () => {
+    const ids = listModels().map((m) => m.id);
+    expect(ids).toContain("two-echelon-jade-us");
+  });
+
+  it("has a discoverable manifest (getManifest returns it)", () => {
+    expect(getManifest("two-echelon-jade-us")).toBeDefined();
+  });
+
+  it("is deliberately NOT in SOLVABLE/KNOWN_SCHEMAS yet (Wave 1 scope)", () => {
+    expect(SOLVABLE).not.toContain("two-echelon-jade-us");
+    expect(KNOWN_MODEL_IDS).not.toContain("two-echelon-jade-us");
+  });
+
+  it("GET /api/models returns 5 models, including two-echelon-jade-us", async () => {
+    const { default: app } = await import("../../app.js");
+    const res = await request(app).get("/api/models");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(5);
+    const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
+    expect(ids).toContain("two-echelon-jade-us");
+  });
 });
 
 // ── OBS-5: the four registration points agree across their DIFFERENT key spaces ──────────────
