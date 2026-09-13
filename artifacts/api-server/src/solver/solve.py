@@ -10,6 +10,7 @@ from merge_inputs import (
     build_merged_brazil_dataset,
     build_merged_transport_dataset,
     build_merged_two_echelon_dataset,
+    build_merged_jade_dataset,
 )
 
 # ---------------------------------------------------------------------------
@@ -107,6 +108,34 @@ def _brazil_distances():
 
 def _gold_distances():
     return {(k.split(',')[0], k.split(',')[1]): v for k, v in _GOLD_DIST_RAW.items()}
+
+# ---------------------------------------------------------------------------
+# Dataset: JADE Investment Decision (Chapter 9 Multi-Product Two-Echelon)
+# Source: JADE_case_Chapter_9_Network_Design_Book.ipynb
+# 4 plants -> 25 warehouses -> 100 customers, 4 products, plant x product
+# capability (can-make) matrix. solvers/two-echelon-jade-us/dataset/
+# ---------------------------------------------------------------------------
+JADE_PLANTS     = _safe_load("two-echelon-jade-us", "plants.json", default={})
+JADE_PRODUCTS   = _safe_load("two-echelon-jade-us", "products.json", default={})
+JADE_WAREHOUSES = _safe_load("two-echelon-jade-us", "warehouses.json", default={})
+JADE_CUSTOMERS  = _safe_load("two-echelon-jade-us", "customers.json", default={})
+_JADE_CAP_RAW   = _safe_load("two-echelon-jade-us", "plant_product_capability.json", default=[])
+_JADE_DIST_RAW  = _safe_load("two-echelon-jade-us", "distances.json", default={})
+
+JADE_CAPABILITY = {(c["plantId"], c["productId"]): c["capacity"] for c in _JADE_CAP_RAW}
+
+# JADE cost coefficients (spec §2.3) -- named constants, not bare literals.
+JADE_OB_RATE    = 0.12        # $ per ton-mile, warehouse -> customer
+JADE_OB_MIN     = 10.0        # $ per ton minimum charge, warehouse -> customer
+JADE_IC_RATE    = 0.07        # $ per ton-mile, plant -> warehouse
+JADE_IC_MIN     = 10.0        # $ per ton minimum charge, plant -> warehouse
+JADE_OPEN_BIG_M = 10_000_000  # big-M for the open-if-used constraint (spec §2.5.4)
+
+def _jade_distances():
+    """Plant->warehouse and warehouse->customer distances in miles, one flat
+    dict keyed by (fromId, toId) spanning both legs (same one-dict-two-legs
+    convention as two-echelon-gold-au's _gold_distances())."""
+    return {tuple(k.split(',')): v for k, v in _JADE_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
 # Standardized result envelope (Phase 3.5, G2.1). `details` deliberately
@@ -871,6 +900,288 @@ def solve_two_echelon(inp):
                       "bomRatio": bom})
 
 # ---------------------------------------------------------------------------
+# JADE Multi-Product Two-Echelon solver (Chapter 9)
+# plant -> warehouse -> customer, single-source per customer across all
+# products, plant-product capability (can-make) matrix. Faithful port of
+# design spec §2 -- every scenario edit enters as a variable bound or
+# coefficient change (hard rule 6), never a new if/else code path: P is the
+# facility-count constraint's rhs, force open/close are facility[w]'s
+# bounds, capability toggles are capability[p,k]'s value (0 / 210_000_000),
+# customer exclusion drops a customer from the served/flow terms entirely,
+# and added entities/distance overrides are just extra rows in the sets and
+# distance maps (build_merged_jade_dataset).
+# ---------------------------------------------------------------------------
+def solve_jade(inp):
+    if _LOAD_ERRORS.get("two-echelon-jade-us"):
+        return _load_error_envelope("two-echelon-jade-us")
+
+    p              = int(inp.get('p', 2))
+    distance_bands = sorted(inp.get('distanceBands', [200, 400, 800, 1600]))
+    gap            = float(inp.get('gap', 0.0))
+    time_limit     = int(inp.get('timeLimitSec', 120))
+    wh_statuses    = {ws['warehouseId']: ws['status'] for ws in inp.get('warehouseStatuses', [])}
+    customer_demand_overrides = inp.get('customerDemands', {})
+
+    product_ids = list(JADE_PRODUCTS.keys())
+
+    # jade-T4: per-call, non-mutating merge of the base package with this
+    # scenario's edits (addedPlants/addedWarehouses/addedCustomers,
+    # distanceOverrides, capabilityOverrides, excludedCustomerIds) --
+    # mirrors every prior build_merged_*_dataset wiring. Never mutates
+    # JADE_PLANTS/JADE_WAREHOUSES/JADE_CUSTOMERS/JADE_CAPABILITY/
+    # _jade_distances() module-level data. Empty inputs (the default)
+    # produce a merged dataset equal to the base globals.
+    merged = build_merged_jade_dataset(
+        inp, JADE_PLANTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_CAPABILITY,
+        product_ids, _jade_distances(),
+    )
+    plant_data = merged['plants']
+    wh_data    = merged['warehouses']
+    cust_data  = merged['customers']    # already excludes excludedCustomerIds (base + added alike)
+    capability = merged['capability']
+    dist       = merged['distance']
+    added_warehouses_by_id = merged['addedWarehousesById']
+    added_customers_by_id  = merged['addedCustomersById']
+
+    plants     = list(plant_data.keys())
+    warehouses = list(wh_data.keys())
+    customers  = list(cust_data.keys())
+
+    def get_bounds(w):
+        added = added_warehouses_by_id.get(w)
+        s = added['status'] if added is not None else wh_statuses.get(w, 'active')
+        if s == 'forced_open': return (1, 1)
+        if s == 'inactive':    return (0, 0)
+        return (0, 1)
+
+    def get_demands(c):
+        # Added customer's own record wins (mirrors every prior model's
+        # "own record wins over the sparse base-entity override map"
+        # precedent); base customers layer a sparse per-product override
+        # onto their base demands dict.
+        added = added_customers_by_id.get(c)
+        if added is not None:
+            return added['demands']
+        merged_demands = dict(cust_data[c]['demands'])
+        override = customer_demand_overrides.get(c)
+        if override:
+            merged_demands.update(override)
+        return merged_demands
+
+    demands = {c: get_demands(c) for c in customers}
+    total_demand = sum(sum(dk.values()) for dk in demands.values())
+
+    def ic_cost(pl, w):
+        return max(JADE_IC_RATE * dist.get((pl, w), 9999), JADE_IC_MIN)
+
+    def ob_cost(w, c):
+        return max(JADE_OB_RATE * dist.get((w, c), 9999), JADE_OB_MIN)
+
+    start = time.time()
+    prob = LpProblem("Jade", LpMinimize)
+
+    flow_pw = LpVariable.dicts(
+        "FlowPW", [(pl, w, k) for pl in plants for w in warehouses for k in product_ids], lowBound=0)
+    flow_wc = LpVariable.dicts(
+        "FlowWC", [(w, c, k) for w in warehouses for c in customers for k in product_ids], 0, 1, cat='Binary')
+    facility_vars = LpVariable.dicts("Open", warehouses, cat='Binary')
+    single_source = LpVariable.dicts("Src", [(w, c) for w in warehouses for c in customers], 0, 1, cat='Binary')
+
+    prob += (lpSum(flow_pw[pl, w, k] * ic_cost(pl, w)
+                   for pl in plants for w in warehouses for k in product_ids)
+             + lpSum(flow_wc[w, c, k] * ob_cost(w, c) * demands[c].get(k, 0)
+                     for w in warehouses for c in customers for k in product_ids))
+
+    # C1 -- serve every (customer, product) with positive demand exactly once
+    for c in customers:
+        for k in product_ids:
+            if demands[c].get(k, 0) > 0:
+                prob += LpConstraint(lpSum(flow_wc[w, c, k] for w in warehouses),
+                                     LpConstraintEQ, f"served_{c}_{k}", 1)
+
+    # C2 -- flow conservation at warehouse per product, summed over PLANTS
+    # (not written per (plant, warehouse, product) triple -- see
+    # test_flow_balance_generalizes; a per-triple version would force EACH
+    # capable plant to independently supply the full requirement).
+    for w in warehouses:
+        for k in product_ids:
+            prob += LpConstraint(
+                lpSum(flow_wc[w, c, k] * demands[c].get(k, 0) for c in customers)
+                - lpSum(flow_pw[pl, w, k] for pl in plants),
+                LpConstraintEQ, f"balance_{w}_{k}", 0)
+
+    # C3 -- plant-product capability (can-make) capacity
+    for pl in plants:
+        for k in product_ids:
+            prob += LpConstraint(
+                lpSum(flow_pw[pl, w, k] for w in warehouses),
+                LpConstraintLE, f"cap_{pl}_{k}", capability.get((pl, k), 0))
+
+    # C4 -- open-if-used big-M
+    for w in warehouses:
+        prob += LpConstraint(
+            lpSum(flow_wc[w, c, k] for c in customers for k in product_ids)
+            - JADE_OPEN_BIG_M * facility_vars[w],
+            LpConstraintLE, f"open_link_{w}", 0)
+
+    # C5 -- exactly P open
+    prob += LpConstraint(lpSum(facility_vars[w] for w in warehouses), LpConstraintEQ, "FacilityCount", p)
+
+    # C6 -- force open/close bounds
+    for w in warehouses:
+        lb, ub = get_bounds(w)
+        prob += LpConstraint(facility_vars[w], LpConstraintGE, f"lb_{w}", lb)
+        prob += LpConstraint(facility_vars[w], LpConstraintLE, f"ub_{w}", ub)
+
+    # C7 -- single-source tie: one warehouse per customer, across all products
+    for w in warehouses:
+        for c in customers:
+            for k in product_ids:
+                prob += LpConstraint(flow_wc[w, c, k] - single_source[w, c],
+                                     LpConstraintLE, f"tie_{w}_{c}_{k}", 0)
+    for c in customers:
+        prob += LpConstraint(lpSum(single_source[w, c] for w in warehouses),
+                             LpConstraintLE, f"onesrc_{c}", 1)
+
+    solver = PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False)
+    prob.solve(solver)
+
+    run_time   = time.time() - start
+    status_str = LpStatus[prob.status]
+
+    if status_str == "Infeasible":
+        forced_open  = sum(1 for w in warehouses if get_bounds(w) == (1, 1))
+        active_count = sum(1 for w in warehouses if get_bounds(w) != (0, 0))
+        zero_capacity_products = [
+            k for k in product_ids
+            if sum(demands[c].get(k, 0) for c in customers) > 0
+            and sum(capability.get((pl, k), 0) for pl in plants) <= 0
+        ]
+        if forced_open > p:
+            reason = (f"Forced-open warehouses ({forced_open}) exceed p={p}. "
+                      "Increase P or unforce some warehouses.")
+        elif active_count < p:
+            reason = (f"Only {active_count} active warehouses are available but P={p}. "
+                      "Reactivate warehouses or lower P.")
+        elif zero_capacity_products:
+            reason = (f"No enabled plant can make {', '.join(zero_capacity_products)}, but customer "
+                      "demand for it is positive. Enable at least one plant's capability for this product.")
+        else:
+            reason = (f"Model is infeasible with P={p}. Total demand is {total_demand:,.0f} tons; "
+                      "check plant-product capability coverage and warehouse force/inactive bounds.")
+        return _envelope("infeasible", status_str, 0, run_time, [], _EMPTY_METRICS, _EMPTY_DETAILS, reason)
+
+    open_ids = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
+
+    EPS = max(total_demand * 1e-9, 1e-6)  # relative, not absolute
+
+    def _band_exclusive(d):
+        """Each distance falls into exactly ONE bucket (exclusive, matching
+        lib/bands.ts's semantics) -- -1 means "beyond the last band"
+        (explicit overflow, never silently absorbed into the last band)."""
+        for i, b in enumerate(distance_bands):
+            if d <= b:
+                return i
+        return -1
+
+    edges = []
+    details_assignments = []
+    leg_dist_flow = {"plant_to_warehouse": 0.0, "warehouse_to_customer": 0.0}
+    leg_flow      = {"plant_to_warehouse": 0.0, "warehouse_to_customer": 0.0}
+    band_flow     = {b: 0.0 for b in distance_bands}
+    band_overflow = 0.0
+    wh_demand_served = {w: 0.0 for w in open_ids}
+    inbound_cost  = 0.0
+    outbound_cost = 0.0
+
+    # Inbound edges: one per positive (plant, warehouse, product) flow.
+    for pl in plants:
+        for w in warehouses:
+            for k in product_ids:
+                f = flow_pw[pl, w, k].varValue or 0
+                if f <= EPS:
+                    continue
+                d = dist.get((pl, w), 9999)
+                leg_dist_flow["plant_to_warehouse"] += d * f
+                leg_flow["plant_to_warehouse"]      += f
+                inbound_cost += f * ic_cost(pl, w)
+                edges.append({
+                    "fromId": pl, "toId": w, "flow": round(f), "distance": d,
+                    "leg": "plant_to_warehouse", "productId": k,
+                })
+
+    # Outbound edges: one per customer, aggregated across products
+    # (single-source guarantees exactly one serving warehouse per customer).
+    for c in customers:
+        served_by = None
+        total_flow_c = 0.0
+        dist_c = 0.0
+        for w in warehouses:
+            tons_c_w = sum((flow_wc[w, c, k].varValue or 0) * demands[c].get(k, 0) for k in product_ids)
+            if tons_c_w <= EPS:
+                continue
+            served_by = w
+            total_flow_c = tons_c_w
+            dist_c = dist.get((w, c), 9999)
+            for k in product_ids:
+                if demands[c].get(k, 0) > 0 and (flow_wc[w, c, k].varValue or 0) > 0.5:
+                    details_assignments.append({
+                        "customerId": c, "warehouseId": w, "productId": k,
+                        "flow": round(demands[c][k]), "distanceMi": dist_c,
+                    })
+            break
+        if served_by is None:
+            continue
+        wh_demand_served[served_by] = wh_demand_served.get(served_by, 0.0) + total_flow_c
+        leg_dist_flow["warehouse_to_customer"] += dist_c * total_flow_c
+        leg_flow["warehouse_to_customer"]      += total_flow_c
+        outbound_cost += total_flow_c * ob_cost(served_by, c)
+        band_idx = _band_exclusive(dist_c)
+        if band_idx == -1:
+            band_overflow += total_flow_c
+        else:
+            band_flow[distance_bands[band_idx]] += total_flow_c
+        edges.append({
+            "fromId": served_by, "toId": c, "flow": round(total_flow_c), "distance": dist_c,
+            "band": band_idx if band_idx != -1 else len(distance_bands),
+            "leg": "warehouse_to_customer",
+        })
+
+    def _avg(leg):
+        return round(leg_dist_flow[leg] / leg_flow[leg], 1) if leg_flow[leg] > 0 else 0
+
+    avg_by_leg = [{"leg": leg, "avgDistance": _avg(leg), "totalFlow": round(leg_flow[leg])}
+                  for leg in ("plant_to_warehouse", "warehouse_to_customer")]
+
+    total_flow_both = sum(leg_flow.values())
+    blended = round(sum(leg_dist_flow.values()) / total_flow_both, 1) if total_flow_both else 0
+
+    band_coverage = []
+    if total_demand > 0:
+        band_coverage = [{"band": b, "percent": round(band_flow[b] * 100 / total_demand)}
+                         for b in distance_bands]
+        if band_overflow > 0:
+            band_coverage.append({"band": -1, "percent": round(band_overflow * 100 / total_demand)})
+
+    utilization = [{"warehouseId": w, "city": wh_data[w]['city'],
+                    "utilization": round(wh_demand_served.get(w, 0.0))} for w in open_ids]
+
+    return _envelope(
+        "optimal", status_str, round(value(prob.objective) or 0, 4), run_time, edges,
+        {
+            "utilizationByNode": utilization,
+            "bandCoverage": band_coverage,
+            "weightedAvgDistance": blended,
+            "avgDistanceByLeg": avg_by_leg,
+            "openFacilityIds": open_ids,
+            "totalDemand": round(total_demand),
+            "inboundCost": round(inbound_cost, 2),
+            "outboundCost": round(outbound_cost, 2),
+        },
+        {"openWarehouseIds": open_ids, "assignments": details_assignments},
+    )
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 def solve(inp):
@@ -881,7 +1192,12 @@ def solve(inp):
         return solve_capacitated_pmedian(inp)
     if model_type == 'two_echelon':
         return solve_two_echelon(inp)
-    return solve_pmedian(inp)
+    if model_type == 'two_echelon_jade':
+        return solve_jade(inp)
+    if model_type == 'p_median':
+        return solve_pmedian(inp)
+    return _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
+                      f"Unknown modelType: {model_type}")
 
 if __name__ == "__main__":
     inp = json.loads(sys.stdin.read())

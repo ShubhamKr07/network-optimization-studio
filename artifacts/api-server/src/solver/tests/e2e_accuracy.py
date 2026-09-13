@@ -2,17 +2,19 @@
 """
 E2E Solver Accuracy Test Suite
 ================================
-Tests all three models across varied input configurations.
-For each configurable axis (P value, warehouse capacity, single-source flag,
-capacity factor) a pair of runs is compared (A/B test) to verify the
-mathematical relationship holds — monotonicity, LP relaxation bounds,
-capacity feasibility, flow conservation, etc.
+Tests p-median, transport, Brazil, and JADE (jade-T4) across varied input
+configurations. For each configurable axis (P value, warehouse capacity,
+single-source flag, capacity factor, capability toggle) a pair of runs is
+compared (A/B test) to verify the mathematical relationship holds —
+monotonicity, LP relaxation bounds, capacity feasibility, flow conservation,
+etc.
 
 Usage:
     python3 e2e_accuracy.py             # run all sections
     python3 e2e_accuracy.py pmedian     # run P-Median section only
     python3 e2e_accuracy.py transport   # run Transport section only
     python3 e2e_accuracy.py brazil      # run Brazil section only
+    python3 e2e_accuracy.py jade        # run JADE section only
 """
 
 import json
@@ -499,6 +501,87 @@ def test_brazil() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# MODEL · JADE Multi-Product Two-Echelon (Chapter 9, jade-T4)
+# ─────────────────────────────────────────────────────────────────────────────
+def test_jade() -> None:
+    _section("MODEL · JADE Multi-Product Two-Echelon (Chapter 9)")
+
+    # Notebook scenario_1 (design spec §2.7, hard rule 2 anchor): P=2,
+    # wh-11 (Phoenix) + wh-14 (New York) forced open, capability diagonal
+    # (base dataset, no overrides), bands [200,400,800,1600]. Built as a
+    # plain edits-only wire dict here -- no TS layer (buildPayload/
+    # pmedian.ts) -- and run through solve.py's real subprocess entry point
+    # via run(), matching every other model section's own pattern.
+    GROUND_TRUTH = dict(
+        modelType="two_echelon_jade",
+        p=2, distanceBands=[200, 400, 800, 1600], gap=0.0, timeLimitSec=120,
+        warehouseStatuses=[
+            {"warehouseId": "wh-11", "status": "forced_open"},
+            {"warehouseId": "wh-14", "status": "forced_open"},
+        ],
+    )
+
+    print("\n[JD-1]  Notebook scenario_1: P=2, forced wh-11+wh-14, capability diagonal …")
+    r = run(GROUND_TRUTH)
+    print(f"          status={r.get('status')}  obj={r.get('objective', 0):,.4f}"
+          f"  open={sorted(r.get('openWarehouseIds', []))}  t={r['_t']:.2f}s")
+
+    _check("Notebook scenario_1 status is optimal", r.get("status") == "optimal")
+    obj = r.get("objective", 0)
+    _check("Notebook scenario_1 objective matches 254060828.6157 to 1e-6",
+           obj > 0 and abs(obj - 254060828.6157) / 254060828.6157 < 1e-6,
+           f"got {obj}")
+    _check("Notebook scenario_1 opens exactly wh-11 and wh-14",
+           set(r.get("openWarehouseIds", [])) == {"wh-11", "wh-14"},
+           f"got {sorted(r.get('openWarehouseIds', []))}")
+    _check("Notebook scenario_1 serves all 100 customers",
+           len({a["customerId"] for a in r.get("assignments", [])}) == 100,
+           f"got {len({a['customerId'] for a in r.get('assignments', [])})}")
+    _check("Notebook scenario_1 runtime 0 <= t < 300s",
+           0 <= r.get("runTimeSec", -1) < 300,
+           f"{r.get('runTimeSec', -1):.2f}s")
+    _check("Notebook scenario_1 bandCoverage non-empty",
+           len(r.get("bandCoverage", [])) > 0)
+
+    # ── Pedagogical claim: forcing sub-optimal warehouses can only raise cost ──
+    print("\n── A/B: forced wh-11+wh-14 vs free-choice P=2 ──")
+    r_free = run(dict(
+        modelType="two_echelon_jade",
+        p=2, distanceBands=[200, 400, 800, 1600], gap=0.0, timeLimitSec=120,
+    ))
+    print(f"          free P=2: status={r_free.get('status')}  obj={r_free.get('objective', 0):,.4f}"
+          f"  open={sorted(r_free.get('openWarehouseIds', []))}  t={r_free['_t']:.2f}s")
+    _check("Free-choice P=2 is optimal", r_free.get("status") == "optimal")
+    if r.get("status") == "optimal" and r_free.get("status") == "optimal":
+        _ab("obj(forced wh-11+wh-14) ≥ obj(free P=2)  — constraint can only increase cost",
+            r.get("objective", 0) >= r_free.get("objective", 0) * 0.999,
+            f"{r_free['objective']:,.4f}", f"{r['objective']:,.4f}",
+            "free", "forced")
+
+    # ── Capability toggle changes the supplying plant (pedagogical claim) ──
+    print("\n── A/B: capability toggle (enable plant-4 for product-1) ──")
+    r_toggled = run({**GROUND_TRUTH,
+                      "capabilityOverrides": [{"plantId": "plant-4", "productId": "product-1", "enabled": True}]})
+    print(f"          toggled: status={r_toggled.get('status')}  obj={r_toggled.get('objective', 0):,.4f}"
+          f"  t={r_toggled['_t']:.2f}s")
+    _check("Capability-toggled scenario is optimal", r_toggled.get("status") == "optimal")
+    if r.get("status") == "optimal" and r_toggled.get("status") == "optimal":
+        _ab("obj(plant-4 enabled for product-1) ≤ obj(baseline)  — a cheaper supplier can only lower cost",
+            r_toggled.get("objective", 0) <= r.get("objective", 0) * 1.001,
+            f"{r['objective']:,.4f}", f"{r_toggled['objective']:,.4f}",
+            "baseline", "toggled")
+
+    # ── Infeasibility: forced-open count exceeds P ─────────────────────────
+    print("\n── Infeasibility: forced-open count exceeds P ──")
+    r_inf = run({**GROUND_TRUTH, "p": 1})
+    print(f"          P=1 with 2 forced open: status={r_inf.get('status')}  t={r_inf['_t']:.2f}s")
+    _check("P=1 with wh-11+wh-14 both forced open is infeasible",
+           r_inf.get("status") == "infeasible")
+    _check("Infeasibility reason names the forced-open conflict",
+           "forced" in (r_inf.get("infeasibilityReason") or "").lower())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Cross-model structural checks
 # ─────────────────────────────────────────────────────────────────────────────
 def test_cross_model() -> None:
@@ -560,6 +643,7 @@ def main() -> None:
         "pmedian":   test_pmedian,
         "transport": test_transport,
         "brazil":    test_brazil,
+        "jade":      test_jade,
         "cross":     test_cross_model,
     }
 
