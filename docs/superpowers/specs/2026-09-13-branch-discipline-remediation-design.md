@@ -2,6 +2,38 @@
 
 Date: 2026-09-13. Source: the reviewed tasklist `docs/superpowers/plans/2026-09-01-branch-discipline-remediation.md` (two review rounds + rollback plan, all findings accepted). This spec turns that tasklist into a scoped, decision-locked design; the implementation plan follows separately.
 
+## Codex review — 2026-09-13
+
+**Verdict:** the safety model is substantially improved, but the spec and implementation plan are not ready to execute until the branch base, stop-condition scope, and BD3 contract are reconciled.
+
+### P1 — Base remediation on `origin/main`, not the ahead local `main`
+
+The implementation plan creates `chore/branch-discipline` from local `main` and later pushes it. At review time, local `main` is four commits ahead of `origin/main`, including an unrelated Chapter 9 commit. That topology would publish and merge another workstream's unpushed history as part of the remediation, contrary to the spec's own risk mitigation.
+
+Require a fresh fetch and create the remediation branch from the verified `origin/main` commit. Then transfer only explicitly approved remediation documents/changes onto it. Record the base SHA and verify the proposed PR commit/path list excludes unrelated work before pushing.
+
+### P1 — Scope dirty/owned-worktree stop conditions to deletion candidates
+
+The safety contract currently treats any dirty or owned worktree as stop-and-report, while the design expressly expects protected, owned parallel worktrees and a dirty primary checkout. Taken literally, execution must stop before BD0 can be completed.
+
+Clarify that a dirty or owned **cleanup candidate** blocks deletion. A protected worktree that is dirty or owned must be recorded and left untouched, but does not block unrelated non-destructive remediation work.
+
+### P1 — Reconcile the locked BD3 decision with the plan's ancestry assumption
+
+The locked decision says BD3 versions `AGENTS.md`, `.claude/agents/*.md`, and the 2026-09-01 branch-discipline plan. The implementation plan omits that plan document because it is already committed on local `main`. Once execution is correctly based on `origin/main`, that local-main ancestry is unavailable unless deliberately transferred—and importing the full ancestry would also import unrelated work.
+
+Either retain the locked decision and include the source plan explicitly in BD3, or revise the decision and specify exactly which preparatory documentation commits are approved for the remediation PR. The PR must not acquire those files by inheriting an ahead local `main` implicitly.
+
+### Response to Codex review — 2026-09-13 (all three P1 accepted; verified)
+
+Re-probe confirmed local `main` is **5 ahead** of `origin/main` (worse than the review's "4" — a second ch9 commit landed): 2 Chapter-9 commits (`1740be4`, `938abfe`) + 3 remediation-doc commits (`24dec5e`, `79be196`, `b759e30`). All three findings actioned:
+
+- **P1 base-on-origin — accepted.** Locked decision #1 now mandates basing the branch on fetched `origin/main` and transferring only the 3 approved doc commits by cherry-pick, with a commit+path allowlist verified pre-push. (Plan Task 0 rewritten accordingly.)
+- **P1 stop-condition scope — accepted.** Safety contract now scopes dirty/owned stop-and-report to *cleanup candidates*; protected worktrees + the dirty primary checkout are recorded-and-left, not aborts.
+- **P1 BD3 vs ancestry — accepted.** The 2026-09-01 plan doc is transferred onto the origin-based branch by explicit cherry-pick of `24dec5e` (BD3 input), never by inheriting ahead-local ancestry (which would drag the ch9 commits).
+
+---
+
 ## Goal
 
 Bring the repo's git/worktree hygiene under control **without touching application behavior**: refresh the inventory, make untracked-path handling correct, version the agent governance files, retire the accumulated stale branches, and codify a standing branch lifecycle so the churn stops recurring.
@@ -15,7 +47,7 @@ Bring the repo's git/worktree hygiene under control **without touching applicati
 
 ## Locked decisions (2026-09-13)
 
-1. **Execution mechanism:** all remediation runs on a `chore/branch-discipline` feature branch — one `[BD<n>]` commit per task, one PR, single merge to `main`. This dogfoods BD6 (the plan's own rule) instead of committing straight to `main`.
+1. **Execution mechanism:** all remediation runs on a `chore/branch-discipline` feature branch — one `[BD<n>]` commit per task, one PR, single merge to `main`. This dogfoods BD6 instead of committing straight to `main`. **The branch is based on fetched `origin/main`, NOT the ahead local `main`** (Codex P1): local `main` carries 2 unrelated Chapter-9 commits interleaved with the 3 remediation-doc commits, so only the approved doc commits (`24dec5e`/`79be196`/`b759e30`) are transferred by explicit cherry-pick, and a commit+path allowlist is verified before push — the ch9 work is never published by this PR.
 2. **BD3 policy:** **commit as project config** — version `AGENTS.md`, `.claude/agents/*.md`, and the branch-discipline plan doc, *after* reviewing each for secrets / personal paths / machine-only assumptions. (Not machine-local.)
 3. **BD5 scope:** **branches only** — delete the 29 stale local branches (6 `incoming-*` + 23 `worktree-agent-*`) with per-branch proof; **do not** remove any worktree this round. Both non-`main` worktrees (`jade-ch9`, `scn-v0.3-phase3.1`) and their branches are protected.
 4. **Obsolete tasks dropped:** BD1 (protect active R1–R9 remotely) and BD4 (finish R1–R9) — that bundle shipped; excluded from execution.
@@ -36,7 +68,7 @@ The repo state churns live (three 2026-09-13 probes disagreed). At last probe: `
 
 ## Safety contract (unchanged, applies to every task)
 
-No app/API/solver/dataset/generated/infra/test edits. No rewrite/reset/rebase/amend/force-push of `main` or shared branches. No `rm -rf` — git branch/worktree commands with exact validated refs only. No branch/worktree/file deletion without explicit human approval after read-only proofs pass. Treat any `+` from `git cherry`, non-empty `git rev-list --merges`, dirty/owned worktree, or uncertain deploy trigger as **stop-and-report**. Preserve untracked files until classified.
+No app/API/solver/dataset/generated/infra/test edits. No rewrite/reset/rebase/amend/force-push of `main` or shared branches. No `rm -rf` — git branch/worktree commands with exact validated refs only. No branch/worktree/file deletion without explicit human approval after read-only proofs pass. Treat any `+` from `git cherry`, non-empty `git rev-list --merges`, or uncertain deploy trigger as **stop-and-report**. Preserve untracked files until classified. **Stop-condition scope (Codex P1):** a dirty/owned worktree blocks deletion *only for a cleanup candidate*; a protected worktree (`jade-ch9`, `scn-v0.3-phase3.1`) or the dirty primary checkout being dirty/owned is expected — record and leave it, it does not abort the non-destructive tasks.
 
 ## Module boundaries (each independently reviewable/revertable)
 
