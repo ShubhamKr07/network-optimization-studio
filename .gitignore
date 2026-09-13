@@ -71,7 +71,9 @@ docs/product-insights/aggregates.json
 # error-plans: transient Sentry query output, not the committed report
 docs/error-plans/aggregates.json
 
-# accidentally-added scratch (untracked again)
+# local tooling / runtime artifacts (BD2)
 .pnpm-store/
 graphify-out/
-*.pdf
+supabase/.temp/
+.claude/worktrees/
+.harness/

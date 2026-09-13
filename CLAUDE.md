@@ -102,6 +102,18 @@ never delegate to GLM for this repo.
 7. **Don't touch** `attached_assets/` (textbook source material) or Replit deploy files (`.replit`, `replit.md`, `push-to-github.mjs`) unless a plan task explicitly says so.
 8. When the plan conflicts with the repo's actual state, trust the repo, make the smallest correct fix, and note the deviation in the commit body. If a genuinely ambiguous product decision arises, stop and ask — don't guess.
 
+## Branch discipline (standing)
+
+- Do not commit directly to `main` for routine bundle work or ad hoc fixes. Every feature or remediation change must land on a descriptive branch first.
+- Keep a branch for each bundle or repair, and set an upstream remote at the first stable checkpoint so the work is recoverable outside the local machine.
+- Protect the active worktree and branch from cleanup or deletion until its branch has been reviewed, backed up remotely, and explicitly approved for retirement.
+- Read-only proof is required before any branch or worktree deletion: `git cherry main <branch>`, clean status, explicit path validation, and confirmation that no agent/session still owns the branch.
+- Never use `rm -rf` for branch cleanup; use `git worktree remove <exact-path>` only after human approval.
+- Never escalate a branch deletion to `git branch -D` without a second approval that cites the `git cherry` proof and the specific reason the branch is not ancestry-merged.
+- Treat direct-to-main commits, stale branch backlogs, and unreviewed worktree churn as stop-and-report conditions rather than normal repo hygiene.
+- Keep the operating rules in sync with the branch discipline plan and do not drift from the repo's branch lifecycle without an explicit decision.
+- This section is the **in-repo policy** (documented agent discipline). Server-side enforcement — GitHub branch protection / required CI — is a **separate, human-approved infra task**, not covered here. Recurring offenders to correct: routine bundle work, Sentry/PostHog changes, and remediation itself committing straight to `main`.
+
 ## v2 implementation progress
 
 Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization-studio-v2.md`. Update this section as each task lands (one line per task, most recent phase at top).
