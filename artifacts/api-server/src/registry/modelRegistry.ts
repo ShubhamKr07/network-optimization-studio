@@ -5,6 +5,7 @@ import { SOLVERS_ROOT, ManifestSchema, type Manifest } from "@workspace/dataset-
 import { pMedianInputsSchema } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
+import { jadeInputsSchema } from "../validation/inputs/jadeInputs.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
 // new dataset+manifest+solver directory shows up in listModels()/GET
@@ -19,6 +20,10 @@ const KNOWN_SCHEMAS: Record<string, ZodType> = {
   "p-median-brazil": pMedianInputsSchema,
   "transport-coal": transportLpInputsSchema,
   "two-echelon-gold-au": twoEchelonInputsSchema,
+  // jade-T5: registering here (alongside VALID_MODEL_IDS + buildPayload,
+  // same commit) is what flips two-echelon-jade-us from "listable" (T3) to
+  // "solvable" — OBS-5 needs all three simultaneously.
+  "two-echelon-jade-us": jadeInputsSchema,
 };
 
 // The model ids that are fully implemented (have a Zod input validator here). This is the

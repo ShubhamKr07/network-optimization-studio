@@ -551,4 +551,155 @@ describe("buildPayload()", () => {
     expect(payload.addedCustomers).toEqual(input.inputs.addedCustomers);
     expect(payload.distanceOverrides).toEqual(input.inputs.distanceOverrides);
   });
+
+  // jade-T5 — two-echelon-jade-us (Chapter 9, JADE). buildPayload is the
+  // payload/merge boundary (plan's Global Constraints): forwards only the
+  // validated edit arrays + params, by their exact schema names where the
+  // schema name IS the wire name, and translates the two spots where it
+  // isn't (customerOverrides.demands -> nested customerDemands map,
+  // plantProductCapability -> capabilityOverrides). Never inlines the base
+  // dataset; canonical ids only (no sourceId anywhere on the payload).
+  const jadeBaseInputs = {
+    p: 2,
+    distanceBands: [200, 400, 800, 1600],
+    gap: 0,
+    timeLimitSec: 120,
+    warehouseOverrides: [],
+    customerOverrides: [],
+    plantProductCapability: [],
+    addedPlants: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+
+  it("sends modelType=two_echelon_jade and forwards p/distanceBands/gap/timeLimitSec for two-echelon-jade-us", () => {
+    const payload = buildPayload({ modelId: "two-echelon-jade-us", inputs: jadeBaseInputs });
+    expect(payload.modelType).toBe("two_echelon_jade");
+    expect(payload.p).toBe(2);
+    expect(payload.distanceBands).toEqual([200, 400, 800, 1600]);
+    expect(payload.gap).toBe(0);
+    expect(payload.timeLimitSec).toBe(120);
+  });
+
+  it("two-echelon-jade-us: forced_open warehouseOverrides land in warehouseStatuses, active ones are omitted", () => {
+    const payload = buildPayload({
+      modelId: "two-echelon-jade-us",
+      inputs: {
+        ...jadeBaseInputs,
+        warehouseOverrides: [
+          { id: "wh-11", status: "forced_open" },
+          { id: "wh-14", status: "active" },
+          { id: "wh-3", status: "inactive" },
+        ],
+      },
+    });
+    expect(payload.warehouseStatuses).toEqual([
+      { warehouseId: "wh-11", status: "forced_open" },
+      { warehouseId: "wh-3", status: "inactive" },
+    ]);
+  });
+
+  it("two-echelon-jade-us: customerOverrides.demands translate to a nested customerDemands map", () => {
+    const payload = buildPayload({
+      modelId: "two-echelon-jade-us",
+      inputs: {
+        ...jadeBaseInputs,
+        customerOverrides: [
+          { id: "customer-1", demands: { "product-1": 500 }, status: "active" },
+          { id: "customer-2", status: "active" }, // no demands -> omitted from the map
+        ],
+      },
+    });
+    expect(payload.customerDemands).toEqual({ "customer-1": { "product-1": 500 } });
+  });
+
+  it("two-echelon-jade-us: excludedCustomerIds combines excluded base customerOverrides and excluded added customers", () => {
+    const payload = buildPayload({
+      modelId: "two-echelon-jade-us",
+      inputs: {
+        ...jadeBaseInputs,
+        customerOverrides: [{ id: "customer-1", status: "excluded" }],
+        addedCustomers: [
+          {
+            id: "customer-new-1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81,
+            demands: { "product-1": 1, "product-2": 2, "product-3": 3, "product-4": 4 },
+            status: "excluded",
+          },
+        ],
+      },
+    });
+    expect(payload.excludedCustomerIds).toEqual(["customer-1", "customer-new-1"]);
+  });
+
+  it("two-echelon-jade-us: an added customer with status:'active' (default) is absent from excludedCustomerIds", () => {
+    const payload = buildPayload({
+      modelId: "two-echelon-jade-us",
+      inputs: {
+        ...jadeBaseInputs,
+        addedCustomers: [
+          {
+            id: "customer-new-1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81,
+            demands: { "product-1": 1, "product-2": 2, "product-3": 3, "product-4": 4 },
+            status: "active",
+          },
+        ],
+      },
+    });
+    expect(payload.excludedCustomerIds).toEqual([]);
+  });
+
+  it("two-echelon-jade-us: plantProductCapability translates to capabilityOverrides, including a disabled cell", () => {
+    const payload = buildPayload({
+      modelId: "two-echelon-jade-us",
+      inputs: {
+        ...jadeBaseInputs,
+        plantProductCapability: [
+          { plantId: "plant-1", productId: "product-2", enabled: false },
+          { plantId: "plant-2", productId: "product-1", enabled: true },
+        ],
+      },
+    });
+    expect(payload.capabilityOverrides).toEqual([
+      { plantId: "plant-1", productId: "product-2", enabled: false },
+      { plantId: "plant-2", productId: "product-1", enabled: true },
+    ]);
+  });
+
+  it("two-echelon-jade-us: forwards addedPlants/addedWarehouses/addedCustomers/distanceOverrides through unchanged (canonical ids, no sourceId)", () => {
+    const addedPlants = [{ id: "plant-new-1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81 }];
+    const addedWarehouses = [
+      { id: "wh-new-1", city: "Boise", state: "ID", lat: 43.61, lng: -116.2, status: "active" as const },
+    ];
+    const addedCustomers = [
+      {
+        id: "customer-new-1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77,
+        demands: { "product-1": 10, "product-2": 20, "product-3": 30, "product-4": 40 },
+        status: "active" as const,
+      },
+    ];
+    const distanceOverrides = [
+      { leg: "plant_to_warehouse" as const, fromId: "plant-new-1", toId: "wh-new-1", distance: 123.4 },
+    ];
+    const payload = buildPayload({
+      modelId: "two-echelon-jade-us",
+      inputs: { ...jadeBaseInputs, addedPlants, addedWarehouses, addedCustomers, distanceOverrides },
+    });
+    expect(payload.addedPlants).toEqual(addedPlants);
+    expect(payload.addedWarehouses).toEqual(addedWarehouses);
+    expect(payload.addedCustomers).toEqual(addedCustomers);
+    expect(payload.distanceOverrides).toEqual(distanceOverrides);
+    // No base dataset ever inlined onto the payload.
+    expect(payload).not.toHaveProperty("plants");
+    expect(payload).not.toHaveProperty("warehouses");
+    expect(payload).not.toHaveProperty("customers");
+    // Canonical ids only -- no sourceId anywhere in the forwarded arrays.
+    for (const arr of [payload.addedPlants, payload.addedWarehouses, payload.addedCustomers] as Array<
+      Array<Record<string, unknown>>
+    >) {
+      for (const row of arr) {
+        expect(row).not.toHaveProperty("sourceId");
+      }
+    }
+  });
 });

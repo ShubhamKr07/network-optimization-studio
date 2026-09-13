@@ -213,6 +213,33 @@ const twoEchelonRow = {
   updatedAt: new Date("2026-01-04T00:00:00Z"),
 };
 
+// jade-T5 — two-echelon-jade-us (Chapter 9, JADE).
+const jadeInputs = {
+  p: 2,
+  distanceBands: [200, 400, 800, 1600],
+  gap: 0,
+  timeLimitSec: 120,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  plantProductCapability: [],
+  addedPlants: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const jadeRow = {
+  id: 12,
+  name: "JADE Base Case",
+  modelId: "two-echelon-jade-us",
+  userId: OWNER,
+  inputs: jadeInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-05T00:00:00Z"),
+  updatedAt: new Date("2026-01-05T00:00:00Z"),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
@@ -395,6 +422,18 @@ describe("POST /api/scenarios", () => {
     expect(res.body.modelId).toBe("p-median-brazil");
     expect(res.body.inputs.uniformCapacity).toBe(20000000);
     expect(res.body.inputs.singleSource).toBe(false);
+  });
+
+  // jade-T5 — two-echelon-jade-us (Chapter 9, JADE) joins VALID_MODEL_IDS +
+  // KNOWN_SCHEMAS in this commit; a genuinely unknown modelId must still 422.
+  it("returns 201 with JADE scenario when modelId=two-echelon-jade-us", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.insert.mockReturnValue(makeChain([{ ...jadeRow, name: "New JADE" }]));
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New JADE", modelId: "two-echelon-jade-us", inputs: jadeInputs });
+    expect(res.status).toBe(201);
+    expect(res.body.modelId).toBe("two-echelon-jade-us");
+    expect(res.body.inputs.p).toBe(2);
   });
 
   it("returns 422 when modelId is missing", async () => {

@@ -60,6 +60,11 @@ export const VALID_MODEL_IDS = new Set([
   "transport-coal",
   "p-median-brazil",
   "two-echelon-gold-au",
+  // jade-T5: first writer of this shared file for two-echelon-jade-us
+  // (Chapter 9, JADE) — see model-integration-precheck.md Gate 1.4, the
+  // most-missed registration point (a hardcoded Set entirely separate from
+  // the manifest registry).
+  "two-echelon-jade-us",
   "max_coverage",
   "p_center",
   "set_cover",

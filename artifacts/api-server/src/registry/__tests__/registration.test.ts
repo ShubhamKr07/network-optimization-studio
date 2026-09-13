@@ -13,12 +13,21 @@ import { PACKAGE_SPECS, readVersion } from "@workspace/dataset-schema";
 import { VALID_MODEL_IDS } from "../../routes/scenarios.js";
 import { buildPayload, type SolveInput } from "../../solver/pmedian.js";
 
-// The four models that are fully solvable end-to-end today (each has a
+// The five models that are fully solvable end-to-end today (each has a
 // manifest + dataset package + Zod input validator + solver dispatch).
 // two-echelon-gold-au (Chapter 10) was added once its solver, schema, and
-// allowlist entries all landed — this test is the drift guard that catches
-// a model registered in one place but missing from the others.
-const SOLVABLE = ["p-median-us", "transport-coal", "p-median-brazil", "two-echelon-gold-au"];
+// allowlist entries all landed; two-echelon-jade-us (Chapter 9, JADE) joins
+// here in jade-T5, the atomic commit that registers its KNOWN_SCHEMAS entry
+// + VALID_MODEL_IDS + buildPayload branch simultaneously (OBS-5 needs all
+// three at once) — this test is the drift guard that catches a model
+// registered in one place but missing from the others.
+const SOLVABLE = [
+  "p-median-us",
+  "transport-coal",
+  "p-median-brazil",
+  "two-echelon-gold-au",
+  "two-echelon-jade-us",
+];
 
 describe("model registration consistency", () => {
   for (const modelId of SOLVABLE) {
@@ -52,14 +61,14 @@ describe("model registration consistency", () => {
   }
 });
 
-// ── Listability (JADE Wave 1, Task 3) — manifest-scan only, NOT SOLVABLE ──────────────────────
-// two-echelon-jade-us (Chapter 9) lands its manifest+dataset package (T1/T2) before its solver
-// dispatcher/Zod schema/allowlist entries (T4/T5). It must be *listable* via GET /api/models the
-// moment its manifest exists (proving the registry's dynamic fs.readdirSync scan works with zero
-// code changes), while staying deliberately absent from SOLVABLE/KNOWN_SCHEMAS above until T5 —
-// adding it there now would fail buildPayload/solve.py dispatch checks for a model that isn't
-// wired yet. See docs/superpowers/plans/2026-09-13-chapter-9-jade-two-echelon.md Task 3.
-describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable pre-solve", () => {
+// ── Listability (JADE Wave 1, Task 3 → now also SOLVABLE as of T5) ────────────────────────────
+// two-echelon-jade-us (Chapter 9) landed its manifest+dataset package (T1/T2) before its solver
+// dispatcher/Zod schema/allowlist entries — it was listable-but-not-solvable through Wave 1. T5
+// (this commit) registers KNOWN_SCHEMAS + VALID_MODEL_IDS + buildPayload simultaneously, moving it
+// into SOLVABLE above. This block keeps asserting the listability half (manifest discovery, GET
+// /api/models) independent of the full OBS-5 consistency sweep below.
+// See docs/superpowers/plans/2026-09-13-chapter-9-jade-two-echelon.md Tasks 3 and 5.
+describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", () => {
   it("appears in the registry's scanned model list (listModels())", () => {
     const ids = listModels().map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
@@ -69,9 +78,9 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable pre
     expect(getManifest("two-echelon-jade-us")).toBeDefined();
   });
 
-  it("is deliberately NOT in SOLVABLE/KNOWN_SCHEMAS yet (Wave 1 scope)", () => {
-    expect(SOLVABLE).not.toContain("two-echelon-jade-us");
-    expect(KNOWN_MODEL_IDS).not.toContain("two-echelon-jade-us");
+  it("is now registered in SOLVABLE/KNOWN_SCHEMAS (T5 — was listable-only through T3)", () => {
+    expect(SOLVABLE).toContain("two-echelon-jade-us");
+    expect(KNOWN_MODEL_IDS).toContain("two-echelon-jade-us");
   });
 
   it("GET /api/models returns 5 models, including two-echelon-jade-us", async () => {
@@ -107,6 +116,11 @@ const STUB_INPUTS: Record<string, unknown> = {
   "two-echelon-gold-au": {
     bomRatio: 1.5, distanceBands: [200], gap: 0, timeLimitSec: 60,
     refineryOverrides: [], customerOverrides: [], addedRefineries: [], addedCustomers: [], distanceOverrides: [],
+  },
+  "two-echelon-jade-us": {
+    p: 2, distanceBands: [200, 400, 800, 1600], gap: 0, timeLimitSec: 60,
+    warehouseOverrides: [], customerOverrides: [], plantProductCapability: [],
+    addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
 };
 
