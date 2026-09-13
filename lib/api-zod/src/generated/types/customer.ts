@@ -5,14 +5,22 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { CustomerDemands } from './customerDemands';
 
 export interface Customer {
   id: string;
+  /** Display name (Chapter 9 JADE — the notebook's customer label). Optional; other models leave it absent and render city/state instead. */
+  name?: string;
+  /** Original notebook/textbook integer id, retained display-only (Chapter 9 JADE). Optional; absent for models with no colliding source-id namespace. */
+  sourceId?: number;
   city: string;
   state: string;
   lat: number;
   lng: number;
+  /** Total demand across all products/units. For multi-product models (Chapter 9 JADE) this is the sum of `demands`' values; kept for shared map sizing and legacy consumers. */
   demand: number;
+  /** Optional per-product demand breakdown, keyed by product id (Chapter 9 JADE — `{productId: tons}`). Absent for single-product models; `demand` remains the scalar total. */
+  demands?: CustomerDemands;
   /** US zip or country-appropriate postal code, where available. Display-only — never a solver input. */
   zip?: string;
 }

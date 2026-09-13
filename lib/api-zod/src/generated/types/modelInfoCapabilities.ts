@@ -17,4 +17,6 @@ export type ModelInfoCapabilities = {
   supportsReferenceDistances: boolean;
   /** True when this model's solver honors an Active/Excluded status on a user-added customer (addedCustomers[].status). p-median-us and two-echelon-gold-au only — p-median-brazil's solver applies no customer exclusion (Bundle 2.2, A3). Gate added-customer exclusion controls on this, never on modelId. */
   supportsAddedCustomerExclusion: boolean;
+  /** Chapter 9 JADE only — true when this model has a plant echelon with a plant×product capability matrix editor. Optional, defaults false at the public boundary so existing manifests are unaffected. Gate the Capability Matrix UI on this, never on modelId. */
+  supportsPlantProductCapability?: boolean;
 };

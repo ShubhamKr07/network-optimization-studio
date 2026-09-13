@@ -74,6 +74,10 @@ export const WarehouseCandidateKind = {
  */
 export interface WarehouseCandidate {
   id: string;
+  /** Display name (Chapter 9 JADE — the notebook's plant/warehouse label). Optional; other models leave it absent and render city/state instead. */
+  name?: string;
+  /** Original notebook/textbook integer id, retained display-only (Chapter 9 JADE — canonical string id is the only valid join key). Optional; absent for models with no colliding source-id namespace. */
+  sourceId?: number;
   city: string;
   state: string;
   lat: number;
@@ -83,20 +87,69 @@ export interface WarehouseCandidate {
   zip?: string;
 }
 
+/**
+ * Optional per-product demand breakdown, keyed by product id (Chapter 9 JADE — `{productId: tons}`). Absent for single-product models; `demand` remains the scalar total.
+ */
+export type CustomerDemands = {[key: string]: number};
+
 export interface Customer {
   id: string;
+  /** Display name (Chapter 9 JADE — the notebook's customer label). Optional; other models leave it absent and render city/state instead. */
+  name?: string;
+  /** Original notebook/textbook integer id, retained display-only (Chapter 9 JADE). Optional; absent for models with no colliding source-id namespace. */
+  sourceId?: number;
   city: string;
   state: string;
   lat: number;
   lng: number;
+  /** Total demand across all products/units. For multi-product models (Chapter 9 JADE) this is the sum of `demands`' values; kept for shared map sizing and legacy consumers. */
   demand: number;
+  /** Optional per-product demand breakdown, keyed by product id (Chapter 9 JADE — `{productId: tons}`). Absent for single-product models; `demand` remains the scalar total. */
+  demands?: CustomerDemands;
   /** US zip or country-appropriate postal code, where available. Display-only — never a solver input. */
   zip?: string;
+}
+
+/**
+ * Chapter 9 JADE — a supply-echelon facility (fixed, not a solver open/close decision) feeding warehouses. New entity, optional on Dataset so existing 4 models' responses stay valid.
+ */
+export interface Plant {
+  id: string;
+  sourceId?: number;
+  name?: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Chapter 9 JADE — one of the 4 product families the model tracks per-customer demand and per-plant capability against.
+ */
+export interface Product {
+  id: string;
+  sourceId?: number;
+  name: string;
+}
+
+/**
+ * Chapter 9 JADE — one base plant×product capability cell (tons). A zero/absent cell means that plant cannot make that product.
+ */
+export interface PlantProductCapability {
+  plantId: string;
+  productId: string;
+  capacity: number;
 }
 
 export interface Dataset {
   warehouses: WarehouseCandidate[];
   customers: Customer[];
+  /** Chapter 9 JADE only. Absent for models with no plant echelon. */
+  plants?: Plant[];
+  /** Chapter 9 JADE only. Absent for models with no product axis. */
+  products?: Product[];
+  /** Chapter 9 JADE only — the base 16-cell plant×product capability matrix. Absent for models with no plant/product concept. */
+  plantProductCapabilities?: PlantProductCapability[];
 }
 
 export type ModelInfoCountryBounds = {
@@ -123,6 +176,8 @@ export type ModelInfoCapabilities = {
   supportsReferenceDistances: boolean;
   /** True when this model's solver honors an Active/Excluded status on a user-added customer (addedCustomers[].status). p-median-us and two-echelon-gold-au only — p-median-brazil's solver applies no customer exclusion (Bundle 2.2, A3). Gate added-customer exclusion controls on this, never on modelId. */
   supportsAddedCustomerExclusion: boolean;
+  /** Chapter 9 JADE only — true when this model has a plant echelon with a plant×product capability matrix editor. Optional, defaults false at the public boundary so existing manifests are unaffected. Gate the Capability Matrix UI on this, never on modelId. */
+  supportsPlantProductCapability?: boolean;
 };
 
 /**
@@ -157,6 +212,17 @@ export interface ModelInfo {
 }
 
 /**
+ * Chapter 9 JADE only — which leg this pair belongs to, since its single distances.json mixes both leg key-namespaces. Optional; absent for single-leg models.
+ */
+export type ReferenceDistancePairLeg = typeof ReferenceDistancePairLeg[keyof typeof ReferenceDistancePairLeg];
+
+
+export const ReferenceDistancePairLeg = {
+  plant_to_warehouse: 'plant_to_warehouse',
+  warehouse_to_customer: 'warehouse_to_customer',
+} as const;
+
+/**
  * One base-warehouse×base-customer distance. fromCode/toCode echo fromId/toId (base entities' id IS already a short display code, e.g. "ALN"/"C1") — kept as separate fields to match the added-entity displayCode shape used elsewhere.
  */
 export interface ReferenceDistancePair {
@@ -165,6 +231,8 @@ export interface ReferenceDistancePair {
   toId: string;
   toCode: string;
   distance: number;
+  /** Chapter 9 JADE only — which leg this pair belongs to, since its single distances.json mixes both leg key-namespaces. Optional; absent for single-leg models. */
+  leg?: ReferenceDistancePairLeg;
 }
 
 export type ReferenceDistancesDistanceUnit = typeof ReferenceDistancesDistanceUnit[keyof typeof ReferenceDistancesDistanceUnit];
@@ -210,7 +278,7 @@ export interface Assignment {
 }
 
 /**
- * Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.
+ * Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings.
  */
 export type EdgeLeg = typeof EdgeLeg[keyof typeof EdgeLeg];
 
@@ -218,10 +286,12 @@ export type EdgeLeg = typeof EdgeLeg[keyof typeof EdgeLeg];
 export const EdgeLeg = {
   mine_to_refinery: 'mine_to_refinery',
   refinery_to_customer: 'refinery_to_customer',
+  plant_to_warehouse: 'plant_to_warehouse',
+  warehouse_to_customer: 'warehouse_to_customer',
 } as const;
 
 /**
- * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
+ * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon-gold-au, plant->warehouse/warehouse->customer shipment for two-echelon-jade-us. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
  */
 export interface Edge {
   fromId: string;
@@ -229,8 +299,10 @@ export interface Edge {
   flow: number;
   distance: number;
   band?: number;
-  /** Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models. */
+  /** Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings. */
   leg?: EdgeLeg;
+  /** Chapter 9 JADE — set on plant_to_warehouse (inbound) edges, one per positive (plant,warehouse,product) flow. Absent on warehouse_to_customer (outbound) edges, which aggregate across products per single-source customer, and absent for every other model. */
+  productId?: string;
 }
 
 export interface LegAverageDistance {
@@ -245,6 +317,14 @@ export interface SolveMetrics {
   weightedAvgDistance?: number;
   /** Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models. */
   avgDistanceByLeg?: LegAverageDistance[];
+  /** Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges/details instead. */
+  openFacilityIds?: string[];
+  /** Chapter 9 JADE — total effective demand (tons) across all customers/products, after exclusions. Optional. */
+  totalDemand?: number;
+  /** Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional. */
+  inboundCost?: number;
+  /** Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional. */
+  outboundCost?: number;
 }
 
 export type SolveResultStatus = typeof SolveResultStatus[keyof typeof SolveResultStatus];
@@ -286,6 +366,7 @@ export const ScenarioModelId = {
   'transport-coal': 'transport-coal',
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
+  'two-echelon-jade-us': 'two-echelon-jade-us',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
@@ -387,6 +468,7 @@ export const ScenarioInputModelId = {
   'transport-coal': 'transport-coal',
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
+  'two-echelon-jade-us': 'two-echelon-jade-us',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
@@ -444,6 +526,8 @@ export const ImportRequestEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  plants: 'plants',
+  plantCapabilities: 'plantCapabilities',
 } as const;
 
 export interface ImportRequest {
@@ -496,6 +580,8 @@ export const ImportApplyRequestEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  plants: 'plants',
+  plantCapabilities: 'plantCapabilities',
 } as const;
 
 export type ImportApplyRequestMode = typeof ImportApplyRequestMode[keyof typeof ImportApplyRequestMode];
@@ -530,6 +616,9 @@ export const ExportEnvelopeEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  flows: 'flows',
+  plants: 'plants',
+  plantCapabilities: 'plantCapabilities',
 } as const;
 
 export type ExportEnvelopeRowsItem = { [key: string]: unknown };
@@ -552,6 +641,7 @@ export const GetDatasetModelId = {
   'transport-coal': 'transport-coal',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'p-median-brazil': 'p-median-brazil',
+  'two-echelon-jade-us': 'two-echelon-jade-us',
 } as const;
 
 export type GetSolveHistoryParams = {
@@ -576,6 +666,7 @@ export const ListScenariosModelId = {
   'transport-coal': 'transport-coal',
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
+  'two-echelon-jade-us': 'two-echelon-jade-us',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
@@ -607,6 +698,8 @@ export const ExportScenarioEntity = {
   costSummary: 'costSummary',
   serviceStats: 'serviceStats',
   flows: 'flows',
+  plants: 'plants',
+  plantCapabilities: 'plantCapabilities',
 } as const;
 
 export type ExportScenarioFormat = typeof ExportScenarioFormat[keyof typeof ExportScenarioFormat];

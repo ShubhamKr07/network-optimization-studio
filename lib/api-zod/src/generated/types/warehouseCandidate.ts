@@ -12,6 +12,10 @@ import type { WarehouseCandidateKind } from './warehouseCandidateKind';
  */
 export interface WarehouseCandidate {
   id: string;
+  /** Display name (Chapter 9 JADE — the notebook's plant/warehouse label). Optional; other models leave it absent and render city/state instead. */
+  name?: string;
+  /** Original notebook/textbook integer id, retained display-only (Chapter 9 JADE — canonical string id is the only valid join key). Optional; absent for models with no colliding source-id namespace. */
+  sourceId?: number;
   city: string;
   state: string;
   lat: number;

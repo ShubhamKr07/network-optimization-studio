@@ -7,7 +7,7 @@
  */
 
 /**
- * Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.
+ * Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings.
  */
 export type EdgeLeg = typeof EdgeLeg[keyof typeof EdgeLeg];
 
@@ -15,4 +15,6 @@ export type EdgeLeg = typeof EdgeLeg[keyof typeof EdgeLeg];
 export const EdgeLeg = {
   mine_to_refinery: 'mine_to_refinery',
   refinery_to_customer: 'refinery_to_customer',
+  plant_to_warehouse: 'plant_to_warehouse',
+  warehouse_to_customer: 'warehouse_to_customer',
 } as const;
