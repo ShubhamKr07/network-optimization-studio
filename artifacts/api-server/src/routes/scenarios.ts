@@ -44,12 +44,13 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 
 const router = Router();
 
@@ -286,6 +287,15 @@ function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown
   }
   if (modelId === "two-echelon-gold-au") {
     return precheckTwoEchelonInputs(inputs as unknown as TwoEchelonInputs);
+  }
+  // jade-T6 — second writer of this shared file (after jade-T5's
+  // VALID_MODEL_IDS entry). Registered here covers BOTH call sites in this
+  // file: the solve-before-enqueue path (POST .../solve, above) and the
+  // standalone GET .../precheck endpoint (below) both call
+  // runNetworkEditsPrecheck, so a shape-valid JADE scenario never falls
+  // through to the default {ok:true} at the bottom of this function.
+  if (modelId === "two-echelon-jade-us") {
+    return precheckJadeInputs(inputs as unknown as JadeInputs);
   }
   return { ok: true, errors: [] };
 }
