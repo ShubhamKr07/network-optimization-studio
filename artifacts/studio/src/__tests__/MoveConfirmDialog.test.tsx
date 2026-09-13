@@ -101,5 +101,19 @@ describe("MoveConfirmDialog", () => {
       renderDialog({ kind: "cs" });
       expect(screen.getByTestId("move-confirm-dialog")).toHaveTextContent("Move customer");
     });
+
+    // jade-T12 (Chapter 9 JADE) — the third rendering kind.
+    it("omitting role defaults to PLANT_ROLE by kind='pl', and never re-keys the id (no `id` field in the confirm payload)", () => {
+      const { onConfirm } = renderDialog({
+        kind: "pl",
+        entity: { id: "ap-1", displayCode: "PL-TX-DALLAS-01" },
+        existingCodes: ["PL-TX-DALLAS-01"],
+      });
+      expect(screen.getByTestId("move-confirm-dialog")).toHaveTextContent("Move plant");
+      expect(screen.getByTestId("move-confirm-new-code")).toHaveTextContent(/^PL-/);
+      fireEvent.click(screen.getByTestId("move-confirm-confirm"));
+      const payload = onConfirm.mock.calls[0][0];
+      expect(payload).not.toHaveProperty("id");
+    });
   });
 });

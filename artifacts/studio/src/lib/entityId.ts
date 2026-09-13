@@ -13,14 +13,20 @@ function randomUuid(): string {
   );
 }
 
-const UID_PREFIX: Record<"wh" | "cs" | "mn" | "st", string> = {
+// jade-T12 (Chapter 9 JADE) — "pl" joins the identity model, matching the
+// backend's own `mintAddedEntityUid` "ap-" prefix (services/import.ts)
+// exactly, and consolidating what PlantsTab.tsx (T11) had to mint locally
+// (that file's own header comment explains why T11/T12 didn't share this
+// module directly — separate, potentially-concurrent leaves-first tasks).
+const UID_PREFIX: Record<"wh" | "cs" | "mn" | "st" | "pl", string> = {
   wh: "aw",
   cs: "ac",
   mn: "am",
   st: "as",
+  pl: "ap",
 };
 
-export function newUid(kind: "wh" | "cs" | "mn" | "st"): string {
+export function newUid(kind: "wh" | "cs" | "mn" | "st" | "pl"): string {
   return `${UID_PREFIX[kind]}-${randomUuid()}`;
 }
 
@@ -32,15 +38,16 @@ function pad2(n: number): string {
   return n.toString().padStart(2, "0");
 }
 
-const DISPLAY_CODE_PREFIX: Record<"wh" | "cs" | "mn" | "st", string> = {
+const DISPLAY_CODE_PREFIX: Record<"wh" | "cs" | "mn" | "st" | "pl", string> = {
   wh: "WH",
   cs: "CS",
   mn: "MN",
   st: "ST",
+  pl: "PL",
 };
 
 export function nextDisplayCode(
-  kind: "wh" | "cs" | "mn" | "st",
+  kind: "wh" | "cs" | "mn" | "st" | "pl",
   state: string,
   city: string,
   existingCodes: Iterable<string>,

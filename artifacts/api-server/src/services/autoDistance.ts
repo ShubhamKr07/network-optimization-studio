@@ -1,10 +1,12 @@
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
-import { buildActivePMedianIds, buildActiveTwoEchelonIds } from "./precheck.js";
+import { JADE_PLANTS, JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
+import { buildActivePMedianIds, buildActiveTwoEchelonIds, buildActiveJadeIds } from "./precheck.js";
 import { pMedianInputsSchema, type PMedianInputs } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema, type TransportLpInputs } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import { jadeInputsSchema, type JadeInputs } from "../validation/inputs/jadeInputs.js";
 
 // T1 (Input Map v2) / follow-up item 3 — normalization step run on every
 // persist path (POST create, PATCH, import/apply — see routes/scenarios.ts's
@@ -313,4 +315,121 @@ export function fillEstimatedTwoEchelonDistances(inputs: TwoEchelonInputs, datas
   }
 
   return twoEchelonInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
+}
+
+interface JadeRoleDataset {
+  plants: readonly { id: string; lat: number; lng: number }[];
+  warehouses: readonly { id: string; lat: number; lng: number }[];
+  customers: readonly { id: string; lat: number; lng: number }[];
+}
+
+const JADE_DEFAULT: JadeRoleDataset = { plants: JADE_PLANTS, warehouses: JADE_WAREHOUSES, customers: JADE_CUSTOMERS };
+
+// jade-T12 — reverse-derived, not assumed: computed the ratio (actual base
+// distance / plain haversineMiles) across ALL 2600 base pairs in
+// solvers/two-echelon-jade-us/dataset/distances.json (100 plant->warehouse +
+// 2500 warehouse->customer). Both legs land on the SAME factor to 5dp:
+// plant->warehouse ratio range 1.179085-1.179109 (mean ~1.1791057),
+// warehouse->customer ratio range 1.179103-1.179118 (mean ~1.1791058) —
+// coincides with two-echelon-gold-au's own TWO_ECHELON_RC_CIRCUITY (1.1791),
+// but independently re-derived for this dataset, not assumed from that
+// model. Reconstructing every non-zero base pair at this rounded value
+// stays within ~1.5e-5 relative error (max observed: plant->warehouse
+// 1.283e-5, warehouse->customer 1.489e-5), well under the <0.1% tolerance
+// used elsewhere in this file (see the Step-1 reconstruction test in
+// autoDistance.test.ts). Do NOT assume Ch10's plain-haversine (no circuity
+// at all, TWO_ECHELON's own mine->refinery leg) or transport-coal's 1.17 —
+// this dataset's own convention was independently verified.
+const JADE_CIRCUITY = 1.1791;
+
+/**
+ * two-echelon-jade-us analogue of fillEstimatedDistances/
+ * fillEstimatedTwoEchelonDistances: fills missing added-entity-involving
+ * distances on BOTH legs (plant->warehouse, warehouse->customer),
+ * `distanceOverrides` carrying an explicit `leg` (unlike two-echelon-gold-au's
+ * purely id-space-inferred leg — jadeInputs.ts's own file header explains
+ * why: this model's plant/warehouse/customer id spaces aren't guaranteed
+ * mutually exclusive the way mine/refinery/customer are), then revalidates
+ * against jadeInputsSchema. Pure, idempotent — same contract as every other
+ * estimator in this file. Mirrors precheckJadeInputs' own completeness rule
+ * (d) exactly (precheck.ts): for every active warehouse, an ADDED warehouse
+ * needs a distance from every active plant AND to every active customer; a
+ * BASE warehouse only needs the "vice versa" distances to/from this
+ * scenario's active ADDED plants/customers (base<->base pairs are already
+ * covered by the base dataset's own distances.json). Plants have NO
+ * force-open/inactive concept at all (buildActiveJadeIds' own rule — every
+ * base + added plant is unconditionally "active").
+ */
+export function fillEstimatedJadeDistances(inputs: JadeInputs, dataset: JadeRoleDataset = JADE_DEFAULT): JadeInputs {
+  const addedP = inputs.addedPlants ?? [];
+  const addedW = inputs.addedWarehouses ?? [];
+  const addedC = inputs.addedCustomers ?? [];
+
+  // Role-scoped coordinate maps, one per entity type (plant/warehouse/
+  // customer are three disjoint id sets) — same discipline as every other
+  // estimator in this file.
+  const plantCoord = new Map<string, Coord>();
+  for (const p of dataset.plants) plantCoord.set(p.id, { lat: p.lat, lng: p.lng });
+  for (const p of addedP) plantCoord.set(p.id, { lat: p.lat, lng: p.lng });
+  const whCoord = new Map<string, Coord>();
+  for (const w of dataset.warehouses) whCoord.set(w.id, { lat: w.lat, lng: w.lng });
+  for (const w of addedW) whCoord.set(w.id, { lat: w.lat, lng: w.lng });
+  const custCoord = new Map<string, Coord>();
+  for (const c of dataset.customers) custCoord.set(c.id, { lat: c.lat, lng: c.lng });
+  for (const c of addedC) custCoord.set(c.id, { lat: c.lat, lng: c.lng });
+
+  const addedWarehouseIds = new Set(addedW.map((w) => w.id));
+
+  // buildActiveJadeIds's 2nd param is JadePrecheckDataset, which also
+  // requires productIds/capabilityCells (neither read by this function —
+  // only .plants/.warehouses/.customers/.supportsAddedCustomerExclusion
+  // are) — supplied as empty arrays here, harmless placeholders.
+  const { activePlantIds, activeWarehouseIds, activeCustomerIds } = buildActiveJadeIds(inputs, {
+    plants: dataset.plants,
+    warehouses: dataset.warehouses,
+    customers: dataset.customers,
+    productIds: [],
+    capabilityCells: [],
+  });
+  const addedPlantIdSet = new Set(addedP.map((p) => p.id));
+  const activeAddedPlantIds = activePlantIds.filter((id) => addedPlantIdSet.has(id));
+  const addedCustomerIdSet = new Set(addedC.map((c) => c.id));
+  const activeAddedCustomerIds = activeCustomerIds.filter((id) => addedCustomerIdSet.has(id));
+
+  const overrides = [...(inputs.distanceOverrides ?? [])];
+  const have = new Set(overrides.map((o) => o.leg + "|" + o.fromId + "|" + o.toId));
+
+  for (const whId of activeWarehouseIds) {
+    const isAddedWarehouse = addedWarehouseIds.has(whId);
+
+    // plant -> warehouse leg: base<->base pairs already covered by the base
+    // distance matrix; a pair needs an explicit override iff at least one
+    // side is "added".
+    const requiredPlants = isAddedWarehouse ? activePlantIds : activeAddedPlantIds;
+    for (const plantId of requiredPlants) {
+      const key = "plant_to_warehouse|" + plantId + "|" + whId;
+      if (have.has(key)) continue;
+      const a = plantCoord.get(plantId);
+      const b = whCoord.get(whId);
+      if (!a || !b) continue;
+      const d = clampMi(haversineMiles(a, b) * JADE_CIRCUITY);
+      overrides.push({ leg: "plant_to_warehouse", fromId: plantId, toId: whId, distance: d, estimated: true });
+      have.add(key);
+    }
+
+    // warehouse -> customer leg: same "vice versa" rule.
+    const requiredCustomers = isAddedWarehouse ? activeCustomerIds : activeAddedCustomerIds;
+    for (const custId of requiredCustomers) {
+      const key = "warehouse_to_customer|" + whId + "|" + custId;
+      if (have.has(key)) continue;
+      const a = whCoord.get(whId);
+      const b = custCoord.get(custId);
+      if (!a || !b) continue;
+      const d = clampMi(haversineMiles(a, b) * JADE_CIRCUITY);
+      overrides.push({ leg: "warehouse_to_customer", fromId: whId, toId: custId, distance: d, estimated: true });
+      have.add(key);
+    }
+  }
+
+  return jadeInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
 }

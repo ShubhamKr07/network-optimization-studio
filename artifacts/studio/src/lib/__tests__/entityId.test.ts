@@ -41,6 +41,11 @@ describe("nextDisplayCode", () => {
   it("uses the ST prefix for stations", () => {
     expect(nextDisplayCode("st", "IL", "Chicago", [])).toBe("ST-IL-CHICAGO-01");
   });
+
+  // jade-T12 (Chapter 9 JADE) — plants join the same identity model.
+  it("uses the PL prefix for plants", () => {
+    expect(nextDisplayCode("pl", "KY", "Ashland", [])).toBe("PL-KY-ASHLAND-01");
+  });
 });
 
 describe("newUid", () => {
@@ -64,5 +69,11 @@ describe("newUid", () => {
 
   it("returns as-prefixed strings for stations", () => {
     expect(newUid("st").startsWith("as-")).toBe(true);
+  });
+
+  // jade-T12 (Chapter 9 JADE) — matches the backend's `mintAddedEntityUid`
+  // "ap-" prefix (services/import.ts) exactly.
+  it("returns ap-prefixed strings for plants", () => {
+    expect(newUid("pl").startsWith("ap-")).toBe(true);
   });
 });

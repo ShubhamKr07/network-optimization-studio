@@ -119,17 +119,23 @@ export function MapDetailsCard({ entity, containerPoint, containerSize, onClose 
         <span className="text-muted-foreground">Longitude</span>
         <span className="font-mono">{e.lng.toFixed(4)}</span>
       </div>
+      {/* jade-T12 — a THREE-way check now (was a 2-way `kind === "wh" ? : `),
+          since a plain `else` branch would try to read `.demand` off a
+          MapPlant (which has neither `.capacity` nor `.demand` — see
+          types.ts's `MapPlant`). A plant shows neither row: its only
+          editable attribute (which products it can make) lives in the
+          Capability Matrix tab, not this inspect card. */}
       {kind === "wh" ? (
         <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-capacity">
           <span className="text-muted-foreground">Capacity</span>
           <span className="font-mono">{e.capacity != null ? `${fmt(e.capacity)} units` : "—"}</span>
         </div>
-      ) : (
+      ) : kind === "cs" ? (
         <div className="flex justify-between gap-4 px-3 py-1.5" data-testid="map-details-demand">
           <span className="text-muted-foreground">Demand</span>
           <span className="font-mono">{fmt(e.demand)} units</span>
         </div>
-      )}
+      ) : null}
       <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="map-details-footer">
         Right-click for Edit · Move · Copy · Delete
       </div>

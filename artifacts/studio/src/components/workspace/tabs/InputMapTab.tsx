@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, CircleMarker, Tooltip, useMapEvents } 
 import type L from "leaflet";
 import { Save } from "lucide-react";
 import { useListModels } from "@workspace/api-client-react";
+import type { Product } from "@workspace/api-client-react";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,10 +16,11 @@ import { EditCustomerDialog } from "@/components/workspace/map/dialogs/EditCusto
 import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
 import { MoveConfirmDialog } from "@/components/workspace/map/dialogs/MoveConfirmDialog";
 import type { WhStatus } from "@/components/workspace/map/statusPresentation";
-import { MINE_ROLE, STATION_ROLE, REFINERY_ROLE } from "@/components/workspace/map/types";
+import { MINE_ROLE, STATION_ROLE, REFINERY_ROLE, JADE_WAREHOUSE_ROLE, PLANT_ROLE } from "@/components/workspace/map/types";
 import type {
   MapWarehouse,
   MapCustomer,
+  MapPlant,
   MapEntity,
   PMedianMapInputs,
   AddedWarehouseInput,
@@ -31,6 +33,16 @@ import type {
 import type { AddedMine } from "@/components/workspace/tabs/MinesTab";
 import type { AddedStation } from "@/components/workspace/tabs/StationsTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
+// jade-T12 (Chapter 9 JADE) — same "reuse the *Tab file's own shape" T6
+// precedent: `AddedPlant` (PlantsTab.tsx) is geometry-only; `AddedCustomer`/
+// `CustomerProductOverride` (CustomersTab.tsx) already carry JADE's
+// per-product `demands` (T11 added these alongside p-median-us's scalar
+// `demand`-only shape); `CapabilityOverride` (CapabilityMatrixTab.tsx) is
+// the plant x product "can-make" toggle this task's plant-delete
+// reconciliation (fix #5) purges by plantId.
+import type { AddedPlant } from "@/components/workspace/tabs/PlantsTab";
+import type { AddedCustomer, CustomerProductOverride } from "@/components/workspace/tabs/CustomersTab";
+import type { CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 
 // T6 (Bundle 2) — the `inputs` slice transport-coal's map mode edits.
 // TransportLpInputs is NOT PMedianMapInputs-shaped: no warehouseOverrides/
@@ -71,6 +83,39 @@ export interface TwoEchelonMapInputs {
   customerOverrides: { id: string; demand?: number | null; status: "active" | "excluded" }[];
   distanceOverrides: { fromId: string; toId: string; distance: number; estimated?: boolean }[];
   [k: string]: unknown; // bomRatio, gap, timeLimitSec, distanceBands, … passed through
+}
+
+// jade-T12 (Chapter 9 JADE) — the `inputs` slice two-echelon-jade-us's map
+// mode edits. A genuinely THIRD entity-kind shape (plants join warehouses/
+// customers): `addedWarehouses` mirrors JADE_WAREHOUSE_ROLE (status only, no
+// capacity — `capacityModes: []`); `addedCustomers`/`customerOverrides`
+// reuse CustomersTab.tsx's own richer per-product shapes (`AddedCustomer`
+// carries both the scalar `demand` sum AND the per-product `demands` record;
+// `CustomerProductOverride` is the sparse per-product override) rather than
+// this file's own scalar-only `AddedCustomerInput`/inline override shape —
+// unlike pmedian/transport/twoEchelon, a JADE customer's demand genuinely
+// isn't a single number. `distanceOverrides` carries an explicit `leg`
+// (unlike two-echelon-gold-au's purely id-space-inferred leg resolution —
+// jadeInputs.ts's own file header explains why: JADE's plant/warehouse/
+// customer id spaces aren't guaranteed mutually exclusive the way
+// mine/refinery/customer are). `plantProductCapability` is this model's own
+// entity family (a plant x product "can-make" toggle) with no analogue in
+// any prior model's map-inputs slice.
+export interface JadeMapInputs {
+  addedPlants: AddedPlant[];
+  addedWarehouses: AddedWarehouseInput[];
+  addedCustomers: AddedCustomer[];
+  warehouseOverrides: { id: string; status: WhStatus }[];
+  customerOverrides: CustomerProductOverride[];
+  plantProductCapability: CapabilityOverride[];
+  distanceOverrides: {
+    leg: "plant_to_warehouse" | "warehouse_to_customer";
+    fromId: string;
+    toId: string;
+    distance: number;
+    estimated?: boolean;
+  }[];
+  [k: string]: unknown; // p, gap, timeLimitSec, distanceBands, … passed through
 }
 
 // T8 (Input Map v2) — discriminated union, one variant per model's real map
@@ -169,11 +214,45 @@ export type InputMapTabProps =
       isDirty?: boolean;
       onSave?: () => void;
       saving?: boolean;
+    }
+  | {
+      // jade-T12 (Chapter 9 JADE) — two-echelon-jade-us's full-v2 editor,
+      // the first mode with THREE interactive entity kinds (plants join
+      // warehouses/customers — see MapEntity's "pl" kind, types.ts). Plants
+      // render as squares (PLANT_ROLE — supply, no status, no value field);
+      // warehouses render as triangles via JADE_WAREHOUSE_ROLE (status
+      // only, no capacity — `capacityModes: []`); customers render as
+      // bubbles via the default CUSTOMER_ROLE. Unlike the fixed mine in
+      // "twoEchelon" mode, every plant here (base or added) IS interactive
+      // (edit/move/copy/delete via the action menu) — solve_jade has no
+      // facility-open concept for plants, but a plant's location and which
+      // products it can make are both scenario-editable.
+      mode: "jade";
+      countryBounds?: CountryBounds;
+      /** The 4 canonical products — needed to (a) default an added
+       * customer's per-product `demands` to an even split of the scalar
+       * total entered in the map's Create/Edit dialog (fine-grained
+       * per-product control belongs to the Customers tab's own grid, T11 —
+       * this is a quick-edit path, not a replacement for it) and (b) the
+       * Capability Matrix tab's own column set (not read by this component
+       * directly, but kept here for the even-split helper). */
+      products: Product[];
+      plants: MapPlant[];
+      warehouses: MapWarehouse[];
+      customers: MapCustomer[];
+      inputs: JadeMapInputs;
+      onInputsChange: (next: JadeMapInputs) => void;
+      /** R4 — Save relocated into this tab's own Layers row, same as every
+       * other mode's onSave (see those variants' own comments). */
+      isDirty?: boolean;
+      onSave?: () => void;
+      saving?: boolean;
     };
 
 export function InputMapTab(props: InputMapTabProps): ReactNode {
   if (props.mode === "transport") return <TransportInputMap {...props} />;
   if (props.mode === "twoEchelon") return <TwoEchelonInputMap {...props} />;
+  if (props.mode === "jade") return <JadeInputMap {...props} />;
   return <PMedianInputMap {...props} />;
 }
 
@@ -248,7 +327,14 @@ function AddEntityMenu({
   containerSize,
   onAdd,
   onClose,
-}: OverlayAnchor & { onAdd: (kind: "wh" | "cs") => void; onClose: () => void }) {
+  showPlantOption = false,
+}: OverlayAnchor & {
+  onAdd: (kind: "wh" | "cs" | "pl") => void;
+  onClose: () => void;
+  /** jade-T12 (Chapter 9 JADE) — a third "Add plant here" menu item.
+   * Optional, default `false` — every non-JADE caller is unaffected. */
+  showPlantOption?: boolean;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -288,6 +374,11 @@ function AddEntityMenu({
       <button type="button" role="menuitem" data-testid="map-add-menu-cs" className="w-full text-left px-3 py-1.5 hover:bg-accent-100" onClick={() => onAdd("cs")}>
         Add customer here
       </button>
+      {showPlantOption && (
+        <button type="button" role="menuitem" data-testid="map-add-menu-pl" className="w-full text-left px-3 py-1.5 hover:bg-accent-100" onClick={() => onAdd("pl")}>
+          Add plant here
+        </button>
+      )}
     </div>
   );
 }
@@ -486,8 +577,14 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
+// jade-T12 — `kind` widened to include "pl" (a plant, jade-T12's third
+// entity kind); `copyFrom` widened to include `{}` (a plant's own
+// copy-armed `copyFrom`, since a plant has nothing to carry over — see
+// JadeInputMap's `handleMapClick`). Every existing mode (pmedian/transport/
+// twoEchelon) never constructs a "pl"-kind CreateState, so this widening is
+// additive only.
 type CreateState = {
-  kind: "wh" | "cs";
+  kind: "wh" | "cs" | "pl";
   lat: number;
   lng: number;
   copyFrom?: AddedWarehouseInput | AddedCustomerInput | { capacity?: number | null; demand?: number };
@@ -675,7 +772,12 @@ function PMedianInputMap({
   }
   function handleMenuDelete() {
     if (!actionMenu) return;
-    const { kind, entity } = actionMenu.entity;
+    // jade-T12 — MapEntity's "kind" widened to include "pl" (a genuinely
+    // different mode's entity kind); this mode's own `warehouses`/
+    // `customers` arrays never populate one, so this narrows back down to
+    // this mode's own closed "wh"|"cs" kind set (a type-only cast — never a
+    // real "pl" value flows through here).
+    const { kind, entity } = actionMenu.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(deleteAdded(inputs, kind, entity.id));
     setActionMenu(null);
   }
@@ -684,7 +786,7 @@ function PMedianInputMap({
     patch: { status: WhStatus; capacity?: number | null } | { demand: number; status?: "active" | "excluded" },
   ) {
     if (!editEntity) return;
-    const { kind, entity } = editEntity;
+    const { kind, entity } = editEntity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     if (kind === "wh") {
       const p = patch as { status: WhStatus; capacity?: number | null };
       onInputsChange(entity.isAdded ? editAddedWarehouse(inputs, entity.id, p) : editBaseWarehouseOverride(inputs, entity.id, p));
@@ -704,7 +806,8 @@ function PMedianInputMap({
 
   function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
     if (!moveConfirm) return;
-    const { kind, entity } = moveConfirm.entity;
+    // jade-T12 — see handleMenuDelete's own comment on this same narrowing cast.
+    const { kind, entity } = moveConfirm.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(moveAdded(inputs, kind, entity.id, next));
     setMoveConfirm(null);
   }
@@ -1133,7 +1236,8 @@ function TransportInputMap({
   }
   function handleMenuDelete() {
     if (!actionMenu) return;
-    const { kind, entity } = actionMenu.entity;
+    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
+    const { kind, entity } = actionMenu.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(deleteAddedTransport(inputs, kind, entity.id));
     setActionMenu(null);
   }
@@ -1174,7 +1278,8 @@ function TransportInputMap({
 
   function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
     if (!moveConfirm) return;
-    const { kind, entity } = moveConfirm.entity;
+    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
+    const { kind, entity } = moveConfirm.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(moveAddedTransport(inputs, kind, entity.id, next));
     setMoveConfirm(null);
   }
@@ -1628,7 +1733,8 @@ function TwoEchelonInputMap({
   }
   function handleMenuDelete() {
     if (!actionMenu) return;
-    const { kind, entity } = actionMenu.entity;
+    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
+    const { kind, entity } = actionMenu.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(deleteAddedTwoEchelon(inputs, kind, entity.id));
     setActionMenu(null);
   }
@@ -1666,7 +1772,8 @@ function TwoEchelonInputMap({
 
   function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
     if (!moveConfirm) return;
-    const { kind, entity } = moveConfirm.entity;
+    // jade-T12 — see PMedianInputMap's handleMenuDelete for why this cast.
+    const { kind, entity } = moveConfirm.entity as Extract<MapEntity, { kind: "wh" | "cs" }>;
     onInputsChange(moveAddedTwoEchelon(inputs, kind, entity.id, next));
     setMoveConfirm(null);
   }
@@ -1848,6 +1955,569 @@ function TwoEchelonInputMap({
         <MoveConfirmDialog
           kind={moveConfirm.entity.kind}
           role={moveConfirm.entity.kind === "wh" ? REFINERY_ROLE : undefined}
+          entity={{ id: moveConfirm.entity.entity.id, displayCode: moveConfirm.entity.entity.displayCode }}
+          newLat={moveConfirm.newLat}
+          newLng={moveConfirm.newLng}
+          existingCodes={existingCodes}
+          onConfirm={handleMoveConfirm}
+          onCancel={() => setMoveConfirm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── two-echelon-jade-us real map surface (jade-T12) — the first mode with
+// THREE interactive entity kinds. JadeMapInputs is NOT PMedianMapInputs-
+// shaped (warehouses have no capacity; customers carry per-product
+// `demands`, not a scalar; a new `plantProductCapability` entity family;
+// `distanceOverrides` carries an explicit `leg`), so this mode gets its own
+// closely-mirrored mutator set — same "close mirror, not shared
+// abstraction" convention TransportInputMap/TwoEchelonInputMap already
+// established. ──
+
+function purgeJadeDistanceOverridesFor(overrides: JadeMapInputs["distanceOverrides"], id: string) {
+  return overrides.filter(o => o.fromId !== id && o.toId !== id);
+}
+
+// jade-T12 (fix #5) — plant delete/copy reconciliation: dropping an added
+// plant also purges every `plantProductCapability` override referencing it
+// (else a stale (plantId, productId) pair survives in `inputs` for an id
+// that no longer resolves to any row anywhere) — mirrors
+// `purgeJadeDistanceOverridesFor`'s own "purge only this entity's own rows"
+// discipline, never touching another plant's overrides or any
+// `warehouseOverrides`/`customerOverrides`.
+function purgeJadeCapabilityOverridesFor(overrides: CapabilityOverride[], plantId: string): CapabilityOverride[] {
+  return overrides.filter(o => o.plantId !== plantId);
+}
+
+function jadeAddedKeyFor(kind: "wh" | "cs" | "pl"): "addedWarehouses" | "addedCustomers" | "addedPlants" {
+  if (kind === "pl") return "addedPlants";
+  return kind === "wh" ? "addedWarehouses" : "addedCustomers";
+}
+
+function deleteAddedJade(inputs: JadeMapInputs, kind: "wh" | "cs" | "pl", id: string): JadeMapInputs {
+  if (kind === "pl") {
+    return {
+      ...inputs,
+      addedPlants: inputs.addedPlants.filter(p => p.id !== id),
+      plantProductCapability: purgeJadeCapabilityOverridesFor(inputs.plantProductCapability, id),
+      distanceOverrides: purgeJadeDistanceOverridesFor(inputs.distanceOverrides, id),
+    };
+  }
+  const key = jadeAddedKeyFor(kind);
+  const arr = inputs[key] as (AddedWarehouseInput | AddedCustomer)[];
+  return {
+    ...inputs,
+    [key]: arr.filter(e => e.id !== id),
+    distanceOverrides: purgeJadeDistanceOverridesFor(inputs.distanceOverrides, id),
+  } as JadeMapInputs;
+}
+
+// jade-T12 (Gate 6.5 "Move/delete never re-key") — regenerates only
+// `displayCode`/coords; the `id` is not even a parameter of `next`. Clears
+// the moved entity's OWN distance rows only (regardless of kind — a plant's
+// plant_to_warehouse rows, a warehouse's rows on BOTH legs, a customer's
+// warehouse_to_customer rows — `purgeJadeDistanceOverridesFor` matches by
+// raw id on either side of the pair, leg-agnostic), never touching
+// `warehouseOverrides`/`customerOverrides`/`plantProductCapability`.
+function moveAddedJade(
+  inputs: JadeMapInputs,
+  kind: "wh" | "cs" | "pl",
+  id: string,
+  next: { displayCode: string; city: string; state: string; lat: number; lng: number },
+): JadeMapInputs {
+  const key = jadeAddedKeyFor(kind);
+  const arr = inputs[key] as (AddedWarehouseInput | AddedCustomer | AddedPlant)[];
+  return {
+    ...inputs,
+    [key]: arr.map(e => (e.id === id ? { ...e, ...next } : e)),
+    distanceOverrides: purgeJadeDistanceOverridesFor(inputs.distanceOverrides, id),
+  } as JadeMapInputs;
+}
+
+function editAddedJadeWarehouse(inputs: JadeMapInputs, id: string, status: WhStatus): JadeMapInputs {
+  return { ...inputs, addedWarehouses: inputs.addedWarehouses.map(w => (w.id === id ? { ...w, status } : w)) };
+}
+
+// Mirrors `editBaseRefineryOverride` (TwoEchelonInputMap) exactly — a
+// warehouse here has no capacity concept at all (JADE_WAREHOUSE_ROLE), so
+// "status==='active'" is always a no-op, removed rather than stored.
+function editBaseJadeWarehouseOverride(inputs: JadeMapInputs, id: string, status: WhStatus): JadeMapInputs {
+  const rest = inputs.warehouseOverrides.filter(o => o.id !== id);
+  return { ...inputs, warehouseOverrides: status === "active" ? rest : [...rest, { id, status }] };
+}
+
+// jade-T12 — a JADE customer's demand is genuinely per-product
+// (`Record<productId, tons>`), not a single scalar. The map's Create/Edit
+// customer dialog only ever collects one scalar total (CreateEntityDialog/
+// EditCustomerDialog are shared across every model and were NOT extended
+// with a 4-field per-product form for this task — that level of control
+// belongs to the Customers tab's own grid, T11, which already exists). This
+// helper is the map's own deliberately-simple translation: split the
+// entered total evenly across every known product. A student who wants a
+// specific per-product mix uses the Customers tab instead; this map path is
+// a quick "drop a customer with roughly this much total demand" affordance.
+function evenSplitDemands(products: Product[], total: number): Record<string, number> {
+  if (products.length === 0) return {};
+  const per = total / products.length;
+  return Object.fromEntries(products.map(p => [p.id, per]));
+}
+
+function editAddedJadeCustomer(
+  inputs: JadeMapInputs,
+  id: string,
+  patch: { demand: number; status?: "active" | "excluded" },
+  products: Product[],
+): JadeMapInputs {
+  const demands = evenSplitDemands(products, patch.demand);
+  return {
+    ...inputs,
+    addedCustomers: inputs.addedCustomers.map(c =>
+      c.id === id
+        ? { ...c, demand: patch.demand, demands, ...(patch.status !== undefined ? { status: patch.status } : {}) }
+        : c,
+    ),
+  };
+}
+
+// Unlike `editBaseCustomerOverride` (PMedianInputMap), this always writes an
+// override rather than pruning a value that happens to match the base
+// customer's own per-product demands — this component only has the
+// EFFECTIVE scalar total (MapCustomer.demand), not the base dataset's own
+// per-product breakdown, so it cannot reliably detect a true no-op here.
+// Harmless: a redundant override that matches the base is still correct,
+// just not pruned (the same "store it anyway" tradeoff `distanceOverrides`
+// already accepts for a manually-re-entered-but-identical value elsewhere
+// in this file).
+function editBaseJadeCustomerOverride(
+  inputs: JadeMapInputs,
+  id: string,
+  patch: { demand: number; status?: "active" | "excluded" },
+  products: Product[],
+): JadeMapInputs {
+  const existing = inputs.customerOverrides.find(o => o.id === id);
+  const status = patch.status ?? existing?.status ?? "active";
+  const demands = evenSplitDemands(products, patch.demand);
+  const rest = inputs.customerOverrides.filter(o => o.id !== id);
+  return { ...inputs, customerOverrides: [...rest, { id, status, demands }] };
+}
+
+function addWarehouseRowJade(inputs: JadeMapInputs, row: AddedWarehouseInput): JadeMapInputs {
+  return { ...inputs, addedWarehouses: [...inputs.addedWarehouses, row] };
+}
+
+function addPlantRowJade(inputs: JadeMapInputs, row: AddedPlant): JadeMapInputs {
+  return { ...inputs, addedPlants: [...inputs.addedPlants, row] };
+}
+
+// jade-T12 — CreateEntityDialog only ever emits a scalar `demand` (see
+// `evenSplitDemands`'s own comment); this wraps that into `AddedCustomer`'s
+// richer shape (jadeInputsSchema's `addedCustomers[].demands` is
+// REQUIRED-COMPLETE, all 4 canonical product ids — an even split always
+// populates every key, so this is never incomplete).
+function addCustomerRowJade(inputs: JadeMapInputs, row: AddedCustomerInput, products: Product[]): JadeMapInputs {
+  const jadeRow: AddedCustomer = { ...row, demands: evenSplitDemands(products, row.demand) };
+  return { ...inputs, addedCustomers: [...inputs.addedCustomers, jadeRow] };
+}
+
+function JadeInputMap({
+  countryBounds,
+  products,
+  plants,
+  warehouses,
+  customers,
+  inputs,
+  onInputsChange,
+  isDirty,
+  onSave,
+  saving,
+}: Extract<InputMapTabProps, { mode: "jade" }>) {
+  // jade-T12 — two-echelon-jade-us's manifest sets `supportsAddedCustomerExclusion:
+  // true` (spec §5); an unambiguous literal lookup key (registry capability,
+  // never a UI branch), same convention TwoEchelonInputMap's own call
+  // establishes.
+  const supportsAddedCustomerExclusion = useSupportsAddedCustomerExclusion("two-echelon-jade-us");
+  const [toggles, setToggles] = useState<EntityMarkersToggles>({
+    warehouses: true,
+    customers: true,
+    plants: true,
+    showInactive: false,
+    sizeByDemand: true,
+  });
+  const [pinMode, setPinMode] = useState<{ key: "wh" | "cs" | "pl" } | null>(null);
+  const [selected, setSelected] = useState<({ entity: MapEntity } & OverlayAnchor) | null>(null);
+  const [actionMenu, setActionMenu] = useState<
+    ({ entity: MapEntity; openId: number; restoreFocusTo: HTMLElement | null } & OverlayAnchor) | null
+  >(null);
+  const actionMenuOpenIdRef = useRef(0);
+  const [addMenu, setAddMenu] = useState<({ lat: number; lng: number } & OverlayAnchor) | null>(null);
+  const [editEntity, setEditEntity] = useState<MapEntity | null>(null);
+  const [createState, setCreateState] = useState<CreateState | null>(null);
+  const [armed, setArmed] = useState<{ kind: "move" | "copy"; entity: MapEntity } | null>(null);
+  const [moveConfirm, setMoveConfirm] = useState<{ entity: MapEntity; newLat: number; newLng: number } | null>(null);
+  const [livePreview, setLivePreview] = useState<{ id: string; demand: number } | null>(null);
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const boundsProps = getMapBoundsProps(countryBounds);
+  const mapKey = countryBounds ? `${countryBounds.sw.join(",")}_${countryBounds.ne.join(",")}` : "fallback";
+
+  const existingCodes = useMemo(() => {
+    const codes = new Set<string>();
+    plants.forEach(p => codes.add(p.displayCode));
+    warehouses.forEach(w => codes.add(w.displayCode));
+    customers.forEach(c => codes.add(c.displayCode));
+    return codes;
+  }, [plants, warehouses, customers]);
+
+  const medianDemand = useMemo(() => median(customers.map(c => c.demand)), [customers]);
+
+  const draggableIds = useMemo(() => {
+    const ids = new Set<string>();
+    plants.forEach(p => { if (p.isAdded) ids.add(p.id); });
+    warehouses.forEach(w => { if (w.isAdded) ids.add(w.id); });
+    customers.forEach(c => { if (c.isAdded) ids.add(c.id); });
+    return ids;
+  }, [plants, warehouses, customers]);
+
+  // Live-preview bubble resize while EditCustomerDialog is open, same as
+  // every other mode's `displayCustomers`.
+  const displayCustomers = useMemo(
+    () => (livePreview ? customers.map(c => (c.id === livePreview.id ? { ...c, demand: livePreview.demand } : c)) : customers),
+    [customers, livePreview],
+  );
+
+  function getContainerSize() {
+    const el = wrapperRef.current;
+    return el ? { width: el.clientWidth, height: el.clientHeight } : undefined;
+  }
+
+  function closeOverlays() {
+    setSelected(null);
+    setActionMenu(null);
+    setAddMenu(null);
+  }
+
+  useEffect(() => {
+    if (!armed) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setArmed(null);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [armed]);
+
+  const preMouseDownFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    function onMouseDownCapture() {
+      preMouseDownFocusRef.current = document.activeElement as HTMLElement | null;
+    }
+    document.addEventListener("mousedown", onMouseDownCapture, true);
+    return () => document.removeEventListener("mousedown", onMouseDownCapture, true);
+  }, []);
+
+  function handleEntityLeftClick(entity: MapEntity, e: L.LeafletMouseEvent) {
+    setActionMenu(null);
+    setAddMenu(null);
+    setSelected({ entity, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+  }
+
+  function handleEntityRightClick(entity: MapEntity, e: L.LeafletMouseEvent) {
+    const restoreFocusTo = preMouseDownFocusRef.current;
+    setSelected(null);
+    setAddMenu(null);
+    actionMenuOpenIdRef.current += 1;
+    setActionMenu({
+      entity,
+      containerPoint: e.containerPoint,
+      containerSize: getContainerSize(),
+      openId: actionMenuOpenIdRef.current,
+      restoreFocusTo,
+    });
+  }
+
+  function handleEntityDragEnd(entity: MapEntity, latlng: { lat: number; lng: number }) {
+    setMoveConfirm({ entity, newLat: latlng.lat, newLng: latlng.lng });
+  }
+
+  function handleMapClick(e: L.LeafletMouseEvent) {
+    if (armed) {
+      const { kind, entity } = armed.entity;
+      if (armed.kind === "move") {
+        setMoveConfirm({ entity: armed.entity, newLat: e.latlng.lat, newLng: e.latlng.lng });
+      } else {
+        // jade-T12 (spec §6) — "copy-plant copies geometry only (all
+        // products disabled)": `copyFrom: {}` (a truthy empty object, not
+        // `undefined`) so CreateEntityDialog still shows its "(copy)" title
+        // for a plant, even though there is nothing to prefill from it.
+        const copyFrom =
+          kind === "wh" ? { capacity: (entity as MapWarehouse).capacity }
+          : kind === "cs" ? { demand: (entity as MapCustomer).demand }
+          : {};
+        setCreateState({ kind, lat: e.latlng.lat, lng: e.latlng.lng, copyFrom });
+      }
+      setArmed(null);
+      return;
+    }
+    if (pinMode) {
+      setCreateState({ kind: pinMode.key, lat: e.latlng.lat, lng: e.latlng.lng });
+      return;
+    }
+    closeOverlays();
+  }
+
+  function handleMapContextMenu(e: L.LeafletMouseEvent) {
+    if (armed) {
+      setArmed(null);
+      return;
+    }
+    setSelected(null);
+    setActionMenu(null);
+    setAddMenu({ lat: e.latlng.lat, lng: e.latlng.lng, containerPoint: e.containerPoint, containerSize: getContainerSize() });
+  }
+
+  function handleMenuEdit() {
+    if (!actionMenu) return;
+    setEditEntity(actionMenu.entity);
+    setActionMenu(null);
+  }
+  function handleMenuMove() {
+    if (!actionMenu) return;
+    setArmed({ kind: "move", entity: actionMenu.entity });
+    setActionMenu(null);
+  }
+  function handleMenuCopy() {
+    if (!actionMenu) return;
+    setArmed({ kind: "copy", entity: actionMenu.entity });
+    setActionMenu(null);
+  }
+  function handleMenuDelete() {
+    if (!actionMenu) return;
+    const { kind, entity } = actionMenu.entity;
+    onInputsChange(deleteAddedJade(inputs, kind, entity.id));
+    setActionMenu(null);
+  }
+
+  // jade-T12 — a plant (kind==="pl") never reaches either branch below: its
+  // EditWarehouseDialog (PLANT_ROLE — hasStatus:false, no valueField) never
+  // populates any field on its patch, so there is nothing to write. Its only
+  // editable attribute (which products it can make) lives in the
+  // Capability Matrix tab, not this dialog.
+  function handleEditSubmit(
+    patch: { status: WhStatus; capacity?: number | null } | { demand: number; status?: "active" | "excluded" },
+  ) {
+    if (!editEntity) return;
+    const { kind, entity } = editEntity;
+    if (kind === "wh") {
+      const p = patch as { status: WhStatus };
+      onInputsChange(entity.isAdded ? editAddedJadeWarehouse(inputs, entity.id, p.status) : editBaseJadeWarehouseOverride(inputs, entity.id, p.status));
+    } else if (kind === "cs") {
+      const p = patch as { demand: number; status?: "active" | "excluded" };
+      onInputsChange(
+        entity.isAdded
+          ? editAddedJadeCustomer(inputs, entity.id, p, products)
+          : editBaseJadeCustomerOverride(inputs, entity.id, p, products),
+      );
+    }
+    setEditEntity(null);
+    setLivePreview(null);
+  }
+
+  function handleCreateSubmit(row: AddedWarehouseInput | AddedCustomerInput) {
+    if (!createState) return;
+    if (createState.kind === "wh") {
+      onInputsChange(addWarehouseRowJade(inputs, row as AddedWarehouseInput));
+    } else if (createState.kind === "cs") {
+      onInputsChange(addCustomerRowJade(inputs, row as AddedCustomerInput, products));
+    } else {
+      // "pl" — CreateEntityDialog with PLANT_ROLE emits only
+      // {id, displayCode, city, state, lat, lng} (role.hasStatus:false, no
+      // valueField), exactly AddedPlant's shape.
+      onInputsChange(addPlantRowJade(inputs, row as unknown as AddedPlant));
+    }
+    setCreateState(null);
+  }
+
+  function handleMoveConfirm(next: { displayCode: string; city: string; state: string; lat: number; lng: number }) {
+    if (!moveConfirm) return;
+    const { kind, entity } = moveConfirm.entity;
+    onInputsChange(moveAddedJade(inputs, kind, entity.id, next));
+    setMoveConfirm(null);
+  }
+
+  return (
+    <div className="h-full flex flex-col gap-2" data-testid="input-map-tab">
+      <div className="flex items-center gap-2 flex-wrap flex-shrink-0" data-testid="jade-map-toolbar">
+        <span className="text-xs text-muted-foreground">Layers:</span>
+        <LayerCheckbox testId="toggle-layer-plants" checked={toggles.plants ?? true} onToggle={() => setToggles(t => ({ ...t, plants: !(t.plants ?? true) }))}>
+          Plants
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-warehouses" checked={toggles.warehouses} onToggle={() => setToggles(t => ({ ...t, warehouses: !t.warehouses }))}>
+          Warehouses
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-customers" checked={toggles.customers} onToggle={() => setToggles(t => ({ ...t, customers: !t.customers }))}>
+          Customers
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-show-inactive" checked={toggles.showInactive} onToggle={() => setToggles(t => ({ ...t, showInactive: !t.showInactive }))}>
+          Show inactive
+        </LayerCheckbox>
+        <LayerCheckbox testId="toggle-layer-size-by-demand" checked={toggles.sizeByDemand ?? true} onToggle={() => setToggles(t => ({ ...t, sizeByDemand: !(t.sizeByDemand ?? true) }))}>
+          Size customers by demand
+        </LayerCheckbox>
+        <span className="text-xs text-muted-foreground ml-2">Add on map:</span>
+        <ToggleChip testId="button-input-map-place-pl" active={pinMode?.key === "pl"} onClick={() => setPinMode(p => (p?.key === "pl" ? null : { key: "pl" }))}>
+          + Plant
+        </ToggleChip>
+        <ToggleChip testId="button-input-map-place-wh" active={pinMode?.key === "wh"} onClick={() => setPinMode(p => (p?.key === "wh" ? null : { key: "wh" }))}>
+          + Warehouse
+        </ToggleChip>
+        <ToggleChip testId="button-input-map-place-cs" active={pinMode?.key === "cs"} onClick={() => setPinMode(p => (p?.key === "cs" ? null : { key: "cs" }))}>
+          + Customer
+        </ToggleChip>
+        {armed && (
+          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 rounded px-2 py-1" data-testid="armed-status-bar">
+            <span>
+              Click a map location to {armed.kind === "move" ? "move" : "copy"} {armed.entity.entity.displayCode} — Esc to cancel
+            </span>
+            <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setArmed(null)} data-testid="button-armed-cancel">
+              Cancel
+            </Button>
+          </div>
+        )}
+        {/* R4 — Save relocated here, same as every other mode's Layers row
+            (reuses the exact same button-save/text-unsaved-changes testids). */}
+        {onSave && (
+          <div className="flex items-center gap-2 ml-auto">
+            {isDirty && (
+              <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+                Unsaved changes
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onSave}
+              disabled={!isDirty || saving}
+              data-testid="button-save"
+              className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+            >
+              <Save className="w-3.5 h-3.5 mr-1" />
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 relative" ref={wrapperRef}>
+        <MapContainer key={mapKey} {...boundsProps} zoom={4} className="h-full w-full" scrollWheelZoom>
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
+          <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
+          {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
+          <EntityMarkers
+            plants={plants}
+            warehouses={warehouses}
+            customers={displayCustomers}
+            toggles={toggles}
+            onLeftClick={handleEntityLeftClick}
+            onRightClick={handleEntityRightClick}
+            onDragEnd={handleEntityDragEnd}
+            draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
+          />
+        </MapContainer>
+        <MapLegend
+          customers={displayCustomers}
+          showWarehouseLayer={toggles.warehouses}
+          showCustomerLayer={toggles.customers}
+          sizeByDemand={toggles.sizeByDemand ?? true}
+          showPlantLayer={toggles.plants ?? true}
+        />
+        {selected && (
+          <MapDetailsCard
+            entity={selected.entity}
+            containerPoint={selected.containerPoint}
+            containerSize={selected.containerSize}
+            onClose={() => setSelected(null)}
+          />
+        )}
+        {actionMenu && (
+          <MapActionMenu
+            key={actionMenu.openId}
+            entity={actionMenu.entity}
+            containerPoint={actionMenu.containerPoint}
+            containerSize={actionMenu.containerSize}
+            restoreFocusTo={actionMenu.restoreFocusTo}
+            onEdit={handleMenuEdit}
+            onMove={handleMenuMove}
+            onCopy={handleMenuCopy}
+            onDelete={handleMenuDelete}
+            onClose={() => setActionMenu(null)}
+          />
+        )}
+        {addMenu && (
+          <AddEntityMenu
+            containerPoint={addMenu.containerPoint}
+            containerSize={addMenu.containerSize}
+            showPlantOption
+            onAdd={kind => {
+              setCreateState({ kind, lat: addMenu.lat, lng: addMenu.lng });
+              setAddMenu(null);
+            }}
+            onClose={() => setAddMenu(null)}
+          />
+        )}
+      </div>
+
+      {editEntity && editEntity.kind === "wh" && (
+        <EditWarehouseDialog
+          entity={editEntity.entity}
+          role={JADE_WAREHOUSE_ROLE}
+          onSubmit={handleEditSubmit}
+          onCancel={() => setEditEntity(null)}
+        />
+      )}
+      {editEntity && editEntity.kind === "cs" && (
+        <EditCustomerDialog
+          entity={editEntity.entity}
+          supportsAddedCustomerExclusion={supportsAddedCustomerExclusion}
+          onSubmit={handleEditSubmit}
+          onLivePreview={demand => setLivePreview({ id: editEntity.entity.id, demand })}
+          onCancel={() => {
+            setEditEntity(null);
+            setLivePreview(null);
+          }}
+        />
+      )}
+      {editEntity && editEntity.kind === "pl" && (
+        // jade-T12 — PLANT_ROLE (hasStatus:false, no valueField) renders a
+        // pure geometry inspect card: no Status radio group, no numeric
+        // field. `MapPlant` is structurally assignable to `MapWarehouse`
+        // (every field MapWarehouse requires is present; `capacity`/`status`
+        // are both optional there and simply absent here) — no cast needed.
+        <EditWarehouseDialog
+          entity={editEntity.entity}
+          role={PLANT_ROLE}
+          onSubmit={handleEditSubmit}
+          onCancel={() => setEditEntity(null)}
+        />
+      )}
+      {createState && (
+        <CreateEntityDialog
+          kind={createState.kind}
+          role={createState.kind === "wh" ? JADE_WAREHOUSE_ROLE : createState.kind === "pl" ? PLANT_ROLE : undefined}
+          supportsAddedCustomerExclusion={supportsAddedCustomerExclusion}
+          lat={createState.lat}
+          lng={createState.lng}
+          existingCodes={existingCodes}
+          copyFrom={createState.copyFrom}
+          medianDemand={medianDemand}
+          onSubmit={handleCreateSubmit}
+          onCancel={() => setCreateState(null)}
+        />
+      )}
+      {moveConfirm && (
+        <MoveConfirmDialog
+          kind={moveConfirm.entity.kind}
+          role={moveConfirm.entity.kind === "wh" ? JADE_WAREHOUSE_ROLE : moveConfirm.entity.kind === "pl" ? PLANT_ROLE : undefined}
           entity={{ id: moveConfirm.entity.entity.id, displayCode: moveConfirm.entity.entity.displayCode }}
           newLat={moveConfirm.newLat}
           newLng={moveConfirm.newLng}

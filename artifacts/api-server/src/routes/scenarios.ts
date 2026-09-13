@@ -53,7 +53,7 @@ import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, buildJadeIdSpaces, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
-import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances } from "../services/autoDistance.js";
+import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
@@ -278,6 +278,17 @@ function normalizeAddedEntityDistances(modelId: string, data: Record<string, unk
   }
   if (modelId === "two-echelon-gold-au") {
     return fillEstimatedTwoEchelonDistances(data as unknown as TwoEchelonInputs) as unknown as Record<string, unknown>;
+  }
+  // jade-T12 — fourth writer of this shared file, based on T7's commit
+  // (T5 -> T6 -> T7 -> T12, serialized in series, never concurrent). Fills
+  // missing added-entity plant<->warehouse/warehouse<->customer distances as
+  // `estimated` on every persist path (POST create, PATCH, import/apply) —
+  // see fillEstimatedJadeDistances' own header comment for the reverse-
+  // derived circuity constant. Only ADDED-entity-involving rows are ever
+  // touched; base<->base pairs are never estimated, so e2e_accuracy.py stays
+  // unaffected.
+  if (modelId === "two-echelon-jade-us") {
+    return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
   }
   return data;
 }

@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { render, fireEvent } from "@testing-library/react";
 import { MapContainer, TileLayer } from "react-leaflet";
-import { EntityMarkers, warehouseTriangleSvg, customerBubbleSvg } from "@/components/workspace/map/EntityMarkers";
-import type { MapWarehouse, MapCustomer } from "@/components/workspace/map/types";
+import { EntityMarkers, warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
+import type { MapWarehouse, MapCustomer, MapPlant } from "@/components/workspace/map/types";
 
 // Real MapContainer + real Marker under jsdom (same pattern NetworkMap.test.tsx
 // already relies on for shape/class assertions) rather than a hand-rolled
@@ -55,6 +55,18 @@ const cs = (over: Partial<MapCustomer> = {}): MapCustomer => ({
   ...over,
 });
 
+// jade-T12 (Chapter 9 JADE)
+const pl = (over: Partial<MapPlant> = {}): MapPlant => ({
+  id: "P1",
+  displayCode: "PL-KY-ASHLAND-01",
+  city: "Ashland",
+  state: "KY",
+  lat: 38.45,
+  lng: -82.67,
+  isAdded: false,
+  ...over,
+});
+
 describe("SVG-string icon builders", () => {
   it("warehouseTriangleSvg returns a string (never a React element) for every marker style", () => {
     for (const marker of ["outline", "filled", "dashed"] as const) {
@@ -68,6 +80,14 @@ describe("SVG-string icon builders", () => {
     const svg = customerBubbleSvg(6);
     expect(typeof svg).toBe("string");
     expect(svg).toContain("<circle");
+  });
+
+  // jade-T12 (Chapter 9 JADE)
+  it("plantSquareSvg returns a string (never a React element) using the supply-role token", () => {
+    const svg = plantSquareSvg();
+    expect(typeof svg).toBe("string");
+    expect(svg).toContain("<rect");
+    expect(svg).toContain("var(--map-warehouse)");
   });
 
   // Bundle 3 (T10) regression: warehouse triangles now key off the
@@ -269,6 +289,60 @@ describe("EntityMarkers", () => {
   // R2 — discrete quintile demand-bubble sizing, computed from the full
   // `customers` population this component already receives (base + added +
   // excluded — nothing is filtered out of the array before this loop runs).
+  // jade-T12 (Chapter 9 JADE) — the third map-entity kind.
+  describe("plants (jade-T12)", () => {
+    it("renders one square marker per plant, alongside warehouses/customers", () => {
+      const { container } = renderMarkers({
+        warehouses: [wh({ id: "W1" })],
+        customers: [cs({ id: "C1" })],
+        plants: [pl({ id: "P1" })],
+      });
+      expect(container.querySelectorAll(".leaflet-marker-icon").length).toBe(3);
+      expect(container.querySelector(".pl-marker")).not.toBeNull();
+    });
+
+    it("omitting the plants prop entirely renders zero plant markers (every non-JADE caller)", () => {
+      const { container } = renderMarkers({ warehouses: [wh({ id: "W1" })] });
+      expect(container.querySelector(".pl-marker")).toBeNull();
+    });
+
+    it("toggles.plants=false hides plants but leaves warehouses/customers rendered", () => {
+      const { container } = renderMarkers({
+        warehouses: [wh({ id: "W1" })],
+        customers: [cs({ id: "C1" })],
+        plants: [pl({ id: "P1" })],
+        toggles: { warehouses: true, customers: true, showInactive: false, plants: false },
+      });
+      expect(container.querySelector(".pl-marker")).toBeNull();
+      expect(container.querySelectorAll(".leaflet-marker-icon").length).toBe(2);
+    });
+
+    it("a plant marker's divIcon html is a string with a real <svg> (not a stray [object Object])", () => {
+      const { container } = renderMarkers({ plants: [pl({ id: "P1" })] });
+      const marker = container.querySelector(".pl-marker") as HTMLElement;
+      expect(marker.innerHTML).not.toContain("[object Object]");
+      expect(marker.querySelector("svg")).not.toBeNull();
+    });
+
+    it("calls onLeftClick with a kind:'pl' MapEntity on a plain click", () => {
+      const onLeftClick = vi.fn();
+      const { container } = renderMarkers({ plants: [pl({ id: "P1" })], onLeftClick });
+      const marker = container.querySelector(".pl-marker") as HTMLElement;
+      fireEvent.click(marker);
+      expect(onLeftClick).toHaveBeenCalledTimes(1);
+      expect(onLeftClick.mock.calls[0][0]).toEqual({ kind: "pl", entity: pl({ id: "P1" }) });
+    });
+
+    it("an added plant id present in draggableIds is draggable", () => {
+      const { container } = renderMarkers({
+        plants: [pl({ id: "P1", isAdded: true })],
+        draggableIds: new Set(["P1"]),
+      });
+      const marker = container.querySelector(".pl-marker") as HTMLElement;
+      expect(marker.className).toContain("leaflet-marker-draggable");
+    });
+  });
+
   describe("quintile bubble sizing (R2)", () => {
     it("two customers in the same quintile bucket render the same bubble size; a customer in a higher bucket renders larger", () => {
       // 10 customers spanning a wide demand range -> multiple distinct buckets.
