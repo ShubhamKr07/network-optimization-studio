@@ -96,7 +96,7 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 **Gates:** Gate 1.1 (manifest visible).
 
-**Note (fix #2):** the full `registration.test.ts` `SOLVABLE` set asserts `VALID_MODEL_IDS` + a known input schema + `buildPayload` + a `solve.py` dispatcher all exist — none of which land until T4–T6. Adding JADE to `SOLVABLE` here would red the suite for all of Wave 2. So Wave 1 proves **listability only**; JADE joins the full `SOLVABLE` consistency test in **T6** (after its solve path exists).
+**Note (fix #2):** the full `registration.test.ts` `SOLVABLE`/OBS-5 set asserts `VALID_MODEL_IDS` + a known input schema + `buildPayload` + a `solve.py` dispatcher all exist — none of which land until T4 (solver/dispatcher) + T5 (schema/payload). Adding JADE to `SOLVABLE`/`KNOWN_SCHEMAS` here would red the suite for all of Wave 2. So Wave 1 proves **listability only**; JADE joins the full `SOLVABLE`/OBS-5 consistency test in **T5** (the atomic backend-wiring commit, after T4's solve path exists).
 
 **Files:**
 - Modify (only if a hardcoded list excludes it): `artifacts/api-server/src/registry/modelRegistry.ts`
@@ -114,7 +114,7 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 ### Task 3.5: OpenAPI contract + codegen (full sweep)
 
-**Gates:** Gate 1.7 (OpenAPI enum + codegen), Gate 0/Gate 5 (public result contract carries new fields), hard rules 1/4 (spec+regen one commit). **Predecessor of every typed consumer** (T4 route types, T8 route/service types, T10 dataset hooks, all of W3).
+**Gates:** Gate 1.7 (OpenAPI enum + codegen), Gate 0/Gate 5 (public result contract carries new fields), hard rules 1/4 (spec+regen one commit). **Predecessor of every typed consumer** (T5 route/payload types, T7 route/service types, T10 dataset hooks, all of W3).
 
 **Files:**
 - Modify: `lib/api-spec/openapi.yaml` (all of the below in one sweep)
@@ -134,141 +134,134 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 - [ ] **Step 4:** `pnpm run typecheck && pnpm --filter api-server test`.
 - [ ] **Step 5:** Commit `[jade-T3.5] OpenAPI contract + codegen for JADE` (spec + regen together).
 
-**DoD:** one codegen pass exposes typed clients for every JADE consumer; existing models unaffected. This is the single OpenAPI/codegen task — T4/T8/T10/W3 **consume** these types, they do not re-edit `openapi.yaml`.
+**DoD:** one codegen pass exposes typed clients for every JADE consumer; existing models unaffected. This is the single OpenAPI/codegen task — T5/T7/T10/W3 **consume** these types, they do not re-edit `openapi.yaml`.
 
 ---
 
 ## Wave 2 — Solver + backend (solvable end-to-end)
 
-**Concurrency & single-writer (fix #5 — honest map).** `routes/scenarios.ts` is a **shared hot file** edited by T4 (`VALID_MODEL_IDS`), T7 (precheck wiring), T8 (entity routes), and T12 (`normalizeAddedEntityDistances`) — these four **serialize** on that file; they are NOT dispatched as file-disjoint. `openapi.yaml` is owned solely by T3.5 (T3 does not touch it). Otherwise: solver lane (`solve.py`→T5, `merge_inputs.py`→T5/T6) ⊥ api-server lane where genuinely disjoint; `resultEnvelope.ts`→T5; `pmedian.ts`→T6. Sequence within the wave: **T3.5 (contract) → T4 → T5 ∥ (T6 after T5's envelope) → T7 → T8**, with T4/T7/T8's `routes/scenarios.ts` edits applied in series by the controller.
+**Ordering, atomicity & shared-file serialization (fixes #1/#2/#6).** Two hard couplings force a **solver-first** order:
+- **(a)** `registration.test.ts` (OBS-5) derives `IMPLEMENTED = [...KNOWN_MODEL_IDS]` and asserts a `buildPayload` branch **and** a `solve.py` dispatcher for every one. So JADE cannot enter `KNOWN_SCHEMAS` (→`KNOWN_MODEL_IDS`) until both already exist — otherwise OBS-5 reds the whole `api-server` gate.
+- **(b)** `solve_jade()` imports/calls `build_merged_jade_dataset`, so the merge helper must land **with** the solver, not a later task.
 
-### Task 4: Zod input schema + KNOWN_SCHEMAS + VALID_MODEL_IDS
+Therefore the wave is two atomic backend commits then two additive ones:
+- **T4 (solver core, Python)** — `solve_jade` + `build_merged_jade_dataset` + `solve()` dispatcher + `resultEnvelope.ts` fields, self-verified by pytest + a **direct-payload** `e2e_accuracy` JADE section (constructs the wire dict itself; no TS layer; JADE not yet in `KNOWN_MODEL_IDS`, so OBS-5 doesn't check it).
+- **T5 (backend TS wiring)** — `jadeInputs` + `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `buildPayload` branch + JADE-in-`SOLVABLE`, **one atomic commit**. OBS-5 passes because T4 already shipped the dispatcher + merge.
+- **T6 (precheck)**, **T7 (import/export/reset)** are additive.
 
-**Gates:** Gate 1.3 (KNOWN_SCHEMAS), 1.4 (VALID_MODEL_IDS — most-missed), Gate 5 (`timeLimitSec` required).
+`routes/scenarios.ts` is a shared hot file written **in series**: **T5 (`VALID_MODEL_IDS`) → T6 (precheck wiring) → T7 (entity routes) → T12 (`normalizeAddedEntityDistances`, Wave 3)** — each based on the prior commit, never concurrent (fix #6: T7 lands *before* T12, not after). `openapi.yaml` owned solely by T3.5. **Executable order: T3.5 → T4 → T5 → T6 → T7.**
 
-**Files:**
-- Create: `artifacts/api-server/src/validation/inputs/jadeInputs.ts` (mirror `twoEchelon.ts` structure)
-- Modify: `artifacts/api-server/src/registry/modelRegistry.ts` (`KNOWN_SCHEMAS`), `artifacts/api-server/src/routes/scenarios.ts` (`VALID_MODEL_IDS`)
-- Test: `artifacts/api-server/src/validation/inputs/*.test.ts`
-
-**Interface (produces — `jadeInputsSchema`):**
-- `p`: int ≥ 1 (no static max — UI/semantic max = effective active warehouse count incl. added, checked in Task 7 precheck).
-- `distanceBands`: exactly 4 strictly-ascending positive integers.
-- `gap`: number ≥ 0. `timeLimitSec`: positive integer (**required** — absent → `setTimeout(NaN)` kills every solve).
-- `warehouseOverrides[]`: `{ id, status: "active"|"forced_open"|"inactive" }` (status only; no capacity — uncapacitated). "active" displays as "Potential".
-- `customerOverrides[]`: `{ id, demands?: Record<productId, number≥0>, status: "active"|"excluded" }` (sparse per-product; omitted keys inherit base).
-- `plantProductCapability[]`: `{ plantId, productId, enabled: boolean }`, pair-unique (sparse overrides on the 16-cell base).
-- `addedPlants[]`: `{ id, displayCode?, city, state, lat, lng }` (added plants default all capability cells disabled).
-- `addedWarehouses[]`: `{ id, displayCode?, city, state, lat, lng, status }`.
-- `addedCustomers[]`: `{ id, displayCode?, city, state, lat, lng, demands: Record<all 4 productIds, number≥0>, status: "active"|"excluded" }`.
-- `distanceOverrides[]`: `{ leg: "plant_to_warehouse"|"warehouse_to_customer", fromId, toId, distance: number≥0, estimated?: boolean }`, pair-unique per `(leg,fromId,toId)`, endpoints role-compatible.
-- Required: `p`, `distanceBands`, `gap`, `timeLimitSec`.
-
-- [ ] **Step 1:** Write validation tests: valid minimal payload parses; `timeLimitSec` absent → reject; `distanceBands` not-4 / non-ascending → reject; duplicate `plantProductCapability` pair → reject; `addedCustomers` missing a product key → reject; `distanceOverrides` missing `leg` → reject; `VALID_MODEL_IDS` accepts `two-echelon-jade-us` (a `POST /scenarios` route test); unknown model still 422.
-- [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Write `jadeInputs.ts`; register in `KNOWN_SCHEMAS`; add to `VALID_MODEL_IDS`.
-- [ ] **Step 4:** `pnpm --filter api-server test` (validation + scenarios route) — PASS.
-- [ ] **Step 5:** Commit `[jade-T4] JADE Zod inputs + KNOWN_SCHEMAS + VALID_MODEL_IDS`.
-
-**DoD:** create/validate a JADE scenario succeeds; malformed inputs rejected at the boundary.
-
----
-
-### Task 5: `solve_jade()` + dispatcher + result envelope (one commit)
+### Task 4: Solver core — `solve_jade()` + merge + dispatcher + envelope (Python, one commit)
 
 **Gates:** Gate 3 (hygiene), Gate 5 BLOCKER (solver + envelope same commit), Gate 4 (band overflow), Gate 1.8 (dispatcher), Gate 7 BLOCKER (`e2e_accuracy`).
 
 **Files:**
 - Modify: `artifacts/api-server/src/solver/solve.py` (new `solve_jade()`; `solve()` dispatch)
+- Modify: `artifacts/api-server/src/solver/merge_inputs.py` (new `build_merged_jade_dataset(base, inp)` — mirror `build_merged_two_echelon_dataset`; merge lives in **Python**)
 - Modify: `artifacts/api-server/src/solver/resultEnvelope.ts` (leg enum +2, `Edge.productId`, metrics optional fields)
-- Create: `artifacts/api-server/src/solver/tests/test_jade.py`
+- Create: `artifacts/api-server/src/solver/tests/test_jade.py`, `artifacts/api-server/src/solver/tests/test_jade_merge.py`
 - Modify: `artifacts/api-server/src/solver/tests/e2e_accuracy.py` (add JADE section — hard rule 2, human-approved by this plan)
 
 **Interfaces:**
-- `solve.py`: faithful port of spec §2 as `solve_jade(inp)`. It **loads the JADE base package from disk** (`_safe_load("two-echelon-jade-us", …)`, mirroring the existing per-model loads) and calls `merge_inputs.py`'s `build_merged_jade_dataset(base, inp)` to apply edits — it does **not** receive the dataset on the wire (payload/merge boundary, Global Constraints). `solve()` gains `if model_type == 'two_echelon_jade': return solve_jade(inp)` and its terminal `return solve_pmedian(inp)` catch-all becomes `if model_type == 'p_median': return solve_pmedian(inp)` + a final unknown→`_envelope("error",…, "Unknown modelType: <x>")`. (Verified safe: `buildPayload` sets `modelType` for every model, `pmedian.ts:153`.)
-  - Wire payload `inp` (from Task 6) — **edits + params only**: `{ modelType:"two_echelon_jade", p, distanceBands, gap, timeLimitSec, warehouseStatuses:[{warehouseId,status}], excludedCustomerIds:[…], customerDemands:{customerId:{productId:tons}}, capabilityOverrides:[{plantId,productId,enabled}], addedPlants:[…], addedWarehouses:[…], addedCustomers:[…], distanceOverrides:[{leg,fromId,toId,distance}] }` (exact edit-array names mirror the two_echelon passthrough). The solver builds the full effective plant×product cross-product from base ∪ added plants so an enabled off-diagonal cell works.
-  - Envelope out: inbound edge per positive `(plant,warehouse,product)` flow with `leg:"plant_to_warehouse"`, `productId` set, `flow`=tons; outbound edge per customer aggregated across products with `leg:"warehouse_to_customer"`, no `productId`, `flow`=total served tons. `metrics.avgDistanceByLeg` (flow-weighted per leg), `weightedAvgDistance` (flow-weighted both legs — never `objective/demand`), `bandCoverage` = **exclusive per-band** coverage on the outbound leg **plus a separately labelled `> 1600` overflow entry** (`band:-1`) — same exclusive semantics as `lib/bands.ts`/every other model (no per-model envelope divergence); the **cumulative** Service-Stats view (approved spec §2.7) is rolled up from these at the display layer in T14. Overflow is never folded into the last boundary. `utilizationByNode` = demand-served tons per open wh, `openFacilityIds` (authoritative incl. zero-flow open wh), `totalDemand`, `inboundCost`, `outboundCost`. `details` retains per-product outbound assignments for audit.
-- `resultEnvelope.ts`: `EdgeSchema.leg` enum → `["mine_to_refinery","refinery_to_customer","plant_to_warehouse","warehouse_to_customer"]`; add `productId: z.string().optional()`. `MetricsSchema` add optional `openFacilityIds: z.array(z.string())`, `totalDemand`, `inboundCost`, `outboundCost` (all `.optional()` — existing models unaffected).
+- `solve.py`: faithful port of spec §2 as `solve_jade(inp)`. It **loads the JADE base package from disk** (`_safe_load("two-echelon-jade-us", …)`) and calls `build_merged_jade_dataset(base, inp)` to apply edits — it does **not** receive the dataset on the wire (payload/merge boundary). `solve()` gains `if model_type == 'two_echelon_jade': return solve_jade(inp)` and its terminal `return solve_pmedian(inp)` catch-all becomes `if model_type == 'p_median': return solve_pmedian(inp)` + a final unknown→`_envelope("error",…, "Unknown modelType: <x>")`. (Verified safe: `buildPayload` sets `modelType` for every model, `pmedian.ts:153`.)
+  - Wire payload `inp` (produced by T5's `buildPayload`) — **edits + params only**: `{ modelType:"two_echelon_jade", p, distanceBands, gap, timeLimitSec, warehouseStatuses:[{warehouseId,status}], excludedCustomerIds:[…], customerDemands:{customerId:{productId:tons}}, capabilityOverrides:[{plantId,productId,enabled}], addedPlants:[…], addedWarehouses:[…], addedCustomers:[…], distanceOverrides:[{leg,fromId,toId,distance}] }`. The solver builds the full effective plant×product cross-product from base ∪ added plants so an enabled off-diagonal cell works.
+- `build_merged_jade_dataset(base, inp)` (Python): base package ∪ `addedPlants/Warehouses/Customers`; `distanceOverrides` (leg-keyed) + capability overrides (enabled→`210000000`, disabled→`0`; added plants default all-disabled) over base maps; statuses→force flags; exclusions applied. **Per-call, non-mutating** (base dict never mutated).
+  - Envelope out: inbound edge per positive `(plant,warehouse,product)` flow with `leg:"plant_to_warehouse"`, `productId` set, `flow`=tons; outbound edge per customer aggregated across products with `leg:"warehouse_to_customer"`, no `productId`, `flow`=total served tons. `metrics.avgDistanceByLeg` (flow-weighted per leg), `weightedAvgDistance` (flow-weighted both legs — never `objective/demand`), `bandCoverage` = **exclusive per-band** on the outbound leg **plus a labelled `> 1600` overflow entry** (`band:-1`) — same exclusive semantics as `lib/bands.ts` (T14 rolls it up cumulatively for display). `utilizationByNode` = demand-served tons per open wh, `openFacilityIds` (authoritative incl. zero-flow open wh), `totalDemand`, `inboundCost`, `outboundCost`. `details` retains per-product outbound assignments for audit.
+- `resultEnvelope.ts`: `EdgeSchema.leg` enum → `["mine_to_refinery","refinery_to_customer","plant_to_warehouse","warehouse_to_customer"]`; add `productId: z.string().optional()`. `MetricsSchema` add optional `openFacilityIds: z.array(z.string())`, `totalDemand`, `inboundCost`, `outboundCost` (all `.optional()`).
 
-- [ ] **Step 1:** `test_jade.py` (pytest) — the §2.7 forced case objective `254060828.6157` to 1e-6 relative + `optimal`; single-source (one wh per customer across products); plant-product capacity binds; min-charge applies below breakpoint (`< min/rate` miles → flat charge); capability toggle changes the chosen warehouses; excluded customer absent from outbound edges; forced-open/closed honored; **over-constraining guard** (spec §2.5.2 balance summed over plants, not per-pair — synthetic 2nd plant test, mirroring Ch10's `test_flow_balance_generalizes`); band overflow present (`band:-1` non-empty for the default bands); infeasible case returns a named cause.
+- [ ] **Step 1:** `test_jade_merge.py`: `build_merged_jade_dataset` on the base yields 4/25/100 entities + 16 capability cells; a disabled cell → `0`; an added warehouse adds a row + its distance rows; excluded customer removed; base dict unmutated. `test_jade.py`: §2.7 forced case (`wh-11`+`wh-14`, P=2) objective `254060828.6157` to 1e-6 + `optimal`; single-source (one wh per customer across products); capacity binds; min-charge below breakpoint; capability toggle changes the chosen warehouses; excluded customer absent from outbound edges; forced open/closed honored; **over-constraining guard** (balance summed over plants — synthetic 2nd plant, mirroring Ch10's `test_flow_balance_generalizes`); band overflow present (`band:-1` non-empty); infeasible → named cause.
 - [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Implement `solve_jade()` + dispatch + envelope fields (same commit).
-- [ ] **Step 4:** `python3 -m pytest tests/test_jade.py -x`; then `python3 e2e_accuracy.py` (87 pre-existing green + JADE section); `pnpm --filter api-server test` (envelope leg/productId/metric retention test).
-- [ ] **Step 5:** Commit `[jade-T5] solve_jade + dispatcher + result envelope`.
+- [ ] **Step 3:** Implement `solve_jade` + `build_merged_jade_dataset` + dispatch + envelope fields (**one commit**). The `e2e_accuracy` JADE section builds the forced-case wire dict directly (edits-only, Python) and calls `solve()` — no TS layer.
+- [ ] **Step 4:** `python3 -m pytest tests/test_jade.py tests/test_jade_merge.py -x`; `python3 e2e_accuracy.py` (87 pre-existing + JADE section); `pnpm --filter api-server test` (envelope leg/productId/metric retention — **`registration.test.ts` still green: JADE not yet in `KNOWN_MODEL_IDS`**).
+- [ ] **Step 5:** Commit `[jade-T4] solve_jade + Python merge + dispatcher + envelope`.
 
-**DoD:** notebook objective reproduced exactly; envelope retains new fields through Zod; `e2e_accuracy` green; solver hygiene clean.
+**DoD:** notebook objective reproduced exactly; envelope retains new fields through Zod; `e2e_accuracy` green; OBS-5 untouched (JADE not yet registered).
 
 ---
 
-### Task 6: Payload builder + merge bridge
+### Task 5: Backend TS wiring — Zod inputs + KNOWN_SCHEMAS + VALID_MODEL_IDS + buildPayload + SOLVABLE (one atomic commit)
 
-**Gates:** Gate 1.6 (`SolveInput` + `buildPayload`).
+**Gates:** Gate 1.3 (KNOWN_SCHEMAS), 1.4 (VALID_MODEL_IDS — most-missed), 1.6 (`buildPayload`), Gate 5 (`timeLimitSec` required), Gate 1 BLOCKER (registration consistency). **All in one commit** — registering `KNOWN_SCHEMAS` activates OBS-5, which needs the T4 dispatcher (present) + this task's `buildPayload` (added here) simultaneously.
 
 **Files:**
-- Modify: `artifacts/api-server/src/solver/pmedian.ts` (`SolveInput` union + `buildPayload()` branch, `modelId→modelType`, forwards **edits only**)
-- Modify: `artifacts/api-server/src/solver/merge_inputs.py` (new `build_merged_jade_dataset(base, inp)` — mirror `build_merged_two_echelon_dataset`; the merge lives in **Python**, per the established boundary — not TS)
-- Modify: `artifacts/api-server/src/registry/__tests__/registration.test.ts` (now add JADE to `SOLVABLE` — its solve path exists as of this task)
-- Test: `artifacts/api-server/src/solver/pmedian.test.ts` (+ `test_jade_merge.py` for the merge)
+- Create: `artifacts/api-server/src/validation/inputs/jadeInputs.ts` (mirror `twoEchelon.ts`)
+- Modify: `artifacts/api-server/src/registry/modelRegistry.ts` (`KNOWN_SCHEMAS`), `artifacts/api-server/src/routes/scenarios.ts` (`VALID_MODEL_IDS` — **first writer of this shared file**), `artifacts/api-server/src/solver/pmedian.ts` (`SolveInput` union + `buildPayload` branch), `artifacts/api-server/src/registry/__tests__/registration.test.ts` (add JADE to `SOLVABLE`)
+- Test: `validation/inputs/*.test.ts`, `pmedian.test.ts`, `registration.test.ts`
 
-**Interface:**
-- `buildPayload(input)` for `modelId === "two-echelon-jade-us"` → `modelType:"two_echelon_jade"` wire payload = the **edit arrays + params** of Task 5's shape (statuses, `excludedCustomerIds`, per-product `customerDemands`, `capabilityOverrides`, `addedPlants/Warehouses/Customers`, leg-discriminated `distanceOverrides`, `p`, `distanceBands`, `gap`, `timeLimitSec`). It forwards validated inputs by their schema names; it does **not** read or inline the base dataset. Canonical ids only (no `sourceId` on the wire). `supportsAddedCustomerExclusion` gated via the registry manifest, never `modelId === …` (mirror the two_echelon branch).
-- `build_merged_jade_dataset(base, inp)` (Python): base package ∪ `addedPlants/Warehouses/Customers`; `distanceOverrides` (leg-keyed) + capability overrides (enabled→`210000000`, disabled→`0`; added plants default all-disabled) applied over base maps; statuses→force flags; exclusions applied. Per-call, non-mutating (base dict never mutated).
+**Interface (produces — `jadeInputsSchema`):**
+- `p`: int ≥ 1 (no static max — UI/semantic max = effective active warehouse count incl. added, checked in T6 precheck).
+- `distanceBands`: exactly 4 strictly-ascending positive integers. `gap`: ≥ 0. `timeLimitSec`: positive integer (**required**).
+- `warehouseOverrides[]`: `{ id, status: "active"|"forced_open"|"inactive" }` (status only; no capacity). "active" displays as "Potential".
+- `customerOverrides[]`: `{ id, demands?: Record<productId, ≥0>, status: "active"|"excluded" }` (sparse; omitted keys inherit base).
+- `plantProductCapability[]`: `{ plantId, productId, enabled }`, pair-unique.
+- `addedPlants[]`: `{ id, displayCode?, city, state, lat, lng }` (default all capability cells disabled).
+- `addedWarehouses[]`: `{ id, displayCode?, city, state, lat, lng, status }`.
+- `addedCustomers[]`: `{ id, displayCode?, city, state, lat, lng, demands: Record<all 4 productIds, ≥0>, status: "active"|"excluded" }`.
+- `distanceOverrides[]`: `{ leg: "plant_to_warehouse"|"warehouse_to_customer", fromId, toId, distance ≥0, estimated? }`, pair-unique per `(leg,fromId,toId)`, endpoints role-compatible.
+- Required: `p`, `distanceBands`, `gap`, `timeLimitSec`.
+- `buildPayload` for `modelId === "two-echelon-jade-us"` → `modelType:"two_echelon_jade"`, forwarding the **edit arrays + params** (T4 wire shape) by their schema names; **never** inlines the base dataset; canonical ids only (no `sourceId`); `supportsAddedCustomerExclusion` gated via the registry manifest, never `modelId === …`.
 
-- [ ] **Step 1:** `pmedian.test.ts`: JADE payload carries the edit arrays with canonical ids and no dataset/no `sourceId`; a `capabilityOverrides {enabled:false}` and a `forced_open` status appear in the payload. `test_jade_merge.py`: `build_merged_jade_dataset` on the base yields 4/25/100 entities + 16 capability cells; a disabled cell → `0`; an added warehouse adds a row + its distance rows; excluded customer removed; base dict unmutated after the call.
+- [ ] **Step 1:** Validation tests (`timeLimitSec` absent → reject; bands not-4/non-ascending → reject; duplicate capability pair → reject; `addedCustomers` missing a product key → reject; `distanceOverrides` missing `leg` → reject); `pmedian.test.ts` (JADE payload carries edit arrays, canonical ids, no dataset/no `sourceId`; a `{enabled:false}` cell + a `forced_open` status appear); route test (`POST /scenarios` accepts JADE, unknown still 422); `registration.test.ts` with JADE in `SOLVABLE`.
 - [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Implement union + branch + `build_merged_jade_dataset`; add JADE to `SOLVABLE`.
-- [ ] **Step 4:** `pnpm --filter api-server test pmedian registration` + `python3 -m pytest tests/test_jade_merge.py -x` — PASS.
-- [ ] **Step 5:** Commit `[jade-T6] JADE payload builder + Python merge + SOLVABLE registration`.
+- [ ] **Step 3:** Write `jadeInputs.ts`; register `KNOWN_SCHEMAS`; add `VALID_MODEL_IDS`; add `buildPayload` branch; add JADE to `SOLVABLE` — one commit.
+- [ ] **Step 4:** `pnpm --filter api-server test` (validation + scenarios route + pmedian + **registration/OBS-5 green** — dispatcher from T4 + buildPayload from here both present).
+- [ ] **Step 5:** Commit `[jade-T5] JADE backend wiring (Zod + KNOWN_SCHEMAS + VALID_MODEL_IDS + buildPayload + SOLVABLE)`.
 
-**DoD:** a persisted JADE scenario solves end-to-end via the async job path (enqueue → poll → `succeeded`, correct objective); JADE in the full registration consistency test.
+**DoD:** a persisted JADE scenario solves end-to-end via the async job path (enqueue → poll → `succeeded`, correct objective); OBS-5 + full registration consistency green.
 
 ---
 
-### Task 7: Semantic precheck
+### Task 6: Semantic precheck
 
 **Gates:** precheck "semantic precheck" (spec §5); Gate 6.5 auto-estimate feeds this.
 
 **Files:**
-- Create/modify: `artifacts/api-server/src/…/precheck` (register `precheckJadeInputs` in both standalone + solve-before-enqueue paths)
-- Test: precheck tests
+- Modify: `artifacts/api-server/src/services/precheck.ts` (add `precheckJadeInputs`), `artifacts/api-server/src/routes/scenarios.ts` (register in the standalone precheck + solve-before-enqueue paths — **second writer of this shared file, after T5**)
+- Test: `services/*.test.ts` (precheck)
 
-**Interface — `precheckJadeInputs(inputs, dataset)` checks:** global id collisions across added entities; `customerOverrides`/`addedCustomers` demand keys are known product ids; role/leg reference integrity for `distanceOverrides` (plant→wh from a plant to a wh, etc.); added-entity distance completeness on **both** legs; `forced_open count ≤ p ≤ active warehouse count`; sufficient **enabled** plant capacity for every product with positive effective demand. Shape-valid JADE inputs must never fall through to the default `{ok:true}`.
+**Interface — `precheckJadeInputs(inputs, dataset)` checks:** global id collisions across added entities; `customerOverrides`/`addedCustomers` demand keys are known product ids; role/leg reference integrity for `distanceOverrides` (plant→wh endpoints must be a plant + a wh, etc.); added-entity distance completeness on **both** legs; `forced_open count ≤ p ≤ active warehouse count`; sufficient **enabled** plant capacity for every product with positive effective demand. Shape-valid JADE inputs must never fall through to the default `{ok:true}`.
 
 - [ ] **Step 1:** precheck tests: missing added-entity leg distance → blocked with cause; `p < forced_open` → blocked; a product with demand but no enabled plant → blocked with the product named; valid scenario → `{ok:true}`.
 - [ ] **Step 2:** Run — FAIL.
 - [ ] **Step 3:** Implement + register in both paths.
 - [ ] **Step 4:** `pnpm --filter api-server test` — PASS.
-- [ ] **Step 5:** Commit `[jade-T7] JADE semantic precheck`.
+- [ ] **Step 5:** Commit `[jade-T6] JADE semantic precheck`.
 
 **DoD:** shape-valid but infeasible-by-construction inputs are rejected with a named cause before CBC.
 
 ---
 
-### Task 8: Import/export/reset entity registration
+### Task 7: Import/export/reset entity registration (incl. `legDistances`)
 
-**Gates:** Gate 1.9 (override entity registration) — Gate 7 export/import route tests.
+**Gates:** Gate 1.9 (override entity registration), Gate 7 export/import route tests.
 
-**Files (import/export enums already landed in T3.5 — this task is service/route logic only, consuming those generated types):**
+**Files (import/export OpenAPI enums already landed in T3.5 — this task is service/route logic only, consuming those generated types):**
 - Modify: `artifacts/api-server/src/services/templates.ts` (`apply<Entity>Overrides` + `<entity>RowsToCsv` for `plants`, `plantCapabilities`, `flows`)
-- Modify: `artifacts/api-server/src/services/import.ts` (`ImportEntity` union + `COLUMNS`/`ENTITY_HAS_VALUE`/`VALID_STATUSES`; thread `modelId` to disambiguate the shared `customers` entity name)
-- Modify: `artifacts/api-server/src/routes/scenarios.ts` (entity union + model↔entity pairing checks in `GET .../export`, `POST .../import`, `POST .../import/apply`, `POST .../reset-to-baseline`) — **shared-file: serialized after T4/T7/T12's edits to this file (see concurrency map)**
+- Modify: `artifacts/api-server/src/services/import.ts` (`ImportEntity` union + `COLUMNS`/`ENTITY_HAS_VALUE`/`VALID_STATUSES`; thread `modelId` to disambiguate the shared `customers` entity name; `legDistances` parsing for JADE)
+- Modify: `artifacts/api-server/src/routes/scenarios.ts` (entity union + model↔entity pairing checks in `GET .../export`, `POST .../import`, `POST .../import/apply`, `POST .../reset-to-baseline`) — **third writer of this shared file, after T5/T6, before T12**
 - Test: route tests
 
-**Notes:** `plants` and `plantCapabilities` are new entities; `flows` already in the export query enum but must be accepted by `ExportEnvelope`. Capability rows are a matrix (`plantId,productId,enabled`) — `ENTITY_HAS_VALUE` semantics: boolean, not a numeric value column. `customers` collides with p-median-us's 200-row set — `modelId` disambiguates the 100-row JADE dataset. `reset-to-baseline` clears JADE's `warehouseOverrides/customerOverrides/plantProductCapability/addedPlants/addedWarehouses/addedCustomers/distanceOverrides`.
+**Notes:**
+- `plants` + `plantCapabilities` are new entities; capability rows are a matrix (`plantId,productId,enabled`) — `ENTITY_HAS_VALUE` boolean, not a numeric value column. `flows` already in the export query enum but must be accepted by `ExportEnvelope`.
+- **`legDistances` (fix #4):** the two-leg distance sets are exported/imported as `legDistances` (composite `(leg,fromId,toId)` shape), exactly as `two-echelon-gold-au` does. Today `entityIsTwoEchelon`/the pairing checks hardcode `two-echelon-gold-au`-only for `refineries`/`customers`/`legDistances` (`routes/scenarios.ts:496–506`) and `stubFor` is gated to `distances`/`laneCosts`/`legDistances`. **Register JADE for `legDistances`** across export, import preview, import apply, the model↔entity pairing checks, `stubFor`, `templates.ts`/`import.ts` parsing, and route tests — runtime/service registration (the enum already exists; no OpenAPI change).
+- `customers` collides with p-median-us's 200-row set — `modelId` disambiguates the 100-row JADE dataset.
+- `reset-to-baseline` clears JADE's `warehouseOverrides/customerOverrides/plantProductCapability/addedPlants/addedWarehouses/addedCustomers/distanceOverrides`.
 
-- [ ] **Step 1:** Route tests: export each JADE entity (warehouses/customers/plants/plantCapabilities/flows) 200; a sibling model's entity → 422; import-apply persists into the right `inputs` field; reset-to-baseline clears all JADE override arrays; `customers` import validates against the 100-row JADE dataset, not p-median-us's 200.
+- [ ] **Step 1:** Route tests: export each JADE entity (warehouses/customers/plants/plantCapabilities/legDistances/flows) 200; a sibling model's entity → 422; `legDistances` export/import round-trips for JADE (both legs); import-apply persists into the right `inputs` field; reset-to-baseline clears all JADE override arrays; `customers` import validates against the 100-row JADE dataset, not p-median-us's 200.
 - [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Implement across `templates.ts`, `import.ts`, `routes/scenarios.ts` (enums/types come from T3.5's codegen — no `openapi.yaml` edit here).
-- [ ] **Step 4:** `pnpm --filter api-server test` + review generated diff.
-- [ ] **Step 5:** Commit `[jade-T8] import/export/reset entity registration`.
+- [ ] **Step 3:** Implement across `templates.ts`, `import.ts`, `routes/scenarios.ts` (no `openapi.yaml` edit — enums from T3.5).
+- [ ] **Step 4:** `pnpm --filter api-server test`.
+- [ ] **Step 5:** Commit `[jade-T7] import/export/reset entity registration (incl. legDistances)`.
 
-**DoD:** all JADE entities import/export/reset; sibling entities rejected; `customers` disambiguated. **Wave 2 exit: JADE solvable + editable via API end-to-end.**
+**DoD:** all JADE entities (incl. `legDistances`) import/export/reset; sibling entities rejected; `customers` disambiguated. **Wave 2 exit: JADE solvable + editable via API end-to-end.**
 
 ---
 
 ## Wave 3 — Frontend (tabbed Workspace)
 
-**Concurrency & single-writer (fix #5).** `Workspace.tsx` is the W3 integration bottleneck — tab registry, effective-row projections, Output-Map tab, and Save reconciliation all live there, so **T11/T12/T13/T14/T15 all need it**. Resolve with the **optional-props pattern**: each leaf unit (T11 tabs, T13 map+palette, T14 grids, T15 Distances) ships standalone exposing new props with safe defaults (its own commit typechecks alone); a **single `Workspace.tsx` integrator (assigned to T12**, which already owns the heaviest surface there) wires every call site in series — not concurrently. `chapters.ts`→T9; `NetworkMap.tsx`/map palette→T13; `lib/bands.ts`→T14; new standalone component files are genuinely disjoint and parallelizable.
+> **Numbering note:** the round-2 restructure merged the old Wave-2 Task 8 into T5/T7, so task numbers jump T7 → T9 (no "Task 8"); a new **T15.5** was added. This is intentional, not a gap in coverage.
+
+**Concurrency, ordering & single-writer (fixes #3/#5).** `Workspace.tsx` is the W3 integration bottleneck — tab registry, effective-row projections, Output-Map tab placement, and Save reconciliation all live there, so **T11–T15 all feed it**. Resolve **leaves-first, integrate-last**: T9 (chapters), T10 (dataset endpoint), and the standalone leaf **components** — T11 (input-tab components), T12 (map-editor components + `autoDistance` + `normalizeAddedEntityDistances`), T13 (map + palette), T14 (grid components + `lib/bands.ts`), T15 (Distances component) — each ships as its own unit exposing optional props with safe defaults (its commit typechecks alone, **none edits `Workspace.tsx`**). Then a **dedicated final task T15.5 (Workspace integration)** performs *all* `Workspace.tsx` wiring in one place — the only writer of that file in W3. Executable order: **T9 → T10 → (T11 ∥ T12 ∥ T13 ∥ T14 ∥ T15, file-disjoint) → T15.5**. `chapters.ts`→T9; `NetworkMap.tsx`/palette→T13; `lib/bands.ts`→T14; `routes/scenarios.ts`'s `normalizeAddedEntityDistances`→T12 (after Wave 2's T5/T6/T7 edits to that file). No W3 task other than T15.5 touches `Workspace.tsx`.
 
 ### Task 9: Chapter registration + header + map bounds
 
@@ -305,7 +298,7 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 **Gates:** Gate 6 left-panel scoping.
 
-**Files:** new `artifacts/studio/src/components/workspace/tabs/{PlantsTab,CapabilityMatrixTab}.tsx`; extend `WarehousesTab`/`CustomersTab`/`OptimizationParametersTab` gated on capabilities; `lib/workspaceTabs.ts` tab registry for the model.
+**Files:** new `artifacts/studio/src/components/workspace/tabs/{PlantsTab,CapabilityMatrixTab}.tsx`; extend `WarehousesTab`/`CustomersTab`/`OptimizationParametersTab` (capability-driven props). **Standalone components only — tab registration in `lib/workspaceTabs.ts` and any `Workspace.tsx` wiring is T15.5.**
 
 **Interface:** Plants tab — id/city/state/lat/lng read-only base + added rows. Capability Matrix — effective-plants × 4-products checkbox grid; base cells default from the 16-cell matrix, added-plant rows default off; each toggle writes/removes a sparse `plantProductCapability` override. Warehouses — status select (no capacity column). Customers — per-product demand + active/excluded. Optimization Params — P (max = effective active wh count), 4 bands, gap, max time. Tab registry gated on `supportsPlantProductCapability` (matrix), `supportsFacilityStatus` (status), etc. — never `modelId ===`.
 
@@ -321,29 +314,28 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 **Gates:** Gate 6.5 (all BLOCKERs), Gate 1.10 (multi-select — note: `Studio.tsx` is legacy; the live surface is the Workspace `InputMapTab`; wire the Workspace path, and only touch `Studio.tsx` if the model is reachable there).
 
-**Scope note (fix #4):** full plant create/edit/move/copy/delete is a **new third map entity kind** — the existing editor tree only knows warehouse/customer (and Ch10's mine/refinery/customer). It touches the map type system + entity-id system + every dialog surface, not just symbology. This is the heaviest task; the controller may split it into **T12a (plant entity kind: types/ids/symbology/projection)** and **T12b (map editor dialogs + added-entity distances)** if a single commit loses coherence.
+**Scope note (fix #4):** full plant create/edit/move/copy/delete is a **new third map entity kind** — the existing editor tree only knows warehouse/customer (and Ch10's mine/refinery/customer). It touches the map type system + entity-id system + every dialog surface, not just symbology. **This task ships the components only — it does NOT edit `Workspace.tsx`** (the effective-row projection + wiring is T15.5, per the concurrency map). The controller may split it into **T12a (plant entity kind: types/ids/symbology)** and **T12b (dialogs + added-entity distances)** if a single commit loses coherence.
 
-**Files:**
-- `artifacts/studio/src/…/map/types.ts` — add a plant `MapEntity` variant + plant input/view model (`MapPlant`) alongside `MapWarehouse`/`MapCustomer`; define the plant **role** (supply, non-demand).
-- `artifacts/studio/src/lib/entityId.ts` — plant UID prefix (`ap-…`) in `newUid` + `nextDisplayCode` (`PL-STATE-CITY-SEQ`); ensure move never re-keys the plant `id`.
-- `map/statusPresentation.ts` + `map/EntityMarkers.tsx` — plant=square/supply, warehouse=triangle, customer=demand bubble (bubble size from customer scalar `demand`); fold any status vocab into the shared presentation mapping, never a per-model ternary.
-- `InputMapTab.tsx` — add JADE to the full-editor `mode` branch (symbology + legend + inspect); wire the create/edit/move/details/action **dialog surfaces** for the plant kind (a plant has no capacity/demand field and no status — its editable attributes are geometry + which products it can make via the capability matrix; the create/edit dialog reflects that).
-- `Workspace.tsx` — effective-row projection `MapPlant`/`MapWarehouse`/`MapCustomer` = base ⊕ overrides ∪ added; added plants default every capability cell disabled. **Single Workspace.tsx writer for all of W3 (see concurrency map).**
+**Files (no `Workspace.tsx`):**
+- `artifacts/studio/src/…/map/types.ts` — add a plant `MapEntity` variant + plant view model (`MapPlant`) alongside `MapWarehouse`/`MapCustomer`; define the plant **role** (supply, non-demand).
+- `artifacts/studio/src/lib/entityId.ts` — plant UID prefix (`ap-…`) in `newUid` + `nextDisplayCode` (`PL-STATE-CITY-SEQ`); move never re-keys the plant `id`.
+- `map/statusPresentation.ts` + `map/EntityMarkers.tsx` — plant=square/supply, warehouse=triangle, customer=demand bubble (bubble size from customer scalar `demand`); fold status vocab into the shared presentation mapping, never a per-model ternary.
+- `InputMapTab.tsx` — JADE in the full-editor `mode` branch (symbology + legend + inspect); the create/edit/move/copy/delete/details/action **dialog surfaces** for the plant kind. A plant has no capacity/demand and no status — its editable attributes are geometry + which products it can make (via the capability matrix); the plant create dialog starts every product **disabled**, and copy-plant copies geometry only (all products disabled).
 - `services/autoDistance.ts` — JADE role-scoped estimators for plant↔wh and wh↔customer legs.
-- `routes/scenarios.ts` — `normalizeAddedEntityDistances` JADE dispatch (shared-file: serialized w/ T4/T7/T8).
-- `addedPlants[].displayCode` schema field already in T4.
+- `routes/scenarios.ts` — `normalizeAddedEntityDistances` JADE dispatch (**shared file: serialized after Wave 2's T5→T6→T7 edits**).
+- `addedPlants[].displayCode` schema field already in T5.
 
 **Interface:**
-- `InputMapTab` renders the full editor for JADE (all three entity kinds), not the legacy/placeholder branch.
+- `InputMapTab` renders the full editor for JADE (all three entity kinds), not the legacy/placeholder branch. (The `MapPlant`/`MapWarehouse`/`MapCustomer` **effective-row projection** = base ⊕ overrides ∪ added is built in `Workspace.tsx` by **T15.5** and passed in as props; T12 consumes props, does not build the projection.)
 - Added-entity identity: `newUid` (role-prefixed opaque id — `ap-`/`aw-`/`ac-` — never re-keyed on move) + derived `displayCode`; `gazetteer.ts` reverse-geocodes the drop point.
+- **Plant delete/copy reconciliation (fix #5):** deleting an added plant drops the added row **and removes every `plantProductCapability` override referencing that plant id** (else stale references persist in `inputs`) and its plant→wh `distanceOverrides` rows; it never touches other `*Overrides`. Copy-plant copies geometry only and starts all products disabled. Move regenerates only `displayCode`/coords + clears that plant's own distance rows.
 - `normalizeAddedEntityDistances` JADE branch: fills missing added-entity distances on POST/PATCH/import-apply as `estimated` — **reverse-derive the notebook's per-leg circuity from all base pairs** and lock it with reconstruction tests (do not assume Ch10's plain-haversine or transport's 1.17); estimate only pairs with ≥1 added endpoint, per leg. `e2e_accuracy` unaffected (base rows untouched).
-- Save reconciliation: Workspace Save `onSuccess` adopts response `inputs` (generic, not gated to p-median-us). Move regenerates only `displayCode`/coords + clears that entity's own distance rows; delete drops the added row + its own rows; neither touches `*Overrides`.
 
-- [ ] **Step 1:** RTL/API tests: `InputMapTab` renders the full editor (markers + legend for all three kinds) for JADE, not legacy; a created **added plant** mints an `ap-`-prefixed uid + `PL-…` `displayCode` and defaults all capability cells off; the plant create/edit/move/copy/delete dialogs work (not just warehouse); the distance grid shows `displayCode` not the uuid; `normalizeAddedEntityDistances` fills `estimated` rows for JADE with the derived circuity on PATCH/POST/import-apply; a reconstruction test proves the derived factor(s) rebuild base distances within tolerance; move doesn't re-key the plant id; `e2e_accuracy.py` unchanged.
+- [ ] **Step 1:** RTL/API tests: `InputMapTab` renders the full editor (markers + legend for all three kinds) for JADE given projected props, not legacy; a created **added plant** mints an `ap-`-prefixed uid + `PL-…` `displayCode` and starts all capability cells off; **copy-plant starts all products disabled**; **deleting a plant removes its `plantProductCapability` overrides** (regression test) + its plant→wh distance rows; plant create/edit/move/copy/delete dialogs work (not just warehouse); the distance grid shows `displayCode` not the uuid; `normalizeAddedEntityDistances` fills `estimated` rows with the derived circuity on PATCH/POST/import-apply; a reconstruction test proves the derived factor(s) rebuild base distances within tolerance; move doesn't re-key the plant id; `e2e_accuracy.py` unchanged.
 - [ ] **Step 2–4:** Implement; gate re-run.
-- [ ] **Step 5:** Commit `[jade-T12] JADE Input Map v2 editor (3 entity kinds) + added-entity distances` (or T12a/T12b if split).
+- [ ] **Step 5:** Commit `[jade-T12] JADE map-editor components (3 entity kinds) + added-entity distances` (or T12a/T12b if split).
 
-**DoD:** map-first create/edit/move/copy/delete for **plants, warehouses, and customers**; added entities auto-get estimated per-leg distances; overrides reflected on the map.
+**DoD:** map-editor components for **plants, warehouses, customers** (create/edit/move/copy/delete); plant delete removes its capability overrides; copy starts disabled; added entities auto-get estimated per-leg distances. (Wired into the live Workspace by T15.5.)
 
 ---
 
@@ -351,7 +343,7 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 **Gates:** Gate 6 (unknown-leg neutral fallback), spec §4 semantic-leg classification.
 
-**Files:** `NetworkMap.tsx` + map leg palette (extend to `plant_to_warehouse`/`warehouse_to_customer`) — standalone, owned by T13. The Output-Map **tab wiring into `Workspace.tsx`** (layer toggles + overlay placement) is applied by the T12 `Workspace.tsx` integrator (concurrency map), consuming T13's component via optional props — T13 does not edit `Workspace.tsx` directly.
+**Files:** `NetworkMap.tsx` + map leg palette (extend to `plant_to_warehouse`/`warehouse_to_customer`) — standalone, owned by T13. The Output-Map **tab wiring into `Workspace.tsx`** (layer toggles + overlay placement) is applied by **T15.5** (the sole `Workspace.tsx` integrator), consuming T13's component via optional props — T13 does not edit `Workspace.tsx`.
 
 **Interface:** one Output Map; layer checkboxes (plant→wh lanes, wh→customer lanes, markers) reproduce the notebook's inbound/outbound/combined; routes colored by leg; unknown/absent leg → neutral. Map coalesces per-product inbound edges sharing `(leg,fromId,toId)` into one line (summed flow). Floating objective + weighted-avg-distance overlay.
 
@@ -381,12 +373,32 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 **Gates:** Gate 6.5 displayCode-in-grid, spec §6 Distances.
 
-**Files:** `DistancesTab` (JADE: single `distances.json`, visible Leg column, `(leg,fromId,toId)` identity, base reference + editable overrides both legs, paginated/filtered, `displayCode` for added entities); export/import buttons wired to T8 routes.
+**Files:** `DistancesTab` component (JADE: single `distances.json`, visible Leg column, `(leg,fromId,toId)` identity, base reference + editable overrides both legs, paginated/filtered, `displayCode` for added entities); export/import buttons wired to T7 routes. Standalone component — its placement in `Workspace.tsx` is T15.5.
 
 - [ ] **Step 1:** RTL: reference distances load (2600 pairs) with a Leg column; editing a pair writes a leg-discriminated override → "Changed"; added-entity rows show `displayCode` not uuid; export/import buttons present.
-- [ ] **Step 2–5:** Implement; commit `[jade-T15] JADE Distances tab + export/import buttons`.
+- [ ] **Step 2–5:** Implement; commit `[jade-T15] JADE Distances tab component + export/import buttons`.
 
-**DoD:** Distances tab shows both legs; overrides persist; import/export wired. **Wave 3 exit: full Workspace UI.**
+**DoD:** Distances component shows both legs; overrides persist; import/export wired.
+
+---
+
+### Task 15.5: Workspace integration (sole `Workspace.tsx` writer — final W3 step)
+
+**Gates:** fix #3 (leaves-first, integrate-last); Gate 6.5 effective-row projection; Gate 6 output-grid gating.
+
+**Files:** `artifacts/studio/src/pages/Workspace.tsx` (only) + `lib/workspaceTabs.ts` (tab registry for JADE).
+
+**Interface — all `Workspace.tsx` wiring in one place, consuming the T11–T15 components via their optional props:**
+- Tab registry: register JADE's input tabs (Plants, Capability Matrix, Warehouses, Customers, Optimization Params, Input Map, Distances) + output tabs (Output Map, Open Warehouses, Customer Assignments, Flows, Solution Summary, Service Stats), gated on manifest capabilities (`supportsPlantProductCapability`, `supportsFacilityStatus`, `outputGrids`) — never `modelId ===`.
+- **Effective-row projection:** build `MapPlant`/`MapWarehouse`/`MapCustomer` = base ⊕ overrides ∪ added (added plants default all capability cells disabled) and pass to T12's `InputMapTab` + T13's Output Map.
+- Output-Map tab placement + layer toggles + overlay (T13 component); output-grid tabs (T14); Distances tab (T15); input tabs (T11).
+- **Save reconciliation:** Save `onSuccess` adopts response `inputs` into `localInputs`/`savedInputsRef`/query cache (generic, not gated to p-median-us) — so T12's server-side `normalizeAddedEntityDistances` estimated rows don't re-flag dirty or hide.
+
+- [ ] **Step 1:** RTL against the full Workspace for JADE: all input + output tabs mount and gate correctly; the map receives the projected effective rows (an inactive warehouse shows inactive, an added plant shows); Save reconciliation adopts server `inputs` (added-entity estimated distances persist, scenario not re-flagged dirty). `Workspace.TabCoverage` sweep extended to JADE.
+- [ ] **Step 2–4:** Implement; `pnpm --filter studio test`.
+- [ ] **Step 5:** Commit `[jade-T15.5] JADE Workspace integration`.
+
+**DoD:** the live Workspace renders every JADE tab, the map shows effective (override-applied) rows, and Save reconciles server-augmented inputs. **Wave 3 exit: full Workspace UI wired.**
 
 ---
 
@@ -422,8 +434,8 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 
 ## Self-Review
 
-- **Spec coverage:** §2 model → T5; §2.1 canonical IDs → T1/T2; §2.7 ground truth → T5/global; §3 package → T1/T2; §4 solver/envelope → T5/T6; §5 contract → T3/T4/T7/T8; §6 frontend → T9–T15; §7 verification → per-task tests + T16; §8 rollout → waves + T17. All spec sections mapped.
-- **Precheck gates:** Gate 0→T1/T5/T10; Gate 1 ten points→T1(2),T2(1,5),T3(listability)+T6(full consistency),T4(3,4),T3.5(codegen 7),T5(8),T6(6),T8(9),T12(10); Gate 2→T1; Gate 3→T5; Gate 4→T5/T14; Gate 5→T5(same-commit)+T3.5(spec+regen same-commit); Gate 6→T9/T11/T13/T14; Gate 6.5→T12/T15; Gate 7→all tests+T16; Gate 8→T16/T17. All gates mapped.
+- **Spec coverage:** §2 model → T4; §2.1 canonical IDs → T1/T2; §2.7 ground truth → T4/global; §3 package → T1/T2; §4 solver/envelope → T4; §5 contract → T3.5/T5/T6/T7; §6 frontend → T9–T15.5; §7 verification → per-task tests + T16; §8 rollout → waves + T17. All spec sections mapped.
+- **Precheck gates:** Gate 0→T1/T4/T10; Gate 1 ten points→T1(2),T2(1,5),T3(listability)+T5(full consistency),T5(3,4,6),T3.5(codegen 7),T4(8 dispatcher),T7(9),T12(10); Gate 2→T1; Gate 3→T4; Gate 4→T4/T14; Gate 5→T4(solver+envelope same-commit)+T3.5(spec+regen same-commit); Gate 6→T9/T11/T13/T14/T15.5; Gate 6.5→T12/T15/T15.5; Gate 7→all tests+T16; Gate 8→T16/T17. All gates mapped.
 - **Type consistency:** canonical id format, `modelType:"two_echelon_jade"`, leg enum values, capability `enabled`↔wire `0/210000000`, and `distanceOverrides.leg` are used identically across T1–T15.
 - **No placeholders:** load-bearing interfaces (schemas, wire payload, envelope fields, manifest) are exact; large bodies (solver port, tab components) reference spec §2 + the named sibling files as templates, which the agent-team implementer reads — consistent with this repo's plan style.
 
@@ -440,9 +452,9 @@ export const JadeCapabilityEntry = z.object({ plantId: z.string(), productId: z.
 7. **[P2] Choose one payload/merge boundary in T6.** The established architecture has TypeScript forward validated scenario edits while Python loads the base dataset and performs a fresh, non-mutating merge per solve. T6 instead requires `buildPayload` to construct the full base-plus-edits dataset while also assigning `merge_inputs.py` “or the TS merge path.” Retain the current Python merge boundary unless the plan deliberately specifies and tests a broader architectural change.
 8. **[P2] Make T1's extraction language match its method.** A TypeScript file cannot directly use Python `ast`/`ast.literal_eval`. Prefer a committed Python extractor, or explicitly specify a Python helper/subprocess boundary while keeping the notebook non-executable.
 
-Execution should not begin until the P1 findings are incorporated into task ordering, file ownership, interfaces, and gates.
+> **[SUPERSEDED]** This round-1 status and its resolution below are historical; the second review (`0ee8f4e`) and its resolution supersede them. Task numbers in this round-1 log refer to the pre-restructure numbering — see the round-2 resolution for the current numbering.
 
-### Resolution — 2026-09-13 (all 8 incorporated)
+### Resolution — 2026-09-13 (all 8 incorporated; task numbers pre-restructure)
 
 1. **[P1] Contract task** — new **Task 3.5 (OpenAPI contract + codegen, full sweep)** added as predecessor of T4/T8/T10/W3; it owns all `openapi.yaml` edits + the single codegen pass. T3 no longer claims codegen; T8 consumes generated types (no `openapi.yaml` edit).
 2. **[P1] Registration split** — T3 is **listability-only** at the correct path `artifacts/api-server/src/registry/__tests__/registration.test.ts`; JADE joins the full `SOLVABLE` consistency test in **T6** (after its solve path exists).
@@ -452,6 +464,34 @@ Execution should not begin until the P1 findings are incorporated into task orde
 6. **[P1] e2e_journey.py** — removed from the JADE gate in Global Constraints + T16 (non-runnable, out of scope); `e2e_accuracy.py` is the solver gate.
 7. **[P2] Payload/merge boundary** — T5/T6 corrected to the established boundary: `buildPayload` forwards **edits only**; `solve.py` loads the base package from disk; `merge_inputs.py`'s new `build_merged_jade_dataset` merges. Verified against `pmedian.ts`/`solve.py`.
 8. **[P2] Extractor language** — T1 extractor is a committed **Python** script (`ast`/`ast.literal_eval`), not `.ts`.
+
+## Re-Review Findings — 2026-09-13 (`0ee8f4e`)
+
+**Status: changes still required before execution.** The first review's eight findings were substantially incorporated, but the revised ordering and ownership model leaves the following blockers.
+
+1. **[P1] T4 still activates the full registration consistency gate before its prerequisites.** Adding JADE to `KNOWN_SCHEMAS` adds it to `KNOWN_MODEL_IDS`. The existing OBS-5 registration suite derives `IMPLEMENTED` from that set and immediately calls `buildPayload` and checks the `solve.py` dispatcher, but those JADE paths do not land until T5/T6. Consequently T4's required full `api-server` gate cannot pass. Either register the schema only after the solver and payload path exist, explicitly restructure the gate without weakening its drift protection, or make T4–T6 one atomic integration task.
+2. **[P1] T5 depends on a merge helper that is assigned to T6.** T5's `solve_jade()` must import and call `build_merged_jade_dataset` and then pass pytest plus `e2e_accuracy.py`; T6 is where that helper and its merge tests are created. Move `build_merged_jade_dataset` and `test_jade_merge.py` into T5, run T5 before the payload/registration task, or combine T5/T6. No task may commit an import of a not-yet-existing helper while claiming its gate is green.
+3. **[P1] Wave 3's sole `Workspace.tsx` integrator is ordered before the leaf components it consumes.** T12 is assigned all W3 Workspace wiring, including T13–T15, while T13 explicitly expects T12 to consume its optional component. Under the numbered order, T12 must either reference files that do not exist yet or leave T13–T15 unwired. Make the executable order explicit: implement the standalone T11/T13/T14/T15 leaf units first, then run a dedicated Workspace integration task last (the map editor portion of T12 can be split from that integration commit).
+4. **[P1] JADE `legDistances` import/export is still missing from T8.** The existing routes restrict `legDistances` to `two-echelon-gold-au`, while JADE's Distances tab promises import/export for its two leg-discriminated distance sets. T8 must register JADE with `legDistances` across export, import preview, import apply, model↔entity pairing, templates/parsing, and route tests. The enum already exists, so this is runtime/service registration rather than another OpenAPI enum addition.
+5. **[P1] Plant deletion does not remove plant-product capability overrides.** T12 currently says deletion drops the added plant and its distance rows while otherwise leaving overrides untouched. The approved design requires deleting a plant to remove every `plantProductCapability` entry referencing it; otherwise stale references survive in persisted inputs. Add deletion reconciliation and a regression test. Also assert that copying a plant copies geometry only and starts every product disabled.
+6. **[P2] The shared-route serialization statements conflict.** Wave 2 orders T8 before Wave 3, but T8's file note says its `routes/scenarios.ts` edit is serialized after T12. The intended order should be T4 → T7 → T8 → T12 for that file, with each later task based on the earlier commit.
+7. **[P2] Clean up stale review and placeholder text.** The first review still says execution must not begin until its P1 findings are incorporated immediately before a resolution claiming all eight were incorporated. Mark that earlier status as resolved/superseded once this round is addressed. Replace T7's `artifacts/api-server/src/…/precheck` placeholder with `artifacts/api-server/src/services/precheck.ts` and explicitly list `artifacts/api-server/src/routes/scenarios.ts`; this also makes the “No placeholders” self-review statement accurate.
+
+### Resolution — 2026-09-13 (`0ee8f4e` re-review; all 7 incorporated — Wave 2/3 restructured)
+
+**Wave 2 renumbered to solver-first: T4 (Python solver core) → T5 (atomic TS wiring) → T6 (precheck) → T7 (import/export/reset). Wave 3: leaf components T9–T15 → sole integrator T15.5.**
+
+1. **[P1] Registration gate before prerequisites** — resolved by combining, per the reviewer's option: **T4** (solver core, Python) ships `solve_jade` + `build_merged_jade_dataset` + dispatcher + envelope and self-verifies via pytest + a direct-payload `e2e_accuracy` section, **without** entering `KNOWN_SCHEMAS` (so OBS-5 doesn't check JADE yet). **T5** then adds `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `buildPayload` + `SOLVABLE` in **one atomic commit** — OBS-5 passes because T4's dispatcher + merge already exist. Drift protection intact (no gate weakening).
+2. **[P1] Merge helper co-located with solver** — `build_merged_jade_dataset` + `test_jade_merge.py` now land in **T4** with `solve_jade` (they import each other), not a later task. No task commits an import of a not-yet-existing helper.
+3. **[P1] Integrator ordered after leaves** — Wave 3 rewritten **leaves-first**: T11/T12/T13/T14/T15 ship standalone components (none edits `Workspace.tsx`); new **T15.5 (Workspace integration)** is the sole `Workspace.tsx` writer and runs last, consuming all leaf components via optional props. Map-editor split out of the integration commit per the reviewer.
+4. **[P1] `legDistances` for JADE** — **T7** now registers JADE for `legDistances` across export/import-preview/import-apply/pairing/`stubFor`/`templates.ts`/`import.ts` + route tests (runtime/service registration; enum already exists, cited `routes/scenarios.ts:496–506`).
+5. **[P1] Plant deletion reconciliation** — **T12** now specifies: deleting an added plant removes every `plantProductCapability` override referencing it (+ its plant→wh distance rows), with a regression test; copy-plant copies geometry only and starts every product disabled.
+6. **[P2] Serialization direction** — corrected: `routes/scenarios.ts` order is **T5 → T6 → T7 → T12** (each on the prior commit); T7 lands *before* T12, not after.
+7. **[P2] Stale/placeholder text** — round-1 status marked **[SUPERSEDED]**; T6 precheck path is now `artifacts/api-server/src/services/precheck.ts` + `routes/scenarios.ts` explicitly (no `…` placeholder); self-review mapping updated to the new numbering.
+
+**Status: ready for execution** once the user approves — no open review blockers.
+
+Execution remains blocked until the five P1 findings above are reflected in task contents, ordering, file ownership, and per-task gates.
 
 ## Execution Handoff
 
