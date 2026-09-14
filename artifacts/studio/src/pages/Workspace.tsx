@@ -951,6 +951,38 @@ function displayCodeMapFromInputs(inputs: Record<string, unknown> | null): Recor
   return map;
 }
 
+// JADE Distances tab — id -> {city, state} for the From/To columns' primary
+// "City, ST" label. Base dataset (plants/warehouses/customers) ∪ scenario-local
+// added entities (which carry their own city/state). DISPLAY ONLY — the stored
+// fromId/toId uid stays the join key. Added rows override base on id collision
+// (there are none in practice; added uids are prefixed).
+function jadeLocationMapFromInputs(
+  dataset:
+    | {
+        plants?: { id: string; city?: string; state?: string }[];
+        warehouses?: { id: string; city?: string; state?: string }[];
+        customers?: { id: string; city?: string; state?: string }[];
+      }
+    | undefined,
+  inputs: Record<string, unknown> | null,
+): Record<string, { city: string; state: string }> {
+  const map: Record<string, { city: string; state: string }> = {};
+  const rowsWithLocation: { id: string; city?: string; state?: string }[][] = [
+    dataset?.plants ?? [],
+    dataset?.warehouses ?? [],
+    dataset?.customers ?? [],
+    addedPlantsFromInputs(inputs) as { id: string; city?: string; state?: string }[],
+    addedWarehousesFromInputs(inputs) as { id: string; city?: string; state?: string }[],
+    addedCustomersFromInputs(inputs) as { id: string; city?: string; state?: string }[],
+  ];
+  for (const rows of rowsWithLocation) {
+    for (const row of rows) {
+      if (row.city && row.state) map[row.id] = { city: row.city, state: row.state };
+    }
+  }
+  return map;
+}
+
 // T9 (T6 wiring) — the snapshot shape OpenWarehousesTab.tsx's
 // OpenWarehousesDisplayedInputs and AssignmentsTab.tsx's
 // AssignmentsDisplayedInputs both accept (a structural superset covers
@@ -2660,6 +2692,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
           displayCodeById={displayCodeMapFromInputs(localInputs)}
+          locationById={jadeLocationMapFromInputs(dataset, localInputs)}
           modelId={modelId}
           referenceCapable={activeModelManifest?.capabilities?.supportsReferenceDistances}
           inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}

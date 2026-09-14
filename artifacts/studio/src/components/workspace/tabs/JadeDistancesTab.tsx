@@ -85,6 +85,11 @@ interface JadeDistancesTabProps {
    * fromId/toId (the uid) stays the join key everywhere else. Base dataset
    * ids have no entry here and fall back to showing the raw id, unchanged. */
   displayCodeById?: Record<string, string>;
+  /** Scenario id -> {city, state} map (base dataset ∪ added entities), built
+   * by Workspace.tsx. From/To cells show "City, ST" as the primary label with
+   * the id/displayCode as a sub-label. DISPLAY ONLY — the stored fromId/toId
+   * uid stays the join key. Ids absent here fall back to id-only display. */
+  locationById?: Record<string, { city: string; state: string }>;
   /** The active model's id (always "two-echelon-jade-us" in practice), used
    * to fetch its reference-distance matrix. Optional: absent (or
    * `referenceCapable` false) means the merged table becomes
@@ -179,6 +184,7 @@ export function JadeDistancesTab({
   onImportApplied,
   focusEntityId,
   displayCodeById,
+  locationById,
   modelId,
   referenceCapable,
   inactiveWarehouseIds,
@@ -233,6 +239,15 @@ export function JadeDistancesTab({
   );
 
   const displayValue = (id: string) => displayCodeById?.[id] ?? id;
+  // "City, ST" primary label for From/To (base dataset ∪ added entities).
+  // undefined when the id has no known location — caller falls back to the id.
+  const locationLabel = (id: string) => {
+    const loc = locationById?.[id];
+    return loc ? `${loc.city}, ${loc.state}` : undefined;
+  };
+  // Combined text a From/To filter matches against: the "City, ST" label AND
+  // the id/displayCode, so filtering by either city or id works.
+  const searchText = (id: string) => `${locationLabel(id) ?? ""} ${displayValue(id)}`;
 
   // A warehouse sits in the MIDDLE of both legs: `inactiveWarehouseIds`
   // suppresses a pair on whichever side of that leg the warehouse occupies
@@ -283,9 +298,9 @@ export function JadeDistancesTab({
   }
 
   const mergedRows: MergedRow[] = useMemo(
-    () => mergedRowsAll.filter(r => matchesText(displayValue(r.fromId), displayValue(r.toId))),
+    () => mergedRowsAll.filter(r => matchesText(searchText(r.fromId), searchText(r.toId))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mergedRowsAll, fromFilter, toFilter, displayCodeById],
+    [mergedRowsAll, fromFilter, toFilter, displayCodeById, locationById],
   );
 
   const pageCount = Math.max(1, Math.ceil(mergedRows.length / PAGE_SIZE));
@@ -482,7 +497,7 @@ export function JadeDistancesTab({
       </Button>
       <div className="flex-1" />
       <Input
-        placeholder="Filter from ID…"
+        placeholder="Filter from…"
         value={fromFilter}
         onChange={e => {
           setFromFilter(e.target.value);
@@ -492,7 +507,7 @@ export function JadeDistancesTab({
         data-testid="input-filter-from"
       />
       <Input
-        placeholder="Filter to ID…"
+        placeholder="Filter to…"
         value={toFilter}
         onChange={e => {
           setToFilter(e.target.value);
@@ -614,29 +629,39 @@ export function JadeDistancesTab({
                         {LEG_LABEL[r.leg]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-1">
-                        {displayCodeById?.[r.fromId] ?? r.fromId}
-                        {fromUnknown && (
-                          <span
-                            title="Unknown ID for this leg's From role"
-                            data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1">
+                          <span>{locationLabel(r.fromId) ?? displayValue(r.fromId)}</span>
+                          {fromUnknown && (
+                            <span
+                              title="Unknown ID for this leg's From role"
+                              data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            </span>
+                          )}
+                        </div>
+                        {locationLabel(r.fromId) && (
+                          <span className="font-mono text-[10px] text-muted-foreground">{displayValue(r.fromId)}</span>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-1">
-                        {displayCodeById?.[r.toId] ?? r.toId}
-                        {toUnknown && (
-                          <span
-                            title="Unknown ID for this leg's To role"
-                            data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1">
+                          <span>{locationLabel(r.toId) ?? displayValue(r.toId)}</span>
+                          {toUnknown && (
+                            <span
+                              title="Unknown ID for this leg's To role"
+                              data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            </span>
+                          )}
+                        </div>
+                        {locationLabel(r.toId) && (
+                          <span className="font-mono text-[10px] text-muted-foreground">{displayValue(r.toId)}</span>
                         )}
                       </div>
                     </TableCell>

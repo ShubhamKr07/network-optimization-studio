@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { JadeDistancesTab } from "@/components/workspace/tabs/JadeDistancesTab";
@@ -132,6 +132,65 @@ describe("JadeDistancesTab — Leg column", () => {
     expect(screen.getByTestId("badge-leg-warehouse_to_customer-wh-1-customer-1")).toHaveTextContent(
       "Warehouse → Customer",
     );
+  });
+});
+
+describe("JadeDistancesTab — From/To city, state labels (locationById)", () => {
+  it("shows 'City, ST' as the primary From/To label with the id retained as a sub-label", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        locationById={{ "plant-1": { city: "Detroit", state: "MI" }, "wh-1": { city: "Phoenix", state: "AZ" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1");
+    // primary label = "City, ST" for both From (plant-1) and To (wh-1)
+    expect(within(row).getByText("Detroit, MI")).toBeInTheDocument();
+    expect(within(row).getByText("Phoenix, AZ")).toBeInTheDocument();
+    // the id stays visible as a sub-label (the unambiguous join key)
+    expect(within(row).getByText("plant-1")).toBeInTheDocument();
+    expect(within(row).getByText("wh-1")).toBeInTheDocument();
+  });
+
+  it("falls back to the id when a row's endpoint has no known location", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        locationById={{ "plant-1": { city: "Detroit", state: "MI" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1");
+    // wh-1 has no location entry → shows the id with no "City, ST" line
+    expect(within(row).getByText("Detroit, MI")).toBeInTheDocument();
+    expect(within(row).getByText("wh-1")).toBeInTheDocument();
+    expect(within(row).queryByText(/, AZ/)).not.toBeInTheDocument();
+  });
+
+  it("filters From by the city label, not just the id", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        locationById={{ "plant-1": { city: "Detroit", state: "MI" }, "wh-1": { city: "Phoenix", state: "AZ" } }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "Detroit" } });
+    expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).not.toBeInTheDocument();
   });
 });
 
