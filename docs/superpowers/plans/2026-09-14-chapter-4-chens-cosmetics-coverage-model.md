@@ -60,7 +60,10 @@ decisions **D1–D30**. Cite only the normative body.
   countryBounds {sw:[lat,lng], ne:[lat,lng]}, capabilities{...}, inputsSchema (REQUIRED z.record),
   distanceUnit ("mi"|"km" optional)`. **`ModelPackageSpec` = `{modelId, files}` only** (no datasetDir).
 - **`build_merged_pmedian_dataset(inputs, warehouses: dict[int,dict], customers: dict[int,dict],
-  distance)` returns a DICT** (index-keyed entity dicts + tuple-keyed distance dict). Chen mirrors this.
+  distance)` returns a DICT** (entity dicts keyed by id + tuple-keyed `(fromId,toId)` distance dict).
+  Chen mirrors the STRUCTURE but keys by **string ids** (`wh-`/`cs-`), not ints. **The `distances.json`
+  FILE is a flat `DistanceMap` keyed by direct entity ids `"wh-15,cs-1"` (like two-echelon), NOT
+  ordinals** — the spec's earlier "index-keyed" wording was wrong (fixed, Rev 9 note).
 - **Registration surfaces (must agree in one green commit):** `registry/modelRegistry.ts::KNOWN_SCHEMAS`
   (→ `KNOWN_MODEL_IDS`), `routes/scenarios.ts::VALID_MODEL_IDS`, `pmedian.ts::buildPayload` union,
   `solve.py` dispatch, `__tests__/registry.test.ts` (+ its `SOLVABLE` fixture).
@@ -146,15 +149,26 @@ for (const f of files) h.update(readFileSync(`${OUT}/${f}`));
 writeFileSync(`${OUT}/version.json`, JSON.stringify({ version: 1, sha256: h.digest("hex") }, null, 2) + "\n");
 ```
 
-- [ ] **Step 3: Run (with the notebook path) + assert counts/ids/raw.**
+- [ ] **Step 3: Add INTEGRITY ASSERTIONS to the extractor (throw, not print)** — before writing, assert
+  (an absent source pair becomes `undefined` and `JSON.stringify` silently drops it, so a print-only
+  check would pass a corrupt dataset):
+  - the `distances` key set is **exactly** the 25×197 Cartesian product = **4925 unique** keys, none
+    missing / extra / reversed (`for w of whN for c of csN: assert(distances["wh-w,cs-c"] is a finite
+    number)`; `assert(Object.keys(distances).length === 4925)`);
+  - all `wh-`/`cs-` ids are unique in their role; every demand is a nonnegative **integer**; every
+    lat/lng is finite and within the padded manifest bounds.
+  Throw with a specific message on any failure.
+
+- [ ] **Step 4: Run (with the notebook path).**
 
 Run: `pnpm tsx scripts/src/extract-chens-dataset.ts "$HOME/Downloads/ChensCosmeticsV1-UNZIP-before-USING-this-is-3-files/ChensCosmeticsV1 Step 3.ipynb"`
 (or `CHENS_NOTEBOOK="<path>" pnpm tsx scripts/src/extract-chens-dataset.ts` — the path is a runtime arg,
-never committed into the script.)
-Then: `python3 -c "import json;w=json.load(open('solvers/chens-cosmetics-cn/dataset/warehouses.json'));c=json.load(open('solvers/chens-cosmetics-cn/dataset/customers.json'));d=json.load(open('solvers/chens-cosmetics-cn/dataset/distances.json'));print(len(w),len(c),sum(v['demand'] for v in c.values()),d['wh-15,cs-1'])"`
-Expected: `25 197 199269881 3660.0` (raw, not ×1.17). Confirm `cs-81`/`cs-120`/`cs-135` absent.
+never committed into the script.) The integrity assertions (Step 3) run inside the extractor and throw
+on any corruption; the script only writes files if they all pass. Spot-confirm: `python3 -c "import
+json;c=json.load(open('solvers/chens-cosmetics-cn/dataset/customers.json'));d=json.load(open('solvers/chens-cosmetics-cn/dataset/distances.json'));print(len(c),sum(v['demand'] for v in c.values()),d['wh-15,cs-1'],'cs-81' in c)"`
+→ `197 199269881 3660.0 False` (raw, not ×1.17; ids 81/120/135 absent).
 
-- [ ] **Step 4: Commit** `[C4.1] extract Chen's Cosmetics dataset (record-maps, flat raw-km DistanceMap)`.
+- [ ] **Step 5: Commit** `[C4.1] extract Chen's Cosmetics dataset (record-maps, direct-id raw-km DistanceMap) + integrity assertions`.
   (Zip geocoding is C4.1b — split so a Nominatim failure doesn't block the base dataset.)
 
 ---
@@ -436,11 +450,15 @@ def solve_chens(inp):
   `__main__` try → `error` envelope. **Do NOT** use syntactically malformed JSON: `json.loads` runs
   BEFORE the `__main__` try, so unparseable input is a process-level non-zero exit, not an envelope.
   Each valid case must produce a schema-valid envelope with the D17-correct `status`.
-- [ ] **Step 7b: `_safe_load` containment test** (pytest) — monkeypatch/point Chen's dataset dir at a
-  missing/corrupt file so `_LOAD_ERRORS["chens-cosmetics-cn"]` is set, assert `solve({"modelType":
-  "chens", ...})` returns a schema-valid `error` envelope (via `_load_error_envelope`), AND that an
-  existing model (e.g. `solve_pmedian`) still runs in the same process — proving one bad dataset doesn't
-  break every model's import.
+- [ ] **Step 7b: `_safe_load` containment test** (pytest) — Chen data loads eagerly at
+  `import solve`, so post-import monkeypatching the dataset dir CANNOT set `_LOAD_ERRORS`. Instead
+  **directly drive `_safe_load`**: in the test, call `solve._safe_load("chens-cosmetics-cn",
+  "warehouses.json")` with `solve._load_json` patched to raise (so `_LOAD_ERRORS["chens-cosmetics-cn"]`
+  is populated), restore `_LOAD_ERRORS` in a `finally`. With the error set, assert
+  `solve.solve({"modelType":"chens", ...})` returns a schema-valid `error` envelope (via
+  `_load_error_envelope`), AND that a sibling `solve.solve({"modelType":"p_median", ...})` still runs in
+  the same process. (Locked to the direct `_safe_load` + patched `_load_json` approach — the setup MUST
+  actually populate `_LOAD_ERRORS`, never just swap a directory post-import.)
 
 - [ ] **Step 8: e2e_accuracy unchanged.** `python3 artifacts/api-server/src/solver/tests/e2e_accuracy.py`.
 
@@ -470,10 +488,15 @@ resolve **Chen's** dataset, never a sibling's (no reset-to-baseline — removed)
   silently resolves a p-median sibling dataset on any surviving path.
 
 - [ ] **Step 2: Implement `chensDataset.ts`** mirroring `data/dataset.ts` (load the record-map package
-  via `findRepoRoot()` per the bundling gotcha — NOT `import.meta.url` relative). Wire into
-  `routes/dataset.ts`'s model dispatch, `referenceDistances.ts`, and generalize the template/stub +
-  `routes/scenarios.ts` selection so `chens-cosmetics-cn` → Chen base dataset. Add
-  `entityIsChens = entity==="warehouses"||entity==="customers"||entity==="distances"` + the guard.
+  via `findRepoRoot()` per the bundling gotcha — NOT `import.meta.url` relative). Add a
+  **`buildChensReferenceDistancePairs`** to `referenceDistances.ts` that mirrors the **direct-id
+  builder** (the one that does `[fromId,toId] = key.split(",")`, NOT the ordinal builder): it parses
+  each `DistanceMap` key as `"<whId>,<csId>"`, validates `fromId ∈ warehouses` and `toId ∈ customers`
+  (role membership), throws on any malformed/unresolved key (fail-loud), asserts all **4925** pairs are
+  present, and a unit test checks `wh-15 → cs-1 == 3660`. Wire into `routes/dataset.ts`'s model
+  dispatch, generalize the template/stub + `routes/scenarios.ts` selection so `chens-cosmetics-cn` →
+  Chen base dataset, add `entityIsChens = entity==="warehouses"||entity==="customers"||entity==="distances"`
+  + the guard.
 
 - [ ] **Step 3: Run — PASS. Commit** `[C4.4] Chen dataset loader + /dataset + reference-distances + model→entity export/import selection`.
 
@@ -540,17 +563,25 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
     state, lat, lng, demand: z.number().int().nonnegative(), status: z.enum(["active","excluded"])
     .default("active") }))` — status optional/default-active (exclusion capability).
   - `distanceOverrides: z.array(z.object({ fromId: z.string().min(1), toId: z.string().min(1),
-    distance: z.number().positive(), estimated: z.boolean().optional() }))`.
+    distance: z.number().positive(), estimated: z.boolean().optional() })).default([]).refine(no
+    duplicate (fromId,toId) pairs, message "distanceOverrides must not contain duplicate (fromId, toId)
+    pairs")` (copy the p-median dedup refine verbatim).
+  - **ALL FIVE sparse arrays carry `.default([])`** (p-median compatibility — omitted arrays parse to
+    `[]`, NOT required), not bare `z.array(...)`.
   - `coverageFloorDemand: z.number().int().nonnegative()` (D30); D19 `.transform` overwrites
     `distanceBands` to `[high,max]`; refinement `highServiceDistKm < maxDistKm`.
+  Tests: omitting the sparse arrays parses to `[]`; two `distanceOverrides` rows for the same
+  `(fromId,toId)` are rejected.
   Add to `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `validateInputsForModel`; add the `SolveInput` union
   member + `buildPayload` branch (sparse edits, NOT merged dataset); extend `registry.test.ts`'s
   `SOLVABLE`.
-- [ ] **Step 3b: D19 write-path route tests** — direct `POST /scenarios` create, `PATCH`, and
-  `POST .../import/apply` each carrying/staging a **stale third `distanceBands` boundary** assert the
-  STORED Chen `inputs.distanceBands` is exactly `[highServiceDistKm, maxDistKm]` — never 422'd, never
-  left stale (the import case runs after C4.7's Chen normalizer dispatch exists; if C4.7 hasn't landed
-  in the wave order, gate the import assertion on it and note the dependency).
+- [ ] **Step 3b: D19 write-path route tests (no forward dependency)** — direct `POST /scenarios` create,
+  `PATCH`, and a **`customers` `POST .../import/apply`** each carrying/staging a **stale third
+  `distanceBands` boundary** assert the STORED Chen `inputs.distanceBands` is exactly
+  `[highServiceDistKm, maxDistKm]` — never 422'd, never left stale. (The `customers` import path
+  re-validates the merged inputs through `validateInputsForModel` before storage, so it exercises D19
+  WITHOUT depending on C4.7. Any `distances`-import assertion that specifically needs the Chen
+  estimator/normalizer dispatch belongs in C4.7, not here — so this whole task stays one green commit.)
 - [ ] **Step 4: Run — PASS. Commit** `[C4.6] Chen Zod inputs + KNOWN_SCHEMAS/VALID_MODEL_IDS registration + buildPayload (atomic)`.
 
 ---
@@ -564,8 +595,11 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
 - [ ] **Step 1: Failing test** — `fillEstimatedChensDistances` fills a missing added-entity pair with
   **raw haversine km** (`R=6371`, NO ×1.17), a **positive floor** for co-located points (never 0 —
   match the existing estimator's min), leaves existing pairs untouched, is idempotent; **all three
-  persist call sites** (POST create, PATCH, import/apply) invoke it for Chen (create/move/delete
-  reconciliation) — one route test each.
+  persist call sites** (POST create, PATCH, import/apply) invoke it for Chen — one route test each. NOTE
+  the estimator only FILLS missing pairs — it does NOT repair stale estimates after a coordinate change;
+  the client-side move/delete PURGE of owned distance rows (C4.13) is what makes a re-estimate happen.
+  Also add the **`distances`-import D19 assertion** here (deferred from C4.6): a `distances` import/apply
+  that stages a stale third band still stores `[high,max]` after this task's normalizer dispatch exists.
 - [ ] **Step 2: Run — fail.** `pnpm --filter api-server test autoDistance`.
 - [ ] **Step 3: Implement — write a SEPARATE `fillEstimatedChensDistances`** (the locked choice — do
   NOT refactor the shared p-median core, which is riskier for a model-add). It mirrors the **algorithm
@@ -723,6 +757,13 @@ routes derive from `CHAPTERS`.)
   render** branches. A stale model-id allowlist on any one gate must fail an RTL test — "full parity"
   cannot pass otherwise. RTL: add → save → the added entity appears with City/State/Lat/Lng + display
   code; each gate renders for a Chen scenario.
+- [ ] **Step 1b: Move/delete reconciliation RTL (client-side purge — the behavior that makes re-estimate
+  correct):** moving an added warehouse OR customer **preserves its stable `id`**, updates its
+  coordinates/`displayCode`, **removes every `distanceOverrides` row involving that id**, and leaves
+  unrelated distance rows + the override arrays untouched; **deleting** the entity removes it AND the
+  same owned rows. Then a save proves the **server response supplies fresh estimated rows** (C4.7's
+  `fillEstimatedChensDistances` refills the purged pairs). Assert move-wh, move-cs, delete-wh,
+  delete-cs — RTL, not route-call description.
 - [ ] **Step 2:** Distances tab shows Chen base (raw-km reference) + overrides with display codes.
 - [ ] **Step 3: PASS. Commit** `[C4.13] Chen full Input-Map parity (projection, symbology, uid/displayCode, reconciliation)`.
 
@@ -1245,3 +1286,85 @@ are folded into the executable tasks.
 **Approval condition:** align the nested manifest and Zod shapes; synchronize the export response
 discriminator with every supported output entity; preserve `_safe_load` containment for Chen; and add
 the D19 write-path plus D22 rounding assertions. Then the plan can be re-reviewed for dispatch.
+
+### Plan Rev 7 re-review — 2026-09-15 (FOLDED — nothing left open)
+
+**All verified correct and resolved:** distance keys are **direct entity ids** (`"wh-15,cs-1"`, like
+two-echelon — verified; the spec's "index-keyed [whOrdinal, csOrdinal]" was WRONG, fixed in spec + the
+plan's verified-contract; `buildChensReferenceDistancePairs` uses the direct-id builder, validates role
+membership, asserts 4925, checks `wh-15→cs-1==3660`, C4.4); C4.6/C4.7 wave contradiction removed (C4.6
+does D19 via `customers` import, C4.7 owns the `distances`-import assertion); all 5 sparse arrays get
+`.default([])` + the `distanceOverrides` dedup refine (C4.6); explicit move/delete client-purge
+reconciliation RTL (C4.13); C4.1 dataset facts are throwing integrity assertions (exact 4925 Cartesian,
+unique-per-role ids, integer demand, finite in-bounds coords) not prints; `_safe_load` containment test
+setup populates `_LOAD_ERRORS` via patched `_load_json` (post-import dir-swap can't, since load is
+eager). Original text below.
+
+**Scope:** clean-room trace of every Rev 9 decision through its implementation task, repository
+contract, public boundary, and explicit test. Rev 6's nested-shape, export-discriminator, containment,
+D19, D22, and valid-JSON error-case corrections are present. The plan is nevertheless **not
+dispatch-ready** because two execution blockers and four additional contract/test gaps remain.
+
+#### Blockers
+
+1. **[NEW] Lock one distance-key representation end-to-end.** C4.1 currently serializes direct
+   canonical keys such as `wh-15,cs-1`, C4.3 parses those keys into `(fromId,toId)` tuples, and its
+   merged dataset is string-id keyed. The normative spec still says `distances.json` is
+   index/ordinal-keyed, while the plan's verified-contract section also says Chen mirrors p-median's
+   index-keyed representation. Those are different contracts, and the existing
+   `buildReferenceDistancePairs` is specifically an ordinal-to-array-position mapper. Prefer the
+   direct canonical-id representation already used by the extraction and solver tasks: amend the spec
+   accordingly and require a dedicated `buildChensReferenceDistancePairs` that parses direct ids,
+   validates warehouse/customer role membership, rejects malformed or unresolved keys, asserts all
+   4,925 pairs, and checks representative `wh-15 -> cs-1 == 3660`. If ordinal keys are retained
+   instead, C4.1/C4.3 must be rewritten consistently; do not leave the choice to the implementer.
+
+2. **[NEW] Remove C4.6's forward dependency on C4.7.** The wave table mandates
+   `C4.4 -> C4.6 -> C4.7` and every task must land as one green commit, but C4.6 assigns an
+   import/apply assertion that it says runs after C4.7's Chen normalizer exists. A test cannot be both
+   part of C4.6's green commit and gated on future behavior. In C4.6, exercise D19 through a
+   `customers` import/apply path, which already revalidates the merged inputs through
+   `validateInputsForModel` before the final normalizer. Put any composite `distances` import assertion
+   that specifically depends on the Chen estimator/normalizer dispatch in C4.7.
+
+#### Important corrections
+
+1. **[NEW] Make the five sparse-edit arrays optional-with-empty-default and retain distance-pair
+   uniqueness.** C4.2's manifest intentionally excludes `warehouseOverrides`, `customerOverrides`,
+   `addedWarehouses`, `addedCustomers`, and `distanceOverrides` from its top-level `required` list,
+   but C4.6's purportedly exact Zod declarations use bare `z.array(...)`, making every array required.
+   Add `.default([])` to all five, matching the established p-median compatibility contract, and keep
+   the existing refinement rejecting duplicate `(fromId,toId)` distance-override pairs. Add tests that
+   omitted sparse arrays parse to empty arrays and that two rows for the same pair are rejected.
+
+2. **[NEW] Add explicit Chen move/delete reconciliation tests.** C4.7 correctly says the estimator
+   leaves existing pairs untouched, so it cannot itself repair stale estimates after a coordinate
+   change. C4.13 mentions move/delete/save reconciliation but its explicit RTL acceptance only covers
+   add -> save and registration gates. Add Chen RTL cases proving that moving an added warehouse or
+   customer preserves its stable id, updates coordinates/displayCode, removes every distance row
+   involving that id, and leaves unrelated rows/override arrays untouched; deletion removes the entity
+   and the same owned rows. The save test should then prove the server response supplies fresh
+   estimated rows. Do not describe POST/PATCH/import route invocation in C4.7 as move/delete
+   reconciliation—the client-side purge is the behavior that makes those operations correct.
+
+3. **[NEW] Turn C4.1's dataset facts into integrity assertions before writing.** The current check
+   prints only warehouse/customer counts, total demand, and one representative distance. If a source
+   pair is absent, the extractor assigns `undefined` and `JSON.stringify` silently omits that property;
+   the current C4.1 gate still passes. Assert the distance key set is exactly the 25 x 197 Cartesian
+   product (4,925 unique pairs), with no missing/extra/reversed keys; all ids are unique in their role;
+   all demands are integer and nonnegative; and all coordinates are finite, valid, and contained by
+   the chosen padded manifest bounds. Make these script/test failures, not manual printed observations.
+
+#### Test-mechanics clarification
+
+1. **[NEW] Specify how the `_safe_load` containment failure is created.** Chen data is loaded eagerly
+   when `solve.py` is imported, so merely monkeypatching the dataset directory after import cannot set
+   `_LOAD_ERRORS`. Require either a direct `_safe_load` call using a patched `_load_json` (with
+   `_LOAD_ERRORS` restored after the test), or a fresh isolated module/subprocess import under a
+   missing/corrupt Chen dataset. Then assert the Chen error envelope and a sibling solve in that same
+   loaded process.
+
+**Approval condition:** resolve the direct-id-vs-ordinal dataset contract and the C4.6/C4.7 wave
+contradiction; default and de-duplicate sparse arrays; add explicit move/delete reconciliation and
+extraction-integrity tests; and make the containment test setup executable. Re-review after those
+changes are folded into the normative task body.

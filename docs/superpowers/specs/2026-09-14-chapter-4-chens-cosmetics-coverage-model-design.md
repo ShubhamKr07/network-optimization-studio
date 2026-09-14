@@ -172,7 +172,9 @@ Ch.10; slugging avoids it).
   `kind`** (neither in `WarehouseEntry` → stripped; every Chen WH is an overridable facility, omit
   `kind` per convention).
 - `customers.json` — 197 rows `{id: "cs-1", city, state: "", lat, lng, demand, zip}`. No `country`.
-- `distances.json` — 4925 pairs, **raw km**, index-keyed `[whOrdinal, csOrdinal]`.
+- `distances.json` — 4925 pairs, **raw km**, a flat `DistanceMap` keyed by **direct entity ids**
+  `"<whId>,<csId>"` (e.g. `"wh-15,cs-1"`) — the same direct-id convention as `two-echelon-gold-au`, NOT
+  array ordinals.
 - `version.json` — sha256 + version.
 - `manifest.json` — `countryBounds` computed from **all** warehouse+customer coords + padding (real
   span Kashi `75.97°E` … Jixi `130.97°E`, `20.05–47.4°N`); extraction asserts every source point is
