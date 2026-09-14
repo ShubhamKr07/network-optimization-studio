@@ -60,6 +60,7 @@ import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
+import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -211,6 +212,33 @@ const twoEchelonRow = {
   solvedAt: null,
   createdAt: new Date("2026-01-04T00:00:00Z"),
   updatedAt: new Date("2026-01-04T00:00:00Z"),
+};
+
+// jade-T5 — two-echelon-jade-us (Chapter 9, JADE).
+const jadeInputs = {
+  p: 2,
+  distanceBands: [200, 400, 800, 1600],
+  gap: 0,
+  timeLimitSec: 120,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  plantProductCapability: [],
+  addedPlants: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const jadeRow = {
+  id: 12,
+  name: "JADE Base Case",
+  modelId: "two-echelon-jade-us",
+  userId: OWNER,
+  inputs: jadeInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-05T00:00:00Z"),
+  updatedAt: new Date("2026-01-05T00:00:00Z"),
 };
 
 beforeEach(() => {
@@ -395,6 +423,18 @@ describe("POST /api/scenarios", () => {
     expect(res.body.modelId).toBe("p-median-brazil");
     expect(res.body.inputs.uniformCapacity).toBe(20000000);
     expect(res.body.inputs.singleSource).toBe(false);
+  });
+
+  // jade-T5 — two-echelon-jade-us (Chapter 9, JADE) joins VALID_MODEL_IDS +
+  // KNOWN_SCHEMAS in this commit; a genuinely unknown modelId must still 422.
+  it("returns 201 with JADE scenario when modelId=two-echelon-jade-us", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.insert.mockReturnValue(makeChain([{ ...jadeRow, name: "New JADE" }]));
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New JADE", modelId: "two-echelon-jade-us", inputs: jadeInputs });
+    expect(res.status).toBe(201);
+    expect(res.body.modelId).toBe("two-echelon-jade-us");
+    expect(res.body.inputs.p).toBe(2);
   });
 
   it("returns 422 when modelId is missing", async () => {
@@ -694,6 +734,72 @@ describe("follow-up item 3 — auto-estimate distance normalizer (transport-coal
   // import/export gate is a real remaining gap for whichever task owns
   // Brazil's CSV import/export UI (see this task's report to the
   // controller) — out of scope for T2 (estimators only).
+});
+
+// jade-T12 (Chapter 9 JADE, Gate 6.5) — auto-estimate normalizer, fourth
+// writer of routes/scenarios.ts's normalizeAddedEntityDistances (after
+// T5/T6/T7). Both legs (plant_to_warehouse, warehouse_to_customer) fill
+// `estimated: true` rows on POST/PATCH/import-apply; base<->base pairs are
+// never touched (e2e_accuracy.py's JADE anchor stays unaffected).
+describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)", () => {
+  const newWarehouse = { id: "WH-NEW1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, status: "active" };
+  const newPlant = { id: "PLANT-NEW1", city: "Denver", state: "CO", lat: 39.7392, lng: -104.9903 };
+
+  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets BOTH legs estimated (plant->warehouse + warehouse->every customer)", async () => {
+    const cookie = await loginAs(OWNER);
+    const inputsWithAddedWarehouse = { ...jadeInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...jadeRow, inputs: inputsWithAddedWarehouse }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New JADE", modelId: "two-echelon-jade-us", inputs: inputsWithAddedWarehouse });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ leg: string; fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const inboundToNew = insertArgs.inputs.distanceOverrides.filter((o) => o.leg === "plant_to_warehouse" && o.toId === "WH-NEW1");
+    expect(inboundToNew.every((o) => o.estimated === true)).toBe(true);
+    const outboundFromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.leg === "warehouse_to_customer" && o.fromId === "WH-NEW1");
+    expect(outboundFromNew.length).toBe(JADE_CUSTOMERS.length);
+    expect(outboundFromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("PATCH /api/scenarios/:id: an added plant gets a plant->warehouse leg estimated to every active warehouse", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const newInputs = { ...jadeInputs, addedPlants: [newPlant] };
+    const chain = makeChain([{ ...jadeRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ leg: string; fromId: string; toId: string; estimated?: boolean }> };
+    };
+    const fromNewPlant = setArgs.inputs.distanceOverrides.filter((o) => o.leg === "plant_to_warehouse" && o.fromId === "PLANT-NEW1");
+    expect(fromNewPlant.length).toBe(JADE_WAREHOUSES.length);
+    expect(fromNewPlant.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets both legs' estimated distances filled on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([jadeRow]));
+    const chain = makeChain([{ ...jadeRow, inputs: jadeInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Reno,NV,39.53,-119.81,,active\n";
+    const res = await request(app).post("/api/scenarios/12/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: {
+        distanceOverrides: Array<{ leg: string; fromId: string; toId: string; estimated?: boolean }>;
+        addedWarehouses: Array<{ id: string; displayCode?: string }>;
+      };
+    };
+    const addedId = setArgs.inputs.addedWarehouses.find((w) => w.displayCode === "WH-NEW1")!.id;
+    expect(addedId).toMatch(/^aw-/);
+    const outbound = setArgs.inputs.distanceOverrides.filter((o) => o.leg === "warehouse_to_customer" && o.fromId === addedId);
+    expect(outbound.length).toBe(JADE_CUSTOMERS.length);
+    expect(outbound.every((o) => o.estimated === true)).toBe(true);
+  });
 });
 
 // ── Scenario.stale (X1.1) ───────────────────────────────────────────────────

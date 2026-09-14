@@ -5,6 +5,7 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { ReferenceDistancePairLeg } from './referenceDistancePairLeg';
 
 /**
  * One base-warehouse×base-customer distance. fromCode/toCode echo fromId/toId (base entities' id IS already a short display code, e.g. "ALN"/"C1") — kept as separate fields to match the added-entity displayCode shape used elsewhere.
@@ -15,4 +16,6 @@ export interface ReferenceDistancePair {
   toId: string;
   toCode: string;
   distance: number;
+  /** Chapter 9 JADE only — which leg this pair belongs to, since its single distances.json mixes both leg key-namespaces. Optional; absent for single-leg models. */
+  leg?: ReferenceDistancePairLeg;
 }

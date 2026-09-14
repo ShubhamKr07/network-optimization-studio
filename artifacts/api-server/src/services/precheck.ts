@@ -1,9 +1,11 @@
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
+import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 /**
@@ -39,7 +41,17 @@ import { getManifest } from "../registry/modelRegistry.js";
  * `inputs`.
  */
 
-export type PrecheckErrorCode = "completeness" | "id_collision" | "reference_integrity";
+// jade-T6 adds "p_range" and "capacity" for two-echelon-jade-us — two
+// genuinely new failure categories no prior model's precheck has (p vs.
+// forced-open/active warehouse COUNTS, and per-product enabled-plant-
+// capacity vs. effective demand; see precheckJadeInputs below). These two
+// values are NOT YET reflected in openapi.yaml's PrecheckErrorCode enum
+// (out of this task's scope — precheck responses are never schema-validated
+// against that generated Zod enum on the way out, so this is inert today,
+// not a live contract break) — a follow-up should extend that enum +
+// regenerate codegen once JADE's frontend precheck-display work (T11+)
+// needs to discriminate on these codes specifically.
+export type PrecheckErrorCode = "completeness" | "id_collision" | "reference_integrity" | "p_range" | "capacity";
 
 export interface PrecheckError {
   code: PrecheckErrorCode;
@@ -733,6 +745,404 @@ export function precheckTransportInputs(
       errors.push({
         code: "completeness",
         message: `${mineId} missing lane costs to ${missing.length} station${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+      });
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+// ---------------------------------------------------------------------------
+// jade-T6 — semantic precheck for two-echelon-jade-us (Chapter 9, JADE
+// Investment Decision: plant -> warehouse -> customer, multi-product,
+// single-source). Own function, NOT a call into any of the above: this
+// model combines FOUR things no prior precheck function handles together —
+//   - a THIRD addable entity type (addedPlants), unlike two-echelon-gold-au's
+//     fixed single mine (never addable) — so plant<->warehouse completeness
+//     needs the SAME bidirectional "vice versa" treatment as p-median's own
+//     warehouse<->customer completeness, not the one-directional
+//     mine->refinery rule two-echelon-gold-au could get away with (its mine
+//     never needs a distance TO it, only added refineries need one FROM it).
+//   - a PRODUCTS axis: customerOverrides/addedCustomers carry per-product
+//     demand keyed by canonical product id, so a demand key that isn't one
+//     of the known product ids is its own reference-integrity failure mode
+//     no other model has.
+//   - an explicit `leg` field on distanceOverrides, checked against the
+//     ACTUAL id-space membership of fromId/toId as defense in depth (per
+//     jadeInputs.ts's own file header), rather than two-echelon-gold-au's
+//     purely id-space-inferred leg.
+//   - two genuinely new failure classes: p vs. forced-open/active warehouse
+//     COUNTS, and per-product ENABLED PLANT CAPACITY vs. effective demand
+//     (this model's supply side is a plant x product capability matrix, not
+//     a per-warehouse capacity scalar) — see the new "p_range"/"capacity"
+//     codes above.
+//
+//   (a) id collision          - GLOBAL across all three added entity types:
+//                                 every added plant/warehouse/customer id is
+//                                 checked against ALL THREE base namespaces
+//                                 (not just its own role) and every OTHER
+//                                 added entity of ANY type in this scenario
+//                                 (not just same-type) — the plan's own
+//                                 interface calls this out explicitly as
+//                                 "global id collisions across added
+//                                 entities", broader than every other
+//                                 model's same-role-only check above.
+//   (b) known product ids    - every customerOverrides[].demands /
+//                                 addedCustomers[].demands key must be one
+//                                 of the dataset's own canonical product ids
+//                                 (never a hardcoded literal duplicated from
+//                                 jadeInputs.ts's own closed product-id set).
+//   (c) reference integrity  - every distanceOverrides pair's declared
+//                                 `leg` must match the ACTUAL role of its
+//                                 fromId/toId: plant_to_warehouse needs a
+//                                 plant fromId + a warehouse toId;
+//                                 warehouse_to_customer needs a warehouse
+//                                 fromId + a customer toId (base dataset or
+//                                 this scenario's added entities) — a
+//                                 mismatched leg is rejected even if both
+//                                 ids are individually valid in some role.
+//   (d) completeness          - added-entity distance completeness on BOTH
+//                                 legs, applied symmetrically around the
+//                                 shared warehouse role: for every active
+//                                 warehouse, if it's added it needs a
+//                                 distance from every active plant AND to
+//                                 every active customer; if it's base, it
+//                                 only needs the "vice versa" distances
+//                                 to/from this scenario's active ADDED
+//                                 plants/customers (base<->base pairs are
+//                                 already covered by the base dataset's own
+//                                 distances.json).
+//   (e) p range               - forced_open count <= p <= active warehouse
+//                                 count — no other model's precheck
+//                                 validates p against counts at all.
+//   (f) plant capacity        - for every product with positive effective
+//                                 demand (summed over active customers,
+//                                 overrides applied), the sum of ENABLED
+//                                 plant-product capacity (base cells
+//                                 overridden by plantProductCapability,
+//                                 added plants defaulting every cell to
+//                                 disabled/0) must be >= that demand —
+//                                 otherwise the LP is infeasible by
+//                                 construction and CBC would just prove
+//                                 infeasibility the expensive way.
+//
+// Purely a read/validate operation - never writes to the DB, never mutates
+// `inputs`.
+
+export interface JadePrecheckDataset {
+  plants: readonly PrecheckDatasetEntity[];
+  warehouses: readonly PrecheckDatasetEntity[];
+  customers: readonly (PrecheckDatasetEntity & { demands?: Record<string, number> })[];
+  productIds: readonly string[];
+  // Optional display names for a friendlier capacity-error message; falls
+  // back to the bare canonical id when absent (e.g. a test's fake dataset).
+  productNames?: Record<string, string>;
+  capabilityCells: readonly { plantId: string; productId: string; capacity: number }[];
+  // See PrecheckDataset's own field of the same name above for the full
+  // rationale (Bundle 2.2, B2.2-T1). two-echelon-jade-us's manifest sets
+  // this true.
+  supportsAddedCustomerExclusion?: boolean;
+}
+
+export const JADE_DATASET: JadePrecheckDataset = {
+  plants: JADE_PLANTS,
+  warehouses: JADE_WAREHOUSES,
+  customers: JADE_CUSTOMERS,
+  productIds: JADE_PRODUCTS.map((p) => p.id),
+  productNames: Object.fromEntries(JADE_PRODUCTS.map((p) => [p.id, p.name])),
+  capabilityCells: JADE_PLANT_PRODUCT_CAPABILITIES,
+  supportsAddedCustomerExclusion:
+    getManifest("two-echelon-jade-us")?.capabilities.supportsAddedCustomerExclusion ?? false,
+};
+
+/**
+ * jade-T6 — the JADE analogue of buildPMedianIdSpaces/buildTwoEchelonIdSpaces
+ * above: base plant/warehouse/customer ids + this scenario's added
+ * plants/warehouses/customers. Exported so a future import.ts entity for
+ * this model's leg-distance grid (T7) reuses this exact id-space rule
+ * rather than recomputing it a possibly-divergent way.
+ */
+export function buildJadeIdSpaces(
+  addedEntities: {
+    addedPlants?: readonly PrecheckDatasetEntity[];
+    addedWarehouses?: readonly PrecheckDatasetEntity[];
+    addedCustomers?: readonly PrecheckDatasetEntity[];
+  },
+  dataset: JadePrecheckDataset = JADE_DATASET,
+): { plantIdSpace: Set<string>; warehouseIdSpace: Set<string>; customerIdSpace: Set<string> } {
+  const plantIdSpace = new Set(dataset.plants.map((p) => p.id));
+  for (const p of addedEntities.addedPlants ?? []) plantIdSpace.add(p.id);
+  const warehouseIdSpace = new Set(dataset.warehouses.map((w) => w.id));
+  for (const w of addedEntities.addedWarehouses ?? []) warehouseIdSpace.add(w.id);
+  const customerIdSpace = new Set(dataset.customers.map((c) => c.id));
+  for (const c of addedEntities.addedCustomers ?? []) customerIdSpace.add(c.id);
+  return { plantIdSpace, warehouseIdSpace, customerIdSpace };
+}
+
+/**
+ * jade-T6 — the JADE analogue of buildActivePMedianIds/buildActiveTwoEchelonIds
+ * above. Plants have NO force-open/inactive concept anywhere in this model
+ * (solve_jade has no facility variable for plants — only warehouses get
+ * one, confirmed directly against solve.py/jadeInputs.ts's own file-header
+ * comment), so every base + added plant is unconditionally "active" — a
+ * genuinely different rule from the warehouse/customer "active" rules this
+ * function also computes (which DO respect status/exclusion).
+ */
+export function buildActiveJadeIds(
+  inputs: {
+    addedPlants?: readonly PrecheckDatasetEntity[];
+    addedWarehouses?: readonly (PrecheckDatasetEntity & { status?: string })[];
+    addedCustomers?: readonly (PrecheckDatasetEntity & { status?: string })[];
+    warehouseOverrides?: readonly { id: string; status?: string }[];
+    customerOverrides?: readonly { id: string; status?: string }[];
+  },
+  dataset: JadePrecheckDataset = JADE_DATASET,
+): { activePlantIds: string[]; activeWarehouseIds: string[]; activeCustomerIds: string[] } {
+  const addedPlants = inputs.addedPlants ?? [];
+  const addedWarehouses = inputs.addedWarehouses ?? [];
+  const addedCustomers = inputs.addedCustomers ?? [];
+  const warehouseOverrides = inputs.warehouseOverrides ?? [];
+  const customerOverrides = inputs.customerOverrides ?? [];
+
+  const activePlantIds = [...dataset.plants.map((p) => p.id), ...addedPlants.map((p) => p.id)];
+
+  const warehouseStatusById = new Map(warehouseOverrides.map((o) => [o.id, o.status]));
+  const activeBaseWarehouseIds = dataset.warehouses
+    .map((w) => w.id)
+    .filter((id) => warehouseStatusById.get(id) !== "inactive");
+  const activeAddedWarehouseIds = addedWarehouses.filter((w) => w.status !== "inactive").map((w) => w.id);
+  const activeWarehouseIds = [...activeBaseWarehouseIds, ...activeAddedWarehouseIds];
+
+  const customerStatusById = new Map(customerOverrides.map((o) => [o.id, o.status]));
+  const activeBaseCustomerIds = dataset.customers
+    .map((c) => c.id)
+    .filter((id) => customerStatusById.get(id) !== "excluded");
+  const activeAddedCustomerIds = filterActiveAddedCustomers(
+    addedCustomers,
+    dataset.supportsAddedCustomerExclusion,
+  ).map((c) => c.id);
+  const activeCustomerIds = [...activeBaseCustomerIds, ...activeAddedCustomerIds];
+
+  return { activePlantIds, activeWarehouseIds, activeCustomerIds };
+}
+
+export function precheckJadeInputs(
+  inputs: JadeInputs,
+  dataset: JadePrecheckDataset = JADE_DATASET,
+): PrecheckResult {
+  const errors: PrecheckError[] = [];
+
+  const addedPlants = inputs.addedPlants ?? [];
+  const addedWarehouses = inputs.addedWarehouses ?? [];
+  const addedCustomers = inputs.addedCustomers ?? [];
+  const warehouseOverrides = inputs.warehouseOverrides ?? [];
+  const customerOverrides = inputs.customerOverrides ?? [];
+  const distanceOverrides = inputs.distanceOverrides ?? [];
+  const plantProductCapability = inputs.plantProductCapability ?? [];
+
+  // --- (a) ID collision, GLOBAL across all three added entity types --------
+  const baseIds = new Set<string>([
+    ...dataset.plants.map((p) => p.id),
+    ...dataset.warehouses.map((w) => w.id),
+    ...dataset.customers.map((c) => c.id),
+  ]);
+  const seenAddedIds = new Map<string, "plant" | "warehouse" | "customer">();
+  function checkGlobalIdCollision(id: string, role: "plant" | "warehouse" | "customer") {
+    if (baseIds.has(id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added ${role} id '${id}' collides with an existing base-dataset id`,
+      });
+    } else if (seenAddedIds.has(id)) {
+      errors.push({
+        code: "id_collision",
+        message: `Added ${role} id '${id}' is duplicated across added entities (already used by an added ${seenAddedIds.get(id)})`,
+      });
+    }
+    seenAddedIds.set(id, role);
+  }
+  for (const p of addedPlants) checkGlobalIdCollision(p.id, "plant");
+  for (const w of addedWarehouses) checkGlobalIdCollision(w.id, "warehouse");
+  for (const c of addedCustomers) checkGlobalIdCollision(c.id, "customer");
+
+  // --- (b) known product ids -------------------------------------------
+  const knownProductIds = new Set(dataset.productIds);
+  for (const o of customerOverrides) {
+    for (const productId of Object.keys(o.demands ?? {})) {
+      if (!knownProductIds.has(productId)) {
+        errors.push({
+          code: "reference_integrity",
+          message: `customerOverrides for '${o.id}' has a demand entry for unknown product id '${productId}'`,
+        });
+      }
+    }
+  }
+  for (const c of addedCustomers) {
+    for (const productId of Object.keys(c.demands ?? {})) {
+      if (!knownProductIds.has(productId)) {
+        errors.push({
+          code: "reference_integrity",
+          message: `addedCustomers '${c.id}' has a demand entry for unknown product id '${productId}'`,
+        });
+      }
+    }
+  }
+
+  // --- (c) reference integrity: leg vs. actual id-space membership --------
+  const { plantIdSpace, warehouseIdSpace, customerIdSpace } = buildJadeIdSpaces(
+    { addedPlants, addedWarehouses, addedCustomers },
+    dataset,
+  );
+  for (const o of distanceOverrides) {
+    if (o.leg === "plant_to_warehouse") {
+      if (!plantIdSpace.has(o.fromId)) {
+        errors.push({
+          code: "reference_integrity",
+          message: `distanceOverrides fromId '${o.fromId}' does not reference a known plant for leg 'plant_to_warehouse' (base dataset or this scenario's added plants)`,
+        });
+      }
+      if (!warehouseIdSpace.has(o.toId)) {
+        errors.push({
+          code: "reference_integrity",
+          message: `distanceOverrides toId '${o.toId}' does not reference a known warehouse for leg 'plant_to_warehouse' (base dataset or this scenario's added warehouses)`,
+        });
+      }
+    } else {
+      // o.leg === "warehouse_to_customer" — the only other Zod-enum value.
+      if (!warehouseIdSpace.has(o.fromId)) {
+        errors.push({
+          code: "reference_integrity",
+          message: `distanceOverrides fromId '${o.fromId}' does not reference a known warehouse for leg 'warehouse_to_customer' (base dataset or this scenario's added warehouses)`,
+        });
+      }
+      if (!customerIdSpace.has(o.toId)) {
+        errors.push({
+          code: "reference_integrity",
+          message: `distanceOverrides toId '${o.toId}' does not reference a known customer for leg 'warehouse_to_customer' (base dataset or this scenario's added customers)`,
+        });
+      }
+    }
+  }
+
+  // --- (d) completeness: both legs, symmetric around the warehouse role ---
+  const { activePlantIds, activeWarehouseIds, activeCustomerIds } = buildActiveJadeIds(
+    { addedPlants, addedWarehouses, addedCustomers, warehouseOverrides, customerOverrides },
+    dataset,
+  );
+  const addedWarehouseIds = new Set(addedWarehouses.map((w) => w.id));
+  const addedPlantIdSet = new Set(addedPlants.map((p) => p.id));
+  const activeAddedPlantIds = activePlantIds.filter((id) => addedPlantIdSet.has(id));
+  const activeAddedCustomerIds = filterActiveAddedCustomers(
+    addedCustomers,
+    dataset.supportsAddedCustomerExclusion,
+  ).map((c) => c.id);
+
+  const overrideKeys = new Set(distanceOverrides.map((o) => `${o.leg}|${o.fromId}|${o.toId}`));
+
+  for (const whId of activeWarehouseIds) {
+    const isAddedWarehouse = addedWarehouseIds.has(whId);
+
+    // plant -> warehouse leg: base<->base pairs are guaranteed covered by
+    // the base dataset's own distance matrix — a pair needs an explicit
+    // override iff at least one side is "added".
+    const requiredPlants = isAddedWarehouse ? activePlantIds : activeAddedPlantIds;
+    const missingPlants = requiredPlants.filter(
+      (plantId) => !overrideKeys.has(`plant_to_warehouse|${plantId}|${whId}`),
+    );
+    if (missingPlants.length > 0) {
+      errors.push({
+        code: "completeness",
+        message: `${whId} missing distances from ${missingPlants.length} plant${missingPlants.length === 1 ? "" : "s"}: ${missingPlants.join(", ")}`,
+      });
+    }
+
+    // warehouse -> customer leg: same "vice versa" rule, mirroring
+    // precheckPMedianInputs' own warehouse<->customer completeness exactly.
+    const requiredCustomers = isAddedWarehouse ? activeCustomerIds : activeAddedCustomerIds;
+    const missingCustomers = requiredCustomers.filter(
+      (custId) => !overrideKeys.has(`warehouse_to_customer|${whId}|${custId}`),
+    );
+    if (missingCustomers.length > 0) {
+      errors.push({
+        code: "completeness",
+        message: `${whId} missing distances to ${missingCustomers.length} customer${missingCustomers.length === 1 ? "" : "s"}: ${missingCustomers.join(", ")}`,
+      });
+    }
+  }
+
+  // --- (e) p range: forced_open <= p <= active warehouse count -------------
+  const forcedOpenCount =
+    warehouseOverrides.filter((o) => o.status === "forced_open").length +
+    addedWarehouses.filter((w) => w.status === "forced_open").length;
+  if (inputs.p < forcedOpenCount) {
+    errors.push({
+      code: "p_range",
+      message: `p (${inputs.p}) is less than the number of forced-open warehouses (${forcedOpenCount})`,
+    });
+  }
+  if (inputs.p > activeWarehouseIds.length) {
+    errors.push({
+      code: "p_range",
+      message: `p (${inputs.p}) exceeds the number of active warehouses (${activeWarehouseIds.length})`,
+    });
+  }
+
+  // --- (f) sufficient enabled plant capacity per product -------------------
+  // Enabled -> the dataset's own largest observed capability-cell capacity
+  // (the notebook's uncapacitated "can-make" sentinel, 210000000 in the real
+  // package) — derived from the data, never a hardcoded magic number, so a
+  // future dataset regeneration with a different sentinel stays correct
+  // automatically. A cell not present in dataset.capabilityCells (e.g. an
+  // added plant x any product) defaults to disabled/0, matching
+  // build_merged_jade_dataset's own "added plant defaults every capability
+  // cell to disabled" rule.
+  const capacityOverrideByPair = new Map(
+    plantProductCapability.map((o) => [`${o.plantId}|${o.productId}`, o.enabled]),
+  );
+  const baseCapacityByPair = new Map(
+    dataset.capabilityCells.map((c) => [`${c.plantId}|${c.productId}`, c.capacity]),
+  );
+  const sentinelCapacity = dataset.capabilityCells.reduce((max, c) => Math.max(max, c.capacity), 0);
+
+  const customerDemandsById = new Map(dataset.customers.map((c) => [c.id, c.demands ?? {}]));
+  const addedCustomerById = new Map(addedCustomers.map((c) => [c.id, c]));
+  const customerOverrideById = new Map(customerOverrides.map((o) => [o.id, o]));
+  const activeCustomerIdSet = new Set(activeCustomerIds);
+
+  for (const productId of dataset.productIds) {
+    let totalDemand = 0;
+    for (const custId of activeCustomerIdSet) {
+      const added = addedCustomerById.get(custId);
+      if (added) {
+        // `added.demands` is typed with the 4 fixed canonical product keys
+        // (jadeDemandsSchema in jadeInputs.ts), but this loop iterates
+        // `dataset.productIds` (a plain `readonly string[]`, which a fake
+        // test dataset could shape differently) — a generic string index
+        // is intentional here, not a type-safety gap.
+        totalDemand += (added.demands as Record<string, number> | undefined)?.[productId] ?? 0;
+        continue;
+      }
+      const override = customerOverrideById.get(custId);
+      const overrideDemand = override?.demands?.[productId];
+      totalDemand += overrideDemand !== undefined ? overrideDemand : customerDemandsById.get(custId)?.[productId] ?? 0;
+    }
+    if (totalDemand <= 0) continue;
+
+    let totalCapacity = 0;
+    for (const plantId of activePlantIds) {
+      const key = `${plantId}|${productId}`;
+      const override = capacityOverrideByPair.get(key);
+      const capacity =
+        override !== undefined ? (override ? sentinelCapacity : 0) : baseCapacityByPair.get(key) ?? 0;
+      totalCapacity += capacity;
+    }
+
+    if (totalCapacity < totalDemand) {
+      const label = dataset.productNames?.[productId];
+      const productDisplay = label ? `${productId} (${label})` : productId;
+      errors.push({
+        code: "capacity",
+        message: `${productDisplay} has effective demand ${totalDemand} but only ${totalCapacity} enabled plant capacity`,
       });
     }
   }

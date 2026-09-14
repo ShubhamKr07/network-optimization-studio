@@ -18,4 +18,6 @@ export const ImportApplyRequestEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  plants: 'plants',
+  plantCapabilities: 'plantCapabilities',
 } as const;

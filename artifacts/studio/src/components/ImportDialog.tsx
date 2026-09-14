@@ -16,7 +16,9 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scenarioId: number;
-  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances";
+  // T11 (Chapter 9 JADE) — "plants"/"plantCapabilities" added, matching T3.5's
+  // already-generated `ImportRequestEntity` (openapi.yaml) exactly.
+  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "plants" | "plantCapabilities";
   onApplied?: (scenario: Scenario) => void;
 }
 

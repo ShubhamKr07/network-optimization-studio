@@ -1,12 +1,14 @@
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
   | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
   | { modelId: "transport-coal"; inputs: TransportLpInputs }
-  | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs };
+  | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs }
+  | { modelId: "two-echelon-jade-us"; inputs: JadeInputs };
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
@@ -74,6 +76,57 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       // transport-coal's addedMines/addedStations/laneCostOverrides
       // passthrough above).
       addedRefineries: i.addedRefineries,
+      addedCustomers: i.addedCustomers,
+      distanceOverrides: i.distanceOverrides,
+    };
+  }
+
+  if (input.modelId === "two-echelon-jade-us") {
+    const i = input.inputs;
+    // jade-T5: same capability-gate pattern as two-echelon-gold-au/p-median
+    // above — never hardcode modelId === "two-echelon-jade-us" here (this
+    // repo's most-documented recurring bug class). Manifest sets
+    // supportsAddedCustomerExclusion: true for this model.
+    const supportsAddedCustomerExclusion =
+      getManifest(input.modelId)?.capabilities.supportsAddedCustomerExclusion ?? false;
+    return {
+      modelType: "two_echelon_jade",
+      p: i.p,
+      distanceBands: i.distanceBands,
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
+      warehouseStatuses: i.warehouseOverrides
+        .filter((o) => o.status !== "active")
+        .map((o) => ({ warehouseId: o.id, status: o.status })),
+      excludedCustomerIds: [
+        ...i.customerOverrides.filter((o) => o.status === "excluded").map((o) => o.id),
+        ...(supportsAddedCustomerExclusion
+          ? i.addedCustomers.filter((c) => c.status === "excluded").map((c) => c.id)
+          : []),
+      ],
+      // Nested per-product override: solve_jade's get_demands() layers this
+      // onto a base customer's own `demands` dict (sparse -- omitted product
+      // keys inherit the base value), matching customerOverrideSchema's own
+      // sparse shape exactly.
+      customerDemands: Object.fromEntries(
+        i.customerOverrides.filter((o) => o.demands != null).map((o) => [o.id, o.demands]),
+      ),
+      // Wire name is `capabilityOverrides` (merge_inputs.py's
+      // build_merged_jade_dataset reads inp.get("capabilityOverrides", []))
+      // -- the schema field is named `plantProductCapability` to match the
+      // plan's public vocabulary; buildPayload is exactly the translation
+      // boundary where a schema name and a wire name are allowed to differ.
+      capabilityOverrides: i.plantProductCapability,
+      // jade-T5: pass jadeInputs.ts's scenario-local network-edit arrays
+      // straight through by their exact schema names -- merge_inputs.py's
+      // build_merged_jade_dataset reads them via inp.get("addedPlants"/
+      // "addedWarehouses"/"addedCustomers"/"distanceOverrides", []), so
+      // absent/empty here is byte-identical to today's behavior (mirrors
+      // every prior model's added-entity passthrough). Never inlines the
+      // base dataset -- only validated edits + params cross the wire
+      // (plan's Global Constraints payload/merge boundary).
+      addedPlants: i.addedPlants,
+      addedWarehouses: i.addedWarehouses,
       addedCustomers: i.addedCustomers,
       distanceOverrides: i.distanceOverrides,
     };

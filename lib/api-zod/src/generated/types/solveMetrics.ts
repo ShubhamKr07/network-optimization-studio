@@ -15,4 +15,12 @@ export interface SolveMetrics {
   weightedAvgDistance?: number;
   /** Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models. */
   avgDistanceByLeg?: LegAverageDistance[];
+  /** Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges/details instead. */
+  openFacilityIds?: string[];
+  /** Chapter 9 JADE — total effective demand (tons) across all customers/products, after exclusions. Optional. */
+  totalDemand?: number;
+  /** Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional. */
+  inboundCost?: number;
+  /** Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional. */
+  outboundCost?: number;
 }

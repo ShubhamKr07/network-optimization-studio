@@ -14,6 +14,7 @@ import { warehouseStatusPresentation, type WhStatus } from "@/components/workspa
 import {
   WAREHOUSE_ROLE,
   CUSTOMER_ROLE,
+  PLANT_ROLE,
   type AddedCustomerInput,
   type AddedWarehouseInput,
   type EntityRoleConfig,
@@ -38,10 +39,13 @@ function valueFromCopy(copyFrom: CopyFrom | undefined, key: "capacity" | "demand
 
 interface CreateEntityDialogProps {
   /** Rendering role — "wh" is a triangle marker (warehouse/mine/refinery),
-   * "cs" is a demand bubble (customer/station). Which fields actually apply
+   * "cs" is a demand bubble (customer/station), "pl" is a square marker
+   * (plant, jade-T12 — Chapter 9 JADE). Which fields actually apply
    * (status, capacity vs demand, uid/display-code prefix) is `role`'s job,
-   * not this. */
-  kind: "wh" | "cs";
+   * not this. "pl" shares the "wh" branch below (geometry + role-gated
+   * status/capacity, both of which PLANT_ROLE has none of) rather than
+   * "cs" — a plant is a supply-role entity, not a demand bubble. */
+  kind: "wh" | "cs" | "pl";
   /** T4 (Bundle 2, Step 0) — the entity's real role config. Defaults to
    * WAREHOUSE_ROLE ("wh") / CUSTOMER_ROLE ("cs") — today's exact
    * p-median-us behavior, unchanged for every existing call site that
@@ -83,7 +87,7 @@ interface CreateEntityDialogProps {
 // the join key mid-edit, which the T3 uid contract forbids.
 export function CreateEntityDialog({
   kind,
-  role = kind === "wh" ? WAREHOUSE_ROLE : CUSTOMER_ROLE,
+  role = kind === "wh" ? WAREHOUSE_ROLE : kind === "pl" ? PLANT_ROLE : CUSTOMER_ROLE,
   capacityMode,
   supportsAddedCustomerExclusion = false,
   lat,
@@ -137,25 +141,9 @@ export function CreateEntityDialog({
   const showCapacity = role.valueField?.key === "capacity" && (capacityMode === undefined || capacityMode === "per_wh");
 
   const handleSubmit = () => {
-    if (kind === "wh") {
-      // role.hasStatus:false (e.g. MINE_ROLE) and !showCapacity (e.g.
-      // REFINERY_ROLE with capacityMode="none") both omit the key entirely
-      // from the emitted object, not just leave it undefined, so it can
-      // never round-trip into a PATCH payload as a stray no-op field.
-      const input = {
-        id,
-        displayCode,
-        city,
-        state,
-        lat,
-        lng,
-        ...(showCapacity ? { capacity: capacity === "" ? null : Number(capacity) } : {}),
-        ...(role.hasStatus ? { status } : {}),
-      };
-      onSubmit(input as unknown as AddedWarehouseInput);
-    } else {
+    if (kind === "cs") {
       // T8 (Bundle 2.2, A3) — same "omit the key entirely" convention as the
-      // kind==="wh" branch above: !showCustomerExclusion (STATION_ROLE, or a
+      // wh/pl branch below: !showCustomerExclusion (STATION_ROLE, or a
       // customer on a model without supportsAddedCustomerExclusion) never
       // populates `status` at all.
       const input: AddedCustomerInput = {
@@ -169,6 +157,25 @@ export function CreateEntityDialog({
         ...(showCustomerExclusion ? { status: csStatus } : {}),
       };
       onSubmit(input);
+    } else {
+      // kind === "wh" or "pl" (jade-T12) — role.hasStatus:false (e.g.
+      // MINE_ROLE/PLANT_ROLE) and !showCapacity (e.g. REFINERY_ROLE with
+      // capacityMode="none", or PLANT_ROLE which has no valueField at all)
+      // both omit the key entirely from the emitted object, not just leave
+      // it undefined, so it can never round-trip into a PATCH payload as a
+      // stray no-op field. For PLANT_ROLE this yields exactly
+      // `{id, displayCode, city, state, lat, lng}` — AddedPlant's shape.
+      const input = {
+        id,
+        displayCode,
+        city,
+        state,
+        lat,
+        lng,
+        ...(showCapacity ? { capacity: capacity === "" ? null : Number(capacity) } : {}),
+        ...(role.hasStatus ? { status } : {}),
+      };
+      onSubmit(input as unknown as AddedWarehouseInput);
     }
   };
 
@@ -226,7 +233,11 @@ export function CreateEntityDialog({
             <p data-testid="create-entity-display-code">{displayCode}</p>
           </div>
 
-          {kind === "wh" ? (
+          {/* jade-T12 — flipped to key off "cs" (was `kind === "wh"`): "pl"
+              now shares this branch with "wh" (both are role-gated
+              status/capacity, correctly rendering nothing for PLANT_ROLE,
+              which has neither). */}
+          {kind !== "cs" ? (
             <>
               {role.hasStatus && (
                 <div className="space-y-2">

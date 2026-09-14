@@ -44,7 +44,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us]
             default: p-median-us
       responses:
         "200":
@@ -168,6 +168,7 @@ paths:
               - transport-coal
               - p-median-brazil
               - two-echelon-gold-au
+              - two-echelon-jade-us
               - max_coverage
               - p_center
               - set_cover
@@ -459,7 +460,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows]
+            enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows, plants, plantCapabilities]
         - name: format
           in: query
           required: true
@@ -642,6 +643,12 @@ components:
       properties:
         id:
           type: string
+        name:
+          type: string
+          description: Display name (Chapter 9 JADE — the notebook's plant/warehouse label). Optional; other models leave it absent and render city/state instead.
+        sourceId:
+          type: integer
+          description: Original notebook/textbook integer id, retained display-only (Chapter 9 JADE — canonical string id is the only valid join key). Optional; absent for models with no colliding source-id namespace.
         city:
           type: string
         state:
@@ -663,6 +670,12 @@ components:
       properties:
         id:
           type: string
+        name:
+          type: string
+          description: Display name (Chapter 9 JADE — the notebook's customer label). Optional; other models leave it absent and render city/state instead.
+        sourceId:
+          type: integer
+          description: Original notebook/textbook integer id, retained display-only (Chapter 9 JADE). Optional; absent for models with no colliding source-id namespace.
         city:
           type: string
         state:
@@ -673,10 +686,60 @@ components:
           type: number
         demand:
           type: number
+          description: Total demand across all products/units. For multi-product models (Chapter 9 JADE) this is the sum of `demands`' values; kept for shared map sizing and legacy consumers.
+        demands:
+          type: object
+          description: "Optional per-product demand breakdown, keyed by product id (Chapter 9 JADE — `{productId: tons}`). Absent for single-product models; `demand` remains the scalar total."
+          additionalProperties:
+            type: number
         zip:
           type: string
           description: US zip or country-appropriate postal code, where available. Display-only — never a solver input.
       required: [id, city, state, lat, lng, demand]
+
+    Plant:
+      type: object
+      description: Chapter 9 JADE — a supply-echelon facility (fixed, not a solver open/close decision) feeding warehouses. New entity, optional on Dataset so existing 4 models' responses stay valid.
+      properties:
+        id:
+          type: string
+        sourceId:
+          type: integer
+        name:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+      required: [id, city, state, lat, lng]
+
+    Product:
+      type: object
+      description: Chapter 9 JADE — one of the 4 product families the model tracks per-customer demand and per-plant capability against.
+      properties:
+        id:
+          type: string
+        sourceId:
+          type: integer
+        name:
+          type: string
+      required: [id, name]
+
+    PlantProductCapability:
+      type: object
+      description: Chapter 9 JADE — one base plant×product capability cell (tons). A zero/absent cell means that plant cannot make that product.
+      properties:
+        plantId:
+          type: string
+        productId:
+          type: string
+        capacity:
+          type: number
+      required: [plantId, productId, capacity]
 
     Dataset:
       type: object
@@ -689,6 +752,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Customer"
+        plants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plant"
+          description: Chapter 9 JADE only. Absent for models with no plant echelon.
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+          description: Chapter 9 JADE only. Absent for models with no product axis.
+        plantProductCapabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlantProductCapability"
+          description: Chapter 9 JADE only — the base 16-cell plant×product capability matrix. Absent for models with no plant/product concept.
       required: [warehouses, customers]
 
     ModelInfo:
@@ -741,6 +819,10 @@ components:
             supportsAddedCustomerExclusion:
               type: boolean
               description: True when this model's solver honors an Active/Excluded status on a user-added customer (addedCustomers[].status). p-median-us and two-echelon-gold-au only — p-median-brazil's solver applies no customer exclusion (Bundle 2.2, A3). Gate added-customer exclusion controls on this, never on modelId.
+            supportsPlantProductCapability:
+              type: boolean
+              default: false
+              description: Chapter 9 JADE only — true when this model has a plant echelon with a plant×product capability matrix editor. Optional, defaults false at the public boundary so existing manifests are unaffected. Gate the Capability Matrix UI on this, never on modelId.
           required: [supportsP, capacityModes, demandEditable, outputGrids, supportsFacilityStatus, supportsReferenceDistances, supportsAddedCustomerExclusion]
         inputsSchema:
           type: object
@@ -765,6 +847,10 @@ components:
           type: string
         distance:
           type: number
+        leg:
+          type: string
+          enum: [plant_to_warehouse, warehouse_to_customer]
+          description: Chapter 9 JADE only — which leg this pair belongs to, since its single distances.json mixes both leg key-namespaces. Optional; absent for single-leg models.
       required: [fromId, fromCode, toId, toCode, distance]
 
     ReferenceDistances:
@@ -830,7 +916,7 @@ components:
 
     Edge:
       type: object
-      description: Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
+      description: Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon-gold-au, plant->warehouse/warehouse->customer shipment for two-echelon-jade-us. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
       properties:
         fromId:
           type: string
@@ -844,8 +930,11 @@ components:
           type: integer
         leg:
           type: string
-          enum: [mine_to_refinery, refinery_to_customer]
-          description: Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models.
+          enum: [mine_to_refinery, refinery_to_customer, plant_to_warehouse, warehouse_to_customer]
+          description: Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings.
+        productId:
+          type: string
+          description: Chapter 9 JADE — set on plant_to_warehouse (inbound) edges, one per positive (plant,warehouse,product) flow. Absent on warehouse_to_customer (outbound) edges, which aggregate across products per single-source customer, and absent for every other model.
       required: [fromId, toId, flow, distance]
 
     LegAverageDistance:
@@ -877,6 +966,20 @@ components:
           items:
             $ref: "#/components/schemas/LegAverageDistance"
           description: Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.
+        openFacilityIds:
+          type: array
+          items:
+            type: string
+          description: Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges/details instead.
+        totalDemand:
+          type: number
+          description: Chapter 9 JADE — total effective demand (tons) across all customers/products, after exclusions. Optional.
+        inboundCost:
+          type: number
+          description: Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.
+        outboundCost:
+          type: number
+          description: Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.
 
     SolveResult:
       type: object
@@ -929,6 +1032,7 @@ components:
             - transport-coal
             - p-median-brazil
             - two-echelon-gold-au
+            - two-echelon-jade-us
             - max_coverage
             - p_center
             - set_cover
@@ -1065,6 +1169,7 @@ components:
             - transport-coal
             - p-median-brazil
             - two-echelon-gold-au
+            - two-echelon-jade-us
             - max_coverage
             - p_center
             - set_cover
@@ -1111,7 +1216,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities]
         csvText:
           type: string
       required: [entity, csvText]
@@ -1163,7 +1268,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, plants, plantCapabilities]
         csvText:
           type: string
         mode:
@@ -1191,7 +1296,7 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, flows, plants, plantCapabilities]
         rows:
           type: array
           items:

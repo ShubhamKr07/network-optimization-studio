@@ -11,9 +11,16 @@ import {
   applyBrazilCustomerOverrides,
   applyDistanceOverrides,
   applyLaneCostOverrides,
+  applyJadeWarehouseOverrides,
+  applyJadeCustomerOverrides,
+  applyPlantOverrides,
+  applyPlantCapabilityOverrides,
+  plantRowsToCsv,
+  plantCapabilityRowsToCsv,
   buildDistanceStubRows,
   buildLaneCostStubRows,
   buildLegDistanceStubRows,
+  buildJadeLegDistanceStubRows,
   buildAssignmentRows,
   buildOpenWarehouseRows,
   buildCostSummaryRows,
@@ -618,6 +625,196 @@ describe("B6.2 — buildLegDistanceStubRows (legDistances stub generator)", () =
     const rows = buildLegDistanceStubRows("kalgoorlie", {})!;
     expect(rows).not.toBeNull();
     expect(rows.length).toBe(2); // one row per real base refinery
+  });
+});
+
+// jade-T7 — two-echelon-jade-us's own warehouse/customer entities. Real
+// base ids from the actual dataset package (plant-1/wh-1/customer-1).
+describe("applyJadeWarehouseOverrides", () => {
+  it("emits a row per real base warehouse, capacity always null (no per-warehouse capacity concept)", () => {
+    const rows = applyJadeWarehouseOverrides([]);
+    expect(rows.length).toBe(25);
+    const wh1 = rows.find(r => r.id === "wh-1")!;
+    expect(wh1.capacity).toBeNull();
+    expect(wh1.status).toBe("active");
+    expect(wh1.overridden).toBe(false);
+  });
+
+  it("applies a status override", () => {
+    const rows = applyJadeWarehouseOverrides([{ id: "wh-1", status: "forced_open" }]);
+    const wh1 = rows.find(r => r.id === "wh-1")!;
+    expect(wh1.status).toBe("forced_open");
+    expect(wh1.capacity).toBeNull();
+    expect(wh1.overridden).toBe(true);
+  });
+
+  it("appends added warehouses after the base rows, capacity always null", () => {
+    const rows = applyJadeWarehouseOverrides([], [
+      { id: "aw-x", city: "Reno", state: "NV", lat: 39.5, lng: -119.8, status: "active" },
+    ]);
+    expect(rows.length).toBe(26);
+    const added = rows.find(r => r.id === "aw-x")!;
+    expect(added.capacity).toBeNull();
+    expect(added.overridden).toBe(true);
+  });
+});
+
+describe("applyJadeCustomerOverrides", () => {
+  it("emits a row per real base customer, demand sourced from the base aggregate total", () => {
+    const rows = applyJadeCustomerOverrides([]);
+    expect(rows.length).toBe(100);
+    const c1 = rows.find(r => r.id === "customer-1")!;
+    expect(c1.demand).toBeCloseTo(86877.5);
+    expect(c1.status).toBe("active");
+    expect(c1.overridden).toBe(false);
+  });
+
+  it("applies a status override — demand is never touched by an override (no scalar demand field in this model's schema)", () => {
+    const rows = applyJadeCustomerOverrides([{ id: "customer-1", status: "excluded" }]);
+    const c1 = rows.find(r => r.id === "customer-1")!;
+    expect(c1.status).toBe("excluded");
+    expect(c1.demand).toBeCloseTo(86877.5);
+    expect(c1.overridden).toBe(true);
+  });
+
+  it("appends added customers, demand summed across their per-product demands map", () => {
+    const rows = applyJadeCustomerOverrides([], [
+      {
+        id: "ac-x", city: "Reno", state: "NV", lat: 39.5, lng: -119.8,
+        demands: { "product-1": 10, "product-2": 20, "product-3": 30, "product-4": 40 },
+      },
+    ]);
+    expect(rows.length).toBe(101);
+    const added = rows.find(r => r.id === "ac-x")!;
+    expect(added.demand).toBe(100);
+    expect(added.status).toBe("active");
+    expect(added.overridden).toBe(true);
+  });
+});
+
+describe("applyPlantOverrides / plantRowsToCsv", () => {
+  it("emits a row per real base plant, no capacity/status fields at all", () => {
+    const rows = applyPlantOverrides();
+    expect(rows.length).toBe(4);
+    const plant1 = rows.find(r => r.id === "plant-1")!;
+    expect(plant1).not.toHaveProperty("capacity");
+    expect(plant1).not.toHaveProperty("status");
+    expect(plant1.displayCode).toBeNull();
+  });
+
+  it("appends added plants after the base rows", () => {
+    const rows = applyPlantOverrides([{ id: "ap-x", displayCode: "PL-NEW", city: "Reno", state: "NV", lat: 39.5, lng: -119.8 }]);
+    expect(rows.length).toBe(5);
+    const added = rows.find(r => r.id === "ap-x")!;
+    expect(added.displayCode).toBe("PL-NEW");
+  });
+
+  it("CSV header has no capacity/status column", () => {
+    const csv = plantRowsToCsv(applyPlantOverrides());
+    const header = csv.split("\n")[0].split(",");
+    expect(header).toEqual(["template_version", "id", "display_code", "city", "state", "lat", "lng"]);
+  });
+});
+
+describe("applyPlantCapabilityOverrides / plantCapabilityRowsToCsv", () => {
+  it("emits a full matrix — every base plant x every product (4 plants x 4 products = 16 rows)", () => {
+    const rows = applyPlantCapabilityOverrides([]);
+    expect(rows.length).toBe(16);
+  });
+
+  it("a cell's enabled default comes from its base capacity (>0 -> enabled), unoverridden", () => {
+    const rows = applyPlantCapabilityOverrides([]);
+    // Real dataset: each plant can make exactly ONE product (a diagonal
+    // capability matrix) — 4 enabled cells out of 16.
+    const enabledCells = rows.filter(r => r.enabled);
+    expect(enabledCells.length).toBe(4);
+    expect(rows.every(r => r.overridden === false)).toBe(true);
+    const plant1Product1 = rows.find(r => r.plantId === "plant-1" && r.productId === "product-1")!;
+    expect(plant1Product1.enabled).toBe(true);
+    const plant1Product2 = rows.find(r => r.plantId === "plant-1" && r.productId === "product-2")!;
+    expect(plant1Product2.enabled).toBe(false);
+  });
+
+  it("an override flips a cell's enabled value and marks it overridden", () => {
+    const rows = applyPlantCapabilityOverrides([{ plantId: "plant-1", productId: "product-1", enabled: false }]);
+    const cell = rows.find(r => r.plantId === "plant-1" && r.productId === "product-1")!;
+    expect(cell.enabled).toBe(false);
+    expect(cell.overridden).toBe(true);
+  });
+
+  it("an added plant defaults every cell to disabled unless overridden", () => {
+    const rows = applyPlantCapabilityOverrides([], [{ id: "ap-x", city: "Reno", state: "NV", lat: 39.5, lng: -119.8 }]);
+    const addedCells = rows.filter(r => r.plantId === "ap-x");
+    expect(addedCells.length).toBe(4); // one per product
+    expect(addedCells.every(r => r.enabled === false)).toBe(true);
+  });
+
+  it("an override on an added plant's cell turns it on", () => {
+    const rows = applyPlantCapabilityOverrides(
+      [{ plantId: "ap-x", productId: "product-1", enabled: true }],
+      [{ id: "ap-x", city: "Reno", state: "NV", lat: 39.5, lng: -119.8 }],
+    );
+    const cell = rows.find(r => r.plantId === "ap-x" && r.productId === "product-1")!;
+    expect(cell.enabled).toBe(true);
+    expect(cell.overridden).toBe(true);
+  });
+
+  it("CSV header + a boolean cell renders as the literal string 'true'/'false'", () => {
+    const csv = plantCapabilityRowsToCsv(applyPlantCapabilityOverrides([{ plantId: "plant-1", productId: "product-1", enabled: false }]));
+    const header = csv.split("\n")[0].split(",");
+    expect(header).toEqual(["template_version", "plant_id", "product_id", "enabled"]);
+    expect(csv).toContain("plant-1,product-1,false");
+  });
+});
+
+describe("jade-T7 — buildJadeLegDistanceStubRows (legDistances stub generator, plant/warehouse/customer roles)", () => {
+  // Small fake dataset, same testability pattern buildLegDistanceStubRows'
+  // own tests use — real-dataset coverage exercised at the route level.
+  const DATASET = {
+    plants: [{ id: "PLANT-A" }],
+    warehouses: [{ id: "WH-A" }, { id: "WH-B" }],
+    customers: [{ id: "C-1" }, { id: "C-2" }, { id: "C-3" }],
+    productIds: [],
+    capabilityCells: [],
+  };
+
+  it("given the plant id, emits one blank row per active warehouse", () => {
+    const rows = buildJadeLegDistanceStubRows("PLANT-A", {}, DATASET)!;
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { templateVersion: TEMPLATE_VERSION, fromId: "PLANT-A", toId: "WH-A", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "PLANT-A", toId: "WH-B", distance: null },
+      ]),
+    );
+  });
+
+  it("given a warehouse id, emits stub rows for BOTH legs: from every plant AND to every active customer", () => {
+    const rows = buildJadeLegDistanceStubRows("WH-A", {}, DATASET)!;
+    expect(rows).toHaveLength(1 + 3); // 1 plant + 3 customers
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "PLANT-A", toId: "WH-A", distance: null });
+    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null });
+  });
+
+  it("given a customer id, emits one blank row per active warehouse", () => {
+    const rows = buildJadeLegDistanceStubRows("C-1", {}, DATASET)!;
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null },
+        { templateVersion: TEMPLATE_VERSION, fromId: "WH-B", toId: "C-1", distance: null },
+      ]),
+    );
+  });
+
+  it("returns null for an id that resolves as neither a known plant, warehouse, nor customer", () => {
+    expect(buildJadeLegDistanceStubRows("bogus-id", {}, DATASET)).toBeNull();
+  });
+
+  it("defaults to the real two-echelon-jade-us dataset when no dataset argument is given", () => {
+    const rows = buildJadeLegDistanceStubRows("plant-1", {})!;
+    expect(rows).not.toBeNull();
+    expect(rows.length).toBe(25); // one row per real base warehouse
   });
 });
 

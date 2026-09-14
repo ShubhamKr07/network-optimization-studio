@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PACKAGE_SPECS, validatePackage, readManifest, computeSha256, WarehouseEntry } from "./index";
+import { PACKAGE_SPECS, validatePackage, readManifest, readVersion, computeSha256, WarehouseEntry } from "./index";
 
 describe("two-echelon-gold-au registration", () => {
   it("validates the two-echelon-gold-au package against its schema", () => {
@@ -27,6 +27,37 @@ describe("two-echelon-gold-au registration", () => {
     expect(spec).toBeDefined();
     const hash = computeSha256(spec!);
     expect(hash).toBe("b6df1a31f6a03e5d57aa7bc92bd1eda5c5d5e691d1f8dfec5fd21ac2f2ac0b94");
+  });
+});
+
+describe("two-echelon-jade-us registration (Chapter 9, jade-T2)", () => {
+  it("validates the two-echelon-jade-us package against its schema", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "two-echelon-jade-us");
+    expect(spec).toBeDefined();
+    const result = validatePackage(spec!);
+    expect(Object.keys(result["plants.json"] as object)).toHaveLength(4);
+    expect(Object.keys(result["products.json"] as object)).toHaveLength(4);
+    expect(Object.keys(result["warehouses.json"] as object)).toHaveLength(25);
+    expect(Object.keys(result["customers.json"] as object)).toHaveLength(100);
+    expect(result["plant_product_capability.json"]).toHaveLength(16);
+  });
+
+  it("readManifest loads the two-echelon-jade-us manifest with supportsPlantProductCapability true", () => {
+    const manifest = readManifest("two-echelon-jade-us");
+    expect(manifest.id).toBe("two-echelon-jade-us");
+    expect(manifest.capabilities.supportsP).toBe(true);
+    expect(manifest.capabilities.supportsPlantProductCapability).toBe(true);
+  });
+
+  // Step 5 critical check: the TS computeSha256() must match the sha256 stored
+  // in version.json (produced by the Python extraction script). If these
+  // disagree, the two hashing methods are not byte-compatible.
+  it("computeSha256 matches the version.json sha256 for two-echelon-jade-us", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "two-echelon-jade-us");
+    expect(spec).toBeDefined();
+    const hash = computeSha256(spec!);
+    const version = readVersion("two-echelon-jade-us");
+    expect(hash).toBe(version.sha256);
   });
 });
 

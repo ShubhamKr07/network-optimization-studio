@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import request from "supertest";
 import {
   getManifest,
+  listModels,
   validateInputs,
   KNOWN_MODEL_IDS,
 } from "../modelRegistry.js";
@@ -11,12 +13,21 @@ import { PACKAGE_SPECS, readVersion } from "@workspace/dataset-schema";
 import { VALID_MODEL_IDS } from "../../routes/scenarios.js";
 import { buildPayload, type SolveInput } from "../../solver/pmedian.js";
 
-// The four models that are fully solvable end-to-end today (each has a
+// The five models that are fully solvable end-to-end today (each has a
 // manifest + dataset package + Zod input validator + solver dispatch).
 // two-echelon-gold-au (Chapter 10) was added once its solver, schema, and
-// allowlist entries all landed — this test is the drift guard that catches
-// a model registered in one place but missing from the others.
-const SOLVABLE = ["p-median-us", "transport-coal", "p-median-brazil", "two-echelon-gold-au"];
+// allowlist entries all landed; two-echelon-jade-us (Chapter 9, JADE) joins
+// here in jade-T5, the atomic commit that registers its KNOWN_SCHEMAS entry
+// + VALID_MODEL_IDS + buildPayload branch simultaneously (OBS-5 needs all
+// three at once) — this test is the drift guard that catches a model
+// registered in one place but missing from the others.
+const SOLVABLE = [
+  "p-median-us",
+  "transport-coal",
+  "p-median-brazil",
+  "two-echelon-gold-au",
+  "two-echelon-jade-us",
+];
 
 describe("model registration consistency", () => {
   for (const modelId of SOLVABLE) {
@@ -50,6 +61,38 @@ describe("model registration consistency", () => {
   }
 });
 
+// ── Listability (JADE Wave 1, Task 3 → now also SOLVABLE as of T5) ────────────────────────────
+// two-echelon-jade-us (Chapter 9) landed its manifest+dataset package (T1/T2) before its solver
+// dispatcher/Zod schema/allowlist entries — it was listable-but-not-solvable through Wave 1. T5
+// (this commit) registers KNOWN_SCHEMAS + VALID_MODEL_IDS + buildPayload simultaneously, moving it
+// into SOLVABLE above. This block keeps asserting the listability half (manifest discovery, GET
+// /api/models) independent of the full OBS-5 consistency sweep below.
+// See docs/superpowers/plans/2026-09-13-chapter-9-jade-two-echelon.md Tasks 3 and 5.
+describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", () => {
+  it("appears in the registry's scanned model list (listModels())", () => {
+    const ids = listModels().map((m) => m.id);
+    expect(ids).toContain("two-echelon-jade-us");
+  });
+
+  it("has a discoverable manifest (getManifest returns it)", () => {
+    expect(getManifest("two-echelon-jade-us")).toBeDefined();
+  });
+
+  it("is now registered in SOLVABLE/KNOWN_SCHEMAS (T5 — was listable-only through T3)", () => {
+    expect(SOLVABLE).toContain("two-echelon-jade-us");
+    expect(KNOWN_MODEL_IDS).toContain("two-echelon-jade-us");
+  });
+
+  it("GET /api/models returns 5 models, including two-echelon-jade-us", async () => {
+    const { default: app } = await import("../../app.js");
+    const res = await request(app).get("/api/models");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(5);
+    const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
+    expect(ids).toContain("two-echelon-jade-us");
+  });
+});
+
 // ── OBS-5: the four registration points agree across their DIFFERENT key spaces ──────────────
 // Points 3/4 (KNOWN_SCHEMAS, VALID_MODEL_IDS) key on model-id; point 8 (solve.py) keys on the
 // `modelType` WIRE string; point 6 (buildPayload) is the bridge model-id → modelType. A naive
@@ -73,6 +116,11 @@ const STUB_INPUTS: Record<string, unknown> = {
   "two-echelon-gold-au": {
     bomRatio: 1.5, distanceBands: [200], gap: 0, timeLimitSec: 60,
     refineryOverrides: [], customerOverrides: [], addedRefineries: [], addedCustomers: [], distanceOverrides: [],
+  },
+  "two-echelon-jade-us": {
+    p: 2, distanceBands: [200, 400, 800, 1600], gap: 0, timeLimitSec: 60,
+    warehouseOverrides: [], customerOverrides: [], plantProductCapability: [],
+    addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
 };
 

@@ -18,4 +18,7 @@ export const ExportEnvelopeEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  flows: 'flows',
+  plants: 'plants',
+  plantCapabilities: 'plantCapabilities',
 } as const;

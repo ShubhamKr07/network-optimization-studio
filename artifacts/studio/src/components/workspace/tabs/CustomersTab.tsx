@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Customer, Scenario } from "@workspace/api-client-react";
+import type { Customer, Product, Scenario } from "@workspace/api-client-react";
 import { CustomerTable, type CustomerOverride } from "@/components/tables/CustomerTable";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,18 @@ import { newUid, nextDisplayCode } from "@/lib/entityId";
 // source of truth for this shape). No `status` field — precheck.ts's own
 // comment: "v1 has no way to add a customer and mark it excluded in the
 // same breath" — every added customer counts as active, always.
+//
+// T11 (Chapter 9 JADE) — a parallel `demands` (per-product,
+// `{productId: tons}`) is added, matching `jadeInputsSchema`'s
+// `addedCustomers[].demands` (T5) exactly. `demand` STAYS required (not
+// widened to optional) — it's a load-bearing field for other consumers of
+// this exact exported type (e.g. `Workspace.tsx`'s `addedCustomersFromInputs`
+// feeds `OutputMapTab.tsx`'s `EffectiveAddedCustomer`, which also requires a
+// numeric `demand` for customer-bubble sizing); making it optional here would
+// silently break that unrelated consumer's typecheck. For a JADE added
+// customer, this component computes `demand` as the sum of `demands`' values
+// — the exact same "scalar total = Σ of the 4 products" convention the base
+// `Customer.demand`/`demands` fields already document (openapi.yaml).
 export interface AddedCustomer {
   id: string;
   city: string;
@@ -27,8 +39,24 @@ export interface AddedCustomer {
   lat: number;
   lng: number;
   demand: number;
+  /** T11 — Chapter 9 JADE per-product demand breakdown, keyed by product id. Always kept in sync with `demand` (its sum) when present. */
+  demands?: Record<string, number>;
   /** T9 — grid-mirror's auto-computed cosmetic label (T3's nextDisplayCode), same optional field CreateEntityDialog's map-click flow already writes. */
   displayCode?: string;
+}
+
+// T11 — Chapter 9 JADE's per-product customer override, parallel to
+// `CustomerOverride` (CustomerTable.tsx) which only carries a scalar
+// `demand`. Matches `jadeInputsSchema`'s `customerOverrides[]` shape
+// (`{id, demands?: Record<productId, tons>, status}`) exactly. Kept as its
+// own type/prop pair (`productOverrides`/`onProductOverridesChange`) rather
+// than widening `CustomerOverride` itself, so every non-JADE caller
+// (p-median-us, two-echelon-gold-au) stays byte-identical to before this
+// task.
+export interface CustomerProductOverride {
+  id: string;
+  demands?: Record<string, number>;
+  status: "active" | "excluded";
 }
 
 interface CustomersTabProps {
@@ -55,6 +83,22 @@ interface CustomersTabProps {
    * gated by this — an added region has no textbook demand to protect.
    * Defaults true, unaffected for every existing caller. */
   demandEditable?: boolean;
+  /** T11 (Chapter 9 JADE) — presence (non-empty array) is what switches this
+   * whole component into per-product demand mode: base rows render one
+   * demand column per product instead of `CustomerTable`'s single scalar
+   * Demand column, and the "Added customers" section does the same. Every
+   * existing model (p-median-us, two-echelon-gold-au, transport-coal,
+   * p-median-brazil) omits this prop entirely and is completely unaffected
+   * — gated on the data's presence, never `modelId ===` (Gate 6). */
+  products?: Product[];
+  /** T11 — sparse per-customer per-product demand + active/excluded
+   * overrides, parallel to `overrides`/`onChange` (scalar-demand models).
+   * Required (with `products`) to actually render the per-product base
+   * table; without it, base rows fall back to the scalar `CustomerTable`
+   * even if `products` happens to be set (defensive — mirrors every other
+   * tab's "gate on the actual wired capability" fix). */
+  productOverrides?: CustomerProductOverride[];
+  onProductOverridesChange?: (next: CustomerProductOverride[]) => void;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -78,8 +122,62 @@ export function CustomersTab({
   prefillCoords,
   onPrefillConsumed,
   demandEditable = true,
+  products = [],
+  productOverrides = [],
+  onProductOverridesChange,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  // T11 — the actual switch: per-product mode only renders when the caller
+  // has ACTUALLY wired the full capability (data + callback), not merely
+  // passed a non-empty `products` array with no override plumbing behind
+  // it — same defensive posture as `onAddedCustomersChange != null` below.
+  const productMode = products.length > 0 && onProductOverridesChange != null;
+
+  function getProductOverride(id: string) {
+    return productOverrides.find(o => o.id === id);
+  }
+
+  function upsertProductOverride(id: string, patch: Partial<CustomerProductOverride>) {
+    if (!onProductOverridesChange) return;
+    const existing = getProductOverride(id);
+    const merged: CustomerProductOverride = {
+      id,
+      status: existing?.status ?? "active",
+      demands: existing?.demands,
+      ...patch,
+    };
+    const rest = productOverrides.filter(o => o.id !== id);
+    const hasDemands = merged.demands != null && Object.keys(merged.demands).length > 0;
+    const isNoOp = merged.status === "active" && !hasDemands;
+    onProductOverridesChange(isNoOp ? rest : [...rest, merged]);
+  }
+
+  // Draft text per (customerId, productId) cell — same "decouple in-progress
+  // keystroke from committed override" rationale as CustomerTable's own
+  // `drafts` state.
+  const [productDrafts, setProductDrafts] = useState<Record<string, string>>({});
+  const [productErrors, setProductErrors] = useState<Record<string, string>>({});
+
+  function handleProductDemandChange(customerId: string, productId: string, raw: string) {
+    const key = `${customerId}:${productId}`;
+    setProductDrafts(prev => ({ ...prev, [key]: raw }));
+    const existing = getProductOverride(customerId);
+    const nextDemands = { ...(existing?.demands ?? {}) };
+    if (raw === "") {
+      delete nextDemands[productId];
+      setProductErrors(prev => { const next = { ...prev }; delete next[key]; return next; });
+      upsertProductOverride(customerId, { demands: Object.keys(nextDemands).length ? nextDemands : undefined });
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setProductErrors(prev => ({ ...prev, [key]: "Demand must be ≥ 0" }));
+      return;
+    }
+    setProductErrors(prev => { const next = { ...prev }; delete next[key]; return next; });
+    nextDemands[productId] = parsed;
+    upsertProductOverride(customerId, { demands: nextDemands });
+  }
 
   // B5.2 — add-row form draft state, mirroring WarehousesTab.tsx/
   // DistancesTab.tsx's own addingRow/newX/addError pattern verbatim.
@@ -146,6 +244,27 @@ export function CustomersTab({
     onAddedCustomersChange?.(addedCustomers.map(c => (c.id === id ? { ...c, demand } : c)));
   }
 
+  // T11 — per-product equivalent of upsertAddedDemand, for an added
+  // customer's row in the "Added customers" section under productMode.
+  // Recomputes the scalar `demand` as the sum of `demands`' values on every
+  // edit (see AddedCustomer's own header comment on why `demand` stays
+  // required/kept-in-sync rather than made optional).
+  function upsertAddedProductDemand(id: string, productId: string, value: number) {
+    onAddedCustomersChange?.(
+      addedCustomers.map(c => {
+        if (c.id !== id) return c;
+        const demands = { ...(c.demands ?? {}), [productId]: value };
+        const demand = Object.values(demands).reduce((sum, v) => sum + v, 0);
+        return { ...c, demands, demand };
+      }),
+    );
+  }
+
+  // T11 — add-row form's per-product demand drafts, keyed by product id.
+  // Only populated/read when productMode is active; harmless empty object
+  // otherwise.
+  const [newProductDemands, setNewProductDemands] = useState<Record<string, string>>({});
+
   function resetAddForm() {
     setAddingRow(false);
     setNewCity("");
@@ -153,6 +272,7 @@ export function CustomersTab({
     setNewLat("");
     setNewLng("");
     setNewDemand("");
+    setNewProductDemands({});
     setNewDisplayCode("");
     setLatTouched(false);
     setLngTouched(false);
@@ -165,7 +285,6 @@ export function CustomersTab({
     const state = newState.trim();
     const lat = parseFloat(newLat);
     const lng = parseFloat(newLng);
-    const demand = parseFloat(newDemand);
 
     if (!city || !state) {
       setAddError("City and state are both required.");
@@ -184,12 +303,38 @@ export function CustomersTab({
       setAddError("Latitude and longitude must both be numbers.");
       return;
     }
+
+    const id = newUid("cs");
+
+    if (productMode) {
+      // T11 — every product key is required on a JADE added customer
+      // (matches `addedCustomerSchema.demands`, all 4 canonical product
+      // ids); a blank cell defaults to 0 rather than blocking the add.
+      const demands: Record<string, number> = {};
+      for (const product of products) {
+        const raw = (newProductDemands[product.id] ?? "").trim();
+        if (raw === "") {
+          demands[product.id] = 0;
+          continue;
+        }
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          setAddError(`Demand for ${product.name} must be a number ≥ 0.`);
+          return;
+        }
+        demands[product.id] = parsed;
+      }
+      const demand = Object.values(demands).reduce((sum, v) => sum + v, 0);
+      onAddedCustomersChange?.([...addedCustomers, { id, city, state, lat, lng, demand, demands, displayCode }]);
+      resetAddForm();
+      return;
+    }
+
+    const demand = parseFloat(newDemand);
     if (!Number.isFinite(demand) || demand < 0) {
       setAddError("Demand must be a number ≥ 0.");
       return;
     }
-
-    const id = newUid("cs");
     onAddedCustomersChange?.([...addedCustomers, { id, city, state, lat, lng, demand, displayCode }]);
     resetAddForm();
   }
@@ -285,7 +430,9 @@ export function CustomersTab({
                 <TableHead>State</TableHead>
                 <TableHead>Latitude</TableHead>
                 <TableHead>Longitude</TableHead>
-                <TableHead>Demand</TableHead>
+                {productMode
+                  ? products.map(p => <TableHead key={p.id}>{p.name}</TableHead>)
+                  : <TableHead>Demand</TableHead>}
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -318,19 +465,37 @@ export function CustomersTab({
                     <TableCell className="text-xs">{c.state}</TableCell>
                     <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
                     <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={c.demand}
-                        onChange={e => {
-                          const parsed = Number(e.target.value);
-                          if (Number.isFinite(parsed) && parsed >= 0) upsertAddedDemand(c.id, parsed);
-                        }}
-                        className="h-7 text-xs w-28 font-mono"
-                        data-testid={`input-added-customer-demand-${c.id}`}
-                      />
-                    </TableCell>
+                    {productMode ? (
+                      products.map(p => (
+                        <TableCell key={p.id}>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={c.demands?.[p.id] ?? 0}
+                            onChange={e => {
+                              const parsed = Number(e.target.value);
+                              if (Number.isFinite(parsed) && parsed >= 0) upsertAddedProductDemand(c.id, p.id, parsed);
+                            }}
+                            className="h-7 text-xs w-24 font-mono"
+                            data-testid={`input-added-customer-demand-${c.id}-${p.id}`}
+                          />
+                        </TableCell>
+                      ))
+                    ) : (
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={c.demand}
+                          onChange={e => {
+                            const parsed = Number(e.target.value);
+                            if (Number.isFinite(parsed) && parsed >= 0) upsertAddedDemand(c.id, parsed);
+                          }}
+                          className="h-7 text-xs w-28 font-mono"
+                          data-testid={`input-added-customer-demand-${c.id}`}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <button
                         type="button"
@@ -394,7 +559,21 @@ export function CustomersTab({
             className={`h-7 text-xs w-32 ${!displayCodeTouched && newDisplayCode ? "bg-muted text-muted-foreground" : ""}`}
             data-testid="input-new-customer-display-code"
           />
-          <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24 font-mono" data-testid="input-new-customer-demand" />
+          {productMode ? (
+            products.map(p => (
+              <Input
+                key={p.id}
+                type="number"
+                placeholder={p.name}
+                value={newProductDemands[p.id] ?? ""}
+                onChange={e => setNewProductDemands(prev => ({ ...prev, [p.id]: e.target.value }))}
+                className="h-7 text-xs w-24 font-mono"
+                data-testid={`input-new-customer-demand-${p.id}`}
+              />
+            ))
+          ) : (
+            <Input type="number" placeholder="Demand" value={newDemand} onChange={e => setNewDemand(e.target.value)} className="h-7 text-xs w-24 font-mono" data-testid="input-new-customer-demand" />
+          )}
           <Button size="sm" className="h-7 px-2 text-xs" onClick={handleAddRow} data-testid="button-add-customer-confirm">
             Add
           </Button>
@@ -431,7 +610,77 @@ export function CustomersTab({
   return (
     <div data-testid="customers-tab">
       {toolbar}
-      <CustomerTable customers={customers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} />
+      {productMode ? (
+        <div className="max-h-[60vh] overflow-y-auto" data-testid="customer-product-table">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>City</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Latitude</TableHead>
+                <TableHead>Longitude</TableHead>
+                {products.map(p => <TableHead key={p.id}>{p.name}</TableHead>)}
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {customers.map(c => {
+                const o = getProductOverride(c.id);
+                const status = o?.status ?? "active";
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-mono text-xs">{c.id}</TableCell>
+                    <TableCell className="text-xs">{c.city}</TableCell>
+                    <TableCell className="text-xs">{c.state}</TableCell>
+                    <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
+                    <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
+                    {products.map(p => {
+                      const key = `${c.id}:${p.id}`;
+                      const baseValue = c.demands?.[p.id] ?? 0;
+                      const overrideValue = o?.demands?.[p.id];
+                      const error = productErrors[key];
+                      return (
+                        <TableCell key={p.id}>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={productDrafts[key] ?? String(overrideValue ?? baseValue)}
+                            onChange={e => handleProductDemandChange(c.id, p.id, e.target.value)}
+                            className="h-7 text-xs w-24 font-mono"
+                            data-testid={`input-customer-demand-${c.id}-${p.id}`}
+                          />
+                          {error && <p className="text-[10px] text-destructive mt-0.5">{error}</p>}
+                        </TableCell>
+                      );
+                    })}
+                    <TableCell>
+                      <div className="flex rounded border border-border overflow-hidden text-[10px] w-fit">
+                        {(["active", "excluded"] as const).map(s => (
+                          <button
+                            key={s}
+                            data-testid={`button-customer-${c.id}-${s}`}
+                            onClick={() => upsertProductOverride(c.id, { status: s })}
+                            className={`px-2 py-1 transition-colors whitespace-nowrap ${
+                              status === s
+                                ? s === "excluded" ? "bg-destructive text-white" : "bg-slate-200 text-foreground"
+                                : "bg-white text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            {s === "active" ? "Active" : "Excluded"}
+                          </button>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <CustomerTable customers={customers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} />
+      )}
       {addedSection}
       {importDialog}
     </div>

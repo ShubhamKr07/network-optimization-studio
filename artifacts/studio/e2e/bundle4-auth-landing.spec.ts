@@ -48,10 +48,11 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     await expect(page.getByText("By Prof. Michael Watson")).toBeVisible();
 
     // AuthShell's labs strip is derived from CHAPTERS' non-hidden chapters
-    // (deduped by `chapter`), not a hardcoded per-model list — with
-    // transport-coal/p-median-brazil (Chapter 5) hiddenFromLanding but
-    // Chapter 10 unhidden, it shows Chapter 3 and Chapter 10.
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 10");
+    // (deduped by `chapter`, in array order), not a hardcoded per-model list —
+    // with transport-coal/p-median-brazil (Chapter 5) hiddenFromLanding but
+    // Chapter 10 and Chapter 9 (JADE, unhidden jade-T17) visible, it shows
+    // Chapter 3, Chapter 10, then Chapter 9.
+    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 10Chapter 9");
 
     const credit = page.getByTestId("auth-credit");
     await expect(credit).toBeVisible();

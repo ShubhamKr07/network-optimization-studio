@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Marker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation";
-import { demandTone, makeQuintileRadius, type DemandTone, type MapWarehouse, type MapCustomer, type MapEntity } from "./types";
+import { demandTone, makeQuintileRadius, type DemandTone, type MapWarehouse, type MapCustomer, type MapPlant, type MapEntity } from "./types";
 
 export interface EntityMarkersToggles {
   warehouses: boolean;
@@ -16,6 +16,23 @@ export interface EntityMarkersToggles {
    * it's whatever's passed as `customers`) renders at a fixed radius
    * (`FIXED_CUSTOMER_RADIUS`) instead of the quintile scale. */
   sizeByDemand?: boolean;
+  /** jade-T12 (Chapter 9 JADE) — the plant layer. Optional, default `true`
+   * (every existing `toggles` literal that doesn't set this field keeps
+   * showing plants when a `plants` array is actually passed in — see
+   * `EntityMarkersProps.plants`'s own default `[]`, which means "no plants"
+   * for every non-JADE caller regardless of this flag). */
+  plants?: boolean;
+}
+
+/** jade-T12 — the OFF-state square plant marker SVG, mirroring
+ * `warehouseTriangleSvg`'s own exported-pure-string-builder convention (a
+ * plant has no status vocabulary to key a marker style off — see
+ * PLANT_ROLE/statusPresentation.ts's own comment — so this takes no
+ * argument, unlike the triangle builder). Reuses the same `--map-warehouse`
+ * supply-role token family (a plant is supply, not demand) rather than
+ * inventing a new CSS custom property this task's file list doesn't cover. */
+export function plantSquareSvg(): string {
+  return `<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" fill="none" stroke="var(--map-warehouse)" stroke-width="2" /></svg>`;
 }
 
 /** A2 (Bundle 2.2) — the fixed OFF-state customer/station marker radius,
@@ -26,6 +43,11 @@ export const FIXED_CUSTOMER_RADIUS = 6;
 export interface EntityMarkersProps {
   warehouses: MapWarehouse[];
   customers: MapCustomer[];
+  /** jade-T12 (Chapter 9 JADE) — the third map-entity kind (square marker,
+   * supply role, no status/value). Optional, default `[]` — every non-JADE
+   * caller (PMedianInputMap/TransportInputMap/TwoEchelonInputMap) omits this
+   * entirely and renders exactly as before. */
+  plants?: MapPlant[];
   toggles: EntityMarkersToggles;
   onLeftClick: (entity: MapEntity, e: L.LeafletMouseEvent) => void;
   onRightClick: (entity: MapEntity, e: L.LeafletMouseEvent) => void;
@@ -90,6 +112,18 @@ function warehouseIcon(status: WhStatus | undefined): L.DivIcon {
   });
 }
 
+// jade-T12 — no status/marker-style argument (a plant has no status
+// vocabulary at all, unlike `warehouseIcon` above), so this is a fixed icon,
+// not a per-row-computed one.
+function plantIcon(): L.DivIcon {
+  return L.divIcon({
+    html: plantSquareSvg(),
+    className: "pl-marker",
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
+
 function customerIcon(radius: number, excluded: boolean, tone: DemandTone): L.DivIcon {
   const size = Math.ceil(radius * 2) + 4;
   return L.divIcon({
@@ -112,6 +146,7 @@ function customerIcon(radius: number, excluded: boolean, tone: DemandTone): L.Di
 export function EntityMarkers({
   warehouses,
   customers,
+  plants = [],
   toggles,
   onLeftClick,
   onRightClick,
@@ -144,6 +179,29 @@ export function EntityMarkers({
 
   return (
     <>
+      {/* jade-T12 — plants render before warehouses/customers so the
+          existing z-index precedence (warehouses over customers, via
+          zIndexOffset) is unaffected; plants get the same elevated
+          zIndexOffset as warehouses (also a primary interaction target,
+          not a demand bubble that should sit underneath). */}
+      {(toggles.plants ?? true) &&
+        plants.map((pl) => {
+          const entity: MapEntity = { kind: "pl", entity: pl };
+          return (
+            <Marker
+              key={pl.id}
+              position={[pl.lat, pl.lng]}
+              icon={plantIcon()}
+              draggable={draggableIds.has(pl.id)}
+              eventHandlers={bindEventHandlers(entity)}
+              zIndexOffset={1000}
+            >
+              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                <span className="font-semibold text-xs">{pl.displayCode}</span>
+              </Tooltip>
+            </Marker>
+          );
+        })}
       {toggles.warehouses &&
         warehouses.map((wh) => {
           if (wh.status === "inactive" && !toggles.showInactive) return null;

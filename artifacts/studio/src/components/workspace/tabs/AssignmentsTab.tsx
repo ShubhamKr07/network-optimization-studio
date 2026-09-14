@@ -32,6 +32,48 @@ function displayCodeById(displayedInputs: AssignmentsDisplayedInputs | null | un
   return map;
 }
 
+// jade-T14 — legs that carry facility->demand ("customer assignment") flow.
+// Single-echelon models (p-median-us/brazil, transport-coal) have no `leg`
+// field at all and their edges ARE the assignment set already; those pass
+// straight through unfiltered (back-compat, byte-identical to before this
+// task). Two-echelon models tag every edge with a leg — only the
+// facility->demand leg belongs here (Ch10's `refinery_to_customer`, Ch9
+// JADE's `warehouse_to_customer`); the source->facility leg
+// (`mine_to_refinery`/`plant_to_warehouse`) belongs to FlowsTab, not here.
+// Semantic classification, never a literal Chapter-10-only allowlist.
+const FACILITY_TO_DEMAND_LEGS = new Set<string>(["refinery_to_customer", "warehouse_to_customer"]);
+
+interface AssignmentRow {
+  customerId: string;
+  warehouseId: string;
+  distance: number;
+  flow: number;
+}
+
+// jade-T14 — one row per customer. Per spec, JADE's own warehouse_to_customer
+// edges are already aggregated per customer at the envelope layer (single-
+// source: one serving warehouse per customer, flow = total tons across all
+// products), so this aggregation is a defensive safety net rather than the
+// primary mechanism — it never changes p-median-us/Ch10's existing one-edge-
+// per-customer output (each edge already keys to a distinct `toId` there).
+function aggregatedAssignmentRows(result: SolveResult): AssignmentRow[] {
+  const hasLegs = result.edges.some(e => e.leg != null);
+  const edges = hasLegs
+    ? result.edges.filter(e => e.leg != null && FACILITY_TO_DEMAND_LEGS.has(e.leg))
+    : result.edges;
+
+  const byCustomer = new Map<string, AssignmentRow>();
+  for (const e of edges) {
+    const existing = byCustomer.get(e.toId);
+    if (existing) {
+      existing.flow += e.flow;
+    } else {
+      byCustomer.set(e.toId, { customerId: e.toId, warehouseId: e.fromId, distance: e.distance, flow: e.flow });
+    }
+  }
+  return [...byCustomer.values()];
+}
+
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
@@ -44,6 +86,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs }: Assignme
     );
   }
   const codeById = displayCodeById(displayedInputs);
+  const rows = aggregatedAssignmentRows(result);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -69,12 +112,12 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs }: Assignme
             </tr>
           </thead>
           <tbody>
-            {result.edges.map(e => (
-              <tr key={e.toId} data-testid={`assignment-row-${e.toId}`} className="border-b">
-                <td className="p-2">{e.toId}</td>
-                <td className="p-2">{codeById[e.fromId] ?? e.fromId}</td>
-                <td className="p-2 text-right font-mono">{e.distance.toFixed(1)}</td>
-                <td className="p-2 text-right font-mono">{e.flow.toLocaleString()}</td>
+            {rows.map(r => (
+              <tr key={r.customerId} data-testid={`assignment-row-${r.customerId}`} className="border-b">
+                <td className="p-2">{r.customerId}</td>
+                <td className="p-2">{codeById[r.warehouseId] ?? r.warehouseId}</td>
+                <td className="p-2 text-right font-mono">{r.distance.toFixed(1)}</td>
+                <td className="p-2 text-right font-mono">{r.flow.toLocaleString()}</td>
               </tr>
             ))}
           </tbody>

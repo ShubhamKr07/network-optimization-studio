@@ -6,9 +6,18 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Customer } from './customer';
+import type { Plant } from './plant';
+import type { PlantProductCapability } from './plantProductCapability';
+import type { Product } from './product';
 import type { WarehouseCandidate } from './warehouseCandidate';
 
 export interface Dataset {
   warehouses: WarehouseCandidate[];
   customers: Customer[];
+  /** Chapter 9 JADE only. Absent for models with no plant echelon. */
+  plants?: Plant[];
+  /** Chapter 9 JADE only. Absent for models with no product axis. */
+  products?: Product[];
+  /** Chapter 9 JADE only — the base 16-cell plant×product capability matrix. Absent for models with no plant/product concept. */
+  plantProductCapabilities?: PlantProductCapability[];
 }

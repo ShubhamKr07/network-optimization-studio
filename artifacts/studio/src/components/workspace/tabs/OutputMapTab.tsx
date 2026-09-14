@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
@@ -8,6 +8,19 @@ import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import type { CountryBounds } from "@/lib/mapBounds";
 import { copyMapToClipboard, downloadMapAsPng, isClipboardImageWriteSupported } from "@/lib/copyMapToClipboard";
 import { toast } from "@/hooks/use-toast";
+
+// jade-T15.6 — derives a human-readable lane label from a leg string value
+// itself (e.g. "plant_to_warehouse" -> "Plant → Warehouse"), never from a
+// modelId/leg-string allowlist. Generalizes to any two-echelon model's leg
+// naming convention (mine_to_refinery, refinery_to_customer, ...) with zero
+// new code — the SAME bug class this repo's shared-component gates
+// (docs/model-integration-precheck.md Gate 1/6/6.5) exist to prevent.
+function legLabel(leg: string): string {
+  const parts = leg.split("_to_");
+  const cap = (s: string) => (s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+  if (parts.length === 2) return `${cap(parts[0])} → ${cap(parts[1])}`;
+  return cap(leg);
+}
 
 // Local — mirrors NetworkMap's own (unexported) WarehouseStatusEntry shape;
 // Studio.tsx derives the same inline shape at its call site rather than
@@ -100,6 +113,41 @@ export function OutputMapTab({
   const [colorByBand, setColorByBand] = useState(true);
   const mapRef = useRef<HTMLDivElement>(null);
   const [clipboardSupported] = useState(() => isClipboardImageWriteSupported());
+
+  // jade-T15.6 — per-leg lane visibility. Two-echelon models (two-echelon-
+  // gold-au, two-echelon-jade-us) tag each edge with a `leg`; every
+  // single-echelon model's edges have no `leg` at all. Distinct legs are
+  // derived from the RESULT itself (never a modelId check), in first-
+  // appearance order (solve.py emits inbound edges before outbound ones, so
+  // this naturally orders "Plant → Warehouse" before "Warehouse →
+  // Customer" with no extra sort). A result with fewer than 2 distinct legs
+  // (every single-echelon model, or pre-solve/no result) shows no per-leg
+  // toggles at all — unchanged behavior, not a regression.
+  const distinctLegs = useMemo(() => {
+    if (!result) return [];
+    const seen: string[] = [];
+    for (const edge of result.edges) {
+      if (edge.leg != null && !seen.includes(edge.leg)) seen.push(edge.leg);
+    }
+    return seen;
+  }, [result]);
+  const [hiddenLegs, setHiddenLegs] = useState<Set<string>>(new Set());
+  const showLegToggles = distinctLegs.length >= 2;
+  // undefined (show every leg, NetworkMap's own "no filtering" default) when
+  // there's no multi-leg concept for this result — only meaningfully
+  // restrict once real per-leg toggles are shown.
+  const visibleLegs = showLegToggles
+    ? distinctLegs.filter(leg => !hiddenLegs.has(leg))
+    : undefined;
+
+  function toggleLeg(leg: string, checked: boolean) {
+    setHiddenLegs(prev => {
+      const next = new Set(prev);
+      if (checked) next.delete(leg);
+      else next.add(leg);
+      return next;
+    });
+  }
 
   // B2.1-T2 (item 2) — same distanceUnit-resolution pattern as
   // ServiceStatsTab.tsx: model manifest (G1.1) via GET /api/models,
@@ -225,6 +273,21 @@ export function OutputMapTab({
           />
           <Label htmlFor="output-map-color-by-band" className="text-xs">Color lanes: Distance band</Label>
         </div>
+        {showLegToggles && (
+          <div className="flex items-center gap-3 pl-3 border-l" data-testid="output-map-leg-toggles">
+            {distinctLegs.map(leg => (
+              <div key={leg} className="flex items-center gap-1.5">
+                <Checkbox
+                  id={`output-map-toggle-leg-${leg}`}
+                  checked={!hiddenLegs.has(leg)}
+                  onCheckedChange={checked => toggleLeg(leg, checked === true)}
+                  data-testid={`checkbox-toggle-leg-${leg}`}
+                />
+                <Label htmlFor={`output-map-toggle-leg-${leg}`} className="text-xs">{legLabel(leg)}</Label>
+              </div>
+            ))}
+          </div>
+        )}
         {copyDownloadButtons}
         {!result && (
           <span className="text-xs text-muted-foreground" data-testid="output-map-no-result">
@@ -272,6 +335,7 @@ export function OutputMapTab({
           onToggleCustomerMultiSelect={() => {}}
           hideClosedWarehouses={hideClosedWarehouses}
           distanceUnit={distanceUnit}
+          visibleLegs={visibleLegs}
         />
       </div>
     </div>

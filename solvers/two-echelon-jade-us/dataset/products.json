@@ -1,0 +1,22 @@
+{
+  "product-1": {
+    "id": "product-1",
+    "sourceId": 1,
+    "name": "Product Family 1"
+  },
+  "product-2": {
+    "id": "product-2",
+    "sourceId": 2,
+    "name": "Product Family 2"
+  },
+  "product-3": {
+    "id": "product-3",
+    "sourceId": 3,
+    "name": "Product Family 3"
+  },
+  "product-4": {
+    "id": "product-4",
+    "sourceId": 4,
+    "name": "Product Family 4"
+  }
+}

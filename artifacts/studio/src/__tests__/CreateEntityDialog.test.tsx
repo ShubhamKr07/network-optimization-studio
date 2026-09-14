@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CreateEntityDialog } from "@/components/workspace/map/dialogs/CreateEntityDialog";
-import { MINE_ROLE, REFINERY_ROLE, STATION_ROLE } from "@/components/workspace/map/types";
+import { MINE_ROLE, REFINERY_ROLE, STATION_ROLE, PLANT_ROLE } from "@/components/workspace/map/types";
 
 // Reno, NV per the real gazetteer entry (lat 39.549097, lng -119.849907) —
 // (39.53, -119.81) is nearest to it, not any other gazetteer city.
@@ -213,6 +213,53 @@ describe("CreateEntityDialog", () => {
     it("kind='wh' never renders the customer status control regardless of the capability prop", () => {
       renderDialog({ kind: "wh", supportsAddedCustomerExclusion: true });
       expect(screen.queryByTestId("create-entity-cs-status")).not.toBeInTheDocument();
+    });
+  });
+
+  // jade-T12 (Chapter 9 JADE) — the third map-entity kind: a plant has no
+  // status and no editable value at all (only geometry). Its capability
+  // matrix (which products it can make) is edited on a wholly separate tab,
+  // never in this dialog.
+  describe("kind='pl' (PLANT_ROLE, jade-T12)", () => {
+    it("renders no status control and no capacity/demand field at all", () => {
+      renderDialog({ kind: "pl", role: PLANT_ROLE });
+      expect(screen.queryByTestId("create-entity-status")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("create-entity-capacity")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("create-entity-demand")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("create-entity-cs-status")).not.toBeInTheDocument();
+    });
+
+    it("mints an ap-/PL- id and submits only geometry — exactly AddedPlant's shape", () => {
+      const { onSubmit } = renderDialog({ kind: "pl", role: PLANT_ROLE });
+      expect(screen.getByTestId("create-entity-display-code")).toHaveTextContent(/^PL-/);
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input.id).toMatch(/^ap-/);
+      expect(input).toMatchObject({
+        displayCode: "PL-NV-RENO-01",
+        city: "Reno",
+        state: "NV",
+        lat: RENO_LAT,
+        lng: RENO_LNG,
+      });
+      expect(input).not.toHaveProperty("status");
+      expect(input).not.toHaveProperty("capacity");
+      expect(input).not.toHaveProperty("demand");
+    });
+
+    it("a role's label drives the dialog title for a plant too", () => {
+      renderDialog({ kind: "pl", role: PLANT_ROLE });
+      expect(screen.getByTestId("create-entity-dialog")).toHaveTextContent("New plant");
+    });
+
+    it("copy-plant shows the (copy) title but still submits geometry only — nothing to copy for a plant", () => {
+      const { onSubmit } = renderDialog({ kind: "pl", role: PLANT_ROLE, copyFrom: {} });
+      expect(screen.getByTestId("create-entity-dialog")).toHaveTextContent("(copy)");
+      fireEvent.click(screen.getByTestId("create-entity-submit"));
+      const input = onSubmit.mock.calls[0][0];
+      expect(input).not.toHaveProperty("status");
+      expect(input).not.toHaveProperty("capacity");
+      expect(input).not.toHaveProperty("demand");
     });
   });
 });

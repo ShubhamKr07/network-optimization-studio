@@ -88,6 +88,24 @@ describe("MapLegend", () => {
     });
   });
 
+  // jade-T12 (Chapter 9 JADE) — the plant legend row, additive to the
+  // status legend (a plant has no status vocabulary of its own).
+  describe("plant legend row (jade-T12)", () => {
+    it("omits the Plant row by default (showPlantLayer defaults false — every non-JADE model)", () => {
+      const { queryByTestId, queryByText } = render(<MapLegend />);
+      expect(queryByTestId("legend-plant")).not.toBeInTheDocument();
+      expect(queryByText("Plant")).not.toBeInTheDocument();
+    });
+
+    it("shows the Plant row when showPlantLayer is true, alongside the status legend", () => {
+      const { getByTestId, getByText } = render(<MapLegend showPlantLayer />);
+      expect(getByTestId("legend-plant")).toBeInTheDocument();
+      expect(getByText("Plant")).toBeInTheDocument();
+      // additive, not a replacement — the warehouse status rows still show.
+      expect(getByText("Potential")).toBeInTheDocument();
+    });
+  });
+
   // ── Bundle 6.1 (T1) — content-fit box, aligned grid ─────────────────────
   describe("content-fit layout (Bundle 6.1 T1)", () => {
     it("is content-fit (w-fit + max-w-[260px]), not the old fixed w-[220px]", () => {

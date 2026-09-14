@@ -5,10 +5,12 @@ import {
   fillEstimatedBrazilDistances,
   fillEstimatedLaneCosts,
   fillEstimatedTwoEchelonDistances,
+  fillEstimatedJadeDistances,
 } from "../services/autoDistance.js";
 import { pMedianInputsSchema, type PMedianInputs } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema, type TransportLpInputs } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import { jadeInputsSchema, type JadeInputs } from "../validation/inputs/jadeInputs.js";
 
 // T1 (Input Map v2) — a tiny, self-contained coord dataset (2 base
 // warehouses, 2 base customers) passed explicitly as the second arg, so
@@ -648,5 +650,206 @@ describe("B2-T2 Step 5 — move/re-estimation + idempotency (Brazil, transport-c
     const bc2Leg = result.distanceOverrides.find((o) => o.fromId === "AR1" && o.toId === "BC2");
     expect(mineLeg?.estimated).toBe(true);
     expect(bc2Leg?.estimated).toBe(true);
+  });
+});
+
+// ── jade-T12 (Chapter 9 JADE) — plant/warehouse/customer, two legs sharing
+// one distanceOverrides array with an explicit `leg` field. ────────────────
+const JADE_TEST_DATASET = {
+  plants: [{ id: "plant-1", lat: 38.448338, lng: -82.66621175 }], // Ashland, KY
+  warehouses: [{ id: "wh-8", lat: 33.753693, lng: -84.389544 }], // Atlanta, GA
+  customers: [{ id: "customer-76", lat: 41.043696, lng: -81.524301 }], // Akron, OH
+};
+
+const JADE_BASE_INPUTS = {
+  p: 1,
+  distanceBands: [200, 400, 800, 1600],
+  gap: 0,
+  timeLimitSec: 120,
+  warehouseOverrides: [] as { id: string; status: "active" | "forced_open" | "inactive" }[],
+  customerOverrides: [] as { id: string; demands?: Record<string, number>; status: "active" | "excluded" }[],
+  plantProductCapability: [] as { plantId: string; productId: string; enabled: boolean }[],
+  addedPlants: [] as JadeInputs["addedPlants"],
+  addedWarehouses: [] as JadeInputs["addedWarehouses"],
+  addedCustomers: [] as JadeInputs["addedCustomers"],
+  distanceOverrides: [] as JadeInputs["distanceOverrides"],
+};
+
+function jadeDistKey(o: { leg: string; fromId: string; toId: string }): string {
+  return o.leg + "|" + o.fromId + "|" + o.toId;
+}
+
+// jadeInputsSchema's addedCustomerSchema.demands is REQUIRED-COMPLETE (all
+// 4 canonical product ids) — an added customer has no base record to
+// inherit a missing product's demand from (unlike customerOverrideSchema's
+// sparse override), so every fixture below supplies all 4 keys.
+function jadeDemands(total: number): Record<string, number> {
+  return { "product-1": total, "product-2": 0, "product-3": 0, "product-4": 0 };
+}
+
+// jade-T12 — reverse-derived from ALL 2600 base pairs in
+// solvers/two-echelon-jade-us/dataset/distances.json (see autoDistance.ts's
+// own JADE_CIRCUITY comment for the full derivation).
+const JADE_CIRCUITY = 1.1791;
+
+describe("fillEstimatedJadeDistances (two-echelon-jade-us)", () => {
+  it("an added warehouse with no overrides gets BOTH legs estimated: plant->warehouse and warehouse->every base+added customer, both at haversine * JADE_CIRCUITY", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "active" as const }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+
+    const fromPlant = result.distanceOverrides.filter((o) => o.leg === "plant_to_warehouse" && o.toId === "AW1");
+    expect(fromPlant.length).toBe(1);
+    expect(fromPlant[0].fromId).toBe("plant-1");
+    expect(fromPlant[0].estimated).toBe(true);
+    const expectedPlantMi = Math.round(haversineMiles({ lat: 38.448338, lng: -82.66621175 }, { lat: 36.74, lng: -119.77 }) * JADE_CIRCUITY * 10) / 10;
+    expect(fromPlant[0].distance).toBeCloseTo(expectedPlantMi, 1);
+
+    const fromAW1 = result.distanceOverrides.filter((o) => o.leg === "warehouse_to_customer" && o.fromId === "AW1");
+    expect(fromAW1.map((o) => o.toId)).toEqual(["customer-76"]);
+    expect(fromAW1[0].estimated).toBe(true);
+    const expectedCustMi = Math.round(haversineMiles({ lat: 36.74, lng: -119.77 }, { lat: 41.043696, lng: -81.524301 }) * JADE_CIRCUITY * 10) / 10;
+    expect(fromAW1[0].distance).toBeCloseTo(expectedCustMi, 1);
+  });
+
+  // The Step-1 reconstruction test the plan's DoD requires: proves the
+  // locked JADE_CIRCUITY constant reconstructs REAL base pairs (not just
+  // internal self-consistency against haversineMiles), for BOTH legs.
+  it("reconstructs known real base pairs (plant-1->wh-8, wh-8->customer-76) within <0.1% relative tolerance", () => {
+    const rawPlantWh = haversineMiles({ lat: 38.448338, lng: -82.66621175 }, { lat: 33.753693, lng: -84.389544 });
+    const reconstructedPlantWh = rawPlantWh * JADE_CIRCUITY;
+    const knownPlantWh = 398.9338;
+    expect(Math.abs(reconstructedPlantWh - knownPlantWh) / knownPlantWh).toBeLessThan(0.001);
+
+    const rawWhCust = haversineMiles({ lat: 33.753693, lng: -84.389544 }, { lat: 41.043696, lng: -81.524301 });
+    const reconstructedWhCust = rawWhCust * JADE_CIRCUITY;
+    const knownWhCust = 622.1157;
+    expect(Math.abs(reconstructedWhCust - knownWhCust) / knownWhCust).toBeLessThan(0.001);
+  });
+
+  it("a base warehouse gets a warehouse->customer leg to every ADDED customer only, never base<->base, and a plant->warehouse leg only from ADDED plants", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedCustomers: [{ id: "AC1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, demands: jadeDemands(500), status: "active" as const }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const fromWh8 = result.distanceOverrides.filter((o) => o.leg === "warehouse_to_customer" && o.fromId === "wh-8");
+    expect(fromWh8.map((o) => o.toId)).toEqual(["AC1"]);
+    expect(result.distanceOverrides.some((o) => o.leg === "warehouse_to_customer" && o.toId === "customer-76")).toBe(false);
+    // No added plant exists in this scenario, so no plant_to_warehouse rows at all.
+    expect(result.distanceOverrides.some((o) => o.leg === "plant_to_warehouse")).toBe(false);
+  });
+
+  it("an added plant gets a plant->warehouse leg to every active base+added warehouse", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedPlants: [{ id: "AP1", city: "Denver", state: "CO", lat: 39.7392, lng: -104.9903 }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const fromAP1 = result.distanceOverrides.filter((o) => o.leg === "plant_to_warehouse" && o.fromId === "AP1");
+    expect(fromAP1.map((o) => o.toId)).toEqual(["wh-8"]);
+    expect(fromAP1[0].estimated).toBe(true);
+  });
+
+  it("a plant/warehouse/customer id colliding across roles resolves against its own role's map (no cross-role coord bleed)", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "active" as const }],
+      addedCustomers: [{ id: "AW1", city: "Elsewhere", state: "ZZ", lat: 10, lng: 10, demands: jadeDemands(100), status: "active" as const }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const row = result.distanceOverrides.find((o) => o.leg === "warehouse_to_customer" && o.fromId === "AW1" && o.toId === "AW1");
+    expect(row).toBeDefined();
+    const expectedDistance = Math.max(0.1, Math.round(haversineMiles({ lat: 36.74, lng: -119.77 }, { lat: 10, lng: 10 }) * JADE_CIRCUITY * 10) / 10);
+    expect(row!.distance).toBeCloseTo(expectedDistance, 1);
+  });
+
+  it("an inactive added warehouse contributes no rows on either leg", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "inactive" as const }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    expect(result.distanceOverrides.some((o) => o.fromId === "AW1" || o.toId === "AW1")).toBe(false);
+  });
+
+  it("an excluded base customer is not a fill target", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      customerOverrides: [{ id: "customer-76", status: "excluded" as const }],
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "active" as const }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const fromAW1 = result.distanceOverrides.filter((o) => o.leg === "warehouse_to_customer" && o.fromId === "AW1");
+    expect(fromAW1).toEqual([]);
+  });
+
+  it("plants have no force-open/inactive concept — an added plant is always a fill target regardless of any status-shaped field", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedPlants: [{ id: "AP1", city: "Denver", state: "CO", lat: 39.7392, lng: -104.9903 }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    expect(result.distanceOverrides.some((o) => o.leg === "plant_to_warehouse" && o.fromId === "AP1" && o.toId === "wh-8")).toBe(true);
+  });
+
+  it("two coincident points clamp to MIN_DISTANCE (0.1), never 0, and the result still validates", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Same", state: "GA", lat: 33.753693, lng: -84.389544, status: "active" as const }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const row = result.distanceOverrides.find((o) => o.leg === "plant_to_warehouse" && o.toId === "AW1");
+    // Same coords as wh-8, so distance from plant-1 is identical to the
+    // plant-1->wh-8 raw pair — not necessarily 0.1, but must be > 0 and match.
+    const expected = Math.round(haversineMiles({ lat: 38.448338, lng: -82.66621175 }, { lat: 33.753693, lng: -84.389544 }) * JADE_CIRCUITY * 10) / 10;
+    expect(row!.distance).toBeCloseTo(expected, 1);
+    expect(() => jadeInputsSchema.parse(result)).not.toThrow();
+  });
+
+  it("a manual row (no estimated flag) is left untouched", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "active" as const }],
+      distanceOverrides: [{ leg: "plant_to_warehouse" as const, fromId: "plant-1", toId: "AW1", distance: 999 }],
+    };
+    const result = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const row = result.distanceOverrides.find((o) => o.leg === "plant_to_warehouse" && o.fromId === "plant-1" && o.toId === "AW1");
+    expect(row).toEqual({ leg: "plant_to_warehouse", fromId: "plant-1", toId: "AW1", distance: 999 });
+  });
+
+  it("running fillEstimatedJadeDistances twice is a no-op (idempotent)", () => {
+    const inputs = {
+      ...JADE_BASE_INPUTS,
+      addedPlants: [{ id: "AP1", city: "Denver", state: "CO", lat: 39.7392, lng: -104.9903 }],
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "active" as const }],
+      addedCustomers: [{ id: "AC1", city: "Reno", state: "NV", lat: 39.53, lng: -119.81, demands: jadeDemands(300), status: "active" as const }],
+    };
+    const once = fillEstimatedJadeDistances(inputs as JadeInputs, JADE_TEST_DATASET);
+    const twice = fillEstimatedJadeDistances(once, JADE_TEST_DATASET);
+    expect(twice.distanceOverrides).toEqual(once.distanceOverrides);
+    const keys = twice.distanceOverrides.map(jadeDistKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("moving an added warehouse (purge its own rows, re-normalize) regenerates estimates from the NEW coords, on both legs", () => {
+    const original = {
+      ...JADE_BASE_INPUTS,
+      addedWarehouses: [{ id: "AW1", city: "Fresno", state: "CA", lat: 36.74, lng: -119.77, status: "active" as const }],
+    };
+    const solved = fillEstimatedJadeDistances(original as JadeInputs, JADE_TEST_DATASET);
+    const oldRow = solved.distanceOverrides.find((o) => o.leg === "plant_to_warehouse" && o.toId === "AW1")!;
+
+    const moved = {
+      ...solved,
+      addedWarehouses: [{ ...original.addedWarehouses[0], lat: 41.8781, lng: -87.6298 }], // Chicago
+      distanceOverrides: solved.distanceOverrides.filter((o) => o.fromId !== "AW1" && o.toId !== "AW1"),
+    };
+    const reNormalized = fillEstimatedJadeDistances(moved as JadeInputs, JADE_TEST_DATASET);
+    const newRow = reNormalized.distanceOverrides.find((o) => o.leg === "plant_to_warehouse" && o.toId === "AW1")!;
+    expect(newRow).toBeDefined();
+    expect(newRow.distance).not.toBeCloseTo(oldRow.distance, 1);
   });
 });

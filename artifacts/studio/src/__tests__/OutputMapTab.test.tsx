@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { getBandColor } from "@/lib/bandPalette";
+import { INBOUND_LEG_COLOR, OUTBOUND_LEG_COLOR } from "@/lib/legPalette";
 import * as copyMapToClipboard from "@/lib/copyMapToClipboard";
 
 vi.mock("@/lib/copyMapToClipboard", () => ({
@@ -339,6 +340,92 @@ describe("OutputMapTab — copy/download", () => {
     render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
     fireEvent.click(screen.getByTestId("button-download-map-png"));
     await waitFor(() => expect(copyMapToClipboard.downloadMapAsPng).toHaveBeenCalledTimes(1));
+  });
+});
+
+// jade-T15.6 — per-leg lane visibility toggles. Two-echelon models
+// (two-echelon-gold-au, two-echelon-jade-us) tag each edge with a `leg`;
+// this suite proves the toggle checkboxes are derived from the RESULT's
+// distinct leg values (never a modelId check) and actually control
+// NetworkMap's visibleLegs prop, observed via real rendered route DOM (same
+// convention as the rest of this file — no react-leaflet mocking).
+describe("OutputMapTab — per-leg lane visibility toggles (jade-T15.6)", () => {
+  // Two-echelon dataset: a "plant" folded into warehouses (matching
+  // Workspace.tsx's own documented jadePlantsAsWarehouseCandidates fold —
+  // NetworkMap resolves an inbound leg's fromId/toId both against
+  // dataset.warehouses).
+  const twoLegDataset = {
+    warehouses: [
+      { id: "P1", city: "Plantville", state: "PL", lat: 34, lng: -112 },
+      { id: "W1", city: "Warehouseburg", state: "WB", lat: 35, lng: -111 },
+    ],
+    customers: [{ id: "C1", city: "Customerton", state: "CT", lat: 36, lng: -110, demand: 100 }],
+  };
+  const twoLegResult = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [
+      { fromId: "P1", toId: "W1", leg: "plant_to_warehouse" as const, flow: 50, distance: 100 },
+      { fromId: "W1", toId: "C1", leg: "warehouse_to_customer" as const, flow: 50, distance: 200 },
+    ],
+    metrics: { weightedAvgDistance: 150, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["W1"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("renders one human-labeled checkbox per distinct leg, both checked by default", () => {
+    const { container } = render(
+      <OutputMapTab dataset={twoLegDataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,
+    );
+    const plantToWarehouse = screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse");
+    const warehouseToCustomer = screen.getByTestId("checkbox-toggle-leg-warehouse_to_customer");
+    expect(plantToWarehouse).toHaveAttribute("aria-checked", "true");
+    expect(warehouseToCustomer).toHaveAttribute("aria-checked", "true");
+    // Labels derived from the leg string itself (generic "_to_" split +
+    // capitalize), never a modelId/leg-string allowlist keyed to JADE.
+    expect(screen.getByText("Plant → Warehouse")).toBeInTheDocument();
+    expect(screen.getByText("Warehouse → Customer")).toBeInTheDocument();
+    expect(routePathCount(container)).toBe(2);
+  });
+
+  it("unchecking one leg's toggle hides only that leg's route (visibleLegs excludes it)", () => {
+    const { container } = render(
+      <OutputMapTab dataset={twoLegDataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse"));
+
+    expect(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse")).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByTestId("checkbox-toggle-leg-warehouse_to_customer")).toHaveAttribute("aria-checked", "true");
+    // Exactly one route remains — the plant_to_warehouse (inbound) polyline
+    // is gone (proven by color, not just count: inbound color absent,
+    // outbound color still present).
+    expect(routePathCount(container)).toBe(1);
+    const html = routePaneHtml(container);
+    expect(html.toLowerCase()).not.toContain(INBOUND_LEG_COLOR.toLowerCase());
+    expect(html.toLowerCase()).toContain(OUTBOUND_LEG_COLOR.toLowerCase());
+  });
+
+  it("re-checking a leg's toggle restores its route", () => {
+    const { container } = render(
+      <OutputMapTab dataset={twoLegDataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,
+    );
+    fireEvent.click(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse"));
+    expect(routePathCount(container)).toBe(1);
+    fireEvent.click(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse"));
+    expect(routePathCount(container)).toBe(2);
+  });
+
+  it("renders no per-leg toggles for a single-echelon (legless) result — unchanged behavior", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    expect(screen.queryByTestId(/^checkbox-toggle-leg-/)).not.toBeInTheDocument();
+  });
+
+  it("renders no per-leg toggles pre-solve (result is null)", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[250, 500, 750]} />);
+    expect(screen.queryByTestId(/^checkbox-toggle-leg-/)).not.toBeInTheDocument();
   });
 });
 

@@ -9,13 +9,16 @@ import {
 } from "@/components/ui/dialog";
 import { nearestCity } from "@/lib/gazetteer";
 import { nextDisplayCode } from "@/lib/entityId";
-import { WAREHOUSE_ROLE, CUSTOMER_ROLE, type EntityRoleConfig } from "@/components/workspace/map/types";
+import { WAREHOUSE_ROLE, CUSTOMER_ROLE, PLANT_ROLE, type EntityRoleConfig } from "@/components/workspace/map/types";
 
 interface MoveConfirmDialogProps {
-  kind: "wh" | "cs";
+  /** jade-T12 (Chapter 9 JADE) — "pl" joins "wh"/"cs" as a third rendering
+   * kind (a plant). */
+  kind: "wh" | "cs" | "pl";
   /** T4 (Bundle 2, Step 0) — defaults to WAREHOUSE_ROLE ("wh") / CUSTOMER_ROLE
-   * ("cs"). Drives the display-code prefix (role.uidKind, DD-7 — a mine
-   * regenerates "MN-..." on move, not "WH-...") and the dialog title. */
+   * ("cs") / PLANT_ROLE ("pl", jade-T12). Drives the display-code prefix
+   * (role.uidKind, DD-7 — a mine regenerates "MN-..." on move, not "WH-...")
+   * and the dialog title. */
   role?: EntityRoleConfig;
   entity: { id: string; displayCode?: string };
   newLat: number;
@@ -35,7 +38,7 @@ interface MoveConfirmDialogProps {
 // it isn't part of `onConfirm` at all.
 export function MoveConfirmDialog({
   kind,
-  role = kind === "wh" ? WAREHOUSE_ROLE : CUSTOMER_ROLE,
+  role = kind === "wh" ? WAREHOUSE_ROLE : kind === "pl" ? PLANT_ROLE : CUSTOMER_ROLE,
   entity,
   newLat,
   newLng,

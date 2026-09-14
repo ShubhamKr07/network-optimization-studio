@@ -78,6 +78,28 @@ describe("WarehousesTab", () => {
   });
 });
 
+// T11 (Chapter 9 JADE) — JADE has no per-warehouse capacity concept
+// (spec §5: capacityModes: [], "no warehouse capacity field — uncapacitated
+// model"). Its Workspace.tsx call site (T15.5) will pass capacityMode="none"
+// like every other uncapacitated model — this is already the existing
+// capability-driven gate (capacityMode === "per_wh" — see the test above),
+// so no code change is needed here; this test documents/locks that JADE
+// gets the status select with NO capacity column for free, using JADE-shaped
+// warehouse rows (with a zip, matching the JADE dataset).
+describe("WarehousesTab — Chapter 9 JADE (T11, capability-driven, no code change needed)", () => {
+  const jadeWarehouses = [
+    { id: "wh-11", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07, zip: "85001" },
+    { id: "wh-14", city: "New York", state: "NY", lat: 40.71, lng: -74.0, zip: "10001" },
+  ];
+
+  it("renders the status select with NO Capacity column when capacityMode is none (JADE's only capacity mode)", () => {
+    render(<WarehousesTab warehouses={jadeWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+    expect(screen.queryByText("Capacity")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Potential").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("button-wh-wh-11-forced_open")).toBeInTheDocument();
+  });
+});
+
 describe("WarehousesTab — Upload/Download (A1.3)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
     render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);

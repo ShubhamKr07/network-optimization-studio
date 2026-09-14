@@ -110,3 +110,51 @@ describe("GET /api/models/:id/reference-distances", () => {
     expect(res.status).toBe(422);
   });
 });
+
+// Chapter 9 (jade-T10) — JADE's single distances.json mixes both leg
+// key-namespaces (plant->warehouse + warehouse->customer), so its reference
+// pairs must carry an explicit `leg` discriminator the p-median-us matrix
+// never needed.
+describe("JADE (two-echelon-jade-us) reference distances", () => {
+  it("builds all 2600 pairs (100 inbound + 2500 outbound) at boot, each tagged with the correct leg", () => {
+    const data = getReferenceDistances("two-echelon-jade-us");
+    expect(data).toBeDefined();
+    expect(data!.pairs).toHaveLength(2600);
+
+    const inbound = data!.pairs.filter((p) => p.leg === "plant_to_warehouse");
+    const outbound = data!.pairs.filter((p) => p.leg === "warehouse_to_customer");
+    expect(inbound).toHaveLength(100);
+    expect(outbound).toHaveLength(2500);
+
+    for (const pair of inbound) {
+      expect(pair.fromId.startsWith("plant-")).toBe(true);
+      expect(pair.toId.startsWith("wh-")).toBe(true);
+    }
+    for (const pair of outbound) {
+      expect(pair.fromId.startsWith("wh-")).toBe(true);
+      expect(pair.toId.startsWith("customer-")).toBe(true);
+    }
+  });
+
+  it("GET /api/models/two-echelon-jade-us/reference-distances returns 2600 pairs + distanceUnit 'mi'", async () => {
+    const res = await request(testApp).get("/api/models/two-echelon-jade-us/reference-distances");
+    expect(res.status).toBe(200);
+    expect(res.body.pairs).toHaveLength(2600);
+    expect(res.body.distanceUnit).toBe("mi");
+    expect(res.body.pairs.some((p: { leg?: string }) => p.leg === "plant_to_warehouse")).toBe(true);
+    expect(res.body.pairs.some((p: { leg?: string }) => p.leg === "warehouse_to_customer")).toBe(true);
+    expect(res.headers.etag).toBeDefined();
+  });
+
+  it("returns 304 with no body when If-None-Match matches the current ETag", async () => {
+    const first = await request(testApp).get("/api/models/two-echelon-jade-us/reference-distances");
+    const etag = first.headers.etag;
+
+    const second = await request(testApp)
+      .get("/api/models/two-echelon-jade-us/reference-distances")
+      .set("If-None-Match", etag);
+
+    expect(second.status).toBe(304);
+    expect(second.text).toBe("");
+  });
+});

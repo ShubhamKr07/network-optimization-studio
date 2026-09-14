@@ -680,3 +680,226 @@ def build_merged_two_echelon_dataset(
         "addedRefineriesById": added_refineries_by_id,
         "addedCustomersById": added_customers_by_id,
     }
+
+
+def build_merged_jade_dataset(
+    inputs: dict[str, Any],
+    plants: dict[str, dict],
+    warehouses: dict[str, dict],
+    customers: dict[str, dict],
+    capability: dict[tuple[str, str], float],
+    product_ids: list[str],
+    distance: dict[tuple[str, str], float],
+) -> dict[str, Any]:
+    """jade-T4: `two-echelon-jade-us`'s own `load_dataset -> apply distance/
+    capability overrides -> append added entities -> apply exclusions`
+    pipeline, consumed by `solve_jade` in solve.py as a per-call,
+    non-mutating drop-in for its `JADE_PLANTS`/`JADE_WAREHOUSES`/
+    `JADE_CUSTOMERS`/`JADE_CAPABILITY`/`_jade_distances()` module-level data.
+
+    Own function, not forced through any existing `build_merged_*_dataset` —
+    two-echelon-jade-us is already ID-keyed end to end (DD-2), like Brazil/
+    transport-coal/two-echelon-gold-au, but has a genuinely different shape:
+    FOUR entity types (plants/warehouses/customers, plus a fixed `products`
+    axis that is never edited/added — no `addedProducts` concept anywhere in
+    the spec), a plant x product CAPABILITY matrix on top of the usual
+    entity/distance merge, and a distance space spanning two disjoint leg
+    namespaces (plant->warehouse, warehouse->customer) sharing one flat
+    `distances.json`, same convention as two-echelon-gold-au's one distance
+    dict for two legs — except JADE's `distanceOverrides` entries carry an
+    explicit `leg` field (spec's Interfaces block), rather than two-echelon-
+    gold-au's purely id-space-inferred leg resolution, since JADE's plant/
+    warehouse/customer id spaces are NOT guaranteed mutually exclusive from
+    a future added-entity's perspective the way mine/refinery/customer are
+    today - the explicit `leg` tag is validated against BOTH the stated leg
+    and each side's actual id-space membership (defense in depth), never
+    inferred from the tag alone.
+
+    Args:
+        inputs: the validated `inputs` blob (or any dict exposing the same
+            keys) containing `addedPlants`, `addedWarehouses`,
+            `addedCustomers`, `distanceOverrides`, `capabilityOverrides`,
+            `excludedCustomerIds` (T5's jadeInputsSchema, not yet built at
+            this task - this function only needs the dict keys to exist).
+            All keys optional, missing ones treated as empty list/set.
+        plants: base dataset, `solve.py`'s `JADE_PLANTS`-shaped
+            `{str_id: {"id", "sourceId", "name", "city", "state", "lat",
+            "lng"}}`. Never mutated.
+        warehouses: base dataset, `solve.py`'s `JADE_WAREHOUSES`-shaped
+            `{str_id: {..., "zip"}}`. Never mutated.
+        customers: base dataset, `solve.py`'s `JADE_CUSTOMERS`-shaped
+            `{str_id: {..., "demand": float, "demands": {productId:
+            float}}}`. Never mutated.
+        capability: base dataset, `solve.py`'s `JADE_CAPABILITY`-shaped
+            `{(plantId, productId): capacity}` — all 16 base cells present
+            (spec §2.2). Never mutated.
+        product_ids: the fixed 4 canonical product ids (`JADE_PRODUCTS`
+            keys) — there is no `addedProducts`, so this is always the base
+            product set, supplied by the caller rather than hardcoded here
+            to keep this module dataset-format-agnostic like every other
+            `build_merged_*_dataset`.
+        distance: base dataset, `solve.py`'s `_jade_distances()`-shaped
+            `{(fromId, toId): float}` — ONE dict covering BOTH the
+            plant->warehouse leg and the warehouse->customer leg (same
+            one-dict-two-legs convention as two-echelon-gold-au). Never
+            mutated.
+
+    Returns a dict:
+        plants: `{**plants}` plus one entry per `addedPlants` item keyed by
+            its own id, shaped like an existing `plants` value (no
+            `sourceId`/`name` — those are base-entity-only display fields).
+        warehouses: same pattern for `addedWarehouses` — no `status` key
+            (that lives in `addedWarehousesById` below, matching base
+            warehouses' own shape, whose status comes from a separate
+            sparse `warehouseStatuses` override map).
+        customers: `{**customers, **addedCustomers}` (keyed by id, each
+            shaped with `demand`/`demands`) with any id present in
+            `excludedCustomerIds` REMOVED — exclusion applies uniformly to
+            base AND added customers (same flat-set convention as
+            p-median-us/transport-coal/two-echelon-gold-au's own
+            `excludedCustomerIds`), and is applied HERE (not left to
+            solve_jade's own filtering) per this task's own test contract.
+        capability: the FULL effective plant x product cross product over
+            `plants ∪ addedPlants` and all 4 `product_ids` — every merged
+            plant gets an entry for every product, defaulting to the base
+            value (or `0` for an added plant, "added plants default all
+            capability cells disabled" per spec §5) — with
+            `capabilityOverrides` applied on top (`enabled: True ->
+            210_000_000`, `False -> 0`), so a scenario can enable an
+            off-diagonal cell for a BASE plant too, not just an added one.
+        distance: `{**distance, **<resolved overrides>}` — each
+            `distanceOverrides` entry's declared `leg` is checked against
+            the ACTUAL id-space membership of its `fromId`/`toId` (checked
+            against the customers set BEFORE exclusion filtering, so an
+            override referencing an about-to-be-excluded customer still
+            resolves as "a customer", not "unknown id") before being
+            applied as `(fromId, toId): distance`. This is also how an
+            added entity gets ANY distance at all (L4: no auto-haversine —
+            an override IS the mechanism, not a separate one).
+        addedPlantsById / addedWarehousesById / addedCustomersById:
+            `{id: <raw entry>}` for each added-entity kind — lets
+            `solve_jade` resolve an added entity's OWN status/demand
+            (added warehouses carry `status` directly, added customers
+            carry `demands` directly) without conflating it with the
+            sparse `warehouseStatuses`/`customerDemands` override maps that
+            apply to BASE entities only (mirrors every prior
+            `build_merged_*_dataset`'s "added entity's own record wins"
+            precedent).
+
+    Raises:
+        UnresolvableIdError: a `distanceOverrides` entry's declared `leg`
+            does not match its `(fromId, toId)` pair's actual role
+            membership (base dataset or this scenario's added plants/
+            warehouses/customers), or the entry's `leg` value is not one of
+            `plant_to_warehouse`/`warehouse_to_customer`.
+    """
+    added_plants = inputs.get("addedPlants", []) or []
+    added_warehouses = inputs.get("addedWarehouses", []) or []
+    added_customers = inputs.get("addedCustomers", []) or []
+    distance_overrides = inputs.get("distanceOverrides", []) or []
+    capability_overrides = inputs.get("capabilityOverrides", []) or []
+    excluded_ids = set(inputs.get("excludedCustomerIds", []) or [])
+
+    merged_plants = dict(plants)
+    added_plants_by_id: dict[str, dict] = {}
+    for pl in added_plants:
+        pid = pl["id"]
+        merged_plants[pid] = {
+            "id": pid,
+            "city": pl["city"],
+            "state": pl["state"],
+            "lat": pl["lat"],
+            "lng": pl["lng"],
+        }
+        added_plants_by_id[pid] = pl
+
+    merged_warehouses = dict(warehouses)
+    added_warehouses_by_id: dict[str, dict] = {}
+    for wh in added_warehouses:
+        wid = wh["id"]
+        merged_warehouses[wid] = {
+            "id": wid,
+            "city": wh["city"],
+            "state": wh["state"],
+            "lat": wh["lat"],
+            "lng": wh["lng"],
+        }
+        added_warehouses_by_id[wid] = wh
+
+    # base ∪ added customers, BEFORE exclusion filtering -- needed as the
+    # role-membership set for distanceOverrides validation below (an
+    # override referencing a customer that's excluded THIS scenario should
+    # still resolve as "a customer", not "unknown id").
+    all_customers = dict(customers)
+    added_customers_by_id: dict[str, dict] = {}
+    for c in added_customers:
+        cid = c["id"]
+        demands = dict(c["demands"])
+        all_customers[cid] = {
+            "id": cid,
+            "city": c["city"],
+            "state": c["state"],
+            "lat": c["lat"],
+            "lng": c["lng"],
+            "demand": sum(demands.values()),
+            "demands": demands,
+        }
+        added_customers_by_id[cid] = c
+
+    # Exclusion applies uniformly to base + added customers (flat-set
+    # convention shared with every other model) -- and is applied here, at
+    # the merge layer, rather than left to solve_jade's own list-comprehension
+    # filtering (this task's own test contract asserts an excluded customer
+    # is absent from the MERGED customers dict, not merely skipped later).
+    merged_customers = {cid: c for cid, c in all_customers.items() if cid not in excluded_ids}
+
+    # Effective plant x product cross product: every merged plant gets an
+    # entry for every base product. A plant already in the base capability
+    # matrix keeps its base value; an added plant (not in the base matrix at
+    # all) defaults to 0 for every product ("added plants default all
+    # capability cells disabled", spec §5) -- then capabilityOverrides are
+    # applied on top of THIS cross product, so a scenario can enable an
+    # off-diagonal cell for a base OR an added plant alike.
+    merged_capability: dict[tuple[str, str], float] = {}
+    for pid in merged_plants:
+        for k in product_ids:
+            merged_capability[(pid, k)] = capability.get((pid, k), 0)
+    for override in capability_overrides:
+        pid, k, enabled = override["plantId"], override["productId"], override["enabled"]
+        merged_capability[(pid, k)] = 210_000_000 if enabled else 0
+
+    merged_distance = dict(distance)
+    for override in distance_overrides:
+        leg = override.get("leg")
+        from_id, to_id = override["fromId"], override["toId"]
+        if leg == "plant_to_warehouse":
+            if from_id not in merged_plants or to_id not in merged_warehouses:
+                raise UnresolvableIdError(
+                    f"distanceOverrides pair (fromId '{from_id}', toId '{to_id}') declared leg "
+                    "'plant_to_warehouse' but fromId is not a known plant id or toId is not a "
+                    "known warehouse id (base dataset or this scenario's added entities)"
+                )
+        elif leg == "warehouse_to_customer":
+            if from_id not in merged_warehouses or to_id not in all_customers:
+                raise UnresolvableIdError(
+                    f"distanceOverrides pair (fromId '{from_id}', toId '{to_id}') declared leg "
+                    "'warehouse_to_customer' but fromId is not a known warehouse id or toId is "
+                    "not a known customer id (base dataset or this scenario's added entities)"
+                )
+        else:
+            raise UnresolvableIdError(
+                f"distanceOverrides entry (fromId '{from_id}', toId '{to_id}') has unknown or "
+                f"missing leg '{leg}' -- must be 'plant_to_warehouse' or 'warehouse_to_customer'"
+            )
+        merged_distance[(from_id, to_id)] = override["distance"]
+
+    return {
+        "plants": merged_plants,
+        "warehouses": merged_warehouses,
+        "customers": merged_customers,
+        "capability": merged_capability,
+        "distance": merged_distance,
+        "addedPlantsById": added_plants_by_id,
+        "addedWarehousesById": added_warehouses_by_id,
+        "addedCustomersById": added_customers_by_id,
+    }

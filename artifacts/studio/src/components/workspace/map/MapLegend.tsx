@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation";
 import { demandTone, makeQuintileRadius, QUINTILE_RADII } from "./types";
-import { warehouseTriangleSvg, customerBubbleSvg } from "./EntityMarkers";
+import { warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "./EntityMarkers";
 import { getBandColor } from "@/lib/bandPalette";
 
 const STATUSES: WhStatus[] = ["active", "forced_open", "inactive"];
@@ -119,6 +119,13 @@ export interface MapLegendProps {
   /** Contextual hint line rendered under every group, e.g. selection-mode
    * instructions. Optional, default `null`. */
   hintText?: string | null;
+  /** jade-T12 (Chapter 9 JADE) — Input variant only: whether to show a
+   * "Plant" row (square marker) in the Sites group. Two-echelon-jade-us is
+   * the only model with a genuinely separate plant echelon (no status
+   * vocabulary of its own — see PLANT_ROLE) so this is additive, not folded
+   * into `showStatusLegend`'s status-vocabulary rows. Optional, default
+   * `false` (every other model's call site is unaffected). */
+  showPlantLayer?: boolean;
 }
 
 // Static overlay — status swatches + demand reference bubbles (Input) or
@@ -144,6 +151,7 @@ export function MapLegend({
   showRoutes = false,
   bands = [],
   hintText = null,
+  showPlantLayer = false,
 }: MapLegendProps = {}) {
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
@@ -172,12 +180,20 @@ export function MapLegend({
           ? [{ key: "customer", testid: "legend-output-customer", svg: CUSTOMER_DOT_SVG, label: "Customer" }]
           : []),
       ]
-    : showStatusLegend && showWarehouseLayer
-      ? STATUSES.map((status) => {
-          const { label, marker } = warehouseStatusPresentation[status];
-          return { key: status, testid: `legend-status-${status}`, svg: warehouseTriangleSvg(marker), label };
-        })
-      : [];
+    : [
+        ...(showStatusLegend && showWarehouseLayer
+          ? STATUSES.map((status) => {
+              const { label, marker } = warehouseStatusPresentation[status];
+              return { key: status, testid: `legend-status-${status}`, svg: warehouseTriangleSvg(marker), label };
+            })
+          : []),
+        // jade-T12 (Chapter 9 JADE) — additive: a plant has no status
+        // vocabulary of its own (see PLANT_ROLE), so this is its own row,
+        // not folded into the STATUSES map above.
+        ...(showPlantLayer
+          ? [{ key: "plant", testid: "legend-plant", svg: plantSquareSvg(), label: "Plant" }]
+          : []),
+      ];
 
   const showStatusGroup = statusItems.length > 0;
   // Demand size ramp is INPUT-ONLY (resolution #1): Output has no

@@ -64,6 +64,48 @@ describe("OpenWarehousesTab", () => {
     });
   });
 
+  // jade-T14 — Chapter 9 JADE (uncapacitated, demand-served in tons)
+  describe("Chapter 9 JADE — demand-served tons, zero-flow open facilities (capacityModes: [])", () => {
+    const jadeResult = {
+      status: "optimal" as const, objective: 254060828.6157, runTimeSec: 1.2, quality: "Proven optimal",
+      edges: [
+        { fromId: "plant-1", toId: "wh-11", flow: 900, distance: 200, leg: "plant_to_warehouse" as const, productId: "product-1" },
+        { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 42.1, leg: "warehouse_to_customer" as const },
+        { fromId: "wh-11", toId: "customer-2", flow: 400, distance: 60, leg: "warehouse_to_customer" as const },
+      ],
+      metrics: { openFacilityIds: ["wh-11", "wh-14"] },
+      details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+
+    it("shows a 'Demand Served' column instead of 'Total Flow'/'Utilization' when capacityModes is an empty array", () => {
+      render(<OpenWarehousesTab result={jadeResult} scenarioId={1} displayedInputs={{ capacityModes: [] }} />);
+      expect(screen.getByText("Demand Served")).toBeInTheDocument();
+      expect(screen.queryByText("Total Flow")).not.toBeInTheDocument();
+      expect(screen.queryByText("Utilization")).not.toBeInTheDocument();
+      expect(screen.getByTestId("open-warehouse-row-wh-11")).not.toHaveTextContent("%");
+    });
+
+    it("lists a zero-flow open facility from metrics.openFacilityIds (a forced-open warehouse serving no one still counts as open)", () => {
+      render(<OpenWarehousesTab result={jadeResult} scenarioId={1} displayedInputs={{ capacityModes: [] }} />);
+      // wh-11 has outbound flow (500 + 400 = 900); wh-14 is open but has zero
+      // outbound edges at all — it must still appear as a row.
+      expect(screen.getByTestId("open-warehouse-row-wh-11")).toHaveTextContent("900");
+      const zeroFlowRow = screen.getByTestId("open-warehouse-row-wh-14");
+      expect(zeroFlowRow).toHaveTextContent("0");
+    });
+
+    it("excludes plant_to_warehouse edges from the warehouse flow sum (plant is not a warehouse row)", () => {
+      render(<OpenWarehousesTab result={jadeResult} scenarioId={1} displayedInputs={{ capacityModes: [] }} />);
+      expect(screen.queryByTestId("open-warehouse-row-plant-1")).not.toBeInTheDocument();
+    });
+
+    it("falls back to the pre-existing capacityMode gate when capacityModes is absent (back-compat, no regression)", () => {
+      render(<OpenWarehousesTab result={result} scenarioId={1} />);
+      expect(screen.getByText("Total Flow")).toBeInTheDocument();
+      expect(screen.queryByText("Demand Served")).not.toBeInTheDocument();
+    });
+  });
+
   // B2.2-T6 — B6: added-entity display ID
   describe("added-entity display ID", () => {
     it("shows a user-created warehouse's display ID (not its uid) from displayedInputs.addedWarehouses", () => {

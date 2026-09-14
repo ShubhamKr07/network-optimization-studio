@@ -8,7 +8,7 @@
 import type { EdgeLeg } from './edgeLeg';
 
 /**
- * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
+ * Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery/refinery->customer shipment for two-echelon-gold-au, plant->warehouse/warehouse->customer shipment for two-echelon-jade-us. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.
  */
 export interface Edge {
   fromId: string;
@@ -16,6 +16,8 @@ export interface Edge {
   flow: number;
   distance: number;
   band?: number;
-  /** Two-echelon models tag each edge with its leg so the map can style mine->refinery and refinery->customer differently. Absent for single-echelon models. */
+  /** Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings. */
   leg?: EdgeLeg;
+  /** Chapter 9 JADE — set on plant_to_warehouse (inbound) edges, one per positive (plant,warehouse,product) flow. Absent on warehouse_to_customer (outbound) edges, which aggregate across products per single-source customer, and absent for every other model. */
+  productId?: string;
 }

@@ -1,0 +1,1702 @@
+{
+  "customer-1": {
+    "id": "customer-1",
+    "sourceId": 1,
+    "name": "Los Angeles",
+    "city": "Los Angeles",
+    "state": "CA",
+    "zip": "90001",
+    "lat": 33.974044,
+    "lng": -118.248849,
+    "demand": 86877.5,
+    "demands": {
+      "product-1": 32007.5,
+      "product-2": 22862.5,
+      "product-3": 18290.0,
+      "product-4": 13717.5
+    }
+  },
+  "customer-2": {
+    "id": "customer-2",
+    "sourceId": 2,
+    "name": "New York City",
+    "city": "New York City",
+    "state": "NY",
+    "zip": "10001",
+    "lat": 40.75012,
+    "lng": -73.997846,
+    "demand": 81804.5,
+    "demands": {
+      "product-1": 30138.5,
+      "product-2": 21527.5,
+      "product-3": 17222.0,
+      "product-4": 12916.5
+    }
+  },
+  "customer-3": {
+    "id": "customer-3",
+    "sourceId": 3,
+    "name": "Chicago",
+    "city": "Chicago",
+    "state": "IL",
+    "zip": "60602",
+    "lat": 41.88331,
+    "lng": -87.624713,
+    "demand": 73843.5,
+    "demands": {
+      "product-1": 27205.5,
+      "product-2": 19432.5,
+      "product-3": 15546.0,
+      "product-4": 11659.5
+    }
+  },
+  "customer-4": {
+    "id": "customer-4",
+    "sourceId": 4,
+    "name": "Boston",
+    "city": "Boston",
+    "state": "MA",
+    "zip": "2101",
+    "lat": 42.36097,
+    "lng": -71.05344,
+    "demand": 55356.5,
+    "demands": {
+      "product-1": 20394.5,
+      "product-2": 14567.5,
+      "product-3": 11654.0,
+      "product-4": 8740.5
+    }
+  },
+  "customer-5": {
+    "id": "customer-5",
+    "sourceId": 5,
+    "name": "Washington",
+    "city": "Washington",
+    "state": "DC",
+    "zip": "20001",
+    "lat": 38.910004,
+    "lng": -77.017989,
+    "demand": 43728.5,
+    "demands": {
+      "product-1": 16110.5,
+      "product-2": 11507.5,
+      "product-3": 9206.0,
+      "product-4": 6904.5
+    }
+  },
+  "customer-6": {
+    "id": "customer-6",
+    "sourceId": 6,
+    "name": "Detroit",
+    "city": "Detroit",
+    "state": "MI",
+    "zip": "48201",
+    "lat": 42.346577,
+    "lng": -83.059731,
+    "demand": 42398.5,
+    "demands": {
+      "product-1": 15620.5,
+      "product-2": 11157.5,
+      "product-3": 8926.0,
+      "product-4": 6694.5
+    }
+  },
+  "customer-7": {
+    "id": "customer-7",
+    "sourceId": 7,
+    "name": "Houston",
+    "city": "Houston",
+    "state": "TX",
+    "zip": "77001",
+    "lat": 29.757317,
+    "lng": -95.365005,
+    "demand": 36584.5,
+    "demands": {
+      "product-1": 13478.5,
+      "product-2": 9627.5,
+      "product-3": 7702.0,
+      "product-4": 5776.5
+    }
+  },
+  "customer-8": {
+    "id": "customer-8",
+    "sourceId": 8,
+    "name": "Atlanta",
+    "city": "Atlanta",
+    "state": "GA",
+    "zip": "30301",
+    "lat": 33.753693,
+    "lng": -84.389544,
+    "demand": 34456.5,
+    "demands": {
+      "product-1": 12694.5,
+      "product-2": 9067.5,
+      "product-3": 7254.0,
+      "product-4": 5440.5
+    }
+  },
+  "customer-9": {
+    "id": "customer-9",
+    "sourceId": 9,
+    "name": "Dallas",
+    "city": "Dallas",
+    "state": "TX",
+    "zip": "75201",
+    "lat": 32.787642,
+    "lng": -96.799525,
+    "demand": 29697.0,
+    "demands": {
+      "product-1": 10941.0,
+      "product-2": 7815.0,
+      "product-3": 6252.0,
+      "product-4": 4689.0
+    }
+  },
+  "customer-10": {
+    "id": "customer-10",
+    "sourceId": 10,
+    "name": "Riverside",
+    "city": "Riverside",
+    "state": "CA",
+    "zip": "92501",
+    "lat": 33.994941,
+    "lng": -117.372528,
+    "demand": 29098.5,
+    "demands": {
+      "product-1": 10720.5,
+      "product-2": 7657.5,
+      "product-3": 6126.0,
+      "product-4": 4594.5
+    }
+  },
+  "customer-11": {
+    "id": "customer-11",
+    "sourceId": 11,
+    "name": "Phoenix",
+    "city": "Phoenix",
+    "state": "AZ",
+    "zip": "85001",
+    "lat": 33.451015,
+    "lng": -112.068554,
+    "demand": 26970.5,
+    "demands": {
+      "product-1": 9936.5,
+      "product-2": 7097.5,
+      "product-3": 5678.0,
+      "product-4": 4258.5
+    }
+  },
+  "customer-12": {
+    "id": "customer-12",
+    "sourceId": 12,
+    "name": "Minneapolis",
+    "city": "Minneapolis",
+    "state": "MN",
+    "zip": "55401",
+    "lat": 44.985775,
+    "lng": -93.270165,
+    "demand": 26524.0,
+    "demands": {
+      "product-1": 9772.0,
+      "product-2": 6980.0,
+      "product-3": 5584.0,
+      "product-4": 4188.0
+    }
+  },
+  "customer-13": {
+    "id": "customer-13",
+    "sourceId": 13,
+    "name": "Orange",
+    "city": "Orange",
+    "state": "CA",
+    "zip": "92850",
+    "lat": 33.844425,
+    "lng": -117.951222,
+    "demand": 25403.0,
+    "demands": {
+      "product-1": 9359.0,
+      "product-2": 6685.0,
+      "product-3": 5348.0,
+      "product-4": 4011.0
+    }
+  },
+  "customer-14": {
+    "id": "customer-14",
+    "sourceId": 14,
+    "name": "Nassau-Suffolk",
+    "city": "Nassau-Suffolk",
+    "state": "NY",
+    "zip": "12123",
+    "lat": 42.526891,
+    "lng": -73.609283,
+    "demand": 25327.0,
+    "demands": {
+      "product-1": 9331.0,
+      "product-2": 6665.0,
+      "product-3": 5332.0,
+      "product-4": 3999.0
+    }
+  },
+  "customer-15": {
+    "id": "customer-15",
+    "sourceId": 15,
+    "name": "St. Louis",
+    "city": "St. Louis",
+    "state": "MO",
+    "zip": "63101",
+    "lat": 38.631358,
+    "lng": -90.192246,
+    "demand": 24291.5,
+    "demands": {
+      "product-1": 8949.5,
+      "product-2": 6392.5,
+      "product-3": 5114.0,
+      "product-4": 3835.5
+    }
+  },
+  "customer-16": {
+    "id": "customer-16",
+    "sourceId": 16,
+    "name": "Baltimore",
+    "city": "Baltimore",
+    "state": "MD",
+    "zip": "21201",
+    "lat": 39.294398,
+    "lng": -76.622747,
+    "demand": 23512.5,
+    "demands": {
+      "product-1": 8662.5,
+      "product-2": 6187.5,
+      "product-3": 4950.0,
+      "product-4": 3712.5
+    }
+  },
+  "customer-17": {
+    "id": "customer-17",
+    "sourceId": 17,
+    "name": "Pittsburgh",
+    "city": "Pittsburgh",
+    "state": "PA",
+    "zip": "15201",
+    "lat": 40.474802,
+    "lng": -79.95449,
+    "demand": 22429.5,
+    "demands": {
+      "product-1": 8263.5,
+      "product-2": 5902.5,
+      "product-3": 4722.0,
+      "product-4": 3541.5
+    }
+  },
+  "customer-18": {
+    "id": "customer-18",
+    "sourceId": 18,
+    "name": "San Diego",
+    "city": "San Diego",
+    "state": "CA",
+    "zip": "92101",
+    "lat": 32.724693,
+    "lng": -117.164885,
+    "demand": 21565.0,
+    "demands": {
+      "product-1": 7945.0,
+      "product-2": 5675.0,
+      "product-3": 4540.0,
+      "product-4": 3405.0
+    }
+  },
+  "customer-19": {
+    "id": "customer-19",
+    "sourceId": 19,
+    "name": "Seattle",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101",
+    "lat": 47.611601,
+    "lng": -122.333038,
+    "demand": 21546.0,
+    "demands": {
+      "product-1": 7938.0,
+      "product-2": 5670.0,
+      "product-3": 4536.0,
+      "product-4": 3402.0
+    }
+  },
+  "customer-20": {
+    "id": "customer-20",
+    "sourceId": 20,
+    "name": "Oakland",
+    "city": "Oakland",
+    "state": "CA",
+    "zip": "94601",
+    "lat": 37.777255,
+    "lng": -122.217025,
+    "demand": 21156.5,
+    "demands": {
+      "product-1": 7794.5,
+      "product-2": 5567.5,
+      "product-3": 4454.0,
+      "product-4": 3340.5
+    }
+  },
+  "customer-21": {
+    "id": "customer-21",
+    "sourceId": 21,
+    "name": "Tampa",
+    "city": "Tampa",
+    "state": "FL",
+    "zip": "33601",
+    "lat": 27.95454,
+    "lng": -82.45734,
+    "demand": 21156.5,
+    "demands": {
+      "product-1": 7794.5,
+      "product-2": 5567.5,
+      "product-3": 4454.0,
+      "product-4": 3340.5
+    }
+  },
+  "customer-22": {
+    "id": "customer-22",
+    "sourceId": 22,
+    "name": "Cleveland",
+    "city": "Cleveland",
+    "state": "OH",
+    "zip": "44101",
+    "lat": 41.491407,
+    "lng": -81.671411,
+    "demand": 21137.5,
+    "demands": {
+      "product-1": 7787.5,
+      "product-2": 5562.5,
+      "product-3": 4450.0,
+      "product-4": 3337.5
+    }
+  },
+  "customer-23": {
+    "id": "customer-23",
+    "sourceId": 23,
+    "name": "Miami",
+    "city": "Miami",
+    "state": "FL",
+    "zip": "33101",
+    "lat": 25.778271,
+    "lng": -80.198105,
+    "demand": 19418.0,
+    "demands": {
+      "product-1": 7154.0,
+      "product-2": 5110.0,
+      "product-3": 4088.0,
+      "product-4": 3066.0
+    }
+  },
+  "customer-24": {
+    "id": "customer-24",
+    "sourceId": 24,
+    "name": "Newark",
+    "city": "Newark",
+    "state": "NJ",
+    "zip": "7101",
+    "lat": 40.735652,
+    "lng": -74.17309,
+    "demand": 18458.5,
+    "demands": {
+      "product-1": 6800.5,
+      "product-2": 4857.5,
+      "product-3": 3886.0,
+      "product-4": 2914.5
+    }
+  },
+  "customer-25": {
+    "id": "customer-25",
+    "sourceId": 25,
+    "name": "Denver",
+    "city": "Denver",
+    "state": "CO",
+    "zip": "80201",
+    "lat": 39.75071,
+    "lng": -104.996225,
+    "demand": 18059.5,
+    "demands": {
+      "product-1": 6653.5,
+      "product-2": 4752.5,
+      "product-3": 3802.0,
+      "product-4": 2851.5
+    }
+  },
+  "customer-26": {
+    "id": "customer-26",
+    "sourceId": 26,
+    "name": "Portland",
+    "city": "Portland",
+    "state": "OR",
+    "zip": "97201",
+    "lat": 45.498251,
+    "lng": -122.692496,
+    "demand": 16976.5,
+    "demands": {
+      "product-1": 6254.5,
+      "product-2": 4467.5,
+      "product-3": 3574.0,
+      "product-4": 2680.5
+    }
+  },
+  "customer-27": {
+    "id": "customer-27",
+    "sourceId": 27,
+    "name": "Kansas City",
+    "city": "Kansas City",
+    "state": "MO",
+    "zip": "64101",
+    "lat": 39.103883,
+    "lng": -94.600613,
+    "demand": 16235.5,
+    "demands": {
+      "product-1": 5981.5,
+      "product-2": 4272.5,
+      "product-3": 3418.0,
+      "product-4": 2563.5
+    }
+  },
+  "customer-28": {
+    "id": "customer-28",
+    "sourceId": 28,
+    "name": "San Francisco",
+    "city": "San Francisco",
+    "state": "CA",
+    "zip": "94102",
+    "lat": 37.779887,
+    "lng": -122.418066,
+    "demand": 15789.0,
+    "demands": {
+      "product-1": 5817.0,
+      "product-2": 4155.0,
+      "product-3": 3324.0,
+      "product-4": 2493.0
+    }
+  },
+  "customer-29": {
+    "id": "customer-29",
+    "sourceId": 29,
+    "name": "New Haven",
+    "city": "New Haven",
+    "state": "CT",
+    "zip": "6501",
+    "lat": 41.30758,
+    "lng": -72.92471,
+    "demand": 15437.5,
+    "demands": {
+      "product-1": 5687.5,
+      "product-2": 4062.5,
+      "product-3": 3250.0,
+      "product-4": 2437.5
+    }
+  },
+  "customer-30": {
+    "id": "customer-30",
+    "sourceId": 30,
+    "name": "San Jose",
+    "city": "San Jose",
+    "state": "CA",
+    "zip": "95101",
+    "lat": 37.386691,
+    "lng": -121.89705,
+    "demand": 15285.5,
+    "demands": {
+      "product-1": 5631.5,
+      "product-2": 4022.5,
+      "product-3": 3218.0,
+      "product-4": 2413.5
+    }
+  },
+  "customer-31": {
+    "id": "customer-31",
+    "sourceId": 31,
+    "name": "Cincinnati",
+    "city": "Cincinnati",
+    "state": "OH",
+    "zip": "45201",
+    "lat": 39.10663,
+    "lng": -84.49974,
+    "demand": 15266.5,
+    "demands": {
+      "product-1": 5624.5,
+      "product-2": 4017.5,
+      "product-3": 3214.0,
+      "product-4": 2410.5
+    }
+  },
+  "customer-32": {
+    "id": "customer-32",
+    "sourceId": 32,
+    "name": "Fort Worth",
+    "city": "Fort Worth",
+    "state": "TX",
+    "zip": "76101",
+    "lat": 32.75826,
+    "lng": -97.32787,
+    "demand": 14782.0,
+    "demands": {
+      "product-1": 5446.0,
+      "product-2": 3890.0,
+      "product-3": 3112.0,
+      "product-4": 2334.0
+    }
+  },
+  "customer-33": {
+    "id": "customer-33",
+    "sourceId": 33,
+    "name": "Norfolk",
+    "city": "Norfolk",
+    "state": "VA",
+    "zip": "23501",
+    "lat": 36.852105,
+    "lng": -76.292507,
+    "demand": 14668.0,
+    "demands": {
+      "product-1": 5404.0,
+      "product-2": 3860.0,
+      "product-3": 3088.0,
+      "product-4": 2316.0
+    }
+  },
+  "customer-34": {
+    "id": "customer-34",
+    "sourceId": 34,
+    "name": "San Antonio",
+    "city": "San Antonio",
+    "state": "TX",
+    "zip": "78201",
+    "lat": 29.469324,
+    "lng": -98.527988,
+    "demand": 14354.5,
+    "demands": {
+      "product-1": 5288.5,
+      "product-2": 3777.5,
+      "product-3": 3022.0,
+      "product-4": 2266.5
+    }
+  },
+  "customer-35": {
+    "id": "customer-35",
+    "sourceId": 35,
+    "name": "Indianapolis",
+    "city": "Indianapolis",
+    "state": "IN",
+    "zip": "46201",
+    "lat": 39.77422,
+    "lng": -86.109309,
+    "demand": 14278.5,
+    "demands": {
+      "product-1": 5260.5,
+      "product-2": 3757.5,
+      "product-3": 3006.0,
+      "product-4": 2254.5
+    }
+  },
+  "customer-36": {
+    "id": "customer-36",
+    "sourceId": 36,
+    "name": "Sacramento",
+    "city": "Sacramento",
+    "state": "CA",
+    "zip": "94203",
+    "lat": 38.585076,
+    "lng": -121.491186,
+    "demand": 14278.5,
+    "demands": {
+      "product-1": 5260.5,
+      "product-2": 3757.5,
+      "product-3": 3006.0,
+      "product-4": 2254.5
+    }
+  },
+  "customer-37": {
+    "id": "customer-37",
+    "sourceId": 37,
+    "name": "Fort Lauderdale",
+    "city": "Fort Lauderdale",
+    "state": "FL",
+    "zip": "33301",
+    "lat": 26.121066,
+    "lng": -80.127818,
+    "demand": 13965.0,
+    "demands": {
+      "product-1": 5145.0,
+      "product-2": 3675.0,
+      "product-3": 2940.0,
+      "product-4": 2205.0
+    }
+  },
+  "customer-38": {
+    "id": "customer-38",
+    "sourceId": 38,
+    "name": "Orlando",
+    "city": "Orlando",
+    "state": "FL",
+    "zip": "32801",
+    "lat": 28.541627,
+    "lng": -81.37397,
+    "demand": 13936.5,
+    "demands": {
+      "product-1": 5134.5,
+      "product-2": 3667.5,
+      "product-3": 2934.0,
+      "product-4": 2200.5
+    }
+  },
+  "customer-39": {
+    "id": "customer-39",
+    "sourceId": 39,
+    "name": "Columbus",
+    "city": "Columbus",
+    "state": "OH",
+    "zip": "43085",
+    "lat": 40.099395,
+    "lng": -83.016823,
+    "demand": 13870.0,
+    "demands": {
+      "product-1": 5110.0,
+      "product-2": 3650.0,
+      "product-3": 2920.0,
+      "product-4": 2190.0
+    }
+  },
+  "customer-40": {
+    "id": "customer-40",
+    "sourceId": 40,
+    "name": "Milwaukee",
+    "city": "Milwaukee",
+    "state": "WI",
+    "zip": "53201",
+    "lat": 43.037602,
+    "lng": -87.916246,
+    "demand": 13784.5,
+    "demands": {
+      "product-1": 5078.5,
+      "product-2": 3627.5,
+      "product-3": 2902.0,
+      "product-4": 2176.5
+    }
+  },
+  "customer-41": {
+    "id": "customer-41",
+    "sourceId": 41,
+    "name": "Charlotte",
+    "city": "Charlotte",
+    "state": "NC",
+    "zip": "28201",
+    "lat": 35.194361,
+    "lng": -80.826397,
+    "demand": 12825.0,
+    "demands": {
+      "product-1": 4725.0,
+      "product-2": 3375.0,
+      "product-3": 2700.0,
+      "product-4": 2025.0
+    }
+  },
+  "customer-42": {
+    "id": "customer-42",
+    "sourceId": 42,
+    "name": "Bergen",
+    "city": "Bergen",
+    "state": "NJ",
+    "zip": "7055",
+    "lat": 40.857466,
+    "lng": -74.128618,
+    "demand": 12682.5,
+    "demands": {
+      "product-1": 4672.5,
+      "product-2": 3337.5,
+      "product-3": 2670.0,
+      "product-4": 2002.5
+    }
+  },
+  "customer-43": {
+    "id": "customer-43",
+    "sourceId": 43,
+    "name": "New Orleans",
+    "city": "New Orleans",
+    "state": "LA",
+    "zip": "70112",
+    "lat": 29.956664,
+    "lng": -90.077506,
+    "demand": 12416.5,
+    "demands": {
+      "product-1": 4574.5,
+      "product-2": 3267.5,
+      "product-3": 2614.0,
+      "product-4": 1960.5
+    }
+  },
+  "customer-44": {
+    "id": "customer-44",
+    "sourceId": 44,
+    "name": "Las Vegas",
+    "city": "Las Vegas",
+    "state": "NV",
+    "zip": "89101",
+    "lat": 36.17269,
+    "lng": -115.121117,
+    "demand": 11989.0,
+    "demands": {
+      "product-1": 4417.0,
+      "product-2": 3155.0,
+      "product-3": 2524.0,
+      "product-4": 1893.0
+    }
+  },
+  "customer-45": {
+    "id": "customer-45",
+    "sourceId": 45,
+    "name": "Salt Lake City",
+    "city": "Salt Lake City",
+    "state": "UT",
+    "zip": "84101",
+    "lat": 40.755074,
+    "lng": -111.89849,
+    "demand": 11846.5,
+    "demands": {
+      "product-1": 4364.5,
+      "product-2": 3117.5,
+      "product-3": 2494.0,
+      "product-4": 1870.5
+    }
+  },
+  "customer-46": {
+    "id": "customer-46",
+    "sourceId": 46,
+    "name": "Buffalo",
+    "city": "Buffalo",
+    "state": "NY",
+    "zip": "14201",
+    "lat": 42.896219,
+    "lng": -78.884649,
+    "demand": 11058.0,
+    "demands": {
+      "product-1": 4074.0,
+      "product-2": 2910.0,
+      "product-3": 2328.0,
+      "product-4": 1746.0
+    }
+  },
+  "customer-47": {
+    "id": "customer-47",
+    "sourceId": 47,
+    "name": "Greensboro",
+    "city": "Greensboro",
+    "state": "NC",
+    "zip": "27401",
+    "lat": 36.070061,
+    "lng": -79.766346,
+    "demand": 10944.0,
+    "demands": {
+      "product-1": 4032.0,
+      "product-2": 2880.0,
+      "product-3": 2304.0,
+      "product-4": 1728.0
+    }
+  },
+  "customer-48": {
+    "id": "customer-48",
+    "sourceId": 48,
+    "name": "Nashville",
+    "city": "Nashville",
+    "state": "TN",
+    "zip": "37201",
+    "lat": 36.164003,
+    "lng": -86.7745,
+    "demand": 10773.0,
+    "demands": {
+      "product-1": 3969.0,
+      "product-2": 2835.0,
+      "product-3": 2268.0,
+      "product-4": 1701.0
+    }
+  },
+  "customer-49": {
+    "id": "customer-49",
+    "sourceId": 49,
+    "name": "Hartford",
+    "city": "Hartford",
+    "state": "CT",
+    "zip": "6101",
+    "lat": 41.789,
+    "lng": -72.666218,
+    "demand": 10497.5,
+    "demands": {
+      "product-1": 3867.5,
+      "product-2": 2762.5,
+      "product-3": 2210.0,
+      "product-4": 1657.5
+    }
+  },
+  "customer-50": {
+    "id": "customer-50",
+    "sourceId": 50,
+    "name": "Middlesex",
+    "city": "Middlesex",
+    "state": "NJ",
+    "zip": "8846",
+    "lat": 40.574084,
+    "lng": -74.5012,
+    "demand": 10497.5,
+    "demands": {
+      "product-1": 3867.5,
+      "product-2": 2762.5,
+      "product-3": 2210.0,
+      "product-4": 1657.5
+    }
+  },
+  "customer-51": {
+    "id": "customer-51",
+    "sourceId": 51,
+    "name": "Rochester",
+    "city": "Rochester",
+    "state": "NY",
+    "zip": "14601",
+    "lat": 43.1683,
+    "lng": -77.60262,
+    "demand": 10317.0,
+    "demands": {
+      "product-1": 3801.0,
+      "product-2": 2715.0,
+      "product-3": 2172.0,
+      "product-4": 1629.0
+    }
+  },
+  "customer-52": {
+    "id": "customer-52",
+    "sourceId": 52,
+    "name": "Memphis",
+    "city": "Memphis",
+    "state": "TN",
+    "zip": "37501",
+    "lat": 35.033731,
+    "lng": -89.934319,
+    "demand": 10288.5,
+    "demands": {
+      "product-1": 3790.5,
+      "product-2": 2707.5,
+      "product-3": 2166.0,
+      "product-4": 1624.5
+    }
+  },
+  "customer-53": {
+    "id": "customer-53",
+    "sourceId": 53,
+    "name": "Monmouth",
+    "city": "Monmouth",
+    "state": "NJ",
+    "zip": "7750",
+    "lat": 40.333745,
+    "lng": -73.982438,
+    "demand": 10222.0,
+    "demands": {
+      "product-1": 3766.0,
+      "product-2": 2690.0,
+      "product-3": 2152.0,
+      "product-4": 1614.0
+    }
+  },
+  "customer-54": {
+    "id": "customer-54",
+    "sourceId": 54,
+    "name": "Austin",
+    "city": "Austin",
+    "state": "TX",
+    "zip": "78701",
+    "lat": 30.270515,
+    "lng": -97.74218,
+    "demand": 10174.5,
+    "demands": {
+      "product-1": 3748.5,
+      "product-2": 2677.5,
+      "product-3": 2142.0,
+      "product-4": 1606.5
+    }
+  },
+  "customer-55": {
+    "id": "customer-55",
+    "sourceId": 55,
+    "name": "Raleigh",
+    "city": "Raleigh",
+    "state": "NC",
+    "zip": "27601",
+    "lat": 35.773856,
+    "lng": -78.634051,
+    "demand": 9975.0,
+    "demands": {
+      "product-1": 3675.0,
+      "product-2": 2625.0,
+      "product-3": 2100.0,
+      "product-4": 1575.0
+    }
+  },
+  "customer-56": {
+    "id": "customer-56",
+    "sourceId": 56,
+    "name": "Jacksonville",
+    "city": "Jacksonville",
+    "state": "FL",
+    "zip": "32099",
+    "lat": 30.340415,
+    "lng": -81.830904,
+    "demand": 9823.0,
+    "demands": {
+      "product-1": 3619.0,
+      "product-2": 2585.0,
+      "product-3": 2068.0,
+      "product-4": 1551.0
+    }
+  },
+  "customer-57": {
+    "id": "customer-57",
+    "sourceId": 57,
+    "name": "Oklahoma City",
+    "city": "Oklahoma City",
+    "state": "OK",
+    "zip": "73101",
+    "lat": 35.467763,
+    "lng": -97.520977,
+    "demand": 9785.0,
+    "demands": {
+      "product-1": 3605.0,
+      "product-2": 2575.0,
+      "product-3": 2060.0,
+      "product-4": 1545.0
+    }
+  },
+  "customer-58": {
+    "id": "customer-58",
+    "sourceId": 58,
+    "name": "Grand Rapids",
+    "city": "Grand Rapids",
+    "state": "MI",
+    "zip": "49501",
+    "lat": 42.965899,
+    "lng": -85.654579,
+    "demand": 9747.0,
+    "demands": {
+      "product-1": 3591.0,
+      "product-2": 2565.0,
+      "product-3": 2052.0,
+      "product-4": 1539.0
+    }
+  },
+  "customer-59": {
+    "id": "customer-59",
+    "sourceId": 59,
+    "name": "West Palm Beach",
+    "city": "West Palm Beach",
+    "state": "FL",
+    "zip": "33427",
+    "lat": 26.345694,
+    "lng": -80.084229,
+    "demand": 9671.0,
+    "demands": {
+      "product-1": 3563.0,
+      "product-2": 2545.0,
+      "product-3": 2036.0,
+      "product-4": 1527.0
+    }
+  },
+  "customer-60": {
+    "id": "customer-60",
+    "sourceId": 60,
+    "name": "Louisville",
+    "city": "Louisville",
+    "state": "KY",
+    "zip": "40201",
+    "lat": 38.253601,
+    "lng": -85.768124,
+    "demand": 9433.5,
+    "demands": {
+      "product-1": 3475.5,
+      "product-2": 2482.5,
+      "product-3": 1986.0,
+      "product-4": 1489.5
+    }
+  },
+  "customer-61": {
+    "id": "customer-61",
+    "sourceId": 61,
+    "name": "Dayton",
+    "city": "Dayton",
+    "state": "OH",
+    "zip": "45401",
+    "lat": 39.758119,
+    "lng": -84.1879,
+    "demand": 8968.0,
+    "demands": {
+      "product-1": 3304.0,
+      "product-2": 2360.0,
+      "product-3": 1888.0,
+      "product-4": 1416.0
+    }
+  },
+  "customer-62": {
+    "id": "customer-62",
+    "sourceId": 62,
+    "name": "Richmond",
+    "city": "Richmond",
+    "state": "VA",
+    "zip": "23218",
+    "lat": 37.538812,
+    "lng": -77.436395,
+    "demand": 8958.5,
+    "demands": {
+      "product-1": 3300.5,
+      "product-2": 2357.5,
+      "product-3": 1886.0,
+      "product-4": 1414.5
+    }
+  },
+  "customer-63": {
+    "id": "customer-63",
+    "sourceId": 63,
+    "name": "Philadelphia",
+    "city": "Philadelphia",
+    "state": "PA",
+    "zip": "19101",
+    "lat": 39.961558,
+    "lng": -75.199624,
+    "demand": 8930.0,
+    "demands": {
+      "product-1": 3290.0,
+      "product-2": 2350.0,
+      "product-3": 1880.0,
+      "product-4": 1410.0
+    }
+  },
+  "customer-64": {
+    "id": "customer-64",
+    "sourceId": 64,
+    "name": "Greenville",
+    "city": "Greenville",
+    "state": "SC",
+    "zip": "29601",
+    "lat": 34.847881,
+    "lng": -82.403745,
+    "demand": 8588.0,
+    "demands": {
+      "product-1": 3164.0,
+      "product-2": 2260.0,
+      "product-3": 1808.0,
+      "product-4": 1356.0
+    }
+  },
+  "customer-65": {
+    "id": "customer-65",
+    "sourceId": 65,
+    "name": "Providence",
+    "city": "Providence",
+    "state": "RI",
+    "zip": "2901",
+    "lat": 41.817904,
+    "lng": -71.409316,
+    "demand": 8588.0,
+    "demands": {
+      "product-1": 3164.0,
+      "product-2": 2260.0,
+      "product-3": 1808.0,
+      "product-4": 1356.0
+    }
+  },
+  "customer-66": {
+    "id": "customer-66",
+    "sourceId": 66,
+    "name": "Birmingham",
+    "city": "Birmingham",
+    "state": "AL",
+    "zip": "35201",
+    "lat": 33.518634,
+    "lng": -86.808862,
+    "demand": 8550.0,
+    "demands": {
+      "product-1": 3150.0,
+      "product-2": 2250.0,
+      "product-3": 1800.0,
+      "product-4": 1350.0
+    }
+  },
+  "customer-67": {
+    "id": "customer-67",
+    "sourceId": 67,
+    "name": "Albany",
+    "city": "Albany",
+    "state": "NY",
+    "zip": "12201",
+    "lat": 42.65287,
+    "lng": -73.74868,
+    "demand": 8322.0,
+    "demands": {
+      "product-1": 3066.0,
+      "product-2": 2190.0,
+      "product-3": 1752.0,
+      "product-4": 1314.0
+    }
+  },
+  "customer-68": {
+    "id": "customer-68",
+    "sourceId": 68,
+    "name": "Fresno",
+    "city": "Fresno",
+    "state": "CA",
+    "zip": "93701",
+    "lat": 36.749611,
+    "lng": -119.786244,
+    "demand": 8246.0,
+    "demands": {
+      "product-1": 3038.0,
+      "product-2": 2170.0,
+      "product-3": 1736.0,
+      "product-4": 1302.0
+    }
+  },
+  "customer-69": {
+    "id": "customer-69",
+    "sourceId": 69,
+    "name": "Florence",
+    "city": "Florence",
+    "state": "SC",
+    "zip": "29501",
+    "lat": 34.198188,
+    "lng": -79.826641,
+    "demand": 8084.5,
+    "demands": {
+      "product-1": 2978.5,
+      "product-2": 2127.5,
+      "product-3": 1702.0,
+      "product-4": 1276.5
+    }
+  },
+  "customer-70": {
+    "id": "customer-70",
+    "sourceId": 70,
+    "name": "Tucson",
+    "city": "Tucson",
+    "state": "AZ",
+    "zip": "85701",
+    "lat": 32.216256,
+    "lng": -110.970728,
+    "demand": 7410.0,
+    "demands": {
+      "product-1": 2730.0,
+      "product-2": 1950.0,
+      "product-3": 1560.0,
+      "product-4": 1170.0
+    }
+  },
+  "customer-71": {
+    "id": "customer-71",
+    "sourceId": 71,
+    "name": "Tulsa",
+    "city": "Tulsa",
+    "state": "OK",
+    "zip": "74101",
+    "lat": 36.149273,
+    "lng": -95.975637,
+    "demand": 7258.0,
+    "demands": {
+      "product-1": 2674.0,
+      "product-2": 1910.0,
+      "product-3": 1528.0,
+      "product-4": 1146.0
+    }
+  },
+  "customer-72": {
+    "id": "customer-72",
+    "sourceId": 72,
+    "name": "Syracuse",
+    "city": "Syracuse",
+    "state": "NY",
+    "zip": "13201",
+    "lat": 43.04335,
+    "lng": -76.15084,
+    "demand": 7030.0,
+    "demands": {
+      "product-1": 2590.0,
+      "product-2": 1850.0,
+      "product-3": 1480.0,
+      "product-4": 1110.0
+    }
+  },
+  "customer-73": {
+    "id": "customer-73",
+    "sourceId": 73,
+    "name": "Ventura",
+    "city": "Ventura",
+    "state": "CA",
+    "zip": "93001",
+    "lat": 34.345883,
+    "lng": -119.328846,
+    "demand": 6887.5,
+    "demands": {
+      "product-1": 2537.5,
+      "product-2": 1812.5,
+      "product-3": 1450.0,
+      "product-4": 1087.5
+    }
+  },
+  "customer-74": {
+    "id": "customer-74",
+    "sourceId": 74,
+    "name": "El Paso",
+    "city": "El Paso",
+    "state": "TX",
+    "zip": "79901",
+    "lat": 31.760613,
+    "lng": -106.47948,
+    "demand": 6659.5,
+    "demands": {
+      "product-1": 2453.5,
+      "product-2": 1752.5,
+      "product-3": 1402.0,
+      "product-4": 1051.5
+    }
+  },
+  "customer-75": {
+    "id": "customer-75",
+    "sourceId": 75,
+    "name": "Omaha",
+    "city": "Omaha",
+    "state": "NE",
+    "zip": "68101",
+    "lat": 41.263251,
+    "lng": -95.932956,
+    "demand": 6526.5,
+    "demands": {
+      "product-1": 2404.5,
+      "product-2": 1717.5,
+      "product-3": 1374.0,
+      "product-4": 1030.5
+    }
+  },
+  "customer-76": {
+    "id": "customer-76",
+    "sourceId": 76,
+    "name": "Akron",
+    "city": "Akron",
+    "state": "OH",
+    "zip": "44301",
+    "lat": 41.043696,
+    "lng": -81.524301,
+    "demand": 6479.0,
+    "demands": {
+      "product-1": 2387.0,
+      "product-2": 1705.0,
+      "product-3": 1364.0,
+      "product-4": 1023.0
+    }
+  },
+  "customer-77": {
+    "id": "customer-77",
+    "sourceId": 77,
+    "name": "Albuquerque",
+    "city": "Albuquerque",
+    "state": "NM",
+    "zip": "87101",
+    "lat": 35.082729,
+    "lng": -106.646276,
+    "demand": 6403.0,
+    "demands": {
+      "product-1": 2359.0,
+      "product-2": 1685.0,
+      "product-3": 1348.0,
+      "product-4": 1011.0
+    }
+  },
+  "customer-78": {
+    "id": "customer-78",
+    "sourceId": 78,
+    "name": "Tacoma",
+    "city": "Tacoma",
+    "state": "WA",
+    "zip": "98401",
+    "lat": 47.253432,
+    "lng": -122.435514,
+    "demand": 6308.0,
+    "demands": {
+      "product-1": 2324.0,
+      "product-2": 1660.0,
+      "product-3": 1328.0,
+      "product-4": 996.0
+    }
+  },
+  "customer-79": {
+    "id": "customer-79",
+    "sourceId": 79,
+    "name": "Knoxville",
+    "city": "Knoxville",
+    "state": "TN",
+    "zip": "37901",
+    "lat": 35.946445,
+    "lng": -84.022857,
+    "demand": 6213.0,
+    "demands": {
+      "product-1": 2289.0,
+      "product-2": 1635.0,
+      "product-3": 1308.0,
+      "product-4": 981.0
+    }
+  },
+  "customer-80": {
+    "id": "customer-80",
+    "sourceId": 80,
+    "name": "Bakersfield",
+    "city": "Bakersfield",
+    "state": "CA",
+    "zip": "93301",
+    "lat": 35.384352,
+    "lng": -119.019342,
+    "demand": 5966.0,
+    "demands": {
+      "product-1": 2198.0,
+      "product-2": 1570.0,
+      "product-3": 1256.0,
+      "product-4": 942.0
+    }
+  },
+  "customer-81": {
+    "id": "customer-81",
+    "sourceId": 81,
+    "name": "Gary",
+    "city": "Gary",
+    "state": "IN",
+    "zip": "46401",
+    "lat": 41.586162,
+    "lng": -87.319082,
+    "demand": 5918.5,
+    "demands": {
+      "product-1": 2180.5,
+      "product-2": 1557.5,
+      "product-3": 1246.0,
+      "product-4": 934.5
+    }
+  },
+  "customer-82": {
+    "id": "customer-82",
+    "sourceId": 82,
+    "name": "Scranton",
+    "city": "Scranton",
+    "state": "PA",
+    "zip": "18501",
+    "lat": 41.358057,
+    "lng": -75.70249,
+    "demand": 5899.5,
+    "demands": {
+      "product-1": 2173.5,
+      "product-2": 1552.5,
+      "product-3": 1242.0,
+      "product-4": 931.5
+    }
+  },
+  "customer-83": {
+    "id": "customer-83",
+    "sourceId": 83,
+    "name": "Harrisburg",
+    "city": "Harrisburg",
+    "state": "PA",
+    "zip": "17101",
+    "lat": 40.264554,
+    "lng": -76.880588,
+    "demand": 5842.5,
+    "demands": {
+      "product-1": 2152.5,
+      "product-2": 1537.5,
+      "product-3": 1230.0,
+      "product-4": 922.5
+    }
+  },
+  "customer-84": {
+    "id": "customer-84",
+    "sourceId": 84,
+    "name": "Allentown",
+    "city": "Allentown",
+    "state": "PA",
+    "zip": "18101",
+    "lat": 40.602812,
+    "lng": -75.470433,
+    "demand": 5823.5,
+    "demands": {
+      "product-1": 2145.5,
+      "product-2": 1532.5,
+      "product-3": 1226.0,
+      "product-4": 919.5
+    }
+  },
+  "customer-85": {
+    "id": "customer-85",
+    "sourceId": 85,
+    "name": "Toledo",
+    "city": "Toledo",
+    "state": "OH",
+    "zip": "43601",
+    "lat": 41.645022,
+    "lng": -83.548348,
+    "demand": 5804.5,
+    "demands": {
+      "product-1": 2138.5,
+      "product-2": 1527.5,
+      "product-3": 1222.0,
+      "product-4": 916.5
+    }
+  },
+  "customer-86": {
+    "id": "customer-86",
+    "sourceId": 86,
+    "name": "Youngstown",
+    "city": "Youngstown",
+    "state": "OH",
+    "zip": "44501",
+    "lat": 41.099765,
+    "lng": -80.64936,
+    "demand": 5652.5,
+    "demands": {
+      "product-1": 2082.5,
+      "product-2": 1487.5,
+      "product-3": 1190.0,
+      "product-4": 892.5
+    }
+  },
+  "customer-87": {
+    "id": "customer-87",
+    "sourceId": 87,
+    "name": "Springfield",
+    "city": "Springfield",
+    "state": "MA",
+    "zip": "1101",
+    "lat": 42.105997,
+    "lng": -72.597915,
+    "demand": 5614.5,
+    "demands": {
+      "product-1": 2068.5,
+      "product-2": 1477.5,
+      "product-3": 1182.0,
+      "product-4": 886.5
+    }
+  },
+  "customer-88": {
+    "id": "customer-88",
+    "sourceId": 88,
+    "name": "Baton Rouge",
+    "city": "Baton Rouge",
+    "state": "LA",
+    "zip": "70801",
+    "lat": 30.449314,
+    "lng": -91.187593,
+    "demand": 5415.0,
+    "demands": {
+      "product-1": 1995.0,
+      "product-2": 1425.0,
+      "product-3": 1140.0,
+      "product-4": 855.0
+    }
+  },
+  "customer-89": {
+    "id": "customer-89",
+    "sourceId": 89,
+    "name": "Wilmington",
+    "city": "Wilmington",
+    "state": "DE",
+    "zip": "19801",
+    "lat": 39.728445,
+    "lng": -75.537257,
+    "demand": 5272.5,
+    "demands": {
+      "product-1": 1942.5,
+      "product-2": 1387.5,
+      "product-3": 1110.0,
+      "product-4": 832.5
+    }
+  },
+  "customer-90": {
+    "id": "customer-90",
+    "sourceId": 90,
+    "name": "Little Rock",
+    "city": "Little Rock",
+    "state": "AR",
+    "zip": "72201",
+    "lat": 34.747348,
+    "lng": -92.278932,
+    "demand": 5244.0,
+    "demands": {
+      "product-1": 1932.0,
+      "product-2": 1380.0,
+      "product-3": 1104.0,
+      "product-4": 828.0
+    }
+  },
+  "customer-91": {
+    "id": "customer-91",
+    "sourceId": 91,
+    "name": "Jersey City",
+    "city": "Jersey City",
+    "state": "NJ",
+    "zip": "7097",
+    "lat": 40.751783,
+    "lng": -74.05392,
+    "demand": 5234.5,
+    "demands": {
+      "product-1": 1928.5,
+      "product-2": 1377.5,
+      "product-3": 1102.0,
+      "product-4": 826.5
+    }
+  },
+  "customer-92": {
+    "id": "customer-92",
+    "sourceId": 92,
+    "name": "Stockton",
+    "city": "Stockton",
+    "state": "CA",
+    "zip": "95201",
+    "lat": 37.930437,
+    "lng": -121.436022,
+    "demand": 5149.0,
+    "demands": {
+      "product-1": 1897.0,
+      "product-2": 1355.0,
+      "product-3": 1084.0,
+      "product-4": 813.0
+    }
+  },
+  "customer-93": {
+    "id": "customer-93",
+    "sourceId": 93,
+    "name": "Ann Arbor",
+    "city": "Ann Arbor",
+    "state": "MI",
+    "zip": "48103",
+    "lat": 42.264476,
+    "lng": -83.839628,
+    "demand": 5120.5,
+    "demands": {
+      "product-1": 1886.5,
+      "product-2": 1347.5,
+      "product-3": 1078.0,
+      "product-4": 808.5
+    }
+  },
+  "customer-94": {
+    "id": "customer-94",
+    "sourceId": 94,
+    "name": "Sarasota",
+    "city": "Sarasota",
+    "state": "FL",
+    "zip": "34230",
+    "lat": 27.337217,
+    "lng": -82.51411,
+    "demand": 5111.0,
+    "demands": {
+      "product-1": 1883.0,
+      "product-2": 1345.0,
+      "product-3": 1076.0,
+      "product-4": 807.0
+    }
+  },
+  "customer-95": {
+    "id": "customer-95",
+    "sourceId": 95,
+    "name": "Wichita",
+    "city": "Wichita",
+    "state": "KS",
+    "zip": "67201",
+    "lat": 37.686354,
+    "lng": -97.334936,
+    "demand": 5035.0,
+    "demands": {
+      "product-1": 1855.0,
+      "product-2": 1325.0,
+      "product-3": 1060.0,
+      "product-4": 795.0
+    }
+  },
+  "customer-96": {
+    "id": "customer-96",
+    "sourceId": 96,
+    "name": "Mobile",
+    "city": "Mobile",
+    "state": "AL",
+    "zip": "36601",
+    "lat": 30.692504,
+    "lng": -88.04323,
+    "demand": 5006.5,
+    "demands": {
+      "product-1": 1844.5,
+      "product-2": 1317.5,
+      "product-3": 1054.0,
+      "product-4": 790.5
+    }
+  },
+  "customer-97": {
+    "id": "customer-97",
+    "sourceId": 97,
+    "name": "McAllen",
+    "city": "McAllen",
+    "state": "TX",
+    "zip": "78501",
+    "lat": 26.218121,
+    "lng": -98.237994,
+    "demand": 4845.0,
+    "demands": {
+      "product-1": 1785.0,
+      "product-2": 1275.0,
+      "product-3": 1020.0,
+      "product-4": 765.0
+    }
+  },
+  "customer-98": {
+    "id": "customer-98",
+    "sourceId": 98,
+    "name": "Charleston",
+    "city": "Charleston",
+    "state": "SC",
+    "zip": "29401",
+    "lat": 32.778908,
+    "lng": -79.937993,
+    "demand": 4835.5,
+    "demands": {
+      "product-1": 1781.5,
+      "product-2": 1272.5,
+      "product-3": 1018.0,
+      "product-4": 763.5
+    }
+  },
+  "customer-99": {
+    "id": "customer-99",
+    "sourceId": 99,
+    "name": "Columbia",
+    "city": "Columbia",
+    "state": "SC",
+    "zip": "29201",
+    "lat": 33.984705,
+    "lng": -81.028435,
+    "demand": 4778.5,
+    "demands": {
+      "product-1": 1760.5,
+      "product-2": 1257.5,
+      "product-3": 1006.0,
+      "product-4": 754.5
+    }
+  },
+  "customer-100": {
+    "id": "customer-100",
+    "sourceId": 100,
+    "name": "Vallejo",
+    "city": "Vallejo",
+    "state": "CA",
+    "zip": "94589",
+    "lat": 38.177394,
+    "lng": -122.239773,
+    "demand": 4655.0,
+    "demands": {
+      "product-1": 1715.0,
+      "product-2": 1225.0,
+      "product-3": 980.0,
+      "product-4": 735.0
+    }
+  }
+}

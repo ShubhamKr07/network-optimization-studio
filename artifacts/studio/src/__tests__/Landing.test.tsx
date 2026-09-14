@@ -35,6 +35,9 @@ describe("Landing", () => {
     // from the Landing grid but remain registered as routes.
     expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Brazil Capacity/)).not.toBeInTheDocument();
+    // two-echelon-jade-us (Chapter 9) is now unhidden (jade-T17, browser-verified) —
+    // it appears in the Landing grid.
+    expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
   });
 
   it("links each visible chapter to its route", () => {
@@ -42,6 +45,8 @@ describe("Landing", () => {
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
     // Chapter 10 is unhidden — its card links to its route.
     expect(screen.getByTestId("link-/chapter-10/gold-refinery")).toHaveAttribute("href", "/chapter-10/gold-refinery");
+    // Chapter 9 (JADE) is unhidden (jade-T17) — its card links to its route.
+    expect(screen.getByTestId("link-/chapter-9/jade")).toHaveAttribute("href", "/chapter-9/jade");
     // Chapter 5 stays hidden — not rendered in the grid.
     expect(screen.queryByTestId("link-/chapter-5/transport")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-/chapter-5/brazil")).not.toBeInTheDocument();
@@ -192,11 +197,11 @@ describe("Landing — live summary (T4)", () => {
     });
     renderLanding();
 
-    // stats line — labs counts every visible chapter (Ch3 + Ch10 = 2, Ch10
-    // has no summary row so contributes 0 scenarios/solved); scenarios/solved
-    // come from visiblePerChapter only (p-median-us), not summary.totals,
-    // which would incorrectly include the hidden transport-coal row.
-    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("2 labs · 3 scenarios · 1 solved");
+    // stats line — labs counts every visible chapter (Ch3 + Ch10 + Ch9 = 3;
+    // Ch10 and Ch9 have no summary row so contribute 0 scenarios/solved);
+    // scenarios/solved come from visiblePerChapter only (p-median-us), not
+    // summary.totals, which would incorrectly include the hidden transport-coal row.
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("3 labs · 3 scenarios · 1 solved");
 
     // p-median-us: solved + active (the only visible chapter, so it's the
     // most-recently-solved-among-visible even though transport-coal's own

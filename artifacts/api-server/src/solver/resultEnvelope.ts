@@ -14,7 +14,20 @@ export const EdgeSchema = z.object({
   // Two-echelon models tag each edge with its leg so the map can style
   // mine->refinery and refinery->customer differently. Optional: single-echelon
   // models omit it. Without this field here, Zod strips it silently.
-  leg: z.enum(["mine_to_refinery", "refinery_to_customer"]).optional(),
+  // jade-T4: two-echelon-jade-us adds plant_to_warehouse/warehouse_to_customer
+  // (its own two legs, distinct string values from Ch10's mine/refinery pair --
+  // consumers must classify legs semantically, not assume only the Ch10 set).
+  leg: z.enum([
+    "mine_to_refinery",
+    "refinery_to_customer",
+    "plant_to_warehouse",
+    "warehouse_to_customer",
+  ]).optional(),
+  // jade-T4: inbound (plant->warehouse) edges are per-product; outbound
+  // (warehouse->customer) edges aggregate across a customer's products, so
+  // productId is absent there. Optional globally -- other models omit it,
+  // and without this field here Zod would strip it silently.
+  productId: z.string().optional(),
 });
 
 export const MetricsSchema = z.object({
@@ -30,6 +43,17 @@ export const MetricsSchema = z.object({
   avgDistanceByLeg: z
     .array(z.object({ leg: z.string(), avgDistance: z.number(), totalFlow: z.number() }))
     .optional(),
+  // jade-T4: two-echelon-jade-us's uncapacitated warehouses have no natural
+  // utilization percentage denominator, so it needs a few extra generic
+  // fields the earlier models didn't: the authoritative open-facility-id
+  // list (including a zero-flow open warehouse, which utilizationByNode
+  // alone can't distinguish from "not open"), total served demand, and the
+  // inbound/outbound cost split. All optional -- other models omit them,
+  // and without these fields here Zod would strip them silently.
+  openFacilityIds: z.array(z.string()).optional(),
+  totalDemand: z.number().optional(),
+  inboundCost: z.number().optional(),
+  outboundCost: z.number().optional(),
 });
 
 export const ResultEnvelopeSchema = z.object({

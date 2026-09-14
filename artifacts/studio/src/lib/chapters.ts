@@ -1,4 +1,4 @@
-export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au";
+export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us";
 
 export interface Chapter {
   path: string;
@@ -61,6 +61,16 @@ export const CHAPTERS: Chapter[] = [
     workspace: true,
     labHeaderTitle: "Gold Refinery Siting · Model Lab",
     labHeaderSubtitle: "Ch 10 · two-echelon LP · mine → refinery → customer",
+  },
+  {
+    path: "/chapter-9/jade",
+    modelId: "two-echelon-jade-us",
+    chapter: "Chapter 9",
+    title: "JADE Network — Multi-Product Two-Echelon",
+    description: "Multi-product two-echelon facility location: choose which warehouses to open so plants can ship several distinct products through them to customers at minimum cost.",
+    workspace: true,
+    labHeaderTitle: "JADE Network · Model Lab",
+    labHeaderSubtitle: "Ch 9 · two-echelon multi-product · plants → warehouses → customers",
   },
 ];
 

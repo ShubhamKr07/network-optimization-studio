@@ -20,9 +20,14 @@ import {
   applyBrazilCustomerOverrides,
   applyDistanceOverrides,
   applyLaneCostOverrides,
+  applyJadeWarehouseOverrides,
+  applyJadeCustomerOverrides,
+  applyPlantOverrides,
+  applyPlantCapabilityOverrides,
   buildDistanceStubRows,
   buildLaneCostStubRows,
   buildLegDistanceStubRows,
+  buildJadeLegDistanceStubRows,
   buildAssignmentRows,
   buildOpenWarehouseRows,
   buildCostSummaryRows,
@@ -34,6 +39,8 @@ import {
   mineRowsToCsv,
   stationRowsToCsv,
   refineryRowsToCsv,
+  plantRowsToCsv,
+  plantCapabilityRowsToCsv,
   distanceRowsToCsv,
   laneCostRowsToCsv,
   assignmentRowsToCsv,
@@ -44,12 +51,13 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, BRAZIL_DATASET } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, buildJadeIdSpaces, BRAZIL_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
-import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances } from "../services/autoDistance.js";
+import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 
 const router = Router();
 
@@ -60,6 +68,11 @@ export const VALID_MODEL_IDS = new Set([
   "transport-coal",
   "p-median-brazil",
   "two-echelon-gold-au",
+  // jade-T5: first writer of this shared file for two-echelon-jade-us
+  // (Chapter 9, JADE) — see model-integration-precheck.md Gate 1.4, the
+  // most-missed registration point (a hardcoded Set entirely separate from
+  // the manifest registry).
+  "two-echelon-jade-us",
   "max_coverage",
   "p_center",
   "set_cover",
@@ -266,6 +279,17 @@ function normalizeAddedEntityDistances(modelId: string, data: Record<string, unk
   if (modelId === "two-echelon-gold-au") {
     return fillEstimatedTwoEchelonDistances(data as unknown as TwoEchelonInputs) as unknown as Record<string, unknown>;
   }
+  // jade-T12 — fourth writer of this shared file, based on T7's commit
+  // (T5 -> T6 -> T7 -> T12, serialized in series, never concurrent). Fills
+  // missing added-entity plant<->warehouse/warehouse<->customer distances as
+  // `estimated` on every persist path (POST create, PATCH, import/apply) —
+  // see fillEstimatedJadeDistances' own header comment for the reverse-
+  // derived circuity constant. Only ADDED-entity-involving rows are ever
+  // touched; base<->base pairs are never estimated, so e2e_accuracy.py stays
+  // unaffected.
+  if (modelId === "two-echelon-jade-us") {
+    return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
+  }
   return data;
 }
 
@@ -281,6 +305,15 @@ function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown
   }
   if (modelId === "two-echelon-gold-au") {
     return precheckTwoEchelonInputs(inputs as unknown as TwoEchelonInputs);
+  }
+  // jade-T6 — second writer of this shared file (after jade-T5's
+  // VALID_MODEL_IDS entry). Registered here covers BOTH call sites in this
+  // file: the solve-before-enqueue path (POST .../solve, above) and the
+  // standalone GET .../precheck endpoint (below) both call
+  // runNetworkEditsPrecheck, so a shape-valid JADE scenario never falls
+  // through to the default {ok:true} at the bottom of this function.
+  if (modelId === "two-echelon-jade-us") {
+    return precheckJadeInputs(inputs as unknown as JadeInputs);
   }
   return { ok: true, errors: [] };
 }
@@ -414,8 +447,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const OUTPUT_ENTITIES = ["assignments", "openWarehouses", "costSummary", "serviceStats", "flows"] as const;
   type OutputEntity = typeof OUTPUT_ENTITIES[number];
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances" && !OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', or 'flows'" });
     return;
   }
   if (format !== "csv" && format !== "json") {
@@ -486,14 +519,19 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // (T9 — Brazil shares p-median-us's exact entity set) export
   // warehouses/customers/distances, transport-coal exports
   // mines/stations/laneCosts, two-echelon-gold-au exports
-  // refineries/customers/legDistances (B6.2 stage 4). Any mismatch 422s —
-  // same anti-cross-model-confusion boundary the original D4.1 gate had,
-  // widened per new model (distances is p-median-us/p-median-brazil only,
-  // same boundary as import — B4.1/T9; laneCosts is transport-coal only,
-  // Task 30; legDistances is two-echelon-gold-au only, B6.2).
+  // refineries/customers/legDistances (B6.2 stage 4), two-echelon-jade-us
+  // (jade-T7) exports warehouses/customers/plants/plantCapabilities/
+  // legDistances. Any mismatch 422s — same anti-cross-model-confusion
+  // boundary the original D4.1 gate had, widened per new model (distances is
+  // p-median-us/p-median-brazil only, same boundary as import — B4.1/T9;
+  // laneCosts is transport-coal only, Task 30; legDistances is shared by
+  // two-echelon-gold-au (B6.2) AND two-echelon-jade-us (jade-T7) — the
+  // entity string/CSV shape is identical, only the id-space resolution
+  // differs, see import.ts's own modelId-gated dispatch).
   const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
+  const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
@@ -506,7 +544,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers/legDistances export" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
+  if (scenario.modelId === "two-echelon-jade-us" && !entityIsJade) {
+    res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances export" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us") {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
@@ -657,6 +699,113 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
 
+  // jade-T7 — two-echelon-jade-us (Chapter 9, JADE) exports
+  // warehouses/customers/plants/plantCapabilities/legDistances. warehouses/
+  // customers reuse WarehouseTemplateRow/CustomerTemplateRow via
+  // applyJadeWarehouseOverrides/applyJadeCustomerOverrides (this model's own
+  // schema shapes — no capacity concept, no scalar customer demand — see
+  // templates.ts's header comment on that section); plants/plantCapabilities
+  // are genuinely new entities.
+  if (scenario.modelId === "two-echelon-jade-us") {
+    const inputs = scenario.inputs as {
+      warehouseOverrides?: Parameters<typeof applyJadeWarehouseOverrides>[0];
+      customerOverrides?: Parameters<typeof applyJadeCustomerOverrides>[0];
+      addedWarehouses?: Parameters<typeof applyJadeWarehouseOverrides>[1];
+      addedCustomers?: Parameters<typeof applyJadeCustomerOverrides>[1];
+      addedPlants?: Parameters<typeof applyPlantOverrides>[0];
+      plantProductCapability?: Parameters<typeof applyPlantCapabilityOverrides>[0];
+      distanceOverrides?: Parameters<typeof applyDistanceOverrides>[0];
+    };
+
+    // legDistances is a wholly different shape (composite-keyed, no fixed
+    // baseline to enumerate) from warehouses/customers/plants below,
+    // mirroring two-echelon-gold-au's own legDistances branch exactly (reuses
+    // applyDistanceOverrides/distanceRowsToCsv AS-IS — only the stub
+    // generator, buildJadeLegDistanceStubRows, is genuinely new for this
+    // model's plant/warehouse/customer roles).
+    if (entity === "legDistances") {
+      if (stubFor) {
+        const stubRows = buildJadeLegDistanceStubRows(stubFor, inputs);
+        if (stubRows === null) {
+          res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known plant, warehouse, or customer (base dataset or this scenario's added entities)` });
+          return;
+        }
+        posthog?.capture({
+          distinctId: req.userId!,
+          event: "scenario data exported",
+          properties: { scenario_id: id, model_id: scenario.modelId, entity, format, stub_for: stubFor },
+        });
+        if (format === "csv") {
+          res.type("text/csv").send(distanceRowsToCsv(stubRows));
+          return;
+        }
+        res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+        return;
+      }
+
+      const legDistanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(distanceRowsToCsv(legDistanceRows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: legDistanceRows });
+      return;
+    }
+
+    if (entity === "plants") {
+      const rows = applyPlantOverrides(inputs.addedPlants ?? []);
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(plantRowsToCsv(rows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+      return;
+    }
+
+    if (entity === "plantCapabilities") {
+      const rows = applyPlantCapabilityOverrides(inputs.plantProductCapability ?? [], inputs.addedPlants ?? []);
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(plantCapabilityRowsToCsv(rows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+      return;
+    }
+
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
+    const rows = entity === "warehouses"
+      ? applyJadeWarehouseOverrides(inputs.warehouseOverrides ?? [], inputs.addedWarehouses ?? [])
+      : applyJadeCustomerOverrides(inputs.customerOverrides ?? [], inputs.addedCustomers ?? []);
+    if (format === "csv") {
+      const csv = entity === "warehouses"
+        ? warehouseRowsToCsv(rows as Parameters<typeof warehouseRowsToCsv>[0])
+        : customerRowsToCsv(rows as Parameters<typeof customerRowsToCsv>[0]);
+      res.type("text/csv").send(csv);
+      return;
+    }
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    return;
+  }
+
   // p-median-us/p-median-brazil: export reads each model's own warehouse/
   // customer dataset directly (via services/templates.ts). T9 — Brazil
   // shares p-median-us's exact inputs shape/entity set (B6.3/B2-T1), only
@@ -777,7 +926,7 @@ function mergeChangesIntoOverrides(
 // addedCustomerSchema, and transportLp.ts's addedMineSchema/
 // addedStationSchema's optional `displayCode` field (Step A).
 function mergeAddChangesIntoAdded(
-  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries",
+  entity: "warehouses" | "customers" | "mines" | "stations" | "refineries" | "plants",
   currentAdded: Array<Record<string, unknown>>,
   addChanges: ImportRowChange[],
 ): Array<Record<string, unknown>> {
@@ -792,6 +941,12 @@ function mergeAddChangesIntoAdded(
       ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, status: c.after.status }
       : entity === "mines"
       ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, capacity: c.after.value }
+      // jade-T7 — plants: no value/status field at all (see
+      // templates.ts's applyPlantOverrides header comment); c.after.value/
+      // status are simply never read for it, same precedent as
+      // addedCustomers never reading status.
+      : entity === "plants"
+      ? { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng }
       // stations — same demand-only shape as mines, displayCode included.
       : { id: c.id, displayCode: c.displayCode, city: c.city, state: c.state, lat: c.lat, lng: c.lng, demand: c.after.value }
   ));
@@ -888,12 +1043,61 @@ function mergeLaneCostChangesIntoOverrides(
   return [...rest, ...applied];
 }
 
+// jade-T7 — two-echelon-jade-us' distanceOverrides analogue of
+// mergeDistanceChangesIntoOverrides above, but jadeInputsSchema's
+// distanceOverrideSchema (unlike every other model's) declares `leg` as a
+// REQUIRED field (jadeInputs.ts's own file header comment: "confirmed
+// against merge_inputs.py's build_merged_jade_dataset, which validates the
+// declared `leg` against the ACTUAL id-space membership... defense in
+// depth"). Reusing the generic mergeDistanceChangesIntoOverrides here would
+// silently persist overrides MISSING that required field — harmless at
+// write time (this composite-key branch skips revalidation, same precedent
+// as distances/laneCosts/legDistances below), but the NEXT
+// validateInputsForModel call (POST solve, PATCH) would then reject the
+// whole scenario's stored inputs. Resolves `leg` the same way import.ts's
+// parseLegDistanceRows already determined it implicitly (id-space
+// membership: plant->warehouse vs warehouse->customer) — never trusted from
+// the client, always recomputed from the current scenario's own id spaces.
+function mergeJadeDistanceChangesIntoOverrides(
+  currentOverrides: Array<{ leg: string; fromId: string; toId: string; distance: number }>,
+  changes: ImportRowChange[],
+  plantIdSpace: Set<string>,
+  warehouseIdSpace: Set<string>,
+): Array<{ leg: string; fromId: string; toId: string; distance: number }> {
+  const changedKeys = new Set(changes.map(c => `${c.fromId}|${c.toId}`));
+  const rest = currentOverrides.filter(o => !changedKeys.has(`${o.fromId}|${o.toId}`));
+  const applied = changes.map(c => ({
+    leg: plantIdSpace.has(c.fromId!) && warehouseIdSpace.has(c.toId!) ? "plant_to_warehouse" : "warehouse_to_customer",
+    fromId: c.fromId!,
+    toId: c.toId!,
+    distance: c.after.value!,
+  }));
+  return [...rest, ...applied];
+}
+
+// jade-T7 — plantProductCapability persists overrides as an array keyed by
+// the composite (plantId, productId) pair, the same shape/reasoning as
+// mergeDistanceChangesIntoOverrides/mergeLaneCostChangesIntoOverrides above
+// — only the value is a boolean (`enabled`), reconstructed from
+// parsePlantCapabilityRows' `after.value` 1/0 encoding (see import.ts's own
+// header comment on parsePlantCapabilityRows for why it's encoded that way
+// rather than widening ImportRowChange's shape).
+function mergeCapabilityChangesIntoOverrides(
+  currentOverrides: Array<{ plantId: string; productId: string; enabled: boolean }>,
+  changes: ImportRowChange[],
+): Array<{ plantId: string; productId: string; enabled: boolean }> {
+  const changedKeys = new Set(changes.map(c => `${c.fromId}|${c.toId}`));
+  const rest = currentOverrides.filter(o => !changedKeys.has(`${o.plantId}|${o.productId}`));
+  const applied = changes.map(c => ({ plantId: c.fromId!, productId: c.toId!, enabled: c.after.value === 1 }));
+  return [...rest, ...applied];
+}
+
 router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText } = req.body as { entity?: string; csvText?: string };
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', or 'legDistances'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', or 'legDistances'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -909,14 +1113,18 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   // p-median-brazil (T9 — Brazil shares p-median-us's exact entity set)
   // import warehouses/customers/distances, transport-coal imports
   // mines/stations/laneCosts, two-echelon-gold-au imports
-  // refineries/customers/legDistances (B6.2 stage 4). distances (B4.1) is
-  // p-median-us/p-median-brazil only — it's the scenario-local network-edits
-  // pilot model (B1.1-B3.1, fast-followed to Brazil by T9); laneCosts
-  // (Task 30) is transport-coal only, legDistances (B6.2) is
-  // two-echelon-gold-au only, same reasoning.
+  // refineries/customers/legDistances (B6.2 stage 4), two-echelon-jade-us
+  // (jade-T7) imports warehouses/customers/plants/plantCapabilities/
+  // legDistances. distances (B4.1) is p-median-us/p-median-brazil only —
+  // it's the scenario-local network-edits pilot model (B1.1-B3.1,
+  // fast-followed to Brazil by T9); laneCosts (Task 30) is transport-coal
+  // only; legDistances (B6.2) is shared by two-echelon-gold-au AND
+  // two-echelon-jade-us (jade-T7) — same entity string/CSV shape, id-space
+  // resolution disambiguated by modelId inside parseAndValidateImport.
   const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
+  const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -929,20 +1137,26 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers/legDistances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
+  if (scenario.modelId === "two-echelon-jade-us" && !entityIsJade) {
+    res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
 
   // inputs carries warehouseOverrides/customerOverrides/distanceOverrides/
   // addedWarehouses/addedCustomers (p-median), mineCapacities/stationDemands/
-  // addedMines/addedStations/laneCostOverrides (transport-coal), or
+  // addedMines/addedStations/laneCostOverrides (transport-coal),
   // refineryOverrides/customerOverrides/distanceOverrides/addedRefineries/
-  // addedCustomers (two-echelon-gold-au); parseAndValidateImport reads
-  // whichever matches `entity`, disambiguating the shared "customers" entity
-  // name by modelId. p is p-median-only — pass 0 otherwise (its p-driven
-  // warning branch never fires for other entities).
-  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: unknown[]; distanceOverrides?: unknown[]; laneCostOverrides?: unknown[]; addedWarehouses?: unknown[]; addedCustomers?: unknown[]; addedMines?: unknown[]; addedStations?: unknown[]; addedRefineries?: unknown[] };
+  // addedCustomers (two-echelon-gold-au), or warehouseOverrides/
+  // customerOverrides/distanceOverrides/addedWarehouses/addedCustomers/
+  // addedPlants/plantProductCapability (two-echelon-jade-us);
+  // parseAndValidateImport reads whichever matches `entity`, disambiguating
+  // the shared "customers" entity name by modelId. p is p-median-only — pass
+  // 0 otherwise (its p-driven warning branch never fires for other entities).
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: unknown[]; customerOverrides?: unknown[]; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: unknown[]; distanceOverrides?: unknown[]; laneCostOverrides?: unknown[]; addedWarehouses?: unknown[]; addedCustomers?: unknown[]; addedMines?: unknown[]; addedStations?: unknown[]; addedRefineries?: unknown[]; addedPlants?: unknown[]; plantProductCapability?: unknown[] };
   const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
   res.json(preview);
 });
@@ -951,8 +1165,8 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const id = Number(req.params.scenarioId);
   const { entity, csvText, mode } = req.body as { entity?: string; csvText?: string; mode?: string };
 
-  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
-    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', or 'legDistances'" });
+  if (entity !== "warehouses" && entity !== "customers" && entity !== "mines" && entity !== "stations" && entity !== "refineries" && entity !== "plants" && entity !== "plantCapabilities" && entity !== "distances" && entity !== "laneCosts" && entity !== "legDistances") {
+    res.status(422).json({ error: "entity must be 'warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'distances', 'laneCosts', or 'legDistances'" });
     return;
   }
   if (typeof csvText !== "string") {
@@ -967,10 +1181,12 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
 
   // distances/laneCosts/legDistances (B4.1/Task 30/B6.2) are
   // p-median-us-and-p-median-brazil-only (T9)/transport-coal-only/
-  // two-echelon-gold-au-only respectively — see the /import route's comment.
+  // two-echelon-gold-au-and-two-echelon-jade-us respectively — see the
+  // /import route's comment.
   const entityIsPMedian = entity === "warehouses" || entity === "customers" || entity === "distances";
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
+  const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -983,14 +1199,18 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     res.status(422).json({ error: "two-echelon-gold-au scenarios only support refineries/customers/legDistances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au") {
+  if (scenario.modelId === "two-echelon-jade-us" && !entityIsJade) {
+    res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
 
   // Always re-validate against the live scenario state — never trust a
   // client-held preview, which may be stale by the time apply is called.
-  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: Array<{ id: string; status: string }>; distanceOverrides?: Array<{ fromId: string; toId: string; distance: number }>; laneCostOverrides?: Array<{ fromId: string; toId: string; cost: number }>; addedWarehouses?: Array<{ id: string }>; addedCustomers?: Array<{ id: string }>; addedMines?: Array<{ id: string }>; addedStations?: Array<{ id: string }>; addedRefineries?: Array<{ id: string }> };
+  const inputs = scenario.inputs as { p?: number; warehouseOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; customerOverrides?: Array<{ id: string; status: string; capacity?: number | null; demand?: number | null }>; mineCapacities?: Record<string, number>; stationDemands?: Record<string, number>; refineryOverrides?: Array<{ id: string; status: string }>; distanceOverrides?: Array<{ fromId: string; toId: string; distance: number }>; laneCostOverrides?: Array<{ fromId: string; toId: string; cost: number }>; addedWarehouses?: Array<{ id: string }>; addedCustomers?: Array<{ id: string }>; addedMines?: Array<{ id: string }>; addedStations?: Array<{ id: string }>; addedRefineries?: Array<{ id: string }>; addedPlants?: Array<{ id: string }>; plantProductCapability?: Array<{ plantId: string; productId: string; enabled: boolean }> };
   const preview = parseAndValidateImport(entity as ImportEntity, csvText, inputs as Parameters<typeof parseAndValidateImport>[2], inputs.p ?? 0, scenario.modelId);
 
   if (applyMode === "all_or_nothing" && preview.errors.length > 0) {
@@ -1090,10 +1310,56 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     // no new merge function needed, only a different persistence key check
     // (this branch, not the earlier `entity === "distances"` one, since the
     // two entity STRINGS still route through different reference-integrity
-    // rules in parseAndValidateImport above).
+    // rules in parseAndValidateImport above). jade-T7 — two-echelon-jade-us
+    // ALSO reuses the "legDistances" entity string, but its
+    // distanceOverrideSchema REQUIRES an explicit `leg` field (unlike every
+    // other model's) — the generic merge above has no `leg` to attach, so
+    // this forks to mergeJadeDistanceChangesIntoOverrides, which resolves
+    // `leg` from the current scenario's own plant/warehouse id spaces (never
+    // trusted from the client) before persisting. No revalidation here
+    // (composite-key branches skip it, same as distances/laneCosts above) —
+    // this fork is exactly what keeps that safe for JADE specifically.
     const currentDistanceOverrides = inputs.distanceOverrides ?? [];
-    const nextDistanceOverrides = mergeDistanceChangesIntoOverrides(currentDistanceOverrides, preview.changes);
-    nextInputs = { ...inputs, distanceOverrides: nextDistanceOverrides };
+    if (scenario.modelId === "two-echelon-jade-us") {
+      const { plantIdSpace, warehouseIdSpace } = buildJadeIdSpaces(inputs as Parameters<typeof buildJadeIdSpaces>[0]);
+      const nextJadeDistanceOverrides = mergeJadeDistanceChangesIntoOverrides(
+        currentDistanceOverrides as Array<{ leg: string; fromId: string; toId: string; distance: number }>,
+        preview.changes,
+        plantIdSpace,
+        warehouseIdSpace,
+      );
+      nextInputs = { ...inputs, distanceOverrides: nextJadeDistanceOverrides };
+    } else {
+      const nextDistanceOverrides = mergeDistanceChangesIntoOverrides(currentDistanceOverrides, preview.changes);
+      nextInputs = { ...inputs, distanceOverrides: nextDistanceOverrides };
+    }
+  } else if (entity === "plants") {
+    // jade-T7 — plants have zero override-able fields on a base row (no
+    // status/capacity concept at all, see templates.ts's applyPlantOverrides
+    // header comment) — a base-plant UPDATE row never produces a change
+    // (import.ts: entityHasValue/entityHasStatus are both false for this
+    // entity), and neither does update_added (same reason), so only ADD
+    // changes are ever possible here.
+    const addChanges = preview.changes.filter(c => c.changeType === "add");
+    const currentAdded = (inputs.addedPlants ?? []) as Array<Record<string, unknown>>;
+    const nextAdded = mergeAddChangesIntoAdded("plants", currentAdded, addChanges);
+    nextInputs = { ...inputs, addedPlants: nextAdded };
+
+    const revalidated = validateInputsForModel(scenario.modelId, nextInputs);
+    if (!revalidated.success) {
+      res.status(422).json({ error: revalidated.error });
+      return;
+    }
+    nextInputs = revalidated.data;
+  } else if (entity === "plantCapabilities") {
+    // jade-T7 — a full-matrix composite-keyed entity (see templates.ts's
+    // applyPlantCapabilityOverrides header comment) — same "no revalidation"
+    // precedent as distances/laneCosts/legDistances above (this merge can
+    // never introduce a duplicate (plantId,productId) pair, the only shape
+    // rule plantProductCapabilitySchema enforces beyond field types).
+    const currentCapabilityOverrides = inputs.plantProductCapability ?? [];
+    const nextCapabilityOverrides = mergeCapabilityChangesIntoOverrides(currentCapabilityOverrides, preview.changes);
+    nextInputs = { ...inputs, plantProductCapability: nextCapabilityOverrides };
   } else {
     // entity === "refineries" (the only entity that reaches this final
     // else). T11 — refineries joins warehouses/customers' 3-way changeType

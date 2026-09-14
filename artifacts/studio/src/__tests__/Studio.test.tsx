@@ -135,6 +135,33 @@ const dataset = {
   customers: [{ id: "C1", lat: 40.71, lng: -74.00, demand: 100 }],
 };
 
+// Chapter 9 (JADE, two-echelon-jade-us) — falls through Studio.tsx's default
+// p-median-shaped branch (configFromScenario/buildInputsForSave have no
+// dedicated branch for it, same as any model not explicitly special-cased),
+// so a plain p-median-shaped inputs fixture is sufficient for the header
+// regression test below (Studio.tsx is not routed to for workspace:true
+// chapters in production — this only guards chapters.ts's lookup).
+const jadeInputs = {
+  p: 2,
+  distanceBands: [200, 400, 800, 1600],
+  capacityMode: "none",
+  uniformCapacity: null,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  gap: 0,
+  timeLimitSec: 120,
+};
+
+const jadeScenario = {
+  id: 30,
+  name: "JADE Base Case",
+  modelId: "two-echelon-jade-us",
+  inputs: jadeInputs,
+  result: null,
+  createdAt: "2026-01-05T00:00:00Z",
+  updatedAt: "2026-01-05T00:00:00Z",
+};
+
 // ── Mock API client hooks ─────────────────────────────────────────────────────
 const mockUpdateScenario = { mutateAsync: vi.fn(), mutate: vi.fn() };
 const mockSolveScenario = { mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false };
@@ -526,6 +553,19 @@ describe("Studio — Header lab name by active lab (all three labs)", () => {
     mockUseGetScenario.mockReturnValue({ data: twoEchelonScenario } as ReturnType<typeof useGetScenario>);
     render(<Studio modelId="two-echelon-gold-au" />);
     expect(screen.getByText(/Gold Refinery Siting · Model Lab/)).toBeInTheDocument();
+    expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
+  });
+
+  // Same regression guard, for Chapter 9 (JADE, two-echelon-jade-us):
+  // chapters.ts's CHAPTERS lookup must resolve JADE's own labHeaderTitle,
+  // never silently fall back to another chapter's title (the exact bug
+  // class that shipped for two-echelon-gold-au above).
+  it("shows JADE Network · Model Lab (Ch 9), not AL's Athletics, for a two-echelon-jade-us scenario", () => {
+    mockUseSearch.mockReturnValue("?scenario=30");
+    mockUseListScenarios.mockReturnValue({ data: [jadeScenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: jadeScenario } as ReturnType<typeof useGetScenario>);
+    render(<Studio modelId="two-echelon-jade-us" />);
+    expect(screen.getByText(/JADE Network · Model Lab/)).toBeInTheDocument();
     expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
   });
 });

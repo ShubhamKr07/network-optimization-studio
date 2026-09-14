@@ -7,6 +7,7 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
 import { assignBand } from "@/lib/bands";
 import { getBandColor } from "@/lib/bandPalette";
+import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 
@@ -264,6 +265,15 @@ interface NetworkMapProps {
   // it through yet (Studio.tsx, Workspace.tsx call sites owned by other
   // tasks, tests) keeps compiling and rendering unchanged.
   distanceUnit?: string;
+  // jade-T13 — per-leg lane visibility (the notebook's inbound/outbound/
+  // combined layer toggles generalize to "which legs are visible"). When
+  // undefined (every existing caller/model), every route renders exactly as
+  // before — this is additive-only. When provided, an edge renders only if
+  // its `leg` is included; an edge with no `leg` (single-echelon models)
+  // still renders unconditionally, since the leg concept doesn't apply to
+  // it. Wiring the actual checkboxes into the Output Map tab is T15.5's job
+  // (Workspace.tsx integration) — this prop is the seam it consumes.
+  visibleLegs?: string[];
 }
 
 export function NetworkMap({
@@ -271,7 +281,7 @@ export function NetworkMap({
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
-  hideClosedWarehouses = false, distanceUnit = "mi",
+  hideClosedWarehouses = false, distanceUnit = "mi", visibleLegs,
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
@@ -329,6 +339,31 @@ export function NetworkMap({
     });
     return ids;
   }, [selectedWarehouseId, result]);
+
+  // jade-T13 — routes actually drawn on the map: result.edges, filtered by
+  // visibleLegs (undefined = show all, unchanged for every existing model),
+  // then coalesced by (leg,fromId,toId) summing flow. JADE's envelope emits
+  // one inbound edge per positive (plant,warehouse,product) flow, so two
+  // products shipped between the same plant->warehouse pair would otherwise
+  // draw two overlapping polylines with a colliding React key — the
+  // underlying result and the Flows grid stay per-product; this coalescing
+  // is purely a map-rendering concern (spec §4). For every other model this
+  // is a no-op (each (leg,fromId,toId) triple is already unique).
+  const routeEdges = useMemo(() => {
+    if (!result) return [];
+    const grouped = new Map<string, Edge>();
+    for (const edge of result.edges) {
+      if (visibleLegs !== undefined && edge.leg != null && !visibleLegs.includes(edge.leg)) continue;
+      const key = `${edge.leg ?? ""}|${edge.fromId}|${edge.toId}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        grouped.set(key, { ...existing, flow: existing.flow + edge.flow, productId: undefined });
+      } else {
+        grouped.set(key, edge);
+      }
+    }
+    return Array.from(grouped.values());
+  }, [result, visibleLegs]);
 
   // Build popup info for the selected customer
   const popupInfo = useMemo<PopupInfo | null>(() => {
@@ -419,38 +454,41 @@ export function NetworkMap({
         {/* Route lines in a dedicated pane below customer circles (z-index 350) */}
         <Pane name="routePane" style={{ zIndex: 350 }}>
           {showRoutes &&
-            result?.edges.map((edge) => {
-              // Two-echelon's mine->refinery leg has fromId=mine, toId=refinery
-              // — BOTH warehouse-role entities in dataset.warehouses, not
-              // dataset.customers. Every other edge (every single-echelon
-              // model, and two-echelon's own refinery->customer leg) is the
-              // usual fromId=warehouse, toId=customer shape. Looking this leg
-              // up in dataset.customers always failed (no such customer id),
-              // silently dropping the mine->refinery route from the map.
-              const isMineLeg = edge.leg === "mine_to_refinery";
-              const toEntity = isMineLeg
+            routeEdges.map((edge) => {
+              // Two-echelon models' first/"inbound" leg (mine_to_refinery,
+              // and jade-T13's plant_to_warehouse) has fromId=source,
+              // toId=facility — BOTH warehouse-role entities in
+              // dataset.warehouses, not dataset.customers. Every other edge
+              // (every single-echelon model, and each model's own second/
+              // "outbound" leg) is the usual fromId=warehouse, toId=customer
+              // shape. Looking an inbound leg's toId up in dataset.customers
+              // always fails (no such customer id), silently dropping the
+              // route from the map — classify by semantic role
+              // (isInboundLeg), never a per-model/per-leg-string ternary.
+              const isInboundEdge = isInboundLeg(edge.leg);
+              const toEntity = isInboundEdge
                 ? dataset.warehouses.find((w) => w.id === edge.toId)
                 : dataset.customers.find((c) => c.id === edge.toId);
               const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
               if (!toEntity || !warehouse) return null;
 
-              // The mine->refinery leg isn't tied to any one customer, so
+              // An inbound leg isn't tied to any one customer, so
               // customer-focus dimming (inspecting a specific customer's
               // route) doesn't apply to it — it stays fully visible.
-              const focused = isMineLeg || isCustomerFocused(edge.toId);
-              const dimmed = !isMineLeg && anySelection && !focused;
+              const focused = isInboundEdge || isCustomerFocused(edge.toId);
+              const dimmed = !isInboundEdge && anySelection && !focused;
 
               // Two-echelon models tag each edge with its leg so the map can
-              // style mine->refinery and refinery->customer differently. When
-              // leg is absent (every single-echelon model), fall back to the
-              // existing band-color behavior completely unchanged.
-              const legColor = edge.leg === "mine_to_refinery" ? "var(--map-warehouse-open)"
-                : edge.leg === "refinery_to_customer" ? "var(--danger)"
-                : getBandColor(assignBand(edge.distance, bands));
+              // style each echelon differently (jade-T13: extends the same
+              // shared palette to plant_to_warehouse/warehouse_to_customer,
+              // with a neutral fallback for any unrecognized leg value).
+              // When leg is absent (every single-echelon model), fall back
+              // to the existing band-color behavior completely unchanged.
+              const legColor = getLegColor(edge.leg) ?? getBandColor(assignBand(edge.distance, bands));
 
               return (
                 <Polyline
-                  key={`route-${edge.toId}`}
+                  key={`route-${edge.leg ?? "none"}-${edge.fromId}-${edge.toId}`}
                   positions={[
                     [toEntity.lat, toEntity.lng],
                     [warehouse.lat, warehouse.lng],

@@ -3,19 +3,24 @@ import {
   precheckPMedianInputs,
   precheckTransportInputs,
   precheckTwoEchelonInputs,
+  precheckJadeInputs,
   buildTransportIdSpaces,
   buildTwoEchelonIdSpaces,
   buildActivePMedianIds,
   buildActiveTwoEchelonIds,
+  buildActiveJadeIds,
   BRAZIL_DATASET,
   TRANSPORT_DATASET,
   TWO_ECHELON_DATASET,
+  JADE_DATASET,
   type PrecheckDataset,
   type TwoEchelonPrecheckDataset,
+  type JadePrecheckDataset,
 } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
+import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
 
 // Small fake dataset (not the real 26/200-row p-median-us dataset) — the
 // whole point of B2.1's "take the dataset as a parameter" design is that
@@ -952,5 +957,362 @@ describe("precheckPMedianInputs — B2.2-T1 Brazil-negative added-customer exclu
     const result = precheckPMedianInputs(inputs, BRAZIL_DATASET);
     expect(result.ok).toBe(false);
     expect(result.errors.some((e) => e.code === "completeness" && e.message.includes("REG-NEW"))).toBe(true);
+  });
+});
+
+// jade-T6 — semantic precheck for two-echelon-jade-us. Small fake dataset,
+// same "take the dataset as a parameter" testability precedent as every
+// other model above. Product ids are the real 4 canonical ids (not
+// arbitrary fake ones) because addedCustomerSchema (jadeInputs.ts) requires
+// EXACTLY those 4 keys regardless of what fake dataset a test passes to
+// precheckJadeInputs — the schema's product-id set isn't parameterized by
+// the dataset argument, so a fake dataset with a different product-id set
+// would force every addedCustomers fixture to violate its own type.
+const JADE_DATASET_FAKE: JadePrecheckDataset = {
+  plants: [{ id: "PLANT-A" }, { id: "PLANT-B" }],
+  warehouses: [{ id: "WH-A" }, { id: "WH-B" }],
+  customers: [
+    { id: "C-1", demands: { "product-1": 100, "product-2": 0, "product-3": 0, "product-4": 0 } },
+    { id: "C-2", demands: { "product-1": 0, "product-2": 50, "product-3": 0, "product-4": 0 } },
+  ],
+  productIds: ["product-1", "product-2", "product-3", "product-4"],
+  capabilityCells: [
+    { plantId: "PLANT-A", productId: "product-1", capacity: 1000 },
+    { plantId: "PLANT-A", productId: "product-2", capacity: 1000 },
+    { plantId: "PLANT-B", productId: "product-1", capacity: 0 },
+    { plantId: "PLANT-B", productId: "product-2", capacity: 0 },
+    // product-3/product-4 have NO enabled plant anywhere in the base data —
+    // deliberately, so the capacity check has a real failure case to catch.
+    { plantId: "PLANT-A", productId: "product-3", capacity: 0 },
+    { plantId: "PLANT-A", productId: "product-4", capacity: 0 },
+    { plantId: "PLANT-B", productId: "product-3", capacity: 0 },
+    { plantId: "PLANT-B", productId: "product-4", capacity: 0 },
+  ],
+};
+
+const JADE_BASE: JadeInputs = {
+  p: 1,
+  distanceBands: [200, 400, 800, 1600],
+  gap: 0.01,
+  timeLimitSec: 60,
+  warehouseOverrides: [],
+  customerOverrides: [],
+  plantProductCapability: [],
+  addedPlants: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+describe("precheckJadeInputs — jade-T6 semantic precheck", () => {
+  it("returns ok:true with no errors for a scenario with no network edits at all", () => {
+    const result = precheckJadeInputs(JADE_BASE, JADE_DATASET_FAKE);
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it("returns ok:true with no errors for a real two-echelon-jade-us scenario with no network edits", () => {
+    const result = precheckJadeInputs(JADE_BASE, JADE_DATASET);
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  describe("(d) completeness — both legs", () => {
+    it("blocks with a completeness cause when an added warehouse is missing plant-leg distances", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedWarehouses: [{ id: "WH-09", city: "X", state: "NV", lat: 1, lng: 2, status: "active" }],
+        distanceOverrides: [
+          { leg: "warehouse_to_customer", fromId: "WH-09", toId: "C-1", distance: 5 },
+          { leg: "warehouse_to_customer", fromId: "WH-09", toId: "C-2", distance: 5 },
+          // No plant_to_warehouse rows at all for WH-09.
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "WH-09 missing distances from 2 plants: PLANT-A, PLANT-B",
+      });
+    });
+
+    it("passes when an added warehouse has distances from every plant and to every customer", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedWarehouses: [{ id: "WH-09", city: "X", state: "NV", lat: 1, lng: 2, status: "active" }],
+        distanceOverrides: [
+          { leg: "plant_to_warehouse", fromId: "PLANT-A", toId: "WH-09", distance: 10 },
+          { leg: "plant_to_warehouse", fromId: "PLANT-B", toId: "WH-09", distance: 20 },
+          { leg: "warehouse_to_customer", fromId: "WH-09", toId: "C-1", distance: 5 },
+          { leg: "warehouse_to_customer", fromId: "WH-09", toId: "C-2", distance: 5 },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+
+    it("a base warehouse requires a distance from an added plant (vice-versa direction, plant leg)", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedPlants: [{ id: "PLANT-NEW", city: "X", state: "NV", lat: 1, lng: 2 }],
+        distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "PLANT-NEW", toId: "WH-A", distance: 5 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "WH-B missing distances from 1 plant: PLANT-NEW",
+      });
+      expect(result.errors.some((e) => e.message.startsWith("WH-A"))).toBe(false);
+    });
+
+    it("a base warehouse requires a distance to an added customer (vice-versa direction, customer leg)", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedCustomers: [
+          {
+            id: "C-NEW",
+            city: "Fresno",
+            state: "CA",
+            lat: 36.7,
+            lng: -119.7,
+            demands: { "product-1": 5, "product-2": 0, "product-3": 0, "product-4": 0 },
+            status: "active",
+          },
+        ],
+        distanceOverrides: [{ leg: "warehouse_to_customer", fromId: "WH-A", toId: "C-NEW", distance: 15 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "completeness",
+        message: "WH-B missing distances to 1 customer: C-NEW",
+      });
+      expect(result.errors.some((e) => e.message.startsWith("WH-A"))).toBe(false);
+    });
+
+    it("an inactive added warehouse is not required to have distances (it's not active)", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedWarehouses: [{ id: "WH-09", city: "X", state: "NV", lat: 1, lng: 2, status: "inactive" }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+    });
+
+    it("an excluded base customer's missing distance does NOT trigger a completeness error", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedWarehouses: [{ id: "WH-09", city: "X", state: "NV", lat: 1, lng: 2, status: "active" }],
+        customerOverrides: [{ id: "C-2", status: "excluded" }],
+        distanceOverrides: [
+          { leg: "plant_to_warehouse", fromId: "PLANT-A", toId: "WH-09", distance: 10 },
+          { leg: "plant_to_warehouse", fromId: "PLANT-B", toId: "WH-09", distance: 20 },
+          { leg: "warehouse_to_customer", fromId: "WH-09", toId: "C-1", distance: 5 },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+  });
+
+  describe("(a) ID collision — global across all three added entity types", () => {
+    it("rejects an added plant id colliding with a base warehouse id", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedPlants: [{ id: "WH-A", city: "X", state: "NV", lat: 1, lng: 2 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added plant id 'WH-A' collides with an existing base-dataset id",
+      });
+    });
+
+    it("rejects an added warehouse id colliding with an added customer id from the same scenario", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedWarehouses: [{ id: "NEW-1", city: "X", state: "NV", lat: 1, lng: 2, status: "active" }],
+        addedCustomers: [
+          {
+            id: "NEW-1",
+            city: "Y",
+            state: "NV",
+            lat: 3,
+            lng: 4,
+            demands: { "product-1": 1, "product-2": 0, "product-3": 0, "product-4": 0 },
+            status: "active",
+          },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "id_collision" && e.message.includes("NEW-1"))).toBe(true);
+    });
+
+    it("rejects two added plants sharing the same ID", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedPlants: [
+          { id: "PLANT-DUP", city: "X", state: "NV", lat: 1, lng: 2 },
+          { id: "PLANT-DUP", city: "Y", state: "NV", lat: 3, lng: 4 },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "id_collision",
+        message: "Added plant id 'PLANT-DUP' is duplicated across added entities (already used by an added plant)",
+      });
+    });
+  });
+
+  describe("(b) known product ids", () => {
+    it("rejects a customerOverrides demand key that isn't a known product id", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        customerOverrides: [{ id: "C-1", status: "active", demands: { "product-99": 10 } }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "reference_integrity",
+        message: "customerOverrides for 'C-1' has a demand entry for unknown product id 'product-99'",
+      });
+    });
+  });
+
+  describe("(c) reference integrity — leg vs. actual endpoint roles", () => {
+    it("rejects a distanceOverrides pair whose leg doesn't match its endpoints' actual roles", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "WH-A", toId: "C-1", distance: 10 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(true);
+    });
+
+    it("rejects a warehouse_to_customer pair whose fromId is actually a plant", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        distanceOverrides: [{ leg: "warehouse_to_customer", fromId: "PLANT-A", toId: "C-1", distance: 10 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(true);
+    });
+
+    it("accepts a plant_to_warehouse pair referencing an added plant and a base warehouse", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        addedPlants: [{ id: "PLANT-NEW", city: "X", state: "NV", lat: 1, lng: 2 }],
+        distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "PLANT-NEW", toId: "WH-A", distance: 5 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "reference_integrity")).toBe(false);
+    });
+  });
+
+  describe("(e) p range — forced_open <= p <= active warehouse count", () => {
+    it("blocks when p is less than the forced-open warehouse count", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        p: 1,
+        warehouseOverrides: [
+          { id: "WH-A", status: "forced_open" },
+          { id: "WH-B", status: "forced_open" },
+        ],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "p_range",
+        message: "p (1) is less than the number of forced-open warehouses (2)",
+      });
+    });
+
+    it("blocks when p exceeds the active warehouse count", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        p: 5,
+        warehouseOverrides: [{ id: "WH-B", status: "inactive" }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "p_range",
+        message: "p (5) exceeds the number of active warehouses (1)",
+      });
+    });
+
+    it("passes when p is within [forced_open, active warehouse count]", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        p: 2,
+        warehouseOverrides: [{ id: "WH-A", status: "forced_open" }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "p_range")).toBe(false);
+    });
+  });
+
+  describe("(f) plant capacity — enabled capacity vs. effective demand per product", () => {
+    it("blocks, naming the specific product, when it has demand but no enabled plant capacity", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        customerOverrides: [{ id: "C-1", status: "active", demands: { "product-3": 40 } }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContainEqual({
+        code: "capacity",
+        message: "product-3 has effective demand 40 but only 0 enabled plant capacity",
+      });
+    });
+
+    it("does not flag a product with zero effective demand even though no plant can make it", () => {
+      // product-4 has 0 demand everywhere in JADE_BASE and no override adds any.
+      const result = precheckJadeInputs(JADE_BASE, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "capacity" && e.message.startsWith("product-4"))).toBe(false);
+    });
+
+    it("a plantProductCapability override enabling an off-diagonal cell resolves an otherwise-blocked product", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        customerOverrides: [{ id: "C-1", status: "active", demands: { "product-3": 40 } }],
+        plantProductCapability: [{ plantId: "PLANT-A", productId: "product-3", enabled: true }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "capacity")).toBe(false);
+    });
+
+    it("an added plant defaults every capability cell to disabled — it does not resolve a capacity gap on its own", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        customerOverrides: [{ id: "C-1", status: "active", demands: { "product-3": 40 } }],
+        addedPlants: [{ id: "PLANT-NEW", city: "X", state: "NV", lat: 1, lng: 2 }],
+        distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "PLANT-NEW", toId: "WH-A", distance: 5 }, { leg: "plant_to_warehouse", fromId: "PLANT-NEW", toId: "WH-B", distance: 5 }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "capacity" && e.message.startsWith("product-3"))).toBe(true);
+    });
+
+    it("an excluded customer's demand does not count toward the capacity requirement", () => {
+      const inputs: JadeInputs = {
+        ...JADE_BASE,
+        customerOverrides: [{ id: "C-1", status: "excluded", demands: { "product-3": 40 } }],
+      };
+      const result = precheckJadeInputs(inputs, JADE_DATASET_FAKE);
+      expect(result.errors.some((e) => e.code === "capacity")).toBe(false);
+    });
+  });
+});
+
+describe("buildActiveJadeIds — jade-T6", () => {
+  it("every base and added plant is always active — plants have no status/override concept in this model", () => {
+    const result = buildActiveJadeIds({ addedPlants: [{ id: "PLANT-NEW" }] }, JADE_DATASET_FAKE);
+    expect(result.activePlantIds.sort()).toEqual(["PLANT-A", "PLANT-B", "PLANT-NEW"].sort());
   });
 });

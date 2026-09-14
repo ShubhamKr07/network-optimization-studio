@@ -34,7 +34,30 @@ const cs: MapEntity = {
   },
 };
 
+// jade-T12 (Chapter 9 JADE) — the third map-entity kind: no capacity, no
+// demand, no status.
+const pl: MapEntity = {
+  kind: "pl",
+  entity: {
+    id: "P1",
+    displayCode: "PL01",
+    city: "Ashland",
+    state: "KY",
+    lat: 38.4483,
+    lng: -82.6662,
+    isAdded: false,
+  },
+};
+
 describe("MapDetailsCard", () => {
+  it("shows neither capacity nor demand nor status for a plant entity (jade-T12)", () => {
+    render(<MapDetailsCard entity={pl} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} />);
+    expect(screen.queryByTestId("map-details-capacity")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-demand")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("map-details-status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("map-details-code")).toHaveTextContent("PL01");
+  });
+
   it("shows capacity + status label for a warehouse entity", () => {
     render(<MapDetailsCard entity={wh} containerPoint={{ x: 100, y: 100 }} onClose={vi.fn()} />);
     expect(screen.getByTestId("map-details-capacity")).toHaveTextContent("12,000 units");

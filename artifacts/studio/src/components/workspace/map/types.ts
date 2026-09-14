@@ -17,6 +17,24 @@ export interface AddedWarehouseInput {
   status: WhStatus;
 }
 
+// jade-T12 (Chapter 9 JADE) — matches `jadeInputsSchema`'s `addedPlants[]`
+// shape exactly (`{id, displayCode?, city, state, lat, lng}`, spec §6): a
+// plant has neither status nor capacity/demand at all — its only editable
+// attribute (which products it can make) lives in the Capability Matrix
+// tab, driven by `plantProductCapability` overrides keyed by this same
+// `id`, never a field on this record. Structurally identical to
+// `PlantsTab.tsx`'s own exported `AddedPlant` (this module can't import
+// from a Tab file — the dependency runs the other way — so it's mirrored,
+// not re-declared with different field names).
+export interface AddedPlantInput {
+  id: string;
+  displayCode?: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+}
+
 export interface AddedCustomerInput {
   id: string;
   displayCode?: string;
@@ -79,9 +97,27 @@ export interface MapCustomer {
   isAdded: boolean;
 }
 
+// jade-T12 — the plant view model: a THIRD map-entity kind, genuinely
+// distinct from MapWarehouse ("wh", triangle, supply-with-status) and
+// MapCustomer ("cs", bubble, demand) — a plant is supply-role but has no
+// status vocabulary and no editable numeric value at all (see PLANT_ROLE
+// below), so it doesn't fit the existing "wh"/"cs" rendering-role split
+// EntityRoleConfig otherwise reuses for mines/refineries/stations. Renders
+// as a square marker (EntityMarkers' `plantSquareSvg`).
+export interface MapPlant {
+  id: string;
+  displayCode: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+  isAdded: boolean;
+}
+
 export type MapEntity =
   | { kind: "wh"; entity: MapWarehouse }
-  | { kind: "cs"; entity: MapCustomer };
+  | { kind: "cs"; entity: MapCustomer }
+  | { kind: "pl"; entity: MapPlant };
 
 // R1 (Bundle 2, Task T4 Step 1): every model's demand bubbles are green now
 // — the old p-median-us-only branch is gone. `modelId` stays as a parameter
@@ -109,7 +145,9 @@ export function demandTone(_modelId?: string): DemandTone {
 // MoveConfirmDialog, and MapDetailsCard all default to WAREHOUSE_ROLE/
 // CUSTOMER_ROLE when no `role` prop is passed — today's exact p-median-us
 // behavior, unchanged (zero regression for every existing call site).
-export type UidKind = "wh" | "cs" | "mn" | "st";
+// jade-T12 — "pl" joins the uid-kind set for plants (`ap-`/`PL-...`,
+// lib/entityId.ts).
+export type UidKind = "wh" | "cs" | "mn" | "st" | "pl";
 
 export interface EntityRoleConfig {
   /** DD-7 uid-minting kind, consumed by newUid()/nextDisplayCode() (lib/entityId.ts).
@@ -175,6 +213,35 @@ export const REFINERY_ROLE: EntityRoleConfig = {
   label: "refinery",
   hasStatus: true,
   valueField: { key: "capacity", label: "Capacity", required: false },
+};
+
+// jade-T12 (Chapter 9 JADE) — two-echelon-jade-us's warehouses: a real
+// open/close status (unlike MINE_ROLE), but genuinely NO capacity concept
+// at all (the manifest declares `capacityModes: []` — the plant x product
+// capability matrix is the only supply-side constraint in this model).
+// Unlike REFINERY_ROLE (which keeps a `valueField` suppressed via a
+// `capacityMode="none"` prop passed to the dialogs), this role simply never
+// has one to suppress — cleaner for a model that never had a capacity
+// concept in the first place.
+export const JADE_WAREHOUSE_ROLE: EntityRoleConfig = {
+  uidKind: "wh",
+  label: "warehouse",
+  hasStatus: true,
+};
+
+// jade-T12 (Chapter 9 JADE) — a plant: supply-role (square marker, see
+// EntityMarkers' `plantSquareSvg`), but neither status (solve_jade has no
+// facility-open binary for plants — only warehouses get one) nor a value
+// field (a plant's only lever is which products it can make, via the
+// Capability Matrix tab's `plantProductCapability` overrides, not a number
+// typed into a Create/Edit dialog). Mints its own `ap-`/`PL-...` identity
+// (lib/entityId.ts) rather than reusing "wh" — unlike REFINERY_ROLE, which
+// DD-7 explicitly pins to the existing "aw-" prefix, a plant is genuinely a
+// new addable entity kind with no pre-existing prefix to reuse.
+export const PLANT_ROLE: EntityRoleConfig = {
+  uidKind: "pl",
+  label: "plant",
+  hasStatus: false,
 };
 
 // R2 (Workspace UX R1-R9): discrete quintile demand-bubble sizing, replacing

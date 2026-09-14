@@ -27,6 +27,14 @@ interface OptimizationParametersTabProps {
    * (Studio.tsx:1155-1182), but gated here on the value's presence rather
    * than a hardcoded modelId check, so this stays generic across models. */
   p?: number;
+  /** T11 (Chapter 9 JADE) — the P slider's semantic maximum. JADE has no
+   * static "P ≤ 50" limit (spec §5: "the UI maximum ... use[s] the effective
+   * active warehouse count, including added warehouses; there is no stale
+   * static maximum of 25") — the caller (Workspace.tsx, T15.5) computes this
+   * from the effective active-warehouse projection and passes it through.
+   * Defaults to 50, unaffected for every existing model/caller that omits
+   * it (p-median-us/brazil's real static max). */
+  pMax?: number;
   gap: number;
   timeLimitSec: number;
   distanceBands: number[];
@@ -64,6 +72,7 @@ interface OptimizationParametersTabProps {
 // `onChange`.
 export function OptimizationParametersTab({
   p,
+  pMax = 50,
   gap,
   timeLimitSec,
   distanceBands,
@@ -99,7 +108,7 @@ export function OptimizationParametersTab({
           </div>
           <Slider
             min={1}
-            max={50}
+            max={pMax}
             step={1}
             value={[p]}
             onValueChange={([v]) => onChange("p", v)}
@@ -107,7 +116,7 @@ export function OptimizationParametersTab({
             className="my-1"
           />
           <div className="flex gap-1.5 flex-wrap">
-            {[2, 3, 4, 10, 25].map(n => (
+            {[2, 3, 4, 10, 25].filter(n => n <= pMax).map(n => (
               <button
                 key={n}
                 type="button"

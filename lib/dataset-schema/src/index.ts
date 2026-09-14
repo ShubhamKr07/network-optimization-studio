@@ -66,6 +66,41 @@ export const RefineryEntry = z.object({
 export const GoldMineEntry = RefineryEntry;
 export const GoldCustomerEntry = RefineryEntry.extend({ demand: z.number() });
 
+// Chapter 9 — JADE multi-product two-echelon (plant -> warehouse -> customer).
+export const JadePlantEntry = z.object({
+  id: z.string(),
+  sourceId: z.number(),
+  name: z.string(),
+  city: z.string(),
+  state: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+});
+export const JadeProductEntry = z.object({
+  id: z.string(),
+  sourceId: z.number(),
+  name: z.string(),
+});
+export const JadeWarehouseEntry = z.object({
+  id: z.string(),
+  sourceId: z.number(),
+  name: z.string(),
+  city: z.string(),
+  state: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  zip: z.string().optional(),
+});
+export const JadeCustomerEntry = JadeWarehouseEntry.extend({
+  demand: z.number(),
+  demands: z.record(z.string(), z.number()),
+});
+export const JadeCapabilityEntry = z.object({
+  plantId: z.string(),
+  productId: z.string(),
+  capacity: z.number(),
+});
+
 export const VersionFile = z.object({
   version: z.number(),
   sha256: z.string(),
@@ -109,6 +144,17 @@ export const PACKAGE_SPECS: ModelPackageSpec[] = [
       "refineries.json": z.record(z.string(), RefineryEntry),
       "customers.json": z.record(z.string(), GoldCustomerEntry),
       "distances.json": DistanceMap,
+    },
+  },
+  {
+    modelId: "two-echelon-jade-us",
+    files: {
+      "plants.json": z.record(z.string(), JadePlantEntry),
+      "products.json": z.record(z.string(), JadeProductEntry),
+      "warehouses.json": z.record(z.string(), JadeWarehouseEntry),
+      "customers.json": z.record(z.string(), JadeCustomerEntry),
+      "distances.json": DistanceMap,
+      "plant_product_capability.json": z.array(JadeCapabilityEntry),
     },
   },
 ];
@@ -184,6 +230,11 @@ export const ManifestSchema = z.object({
     // status (customerOverrides) is still allowed there. Optional+defaulted so
     // pre-existing manifests still parse.
     supportsAddedCustomerExclusion: z.boolean().optional().default(false),
+    // Chapter 9 (JADE, jade-T2) — true when this model exposes a
+    // plant x product capability matrix (`plantProductCapability` overrides)
+    // for T11's Capability Matrix tab. Optional+defaulted so pre-existing
+    // manifests still parse; only two-echelon-jade-us sets this true.
+    supportsPlantProductCapability: z.boolean().optional().default(false),
   }),
   inputsSchema: z.record(z.string(), z.unknown()),
   // R5 (Workspace UX bundle) — the unit distances/bands are reported in for
@@ -195,7 +246,13 @@ export const ManifestSchema = z.object({
 
 export type Manifest = z.infer<typeof ManifestSchema>;
 
-export const MODEL_IDS = ["p-median-us", "transport-coal", "p-median-brazil", "two-echelon-gold-au"] as const;
+export const MODEL_IDS = [
+  "p-median-us",
+  "transport-coal",
+  "p-median-brazil",
+  "two-echelon-gold-au",
+  "two-echelon-jade-us",
+] as const;
 
 /** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */
 export function readManifest(modelId: string): Manifest {
