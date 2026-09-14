@@ -423,3 +423,115 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
     );
   });
 });
+
+// ── two-echelon-jade-us (jade-T15.5) ─────────────────────────────────────
+describe("Workspace tab coverage — two-echelon-jade-us", () => {
+  const jadeInputs = {
+    p: 2,
+    distanceBands: [200, 400, 800, 1600],
+    gap: 0,
+    timeLimitSec: 120,
+    warehouseOverrides: [{ id: "wh-11", status: "forced_open" }],
+    customerOverrides: [],
+    plantProductCapability: [],
+    addedPlants: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+
+  const solvedScenario = {
+    id: 20,
+    name: "JADE base case",
+    modelId: "two-echelon-jade-us",
+    inputs: jadeInputs,
+    result: {
+      status: "optimal" as const,
+      objective: 254060828.6157,
+      runTimeSec: 0.7,
+      quality: "Proven optimal",
+      edges: [
+        { fromId: "plant-1", toId: "wh-11", flow: 1000, distance: 300, leg: "plant_to_warehouse" as const, productId: "product-1" },
+        { fromId: "wh-11", toId: "customer-1", flow: 1000, distance: 150, leg: "warehouse_to_customer" as const },
+      ],
+      metrics: {
+        weightedAvgDistance: 150,
+        utilizationByNode: [],
+        bandCoverage: [{ band: 200, percent: 100 }],
+        openFacilityIds: ["wh-11"],
+      },
+      details: {},
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+    createdAt: "2026-01-04T00:00:00Z",
+    updatedAt: "2026-01-04T00:00:00Z",
+  };
+
+  const dataset = {
+    warehouses: [{ id: "wh-11", name: "Phoenix", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 }],
+    customers: [{ id: "customer-1", name: "Los Angeles", city: "Los Angeles", state: "CA", lat: 34.05, lng: -118.24, demand: 100, demands: { "product-1": 100 } }],
+    plants: [{ id: "plant-1", name: "Plant 1", city: "Ashland", state: "KY", lat: 38.45, lng: -82.67 }],
+    products: [
+      { id: "product-1", name: "Product 1" },
+      { id: "product-2", name: "Product 2" },
+      { id: "product-3", name: "Product 3" },
+      { id: "product-4", name: "Product 4" },
+    ],
+    plantProductCapabilities: [{ plantId: "plant-1", productId: "product-1", capacity: 210000000 }],
+  };
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseListModels.mockReturnValue({
+      data: [
+        {
+          id: "two-echelon-jade-us",
+          countryBounds: { sw: [25.78, -122.69], ne: [47.61, -71.05] },
+          distanceUnit: "mi",
+          capabilities: {
+            supportsP: true,
+            capacityModes: [],
+            demandEditable: true,
+            outputGrids: ["openWarehouses", "assignments", "flows", "costSummary", "serviceStats"],
+            supportsFacilityStatus: true,
+            supportsReferenceDistances: true,
+            supportsAddedCustomerExclusion: true,
+            supportsPlantProductCapability: true,
+          },
+        },
+      ],
+    } as unknown as ReturnType<typeof useListModels>);
+  });
+
+  it("every Inputs entry (incl. Input Map, Plants, Capability Matrix) and every allowed Outputs entry opens its real content, not a placeholder", () => {
+    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+
+    runTabCoverage(
+      [
+        INPUT_MAP,
+        { sidebarId: "plants", tabTestId: "plants-tab" },
+        { sidebarId: "capability-matrix", tabTestId: "capability-matrix-tab" },
+        { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
+        { sidebarId: "customers", tabTestId: "customers-tab" },
+        { sidebarId: "distances", tabTestId: "jade-distances-tab" },
+        OPTIMIZATION_PARAMETERS,
+      ],
+      [
+        OUTPUT_MAP,
+        OPEN_WAREHOUSES,
+        CUSTOMER_ASSIGNMENTS,
+        FLOWS,
+        COST_SUMMARY,
+        SERVICE_STATS,
+        // two-echelon-jade-us is the SECOND model whose outputGrids
+        // includes all 5 grid entries (like two-echelon-gold-au) — its
+        // plant_to_warehouse/warehouse_to_customer legs map 1:1 onto Flows/
+        // Customer Assignments respectively.
+      ],
+    );
+  });
+});

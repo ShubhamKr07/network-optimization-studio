@@ -21,6 +21,7 @@ import {
   getPrecheckScenarioQueryKey,
   type Scenario,
   type SolveResult,
+  type Plant,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,13 +46,16 @@ import { OptimizationParametersTab } from "@/components/workspace/tabs/Optimizat
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
-import { InputMapTab, type TransportMapInputs, type TwoEchelonMapInputs } from "@/components/workspace/tabs/InputMapTab";
+import { InputMapTab, type TransportMapInputs, type TwoEchelonMapInputs, type JadeMapInputs } from "@/components/workspace/tabs/InputMapTab";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
+import { PlantsTab, type AddedPlant } from "@/components/workspace/tabs/PlantsTab";
+import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
+import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
@@ -60,9 +64,11 @@ import type { StationOverride } from "@/components/tables/StationTable";
 import type { DistanceOverride } from "@/components/workspace/tabs/DistancesTab";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
 import type { LegDistanceOverride } from "@/components/workspace/tabs/LegDistancesTab";
+import type { CustomerProductOverride } from "@/components/workspace/tabs/CustomersTab";
 import type {
   MapWarehouse,
   MapCustomer,
+  MapPlant,
   PMedianMapInputs,
   AddedWarehouseInput,
   AddedCustomerInput,
@@ -98,6 +104,24 @@ function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown
       return { p: 7, distanceBands: [500, 1000, 2000, 4000], capacityMode: "uniform", uniformCapacity: 20000000, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120, singleSource: true };
     case "two-echelon-gold-au":
       return { bomRatio: 1.1, refineryOverrides: [], customerOverrides: [], distanceBands: [500, 1000, 1500, 2000, 2600], gap: 0, timeLimitSec: 120 };
+    // jade-T15.5 (Chapter 9 JADE) — no static p.max (jadeInputsSchema's own
+    // comment: "the semantic max ... is a T6 precheck concern, not a shape
+    // rule"), so a modest starting p is fine; every array field defaults
+    // empty, matching every other model's own new-scenario convention.
+    case "two-echelon-jade-us":
+      return {
+        p: 3,
+        distanceBands: [200, 400, 800, 1600],
+        gap: 0,
+        timeLimitSec: 120,
+        warehouseOverrides: [],
+        customerOverrides: [],
+        plantProductCapability: [],
+        addedPlants: [],
+        addedWarehouses: [],
+        addedCustomers: [],
+        distanceOverrides: [],
+      };
     case "p-median-us":
     default:
       return { p: 3, distanceBands: [200, 400, 800, 1600], capacityMode: "none", uniformCapacity: null, warehouseOverrides: [], customerOverrides: [], gap: 0, timeLimitSec: 120 };
@@ -275,6 +299,256 @@ function knownGoldRefineryIds(dataset: { warehouses: { id: string; kind?: string
 function knownGoldCustomerIds(dataset: { customers: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
   const added = Array.isArray(inputs?.addedCustomers) ? (inputs!.addedCustomers as { id: string }[]) : [];
   return [...(dataset?.customers ?? []).map(c => c.id), ...added.map(c => c.id)];
+}
+
+// jade-T15.5 (Chapter 9 JADE) — readers for two-echelon-jade-us's own
+// entity families: plants (a genuinely new echelon, `Dataset.plants`/
+// `addedPlants`), the plant x product capability matrix
+// (`plantProductCapability`), and the per-product customer override
+// (`customerOverrides`, CustomerProductOverride-shaped — NOT the scalar
+// CustomerOverride every other model's `customerOverridesFromInputs` reads).
+// `warehouseOverrides`/`addedWarehouses` reuse the existing generic readers
+// unmodified (jadeInputsSchema's shapes match p-median-us's exactly, minus
+// the never-set `capacity` field).
+function jadeCustomerOverridesFromInputs(inputs: Record<string, unknown> | null): CustomerProductOverride[] {
+  const raw = inputs?.customerOverrides;
+  return Array.isArray(raw) ? (raw as CustomerProductOverride[]) : [];
+}
+
+function plantProductCapabilityFromInputs(inputs: Record<string, unknown> | null): CapabilityOverride[] {
+  const raw = inputs?.plantProductCapability;
+  return Array.isArray(raw) ? (raw as CapabilityOverride[]) : [];
+}
+
+function addedPlantsFromInputs(inputs: Record<string, unknown> | null): AddedPlant[] {
+  const raw = inputs?.addedPlants;
+  return Array.isArray(raw) ? (raw as AddedPlant[]) : [];
+}
+
+function jadeDistanceOverridesFromInputs(inputs: Record<string, unknown> | null): JadeDistanceOverride[] {
+  const raw = inputs?.distanceOverrides;
+  return Array.isArray(raw) ? (raw as JadeDistanceOverride[]) : [];
+}
+
+function knownJadePlantIds(dataset: { plants?: { id: string }[] } | undefined, inputs: Record<string, unknown> | null): string[] {
+  const added = addedPlantsFromInputs(inputs);
+  return [...(dataset?.plants ?? []).map(p => p.id), ...added.map(p => p.id)];
+}
+
+// A JADE added customer's schema carries only per-product `demands`
+// (required, all 4 canonical product ids) — no scalar `demand` field at
+// all (jadeInputs.ts's own file header: "an added customer has no base
+// record to inherit from"). CustomersTab.tsx's/OutputMapTab.tsx's shared
+// `AddedCustomer`/`EffectiveAddedCustomer` types both need a numeric
+// `demand` though (bubble sizing, the "Added customers" grid's scalar
+// fallback column), so this reader computes it as the sum of `demands`,
+// same convention `Customer.demand` (the base dataset field) already
+// documents at the contract level.
+function jadeAddedCustomersFromInputs(inputs: Record<string, unknown> | null): AddedCustomer[] {
+  const raw = inputs?.addedCustomers;
+  if (!Array.isArray(raw)) return [];
+  return (raw as { id: string; city: string; state: string; lat: number; lng: number; demands?: Record<string, number>; displayCode?: string }[]).map(c => {
+    const demands = c.demands ?? {};
+    return {
+      id: c.id,
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demands,
+      demand: Object.values(demands).reduce((sum, v) => sum + v, 0),
+      displayCode: c.displayCode,
+    };
+  });
+}
+
+// jade-T15.5 — effective-row projections (Gate 6.5): base dataset row with
+// its override applied, unioned with scenario-local added rows, mirroring
+// pmedianMapWarehouses/pmedianMapCustomers's own pattern exactly. Plants are
+// a genuinely third map-entity kind (no status, no capacity — PLANT_ROLE);
+// warehouses have status but no capacity (`capacityModes: []`); a
+// customer's effective scalar `demand` is derived from its per-product
+// demands (base or overridden), never a bare scalar override.
+function jadeMapPlants(
+  dataset: { plants?: { id: string; name?: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapPlant[] {
+  const base: MapPlant[] = (dataset?.plants ?? []).map(p => ({
+    id: p.id,
+    displayCode: p.name ?? p.id,
+    city: p.city,
+    state: p.state,
+    lat: p.lat,
+    lng: p.lng,
+    isAdded: false,
+  }));
+  const added: MapPlant[] = addedPlantsFromInputs(inputs).map(p => ({
+    id: p.id,
+    displayCode: p.displayCode ?? p.id,
+    city: p.city,
+    state: p.state,
+    lat: p.lat,
+    lng: p.lng,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+function jadeMapWarehouses(
+  dataset: { warehouses: { id: string; name?: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapWarehouse[] {
+  const overrideById = new Map(warehouseOverridesFromInputs(inputs).map(o => [o.id, o]));
+  const base: MapWarehouse[] = (dataset?.warehouses ?? []).map(w => {
+    const o = overrideById.get(w.id);
+    return {
+      id: w.id,
+      displayCode: w.name ?? w.id,
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity: null,
+      status: (o?.status ?? "active") as WhStatus,
+      isAdded: false,
+    };
+  });
+  const added: MapWarehouse[] = mapAddedWarehousesFromInputs(inputs).map(w => ({
+    id: w.id,
+    displayCode: w.displayCode ?? w.id,
+    city: w.city,
+    state: w.state,
+    lat: w.lat,
+    lng: w.lng,
+    capacity: null,
+    status: w.status,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+// Merges a base customer's per-product `demands` with a sparse
+// CustomerProductOverride's own `demands` (omitted product keys inherit the
+// base value — mirrors solve.py's get_demands() merge, precheck.ts's own
+// documented convention). Absent override -> the base's already-summed
+// scalar `demand`, no recomputation needed.
+function jadeEffectiveCustomerDemand(
+  customer: { demand: number; demands?: Record<string, number> },
+  override?: { demands?: Record<string, number> },
+): number {
+  if (!override?.demands) return customer.demand;
+  const keys = new Set([...Object.keys(customer.demands ?? {}), ...Object.keys(override.demands)]);
+  let total = 0;
+  for (const k of keys) total += override.demands[k] ?? customer.demands?.[k] ?? 0;
+  return total;
+}
+
+function jadeMapCustomers(
+  dataset: { customers: { id: string; name?: string; city: string; state: string; lat: number; lng: number; demand: number; demands?: Record<string, number> }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): MapCustomer[] {
+  const overrideById = new Map(jadeCustomerOverridesFromInputs(inputs).map(o => [o.id, o]));
+  const base: MapCustomer[] = (dataset?.customers ?? []).map(c => {
+    const o = overrideById.get(c.id);
+    return {
+      id: c.id,
+      displayCode: c.name ?? c.id,
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demand: jadeEffectiveCustomerDemand(c, o),
+      excluded: o?.status === "excluded",
+      isAdded: false,
+    };
+  });
+  const added: MapCustomer[] = jadeAddedCustomersFromInputs(inputs).map(c => ({
+    id: c.id,
+    displayCode: c.displayCode ?? c.id,
+    city: c.city,
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: c.demand,
+    excluded: false,
+    isAdded: true,
+  }));
+  return [...base, ...added];
+}
+
+// The `inputs` slice InputMapTab's "jade" mode edits — same role
+// pmedianMapInputsSlice/transportMapInputsSlice/twoEchelonMapInputsSlice
+// play for their own modes.
+function jadeMapInputsSlice(inputs: Record<string, unknown> | null): JadeMapInputs {
+  return {
+    ...(inputs ?? {}),
+    addedPlants: addedPlantsFromInputs(inputs),
+    addedWarehouses: mapAddedWarehousesFromInputs(inputs),
+    addedCustomers: jadeAddedCustomersFromInputs(inputs),
+    warehouseOverrides: warehouseOverridesFromInputs(inputs),
+    customerOverrides: jadeCustomerOverridesFromInputs(inputs),
+    plantProductCapability: plantProductCapabilityFromInputs(inputs),
+    distanceOverrides: jadeDistanceOverridesFromInputs(inputs),
+  } as JadeMapInputs;
+}
+
+// jade-T15.5 — effective plants for the Capability Matrix tab (Gate 6.5's
+// projection principle applied to a non-map surface): base dataset plants
+// ∪ scenario-local addedPlants, translated to the api-client-react `Plant`
+// shape that component expects. An added plant has no `sourceId`.
+function effectivePlantsForCapabilityMatrix(
+  dataset: { plants?: Plant[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): Plant[] {
+  const base = dataset?.plants ?? [];
+  const added: Plant[] = addedPlantsFromInputs(inputs).map(p => ({
+    id: p.id,
+    name: p.displayCode ?? p.id,
+    city: p.city,
+    state: p.state,
+    lat: p.lat,
+    lng: p.lng,
+  }));
+  return [...base, ...added];
+}
+
+// jade-T15.5 — the P slider's semantic maximum for two-echelon-jade-us
+// (jadeInputsSchema's own comment: no static p.max, the real bound is the
+// effective active-warehouse count, INCLUDING scenario-local added
+// warehouses). "Active" here means anything the solver could open — a
+// forced-open warehouse counts, only "inactive" is excluded.
+function jadeActiveWarehouseCount(
+  dataset: { warehouses: { id: string }[] } | undefined,
+  inputs: Record<string, unknown> | null,
+): number {
+  const overrideById = new Map(warehouseOverridesFromInputs(inputs).map(o => [o.id, o]));
+  const baseActive = (dataset?.warehouses ?? []).filter(w => (overrideById.get(w.id)?.status ?? "active") !== "inactive").length;
+  const addedActive = mapAddedWarehousesFromInputs(inputs).filter(w => w.status !== "inactive").length;
+  return baseActive + addedActive;
+}
+
+// jade-T15.5 — folds base plants (and, at the Output Map's own added-entity
+// call site, scenario-local addedPlants) into the `warehouses` array of the
+// Dataset object handed to OutputMapTab/NetworkMap. NetworkMap has no
+// concept of a plant marker kind (Gate 6.5's symbology work stopped at the
+// Input Map, per T13's own commit note — the Output Map's leg-toggle
+// checkboxes and any plant-square marker are an explicit, documented,
+// out-of-scope-for-this-task follow-up, since both would require editing
+// the OutputMapTab.tsx/NetworkMap.tsx leaf components this task must not
+// touch); it DOES need every plant present in `warehouses` so a
+// `plant_to_warehouse` edge's `fromId` (a plant id) resolves at all — see
+// NetworkMap.tsx's own `dataset.warehouses.find((w) => w.id === edge.fromId)`
+// route lookup. Since JADE's `supportsFacilityStatus` capability makes
+// `hideClosedWarehouses` true for this model, and a plant is never in
+// `openWarehouseIds`/`warehouseStatuses`, this folding has the (desirable)
+// side effect of the plant MARKER being auto-hidden by the existing
+// hide-closed behavior (NetworkMap.tsx:587) rather than rendering as a
+// misleading "potential warehouse" pin — the route itself still draws
+// (route lookup is independent of hideClosedWarehouses).
+function jadePlantsAsWarehouseCandidates(
+  dataset: { plants?: { id: string; city: string; state: string; lat: number; lng: number }[] } | undefined,
+): { id: string; city: string; state: string; lat: number; lng: number }[] {
+  return (dataset?.plants ?? []).map(p => ({ id: p.id, city: p.city, state: p.state, lat: p.lat, lng: p.lng }));
 }
 
 // B5.2 — readers for the add/delete grids, same convention as
@@ -665,6 +939,9 @@ function displayCodeMapFromInputs(inputs: Record<string, unknown> | null): Recor
     addedMinesFromInputs(inputs),
     addedStationsFromInputs(inputs),
     addedRefineriesFromInputs(inputs),
+    // jade-T15.5 — plants are a genuinely new added-entity family (no prior
+    // model has one), not covered by any of the five sources above.
+    addedPlantsFromInputs(inputs),
   ];
   for (const rows of sources) {
     for (const row of rows) {
@@ -683,13 +960,20 @@ function displayCodeMapFromInputs(inputs: Record<string, unknown> | null): Recor
 // document. `addedWarehouses`/`addedRefineries` share the `aw-` uid family
 // (two-echelon's added facilities are refineries), so both are always
 // included regardless of the active model — the unused one is just empty.
-function facilityDisplayedInputs(inputs: Record<string, unknown> | null): {
+// jade-T14's `capacityModes` param is deliberately only threaded through by
+// the OpenWarehousesTab call site for two-echelon-jade-us — see that call
+// site's own comment on why passing the manifest's `capacityModes` array
+// generically to every model would silently flip two-echelon-gold-au's
+// rendering too (its manifest also declares `capacityModes: []`).
+function facilityDisplayedInputs(inputs: Record<string, unknown> | null, capacityModes?: string[]): {
   capacityMode: string;
+  capacityModes?: string[];
   addedWarehouses: { id: string; displayCode?: string }[];
   addedRefineries: { id: string; displayCode?: string }[];
 } {
   return {
     capacityMode: capacityModeFromInputs(inputs),
+    capacityModes,
     addedWarehouses: addedWarehousesFromInputs(inputs),
     addedRefineries: addedRefineriesFromInputs(inputs),
   };
@@ -767,6 +1051,21 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
       return [
         { id: "input-map", label: "Input Map" },
         { id: "refineries", label: "Refineries" },
+        { id: "customers", label: "Customers" },
+        { id: "distances", label: "Distances" },
+        { id: "optimization-parameters", label: "Optimization Parameters" },
+      ];
+    // jade-T15.5 (Chapter 9 JADE) — Plants/Capability Matrix are this
+    // model's own two new entries (no other model has a plant echelon or a
+    // plant x product capability matrix); Warehouses/Customers/Distances/
+    // Optimization Parameters reuse the same components p-median-us's own
+    // list does.
+    case "two-echelon-jade-us":
+      return [
+        { id: "input-map", label: "Input Map" },
+        { id: "plants", label: "Plants" },
+        { id: "capability-matrix", label: "Capability Matrix" },
+        { id: "warehouses", label: "Warehouses" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
@@ -913,7 +1212,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // added-row precheck chips are the first frontend consumer.
   const { data: precheck } = usePrecheckScenario(currentScenario?.id ?? 0, {
     query: {
-      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au"),
+      // jade-T15.5 — two-echelon-jade-us joins: its Warehouses/Customers/
+      // Plants tabs' added-row precheck chips are the first frontend
+      // consumer of precheckJadeInputs (T6).
+      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us"),
       queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
     },
   });
@@ -1138,6 +1440,33 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     });
   }
 
+  // jade-T15.5 — plant delete/copy reconciliation (spec fix #5), the
+  // PlantsTab grid-delete counterpart to T12's map-driven delete (already
+  // handled internally by InputMapTab.tsx's own `deleteAddedJade`). Deleting
+  // an added plant must ALSO purge every `plantProductCapability` override
+  // referencing that plantId (else a stale capability reference persists in
+  // `inputs` forever) AND its own plant->warehouse `distanceOverrides` rows
+  // — all in the SAME atomic localInputs update, same hazard
+  // deleteAddedEntityAndOverrides's own comment documents.
+  function deleteAddedPlantAndOverrides(id: string) {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const arr = Array.isArray(prev.addedPlants) ? (prev.addedPlants as { id: string }[]) : [];
+      const capability = Array.isArray(prev.plantProductCapability)
+        ? (prev.plantProductCapability as { plantId: string; productId: string; enabled: boolean }[])
+        : [];
+      const overrides = Array.isArray(prev.distanceOverrides)
+        ? (prev.distanceOverrides as { fromId: string; toId: string }[])
+        : [];
+      return {
+        ...prev,
+        addedPlants: arr.filter(p => p.id !== id),
+        plantProductCapability: capability.filter(c => c.plantId !== id),
+        distanceOverrides: overrides.filter(o => o.fromId !== id && o.toId !== id),
+      };
+    });
+  }
+
   function handleSaveInputs() {
     if (!currentScenario || !localInputs || !isDirty) return;
     const scenarioId = currentScenario.id;
@@ -1232,21 +1561,42 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // capacityMode/capacity concept at all — see TwoEchelonMapInputs's
       // own comment).
       (activeTab.entity === "input-map" && modelId === "two-echelon-gold-au") ||
+      // jade-T15.5 (Chapter 9 JADE) — its own full-v2 editor
+      // (mode="jade", InputMapTab.tsx) — a FOURTH separate condition:
+      // JadeMapInputs isn't PMedianMapInputs-shaped either (a third
+      // interactive entity kind, plantProductCapability, explicit-leg
+      // distanceOverrides — see JadeMapInputs's own comment).
+      (activeTab.entity === "input-map" && modelId === "two-echelon-jade-us") ||
       // T5 (Bundle 2, Step 2b) — p-median-brazil joins p-median-us: same
       // WarehousesTab/CustomersTab components, same entity shapes (T1's
       // manifest parity), same T3 GET /dataset entry.
-      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
-      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au")) ||
+      // jade-T15.5 — two-echelon-jade-us's Warehouses tab reuses the same
+      // WarehousesTab component (its warehouseOverrideSchema matches
+      // {id,status} exactly, no capacity field — capacityMode="none"
+      // already suppresses that column).
+      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")) ||
+      // jade-T15.5 — two-echelon-jade-us's Customers tab reuses
+      // CustomersTab too, in its per-product mode (products/productOverrides
+      // wired at the render-content branch below).
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
-      // B5.1/B6.2/T5 — Distances grid. p-median-us AND p-median-brazil (same
-      // {fromId,toId,distance} shape, T9's backend gate) render DistancesTab;
-      // two-echelon-gold-au shares the same sidebar entity id ("distances")
-      // but renders LegDistancesTab instead (a structurally different
-      // three-id-space/two-leg component — see renderTabContent's own
-      // branch below).
-      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au")) ||
+      // jade-T15.5 — Plants/Capability Matrix, two-echelon-jade-us only
+      // (gated on the real capability, not modelId — a future sibling
+      // multi-echelon model with the same plant/product concept inherits
+      // this for free).
+      (activeTab.entity === "plants" && activeModelManifest?.capabilities?.supportsPlantProductCapability) ||
+      (activeTab.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) ||
+      // B5.1/B6.2/T5/jade-T15.5 — Distances grid. p-median-us AND
+      // p-median-brazil (same {fromId,toId,distance} shape, T9's backend
+      // gate) render DistancesTab; two-echelon-gold-au shares the same
+      // sidebar entity id ("distances") but renders LegDistancesTab instead
+      // (a structurally different three-id-space/two-leg component); JADE
+      // shares the id too but renders JadeDistancesTab (explicit `leg`
+      // field, composite-key identity) — see renderTabContent's own branch
+      // below for all three.
+      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
 
@@ -1266,6 +1616,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // reasoning as saveInLayersRowTransport above (InputMapTab.tsx's
   // TwoEchelonInputMap is its own structurally-different Layers row).
   const saveInLayersRowTwoEchelon = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "two-echelon-gold-au";
+  // jade-T15.5 — two-echelon-jade-us's own Save-in-Layers gate, same
+  // reasoning as saveInLayersRowTransport/saveInLayersRowTwoEchelon above
+  // (InputMapTab.tsx's JadeInputMap is its own structurally-different
+  // Layers row).
+  const saveInLayersRowJade = activeTab?.kind === "input" && activeTab.entity === "input-map" && modelId === "two-echelon-jade-us";
 
   function openTab(kind: WorkspaceTab["kind"], entry: SidebarEntry) {
     dispatch({ type: "open", tab: { id: workspaceTabId(kind, entry.id), kind, entity: entry.id, label: entry.label } });
@@ -1405,6 +1760,28 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       const watched = [
         ...detectMapWatches(mapAddedRefineriesFromInputs(localInputs), next.addedRefineries),
         ...detectMapWatches(mapAddedCustomersFromInputs(localInputs), next.addedCustomers),
+      ];
+      if (watched.length > 0) {
+        setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
+      }
+    }
+    setLocalInputs(next);
+  }
+
+  // jade-T15.5 — InputMapTab's "jade" mode onInputsChange, the plant/
+  // warehouse/customer analogue of the three handlers above. Watches
+  // addedPlants/addedWarehouses/addedCustomers for a create/move the same
+  // way — a plant's distances (plant->warehouse) are estimated by the same
+  // backend normalizer (T12) as everything else, so it's watched too,
+  // unlike two-echelon-gold-au's fixed mine (never watched — it can't be
+  // created/moved).
+  function handleJadeMapInputsChange(next: JadeMapInputs) {
+    if (currentScenario) {
+      const scenarioId = currentScenario.id;
+      const watched = [
+        ...detectMapWatches(addedPlantsFromInputs(localInputs), next.addedPlants),
+        ...detectMapWatches(mapAddedWarehousesFromInputs(localInputs), next.addedWarehouses),
+        ...detectMapWatches(jadeAddedCustomersFromInputs(localInputs), next.addedCustomers),
       ];
       if (watched.length > 0) {
         setPendingEstimateWatches(prev => [...prev, ...watched.map(w => ({ scenarioId, id: w.id, displayCode: w.displayCode }))]);
@@ -1874,6 +2251,28 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           />
         );
       }
+      if (modelId === "two-echelon-jade-us") {
+        if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+        return (
+          <InputMapTab
+            mode="jade"
+            countryBounds={activeModelManifest?.countryBounds}
+            products={dataset.products ?? []}
+            plants={jadeMapPlants(dataset, localInputs)}
+            warehouses={jadeMapWarehouses(dataset, localInputs)}
+            customers={jadeMapCustomers(dataset, localInputs)}
+            inputs={jadeMapInputsSlice(localInputs)}
+            onInputsChange={handleJadeMapInputsChange}
+            // R4 — Save moves into this tab's own Layers row for
+            // two-echelon-jade-us too; saveInLayersRowJade (below)
+            // suppresses the shared toolbar Save exactly when this prop is
+            // wired, so there is never a duplicate.
+            isDirty={isDirty}
+            onSave={handleSaveInputs}
+            saving={updateScenario.isPending}
+          />
+        );
+      }
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <InputMapTab
@@ -1911,7 +2310,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // same WarehouseCandidate shape (T3's own GET /dataset entry), same
     // warehouseOverrides field, same T9 backend import/export gate — no
     // per-model divergence needed beyond the condition itself.
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil")) {
+    // jade-T15.5 — two-echelon-jade-us joins too: its warehouseOverrideSchema
+    // is {id,status} exactly (no capacity field — capacityMode="none",
+    // already resolved generically by capacityModeFromInputs's default,
+    // suppresses the Capacity column with zero change here).
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -1970,26 +2373,83 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     }
 
-    // A1.1/A5.3 — Customers tab, shared by p-median-us, two-echelon-gold-au,
-    // AND (T5, Bundle 2, Step 2b) p-median-brazil — all three use
-    // `customerOverrides` and entity "customers" (the backend disambiguates
-    // the shared entity name via the scenario's own modelId, not a
-    // client-side param).
-    if (activeTab.kind === "input" && activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil")) {
+    // jade-T15.5 (Chapter 9 JADE) — Plants tab. Gated on the real
+    // `supportsPlantProductCapability` capability, never modelId ===, per
+    // Gate 6.5 — a future sibling multi-echelon model with the same plant
+    // echelon inherits this branch automatically.
+    if (activeTab.kind === "input" && activeTab.entity === "plants" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <PlantsTab
+          plants={dataset.plants ?? []}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+          addedPlants={addedPlantsFromInputs(localInputs)}
+          onAddedPlantsChange={next => handleAddedArrayChange("plants", "addedPlants", addedPlantsFromInputs(localInputs), next)}
+          onDeletePlant={id => deleteAddedPlantAndOverrides(id)}
+          prefillCoords={pendingPrefill}
+          onPrefillConsumed={() => setPendingPrefill(null)}
+        />
+      );
+    }
+
+    // jade-T15.5 — Capability Matrix tab. `plants` is the effective-row
+    // projection (base ∪ added, Gate 6.5) built by
+    // effectivePlantsForCapabilityMatrix; an added plant defaults every
+    // capability cell to disabled (baseCapabilities has no row for it,
+    // baseEnabled's own `?? 0 > 0` fallback in CapabilityMatrixTab.tsx).
+    if (activeTab.kind === "input" && activeTab.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <CapabilityMatrixTab
+          plants={effectivePlantsForCapabilityMatrix(dataset, localInputs)}
+          products={dataset.products ?? []}
+          baseCapabilities={dataset.plantProductCapabilities ?? []}
+          overrides={plantProductCapabilityFromInputs(localInputs)}
+          onChange={next => {
+            track("override edited", { scenario_id: currentScenario?.id, model_id: modelId, entity: "capability-matrix", field: "enabled" });
+            updateInputsField("plantProductCapability", next);
+          }}
+        />
+      );
+    }
+
+    // A1.1/A5.3 — Customers tab, shared by p-median-us, two-echelon-gold-au,
+    // (T5, Bundle 2, Step 2b) p-median-brazil, AND (jade-T15.5)
+    // two-echelon-jade-us — all four use entity "customers" (the backend
+    // disambiguates the shared entity name via the scenario's own modelId,
+    // not a client-side param). JADE alone switches CustomersTab into its
+    // per-product mode (`products`/`productOverrides`/
+    // `onProductOverridesChange`) — its `customerOverrides` field is
+    // CustomerProductOverride-shaped (sparse per-product `demands` + status),
+    // not the scalar `CustomerOverride` the other three models use, so
+    // `overrides`/`onChange` (still required props) are wired as an inert
+    // no-op for JADE: CustomersTab's own productMode switch never renders
+    // the scalar `<CustomerTable>` that would otherwise read them.
+    if (
+      activeTab.kind === "input" &&
+      activeTab.entity === "customers" &&
+      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")
+    ) {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      const isJade = modelId === "two-echelon-jade-us";
       return (
         <CustomersTab
           customers={dataset.customers}
-          overrides={customerOverridesFromInputs(localInputs)}
-          onChange={next => {
-            track("override edited", {
-              scenario_id: currentScenario?.id,
-              model_id: modelId,
-              entity: "customers",
-              field: overrideEditedField(customerOverridesFromInputs(localInputs), next),
-            });
-            updateInputsField("customerOverrides", next);
-          }}
+          overrides={isJade ? [] : customerOverridesFromInputs(localInputs)}
+          onChange={
+            isJade
+              ? () => {}
+              : next => {
+                  track("override edited", {
+                    scenario_id: currentScenario?.id,
+                    model_id: modelId,
+                    entity: "customers",
+                    field: overrideEditedField(customerOverridesFromInputs(localInputs), next),
+                  });
+                  updateInputsField("customerOverrides", next);
+                }
+          }
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           prefillCoords={pendingPrefill}
@@ -2006,10 +2466,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // models read/write `addedCustomers` and `distanceOverrides` under
           // their own exact field names, so `addedCustomersFromInputs`/
           // `deleteAddedEntityAndOverrides` need no per-model branching here.
+          // jade-T15.5 handles JADE separately below (its own added-customer
+          // shape needs the per-product reader/computed `demand`).
           {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil"
             ? {
                 addedCustomers: addedCustomersFromInputs(localInputs),
                 onAddedCustomersChange: (next: AddedCustomer[]) => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next),
+                onDeleteCustomer: (id: string) => deleteAddedEntityAndOverrides("addedCustomers", id),
+                precheckErrors: precheck?.errors,
+              }
+            : {})}
+          {...(isJade
+            ? {
+                products: dataset.products ?? [],
+                productOverrides: jadeCustomerOverridesFromInputs(localInputs),
+                onProductOverridesChange: (next: CustomerProductOverride[]) => {
+                  track("override edited", { scenario_id: currentScenario?.id, model_id: modelId, entity: "customers", field: "demand" });
+                  updateInputsField("customerOverrides", next);
+                },
+                addedCustomers: jadeAddedCustomersFromInputs(localInputs),
+                onAddedCustomersChange: (next: AddedCustomer[]) => handleAddedArrayChange("customers", "addedCustomers", jadeAddedCustomersFromInputs(localInputs), next),
                 onDeleteCustomer: (id: string) => deleteAddedEntityAndOverrides("addedCustomers", id),
                 precheckErrors: precheck?.errors,
               }
@@ -2076,6 +2552,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           singleSource={singleSourceFromInputs(localInputs)}
           capacityInactive={capacityInactiveFromInputs(localInputs)}
           bomRatio={bomRatioFromInputs(localInputs)}
+          // jade-T15.5 — two-echelon-jade-us has no static p.max (unlike
+          // p-median-us/brazil's schema-level cap of 50): the real bound is
+          // the effective active-warehouse count, which genuinely differs
+          // per model (this is NOT a case of "forgot to extend a shared
+          // capability" — no other model's schema has this trait), so a
+          // direct modelId check is deliberate here, not a gate to
+          // generalize. undefined for every other model — OptimizationParametersTab
+          // falls back to its own static default (50) unchanged.
+          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : undefined}
           onChange={(field, value) => updateInputsField(field, value)}
         />
       );
@@ -2142,6 +2627,43 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           focusEntityId={focusEntityId}
           displayCodeById={displayCodeMapFromInputs(localInputs)}
+        />
+      );
+    }
+
+    // jade-T15.5 — Distances grid tab, two-echelon-jade-us only. Shares the
+    // sidebar's "distances" entity id with p-median-us/two-echelon-gold-au
+    // but renders JadeDistancesTab: distanceOverrides carries an EXPLICIT
+    // required `leg` (unlike two-echelon-gold-au's purely id-space-inferred
+    // leg), so row identity here is the TRIPLE (leg, fromId, toId), not the
+    // pair — jadeDistanceOverridesFromInputs/knownJadePlantIds are the
+    // leg-aware readers this component needs.
+    // inactiveWarehouseIds/excludedCustomerIds reuse the exact same generic
+    // readers p-median-us's own DistancesTab call site uses below — JADE's
+    // warehouseOverrides/customerOverrides share the same {id,status} shape
+    // at the raw-JSON level (CustomerProductOverride's `status` field reads
+    // identically to CustomerOverride's).
+    if (activeTab.kind === "input" && activeTab.entity === "distances" && modelId === "two-echelon-jade-us") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      return (
+        <JadeDistancesTab
+          distanceOverrides={jadeDistanceOverridesFromInputs(localInputs)}
+          savedDistanceOverrides={jadeDistanceOverridesFromInputs(savedInputsRef.current)}
+          plantIds={knownJadePlantIds(dataset, localInputs)}
+          warehouseIds={knownWarehouseIds(dataset, localInputs)}
+          customerIds={knownCustomerIds(dataset, localInputs)}
+          onChange={next => {
+            track("distance override set", { scenario_id: currentScenario?.id, model_id: modelId });
+            updateInputsField("distanceOverrides", next);
+          }}
+          scenarioId={currentScenario?.id}
+          onImportApplied={handleImportApplied}
+          focusEntityId={focusEntityId}
+          displayCodeById={displayCodeMapFromInputs(localInputs)}
+          modelId={modelId}
+          referenceCapable={activeModelManifest?.capabilities?.supportsReferenceDistances}
+          inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}
+          excludedCustomerIds={excludedCustomerIdsFromInputs(localInputs)}
         />
       );
     }
@@ -2225,9 +2747,25 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // hitting). supportsFacilityStatus is true for p-median-us/brazil +
       // two-echelon (refineries), false for transport-coal (no open/close).
       const hidesClosedFacilities = activeModelManifest?.capabilities?.supportsFacilityStatus ?? false;
+      // jade-T15.5 — JADE's plants are a genuinely third echelon
+      // (`Dataset.plants`, not mixed into `dataset.warehouses` the way
+      // Ch10's fixed mine is) — NetworkMap.tsx has no plant-marker kind of
+      // its own (that's an explicit, documented, out-of-scope-for-this-task
+      // OutputMapTab.tsx/NetworkMap.tsx follow-up, see
+      // jadePlantsAsWarehouseCandidates's own comment), so plants are folded
+      // into the `warehouses` array here so a plant_to_warehouse edge's
+      // fromId still resolves for route drawing. hidesClosedFacilities
+      // (true for JADE, supportsFacilityStatus) then hides the resulting
+      // plant MARKERS automatically (never "open"), leaving only the routes
+      // visible — not a full plant-square-marker treatment, but the
+      // functionally correct outcome within this task's stated scope.
+      const outputDataset =
+        modelId === "two-echelon-jade-us"
+          ? { warehouses: [...dataset.warehouses, ...jadePlantsAsWarehouseCandidates(dataset)], customers: dataset.customers }
+          : dataset;
       return (
         <OutputMapTab
-          dataset={dataset}
+          dataset={outputDataset}
           // B2.1-T2 — the metric overlay resolves its distance unit from the
           // model's manifest (useListModels), so the tab needs the active id.
           modelId={modelId}
@@ -2249,14 +2787,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 ? addedMinesFromInputs(displayedInputs)
                 : modelId === "two-echelon-gold-au"
                   ? addedRefineriesFromInputs(displayedInputs)
-                  : addedWarehousesFromInputs(displayedInputs)
+                  : modelId === "two-echelon-jade-us"
+                    ? [...addedWarehousesFromInputs(displayedInputs), ...addedPlantsFromInputs(displayedInputs)]
+                    : addedWarehousesFromInputs(displayedInputs)
           }
           addedCustomers={
             !projectsAddedEntities
               ? []
               : modelId === "transport-coal"
                 ? addedStationsFromInputs(displayedInputs)
-                : addedCustomersFromInputs(displayedInputs)
+                : modelId === "two-echelon-jade-us"
+                  ? jadeAddedCustomersFromInputs(displayedInputs)
+                  : addedCustomersFromInputs(displayedInputs)
           }
           hideClosedWarehouses={hidesClosedFacilities}
         />
@@ -2291,7 +2833,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <OpenWarehousesTab
             result={result}
             scenarioId={currentScenario!.id}
-            displayedInputs={facilityDisplayedInputs(displayedInputs)}
+            // jade-T15.5 — capacityModes passed ONLY for two-echelon-jade-us
+            // (facilityDisplayedInputs's own comment: passing the manifest's
+            // capacityModes array generically would silently flip
+            // two-echelon-gold-au's rendering too, since its manifest ALSO
+            // declares capacityModes:[] but has never shown "Demand Served").
+            displayedInputs={facilityDisplayedInputs(
+              displayedInputs,
+              modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
+            )}
           />
         );
       if (activeTab.entity === "customer-assignments")
@@ -2437,7 +2987,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             onActivate={handleActivateTab}
             onClose={id => dispatch({ type: "close", id })}
           />
-          {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && (
+          {isEditableInputTab && !saveInLayersRow && !saveInLayersRowTransport && !saveInLayersRowTwoEchelon && !saveInLayersRowJade && (
             // A1.1 (fix) — explicit Save, replacing the earlier debounced
             // auto-save. Mirrors Studio.tsx's toolbar Save button
             // (isDirty-gated, useUpdateScenario on click) rather than
