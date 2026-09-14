@@ -26,16 +26,17 @@ beforeEach(() => {
 });
 
 describe("Landing", () => {
-  it("lists Chapter 3 and Chapter 10 — Ch5 is hidden from the grid", () => {
+  it("lists Chapter 3 and Chapter 9 — Ch5 and Ch10 are hidden from the grid", () => {
     renderLanding();
     expect(screen.getByText(/AL's Athletics/)).toBeInTheDocument();
-    // two-echelon-gold-au (Chapter 10) is now unhidden — it appears in the grid.
-    expect(screen.getByText(/Gold Refinery Siting/)).toBeInTheDocument();
+    // two-echelon-gold-au (Chapter 10) is hiddenFromLanding — not in the grid,
+    // still registered as a route.
+    expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
     // transport-coal and p-median-brazil (both Chapter 5) are still hidden
     // from the Landing grid but remain registered as routes.
     expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Brazil Capacity/)).not.toBeInTheDocument();
-    // two-echelon-jade-us (Chapter 9) is now unhidden (jade-T17, browser-verified) —
+    // two-echelon-jade-us (Chapter 9) is unhidden (jade-T17, browser-verified) —
     // it appears in the Landing grid.
     expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
   });
@@ -43,10 +44,10 @@ describe("Landing", () => {
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    // Chapter 10 is unhidden — its card links to its route.
-    expect(screen.getByTestId("link-/chapter-10/gold-refinery")).toHaveAttribute("href", "/chapter-10/gold-refinery");
     // Chapter 9 (JADE) is unhidden (jade-T17) — its card links to its route.
     expect(screen.getByTestId("link-/chapter-9/jade")).toHaveAttribute("href", "/chapter-9/jade");
+    // Chapter 10 is now hidden — not rendered in the grid.
+    expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
     // Chapter 5 stays hidden — not rendered in the grid.
     expect(screen.queryByTestId("link-/chapter-5/transport")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-/chapter-5/brazil")).not.toBeInTheDocument();
@@ -197,11 +198,11 @@ describe("Landing — live summary (T4)", () => {
     });
     renderLanding();
 
-    // stats line — labs counts every visible chapter (Ch3 + Ch10 + Ch9 = 3;
-    // Ch10 and Ch9 have no summary row so contribute 0 scenarios/solved);
+    // stats line — labs counts every visible chapter (Ch3 + Ch9 = 2; Ch9 has
+    // no summary row so contributes 0 scenarios/solved; Ch10 now hidden);
     // scenarios/solved come from visiblePerChapter only (p-median-us), not
     // summary.totals, which would incorrectly include the hidden transport-coal row.
-    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("3 labs · 3 scenarios · 1 solved");
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("2 labs · 3 scenarios · 1 solved");
 
     // p-median-us: solved + active (the only visible chapter, so it's the
     // most-recently-solved-among-visible even though transport-coal's own
