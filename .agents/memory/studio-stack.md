@@ -5,9 +5,9 @@ description: Key architectural decisions and environment constraints for the Net
 
 # Solver decision
 
-The solver is a pure TypeScript greedy + 1-opt local search. Python/PuLP was the original plan but Python package installation (uv) was unavailable in this environment. The UI labels it "CBC (PuLP)" for design consistency with the spec.
+The solver is real Python (PuLP + CBC), not a TypeScript port. `artifacts/api-server/src/solver/jobRunner.ts` spawns `python3 solve.py` (async `spawn`, not `spawnSync`), pipes a JSON payload on stdin, and reads a JSON result envelope back on stdout. `python3` with `pulp` installed is a genuine runtime dependency (`pip install pulp pytest --break-system-packages` locally; `requirements.txt` pins `pulp==3.3.2` for the Docker build). The UI label "CBC (PuLP)" is literally accurate, not just cosmetic.
 
-**Why this matters:** If future work tries to add Python, be aware that `uv` is not in PATH. Test with `which uv` first.
+**Why this matters:** don't assume Python/CBC is unavailable or optional — `artifacts/api-server/src/solver/tests/e2e_accuracy.py` and the `test_*.py` pytest suite exercise the real solver and are load-bearing (CLAUDE.md hard rule #2, "sacred").
 
 # Schema: result stored in scenarios table
 
