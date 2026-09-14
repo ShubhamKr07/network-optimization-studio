@@ -19,8 +19,8 @@ model, so distance-unit plumbing (exports, solve-history, labels) is generalized
 TanStack Query + Leaflet; vitest / pytest / Playwright.
 
 **Spec (single source of truth):**
-`docs/superpowers/specs/2026-09-14-chapter-4-chens-cosmetics-coverage-model-design.md` — Rev 8,
-decisions **D1–D29**. Cite only the normative body.
+`docs/superpowers/specs/2026-09-14-chapter-4-chens-cosmetics-coverage-model-design.md` — Rev 9,
+decisions **D1–D30**. Cite only the normative body.
 
 ## Global Constraints
 
@@ -124,7 +124,9 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 const OUT = "solvers/chens-cosmetics-cn/dataset";
-const raw = JSON.parse(execFileSync("python3", ["scripts/py/dump_chens.py"], { encoding: "utf8" }));
+const notebookPath = process.env.CHENS_NOTEBOOK ?? process.argv[2];
+if (!notebookPath) { console.error("Usage: tsx extract-chens-dataset.ts <path to 'ChensCosmeticsV1 Step 3.ipynb'>  (or set CHENS_NOTEBOOK)"); process.exit(1); }
+const raw = JSON.parse(execFileSync("python3", ["scripts/py/dump_chens.py", "--notebook", notebookPath], { encoding: "utf8" }));
 const whN = Object.keys(raw.warehouses).map(Number).sort((a,b)=>a-b);
 const csN = Object.keys(raw.customers).map(Number).sort((a,b)=>a-b);
 const warehouses: Record<string, unknown> = {};
@@ -144,9 +146,11 @@ for (const f of files) h.update(readFileSync(`${OUT}/${f}`));
 writeFileSync(`${OUT}/version.json`, JSON.stringify({ version: 1, sha256: h.digest("hex") }, null, 2) + "\n");
 ```
 
-- [ ] **Step 3: Run + assert counts/ids/raw.**
+- [ ] **Step 3: Run (with the notebook path) + assert counts/ids/raw.**
 
-Run: `pnpm tsx scripts/src/extract-chens-dataset.ts`
+Run: `pnpm tsx scripts/src/extract-chens-dataset.ts "$HOME/Downloads/ChensCosmeticsV1-UNZIP-before-USING-this-is-3-files/ChensCosmeticsV1 Step 3.ipynb"`
+(or `CHENS_NOTEBOOK="<path>" pnpm tsx scripts/src/extract-chens-dataset.ts` — the path is a runtime arg,
+never committed into the script.)
 Then: `python3 -c "import json;w=json.load(open('solvers/chens-cosmetics-cn/dataset/warehouses.json'));c=json.load(open('solvers/chens-cosmetics-cn/dataset/customers.json'));d=json.load(open('solvers/chens-cosmetics-cn/dataset/distances.json'));print(len(w),len(c),sum(v['demand'] for v in c.values()),d['wh-15,cs-1'])"`
 Expected: `25 197 199269881 3660.0` (raw, not ×1.17). Confirm `cs-81`/`cs-120`/`cs-135` absent.
 
@@ -163,7 +167,9 @@ modify `solvers/chens-cosmetics-cn/dataset/{warehouses,customers,version}.json`.
 - [ ] **Step 1:** Nominatim, 1 req/sec, retry/backoff. Accept a result ONLY if its returned city
   (case-insensitive, trimmed) matches the row's city (D26 — rows have `state:""`, no province to
   compare). Multiple-equal-rank or no-match → **ambiguous**, `zip` left absent (not a hit). Write
-  per-row provenance `{id, city, status, selectedDisplayName, zip}`. If `hits/222 < 0.85` → throw
+  per-row provenance `{id, city, normalizedInputCity, normalizedResultCity, selectedDisplayName,
+  selectedPlaceId, status, zip}` (persist the **normalized** values the acceptance rule actually
+  compared, so a reviewer can reproduce every accept/reject). If `hits/222 < 0.85` → throw
   (abort, no partial write). On success splice `zip` into the record-map rows, recompute `version.json`
   (same sorted-bytes rule). Zip is display-only.
 - [ ] **Step 2:** Run `pnpm tsx scripts/src/geocode-chens.ts` — expect `hits/222 ≥ 0.85`, provenance
@@ -202,12 +208,29 @@ Expected ≈ `20.05 75.97 47.4 130.97`. Pad ~2°.
     "supportsReferenceDistances": true,
     "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"]
   },
-  "inputsSchema": {}
+  "inputsSchema": {
+    "type": "object",
+    "properties": {
+      "objective": { "type": "string", "enum": ["coverage", "min_distance"] },
+      "p": { "type": "integer", "minimum": 1, "maximum": 25 },
+      "highServiceDistKm": { "type": "number", "exclusiveMinimum": 0 },
+      "maxDistKm": { "type": "number", "exclusiveMinimum": 0 },
+      "avgServiceDistCapKm": { "type": "number", "exclusiveMinimum": 0 },
+      "coverageFloorDemand": { "type": "integer", "minimum": 0 },
+      "gap": { "type": "number", "minimum": 0 },
+      "timeLimitSec": { "type": "number", "exclusiveMinimum": 0 },
+      "capacityMode": { "type": "string", "enum": ["none"] },
+      "distanceBands": { "type": "array", "items": { "type": "number" } }
+    },
+    "required": ["objective", "p", "highServiceDistKm", "maxDistKm", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
+  }
 }
 ```
-(Confirm the exact `datasetDir` convention against an existing manifest — match it verbatim; the
-value above assumes repo-relative like the others. `inputsSchema` is required; `{}` is accepted by
-`z.record`.)
+(`inputsSchema` must be **non-empty** — `manifests.test.ts:20` asserts
+`Object.keys(inputsSchema).length > 0` for every `MODEL_IDS` entry. Integer `coverageFloorDemand` per
+D30. `avgServiceDistCapKm`/`coverageFloorDemand` are objective-dependent — the discriminated
+requirement is enforced by `chensInputsSchema` (Zod, C4.6); the manifest schema is a UI/doc hint and
+keeps them optional. Confirm `datasetDir` verbatim against an existing manifest.)
 
 - [ ] **Step 3: Register** — add `PACKAGE_SPECS` entry `{ modelId: "chens-cosmetics-cn", files: {
   "warehouses.json": z.record(z.string(), WarehouseEntry), "customers.json": z.record(z.string(),
@@ -221,12 +244,16 @@ value above assumes repo-relative like the others. `inputsSchema` is required; `
   `validatePackage(spec)` does not throw AND `computeSha256(spec) === readVersion("chens-cosmetics-cn").sha256`
   (`validatePackage` takes a `ModelPackageSpec`, NOT a model-id string).
 
-- [ ] **Step 5: Run + commit.**
+- [ ] **Step 5: Run BOTH the package test AND the API manifest suite** (the latter iterates `MODEL_IDS`
+  and asserts a non-empty `inputsSchema` — Chen now appears in it).
 
-Run: `pnpm --filter @workspace/dataset-schema test`
+Run: `pnpm --filter @workspace/dataset-schema test && pnpm --filter api-server test manifests`
+Expected: green (including `manifests.test.ts`'s `has a non-empty inputsSchema` for Chen).
+
+- [ ] **Step 6: Commit.**
 ```bash
 git add solvers/chens-cosmetics-cn/manifest.json lib/dataset-schema/src/index.ts lib/dataset-schema/src/manifest.test.ts lib/dataset-schema/src/index.test.ts
-git commit -m "[C4.2] register chens-cosmetics-cn manifest (km) + PACKAGE_SPECS/MODEL_IDS + hash test"
+git commit -m "[C4.2] register chens-cosmetics-cn manifest (km, real inputsSchema) + PACKAGE_SPECS/MODEL_IDS + hash test"
 ```
 
 ---
@@ -380,8 +407,8 @@ per-model guard ~L531-547). Tests: `__tests__/dataset.test.ts`, `routes.test.ts`
 endpoint was removed repo-wide (SCN v0.3 Phase 3.2); do not reintroduce it.
 
 **Interfaces — Produces:** `GET /dataset?modelId=chens-cosmetics-cn` returns Chen warehouses/customers;
-`GET /models/chens-cosmetics-cn/reference-distances` returns the base×base matrix; export/import/reset
-resolve **Chen's** dataset, never a sibling's.
+`GET /models/chens-cosmetics-cn/reference-distances` returns the base×base matrix; export/import/apply
+resolve **Chen's** dataset, never a sibling's (no reset-to-baseline — removed).
 
 - [ ] **Step 1: Failing tests — every model→dataset path, positive + sibling-negative:**
   `/dataset?modelId=chens-cosmetics-cn` returns 25 WH / 197 customers; reference-distances returns 4925
@@ -408,8 +435,12 @@ resolve **Chen's** dataset, never a sibling's.
 commit (jobRunner/solveHistory are C4.10 — so DO NOT remove the field here; ADD the new fields
 additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/consumers).
 
-- [ ] **Step 1: Edit `openapi.yaml`** — add `chens-cosmetics-cn` to the `modelId` enum; add precheck
-  codes `zero_demand`/`no_feasible_route`/`coverage_floor_infeasible`; **add as OPTIONAL** (not remove
+- [ ] **Step 1: Edit `openapi.yaml`** — add `chens-cosmetics-cn` to the `modelId` enum; set the
+  `PrecheckError.code` enum to the **complete 8-value set** `[completeness, id_collision,
+  reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible]`
+  — OpenAPI currently lists only the first three, so it can't represent the server's existing `p_range`/
+  `capacity` outcomes (D18 "reuse `p_range`"); a contract test asserts all 8 round-trip through the
+  generated client; **add as OPTIONAL** (not remove
   yet, producer lands in C4.10) solve-history `objectiveMode`, `weightedAvgDistance`, `distanceUnit`.
   **`ExportEnvelope.rows` stays the existing permissive/opaque type — scope decision, not laziness:**
   the envelope serves ~15 entities (warehouses/customers/mines/stations/refineries/distances/laneCosts/
@@ -423,7 +454,7 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
 - [ ] **Step 2: Regenerate + typecheck.** `pnpm --filter @workspace/api-spec run codegen` (orval +
   typecheck:libs) → green.
 
-- [ ] **Step 3: Commit** `[C4.5] OpenAPI: chens modelId, precheck codes, additive solve-history fields, ExportEnvelope output rows (+regen)`.
+- [ ] **Step 3: Commit** `[C4.5] OpenAPI: chens modelId, complete 8-value precheck enum, additive solve-history fields (rows stay opaque) (+regen)`.
 
 ---
 
@@ -463,11 +494,11 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   persist call sites** (POST create, PATCH, import/apply) invoke it for Chen (create/move/delete
   reconciliation) — one route test each.
 - [ ] **Step 2: Run — fail.** `pnpm --filter api-server test autoDistance`.
-- [ ] **Step 3: Implement** — NOTE `fillEstimatedDistances(inputs: PMedianInputs): PMedianInputs`
-  reparses with `pMedianInputsSchema` and would **strip Chen-only objective/threshold fields**. So
-  either extract a truly schema-neutral pair-generation core (takes/returns just the distanceOverrides +
-  entity coords) that both p-median and Chen wrap, OR write a separate `fillEstimatedChensDistances`
-  that reparses with `chensInputsSchema`. Use a km haversine (`R=6371`), circuity=1, positive floor.
+- [ ] **Step 3: Implement — write a SEPARATE `fillEstimatedChensDistances`** (the locked choice — do
+  NOT refactor the shared p-median core, which is riskier for a model-add). It mirrors
+  `fillEstimatedBrazilDistances`'s structure but reparses with `chensInputsSchema` (so Chen-only
+  objective/threshold fields survive), uses a **km haversine `R=6371`**, circuity=1, rounds each
+  estimate to **2 dp**, and applies a **positive floor of `0.01` km** for co-located points (never 0).
   Dispatch Chen in `routes/scenarios.ts::normalizeAddedEntityDistances`.
 - [ ] **Step 4: Run — PASS. Commit** `[C4.7] Chen added-entity km estimator (autoDistance) + normalize dispatch`.
 
@@ -511,8 +542,11 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   forced-open facility export a non-blank city.
 - [ ] **Step 2: Run — fail.**
 - [ ] **Step 3: Implement** — `export const OUTPUT_TEMPLATE_VERSION = 2;`; update the 3 builders +
-  serializers to D24/D25 shapes (pass `distanceUnit` from manifest into the builders); union
-  `openFacilityIds` in `buildOpenWarehouseRows`; per-entity wrapper version in `scenarios.ts`. Do NOT
+  serializers to D24/D25 shapes (pass `distanceUnit` from manifest into the builders); change
+  **`buildOpenWarehouseRows` to accept an effective id→city lookup** (base warehouses ∪ the scenario's
+  `inputs.addedWarehouses`) and union `metrics.openFacilityIds` with edge-derived ids so a zero-flow
+  forced-open facility (base OR added) exports with its real city; construct + pass that lookup at the
+  export-route call site in `scenarios.ts`; per-entity wrapper version in `scenarios.ts`. Do NOT
   touch the importable `distances` export or `flows`/`legDistances`.
 - [ ] **Step 4: Run full api-server suite — PASS** (existing mile-model export tests updated to the new
   columns; in-scope per D24). Commit `[C4.9] unit-aware output exports + OUTPUT_TEMPLATE_VERSION=2 (both JSON levels) + openFacilityIds union`.
@@ -623,16 +657,21 @@ allowlist (Gate-1 10 points), `ServiceStatsTab.tsx`, `CostSummaryTab.tsx`, compa
   Uncovered (from `details`) + Avg service distance (from `metrics.weightedAvgDistance`) + band rows;
   **ObjectiveBar AND CostSummaryTab render the objective mode-aware** (coverage → `NN.NN %`,
   min-distance → `demand-km`), keyed on `details.objective`; compare restricted to same
-  `details.objective`. **RTL asserts** a coverage scenario shows a `%` objective and a min-distance
-  scenario shows demand-km in BOTH ObjectiveBar and CostSummary.
+  `details.objective`. **RTL asserts** (a) a coverage scenario shows a `%` objective and a min-distance
+  scenario shows demand-km in BOTH ObjectiveBar and CostSummary; (b) **two solved Chen scenarios with
+  DIFFERENT objective modes cannot be selected/compared together, while two with the SAME mode can**
+  (the D14 compat restriction, proven — not just stated).
 - [ ] **Step 4: PASS. Commit** `[C4.14] Chen map (China bounds, coverage lens) + Gate-1 sweep + output tabs`.
 
 ---
 
 ## Task C4.15: Full gate + e2e_accuracy
 
-- [ ] **Step 1:** `pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test &&
-  (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)` — all green.
+- [ ] **Step 1:** `pnpm run typecheck && pnpm --filter @workspace/dataset-schema test && pnpm --filter
+  api-server test && pnpm --filter studio test && (cd artifacts/api-server/src/solver && python3 -m
+  pytest tests/ -x)` — all green. (The dataset-schema package test + the api-server `manifests.test.ts`
+  suite must run AFTER the final `dataset/*.json`/`version.json` are settled — package validation/hash/
+  manifest correctness is central to C4.1–C4.2.)
 - [ ] **Step 2:** `python3 artifacts/api-server/src/solver/tests/e2e_accuracy.py` — unmodified pass.
 - [ ] **Step 3:** Verification only; fix any red in the owning task's file, re-commit under that id.
 
@@ -666,9 +705,9 @@ spec. `e2e_journey.py` is a **documented, pre-approved exception** — non-runna
 **Spec coverage:** D1 (C4.12) · D2 (C4.2/C4.11) · D3+D22 (C4.3) · D4 (C4.8) · D5 (C4.11) · D6
 (C4.3/C4.6/C4.7/C4.13) · D7 (C4.3) · D8 (C4.1/C4.3) · D9+D26 (C4.1b) · D10 (C4.3) · D11 (C4.6/C4.12) ·
 D12 (C4.2/C4.14) · D13+D19 (C4.6/C4.12) · D14 (C4.14) · D15 (C4.3/C4.8) · D16+D23 (C4.3/C4.6) · D17
-(C4.3) · D18 (C4.8) · D20+D24+D28+D29 (C4.9) · D21 (C4.10) · D25 (C4.9) · D27 (C4.12) — mapped. Backend
-dataset/reference/export-selection now owned (C4.4). Registration atomic (C4.6). Full Input-Map parity
-owned (C4.13).
+(C4.3) · D18 (C4.8) · D20+D24+D28+D29 (C4.9) · D21 (C4.10) · D25 (C4.9) · D27 (C4.12) · **D30
+(Global Constraints + C4.3/C4.6 — integer demand)** — mapped. Backend dataset/reference/export-selection
+now owned (C4.4). Registration atomic (C4.6). Full Input-Map parity owned (C4.13).
 
 **Type consistency:** `build_merged_chens_dataset` returns the pmedian dict shape (C4.3), consumed only
 there; `OUTPUT_TEMPLATE_VERSION` defined+used C4.9; `resultSummary` shape C4.10 matches D21;
@@ -697,9 +736,11 @@ importable-CSV round-trip + `e2e_journey.py` documented exception + task-numberi
 
 **All verified correct against the repo and folded:** PACKAGE_SPECS `z.record(z.string(), WarehouseEntry)`
 wrap + `validatePackage(spec)` (C4.2); integer demand domain end-to-end resolving flow/coveredDemand
-(Global Constraints + C4.3/C4.6); C4.5 exact ExportEnvelope row schemas + optional solve-history fields
-(final shape in C4.10); non-vacuous max-distance assertion in the known-optimal golden (C4.3);
-import-preview/apply/reset + v1 distances round-trip sibling-negative tests (C4.4); band-resync +
+(Global Constraints + C4.3/C4.6); optional solve-history fields in C4.5 (final shape in C4.10) —
+`ExportEnvelope.rows` kept **opaque** (the "exact rows" idea from this round was reversed in Rev 3/4 as
+incomplete/harmful); non-vacuous max-distance assertion in the known-optimal golden (C4.3);
+import-preview/apply + v1 distances round-trip sibling-negative tests (C4.4, no reset — endpoint
+removed); band-resync +
 mode-field-init RTL (C4.12); open-warehouse export city lookup for zero-flow forced-open (C4.9); exact
 failed-vs-legacy solve-history null semantics (C4.10); no duplicate `App.tsx` route + real
 `Chapter.description` (C4.11); enumerated Workspace input-map gates with per-gate RTL (C4.13); separated
@@ -876,3 +917,90 @@ than letting the plan silently become a second source of truth.
 **Approval condition:** update the normative spec for the demand-domain decision and removed reset
 surface; make the shared ExportEnvelope and CBC-status contracts complete; then fold the estimator,
 effective-city, mode-label, Gate-1, extraction, and execution-order corrections above before dispatch.
+
+### Plan Rev 4 re-review — 2026-09-15 (FOLDED — nothing left open)
+
+**All verified correct and resolved:** real non-empty Chen `inputsSchema` in the manifest + API
+`manifests.test.ts` run (C4.2); C4.1 snippet + command actually forward `--notebook <path>` (guarded,
+never baked); complete 8-value OpenAPI `PrecheckError.code` enum + round-trip contract test (C4.5);
+ONE locked estimator — separate `fillEstimatedChensDistances`, km `R=6371`, 2 dp, `0.01` km floor
+(C4.7); effective id→city lookup (base ∪ added) wired into `buildOpenWarehouseRows` at the call site
+(C4.9 Step 3); incompatible-mode compare RTL (C4.14); auditable geocode provenance with normalized
+input/result city + place id (C4.1b); C4.15 gate adds dataset-schema + manifest suites; header → Rev 9 /
+D1–D30; C4.4 interface drops export/import/**reset**; C4.5 commit renamed (rows opaque); D30 in the
+self-review matrix; the historical Rev-2 synopsis corrected (opaque rows, no reset). Original text below.
+
+**Disposition (historical):** the substantive Rev 3 mathematical/failure-layer decisions are folded and the plan is
+close, but it remains non-executable as written. Three blockers remain: one newly exposed manifest
+gate, one incompletely folded extraction fix, and one newly exposed OpenAPI drift. Items explicitly
+marked **residual Rev 3** below were addressed in prose but not in every executable step; the others are
+new findings from this repository-contract pass.
+
+#### Blockers
+
+1. **[NEW] C4.2's empty `inputsSchema` fails the existing manifest suite.** The proposed manifest still
+   contains `"inputsSchema": {}`, while `artifacts/api-server/src/__tests__/manifests.test.ts` iterates
+   every `MODEL_IDS` entry and requires `Object.keys(inputsSchema).length > 0`. Define Chen's real JSON
+   Schema (including D30 integer demand, common required fields, and the objective-dependent
+   `avgServiceDistCapKm`/`coverageFloorDemand` contract), add it to the manifest, and run the API
+   manifest test in C4.2 in addition to the dataset-schema package test.
+
+2. **[RESIDUAL REV 3] C4.1's executable snippet and run command still omit the notebook path.** Step 1
+   correctly requires `--notebook`, but Step 2 still calls `dump_chens.py` with no arguments and Step 3
+   still runs `extract-chens-dataset.ts` without a path. Resolve a `notebookPath` from
+   `CHENS_NOTEBOOK ?? process.argv[2]`, reject an absent value before building the argument array, pass
+   `['--notebook', notebookPath]` to `execFileSync`, and show the path-bearing command in Step 3.
+
+3. **[NEW] C4.5 would keep the OpenAPI precheck enum incomplete.** The server's existing
+   `PrecheckErrorCode` already includes `p_range` and `capacity`, but OpenAPI currently lists only
+   `completeness`, `id_collision`, and `reference_integrity`. Adding only Chen's three new values still
+   leaves generated clients unable to represent two real server outcomes and contradicts D18's “reuse
+   `p_range`” contract. C4.5 must set the complete enum to `completeness | id_collision |
+   reference_integrity | p_range | capacity | zero_demand | no_feasible_route |
+   coverage_floor_infeasible`, regenerate, and add a contract assertion covering all eight values.
+
+#### Important corrections
+
+1. **[RESIDUAL REV 3] Lock one C4.7 estimator implementation.** The plan correctly warns that
+   `fillEstimatedDistances` reparses through `pMedianInputsSchema`, but still leaves “extract a generic
+   core OR write a separate Chen estimator” open. Select one implementation before dispatch. Also lock
+   the exact kilometre rounding and positive-minimum constant so persisted estimates and tests are
+   deterministic.
+
+2. **[RESIDUAL REV 3] Put the effective-city lookup into C4.9's implementation step.** The failing test
+   now correctly covers base and scenario-added zero-flow facilities, but Step 3 still mentions only
+   `distanceUnit` and the `openFacilityIds` union. Explicitly change `buildOpenWarehouseRows` to receive
+   an effective id-to-city lookup (base warehouses union `inputs.addedWarehouses`) and construct/pass it
+   at the export route call site.
+
+3. **[NEW REFINEMENT OF D14] Add an incompatible-mode compare test.** C4.14 now tests ObjectiveBar and
+   CostSummary formatting, but merely states that compare is restricted to matching
+   `details.objective`. Add RTL proving that two solved Chen scenarios with different objective modes
+   cannot be selected/compared together, while two scenarios with the same mode can.
+
+4. **[NEW] Make D26 geocode acceptance auditable.** The planned provenance shape stores raw `city`,
+   `status`, `selectedDisplayName`, and `zip`, but not the normalized values used by the acceptance rule.
+   Persist at least `normalizedInputCity` and `normalizedResultCity` (plus the selected result identity)
+   for every row so a reviewer can reproduce why a hit was accepted or rejected.
+
+5. **[NEW] Include the package/manifest gates in C4.15.** The final gate omits
+   `pnpm --filter @workspace/dataset-schema test`, despite package validation/hash/manifest correctness
+   being central to C4.1-C4.2. Add that command and ensure the API manifest suite runs after the final
+   dataset/version files are settled.
+
+#### Consistency cleanup
+
+- Update the plan's single-source header from **Rev 8 / D1-D29** to **Rev 9 / D1-D30**.
+- Remove the remaining `export/import/reset` phrase from C4.4's produced interface; only
+  export/import/apply survive.
+- Rename C4.5's commit summary: `ExportEnvelope.rows` now deliberately stays opaque, so “output rows”
+  inaccurately describes the change.
+- Add D30 to the Self-review spec-coverage matrix.
+- Replace the historical Rev 2 folded-summary claim that C4.5 added “exact ExportEnvelope row schemas”
+  with the final Rev 3 decision to preserve opaque rows, so even the audit synopsis does not report a
+  behavior that the normative plan later reversed.
+
+**Approval condition:** supply a non-empty Chen input JSON Schema, make the extractor command actually
+forward its required notebook path, and synchronize all eight precheck codes in OpenAPI. Then lock the
+estimator/city wiring and add the compare, provenance, and final-gate assertions before implementation
+dispatch.
