@@ -41,6 +41,11 @@ decisions **D1–D29**. Cite only the normative body.
   floor `500100100` infeasible. Total demand `199269881`. Never assert coverage-mode average or `rel=`.
 - **km display:** manifest `distanceUnit:"km"`; assert `km` / absence of `mi` on every Chen surface.
 - **Merge is Python-side (D23); dispatch on `modelType` (D16).**
+- **Demand is the integer domain** (notebook demands are integers; units = people/product). Chen's Zod
+  demand fields (`customerOverrides[].demand`, `addedCustomers[].demand`) and `coverageFloorDemand` are
+  `z.number().int().nonnegative()`. So edge `flow` = integer demand and `details.coveredDemand` is an
+  exact integer sum — `int(covered)` is a no-op cast, not truncation. (Resolves the flow/coveredDemand
+  domain question one way, end-to-end.)
 - **Deploy deferred** — confirm before any Render push.
 
 ## Verified repository contracts (traced against real code — build to THESE)
@@ -183,13 +188,16 @@ value above assumes repo-relative like the others. `inputsSchema` is required; `
 `z.record`.)
 
 - [ ] **Step 3: Register** — add `PACKAGE_SPECS` entry `{ modelId: "chens-cosmetics-cn", files: {
-  "warehouses.json": WarehouseEntryMap, "customers.json": CustomerEntryMap, "distances.json":
-  DistanceMap } }` (match the two-echelon entry's `files` record shape EXACTLY — no `datasetDir` key);
-  add `"chens-cosmetics-cn"` to `MODEL_IDS`.
+  "warehouses.json": z.record(z.string(), WarehouseEntry), "customers.json": z.record(z.string(),
+  CustomerEntry), "distances.json": DistanceMap } }` (exact wrap the existing p-median entry uses — the
+  bare `WarehouseEntry`/`CustomerEntry`/`DistanceMap` exports, no `datasetDir` key); add
+  `"chens-cosmetics-cn"` to `MODEL_IDS`.
 
 - [ ] **Step 4: Tests** — (a) `manifest.test.ts`: `ManifestSchema.parse(<Chen manifest>)` →
-  `distanceUnit==="km"`, exact `outputGrids`, `chapter==="Chapter 4"`. (b) `index.test.ts`:
-  `validatePackage("chens-cosmetics-cn")` passes AND `computeSha256(spec) === readVersion(...).sha256`.
+  `distanceUnit==="km"`, exact `outputGrids`, `chapter==="Chapter 4"`. (b) `index.test.ts`: find the
+  Chen spec — `const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn")!` — then
+  `validatePackage(spec)` does not throw AND `computeSha256(spec) === readVersion("chens-cosmetics-cn").sha256`
+  (`validatePackage` takes a `ModelPackageSpec`, NOT a model-id string).
 
 - [ ] **Step 5: Run + commit.**
 
@@ -234,6 +242,7 @@ def test_coverage_golden():
     served = [e["toId"] for e in r["edges"]]
     assert len(served)==len(set(served))==197                        # exactly-one per active customer
     assert all(e["fromId"] in set(r["details"]["openWarehouseIds"]) for e in r["edges"])  # open linkage
+    assert all(e["distance"] <= 5000 for e in r["edges"])            # non-vacuous max-distance feasibility (adjusted)
 def test_min_distance_golden():
     r = run({**BASE,"objective":"min_distance","coverageFloorDemand":131645389})
     assert r["status"]=="optimal"
@@ -242,11 +251,8 @@ def test_min_distance_golden():
     assert set(r["details"]["openWarehouseIds"])=={"wh-40","wh-69","wh-102"}
 def test_floor_infeasible():
     assert run({**BASE,"objective":"min_distance","coverageFloorDemand":500100100})["status"]=="infeasible"
-def test_maxdist_feasibility():
-    r = run({**BASE,"objective":"coverage","avgServiceDistCapKm":1000,"maxDistKm":300})
-    # every emitted edge respects adjusted maxDist, or infeasible
-    assert r["status"] in ("optimal","infeasible")
-    if r["status"]=="optimal": assert all(e["distance"]<=300 for e in r["edges"])
+# (max-distance feasibility is asserted non-vacuously inside test_coverage_golden, on a known-optimal
+#  result — a separate tight-cap test would be vacuous if it lands infeasible, so it's folded in.)
 ```
 
 - [ ] **Step 2: Run — expect fail** (`Unknown modelType: chens`).
@@ -349,9 +355,13 @@ per-model guard ~L531-547, reset-to-baseline). Tests: `__tests__/dataset.test.ts
 `GET /models/chens-cosmetics-cn/reference-distances` returns the base×base matrix; export/import/reset
 resolve **Chen's** dataset, never a sibling's.
 
-- [ ] **Step 1: Failing tests** — `/dataset?modelId=chens-cosmetics-cn` returns 25 WH / 197 customers;
-  reference-distances returns 4925 pairs; **negative sibling test**: exporting `entity=warehouses` for
-  a Chen scenario returns Chen rows (not p-median-us rows); `entity=mines` for Chen → 422.
+- [ ] **Step 1: Failing tests — every model→dataset path, positive + sibling-negative:**
+  `/dataset?modelId=chens-cosmetics-cn` returns 25 WH / 197 customers; reference-distances returns 4925
+  pairs; **export** `entity=warehouses` for a Chen scenario returns Chen rows (NOT p-median-us rows),
+  `entity=mines` → 422; **import preview** + **import apply** of a Chen `customers` CSV resolve Chen's
+  dataset (a sibling's ids are rejected); **reset-to-baseline** clears Chen overrides against Chen's
+  base; the **v1 `distances` export → re-import round-trip** is unchanged (proves Chen never silently
+  resolves a p-median sibling dataset on any path).
 
 - [ ] **Step 2: Implement `chensDataset.ts`** mirroring `data/dataset.ts` (load the record-map package
   via `findRepoRoot()` per the bundling gotcha — NOT `import.meta.url` relative). Wire into
@@ -371,10 +381,12 @@ commit (jobRunner/solveHistory are C4.10 — so DO NOT remove the field here; AD
 additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/consumers).
 
 - [ ] **Step 1: Edit `openapi.yaml`** — add `chens-cosmetics-cn` to the `modelId` enum; add precheck
-  codes `zero_demand`/`no_feasible_route`/`coverage_floor_infeasible`; **add** (not remove yet) solve-
-  history `objectiveMode (string|null)`, `weightedAvgDistance (number|null)`, `distanceUnit`; add the
-  output entity values + exact row schemas to `ExportEnvelope.entity`/`rows` OR explicitly document the
-  generated client as opaque `rows: object` with a one-line rationale.
+  codes `zero_demand`/`no_feasible_route`/`coverage_floor_infeasible`; **add as OPTIONAL** (not remove
+  yet, and optional because their producer lands in C4.10) solve-history `objectiveMode`,
+  `weightedAvgDistance`, `distanceUnit`; add the output entity values **and exact row schemas** to
+  `ExportEnvelope.entity`/`rows` (the spec promises exact output shapes — define
+  `AssignmentRow`/`CostSummaryRow`/`ServiceStatsRow`/`OpenWarehouseRow`/`FlowRow` schemas, do NOT leave
+  `rows` opaque).
 
 - [ ] **Step 2: Regenerate + typecheck.** `pnpm --filter @workspace/api-spec run codegen` (orval +
   typecheck:libs) → green.
@@ -397,10 +409,12 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   `pmedian.test.ts` asserts `buildPayload` emits `modelType:"chens"` + sparse edits + `distanceBands`
   normalized to `[high,max]`.
 - [ ] **Step 2: Run — fail.** `pnpm --filter api-server test chens registry pmedian`.
-- [ ] **Step 3: Implement** `chensInputsSchema` (D19 `.transform` overwrites `distanceBands` to
-  `[high,max]`; refinement `high<max`); add to `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` +
-  `validateInputsForModel`; add the `SolveInput` union member + `buildPayload` branch (sparse edits,
-  NOT merged dataset); extend `registry.test.ts`'s `SOLVABLE`.
+- [ ] **Step 3: Implement** `chensInputsSchema` — demand fields (`customerOverrides[].demand`,
+  `addedCustomers[].demand`) and `coverageFloorDemand` are `z.number().int().nonnegative()` (integer
+  demand domain); D19 `.transform` overwrites `distanceBands` to `[high,max]`; refinement `high<max`.
+  Add to `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `validateInputsForModel`; add the `SolveInput` union
+  member + `buildPayload` branch (sparse edits, NOT merged dataset); extend `registry.test.ts`'s
+  `SOLVABLE`.
 - [ ] **Step 4: Run — PASS. Commit** `[C4.6] Chen Zod inputs + KNOWN_SCHEMAS/VALID_MODEL_IDS registration + buildPayload (atomic)`.
 
 ---
@@ -452,8 +466,10 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   JSON serializes `objectiveMode` as explicit `null` when absent (not omitted), numeric-unavailable
   fields `null`; ServiceStats CSV `template_version,band,distance_unit,percent`; JSON **wrapper**
   `templateVersion==2` for assignments/costSummary/serviceStats and `==1` for
-  openWarehouses/flows/distances; **`buildOpenWarehouseRows` includes a forced-open zero-flow WH**
-  (union `metrics.openFacilityIds` with edge-derived ids).
+  openWarehouses/flows/distances; **`buildOpenWarehouseRows` includes a forced-open zero-flow WH WITH
+  its real city** — Chen emits `metrics.utilizationByNode` empty, so unioning `openFacilityIds` alone
+  yields blank cities; pass a model dataset city lookup into the builder so a zero-flow forced-open row
+  exports its actual city (test asserts the city is non-blank).
 - [ ] **Step 2: Run — fail.**
 - [ ] **Step 3: Implement** — `export const OUTPUT_TEMPLATE_VERSION = 2;`; update the 3 builders +
   serializers to D24/D25 shapes (pass `distanceUnit` from manifest into the builders); union
@@ -470,15 +486,18 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
 remove `weightedAvgDistanceMi`), `pages/Landing.tsx` (recent-solves consumer); tests
 `__tests__/solveHistory.test.ts`, `jobRunner.test.ts`.
 
-- [ ] **Step 1: Failing tests** — new solve writes `resultSummary = {status, objective, objectiveMode,
-  weightedAvgDistance, distanceUnit, runTimeSec}` (objectiveMode from `details.objective` else `null`;
-  distanceUnit from manifest); reader on a **legacy successful** row (only `weightedAvgDistanceMi`)
-  returns that value + `distanceUnit:"mi"` + `objectiveMode:null`; a **failed** job returns nulls (the
-  `"mi"` fallback applies ONLY to a legacy successful summary — derive unit from `modelId` when the
-  summary is absent).
+- [ ] **Step 1: Failing tests — exact response shapes:** new solve writes `resultSummary = {status,
+  objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec}` (objectiveMode from
+  `details.objective` else `null`; distanceUnit from manifest). **Failed job:** `objective`,
+  `objectiveMode`, `weightedAvgDistance`, `runTimeSec` are all `null`, but `distanceUnit` is the
+  **non-null model-derived unit** (from `modelId`'s manifest — never null). **Legacy successful** row
+  (only `weightedAvgDistanceMi`): returns that value as `weightedAvgDistance` + `distanceUnit:"mi"` +
+  `objectiveMode:null`. The `"mi"` literal fallback is reserved for legacy successful summaries ONLY;
+  a present-but-failed summary derives the unit from `modelId`.
 - [ ] **Step 2: Run — fail.**
-- [ ] **Step 3: Implement** (jobRunner write + solveHistory read + openapi remove `weightedAvgDistanceMi`
-  + regen + Landing consumer, ALL in this one commit so every commit stays green).
+- [ ] **Step 3: Implement** (jobRunner write + solveHistory read + openapi: **finalize the C4.5-optional
+  solve-history fields to their D21 required/nullable shape AND remove `weightedAvgDistanceMi`** + regen
+  + Landing consumer — ALL in this one commit so every commit stays green).
 - [ ] **Step 4: `pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test` —
   green. Commit** `[C4.10] solve-history unit-carrying resultSummary + legacy fallback (remove weightedAvgDistanceMi, +regen)`.
 
@@ -486,15 +505,17 @@ remove `weightedAvgDistanceMi`), `pages/Landing.tsx` (recent-solves consumer); t
 
 ## Task C4.11: Frontend — chapter registration (real interface) + defaults + km labels
 
-**Files:** Modify `lib/chapters.ts` (extend `StudioModelType` + add `Chapter`), `App.tsx`,
+**Files:** Modify `lib/chapters.ts` (extend `StudioModelType` + add `Chapter`),
 `pages/Workspace.tsx` (`defaultInputsForModel` branch), `AssignmentsTab.tsx`, `ObjectiveBar.tsx`,
-`NetworkMap.tsx` (popup), `OptimizationParametersTab.tsx`, `Landing.tsx`; RTL tests.
+`NetworkMap.tsx` (popup), `OptimizationParametersTab.tsx`, `Landing.tsx`; RTL tests. (NOT `App.tsx` —
+routes derive from `CHAPTERS`.)
 
 - [ ] **Step 1:** Add `"chens-cosmetics-cn"` to `StudioModelType`; add a `Chapter` entry with ALL
-  required fields (`modelId, chapter:"Chapter 4", title, path:"/chapter-4", labHeaderTitle,
-  labHeaderSubtitle, workspace:true, hiddenFromLanding:false`, + description/summary fields as the
-  interface actually defines them — copy an existing entry's field set verbatim). Add the `App.tsx`
-  route.
+  required fields — `modelId, chapter:"Chapter 4", title, description (the real field — a one-line lab
+  description like the existing entries), path:"/chapter-4", labHeaderTitle, labHeaderSubtitle,
+  workspace:true, hiddenFromLanding:false` (copy an existing entry's exact field set). **Do NOT touch
+  `App.tsx`** — it already maps `CHAPTERS.map(...)` to routes, so `/chapter-4` is created automatically;
+  adding a manual route would duplicate it.
 - [ ] **Step 2:** Add a `defaultInputsForModel("chens-cosmetics-cn")` branch returning every required
   Chen field (objective:"coverage", p:3, highServiceDistKm:600, maxDistKm:5000, avgServiceDistCapKm:1000,
   gap, timeLimitSec, capacityMode:"none", distanceBands:[600,5000], empty override/added arrays).
@@ -510,7 +531,11 @@ remove `weightedAvgDistanceMi`), `pages/Landing.tsx` (recent-solves consumer); t
 `Workspace.tsx`; RTL.
 
 - [ ] **Step 1:** Mode toggle bound to `inputs.objective` (coverage → `avgServiceDistCapKm`;
-  min-distance → `coverageFloorDemand` default 131645389 + "> 199M infeasible" hint). RTL: toggle swaps.
+  min-distance → `coverageFloorDemand` default 131645389 + "> 199M infeasible" hint). RTL: toggle
+  swaps the visible field AND initializes the newly-required mode-specific field (switching to
+  min-distance seeds `coverageFloorDemand`; switching to coverage seeds `avgServiceDistCapKm`).
+- [ ] **Step 1b: Band resync RTL** — editing `highServiceDistKm` OR `maxDistKm` immediately updates
+  local `inputs.distanceBands` to `[high, max]` in component state, BEFORE any Save/solve (D13/D19).
 - [ ] **Step 2:** Add `pMax` prop to `SolveDialog` (hardcodes `max={50}`); Chen passes `pMax=25` to it
   AND `OptimizationParametersTab`. RTL: 26 rejected in both.
 - [ ] **Step 3:** Hide band editor (D19) in both; warehouse table status-only (no capacity col). RTL.
@@ -526,9 +551,13 @@ remove `weightedAvgDistanceMi`), `pages/Landing.tsx` (recent-solves consumer); t
 - [ ] **Step 1:** Wire Chen into `InputMapTab.tsx` as the p-median-style variant: effective
   base-plus-overrides-plus-added projection, status symbology (potential/forced-open/inactive), stable
   `uid`/`displayCode` on added entities, click-to-place → draft marker → Confirm → prefilled add form,
-  move/delete/save reconciliation. Reuse the existing p-median map-editor plumbing (this is the
-  full-parity D6 requirement, not a Gate-1 sweep). RTL: add → save → the added entity appears with
-  City/State/Lat/Lng and a display code.
+  move/delete/save reconciliation. **Enumerate and add `chens-cosmetics-cn` to every Workspace gate
+  (RTL assertion per gate):** `Workspace.tsx::isEditableInputTab`'s input-map/warehouse/customer/
+  distance branches; the p-median Layers-row save condition (`saveInLayersRow` family at
+  `Workspace.tsx:3023`); the `InputMapTab` render branch; and the warehouse/customer/distance **table
+  render** branches. A stale model-id allowlist on any one gate must fail an RTL test — "full parity"
+  cannot pass otherwise. RTL: add → save → the added entity appears with City/State/Lat/Lng + display
+  code; each gate renders for a Chen scenario.
 - [ ] **Step 2:** Distances tab shows Chen base (raw-km reference) + overrides with display codes.
 - [ ] **Step 3: PASS. Commit** `[C4.13] Chen full Input-Map parity (projection, symbology, uid/displayCode, reconciliation)`.
 
@@ -566,8 +595,11 @@ allowlist (Gate-1 10 points), `ServiceStatsTab.tsx`, `CostSummaryTab.tsx`, compa
 - [ ] **Step 1:** Dev-proxy setup (`API_PROXY_TARGET`, per the repo's e2e gotcha). Flow: register →
   create Chen scenario → coverage solve → coverage ≈66% / 3 cities (Guangzhou/Jinan/Nanjing) → switch
   min_distance → solve → edit a demand → re-solve delta → distance override → assignment change →
-  Input-Map add → save → precheck surfaces → `km` present / `mi` absent → **export customers CSV, edit,
-  re-import** (the importable `distances`/`customers` CSV round-trip — NOT an output-only export).
+  Input-Map add → save → precheck surfaces → `km` present / `mi` absent. **Two distinct import flows,
+  asserted separately:** (a) the v1 `distances` CSV **exports and re-imports UNCHANGED** (round-trip
+  identity — proves the input template didn't drift); (b) a `customers` CSV is **exported, one demand
+  edited, re-imported** and exactly one change applies (a distinct edit flow). Both are importable input
+  entities — never an output-only export.
 - [ ] **Step 2: Run** (repo command, NOT bare npx): start api-server + studio dev, then
   `pnpm --filter studio exec playwright test chens-cosmetics.spec.ts` (or the repo's `e2e:gate`-style
   script). Expected: green.
@@ -610,3 +642,88 @@ CBC `gapRel`/`timeLimit` + `flow`=demand + complete goldens + real `resultEnvelo
 dispatch (C4.7); `routes.test.ts` + `buildOpenWarehouseRows` `openFacilityIds` union + null encoding
 (C4.9); solve-history `"mi"`-fallback-only-for-legacy-successful (C4.10); pnpm Playwright command +
 importable-CSV round-trip + `e2e_journey.py` documented exception + task-numbering aligned (C4.16).
+
+### Plan Rev 2 review — 2026-09-14 (FOLDED)
+
+**All verified correct against the repo and folded:** PACKAGE_SPECS `z.record(z.string(), WarehouseEntry)`
+wrap + `validatePackage(spec)` (C4.2); integer demand domain end-to-end resolving flow/coveredDemand
+(Global Constraints + C4.3/C4.6); C4.5 exact ExportEnvelope row schemas + optional solve-history fields
+(final shape in C4.10); non-vacuous max-distance assertion in the known-optimal golden (C4.3);
+import-preview/apply/reset + v1 distances round-trip sibling-negative tests (C4.4); band-resync +
+mode-field-init RTL (C4.12); open-warehouse export city lookup for zero-flow forced-open (C4.9); exact
+failed-vs-legacy solve-history null semantics (C4.10); no duplicate `App.tsx` route + real
+`Chapter.description` (C4.11); enumerated Workspace input-map gates with per-gate RTL (C4.13); separated
+distances-round-trip vs customer-edit import flows (C4.16). Original review text retained below.
+
+**Disposition (historical):** materially improved and faithful to the tie-aware notebook model, but not yet
+execution-ready. Resolve the three blockers and align the executable tests/contracts below before
+dispatch. No change is requested to Option-A coverage tie handling or the verified mathematical
+goldens.
+
+#### Blockers
+
+1. **C4.2 names schemas that do not exist and calls `validatePackage` with the wrong argument.** The
+   repository exports `WarehouseEntry`, `CustomerEntry`, and `DistanceMap`; the first two must be wrapped
+   as `z.record(z.string(), WarehouseEntry)` / `z.record(z.string(), CustomerEntry)`, matching the
+   existing p-median package. `validatePackage` accepts a `ModelPackageSpec`, not a model-id string, so
+   the test must find the Chen entry in `PACKAGE_SPECS` and pass that spec.
+
+2. **The demand domain contradicts `coveredDemand: int(covered)`.** C4.3 explicitly preserves
+   non-integer overridden demand in edge `flow`, while the proposed solver truncates the sum in
+   `details.coveredDemand`. Lock one contract end-to-end: either require integer base/override/added
+   demand and integer `coverageFloorDemand`, preserving D22's integer result, or allow fractional demand
+   and emit the exact numeric covered demand without `int()` (with the spec/schema/tests updated).
+
+3. **C4.5 leaves an OpenAPI alternative unresolved.** Replace “exact row schemas ... OR opaque rows”
+   with one decision. The normative spec promises exact output shapes, so prefer exact row schemas.
+   During C4.5's additive transition, explicitly keep the new solve-history properties optional because
+   their producer does not land until C4.10; C4.10 can establish the final required/nullable D21 shape
+   while atomically removing `weightedAvgDistanceMi`.
+
+#### Important corrections
+
+1. **Make max-distance feasibility non-vacuous.** The proposed tight-`maxDistKm` test accepts an
+   infeasible result and therefore may inspect no edges. Add `edge.distance <= BASE.maxDistKm` to the
+   known-optimal default coverage golden, or use a separately verified feasible tight-cap fixture.
+
+2. **Test every model-to-dataset path owned by C4.4.** In addition to `/dataset`, reference distances,
+   warehouse export, and the invalid-entity case, add positive and sibling-negative route tests for
+   import preview, import apply, reset-to-baseline, and the unchanged v1 distances export/import round
+   trip. This is the proof that Chen never silently resolves a p-median sibling dataset.
+
+3. **Test band resynchronization at the authoring boundary.** C4.12 must prove that editing either
+   `highServiceDistKm` or `maxDistKm` immediately updates local `distanceBands` to `[high,max]`, before
+   persistence or solve. Also prove a mode switch initializes the newly required mode-specific field.
+
+4. **Lock city resolution for open-warehouse exports.** `buildOpenWarehouseRows` currently derives
+   `city` only from `metrics.utilizationByNode`; Chen intentionally emits that array empty. Merely
+   unioning `metrics.openFacilityIds` will therefore retain zero-flow facilities but give Chen rows blank
+   cities. Pass a model dataset lookup to the builder, or explicitly choose and test blank-city output.
+
+5. **Resolve failed solve-history null semantics.** C4.10 says a failed job “returns nulls” and also
+   says an absent summary derives `distanceUnit` from `modelId`. State the exact response. Recommended:
+   `objective`, `objectiveMode`, `weightedAvgDistance`, and `runTimeSec` are null, while `distanceUnit`
+   is the non-null model-derived unit; reserve the `"mi"` fallback for legacy successful summaries.
+
+6. **Do not add a duplicate Chapter 4 route.** `App.tsx` already maps `CHAPTERS` into routes, so the
+   `chapters.ts` entry creates `/chapter-4` automatically. C4.11 should remove the instruction to add an
+   `App.tsx` route and should name the actual `Chapter.description` field rather than leaving a
+   `description/summary` alternative.
+
+7. **Enumerate the Workspace gates required for Input-Map parity.** C4.13 should explicitly cover the
+   `isEditableInputTab` input-map/warehouse/customer/distance branches, the p-median Layers-row save
+   condition, the InputMap render branch, and the warehouse/customer/distance table render branches.
+   Add an RTL assertion for each gate so “full parity” cannot pass while one model-id allowlist remains
+   stale.
+
+#### Minor correction
+
+- C4.16 should separate two browser assertions: the v1 `distances` CSV must export and re-import
+  unchanged, while a customer CSV may be edited and re-imported as a distinct flow. The current wording
+  starts with customers and then ambiguously calls it a distances/customers round trip. The documented
+  `e2e_journey.py` exception is valid; `CLAUDE.md` confirms that script is non-runnable under the removed
+  legacy-auth flow.
+
+**Approval condition:** fold the three blockers, make the solver and persistence tests non-vacuous,
+and lock the remaining dataset/export/history/frontend behaviors above. Then re-review the revised plan
+against the normative Rev 8 body.
