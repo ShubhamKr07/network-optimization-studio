@@ -16,7 +16,8 @@ describe("chapters — two-echelon-jade-us (Chapter 9) registration", () => {
     expect(chapter?.path).toBe("/chapter-9/jade");
     expect(chapter?.chapter).toBe("Chapter 9");
     expect(chapter?.workspace).toBe(true);
-    expect(chapter?.hiddenFromLanding).toBe(true);
+    // Unhidden on Landing as of jade-T17 (browser-verified full build).
+    expect(chapter?.hiddenFromLanding).toBeUndefined();
     expect(chapter?.labHeaderTitle).toMatch(/JADE/);
     expect(chapter?.labHeaderSubtitle).toMatch(/Ch 9/);
   });

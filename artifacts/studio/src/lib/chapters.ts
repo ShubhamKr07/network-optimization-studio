@@ -69,7 +69,6 @@ export const CHAPTERS: Chapter[] = [
     title: "JADE Network — Multi-Product Two-Echelon",
     description: "Multi-product two-echelon facility location: choose which warehouses to open so plants can ship several distinct products through them to customers at minimum cost.",
     workspace: true,
-    hiddenFromLanding: true,
     labHeaderTitle: "JADE Network · Model Lab",
     labHeaderSubtitle: "Ch 9 · two-echelon multi-product · plants → warehouses → customers",
   },

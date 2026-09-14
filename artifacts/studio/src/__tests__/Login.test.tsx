@@ -98,9 +98,11 @@ describe("Login", () => {
   it("shows only non-hidden chapter labels in the footer labs strip", () => {
     render(<Login />);
     const strip = screen.getByTestId("auth-labs-strip");
-    // Chapter 3 (p-median-us) and Chapter 10 (two-echelon-gold-au) are visible.
+    // Chapter 3 (p-median-us), Chapter 10 (two-echelon-gold-au), and Chapter 9
+    // (JADE, unhidden jade-T17) are visible.
     expect(strip).toHaveTextContent("Chapter 3");
     expect(strip).toHaveTextContent("Chapter 10");
+    expect(strip).toHaveTextContent("Chapter 9");
     // Ch5 (transport-coal, p-median-brazil) stays hiddenFromLanding — the
     // footer strip must not show it.
     expect(strip).not.toHaveTextContent("Ch 5");
