@@ -1,6 +1,6 @@
 # Chapter 4 — Chen's Cosmetics Coverage / Service-Level Model (`chens-cosmetics-cn`)
 
-**Design spec (normative, Rev 6).** Adds a new solver model to Network Optimization Studio (the 6th —
+**Design spec (normative, Rev 8).** Adds a new solver model to Network Optimization Studio (the 6th —
 p-median-us, p-median-brazil, transport-coal, two-echelon-gold-au, two-echelon-jade-us already exist):
 a China warehouse-siting service-level model from the Chen's Cosmetics notebooks (Watson, Ch. 4).
 Single-echelon (warehouse → customer). Two coupled objectives exposed as one `objective` mode toggle:
@@ -31,7 +31,7 @@ Verified by diffing all code cells.
 | D5 | Frontend scope | Full stack, visible (`hiddenFromLanding: false`) |
 | D6 | Scenario-local network edits | Full parity (added warehouses/customers, distance overrides, status overrides) |
 | D7 | Solver structure | One `solve_chens()`, mode = data (branch only on objective sense + the one mode-specific constraint) — hard rule 6 |
-| D8 | Circuity ×1.17 | Store RAW km; apply ×1.17 in solver. Solved edges = adjusted km; base tables/reference/overrides/export = raw km. Both labeled. |
+| D8 | Circuity ×1.17 | Store RAW km; apply ×1.17 in solver. Solved edges = adjusted km; base tables/reference/overrides = raw km. Unit is **labeled in the UI/reference-manifest** (`distanceUnit`); the bidirectional v1 `distances` CSV carries no unit column (D29) and derives it from the selected model's manifest. |
 | D9 | Zip codes | Geocoded once; **acceptance rule locked below**. Display-only, never affects goldens. |
 | D10 | Echelon | Single-echelon warehouse→customer (no plant/supply layer — grep-verified across all three notebooks) |
 | D11 | Capacity | None. `capacityMode: "none"` **persisted** in inputs; warehouse overrides = status only |
@@ -46,10 +46,10 @@ Verified by diffing all code cells.
 | D20 | Km exports | Pass `distanceUnit` into the assignment export builder; don't emit adjusted km under `distanceMi`/`distance_mi`. `km`/no-`mi` tests cover CSV + JSON exports. |
 | D21 | Solve-history shape | `resultSummary` = `{status, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec}`; `weightedAvgDistanceMi` removed same commit. Legacy rows read `weightedAvgDistance ?? weightedAvgDistanceMi ?? null` + `distanceUnit ?? "mi"`; `objectiveMode`/distance nullable in OpenAPI. |
 | D22 | Rounding/tolerance (by field) | **4 dp, both modes:** `details.coveragePct`, `details.uncoveredPct`, coverage `bandCoverage.percent` → tests `abs=1e-3`. **2 dp, both modes:** `metrics.weightedAvgDistance` → `abs=0.05`. **`objective`:** 4 dp coverage mode (= coveragePct, `abs=1e-3`), 2 dp min-distance mode (`abs=0.05`). `coveredDemand` = unrounded integer, equality; warehouse set equality. No `rel=`. |
-| D28 | Template versions | Add `OUTPUT_TEMPLATE_VERSION = 2` for the changed output exports (assignments/costSummary); input `TEMPLATE_VERSION` stays **1** (bumping the shared constant would reject every existing v1 input CSV — import.ts checks exact equality). |
+| D28 | Template versions | `OUTPUT_TEMPLATE_VERSION = 2` for the changed output exports — **assignments, costSummary, AND serviceStats** — at **both** the JSON wrapper (`res.json({templateVersion, entity, rows})`) and each row's `templateVersion`; a contract test asserts wrapper == every row. `openWarehouses`, `flows`, and the importable `distances` template stay **v1**. Input `TEMPLATE_VERSION` stays **1** (bumping the shared constant would reject every existing v1 input CSV — import.ts checks exact equality). |
 | D23 | Payload/merge boundary | `buildPayload` emits `modelType` + params + **sparse** overrides/added-entities/distanceOverrides (schema names), NOT a merged dataset. New `build_merged_chens_dataset(inp, WAREHOUSES, CUSTOMERS, DISTANCE)` in `merge_inputs.py` does the per-call merge; `solve_chens` calls it. |
 | D24 | Assignment export shape | Rename `distanceMi`→`distance` + add `distanceUnit` on `AssignmentTemplateRow` (all models pass their manifest unit); CSV `template_version,customer_id,warehouse_id,distance,distance_unit,band,flow`; uses `OUTPUT_TEMPLATE_VERSION` (D28). |
-| D25 | ServiceStats/CostSummary export (`OUTPUT_TEMPLATE_VERSION`) | **CostSummary** JSON `{templateVersion, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec, quality, solverUsed}` / CSV `template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used`. **ServiceStats** JSON `{templateVersion, band, distanceUnit, percent}` / CSV `template_version,band,distance_unit,percent` (band rows + unit metadata). **Nullability:** `objectiveMode` and any field unavailable on a legacy/failed result is `string \| null`, serialized as explicit `null` (never `undefined`/omitted). Chen coverage KPIs are a **tab-display** concern, not export rows. |
+| D25 | ServiceStats/CostSummary export (`OUTPUT_TEMPLATE_VERSION`) | **CostSummary** JSON `{templateVersion, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec, quality, solverUsed}` / CSV `template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used`. **ServiceStats** JSON `{templateVersion, band, distanceUnit, percent}` / CSV `template_version,band,distance_unit,percent` (band rows + unit metadata). **Nullability (type-correct by field):** `objectiveMode: string \| null`; unavailable numeric fields (`objective`, `weightedAvgDistance`, `runTimeSec`) `number \| null`; other metadata keeps its own required/nullable string type. Any unavailable field serializes as explicit `null` — never `undefined`/omitted. Chen coverage KPIs are a **tab-display** concern, not export rows. |
 | D29 | Self-describing distances (Chen's exports only) | The unit-labeling applies to **Chen's own output entities**: assignments (D24) + CostSummary + ServiceStats (D25) carry `distance_unit`, all at `OUTPUT_TEMPLATE_VERSION`. **NOT the importable `distances` export** — it's a bidirectional input template locked to the v1 4-column `template_version,from_id,to_id,distance` (adding a column breaks its own importer); its unit is model-implicit (manifest `distanceUnit`). Other models' `flows`/`legDistances` exports are out of scope. |
 | D26 | Geocode match rule | Accept a Nominatim result on **normalized city match alone** (rows store `state:""` → no province to compare). No external province map. |
 | D27 | P-max both controls | Add a `pMax` prop to `SolveDialog` (currently hardcodes `max={50}`); Chen passes `pMax=25` to it AND `OptimizationParametersTab`; test both authoring paths reject 26. |
@@ -271,7 +271,10 @@ hard-coded mile labels in `AssignmentsTab`, `ObjectiveBar`, `NetworkMap`'s custo
 `AssignmentTemplateRow.distanceMi` is **renamed to `distance`** with an added `distanceUnit` field;
 `assignmentRowsToCsv` header becomes `template_version,customer_id,warehouse_id,distance,distance_unit,band,flow`.
 **Version (D28):** the changed OUTPUT exports (assignments, CostSummary, **ServiceStats**) use a new
-`OUTPUT_TEMPLATE_VERSION = 2`; the shared input `TEMPLATE_VERSION` stays **1** (import.ts rejects any
+`OUTPUT_TEMPLATE_VERSION = 2` at **both** the JSON wrapper (the route's `res.json({templateVersion,
+entity, rows})`, currently hardcoded to `TEMPLATE_VERSION`) and each row's `templateVersion` — a
+contract test asserts wrapper == every row; `openWarehouses`/`flows`/`distances` keep the v1 wrapper.
+The shared input `TEMPLATE_VERSION` stays **1** (import.ts rejects any
 CSV whose `template_version != 1` at 5 sites, so a global bump would break every existing v1 warehouse/
 customer/distance/refinery/plant/capability import). **All models** adopt the assignment shape (each
 passes its manifest `distanceUnit`; mile models now carry `distanceUnit:"mi"` explicitly) — no external
@@ -309,8 +312,8 @@ each row:** `coveragePct`, `coveredDemand`, `uncoveredPct` from **`details`**; *
 **tab** rows (UI only — export serializers are D25, not these):
 - *ServiceStatsTab*: `Coverage %`, `Covered demand`, `Uncovered %`, `Avg service distance (km)` + the
   existing cumulative `bandCoverage` `{band, percent}` rows. ServiceStats **export** = band rows +
-  `distance_unit` metadata (D25/D29 — `coveragePct` is the cumulative band-0 percent; KPI rows are
-  tab-only, not exported).
+  `distance_unit` metadata (D25/D29 — `coveragePct` is the cumulative first/high-service band percent;
+  KPI rows are tab-only, not exported).
 - *CostSummaryTab*: `Objective` (mode-aware, below), `Avg service distance (km)`, band rollup.
   CostSummary **export** adds `objective_mode` + `distance_unit` (D25).
 
@@ -335,7 +338,7 @@ in OpenAPI (failed jobs + legacy rows). Same-model **compare is restricted to sc
   distance in km — there is no separate `avgServiceDistKm` field). **Do NOT** assert runtime, the
   exact average value, specific customer→warehouse assignments, or edge order.
 - *Min-distance* (floor `131645389`): additionally `objective == pytest.approx(123834216789.27,
-  abs=0.05)` and `weightedAvgDistance == pytest.approx(621.44, abs=0.05)`; same exact open set.
+  abs=0.05)` and `metrics.weightedAvgDistance == pytest.approx(621.44, abs=0.05)`; same exact open set.
 
 **Rounding/tolerance policy (D22) — precision by field.** `details.coveragePct`, `details.uncoveredPct`,
 and coverage `bandCoverage.percent` emit at **4 decimals in both modes** (so `66.0639` holds; tested
@@ -392,9 +395,10 @@ lists/gates.
 
 ## Review history (audit trail — superseded, non-normative)
 
-Rev 1–7 findings were accepted (all verified correct against the repo) and **folded into the body
+Rev 1–8 findings were accepted (all verified correct against the repo) and **folded into the body
 above** (Rev 4 → D16–D22; Rev 5 → D23–D27; Rev 6 → D28–D29; Rev 7 → D4/D22/D25/D29 revisions +
-failure-details + cross-model scope). This section records that they happened — it specifies nothing.
+failure-details + cross-model scope; Rev 8 → D8/D25/D28 revisions + golden field-path + title). This
+section records that they happened — it specifies nothing.
 
 - **Rev 1 findings (SUPERSEDED):** envelope completeness (`quality`/`flow`/omit-`leg`/
   `openWarehouseIds`), metrics-strip, required `timeLimitSec`/`gap`/`distanceBands`/`capacityMode`,
@@ -772,3 +776,49 @@ executable-contract gaps remain.
 cross-model scope, and terminology. No change is requested to the optimization formulation, notebook
 facts, coverage tie policy, min-distance answer, dispatcher, Python merge boundary, band behavior, or
 zero-demand policy.
+
+## Re-review findings — 2026-09-14 (Rev 8, FOLDED → D8/D25/D28 + golden field-path + title)
+
+**All verified correct and resolved:** D28 covers ServiceStats + both JSON levels (wrapper == rows,
+verified `res.json({templateVersion,…})` wrapper exists) with a contract test; D25 nullability is
+type-correct by field (`objectiveMode: string|null`, numeric fields `number|null`, explicit `null`);
+min-distance golden uses `metrics.weightedAvgDistance`; title→Rev 8; D8 labeling clarified (UI/reference
+labels, v1 CSV model-implicit); "band-0"→"first/high-service band". Original text below is audit trail.
+
+**Disposition (historical):** substantively approval-ready; no mathematical or notebook-fidelity blocker remains.
+Resolve the following executable-contract inconsistencies before implementation planning.
+
+### Important corrections
+
+1. **Define output versioning at both JSON levels and include ServiceStats in D28.** D28 currently
+   names only Assignments and CostSummary, while D25 and the detailed export section also migrate
+   ServiceStats. The existing JSON export response has a top-level `templateVersion` in addition to
+   row-level `templateVersion` values. Require both levels to use `OUTPUT_TEMPLATE_VERSION = 2` for
+   Assignments, CostSummary, and ServiceStats; OpenWarehouses, Flows, and the importable Distances
+   template remain v1. Add contract tests asserting that the wrapper and every row agree. Without
+   this rule, an implementation can legitimately emit a v1 wrapper around v2 rows.
+
+2. **Make D25 nullability type-correct by field.** “`objectiveMode` and any field unavailable ... is
+   `string | null`” incorrectly assigns a string type to unavailable numeric fields. Specify
+   `objectiveMode: string | null`; numeric fields such as `objective`, `weightedAvgDistance`, and
+   `runTimeSec` as `number | null` if they can be unavailable; and each remaining metadata field with
+   its own appropriate nullable or required string type. Preserve the locked requirement to emit an
+   explicit `null`, never `undefined` or an omitted property.
+
+3. **Use the actual result-envelope path in the min-distance golden.** The Golden tests section
+   currently asserts bare `weightedAvgDistance == 621.44`; the field is
+   `metrics.weightedAvgDistance`. Use that full path, matching the coverage-mode cap assertion and
+   `MetricsSchema`.
+
+### Editorial consistency
+
+- Update the document header from “normative, Rev 6” to the current folded normative revision.
+- D8 says the raw-distance export is “labeled,” while D29 deliberately preserves the v1 Distances CSV
+  without a unit column and makes its unit model-implicit. Clarify that the UI/reference manifest
+  labels the raw unit; the bidirectional v1 CSV derives it from the selected model's manifest.
+- In the ServiceStats contract, prefer “first/high-service band” over “band-0” so the public meaning
+  does not depend on an array-index nickname.
+
+**Approval condition:** align these version, type, and field-path contracts. No change is requested to
+the formulation, verified optima, circuity, faithful Option-A coverage tie policy, prechecks, failure
+layers, merge boundary, or Distances v1 round-trip decision.
