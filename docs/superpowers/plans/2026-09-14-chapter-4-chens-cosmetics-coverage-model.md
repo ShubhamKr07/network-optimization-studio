@@ -218,19 +218,35 @@ Expected ≈ `20.05 75.97 47.4 130.97`. Pad ~2°.
       "avgServiceDistCapKm": { "type": "number", "exclusiveMinimum": 0 },
       "coverageFloorDemand": { "type": "integer", "minimum": 0 },
       "gap": { "type": "number", "minimum": 0 },
-      "timeLimitSec": { "type": "number", "exclusiveMinimum": 0 },
+      "timeLimitSec": { "type": "integer", "minimum": 1 },
       "capacityMode": { "type": "string", "enum": ["none"] },
-      "distanceBands": { "type": "array", "items": { "type": "number" } }
+      "distanceBands": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
+      "warehouseOverrides": { "type": "array", "items": { "type": "object",
+        "properties": { "id": { "type": "string" }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
+        "required": ["id", "status"] } },
+      "customerOverrides": { "type": "array", "items": { "type": "object",
+        "properties": { "id": { "type": "string" }, "status": { "type": "string", "enum": ["active", "excluded"] }, "demand": { "type": "integer", "minimum": 0 } },
+        "required": ["id"] } },
+      "addedWarehouses": { "type": "array", "items": { "type": "object",
+        "properties": { "id": { "type": "string" }, "displayCode": { "type": "string" }, "city": { "type": "string" }, "state": { "type": "string" }, "lat": { "type": "number" }, "lng": { "type": "number" }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
+        "required": ["id", "city", "lat", "lng", "status"] } },
+      "addedCustomers": { "type": "array", "items": { "type": "object",
+        "properties": { "id": { "type": "string" }, "displayCode": { "type": "string" }, "city": { "type": "string" }, "state": { "type": "string" }, "lat": { "type": "number" }, "lng": { "type": "number" }, "demand": { "type": "integer", "minimum": 0 }, "status": { "type": "string", "enum": ["active", "excluded"] } },
+        "required": ["id", "city", "lat", "lng", "demand"] } },
+      "distanceOverrides": { "type": "array", "items": { "type": "object",
+        "properties": { "fromId": { "type": "string" }, "toId": { "type": "string" }, "distance": { "type": "number", "minimum": 0 }, "estimated": { "type": "boolean" } },
+        "required": ["fromId", "toId", "distance"] } }
     },
     "required": ["objective", "p", "highServiceDistKm", "maxDistKm", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
   }
 }
 ```
-(`inputsSchema` must be **non-empty** — `manifests.test.ts:20` asserts
-`Object.keys(inputsSchema).length > 0` for every `MODEL_IDS` entry. Integer `coverageFloorDemand` per
-D30. `avgServiceDistCapKm`/`coverageFloorDemand` are objective-dependent — the discriminated
-requirement is enforced by `chensInputsSchema` (Zod, C4.6); the manifest schema is a UI/doc hint and
-keeps them optional. Confirm `datasetDir` verbatim against an existing manifest.)
+(`inputsSchema` must be **non-empty** (`manifests.test.ts:20`) AND **complete** — the existing p-median
+manifest describes every sparse-edit array (`warehouseOverrides`/`customerOverrides`/`addedWarehouses`/
+`addedCustomers`/`distanceOverrides`), since `GET /models` returns this as the public input contract.
+Integer demand per D30; `timeLimitSec` `integer ≥ 1`; `distanceBands` exactly two positive numbers.
+`avgServiceDistCapKm`/`coverageFloorDemand` stay optional here — the objective-discriminated requirement
+is enforced by `chensInputsSchema` (Zod, C4.6). Confirm `datasetDir` verbatim against an existing manifest.)
 
 - [ ] **Step 3: Register** — add `PACKAGE_SPECS` entry `{ modelId: "chens-cosmetics-cn", files: {
   "warehouses.json": z.record(z.string(), WarehouseEntry), "customers.json": z.record(z.string(),
@@ -239,8 +255,14 @@ keeps them optional. Confirm `datasetDir` verbatim against an existing manifest.
   `"chens-cosmetics-cn"` to `MODEL_IDS`.
 
 - [ ] **Step 4: Tests** — (a) `manifest.test.ts`: `ManifestSchema.parse(<Chen manifest>)` →
-  `distanceUnit==="km"`, exact `outputGrids`, `chapter==="Chapter 4"`. (b) `index.test.ts`: find the
-  Chen spec — `const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn")!` — then
+  `distanceUnit==="km"`, exact `outputGrids`, `chapter==="Chapter 4"`, **and a structural
+  `inputsSchema` contract check** — `Object.keys(inputsSchema.properties)` contains all 15 fields
+  (objective, p, highServiceDistKm, maxDistKm, avgServiceDistCapKm, coverageFloorDemand, gap,
+  timeLimitSec, capacityMode, distanceBands, warehouseOverrides, customerOverrides, addedWarehouses,
+  addedCustomers, distanceOverrides), `distanceBands` has `minItems===maxItems===2`, and representative
+  nested fields exist (`addedCustomers.items.properties.demand.type==="integer"`,
+  `distanceOverrides.items.properties.estimated`). (b) `index.test.ts`: find the Chen spec —
+  `const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn")!` — then
   `validatePackage(spec)` does not throw AND `computeSha256(spec) === readVersion("chens-cosmetics-cn").sha256`
   (`validatePackage` takes a `ModelPackageSpec`, NOT a model-id string).
 
@@ -448,7 +470,8 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   output rows would MIS-type every existing input-entity export, and fully typing all 15 with
   entity-discriminated schemas is a whole-contract expansion out of scope for a model-add. Exact output
   shapes are enforced + tested at the `templates.ts` layer (C4.9), which is where D25's contract lives;
-  add a one-line rationale comment in the spec at `ExportEnvelope.rows`. (This deliberately reverses the
+  add a one-line rationale as the `description:` on `ExportEnvelope.rows` **in `openapi.yaml` itself**
+  (keeps this task's Files list to the spec+regen; no separate design-doc edit). (This deliberately reverses the
   earlier "exact rows" instruction, which the completeness review showed to be incomplete/harmful.)
 
 - [ ] **Step 2: Regenerate + typecheck.** `pnpm --filter @workspace/api-spec run codegen` (orval +
@@ -495,11 +518,13 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   reconciliation) — one route test each.
 - [ ] **Step 2: Run — fail.** `pnpm --filter api-server test autoDistance`.
 - [ ] **Step 3: Implement — write a SEPARATE `fillEstimatedChensDistances`** (the locked choice — do
-  NOT refactor the shared p-median core, which is riskier for a model-add). It mirrors
-  `fillEstimatedBrazilDistances`'s structure but reparses with `chensInputsSchema` (so Chen-only
-  objective/threshold fields survive), uses a **km haversine `R=6371`**, circuity=1, rounds each
-  estimate to **2 dp**, and applies a **positive floor of `0.01` km** for co-located points (never 0).
-  Dispatch Chen in `routes/scenarios.ts::normalizeAddedEntityDistances`.
+  NOT refactor the shared p-median core, which is riskier for a model-add). It mirrors the **algorithm
+  in the core `fillEstimatedDistances`** (missing-pair detection + haversine fill; NOT the thin
+  `fillEstimatedBrazilDistances`, which is just a wrapper calling the core with a circuity constant) but
+  reparses with `chensInputsSchema` (so Chen-only objective/threshold fields survive), uses a **km
+  haversine `R=6371`**, circuity=1, rounds each estimate to **2 dp**, and applies a **positive floor of
+  `0.01` km** for co-located points (never 0). Dispatch Chen in
+  `routes/scenarios.ts::normalizeAddedEntityDistances`.
 - [ ] **Step 4: Run — PASS. Commit** `[C4.7] Chen added-entity km estimator (autoDistance) + normalize dispatch`.
 
 ---
@@ -515,9 +540,18 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   — necessary upper bound); `p_range` (`forcedOpen > p`, `p > active candidates`); `id_collision`/
   `completeness`/`reference_integrity`.
 - [ ] **Step 2: Run — fail.**
-- [ ] **Step 3: Implement** — add the 3 codes to `PrecheckErrorCode`; `precheckChensInputs` applies
-  ×1.17 **after** merge + inactive/excluded filtering, two distinct thresholds; wire the Chen branch in
-  `scenarios.ts` precheck dispatch (the `422 {ok:false}` path).
+- [ ] **Step 3: Implement** — add the 3 codes to `PrecheckErrorCode`. `precheckChensInputs(inputs:
+  ChensInputs, dataset: ChensDataset)` runs **TypeScript-side in the API server** (before solver
+  dispatch — this is NOT the Python merge). It reuses the existing TS ID/active-entity helpers to build
+  the **effective** view from base data + sparse edits: effective demand map (base demand, minus
+  excluded customers, plus/overridden by `customerOverrides.demand` + `addedCustomers`), effective
+  candidate set (minus inactive, plus `addedWarehouses`, with `forced_open`), and a raw-distance lookup
+  (base + `distanceOverrides` + estimated added-entity distances). It then applies **×1.17** to that raw
+  lookup for both thresholds — `no_feasible_route` at `maxDistKm`, `coverage_floor_infeasible` upper
+  bound at `highServiceDistKm`. Wire the Chen branch in `scenarios.ts` precheck dispatch (`422
+  {ok:false}`). Tests prove a demand override, an added entity, an inactive WH, an excluded customer,
+  and a distance override each change `zero_demand`/`no_feasible_route`/`coverage_floor_infeasible` as
+  appropriate.
 - [ ] **Step 4: Run — PASS. Commit** `[C4.8] Chen semantic precheck (3 codes, circuity-aware, two thresholds)`.
 
 ---
@@ -593,8 +627,11 @@ routes derive from `CHAPTERS`.)
   `App.tsx`** — it already maps `CHAPTERS.map(...)` to routes, so `/chapter-4` is created automatically;
   adding a manual route would duplicate it.
 - [ ] **Step 2:** Add a `defaultInputsForModel("chens-cosmetics-cn")` branch returning every required
-  Chen field (objective:"coverage", p:3, highServiceDistKm:600, maxDistKm:5000, avgServiceDistCapKm:1000,
-  gap, timeLimitSec, capacityMode:"none", distanceBands:[600,5000], empty override/added arrays).
+  Chen field with concrete values: `objective:"coverage", p:3, highServiceDistKm:600, maxDistKm:5000,
+  avgServiceDistCapKm:1000, gap:0, timeLimitSec:120` (matching every existing branch),
+  `capacityMode:"none", distanceBands:[600,5000], warehouseOverrides:[], customerOverrides:[],
+  addedWarehouses:[], addedCustomers:[], distanceOverrides:[]`. RTL asserts the returned default parses
+  clean against `chensInputsSchema`.
 - [ ] **Step 3:** De-hardcode `mi` → active model's `distanceUnit` in the 5 named surfaces; RTL asserts
   `km`/no-`mi` for a Chen scenario in each.
 - [ ] **Step 4: `pnpm --filter studio test` — PASS. Commit** `[C4.11] Chapter 4 route/card + defaultInputsForModel + km labels`.
@@ -608,8 +645,10 @@ routes derive from `CHAPTERS`.)
 
 - [ ] **Step 1:** Mode toggle bound to `inputs.objective` (coverage → `avgServiceDistCapKm`;
   min-distance → `coverageFloorDemand` default 131645389 + "> 199M infeasible" hint). RTL: toggle
-  swaps the visible field AND initializes the newly-required mode-specific field (switching to
-  min-distance seeds `coverageFloorDemand`; switching to coverage seeds `avgServiceDistCapKm`).
+  swaps the visible field, **seeds the newly-required field AND CLEARS the previous mode's field**
+  (coverage clears `coverageFloorDemand`; min-distance clears `avgServiceDistCapKm`) — so only the
+  active mode's field is present, matching C4.6's discriminated Zod contract (not relying on later
+  stripping). A save/`buildPayload` assertion confirms only the active mode's field is persisted.
 - [ ] **Step 1b: Band resync RTL** — editing `highServiceDistKm` OR `maxDistKm` immediately updates
   local `inputs.distanceBands` to `[high, max]` in component state, BEFORE any Save/solve (D13/D19).
 - [ ] **Step 2:** Add `pMax` prop to `SolveDialog` (hardcodes `max={50}`); Chen passes `pMax=25` to it
@@ -641,8 +680,9 @@ routes derive from `CHAPTERS`.)
 
 ## Task C4.14: Frontend — map (China bounds, coverage lens) + Gate-1 sweep + output tabs
 
-**Files:** `NetworkMap.tsx`, `mapBounds.ts`, band lens/`bandPalette`, `MapLegend`, every `modelId===`
-allowlist (Gate-1 10 points), `ServiceStatsTab.tsx`, `CostSummaryTab.tsx`, compare gating; RTL.
+**Files:** `NetworkMap.tsx`, `mapBounds.ts`, band lens/`bandPalette`, `MapLegend`, the Gate-1 mapped
+registration points (only the genuinely-shared ones — Step 1), `ServiceStatsTab.tsx`,
+`CostSummaryTab.tsx`, compare gating; RTL.
 
 - [ ] **Step 1: Gate-1 MAPPED AUDIT (not a blanket allowlist mutation).** For each of Gate-1's 10
   registration points, check whether the branch is structurally shared or model-specific (many
@@ -1004,3 +1044,75 @@ new findings from this repository-contract pass.
 forward its required notebook path, and synchronize all eight precheck codes in OpenAPI. Then lock the
 estimator/city wiring and add the compare, provenance, and final-gate assertions before implementation
 dispatch.
+
+### Plan Rev 5 re-review — 2026-09-15 (FOLDED — nothing left open)
+
+**All verified correct and resolved:** complete Chen `inputsSchema` describing all 5 sparse-edit arrays
++ nested fields (matching the p-median manifest convention, `GET /models` public contract) with
+`timeLimitSec` integer≥1 and `distanceBands` exactly-two-positive, plus a structural manifest contract
+test (C4.2); TS-side `precheckChensInputs(inputs, dataset)` effective-view construction — base + sparse
+edits, ×1.17 applied there (NOT the Python merge) — with per-edit code tests (C4.8); concrete defaults
+`gap:0, timeLimitSec:120` (C4.11); mode toggle CLEARS the previous mode's field + save-persistence
+assertion (C4.12); C4.7 mirrors the core `fillEstimatedDistances` algorithm not the Brazil wrapper;
+C4.14 Files → Gate-1 mapped points not "every allowlist"; opaque-rows rationale goes in `openapi.yaml`'s
+`description` (no spec-doc edit). Original text below.
+
+**Verified resolved from Rev 4:** the notebook-path guard/forwarding, complete eight-value precheck
+enum, locked Chen estimator constants, effective base-plus-added city lookup, incompatible-mode compare
+test, auditable geocode provenance, dataset-schema final gate, Rev 9/D30 references, removed reset
+surface, opaque `ExportEnvelope.rows` decision, and historical consistency cleanups are all folded into
+the executable tasks.
+
+**Disposition:** the solver formulation, failure mapping, tie-aware coverage golden, and principal
+frontend behavior now agree with the Rev 9 spec. The plan is not dispatch-ready yet because C4.2's new
+manifest schema describes only the optimization controls and omits the sparse-edit half of the public
+input contract. Three implementation details also need to be made executable rather than left implicit.
+
+#### Blocker
+
+1. **[NEW] C4.2's `inputsSchema` is non-empty but still does not describe the complete Chen input
+   shape.** It omits `warehouseOverrides`, `customerOverrides`, `addedWarehouses`, `addedCustomers`, and
+   `distanceOverrides`, even though the normative complete field list includes all five and C4.6 passes
+   them to the solver. This JSON Schema is returned by `GET /models`; being descriptive rather than an
+   executable validator does not make a partial public description correct. Follow the existing
+   p-median manifest convention and describe every sparse-edit array, including D30 integer demand,
+   optional `displayCode`, optional `estimated`, entity statuses, coordinates, and required nested
+   fields. Also change `timeLimitSec` from `number > 0` to `integer >= 1`, constrain the derived
+   `distanceBands` to exactly two positive numbers (`minItems: 2`, `maxItems: 2`), and add a manifest
+   contract test for the complete property set plus representative nested fields. The existing
+   non-empty assertion alone would allow this false partial contract to pass.
+
+#### Important corrections
+
+1. **Define C4.8's TypeScript-side effective-data construction.** “Apply ×1.17 after merge” is
+   ambiguous because the authoritative merge named elsewhere in the plan runs in Python, while
+   `precheckChensInputs` runs in the API server before solver dispatch. State that the function accepts
+   validated `ChensInputs` plus `CHENS_DATASET`, reuses the existing TypeScript ID/active-entity helpers,
+   and constructs effective demand and raw-distance lookups from the base data plus sparse overrides.
+   Tests must prove that demand overrides, added entities, inactive/excluded entities, and distance
+   overrides affect `zero_demand`, `no_feasible_route`, and `coverage_floor_infeasible` as appropriate.
+
+2. **Replace C4.11's bare default placeholders with concrete values.** The proposed object currently
+   says only `gap, timeLimitSec`, which is not an implementable default contract. Lock and test
+   `gap: 0` and `timeLimitSec: 120`, matching every existing `defaultInputsForModel` branch; solver
+   golden fixtures may still choose a shorter explicit time limit independently.
+
+3. **Prove C4.12's objective-specific fields are truly iff.** The toggle step initializes the newly
+   required field but does not say to remove the field belonging to the previous mode. Require coverage
+   mode to clear `coverageFloorDemand`, min-distance mode to clear `avgServiceDistCapKm`, and add a
+   save/build-payload assertion that only the active mode's field is persisted. This makes the frontend
+   behavior match C4.6's discriminated Zod contract rather than relying on later stripping as an
+   undocumented cleanup step.
+
+#### Consistency cleanup
+
+- In C4.7, say the separate Chen estimator mirrors the algorithm in the core
+  `fillEstimatedDistances`, not the thin `fillEstimatedBrazilDistances` wrapper.
+- In C4.14's Files line, replace “every `modelId===` allowlist” with “Gate-1 mapped registration
+  points”; the task body correctly prohibits blanket allowlist mutation.
+- C4.5 instructs adding the opaque-rows rationale to the spec, so include the Rev 9 spec in that task's
+  Files list (or place the rationale in `openapi.yaml` and remove the spec-edit instruction).
+
+**Approval condition:** publish the complete Chen manifest input schema and cover it with a structural
+contract test; then specify the TypeScript precheck merge view, concrete frontend defaults, and
+mode-field clearing/persistence assertions. Apply the three consistency cleanups before dispatch.
