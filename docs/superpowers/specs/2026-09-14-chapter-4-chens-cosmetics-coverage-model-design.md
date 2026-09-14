@@ -37,7 +37,7 @@ Verified by diffing all code cells.
 | D11 | Capacity | None. `capacityMode: "none"` **persisted** in inputs; warehouse overrides = status only |
 | D12 | outputGrids | `["openWarehouses","assignments","costSummary","serviceStats"]` (= p-median-us/brazil). No `flows` (single-echelon → `assignments` is the flow view). `costSummary` is a distance/objective rollup, not monetary. |
 | D13 | Distance bands | **Derived, non-editable** `distanceBands = [highServiceDistKm, maxDistKm]`, resynced whenever either param changes. Two-class coverage lens (§Bands). |
-| D14 | Mode-aware presentation | ServiceStats/CostSummary gain **model-aware rows sourced from `details`**; ObjectiveBar/exports/solve-history carry mode-aware labels; same-model compare **restricted to scenarios sharing `details.objective`**. |
+| D14 | Mode-aware presentation | ServiceStatsTab/CostSummaryTab gain model-aware rows: coverage/covered/uncovered from `details`, **average distance from `metrics.weightedAvgDistance`**. ObjectiveBar/exports/solve-history carry mode-aware labels; same-model compare **restricted to scenarios sharing `details.objective`**. |
 | D15 | Zero effective demand | Total effective demand `≤ 0` = **blocking precheck error**; solver still returns a complete infeasible envelope if bypassed. |
 | D16 | Dispatch key | `solve.py` dispatches on `inp["modelType"]`; Chen emits `modelType: "chens"` from `buildPayload` + a new `SolveInput` union member. |
 | D17 | Two failure layers | Model-level (math-infeasible / caught exception) → complete envelope, job succeeds. Process-level (timeout/spawn/exit/stdout/validation) → job `failed`, prior result intact. |
@@ -45,7 +45,12 @@ Verified by diffing all code cells.
 | D19 | Band persistence | Normalize `distanceBands` → `[high, max]` before validation/storage on create/PATCH/import + Zod refinement; hide editor in `OptimizationParametersTab` AND `SolveDialog`. |
 | D20 | Km exports | Pass `distanceUnit` into the assignment export builder; don't emit adjusted km under `distanceMi`/`distance_mi`. `km`/no-`mi` tests cover CSV + JSON exports. |
 | D21 | Solve-history shape | Generalize `resultSummary.weightedAvgDistanceMi` → unit-carrying field; persist the `objective` mode for label formatting. |
-| D22 | Rounding/tolerance | Envelope floats round to 2 dp; tests use `pytest.approx` (coveragePct abs 1e-3, min-dist objective rel 1e-6, avg abs 0.05); integer `coveredDemand` + warehouse set are equality. |
+| D22 | Rounding/tolerance | `coveragePct` emitted at **4 dp** (66.0639); `objective`/`weightedAvgDistance` at 2 dp. Tests: `coveragePct` approx abs 1e-3; coverage `objective` (= coveragePct in coverage mode) same; min-dist `objective` approx **abs 0.05**; avg approx abs 0.05. Integer `coveredDemand` + warehouse set are equality. |
+| D23 | Payload/merge boundary | `buildPayload` emits `modelType` + params + **sparse** overrides/added-entities/distanceOverrides (schema names), NOT a merged dataset. New `build_merged_chens_dataset(inp, WAREHOUSES, CUSTOMERS, DISTANCE)` in `merge_inputs.py` does the per-call merge; `solve_chens` calls it. |
+| D24 | Assignment export shape | Rename `distanceMi`→`distance` + add `distanceUnit` on `AssignmentTemplateRow` (all models pass their manifest unit); CSV header `…,distance,distance_unit,…`; `TEMPLATE_VERSION` bump. Base `distances` export already uses unit-agnostic `distance`. |
+| D25 | ServiceStats/CostSummary export | ServiceStats **export unchanged** (band-only `{band,percent}` snapshot — `coveragePct` already = cumulative band-0 percent). CostSummary export adds `objective_mode` + `distance_unit` columns (self-describing), version bump. KPI rows are a **tab-display** concern (below), not new export schema. |
+| D26 | Geocode match rule | Accept a Nominatim result on **normalized city match alone** (rows store `state:""` → no province to compare). No external province map. |
+| D27 | P-max both controls | Add a `pMax` prop to `SolveDialog` (currently hardcodes `max={50}`); Chen passes `pMax=25` to it AND `OptimizationParametersTab`; test both authoring paths reject 26. |
 
 ## Ground truth (independently verified; PuLP/CBC; defaults P=3 / highServiceDist=600 / avgServiceDistCap=1000 / maxDist=5000)
 
@@ -63,12 +68,16 @@ demand `199269881`. Circuity `raw × 1.17` applied before both indicators and bo
 
 ## Model formulation (`solve_chens`)
 
-**Dispatch contract (D16).** `solve.py::solve()` dispatches on `inp["modelType"]` (defaults
-`p_median`; unknown → error path), NOT on `modelId`. So: add `{modelId: "chens-cosmetics-cn"; inputs:
-ChensInputs}` to `pmedian.ts`'s `SolveInput` union; the Chen `buildPayload` branch emits
-`modelType: "chens"` + `objective` + all params + merged dataset; `solve()` dispatches
-`modelType == "chens"` → `solve_chens()`. (Miss the discriminator and it silently falls through to
-p-median.) Mode from `payload["objective"] ∈ {coverage, min_distance}`. Requires
+**Dispatch + merge boundary (D16, D23).** `solve.py::solve()` dispatches on `inp["modelType"]`
+(defaults `p_median`; unknown → error path), NOT on `modelId`. So: add `{modelId:
+"chens-cosmetics-cn"; inputs: ChensInputs}` to `pmedian.ts`'s `SolveInput` union; the Chen
+`buildPayload` branch emits `modelType: "chens"` + `objective` + all scalar params + the **sparse**
+scenario edits by their exact schema names (`warehouseOverrides`, `customerOverrides`,
+`addedWarehouses`, `addedCustomers`, `distanceOverrides`) — **not** a pre-merged dataset. `solve()`
+dispatches `modelType == "chens"` → `solve_chens()`, which loads the immutable package dataset and
+applies the edits via a **new `build_merged_chens_dataset(inp, WAREHOUSES, CUSTOMERS, DISTANCE)` in
+`merge_inputs.py`** (mirrors `build_merged_pmedian_dataset`). (Miss the discriminator and it silently
+falls through to p-median.) Mode from `payload["objective"] ∈ {coverage, min_distance}`. Requires
 `0 < highServiceDistKm < maxDistKm`.
 
 **Precompute:** `dist_adj[w,c] = raw × 1.17`; `hsp[w,c] = 1 if dist_adj ≤ highServiceDistKm else 0`;
@@ -85,12 +94,15 @@ p-median.) Mode from `payload["objective"] ∈ {coverage, min_distance}`. Requir
 
 **Overrides as data** (hard rule 6): forced-open → `open[w]` fixed 1; inactive WH → dropped from
 candidates; excluded customer → dropped from served set; added warehouses/customers/distance overrides
-merged into the dataset dicts before build via the existing scenario-local merge layer. No capacity.
+applied by `build_merged_chens_dataset` **inside solve.py** (D23), not in TS. No capacity.
 
 **Two failure layers (D17) — do not conflate.**
-- **Model-level** (mathematical infeasibility, or an exception caught inside solve.py's JSON
-  boundary) → `solve_chens` returns a **complete** `ResultEnvelope` (status `infeasible`/`error`); the
-  solve **job succeeds** and persists that envelope.
+- **Model-level** — *infeasibility*: `solve_chens` returns a complete `infeasible` envelope (using the
+  existing `_envelope(..., _EMPTY_METRICS, _EMPTY_DETAILS, ...)` constants). *Unexpected exception*: it
+  need NOT self-catch — solve.py's `if __name__ == "__main__"` boundary already wraps `solve()` in
+  `try/except` and emits a complete `error` envelope. The solve **job succeeds** and persists that
+  envelope either way. The error-envelope test invokes via the dispatcher/CLI (`solve(inp)` /
+  subprocess), not a bare `solve_chens()` call.
 - **Process/transport-level** (timeout, spawn failure, non-zero exit, unparseable stdout, envelope
   schema-validation failure) → `jobRunner` marks the job **`failed`** with a message and **leaves the
   previous scenario result intact** — it does NOT synthesize a result. This is the existing contract
@@ -135,12 +147,13 @@ the last class.
   the coverage KPI `ServiceStatsTab`/CSV consume; do not conflate it with the exclusive route lens.
 
 **Persistence enforcement (D19).** Re-deriving `distanceBands` in `buildPayload` only fixes the solver
-wire — it does NOT repair the saved `scenario.inputs` that maps/exports/later-edits read. One canonical
-rule: **normalize `distanceBands` to `[highServiceDistKm, maxDistKm]` before validation/storage on
-every write path** (create, PATCH, import/apply), backed by a Zod refinement that rejects any other
-value (defense against a stale or hand-authored client). The band editor is **hidden in both
-`OptimizationParametersTab` AND `SolveDialog`** (both render it today). Tests: a direct PATCH or import
-carrying a third boundary is normalized/rejected, never persisted.
+wire — it does NOT repair the saved `scenario.inputs` that maps/exports/later-edits read. **One
+observable behavior: overwrite, don't reject.** Validate `highServiceDistKm`/`maxDistKm`, then
+**overwrite `distanceBands := [high, max]` before storage on every write path** (create, PATCH,
+import/apply) — a stale or hand-authored client sending a third boundary is silently normalized, not
+422'd. A post-normalization invariant assertion (not a Zod rejection of the incoming value) guards it.
+The band editor is **hidden in both `OptimizationParametersTab` AND `SolveDialog`** (both render it
+today). Tests: a direct PATCH/import carrying a third boundary persists as `[high, max]`.
 
 ## Dataset (`solvers/chens-cosmetics-cn/`)
 
@@ -160,12 +173,13 @@ Ch.10; slugging avoids it).
 
 **Zip acceptance rule (D9):** Nominatim, 1 req/sec, retry/backoff. Normalize to a trimmed string.
 Coverage floor **≥ 85 %** of 222 rows or the extraction **aborts** (no partial commit). Genuine misses
-(server returns no postal code) persist as **absent/blank** — never guessed. **Ambiguous match
-policy:** accept a Nominatim result only when its returned city + admin/province matches the row's
-city (case-insensitive); if multiple results match or none matches on city/province, record the row as
-**ambiguous** and leave `zip` blank (ambiguous rows don't count toward the 85 % floor as hits). A
-geocode **provenance report** (per-row: selected result, hit/miss/ambiguous, normalized value) is
-committed alongside the dataset. Zip is display-only; the integrity check asserts it is never read by
+(server returns no postal code) persist as **absent/blank** — never guessed. **Match rule (D26):** the
+dataset rows store `state: ""`, so there is no expected province to compare against — accept a
+Nominatim result on **normalized city match alone** (case-insensitive, trimmed); if the top result's
+city doesn't match, or multiple equally-ranked results disagree, record the row as **ambiguous** and
+leave `zip` blank (ambiguous rows don't count toward the 85 % floor as hits). A geocode **provenance
+report** (per-row: selected result, hit/miss/ambiguous, normalized value) is committed alongside the
+dataset. Zip is display-only; the integrity check asserts it is never read by
 the solver or any golden.
 
 ## Contract & registration
@@ -212,11 +226,15 @@ Registered in `lib/dataset-schema` (`PACKAGE_SPECS`, `MODEL_IDS`, `ManifestSchem
   warning): missing added-entity distances → existing `completeness`; unresolved overrides → existing
   `reference_integrity`; duplicate/colliding ids → `id_collision`.
 - **Add three new `PrecheckErrorCode` values** (do NOT overload `p_range`/`capacity`): `zero_demand`
-  (total effective demand ≤ 0, D15), `no_feasible_route` (an active customer with no route
-  ≤ `maxDistKm`), `coverage_floor_infeasible` (`coverageFloorDemand > total servable demand`,
+  (total effective demand ≤ 0, D15), `no_feasible_route` (an active customer with no route within
+  `maxDistKm`), `coverage_floor_infeasible` (`coverageFloorDemand > total servable demand`,
   min-distance). Reuse `p_range` for `forcedOpenCount > p` / `p > active candidate count`. Each new
   code added to `PrecheckErrorCode`, the OpenAPI error schema, regenerated clients, and Workspace
   rendering.
+- **Precheck must apply circuity** exactly like the solver: `no_feasible_route` and the servable-demand
+  computations evaluate `rawDistanceKm × 1.17 ≤ maxDistKm` **after** merging overrides/added
+  entities/distance overrides and filtering inactive warehouses + excluded customers. Comparing raw
+  km directly would approve scenarios the solver then declares infeasible.
 - The "implausibly tight avg cap" idea is **dropped** — it has no home in a blocking-only contract and
   the solver already returns a valid infeasible envelope for it.
 The solve path still returns a valid infeasible envelope (model-level, D17) if a mathematically
@@ -237,17 +255,21 @@ points (`model-integration-precheck.md`) run explicitly.
 
 **Kilometre display (real added scope):** `distanceUnit: "km"` in the manifest; remove/parameterize
 hard-coded mile labels in `AssignmentsTab`, `ObjectiveBar`, `NetworkMap`'s customer popup,
-`OptimizationParametersTab`, and Landing recent-solves. **Exports too (D20):** solve.py emits
-assignment `distanceMi` and `AssignmentTemplateRow`/`assignmentRowsToCsv` expose
-`distanceMi`/`distance_mi` — Chen must NOT export adjusted km under a miles field name. Pass the
-model's `distanceUnit` into the export builder and use a backward-compatible unit-aware row/header
-contract (existing mile models unchanged). Tests assert `km` / **absence of `mi`** on Chen surfaces
-**including CSV and JSON assignment exports**, not just visible labels.
+`OptimizationParametersTab`, and Landing recent-solves. **Exports (D20/D24) — exact shape:**
+`AssignmentTemplateRow.distanceMi` is **renamed to `distance`** with an added `distanceUnit` field;
+`assignmentRowsToCsv` header becomes `template_version,customer_id,warehouse_id,distance,distance_unit,band,flow`;
+`TEMPLATE_VERSION` bumps. **All models** adopt this (each passes its manifest `distanceUnit`; the mile
+models now carry `distanceUnit: "mi"` explicitly) — this repo has no external export consumers, so a
+clean rename + version bump beats a dual-field compat window. The base `distances` export already uses
+unit-agnostic `distance`. CostSummary export adds `objective_mode` + `distance_unit` (D25); ServiceStats
+export is unchanged (band-only). Tests assert `km`/**absence of `mi`** on Chen CSV + JSON exports, and
+that mile models still emit `distanceUnit:"mi"`.
 
 **Inputs (Workspace tabs):**
 - Mode toggle (`objective`) segmented Coverage ⇄ Min-distance; switches which param field shows.
-- `p` slider **1–25** — the shared slider is hard-capped at 50, so give it a model-derived max; test
-  that 26 cannot be authored via the tab or the Solve dialog. `highServiceDistKm`, `maxDistKm` always
+- `p` slider **1–25** (D27) — `OptimizationParametersTab` already takes a `pMax` prop (default 50);
+  `SolveDialog` hardcodes `max={50}` and needs a `pMax` prop added. Chen passes `pMax=25` to **both**;
+  test that 26 cannot be authored via either the tab or the Solve dialog. `highServiceDistKm`, `maxDistKm` always
   visible; `avgServiceDistCapKm` (coverage only); `coverageFloorDemand` (min-distance only, default
   `131645389`, inline "> total demand 199M = infeasible" hint). No band editor (D13, derived).
 - Warehouse table: status only, no capacity column (so the reused Open Warehouses tab shows no
@@ -262,17 +284,21 @@ colored by the two-class coverage lens (§Bands), shared `MapLegend`.
 model-aware rows (today they render only `metrics.bandCoverage` — real component work). **Source of
 each row:** `coveragePct`, `coveredDemand`, `uncoveredPct` from **`details`**; **average distance from
 `metrics.weightedAvgDistance`** (km) — the solved average lives only there, NOT in `details`. Locked
-columns:
-- *ServiceStats* rows/CSV: `Coverage %`, `Covered demand`, `Uncovered %`, `Avg service distance (km)`
-  + the existing cumulative `bandCoverage` `{band, percent}` rows.
-- *CostSummary* rows: `Objective` (mode-aware, below), `Avg service distance (km)`, band rollup.
+**tab** rows (UI only — export serializers are D25, not these):
+- *ServiceStatsTab*: `Coverage %`, `Covered demand`, `Uncovered %`, `Avg service distance (km)` + the
+  existing cumulative `bandCoverage` `{band, percent}` rows. ServiceStats **export** stays band-only
+  (D25 — `coveragePct` is the cumulative band-0 percent).
+- *CostSummaryTab*: `Objective` (mode-aware, below), `Avg service distance (km)`, band rollup.
+  CostSummary **export** adds `objective_mode` + `distance_unit` (D25).
 
 **Mode-aware objective (D14).** `ObjectiveBar`/CostSummary/exports/history format `objective` by mode
 (coverage `%` vs `demand-km`) — never one generic "Objective" label. The mode comes from
-`details.objective`. **Solve-history (D21):** `resultSummary`'s hardcoded `weightedAvgDistanceMi` is
-generalized to a unit-carrying field (e.g. `weightedAvgDistance` + `distanceUnit`), and `resultSummary`
-persists the `objective` **mode** so the Landing/history row can format it. Same-model **compare is
-restricted to scenarios sharing `details.objective`**. Output Map with metric overlay.
+`details.objective`. **Solve-history (D21) — exact shape:** `resultSummary` becomes
+`{status, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec}`;
+`weightedAvgDistanceMi` is **removed in the same OpenAPI/codegen commit**. Existing stored rows lacking
+the new fields render with `distanceUnit` defaulting to `"mi"` and, when `objectiveMode` is absent, the
+legacy single-objective label (no back-fill migration). Same-model **compare is restricted to scenarios
+sharing `details.objective`**. Output Map with metric overlay.
 
 ## Tests & QA
 
@@ -283,12 +309,13 @@ restricted to scenarios sharing `details.objective`**. Output Map with metric ov
   `avgServiceDistKm ≤ cap`. **Do NOT** assert runtime, exact average distance, specific
   customer→warehouse assignments, or edge order.
 - *Min-distance* (floor `131645389`): additionally `objective == pytest.approx(123834216789.27,
-  rel=1e-6)` and `weightedAvgDistance == pytest.approx(621.44, abs=0.05)`; same exact open set.
+  abs=0.05)` and `weightedAvgDistance == pytest.approx(621.44, abs=0.05)`; same exact open set.
 
-**Rounding/tolerance policy (D22):** the envelope emits `objective`/`weightedAvgDistance`/`coveragePct`
-rounded to 2 decimals (matching solve.py's existing `round(..., 2)` convention). Tests use
-`pytest.approx` (tolerances above) for all floats; only integer `coveredDemand` and the warehouse set
-are equality assertions.
+**Rounding/tolerance policy (D22):** the envelope emits `coveragePct` at **4 decimals** (so the
+`66.0639` assertion holds), and `objective`/`weightedAvgDistance` at 2 decimals (solve.py's `round(...,
+2)` convention). In coverage mode `objective == coveragePct`, asserted under the same 4-dp/1e-3 rule.
+Tests use `pytest.approx` (abs tolerances above — never `rel`, which at 1e11 admits ~1e5 of error) for
+all floats; only integer `coveredDemand` and the warehouse set are equality assertions.
 - *Failure:* floor `500100100` infeasible; zero-demand (all customers excluded, and all effective
   demands zeroed) — both blocked by precheck AND, if bypassed, a schema-valid infeasible envelope;
   unexpected solver error → schema-valid error envelope. Every failure case asserts the envelope
@@ -327,15 +354,18 @@ sequenced as explicit waves, not afterthoughts.
 
 ## Out of scope (explicit)
 
-Plant/supply echelon; capacity constraints; adding Chen answers to `e2e_accuracy.py`; changes to the
-existing 4 models beyond the shared registration lists/gates this model touches.
+Plant/supply echelon; capacity constraints; adding Chen answers to `e2e_accuracy.py`. The
+assignment-export `distance`/`distanceUnit` rename (D24) and any solve-history contract change (D21) DO
+touch the 5 existing models by necessity; everything else leaves them untouched beyond the shared
+registration lists/gates.
 
 ---
 
 ## Review history (audit trail — superseded, non-normative)
 
-Rev 1–4 findings were accepted and **folded into the body above** (Rev 4 → decisions D16–D22). This
-section records that they happened — it specifies nothing.
+Rev 1–5 findings were accepted (all verified correct against the repo) and **folded into the body
+above** (Rev 4 → D16–D22; Rev 5 → D23–D27 + D22/D14/D19/D20 revisions). This section records that they
+happened — it specifies nothing.
 
 - **Rev 1 findings (SUPERSEDED):** envelope completeness (`quality`/`flow`/omit-`leg`/
   `openWarehouseIds`), metrics-strip, required `timeLimitSec`/`gap`/`distanceBands`/`capacityMode`,
@@ -451,3 +481,106 @@ current dispatcher, precheck, async job runner, persistence paths, and output ex
 **Approval condition:** resolve the four blockers in the normative body and make the output/history
 field shapes and tolerances concrete. No changes to the notebook formulation, source-data facts,
 circuity, Option-A coverage golden, min-distance golden, or locked zero-demand policy are requested.
+
+## Re-review findings — 2026-09-14 (Rev 5, FOLDED → D22 revised + D23–D27)
+
+**All verified correct against the repo and resolved in the body:** rounding-vs-tolerance (D22),
+assignment-export rename (D24), solve-history exact shape (D21 revised), ServiceStats/CostSummary
+export schema (D25), band normalize-not-reject (D19 revised), Python-side merge boundary (D23),
+adjusted-distance precheck, D14 table wording, exception boundary, geocode city-only (D26), P-max both
+controls (D27), "existing 4 models"→5. Original text retained below as audit trail.
+
+**Disposition (historical): revise before implementation planning.** Rev 4 correctly resolves the
+dispatcher,
+blocking-only precheck, worker-failure layers, zero-flow open-facility reporting, and kilometre scope
+in principle. The following contract and test inconsistencies remain.
+
+### Blockers
+
+1. **The rounding policy makes the coverage golden fail.** D22 says every envelope float, including
+   `coveragePct`, is rounded to 2 decimal places, so the verified coverage becomes `66.06`. The test
+   requires `pytest.approx(66.0639, abs=1e-3)`; the difference is `0.0039`, outside that tolerance.
+   Retain at least 4 decimal places for coverage percentages (recommended) or use an absolute
+   tolerance of at least `0.005`. Assert the coverage-mode envelope `objective` under the same policy,
+   not only `details.coveragePct`.
+
+   The min-distance objective's `rel=1e-6` tolerance is also too loose: at
+   `123834216789.27`, it accepts an error of roughly `123,834`. For a 2-decimal emitted objective, use
+   `abs=0.05` (or a comparably strict relative tolerance). Keep exact equality only for integer
+   `coveredDemand` and the warehouse set.
+
+2. **D20 still does not define the assignment-export wire shape.** “A backward-compatible unit-aware
+   row/header contract” does not say whether Chen JSON emits `distance`, `distanceKm`, or
+   `distance + distanceUnit`, nor does it name the CSV header. Lock the exact fields and compatibility
+   behavior for existing mile models. One concrete additive choice is:
+
+   - JSON: `{…, distance, distanceUnit, …}` for all models while retaining legacy `distanceMi` only
+     during a documented compatibility window; and
+   - CSV: `distance` + `distance_unit` columns for all models, with an explicit version bump if the
+     current `distance_mi` header is removed.
+
+   A different choice is acceptable, but the spec must choose one before the plan divides API,
+   templates, and frontend work.
+
+3. **D21 still leaves solve-history fields as an example rather than a contract.** The text says
+   “e.g. `weightedAvgDistance + distanceUnit`.” Replace that with exact persisted
+   `resultSummary` and returned OpenAPI fields. Recommended shape:
+   `{status, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec}`. State whether
+   `weightedAvgDistanceMi` remains temporarily for compatibility or is removed in the same
+   OpenAPI/codegen commit, and define how existing stored history rows lacking the new fields are
+   rendered.
+
+4. **Service Stats and Cost Summary exports still have no serializable schema.** The “locked columns”
+   are UI labels, while today's Service Stats export is a homogeneous
+   `{template_version, band, percent}` row set. Coverage %, covered demand, uncovered %, average
+   distance, and band rows cannot be added as loosely named “rows” without choosing a wide or
+   discriminated format. Specify exact JSON properties and CSV headers, including mode and unit,
+   for both `serviceStats` and `costSummary`; state whether their template version changes.
+
+5. **D19 still permits two different PATCH/import outcomes.** The normative rule says mismatched
+   `distanceBands` are normalized before validation/storage and also rejected by a Zod refinement;
+   its test says “normalized/rejected.” Choose one observable API behavior. Recommended: validate
+   `highServiceDistKm`/`maxDistKm`, overwrite `distanceBands` with `[high,max]` on create/PATCH/
+   import-apply, persist the normalized result, and use a post-normalization invariant assertion—not
+   a rejection of an otherwise valid stale-client payload.
+
+### Important corrections
+
+- **Correct the payload/merge boundary.** The Dispatch section says `buildPayload` emits “all params
+  + merged dataset.” Existing models send parameters and sparse scenario edits; Python loads the
+  immutable package dataset and applies those edits with `merge_inputs.py`. Chen should emit
+  `modelType`, parameters, overrides, added entities, and distance overrides only; a
+  `build_merged_chens_dataset` helper performs the per-call merge in Python. If sending the full
+  dataset is intentional, it is a new architecture and must be justified and scoped explicitly.
+
+- **Make adjusted-distance precheck semantics explicit.** `no_feasible_route` must evaluate
+  `rawDistanceKm × 1.17 ≤ maxDistKm`, after merging overrides and estimates and filtering inactive
+  warehouses/excluded customers. Comparing the stored raw value directly would let precheck approve
+  scenarios the solver declares infeasible.
+
+- **Fix D14's stale decision-table wording.** D14 still says ServiceStats/CostSummary rows are sourced
+  from `details`; the normative Output section correctly says average distance comes from
+  `metrics.weightedAvgDistance`. Make the table match the detailed contract.
+
+- **Name the exception test boundary.** An exception caught by `solve.py`'s CLI `__main__` boundary
+  yields an error envelope, but a direct `solve_chens()` call may throw unless that function adds its
+  own catch. State whether the error-envelope test invokes the dispatcher/CLI or requires
+  `solve_chens()` itself to catch exceptions.
+
+- **Make the geocode province check implementable.** Dataset rows deliberately store `state: ""`, so
+  the extractor has no expected province against which to compare Nominatim's administrative result.
+  Either commit a city→province reference map used only during extraction or accept on normalized
+  city alone; otherwise “city + province matches” is not reproducible.
+
+- **Thread the P maximum through both controls.** `OptimizationParametersTab` already supports a
+  `pMax` prop, while `SolveDialog` still owns an independent hard-coded maximum. Specify that Chen
+  passes the same `pMax=25` to both components and test both authoring paths.
+
+### Minor correction
+
+- The Out-of-scope section says “existing 4 models,” while the header correctly states that five
+  models already exist before Chen.
+
+**Approval condition:** resolve the five blockers with exact observable field shapes and API behavior,
+then align the listed important/minor wording. No changes to the mathematical formulation, notebook
+ground truth, circuity, coverage tie policy, min-distance answer, or zero-demand policy are requested.
