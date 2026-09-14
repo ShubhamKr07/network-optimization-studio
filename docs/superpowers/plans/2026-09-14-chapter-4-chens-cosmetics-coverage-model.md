@@ -222,31 +222,35 @@ Expected ≈ `20.05 75.97 47.4 130.97`. Pad ~2°.
       "capacityMode": { "type": "string", "enum": ["none"] },
       "distanceBands": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
       "warehouseOverrides": { "type": "array", "items": { "type": "object",
-        "properties": { "id": { "type": "string" }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
+        "properties": { "id": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
         "required": ["id", "status"] } },
       "customerOverrides": { "type": "array", "items": { "type": "object",
-        "properties": { "id": { "type": "string" }, "status": { "type": "string", "enum": ["active", "excluded"] }, "demand": { "type": "integer", "minimum": 0 } },
-        "required": ["id"] } },
+        "properties": { "id": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["active", "excluded"] }, "demand": { "type": "integer", "minimum": 0 } },
+        "required": ["id", "status"] } },
       "addedWarehouses": { "type": "array", "items": { "type": "object",
-        "properties": { "id": { "type": "string" }, "displayCode": { "type": "string" }, "city": { "type": "string" }, "state": { "type": "string" }, "lat": { "type": "number" }, "lng": { "type": "number" }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
-        "required": ["id", "city", "lat", "lng", "status"] } },
+        "properties": { "id": { "type": "string", "minLength": 1 }, "displayCode": { "type": "string" }, "city": { "type": "string" }, "state": { "type": "string" }, "lat": { "type": "number" }, "lng": { "type": "number" }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
+        "required": ["id", "city", "state", "lat", "lng", "status"] } },
       "addedCustomers": { "type": "array", "items": { "type": "object",
-        "properties": { "id": { "type": "string" }, "displayCode": { "type": "string" }, "city": { "type": "string" }, "state": { "type": "string" }, "lat": { "type": "number" }, "lng": { "type": "number" }, "demand": { "type": "integer", "minimum": 0 }, "status": { "type": "string", "enum": ["active", "excluded"] } },
-        "required": ["id", "city", "lat", "lng", "demand"] } },
+        "properties": { "id": { "type": "string", "minLength": 1 }, "displayCode": { "type": "string" }, "city": { "type": "string" }, "state": { "type": "string" }, "lat": { "type": "number" }, "lng": { "type": "number" }, "demand": { "type": "integer", "minimum": 0 }, "status": { "type": "string", "enum": ["active", "excluded"] } },
+        "required": ["id", "city", "state", "lat", "lng", "demand"] } },
       "distanceOverrides": { "type": "array", "items": { "type": "object",
-        "properties": { "fromId": { "type": "string" }, "toId": { "type": "string" }, "distance": { "type": "number", "minimum": 0 }, "estimated": { "type": "boolean" } },
+        "properties": { "fromId": { "type": "string", "minLength": 1 }, "toId": { "type": "string", "minLength": 1 }, "distance": { "type": "number", "exclusiveMinimum": 0 }, "estimated": { "type": "boolean" } },
         "required": ["fromId", "toId", "distance"] } }
     },
     "required": ["objective", "p", "highServiceDistKm", "maxDistKm", "gap", "timeLimitSec", "capacityMode", "distanceBands"]
   }
 }
 ```
-(`inputsSchema` must be **non-empty** (`manifests.test.ts:20`) AND **complete** — the existing p-median
-manifest describes every sparse-edit array (`warehouseOverrides`/`customerOverrides`/`addedWarehouses`/
-`addedCustomers`/`distanceOverrides`), since `GET /models` returns this as the public input contract.
-Integer demand per D30; `timeLimitSec` `integer ≥ 1`; `distanceBands` exactly two positive numbers.
-`avgServiceDistCapKm`/`coverageFloorDemand` stay optional here — the objective-discriminated requirement
-is enforced by `chensInputsSchema` (Zod, C4.6). Confirm `datasetDir` verbatim against an existing manifest.)
+(`inputsSchema` must be **non-empty** (`manifests.test.ts:20`) AND **complete + shape-exact** — mirror
+the p-median manifest's nested constraints verbatim (they're the public contract via `GET /models`):
+added-entity ids `minLength:1`; `addedWarehouses.required`/`addedCustomers.required` **include `state`**;
+`customerOverrides.required` = `[id, status]`; `distanceOverrides.distance` `exclusiveMinimum:0`;
+`addedCustomers[].status` optional `[active,excluded]` (default active — the advertised exclusion
+capability). Chen deviates from p-median ONLY by dropping warehouse `capacity`/`uniformCapacity`.
+Integer demand per D30; `timeLimitSec` `integer≥1`; `distanceBands` exactly two positive numbers.
+**These nested shapes are stated first as the exact `chensInputsSchema` Zod schemas in C4.6, then this
+manifest mirrors them.** `avgServiceDistCapKm`/`coverageFloorDemand` stay optional here (objective-
+discriminated requirement enforced by Zod). Confirm `datasetDir` verbatim against an existing manifest.)
 
 - [ ] **Step 3: Register** — add `PACKAGE_SPECS` entry `{ modelId: "chens-cosmetics-cn", files: {
   "warehouses.json": z.record(z.string(), WarehouseEntry), "customers.json": z.record(z.string(),
@@ -256,12 +260,16 @@ is enforced by `chensInputsSchema` (Zod, C4.6). Confirm `datasetDir` verbatim ag
 
 - [ ] **Step 4: Tests** — (a) `manifest.test.ts`: `ManifestSchema.parse(<Chen manifest>)` →
   `distanceUnit==="km"`, exact `outputGrids`, `chapter==="Chapter 4"`, **and a structural
-  `inputsSchema` contract check** — `Object.keys(inputsSchema.properties)` contains all 15 fields
-  (objective, p, highServiceDistKm, maxDistKm, avgServiceDistCapKm, coverageFloorDemand, gap,
+  `inputsSchema` contract check**: `Object.keys(inputsSchema.properties).sort()` **equals** the exact
+  15-key set (objective, p, highServiceDistKm, maxDistKm, avgServiceDistCapKm, coverageFloorDemand, gap,
   timeLimitSec, capacityMode, distanceBands, warehouseOverrides, customerOverrides, addedWarehouses,
-  addedCustomers, distanceOverrides), `distanceBands` has `minItems===maxItems===2`, and representative
-  nested fields exist (`addedCustomers.items.properties.demand.type==="integer"`,
-  `distanceOverrides.items.properties.estimated`). (b) `index.test.ts`: find the Chen spec —
+  addedCustomers, distanceOverrides); `distanceBands.minItems===maxItems===2` with
+  `items.exclusiveMinimum===0`; the **nested `required` arrays** match
+  (`addedWarehouses`/`addedCustomers` include `state`; `customerOverrides`=`[id,status]`;
+  `distanceOverrides`=`[fromId,toId,distance]`); status enums are exact + `addedCustomers[].status` NOT
+  in its `required`; added-entity `id.minLength===1`; `distanceOverrides.items.properties.distance.exclusiveMinimum===0`;
+  and `distanceOverrides.items.properties.estimated.type==="boolean"`,
+  `addedCustomers.items.properties.demand.type==="integer"`. (b) `index.test.ts`: find the Chen spec —
   `const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn")!` — then
   `validatePackage(spec)` does not throw AND `computeSha256(spec) === readVersion("chens-cosmetics-cn").sha256`
   (`validatePackage` takes a `ModelPackageSpec`, NOT a model-id string).
@@ -302,11 +310,19 @@ def run(p):
     r = subprocess.run(["python3", SOLVE], input=json.dumps(p), capture_output=True, text=True); return json.loads(r.stdout)
 BASE = {"modelType":"chens","p":3,"highServiceDistKm":600,"maxDistKm":5000,"gap":0.0,"timeLimitSec":60,
         "warehouseOverrides":[],"customerOverrides":[],"addedWarehouses":[],"addedCustomers":[],"distanceOverrides":[]}
+def _assert_coverage_fields(r):                                      # D22 4-dp policy, both modes
+    cov = r["details"]["coveragePct"]
+    assert r["details"]["uncoveredPct"]==pytest.approx(round(100-cov,4),abs=1e-3)
+    bands = {b["band"]: b["percent"] for b in r["metrics"]["bandCoverage"]}
+    assert bands[r["details"]["highServiceDistKm"]]==pytest.approx(cov,abs=1e-3)   # high-service band == coveragePct
+    assert bands[r["details"]["maxDistKm"]]==pytest.approx(100.0,abs=1e-3)         # max-dist band == 100
 def test_coverage_golden():
     r = run({**BASE,"objective":"coverage","avgServiceDistCapKm":1000})
     assert r["status"]=="optimal"
     assert r["details"]["coveredDemand"]==131645389
     assert r["details"]["coveragePct"]==pytest.approx(66.0639,abs=1e-3)
+    assert r["objective"]==pytest.approx(r["details"]["coveragePct"],abs=1e-3)     # coverage objective == coveragePct
+    _assert_coverage_fields(r)
     assert set(r["details"]["openWarehouseIds"])=={"wh-40","wh-69","wh-102"}
     assert set(r["metrics"]["openFacilityIds"])=={"wh-40","wh-69","wh-102"}
     assert r["metrics"]["weightedAvgDistance"]<=1000
@@ -319,6 +335,7 @@ def test_min_distance_golden():
     assert r["status"]=="optimal"
     assert r["objective"]==pytest.approx(123834216789.27,abs=0.05)
     assert r["metrics"]["weightedAvgDistance"]==pytest.approx(621.44,abs=0.05)
+    _assert_coverage_fields(r)                                        # coverage fields present + 4-dp in min-distance mode too
     assert set(r["details"]["openWarehouseIds"])=={"wh-40","wh-69","wh-102"}
 def test_floor_infeasible():
     assert run({**BASE,"objective":"min_distance","coverageFloorDemand":500100100})["status"]=="infeasible"
@@ -398,9 +415,13 @@ def solve_chens(inp):
     return _envelope("optimal","optimal",obj,round(time.time()-t,2),edges,metrics,details)
 ```
 
-- [ ] **Step 5: Dispatch + eager load** — `elif model_type == "chens": return solve_chens(inp)` before
-  the unknown-model error; load `WAREHOUSES_CHENS/CUSTOMERS_CHENS/DISTANCE_CHENS` at module top (int-
-  free string keys; distance dict keyed by `(fromId,toId)` tuples parsed from the flat map).
+- [ ] **Step 5: Dispatch + CONTAINED load** — load the Chen package at module top via
+  `_safe_load("chens-cosmetics-cn", "warehouses.json", default={})` / `customers.json` / `distances.json`
+  (the repo's containment pattern — a corrupt/missing dataset is captured in `_LOAD_ERRORS`, never
+  breaks other models' import). At the TOP of `solve_chens`, guard: `if "chens-cosmetics-cn" in
+  _LOAD_ERRORS: return _load_error_envelope("chens-cosmetics-cn")`. Dispatch
+  `elif model_type == "chens": return solve_chens(inp)` before the unknown-model error. (Distance dict
+  keyed by `(fromId,toId)` tuples parsed from the flat map.)
 
 - [ ] **Step 6: Run goldens + Step-7 override tests — PASS.** Add: forced-open zero-demand WH still in
   `openWarehouseIds`+`openFacilityIds`; inactive WH absent; excluded customer absent; added WH openable;
@@ -409,9 +430,17 @@ def solve_chens(inp):
 
 - [ ] **Step 7: Vitest schema validation** — in `__tests__/resultEnvelope.test.ts` add cases that spawn
   `python3 solve.py` for `modelType:"chens"` and assert stdout parses against `ResultEnvelopeSchema`
-  (real TS validation) for **all four exit shapes**: optimal (coverage), model-level infeasible (floor
-  `500100100`), zero-demand infeasible (all customers excluded), and unexpected error (malformed
-  payload). Each must produce a schema-valid envelope with the D17-correct `status`.
+  (real TS validation) for the exit shapes: optimal (coverage), model-level infeasible (floor
+  `500100100`), zero-demand infeasible (all customers excluded), and unexpected error via **valid JSON
+  that is missing a required field** (e.g. omit `p`) — this reaches `solve(inp)` and throws inside the
+  `__main__` try → `error` envelope. **Do NOT** use syntactically malformed JSON: `json.loads` runs
+  BEFORE the `__main__` try, so unparseable input is a process-level non-zero exit, not an envelope.
+  Each valid case must produce a schema-valid envelope with the D17-correct `status`.
+- [ ] **Step 7b: `_safe_load` containment test** (pytest) — monkeypatch/point Chen's dataset dir at a
+  missing/corrupt file so `_LOAD_ERRORS["chens-cosmetics-cn"]` is set, assert `solve({"modelType":
+  "chens", ...})` returns a schema-valid `error` envelope (via `_load_error_envelope`), AND that an
+  existing model (e.g. `solve_pmedian`) still runs in the same process — proving one bad dataset doesn't
+  break every model's import.
 
 - [ ] **Step 8: e2e_accuracy unchanged.** `python3 artifacts/api-server/src/solver/tests/e2e_accuracy.py`.
 
@@ -464,6 +493,10 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   `capacity` outcomes (D18 "reuse `p_range`"); a contract test asserts all 8 round-trip through the
   generated client; **add as OPTIONAL** (not remove
   yet, producer lands in C4.10) solve-history `objectiveMode`, `weightedAvgDistance`, `distanceUnit`.
+  **Complete `ExportEnvelope.entity` enum** — it currently omits `assignments`/`openWarehouses`/
+  `costSummary`/`serviceStats` (has only `flows` from the output set), so the response envelope can't
+  represent 4 real output exports; add those 4, regenerate, and add a contract assertion that **every**
+  value in the export request-parameter `entity` enum is also accepted by `ExportEnvelope.entity`.
   **`ExportEnvelope.rows` stays the existing permissive/opaque type — scope decision, not laziness:**
   the envelope serves ~15 entities (warehouses/customers/mines/stations/refineries/distances/laneCosts/
   legDistances/plants/plantCapabilities + the 5 output rows); typing a partial union of only the new
@@ -495,12 +528,29 @@ additively now, remove `weightedAvgDistanceMi` in C4.10 alongside its producers/
   `pmedian.test.ts` asserts `buildPayload` emits `modelType:"chens"` + sparse edits + `distanceBands`
   normalized to `[high,max]`.
 - [ ] **Step 2: Run — fail.** `pnpm --filter api-server test chens registry pmedian`.
-- [ ] **Step 3: Implement** `chensInputsSchema` — demand fields (`customerOverrides[].demand`,
-  `addedCustomers[].demand`) and `coverageFloorDemand` are `z.number().int().nonnegative()` (integer
-  demand domain); D19 `.transform` overwrites `distanceBands` to `[high,max]`; refinement `high<max`.
+- [ ] **Step 3: Implement `chensInputsSchema` with the EXACT nested shapes** (these are authoritative;
+  C4.2's manifest mirrors them):
+  - `warehouseOverrides: z.array(z.object({ id: z.string().min(1), status: z.enum(["active",
+    "forced_open","inactive"]) }))` — NO capacity (Chen has none).
+  - `customerOverrides: z.array(z.object({ id: z.string().min(1), status: z.enum(["active","excluded"]),
+    demand: z.number().int().nonnegative().optional() }))`.
+  - `addedWarehouses: z.array(z.object({ id: z.string().min(1), displayCode: z.string().optional(),
+    city: z.string(), state: z.string(), lat: z.number(), lng: z.number(), status: z.enum([...]) }))`.
+  - `addedCustomers: z.array(z.object({ id: z.string().min(1), displayCode: z.string().optional(), city,
+    state, lat, lng, demand: z.number().int().nonnegative(), status: z.enum(["active","excluded"])
+    .default("active") }))` — status optional/default-active (exclusion capability).
+  - `distanceOverrides: z.array(z.object({ fromId: z.string().min(1), toId: z.string().min(1),
+    distance: z.number().positive(), estimated: z.boolean().optional() }))`.
+  - `coverageFloorDemand: z.number().int().nonnegative()` (D30); D19 `.transform` overwrites
+    `distanceBands` to `[high,max]`; refinement `highServiceDistKm < maxDistKm`.
   Add to `KNOWN_SCHEMAS` + `VALID_MODEL_IDS` + `validateInputsForModel`; add the `SolveInput` union
   member + `buildPayload` branch (sparse edits, NOT merged dataset); extend `registry.test.ts`'s
   `SOLVABLE`.
+- [ ] **Step 3b: D19 write-path route tests** — direct `POST /scenarios` create, `PATCH`, and
+  `POST .../import/apply` each carrying/staging a **stale third `distanceBands` boundary** assert the
+  STORED Chen `inputs.distanceBands` is exactly `[highServiceDistKm, maxDistKm]` — never 422'd, never
+  left stale (the import case runs after C4.7's Chen normalizer dispatch exists; if C4.7 hasn't landed
+  in the wave order, gate the import assertion on it and note the dependency).
 - [ ] **Step 4: Run — PASS. Commit** `[C4.6] Chen Zod inputs + KNOWN_SCHEMAS/VALID_MODEL_IDS registration + buildPayload (atomic)`.
 
 ---
@@ -1116,3 +1166,82 @@ input contract. Three implementation details also need to be made executable rat
 **Approval condition:** publish the complete Chen manifest input schema and cover it with a structural
 contract test; then specify the TypeScript precheck merge view, concrete frontend defaults, and
 mode-field clearing/persistence assertions. Apply the three consistency cleanups before dispatch.
+
+### Plan Rev 6 re-review — 2026-09-15 (FOLDED — nothing left open)
+
+**All verified correct and resolved:** nested manifest/Zod shapes now match the p-median convention
+exactly — `state` in added-entity `required`, `status` in `customerOverrides.required`, id `minLength:1`,
+`distanceOverrides.distance` `exclusiveMinimum:0`, `addedCustomers[].status` optional-default-active —
+stated authoritatively in C4.6's Zod then mirrored in C4.2, with an exact-key + nested-required + enum +
+minLength + exclusiveMinimum structural test (C4.2); `ExportEnvelope.entity` gains the 4 missing output
+values + a request↔response entity-parity contract test (C4.5); Chen loads via `_safe_load` + a
+`_LOAD_ERRORS`/`_load_error_envelope` guard at the top of `solve_chens` + a containment test (C4.3);
+D19 create/PATCH/import-apply write-path normalization tests (C4.6); D22 coverage/uncovered/band 4-dp
+assertions in BOTH modes (C4.3); the error-envelope case uses valid-JSON-missing-a-field (not malformed
+JSON, which `json.loads` rejects before the try); exact 15-key equality + `estimated` type check.
+Original text below.
+
+**Verified resolved from Rev 5:** C4.2 now lists all five sparse-edit arrays and constrains
+`timeLimitSec`/`distanceBands`; C4.8 explicitly builds its effective view in TypeScript rather than
+calling the Python merge; C4.11 locks `gap:0`/`timeLimitSec:120`; C4.12 clears the inactive
+mode-specific field and tests persistence; the estimator-core, Gate-1 Files, and opaque-rows-rationale
+cleanups are folded. The notebook formulation and tie-aware golden remain faithful.
+
+**Disposition:** the Rev 5 fixes are materially correct, but the expansion exposed three remaining
+contract/containment blockers and two acceptance-test gaps. The plan is not dispatch-ready until these
+are folded into the executable tasks.
+
+#### Blockers
+
+1. **[NEW] C4.2's nested manifest constraints still disagree with the intended Zod/Input-Map
+   contract.** `addedWarehouses.required` and `addedCustomers.required` omit `state` even though the
+   standard persisted shapes require it; `customerOverrides.required` omits `status`; added-entity and
+   distance identifiers do not carry the Zod `minLength: 1`; and `distanceOverrides.distance` permits
+   zero via `minimum: 0` even though the standard schema and C4.7's positive floor require a strictly
+   positive distance. C4.6 must first state the exact nested Chen schemas (including
+   `addedCustomers[].status` optional/default-active for the advertised exclusion capability), then
+   C4.2 must mirror them exactly. Extend the structural manifest test to assert the nested `required`
+   arrays, status enums/default behavior, non-empty IDs, and `exclusiveMinimum: 0`, not merely property
+   presence.
+
+2. **[NEW] C4.5 leaves `ExportEnvelope.entity` unable to represent four real output exports.** The
+   route request accepts `assignments`, `openWarehouses`, `costSummary`, `serviceStats`, and `flows`, but
+   the OpenAPI response envelope's `entity` enum currently includes only `flows` from that output set.
+   Preserving `rows` as opaque does not justify an incomplete discriminator. Add the other four output
+   values to `ExportEnvelope.entity`, regenerate, and add a contract assertion that every entity in the
+   export request-parameter enum is also accepted by the generated response envelope.
+
+3. **[NEW] C4.3 does not preserve the repository's model-local dataset-load failure containment.** The
+   current solver deliberately loads every package through `_safe_load` and checks `_LOAD_ERRORS` at
+   the start of the corresponding solver, so one missing/corrupt dataset cannot prevent every model
+   from importing. C4.3 only says to eagerly load Chen data and its proposed `solve_chens` has no guard.
+   Require `_safe_load("chens-cosmetics-cn", ...)` with safe empty defaults and an early
+   `_load_error_envelope("chens-cosmetics-cn")`. Add a containment test proving a Chen load failure
+   returns a schema-valid error envelope while an existing model remains runnable in the same process.
+
+#### Important corrections
+
+1. **Add D19's missing persistence-normalization route tests.** C4.6's Zod transform and C4.12's local
+   UI resync do not prove the public write-path contract. Add direct create, PATCH, and import/apply
+   cases carrying/staging a stale third distance boundary and assert the stored Chen inputs are
+   `[highServiceDistKm, maxDistKm]`, never rejected and never left stale. The import assertion should
+   exercise the final normalizer path after its C4.7 Chen dispatch exists.
+
+2. **Make C4.3's D22 rounding tests complete in both modes.** The current coverage golden checks only
+   `details.coveragePct`, and the min-distance golden does not check its coverage fields. Assert:
+   coverage-mode `objective == details.coveragePct`; `details.uncoveredPct == 100 - coveragePct`;
+   the high-service `bandCoverage.percent == coveragePct`; and the max-distance band is `100`. Exercise
+   the four-decimal coverage/uncovered/band policy in both objective modes while retaining the existing
+   two-decimal average/objective assertions and tie-aware exclusion of coverage-mode exact average.
+
+#### Minor cleanup
+
+- Make C4.2's property-set assertion exact (sorted equality of the 15 expected keys), not merely
+  “contains all 15,” and check the type of `distanceOverrides.items.properties.estimated`.
+- In C4.3's unexpected-error subprocess case, say “valid JSON missing a required field” rather than
+  “malformed payload”; `json.loads` occurs outside the CLI `try`, so syntactically malformed JSON is a
+  process-level non-zero exit, not an error envelope.
+
+**Approval condition:** align the nested manifest and Zod shapes; synchronize the export response
+discriminator with every supported output entity; preserve `_safe_load` containment for Chen; and add
+the D19 write-path plus D22 rounding assertions. Then the plan can be re-reviewed for dispatch.
