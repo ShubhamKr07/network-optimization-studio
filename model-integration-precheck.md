@@ -59,9 +59,10 @@ Tick every row.
 - [ ] **9. Override entity registration (import/export)** — `services/templates.ts`
       (`apply<Entity>Overrides` + `<entity>RowsToCsv`), `services/import.ts` (`ImportEntity` union +
       `COLUMNS`/`ENTITY_HAS_VALUE`/`VALID_STATUSES`), `routes/scenarios.ts` (entity union + the
-      model↔entity pairing checks repeated in `GET .../export`, `POST .../import`,
-      `POST .../import/apply`, and `POST .../reset-to-baseline`).
-      *Miss:* the model solves fine and lists fine — export/import/reset-to-baseline just 422 with
+      model↔entity pairing checks repeated in `GET .../export`, `POST .../import`, and
+      `POST .../import/apply`. (`POST .../reset-to-baseline` was removed repo-wide in SCN v0.3 Phase
+      3.2 — no longer a registration point.)
+      *Miss:* the model solves fine and lists fine — export/import just 422 with
       no other symptom, or worse, silently validate against the *wrong* dataset if your new model
       reuses an existing entity name like `"customers"` (thread `modelId` through
       `parseAndValidateImport` to disambiguate — see its `modelId` parameter). This is exactly what
@@ -269,7 +270,7 @@ signature as Gate 1.9/1.10.
 - [ ] API: invalid inputs rejected at the boundary, not in the runner
 - [ ] Registration consistency test includes the new model
 - [ ] Export/import route tests: correct entity accepted, sibling models' entities rejected (422),
-      apply persists into the right `inputs` field, reset-to-baseline clears it
+      apply persists into the right `inputs` field (reset-to-baseline was removed in SCN v0.3 Phase 3.2)
 - [ ] Frontend test: the header title/subtitle shown for the new model is correct — assert the
       new model's text is present AND an existing model's text is absent (a ternary fallback bug
       passes a positive-only assertion)

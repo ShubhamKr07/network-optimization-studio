@@ -1,6 +1,6 @@
 # Chapter 4 — Chen's Cosmetics Coverage / Service-Level Model (`chens-cosmetics-cn`)
 
-**Design spec (normative, Rev 8).** Adds a new solver model to Network Optimization Studio (the 6th —
+**Design spec (normative, Rev 9).** Adds a new solver model to Network Optimization Studio (the 6th —
 p-median-us, p-median-brazil, transport-coal, two-echelon-gold-au, two-echelon-jade-us already exist):
 a China warehouse-siting service-level model from the Chen's Cosmetics notebooks (Watson, Ch. 4).
 Single-echelon (warehouse → customer). Two coupled objectives exposed as one `objective` mode toggle:
@@ -53,6 +53,7 @@ Verified by diffing all code cells.
 | D29 | Self-describing distances (Chen's exports only) | The unit-labeling applies to **Chen's own output entities**: assignments (D24) + CostSummary + ServiceStats (D25) carry `distance_unit`, all at `OUTPUT_TEMPLATE_VERSION`. **NOT the importable `distances` export** — it's a bidirectional input template locked to the v1 4-column `template_version,from_id,to_id,distance` (adding a column breaks its own importer); its unit is model-implicit (manifest `distanceUnit`). Other models' `flows`/`legDistances` exports are out of scope. |
 | D26 | Geocode match rule | Accept a Nominatim result on **normalized city match alone** (rows store `state:""` → no province to compare). No external province map. |
 | D27 | P-max both controls | Add a `pMax` prop to `SolveDialog` (currently hardcodes `max={50}`); Chen passes `pMax=25` to it AND `OptimizationParametersTab`; test both authoring paths reject 26. |
+| D30 | Integer demand domain | Demand is integer end-to-end (notebook demands are integers). Chen Zod demand fields — `customerOverrides[].demand`, `addedCustomers[].demand`, and `coverageFloorDemand` — are `z.number().int().nonnegative()`. **Forced by D22** (`coveredDemand` is an unrounded integer): fractional demand would make `coveredDemand` non-integer, contradicting D22. So edge `flow` = integer demand and `coveredDemand` = exact integer sum. Rejecting fractional demand is intentional (consistency-forced, not a free product choice). |
 
 ## Ground truth (independently verified; PuLP/CBC; defaults P=3 / highServiceDist=600 / avgServiceDistCap=1000 / maxDist=5000)
 
@@ -194,7 +195,8 @@ the solver or any golden.
 - `modelId` enum += `chens-cosmetics-cn`.
 - `zip` — already present on `WarehouseCandidate`/`Customer`; no change.
 - `distances` entity — already enumerated; no enum change. Real work: **model→dataset selection** in
-  export/import/apply/reset + template/stub functions + reference/data-route branches. Today's
+  export/import/apply + template/stub functions + reference/data-route branches (NOTE:
+  `reset-to-baseline` was removed repo-wide in SCN v0.3 Phase 3.2 — do NOT reintroduce it). Today's
   p-median template path hard-selects the US-or-Brazil base, so allowlisting Chen would export the
   WRONG rows. Generalize selection by `modelId`; add negative sibling-model route tests (a Chen id
   must never resolve p-median rows).
@@ -217,7 +219,9 @@ Registered in `lib/dataset-schema` (`PACKAGE_SPECS`, `MODEL_IDS`, `ManifestSchem
 **Zod inputs (`validation/inputs/chens.ts`, behind `validateInputsForModel`) — complete field list:**
 - `objective: "coverage" | "min_distance"`
 - `p: int 1..25`; `highServiceDistKm > 0`; `maxDistKm > 0` with `highServiceDistKm < maxDistKm`
-- `avgServiceDistCapKm > 0` (required iff coverage); `coverageFloorDemand ≥ 0` (required iff min_distance)
+- `avgServiceDistCapKm > 0` (required iff coverage); `coverageFloorDemand` `z.number().int()≥0`
+  (required iff min_distance, integer per D30)
+- demand fields `customerOverrides[].demand` / `addedCustomers[].demand` are `z.number().int()≥0` (D30)
 - `timeLimitSec` (**required** — jobRunner computes `*1000 + 15000`); `gap` (CBC gap control)
 - `distanceBands` (derived `[high, max]`, D13); `capacityMode: "none"` (**persisted**, D11)
 - `warehouseOverrides[]` (status only); `customerOverrides[]` (status + demand)
@@ -397,8 +401,10 @@ lists/gates.
 
 Rev 1–8 findings were accepted (all verified correct against the repo) and **folded into the body
 above** (Rev 4 → D16–D22; Rev 5 → D23–D27; Rev 6 → D28–D29; Rev 7 → D4/D22/D25/D29 revisions +
-failure-details + cross-model scope; Rev 8 → D8/D25/D28 revisions + golden field-path + title). This
-section records that they happened — it specifies nothing.
+failure-details + cross-model scope; Rev 8 → D8/D25/D28 revisions + golden field-path + title;
+**Rev 9** (surfaced by the *plan* review) → D30 integer-demand domain (forced by D22) + removed the
+stale `reset-to-baseline` reference (endpoint deleted in SCN v0.3 Phase 3.2)). This section records
+that they happened — it specifies nothing.
 
 - **Rev 1 findings (SUPERSEDED):** envelope completeness (`quality`/`flow`/omit-`leg`/
   `openWarehouseIds`), metrics-strip, required `timeLimitSec`/`gap`/`distanceBands`/`capacityMode`,
