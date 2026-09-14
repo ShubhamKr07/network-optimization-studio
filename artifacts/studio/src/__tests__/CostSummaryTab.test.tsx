@@ -371,6 +371,32 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       expect(cities).toHaveTextContent("wh-11");
       expect(cities).toHaveTextContent("wh-14");
     });
+
+    it("shows 'City, ST' with the id kept as a sub-label when locationById is passed (JADE-only)", () => {
+      render(
+        <CostSummaryTab
+          result={j1.result}
+          scenarioId={50}
+          modelId="two-echelon-jade-us"
+          scenarios={[j1, j2]}
+          locationById={{ "wh-11": { city: "Allentown", state: "PA" }, "wh-14": { city: "Denver", state: "CO" } }}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
+      const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
+      expect(cities).toHaveTextContent("Allentown, PA");
+      expect(cities).toHaveTextContent("wh-11");
+      expect(cities).toHaveTextContent("Denver, CO");
+      expect(cities).toHaveTextContent("wh-14");
+    });
+
+    it("falls back to the pre-existing city-resolution rendering when locationById is absent (other-model default, no regression)", () => {
+      render(<CostSummaryTab result={j1.result} scenarioId={50} modelId="two-echelon-jade-us" scenarios={[j1, j2]} />);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
+      const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
+      expect(cities).toHaveTextContent("wh-11");
+      expect(cities).not.toHaveTextContent("Allentown");
+    });
   });
 
   it("shows per-band coverage rows when all selected scenarios share identical bands", () => {

@@ -80,4 +80,32 @@ describe("FlowsTab", () => {
     fireEvent.click(screen.getByTestId("button-download-flows-csv"));
     expect(spy).toHaveBeenCalledWith(1, "flows", "csv");
   });
+
+  // JADE — "City, ST" primary label + id mono sub-label
+  describe("JADE City, ST label (locationById)", () => {
+    it("shows 'City, ST' with the id kept as a sub-label for both From and To cells when locationById has entries", () => {
+      render(
+        <FlowsTab
+          result={jadeResult}
+          scenarioId={1}
+          locationById={{
+            "plant-1": { city: "Bethlehem", state: "PA" },
+            "wh-11": { city: "Allentown", state: "PA" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("flow-row-plant-1-wh-11-product-1");
+      expect(row).toHaveTextContent("Bethlehem, PA");
+      expect(row).toHaveTextContent("plant-1");
+      expect(row).toHaveTextContent("Allentown, PA");
+      expect(row).toHaveTextContent("wh-11");
+    });
+
+    it("falls back to ID-only rendering when locationById is absent (other-model default, no regression)", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} />);
+      const row = screen.getByTestId("flow-row-KY-CHI");
+      expect(row).toHaveTextContent("KY");
+      expect(row).not.toHaveTextContent(",");
+    });
+  });
 });

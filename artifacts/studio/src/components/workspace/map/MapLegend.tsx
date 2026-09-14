@@ -126,6 +126,11 @@ export interface MapLegendProps {
    * into `showStatusLegend`'s status-vocabulary rows. Optional, default
    * `false` (every other model's call site is unaffected). */
   showPlantLayer?: boolean;
+  /** Output variant only — the active model's distance unit (mirrors the
+   * route hover tooltip's own unit, Bundle 2.2 item 12). Used to label each
+   * distance-band swatch's upper bound ("≤ {bound} {distanceUnit}") instead
+   * of the old ordinal "Band N". Optional, default `"mi"`. */
+  distanceUnit?: string;
 }
 
 // Static overlay — status swatches + demand reference bubbles (Input) or
@@ -152,6 +157,7 @@ export function MapLegend({
   bands = [],
   hintText = null,
   showPlantLayer = false,
+  distanceUnit = "mi",
 }: MapLegendProps = {}) {
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
@@ -258,7 +264,16 @@ export function MapLegend({
         <div className="pt-1 border-t border-border">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Distance bands</div>
           <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-center">
-            {bands.map((_, i) => (
+            {/* Each swatch is labeled by its band's upper bound ("≤ X unit")
+                rather than the old ordinal "Band N" — matches
+                NetworkMap.tsx's own `assignBand`/`getBandColor(i)` coloring
+                exactly (bands.lib's assignBand is an exclusive bucket: a
+                distance <= bands[i] gets color i). There is no separate
+                overflow swatch here: assignBand clamps any distance beyond
+                the last boundary into the SAME last-band index (not a
+                distinct color), so a trailing "> X" row would misrepresent
+                the map as having a color it doesn't actually render. */}
+            {bands.map((boundary, i) => (
               <Fragment key={i}>
                 {/* getBandColor clamps past BAND_COLORS' 5 entries — matches the map (resolution #5) */}
                 <span
@@ -266,7 +281,9 @@ export function MapLegend({
                   style={{ backgroundColor: getBandColor(i) }}
                   data-testid={`legend-band-${i}`}
                 />
-                <span className="text-muted-foreground font-mono text-[10px]">Band {i + 1}</span>
+                <span className="text-muted-foreground font-mono text-[10px]">
+                  ≤ {boundary} {distanceUnit}
+                </span>
               </Fragment>
             ))}
           </div>

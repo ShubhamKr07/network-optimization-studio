@@ -156,6 +156,29 @@ describe("OpenWarehousesTab", () => {
     });
   });
 
+  // JADE — "City, ST" primary label + id/displayCode mono sub-label
+  describe("JADE City, ST label (locationById)", () => {
+    it("shows 'City, ST' with the id kept as a sub-label when locationById has an entry", () => {
+      render(
+        <OpenWarehousesTab
+          result={result}
+          scenarioId={1}
+          locationById={{ ALN: { city: "Allentown", state: "PA" } }}
+        />,
+      );
+      const row = screen.getByTestId("open-warehouse-row-ALN");
+      expect(row).toHaveTextContent("Allentown, PA");
+      expect(row).toHaveTextContent("ALN");
+    });
+
+    it("falls back to ID-only rendering when locationById is absent (other-model default, no regression)", () => {
+      render(<OpenWarehousesTab result={result} scenarioId={1} />);
+      const row = screen.getByTestId("open-warehouse-row-ALN");
+      expect(row).toHaveTextContent("ALN");
+      expect(row).not.toHaveTextContent("Allentown");
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // The component has no `localInputs` prop at all — `displayedInputs` is

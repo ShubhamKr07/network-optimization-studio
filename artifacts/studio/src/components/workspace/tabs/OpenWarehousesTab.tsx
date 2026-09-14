@@ -32,6 +32,13 @@ interface OpenWarehousesTabProps {
   scenarioId: number;
   /** Optional (back-compat default: Utilization shown, ids rendered raw). */
   displayedInputs?: OpenWarehousesDisplayedInputs | null;
+  /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
+   * by Workspace.tsx's `jadeLocationMapFromInputs` off the SAME snapshot
+   * `displayedInputs` reflects. When present, the Warehouse cell shows
+   * "City, ST" as the primary label with the id/displayCode as a mono
+   * sub-label (mirrors JadeDistancesTab.tsx). Absent for every other model
+   * (undefined) -> unchanged id-only rendering. */
+  locationById?: Record<string, { city: string; state: string }>;
 }
 
 interface OpenWarehouseRow {
@@ -84,7 +91,7 @@ function displayCodeById(displayedInputs: OpenWarehousesDisplayedInputs | null |
   return map;
 }
 
-export function OpenWarehousesTab({ result, scenarioId, displayedInputs }: OpenWarehousesTabProps) {
+export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById }: OpenWarehousesTabProps) {
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="open-warehouses-empty">No solved result yet.</div>;
   }
@@ -123,15 +130,27 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs }: OpenW
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {rows.map(r => {
+              const loc = locationById?.[r.warehouseId];
+              return (
               <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">
-                <td className="p-2">{codeById[r.warehouseId] ?? r.warehouseId}</td>
+                <td className="p-2">
+                  {loc ? (
+                    <div className="flex flex-col">
+                      <span>{loc.city}, {loc.state}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">{codeById[r.warehouseId] ?? r.warehouseId}</span>
+                    </div>
+                  ) : (
+                    codeById[r.warehouseId] ?? r.warehouseId
+                  )}
+                </td>
                 <td className="p-2 text-right font-mono">{r.totalFlow.toLocaleString()}</td>
                 {showUtilization && (
                   <td className="p-2 text-right font-mono">{r.utilization != null ? `${Math.round(r.utilization)}%` : "—"}</td>
                 )}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

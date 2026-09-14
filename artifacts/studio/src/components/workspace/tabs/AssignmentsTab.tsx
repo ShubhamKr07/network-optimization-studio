@@ -16,6 +16,14 @@ interface AssignmentsTabProps {
   scenarioId: number;
   /** Optional (back-compat default: ids rendered raw). */
   displayedInputs?: AssignmentsDisplayedInputs | null;
+  /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
+   * by Workspace.tsx's `jadeLocationMapFromInputs` off the SAME snapshot
+   * `displayedInputs` reflects. When present, both the Customer and
+   * Warehouse cells show "City, ST" as the primary label with the
+   * id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
+   * Absent for every other model (undefined) -> unchanged id-only
+   * rendering. */
+  locationById?: Record<string, { city: string; state: string }>;
 }
 
 // Merges addedWarehouses ∪ addedRefineries into one id -> displayCode
@@ -74,10 +82,24 @@ function aggregatedAssignmentRows(result: SolveResult): AssignmentRow[] {
   return [...byCustomer.values()];
 }
 
+// JADE-only "City, ST" primary + id/displayCode mono sub-label, mirroring
+// JadeDistancesTab.tsx's From/To cell. Falls back to the raw id/displayCode
+// (unchanged) when `locationById` is absent or has no entry for this id.
+function idCell(id: string, displayLabel: string, locationById: Record<string, { city: string; state: string }> | undefined) {
+  const loc = locationById?.[id];
+  if (!loc) return displayLabel;
+  return (
+    <div className="flex flex-col">
+      <span>{loc.city}, {loc.state}</span>
+      <span className="font-mono text-[10px] text-muted-foreground">{displayLabel}</span>
+    </div>
+  );
+}
+
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
-export function AssignmentsTab({ result, scenarioId, displayedInputs }: AssignmentsTabProps) {
+export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById }: AssignmentsTabProps) {
   if (!result) {
     return (
       <div className="p-4 text-sm text-muted-foreground" data-testid="assignments-empty">
@@ -114,8 +136,8 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs }: Assignme
           <tbody>
             {rows.map(r => (
               <tr key={r.customerId} data-testid={`assignment-row-${r.customerId}`} className="border-b">
-                <td className="p-2">{r.customerId}</td>
-                <td className="p-2">{codeById[r.warehouseId] ?? r.warehouseId}</td>
+                <td className="p-2">{idCell(r.customerId, r.customerId, locationById)}</td>
+                <td className="p-2">{idCell(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById)}</td>
                 <td className="p-2 text-right font-mono">{r.distance.toFixed(1)}</td>
                 <td className="p-2 text-right font-mono">{r.flow.toLocaleString()}</td>
               </tr>

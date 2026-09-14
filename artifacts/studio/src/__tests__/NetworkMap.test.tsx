@@ -1066,6 +1066,8 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
     const legend = container.querySelector('[data-testid="map-legend"]')!;
     const swatches = legend.querySelectorAll('[data-testid^="legend-band-"]');
     expect(swatches.length).toBe(6);
-    expect(legend.textContent).toContain("Band 6");
+    // Labeled by upper bound, not the old ordinal "Band N" — default unit
+    // "mi" since this render doesn't pass distanceUnit.
+    expect(legend.textContent).toContain("≤ 3000 mi");
   });
 });

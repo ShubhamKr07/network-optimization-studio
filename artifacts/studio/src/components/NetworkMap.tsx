@@ -633,6 +633,7 @@ export function NetworkMap({
         showRoutes={showRoutes}
         bands={bands}
         hintText={hintText}
+        distanceUnit={distanceUnit}
       />
     </div>
   );

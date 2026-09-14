@@ -2442,6 +2442,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             track("override edited", { scenario_id: currentScenario?.id, model_id: modelId, entity: "capability-matrix", field: "enabled" });
             updateInputsField("plantProductCapability", next);
           }}
+          // This tab is only ever reached when supportsPlantProductCapability
+          // is true (currently JADE-only), but the prop is still built from
+          // `localInputs` (this tab's own input-side snapshot, matching every
+          // other prop passed here) rather than an unconditional modelId
+          // check, per the "gate at the call site" pattern used for the
+          // output grids above.
+          locationById={jadeLocationMapFromInputs(dataset, localInputs)}
         />
       );
     }
@@ -2861,6 +2868,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         );
       }
       const result = displayedResult;
+      // JADE output "City, ST" labels — built from the SAME snapshot
+      // (displayedInputs, never localInputs) each output grid already reads
+      // for added-entity display codes, so added entities resolve
+      // consistently between the two. JADE-only per explicit scope: every
+      // other model's call site below passes `undefined`, which each
+      // component's own `locationById` prop treats as "unchanged ID-only
+      // rendering" (back-compat default) — the gate lives HERE, never inside
+      // the shared components themselves.
+      const jadeOutputLocationById =
+        modelId === "two-echelon-jade-us" ? jadeLocationMapFromInputs(dataset, displayedInputs) : undefined;
       if (activeTab.entity === "open-warehouses")
         return (
           <OpenWarehousesTab
@@ -2875,6 +2892,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               displayedInputs,
               modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
             )}
+            locationById={jadeOutputLocationById}
           />
         );
       if (activeTab.entity === "customer-assignments")
@@ -2883,6 +2901,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             result={result}
             scenarioId={currentScenario!.id}
             displayedInputs={facilityDisplayedInputs(displayedInputs)}
+            locationById={jadeOutputLocationById}
           />
         );
       // T5 — Solution Summary compare (R6+R8). `scenarios` is the same-model
@@ -2900,9 +2919,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             modelId={modelId}
             scenarios={scenarios ?? []}
             isBrowsingHistory={canGoForwardResult}
+            locationById={jadeOutputLocationById}
           />
         );
-      if (activeTab.entity === "flows") return <FlowsTab result={result} scenarioId={currentScenario!.id} />;
+      if (activeTab.entity === "flows")
+        return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} />;
       // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
       // unit) but left this call site unwired — closing that gap here.
       return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} modelId={modelId} />;

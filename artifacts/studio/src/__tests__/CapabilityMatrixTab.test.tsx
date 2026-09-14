@@ -112,6 +112,40 @@ describe("CapabilityMatrixTab", () => {
     expect(onChange).toHaveBeenCalledWith([{ plantId: "ap-new-1", productId: "product-1", enabled: true }]);
   });
 
+  // JADE — "City, ST" primary label + plant id mono sub-label
+  describe("JADE City, ST label (locationById)", () => {
+    it("shows 'City, ST' with the plant id kept as a sub-label when locationById has an entry", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+          locationById={{ "plant-1": { city: "Kalgoorlie", state: "WA" } }}
+        />,
+      );
+      const row = screen.getByTestId("row-capability-plant-1");
+      expect(row).toHaveTextContent("Kalgoorlie, WA");
+      expect(row).toHaveTextContent("plant-1");
+    });
+
+    it("falls back to the existing name/(city, state) rendering when locationById is absent (other-model default, no regression)", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      const row = screen.getByTestId("row-capability-plant-1");
+      expect(row).toHaveTextContent("Plant One");
+      expect(row).toHaveTextContent("(A, QLD)");
+    });
+  });
+
   it("shows an empty state when there are no plants or products", () => {
     render(
       <CapabilityMatrixTab plants={[]} products={products} baseCapabilities={[]} overrides={[]} onChange={vi.fn()} />,

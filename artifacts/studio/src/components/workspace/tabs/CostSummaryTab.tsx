@@ -27,6 +27,13 @@ interface CostSummaryTabProps {
   // `displayedResult` must never silently become a compare column, so the
   // toggle list is disabled (not hidden) with a hint whenever this is true.
   isBrowsingHistory?: boolean;
+  /** JADE-only — id -> {city, state}, built by Workspace.tsx's
+   * `jadeLocationMapFromInputs`. When present, the compare mode's
+   * "Open facilities" row shows each facility as "City, ST" with the raw id
+   * as a mono sub-label (mirrors JadeDistancesTab.tsx), instead of the
+   * existing comma-joined `facilityCityLabel` string. Absent (undefined,
+   * back-compat default) -> unchanged rendering for every other model. */
+  locationById?: Record<string, { city: string; state: string }>;
 }
 
 const MAX_COMPARE = 4;
@@ -120,7 +127,7 @@ function scenariosShareBands(results: SolveResult[]): boolean {
   return results.every(r => JSON.stringify(bandBoundaries(r)) === firstKey);
 }
 
-export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], isBrowsingHistory = false }: CostSummaryTabProps) {
+export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], isBrowsingHistory = false, locationById }: CostSummaryTabProps) {
   // R9/R6+R8 — same lookup ServiceStatsTab.tsx already does: GET /api/models
   // is independent of everything else on this page, defaulting absent ->
   // "mi"/no facility rows rather than blocking render on it resolving.
@@ -308,7 +315,22 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 <td className="p-2 text-muted-foreground">Open facilities</td>
                 {compareScenarios.map(s => (
                   <td key={s.id} className="p-2" data-testid={`cost-summary-compare-open-facilities-cities-${s.id}`}>
-                    {openFacilityCityList(s.result!, s.inputs, baseFacilities)}
+                    {locationById ? (
+                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                        {[...openFacilityIds(s.result!)].sort().map(id => {
+                          const loc = locationById[id];
+                          return (
+                            <span key={id} className="flex flex-col">
+                              <span>{loc ? `${loc.city}, ${loc.state}` : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs))}</span>
+                              <span className="font-mono text-[10px] text-muted-foreground">{id}</span>
+                            </span>
+                          );
+                        })}
+                        {openFacilityIds(s.result!).size === 0 && "—"}
+                      </div>
+                    ) : (
+                      openFacilityCityList(s.result!, s.inputs, baseFacilities)
+                    )}
                   </td>
                 ))}
               </tr>

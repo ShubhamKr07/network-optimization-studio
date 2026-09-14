@@ -4,6 +4,26 @@ import { downloadEntityExport } from "@/lib/exportEntity";
 interface FlowsTabProps {
   result: SolveResult | null;
   scenarioId: number;
+  /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
+   * by Workspace.tsx's `jadeLocationMapFromInputs`. When present, both the
+   * From and To cells show "City, ST" as the primary label with the raw id
+   * as a mono sub-label (mirrors JadeDistancesTab.tsx). Absent for every
+   * other model (undefined) -> unchanged id-only rendering. */
+  locationById?: Record<string, { city: string; state: string }>;
+}
+
+// JADE-only "City, ST" primary + id mono sub-label, mirroring
+// JadeDistancesTab.tsx's From/To cell. Falls back to the raw id (unchanged)
+// when `locationById` is absent or has no entry for this id.
+function idCell(id: string, locationById: Record<string, { city: string; state: string }> | undefined) {
+  const loc = locationById?.[id];
+  if (!loc) return id;
+  return (
+    <div className="flex flex-col">
+      <span>{loc.city}, {loc.state}</span>
+      <span className="font-mono text-[10px] text-muted-foreground">{id}</span>
+    </div>
+  );
 }
 
 // C6.1 — the transport-coal/two-echelon equivalent of Customer Assignments.
@@ -23,7 +43,7 @@ function flowRows(result: SolveResult) {
   return result.edges.filter(e => !(e.leg != null && FACILITY_TO_DEMAND_LEGS.has(e.leg)));
 }
 
-export function FlowsTab({ result, scenarioId }: FlowsTabProps) {
+export function FlowsTab({ result, scenarioId, locationById }: FlowsTabProps) {
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="flows-empty">No solved result yet.</div>;
   }
@@ -69,8 +89,8 @@ export function FlowsTab({ result, scenarioId }: FlowsTabProps) {
               const rowKey = e.productId != null ? `${e.fromId}-${e.toId}-${e.productId}` : `${e.fromId}-${e.toId}`;
               return (
                 <tr key={rowKey} data-testid={`flow-row-${rowKey}`} className="border-b">
-                  <td className="p-2">{e.fromId}</td>
-                  <td className="p-2">{e.toId}</td>
+                  <td className="p-2">{idCell(e.fromId, locationById)}</td>
+                  <td className="p-2">{idCell(e.toId, locationById)}</td>
                   {hasProduct && <td className="p-2">{e.productId ?? "—"}</td>}
                   <td className="p-2 text-right font-mono">{e.distance.toFixed(1)}</td>
                   <td className="p-2 text-right font-mono">{e.flow.toLocaleString()}</td>

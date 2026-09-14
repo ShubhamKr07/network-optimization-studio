@@ -28,6 +28,13 @@ interface CapabilityMatrixTabProps {
   /** Sparse scenario-local overrides. */
   overrides: CapabilityOverride[];
   onChange: (next: CapabilityOverride[]) => void;
+  /** JADE-only — id -> {city, state}, built by Workspace.tsx's
+   * `jadeLocationMapFromInputs`. When present, the plant row header shows
+   * "City, ST" as the primary label with the plant id as a mono sub-label
+   * (mirrors JadeDistancesTab.tsx), replacing the plain
+   * `{name} ({city}, {state})` format below. Absent (undefined, the
+   * back-compat default) -> unchanged rendering. */
+  locationById?: Record<string, { city: string; state: string }>;
 }
 
 function baseEnabled(baseCapabilities: PlantProductCapability[], plantId: string, productId: string): boolean {
@@ -48,6 +55,7 @@ export function CapabilityMatrixTab({
   baseCapabilities,
   overrides,
   onChange,
+  locationById,
 }: CapabilityMatrixTabProps) {
   function getOverride(plantId: string, productId: string) {
     return overrides.find(o => o.plantId === plantId && o.productId === productId);
@@ -90,11 +98,20 @@ export function CapabilityMatrixTab({
           {plants.map(plant => (
             <TableRow key={plant.id} data-testid={`row-capability-${plant.id}`}>
               <TableCell className="text-xs">
-                <span className="font-mono">{plant.name ?? plant.id}</span>
-                {plant.city && (
-                  <span className="text-muted-foreground ml-1">
-                    ({plant.city}, {plant.state})
-                  </span>
+                {locationById?.[plant.id] ? (
+                  <div className="flex flex-col">
+                    <span>{locationById[plant.id].city}, {locationById[plant.id].state}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{plant.id}</span>
+                  </div>
+                ) : (
+                  <>
+                    <span className="font-mono">{plant.name ?? plant.id}</span>
+                    {plant.city && (
+                      <span className="text-muted-foreground ml-1">
+                        ({plant.city}, {plant.state})
+                      </span>
+                    )}
+                  </>
                 )}
               </TableCell>
               {products.map(product => {

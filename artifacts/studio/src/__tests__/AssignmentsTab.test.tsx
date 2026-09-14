@@ -114,6 +114,34 @@ describe("AssignmentsTab", () => {
     });
   });
 
+  // JADE — "City, ST" primary label + id/displayCode mono sub-label
+  describe("JADE City, ST label (locationById)", () => {
+    it("shows 'City, ST' with the id kept as a sub-label for both customer and warehouse cells when locationById has entries", () => {
+      render(
+        <AssignmentsTab
+          result={result}
+          scenarioId={1}
+          locationById={{
+            C1: { city: "Springfield", state: "IL" },
+            ALN: { city: "Allentown", state: "PA" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-C1");
+      expect(row).toHaveTextContent("Springfield, IL");
+      expect(row).toHaveTextContent("C1");
+      expect(row).toHaveTextContent("Allentown, PA");
+      expect(row).toHaveTextContent("ALN");
+    });
+
+    it("falls back to ID-only rendering when locationById is absent (other-model default, no regression)", () => {
+      render(<AssignmentsTab result={result} scenarioId={1} />);
+      const row = screen.getByTestId("assignment-row-C1");
+      expect(row).toHaveTextContent("ALN");
+      expect(row).not.toHaveTextContent("Springfield");
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // Same rationale as OpenWarehousesTab's equivalent test: this component
