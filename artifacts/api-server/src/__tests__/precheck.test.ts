@@ -4,6 +4,7 @@ import {
   precheckTransportInputs,
   precheckTwoEchelonInputs,
   precheckJadeInputs,
+  precheckChensInputs,
   buildTransportIdSpaces,
   buildTwoEchelonIdSpaces,
   buildActivePMedianIds,
@@ -13,14 +14,17 @@ import {
   TRANSPORT_DATASET,
   TWO_ECHELON_DATASET,
   JADE_DATASET,
+  CHENS_DATASET,
   type PrecheckDataset,
   type TwoEchelonPrecheckDataset,
   type JadePrecheckDataset,
+  type ChensPrecheckDataset,
 } from "../services/precheck.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
+import type { ChensInputs } from "../validation/inputs/chens.js";
 
 // Small fake dataset (not the real 26/200-row p-median-us dataset) — the
 // whole point of B2.1's "take the dataset as a parameter" design is that
@@ -1314,5 +1318,255 @@ describe("buildActiveJadeIds — jade-T6", () => {
   it("every base and added plant is always active — plants have no status/override concept in this model", () => {
     const result = buildActiveJadeIds({ addedPlants: [{ id: "PLANT-NEW" }] }, JADE_DATASET_FAKE);
     expect(result.activePlantIds.sort()).toEqual(["PLANT-A", "PLANT-B", "PLANT-NEW"].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C4.8 — Chapter 4 (chens-cosmetics-cn) semantic precheck. Small fake dataset
+// (not the real 25/197-row package) so the coverage/min-distance thresholds
+// and circuity math are testable in isolation — same design as every other
+// model's precheck fixtures. Distances are RAW km; the precheck applies ×1.17
+// circuity. Chosen so the baseline is feasible and C-3 is reachable by exactly
+// one warehouse (WH-C), giving inactivate/override edits a single clean lever.
+//   raw × 1.17 ≤ threshold:
+//     highServiceDistKm 500  → raw ≤ 427.35
+//     maxDistKm        1000  → raw ≤ 854.70
+const CHENS_DATASET_FAKE: ChensPrecheckDataset = {
+  warehouses: [{ id: "WH-A" }, { id: "WH-B" }, { id: "WH-C" }],
+  customers: [{ id: "C-1" }, { id: "C-2" }, { id: "C-3" }],
+  supportsAddedCustomerExclusion: true,
+  customerDemands: { "C-1": 100, "C-2": 200, "C-3": 300 },
+  baseDistanceKm: {
+    "WH-A|C-1": 100, "WH-A|C-2": 300, "WH-A|C-3": 900,
+    "WH-B|C-1": 200, "WH-B|C-2": 100, "WH-B|C-3": 950,
+    "WH-C|C-1": 800, "WH-C|C-2": 850, "WH-C|C-3": 300,
+  },
+};
+
+const CHENS_BASE_COVERAGE: ChensInputs = {
+  objective: "coverage",
+  p: 2,
+  highServiceDistKm: 500,
+  maxDistKm: 1000,
+  avgServiceDistCapKm: 400,
+  gap: 0.01,
+  timeLimitSec: 60,
+  capacityMode: "none",
+  distanceBands: [500, 1000],
+  warehouseOverrides: [],
+  customerOverrides: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const CHENS_BASE_MIN_DISTANCE: ChensInputs = {
+  ...CHENS_BASE_COVERAGE,
+  objective: "min_distance",
+  avgServiceDistCapKm: undefined,
+  coverageFloorDemand: 100,
+};
+
+const addedCustomer = (over: Partial<ChensInputs["addedCustomers"][number]> = {}) => ({
+  id: "C-NEW",
+  city: "New City",
+  state: "",
+  lat: 30,
+  lng: 110,
+  demand: 400,
+  status: "active" as const,
+  ...over,
+});
+
+const addedWarehouse = (over: Partial<ChensInputs["addedWarehouses"][number]> = {}) => ({
+  id: "WH-NEW",
+  city: "New WH",
+  state: "",
+  lat: 31,
+  lng: 111,
+  status: "active" as const,
+  ...over,
+});
+
+const codes = (r: { errors: { code: string }[] }) => r.errors.map((e) => e.code);
+
+describe("precheckChensInputs — C4.8 semantic precheck", () => {
+  it("returns ok:true for a coverage scenario with no network edits (fake dataset)", () => {
+    expect(precheckChensInputs(CHENS_BASE_COVERAGE, CHENS_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+  });
+
+  it("returns ok:true for a min_distance scenario with no network edits (fake dataset)", () => {
+    expect(precheckChensInputs(CHENS_BASE_MIN_DISTANCE, CHENS_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+  });
+
+  it("returns ok:true for a real chens-cosmetics-cn coverage scenario with no network edits (default dataset)", () => {
+    // Uses the real CHENS_DATASET default: every one of the 197 customers has a
+    // warehouse within maxDistKm after circuity (the coverage golden is
+    // feasible at maxDistKm 5000), so no_feasible_route never fires.
+    const inputs: ChensInputs = {
+      ...CHENS_BASE_COVERAGE,
+      p: 3,
+      highServiceDistKm: 600,
+      maxDistKm: 5000,
+      distanceBands: [600, 5000],
+    };
+    expect(precheckChensInputs(inputs)).toEqual({ ok: true, errors: [] });
+  });
+
+  describe("zero_demand", () => {
+    it("fires when a demand override zeroes every active customer's demand", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        customerOverrides: [
+          { id: "C-1", status: "active", demand: 0 },
+          { id: "C-2", status: "active", demand: 0 },
+          { id: "C-3", status: "active", demand: 0 },
+        ],
+      };
+      const result = precheckChensInputs(inputs, CHENS_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(codes(result)).toEqual(["zero_demand"]);
+    });
+
+    it("fires when every customer is excluded (empty active set)", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        customerOverrides: [
+          { id: "C-1", status: "excluded" },
+          { id: "C-2", status: "excluded" },
+          { id: "C-3", status: "excluded" },
+        ],
+      };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toEqual(["zero_demand"]);
+    });
+  });
+
+  describe("no_feasible_route (maxDistKm, ×1.17)", () => {
+    it("fires when an inactive-warehouse edit strands a customer beyond maxDistKm", () => {
+      // WH-C is C-3's ONLY reachable warehouse (WH-A 900×1.17=1053 > 1000,
+      // WH-B 950×1.17=1111 > 1000). Inactivating it leaves C-3 unreachable.
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        warehouseOverrides: [{ id: "WH-C", status: "inactive" }],
+      };
+      const result = precheckChensInputs(inputs, CHENS_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(codes(result)).toEqual(["no_feasible_route"]);
+      expect(result.errors[0].message).toContain("C-3");
+    });
+
+    it("fires when a distance override pushes a customer's only route past maxDistKm after circuity", () => {
+      // 900 × 1.17 = 1053 > 1000. C-3's other base routes are already too far.
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        distanceOverrides: [{ fromId: "WH-C", toId: "C-3", distance: 900 }],
+      };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toEqual(["no_feasible_route"]);
+    });
+
+    it("uses circuity, not raw km: a route that passes raw but fails ×1.17 still blocks", () => {
+      // WH-A→C-3 raw 900 ≤ maxDistKm 1000 (raw), but 900×1.17=1053 > 1000. If
+      // precheck compared raw km directly C-3 would look reachable here.
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        // Strand C-3 to only WH-A, whose raw (900) is under the raw threshold
+        // but over it once circuity is applied.
+        warehouseOverrides: [
+          { id: "WH-B", status: "inactive" },
+          { id: "WH-C", status: "inactive" },
+        ],
+        p: 1,
+      };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toEqual(["no_feasible_route"]);
+    });
+  });
+
+  describe("coverage_floor_infeasible (min_distance only, highServiceDistKm, ×1.17)", () => {
+    it("fires when excluding a customer drops coverable demand below coverageFloorDemand", () => {
+      // Baseline coverable = 600 (all three within highServiceDistKm ×1.17).
+      // Floor 350 is fine at baseline; excluding C-3 (demand 300) drops
+      // coverable to 300 < 350.
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_MIN_DISTANCE,
+        coverageFloorDemand: 350,
+        customerOverrides: [{ id: "C-3", status: "excluded" }],
+      };
+      const result = precheckChensInputs(inputs, CHENS_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(codes(result)).toEqual(["coverage_floor_infeasible"]);
+    });
+
+    it("fires when a demand override lowers coverable demand below coverageFloorDemand", () => {
+      // Floor 550 ≤ baseline coverable 600. Zeroing C-3's demand drops
+      // coverable to 300 < 550 (C-3 stays coverable but contributes 0).
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_MIN_DISTANCE,
+        coverageFloorDemand: 550,
+        customerOverrides: [{ id: "C-3", status: "active", demand: 0 }],
+      };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toEqual(["coverage_floor_infeasible"]);
+    });
+
+    it("does NOT fire in coverage mode (coverageFloorDemand absent)", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        customerOverrides: [{ id: "C-3", status: "excluded" }],
+      };
+      // Excluding C-3 in coverage mode is fine — no coverage floor to violate,
+      // C-1/C-2 still have demand and routes.
+      expect(precheckChensInputs(inputs, CHENS_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+    });
+  });
+
+  describe("p_range (reused, D18)", () => {
+    it("fires when p exceeds the active candidate count", () => {
+      const inputs: ChensInputs = { ...CHENS_BASE_COVERAGE, p: 5 };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toEqual(["p_range"]);
+    });
+
+    it("fires when the forced-open count exceeds p", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        p: 1,
+        warehouseOverrides: [
+          { id: "WH-A", status: "forced_open" },
+          { id: "WH-B", status: "forced_open" },
+        ],
+      };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toContain("p_range");
+    });
+  });
+
+  describe("structural checks (reused from p-median)", () => {
+    it("id_collision — an added warehouse id colliding with a base id", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        addedWarehouses: [addedWarehouse({ id: "WH-A", status: "inactive" })],
+      };
+      // The collision also makes the shared p-median completeness loop treat
+      // base WH-A as "added" (it's in the addedWarehouseIds set), a benign
+      // secondary error — the point here is that id_collision fires.
+      const result = precheckChensInputs(inputs, CHENS_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(codes(result)).toContain("id_collision");
+    });
+
+    it("completeness — an active added entity missing its distance overrides", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        addedCustomers: [addedCustomer()],
+      };
+      const result = precheckChensInputs(inputs, CHENS_DATASET_FAKE);
+      expect(result.ok).toBe(false);
+      expect(codes(result)).toContain("completeness");
+    });
+
+    it("reference_integrity — a distanceOverrides fromId that is not a warehouse", () => {
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        distanceOverrides: [{ fromId: "C-1", toId: "C-2", distance: 50 }],
+      };
+      expect(codes(precheckChensInputs(inputs, CHENS_DATASET_FAKE))).toEqual(["reference_integrity"]);
+    });
   });
 });

@@ -53,7 +53,7 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, precheckChensInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedChensDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
@@ -329,6 +329,13 @@ function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown
   // through to the default {ok:true} at the bottom of this function.
   if (modelId === "two-echelon-jade-us") {
     return precheckJadeInputs(inputs as unknown as JadeInputs);
+  }
+  // C4.8 — Chapter 4 (chens-cosmetics-cn) semantic precheck. Its own function
+  // (precheckChensInputs, using CHENS_DATASET as the default): p-median's
+  // structural checks PLUS Chen-specific p_range/zero_demand/no_feasible_route/
+  // coverage_floor_infeasible with circuity-adjusted (×1.17) thresholds.
+  if (modelId === "chens-cosmetics-cn") {
+    return precheckChensInputs(inputs as unknown as ChensInputs);
   }
   return { ok: true, errors: [] };
 }
