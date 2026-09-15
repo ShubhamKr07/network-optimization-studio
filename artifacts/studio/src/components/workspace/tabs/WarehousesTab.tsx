@@ -84,6 +84,8 @@ interface WarehousesTabProps {
   /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
   prefillCoords?: { lat: number; lng: number } | null;
   onPrefillConsumed?: () => void;
+  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-warehouses table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
+  hasStateColumn?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -113,6 +115,7 @@ export function WarehousesTab({
   precheckErrors = [],
   prefillCoords,
   onPrefillConsumed,
+  hasStateColumn = true,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
@@ -217,8 +220,8 @@ export function WarehousesTab({
     const lat = parseFloat(newLat);
     const lng = parseFloat(newLng);
 
-    if (!city || !state) {
-      setAddError("City and state are both required.");
+    if (!city || (hasStateColumn && !state)) {
+      setAddError(hasStateColumn ? "City and state are both required." : "City is required.");
       return;
     }
     // T9 (team-lead decision) — displayCode is now the user-facing,
@@ -337,7 +340,7 @@ export function WarehousesTab({
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>City</TableHead>
-                <TableHead>State</TableHead>
+                {hasStateColumn && <TableHead>State</TableHead>}
                 <TableHead>Latitude</TableHead>
                 <TableHead>Longitude</TableHead>
                 {capacityMode === "per_wh" && <TableHead>Capacity</TableHead>}
@@ -371,7 +374,7 @@ export function WarehousesTab({
                       </div>
                     </TableCell>
                     <TableCell className="text-xs">{w.city}</TableCell>
-                    <TableCell className="text-xs">{w.state}</TableCell>
+                    {hasStateColumn && <TableCell className="text-xs">{w.state}</TableCell>}
                     <TableCell className="text-xs font-mono">{w.lat.toFixed(4)}</TableCell>
                     <TableCell className="text-xs font-mono">{w.lng.toFixed(4)}</TableCell>
                     {capacityMode === "per_wh" && (
@@ -437,14 +440,16 @@ export function WarehousesTab({
             className="h-7 text-xs w-28"
             data-testid="input-new-warehouse-city"
           />
-          <Input
-            placeholder="State"
-            value={newState}
-            onChange={e => setNewState(e.target.value)}
-            onBlur={handleCityStateBlur}
-            className="h-7 text-xs w-16"
-            data-testid="input-new-warehouse-state"
-          />
+          {hasStateColumn && (
+            <Input
+              placeholder="State"
+              value={newState}
+              onChange={e => setNewState(e.target.value)}
+              onBlur={handleCityStateBlur}
+              className="h-7 text-xs w-16"
+              data-testid="input-new-warehouse-state"
+            />
+          )}
           <Input
             type="number"
             placeholder="Lat"
@@ -510,7 +515,7 @@ export function WarehousesTab({
   return (
     <div data-testid={`${entity}-tab`}>
       {toolbar}
-      <WarehouseTable warehouses={candidates} overrides={overrides} capacityMode={capacityMode} onChange={onChange} />
+      <WarehouseTable warehouses={candidates} overrides={overrides} capacityMode={capacityMode} onChange={onChange} hasStateColumn={hasStateColumn} />
       {addedSection}
       {importDialog}
     </div>

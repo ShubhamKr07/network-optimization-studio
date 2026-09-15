@@ -18,9 +18,11 @@ interface CustomerTableProps {
    * Step 1b gate on the Input Map side — same locked decision, second
    * surface. */
   demandEditable?: boolean;
+  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
+  hasStateColumn?: boolean;
 }
 
-export function CustomerTable({ customers, overrides, onChange, demandEditable = true }: CustomerTableProps) {
+export function CustomerTable({ customers, overrides, onChange, demandEditable = true, hasStateColumn = true }: CustomerTableProps) {
   // Local draft text, keyed by customer id — decoupled from the committed
   // override so an in-progress invalid keystroke (e.g. typing "-5" one
   // character at a time) isn't snapped back to the last valid value before
@@ -65,7 +67,7 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
           <TableRow>
             <TableHead>ID</TableHead>
             <TableHead>City</TableHead>
-            <TableHead>State</TableHead>
+            {hasStateColumn && <TableHead>State</TableHead>}
             <TableHead>Latitude</TableHead>
             <TableHead>Longitude</TableHead>
             {customers.some(c => c.zip) && <TableHead>Zip</TableHead>}
@@ -82,7 +84,7 @@ export function CustomerTable({ customers, overrides, onChange, demandEditable =
               <TableRow key={c.id}>
                 <TableCell className="font-mono text-xs">{c.id}</TableCell>
                 <TableCell className="text-xs">{c.city}</TableCell>
-                <TableCell className="text-xs">{c.state}</TableCell>
+                {hasStateColumn && <TableCell className="text-xs">{c.state}</TableCell>}
                 <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
                 <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
                 {customers.some(x => x.zip) && <TableCell className="text-xs font-mono">{c.zip ?? "—"}</TableCell>}

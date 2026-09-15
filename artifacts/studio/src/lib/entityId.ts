@@ -54,7 +54,11 @@ export function nextDisplayCode(
 ): string {
   const prefix = DISPLAY_CODE_PREFIX[kind];
   const taken = new Set(existingCodes);
-  const base = `${prefix}-${state}-${cityCode(city)}`;
+  // Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's
+  // `state` is "". Omit the state segment entirely rather than emitting a
+  // double dash (`WH--CITY-01`); every other caller (a real 2-letter state)
+  // is unaffected.
+  const base = state ? `${prefix}-${state}-${cityCode(city)}` : `${prefix}-${cityCode(city)}`;
   let seq = 1;
   let candidate = `${base}-${pad2(seq)}`;
   while (taken.has(candidate)) {

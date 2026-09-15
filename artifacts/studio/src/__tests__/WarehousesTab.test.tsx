@@ -641,3 +641,89 @@ describe("WarehousesTab — Input Map prefill (Phase 3.2, Task 4)", () => {
     expect(onPrefillConsumed).not.toHaveBeenCalled();
   });
 });
+
+// Chen's Cosmetics (chens-cosmetics-cn) — a China dataset where every
+// warehouse row has `state: ""`. `hasStateColumn` is gated on DATA PRESENCE
+// by the caller (Workspace.tsx), not modelId — this component just respects
+// the prop.
+describe("WarehousesTab — hasStateColumn (Chen's Cosmetics, no state data)", () => {
+  it("omitting hasStateColumn (default true) keeps the State column — unchanged behavior", () => {
+    render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+    expect(screen.getByText("State")).toBeInTheDocument();
+    expect(screen.getByText("IL")).toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false drops the State column header and cells from the base table", () => {
+    render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} hasStateColumn={false} />);
+    expect(screen.queryByText("State")).not.toBeInTheDocument();
+    expect(screen.queryByText("IL")).not.toBeInTheDocument();
+    // City still renders.
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false hides the State input in the add-row form and drops it from the Added table", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+        hasStateColumn={false}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    expect(screen.queryByTestId("input-new-warehouse-state")).not.toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false: add-row succeeds with city+lat+lng only (no state), state stored as empty string", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+        hasStateColumn={false}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-city"), "Shanghai");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "121.47");
+    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(onAddedWarehousesChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedWarehousesChange.mock.calls[0][0];
+    expect(added).toMatchObject({ city: "Shanghai", state: "", lat: 31.23, lng: 121.47 });
+  });
+
+  it("hasStateColumn=false: leaving City blank still rejects the add-row (city-only requirement)", async () => {
+    const onAddedWarehousesChange = vi.fn();
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        addedWarehouses={[]}
+        onAddedWarehousesChange={onAddedWarehousesChange}
+        onDeleteWarehouse={vi.fn()}
+        hasStateColumn={false}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("input-new-warehouse-lng"), "121.47");
+    await userEvent.click(screen.getByTestId("button-add-warehouse-confirm"));
+
+    expect(onAddedWarehousesChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-warehouse-error")).toHaveTextContent("City is required.");
+  });
+});
