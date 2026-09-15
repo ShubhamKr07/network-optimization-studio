@@ -4,21 +4,24 @@
     "city": "Changchun",
     "state": "",
     "lat": 43.87,
-    "lng": 125.35
+    "lng": 125.35,
+    "zip": "130000"
   },
   "wh-17": {
     "id": "wh-17",
     "city": "Changsha",
     "state": "",
     "lat": 28.2,
-    "lng": 112.97
+    "lng": 112.97,
+    "zip": "410000"
   },
   "wh-23": {
     "id": "wh-23",
     "city": "Chengdu",
     "state": "",
     "lat": 30.67,
-    "lng": 104.07
+    "lng": 104.07,
+    "zip": "610000"
   },
   "wh-25": {
     "id": "wh-25",
@@ -32,42 +35,48 @@
     "city": "Dalian",
     "state": "",
     "lat": 38.92,
-    "lng": 121.65
+    "lng": 121.65,
+    "zip": "116000"
   },
   "wh-40": {
     "id": "wh-40",
     "city": "Guangzhou",
     "state": "",
     "lat": 23.12,
-    "lng": 113.25
+    "lng": 113.25,
+    "zip": "510000"
   },
   "wh-47": {
     "id": "wh-47",
     "city": "Hangzhou",
     "state": "",
     "lat": 30.25,
-    "lng": 120.17
+    "lng": 120.17,
+    "zip": "310000"
   },
   "wh-48": {
     "id": "wh-48",
     "city": "Harbin",
     "state": "",
     "lat": 45.75,
-    "lng": 126.65
+    "lng": 126.65,
+    "zip": "150000"
   },
   "wh-68": {
     "id": "wh-68",
     "city": "Jilin",
     "state": "",
     "lat": 43.85,
-    "lng": 126.55
+    "lng": 126.55,
+    "zip": "132000"
   },
   "wh-69": {
     "id": "wh-69",
     "city": "Jinan",
     "state": "",
     "lat": 36.67,
-    "lng": 117
+    "lng": 117,
+    "zip": "250000"
   },
   "wh-77": {
     "id": "wh-77",
@@ -81,97 +90,111 @@
     "city": "Nanchang",
     "state": "",
     "lat": 28.68,
-    "lng": 115.88
+    "lng": 115.88,
+    "zip": "330000"
   },
   "wh-102": {
     "id": "wh-102",
     "city": "Nanjing",
     "state": "",
     "lat": 32.05,
-    "lng": 118.78
+    "lng": 118.78,
+    "zip": "210000"
   },
   "wh-109": {
     "id": "wh-109",
     "city": "Peking",
     "state": "",
     "lat": 39.93,
-    "lng": 116.4
+    "lng": 116.4,
+    "zip": "100000"
   },
   "wh-114": {
     "id": "wh-114",
     "city": "Qingdao",
     "state": "",
     "lat": 36.07,
-    "lng": 120.32
+    "lng": 120.32,
+    "zip": "266000"
   },
   "wh-122": {
     "id": "wh-122",
     "city": "Shanghai",
     "state": "",
     "lat": 31.23,
-    "lng": 121.47
+    "lng": 121.47,
+    "zip": "200000"
   },
   "wh-130": {
     "id": "wh-130",
     "city": "Shenyang",
     "state": "",
     "lat": 41.8,
-    "lng": 123.45
+    "lng": 123.45,
+    "zip": "110000"
   },
   "wh-133": {
     "id": "wh-133",
     "city": "Shijiazhuang",
     "state": "",
     "lat": 38.05,
-    "lng": 114.48
+    "lng": 114.48,
+    "zip": "050000"
   },
   "wh-143": {
     "id": "wh-143",
     "city": "Taiyuan",
     "state": "",
     "lat": 37.87,
-    "lng": 112.55
+    "lng": 112.55,
+    "zip": "030000"
   },
   "wh-147": {
     "id": "wh-147",
     "city": "Tianjin",
     "state": "",
     "lat": 39.13,
-    "lng": 117.2
+    "lng": 117.2,
+    "zip": "300000"
   },
   "wh-151": {
     "id": "wh-151",
     "city": "Urumqi",
     "state": "",
     "lat": 43.8,
-    "lng": 87.58
+    "lng": 87.58,
+    "zip": "830000"
   },
   "wh-154": {
     "id": "wh-154",
     "city": "Wuhan",
     "state": "",
     "lat": 30.58,
-    "lng": 114.27
+    "lng": 114.27,
+    "zip": "430000"
   },
   "wh-159": {
     "id": "wh-159",
     "city": "Xian",
     "state": "",
     "lat": 34.27,
-    "lng": 108.9
+    "lng": 108.9,
+    "zip": "710000"
   },
   "wh-169": {
     "id": "wh-169",
     "city": "Xinyang",
     "state": "",
     "lat": 32.13,
-    "lng": 114.07
+    "lng": 114.07,
+    "zip": "464000"
   },
   "wh-191": {
     "id": "wh-191",
     "city": "Zhengzhou",
     "state": "",
     "lat": 34.75,
-    "lng": 113.67
+    "lng": 113.67,
+    "zip": "450000"
   }
 }
