@@ -13,4 +13,9 @@ export const PrecheckErrorCode = {
   completeness: 'completeness',
   id_collision: 'id_collision',
   reference_integrity: 'reference_integrity',
+  p_range: 'p_range',
+  capacity: 'capacity',
+  zero_demand: 'zero_demand',
+  no_feasible_route: 'no_feasible_route',
+  coverage_floor_infeasible: 'coverage_floor_infeasible',
 } as const;

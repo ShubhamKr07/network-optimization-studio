@@ -2,13 +2,15 @@ import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
+import type { ChensInputs } from "../validation/inputs/chens.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 export type SolveInput =
   | { modelId: "p-median-us" | "p-median-brazil"; inputs: PMedianInputs }
   | { modelId: "transport-coal"; inputs: TransportLpInputs }
   | { modelId: "two-echelon-gold-au"; inputs: TwoEchelonInputs }
-  | { modelId: "two-echelon-jade-us"; inputs: JadeInputs };
+  | { modelId: "two-echelon-jade-us"; inputs: JadeInputs }
+  | { modelId: "chens-cosmetics-cn"; inputs: ChensInputs };
 
 // Translates the model's validated `inputs` (DB/contract shape) into the
 // flat dict solve.py's dispatcher and per-model solve_* functions read
@@ -126,6 +128,40 @@ export function buildPayload(input: SolveInput): Record<string, unknown> {
       // base dataset -- only validated edits + params cross the wire
       // (plan's Global Constraints payload/merge boundary).
       addedPlants: i.addedPlants,
+      addedWarehouses: i.addedWarehouses,
+      addedCustomers: i.addedCustomers,
+      distanceOverrides: i.distanceOverrides,
+    };
+  }
+
+  if (input.modelId === "chens-cosmetics-cn") {
+    const i = input.inputs;
+    // C4.6: Chapter 4 Chen's Cosmetics. Dispatch on modelType "chens" (D16);
+    // the base dataset is NEVER inlined — only the validated scalar params +
+    // sparse edits cross the wire, and merge_inputs.py's
+    // build_merged_chens_dataset (C4.3) reads the edit arrays by their exact
+    // schema names (inp.get("warehouseOverrides"/"customerOverrides"/
+    // "addedWarehouses"/"addedCustomers"/"distanceOverrides", [])). Direct-id
+    // like two-echelon/transport (DD-2), so the override arrays pass straight
+    // through WITHOUT the p-median warehouseStatuses/excludedCustomerIds
+    // reshaping below — the Python merge resolves status/exclusion/demand
+    // itself. avgServiceDistCapKm/coverageFloorDemand are objective-
+    // discriminated (present iff their mode — enforced by chensInputsSchema),
+    // so an absent one is JSON.stringify-dropped and solve_chens only reads it
+    // in the mode where it exists.
+    return {
+      modelType: "chens",
+      objective: i.objective,
+      p: i.p,
+      highServiceDistKm: i.highServiceDistKm,
+      maxDistKm: i.maxDistKm,
+      avgServiceDistCapKm: i.avgServiceDistCapKm,
+      coverageFloorDemand: i.coverageFloorDemand,
+      gap: i.gap,
+      timeLimitSec: i.timeLimitSec,
+      distanceBands: i.distanceBands,
+      warehouseOverrides: i.warehouseOverrides,
+      customerOverrides: i.customerOverrides,
       addedWarehouses: i.addedWarehouses,
       addedCustomers: i.addedCustomers,
       distanceOverrides: i.distanceOverrides,

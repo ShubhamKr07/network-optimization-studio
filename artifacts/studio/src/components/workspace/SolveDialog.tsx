@@ -32,6 +32,11 @@ interface SolveDialogProps {
    * unchanged) — undefined for models with no P concept, mirroring that
    * tab's own convention. */
   p?: number;
+  /** C4.12/D27 — the P slider's semantic maximum. Defaults to 50 (every
+   * existing caller that omits it is unchanged — p-median-us/brazil's static
+   * max); Chen (chens-cosmetics-cn) passes 25 so 26 can't be authored from
+   * the Solve dialog either, matching OptimizationParametersTab's own pMax. */
+  pMax?: number;
   gap: number;
   timeLimitSec: number;
   /** R5 — persisted solve-input distance bands, two-way synced with the
@@ -49,6 +54,10 @@ interface SolveDialogProps {
    * same default the public API boundary itself applies when a manifest
    * predates this field, or before `useListModels` has resolved). */
   distanceUnit?: string;
+  /** C4.12/D13/D19 — hide the free-edit distance-bands chip editor. Chen's
+   * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
+   * defaults true, so every other model's Solve dialog is unchanged. */
+  showBandEditor?: boolean;
   /** Writes directly into Workspace.tsx's `localInputs` draft via
    * `updateInputsField` — the exact same callback shape
    * OptimizationParametersTab uses, so there is exactly one source of
@@ -71,10 +80,12 @@ export function SolveDialog({
   open,
   onOpenChange,
   p,
+  pMax = 50,
   gap,
   timeLimitSec,
   distanceBands,
   distanceUnit,
+  showBandEditor = true,
   onChange,
   phase,
   errorMessage,
@@ -121,7 +132,7 @@ export function SolveDialog({
               </div>
               <Slider
                 min={1}
-                max={50}
+                max={pMax}
                 step={1}
                 value={[p]}
                 onValueChange={([v]) => onChange("p", v)}
@@ -170,6 +181,7 @@ export function SolveDialog({
               OptimizationParametersTab's own bands chip editor exactly (same
               add/dedupe/sort/remove behavior) so the two surfaces can never
               show conflicting values for the same field. */}
+          {showBandEditor && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-foreground">
@@ -250,6 +262,7 @@ export function SolveDialog({
               </div>
             )}
           </div>
+          )}
 
           {busy && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="solve-dialog-progress">

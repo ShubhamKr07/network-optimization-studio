@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // ── Mock toast ────────────────────────────────────────────────────────────────
 const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
@@ -136,6 +136,27 @@ vi.mock("@workspace/api-client-react", () => ({
           outputGrids: ["openWarehouses", "flows", "assignments", "costSummary", "serviceStats"],
         },
       },
+      // C4.12/C4.13 — Chen's Cosmetics (Chapter 4, chens-cosmetics-cn), a km
+      // coverage model with capacityMode "none" only. Capabilities copied
+      // verbatim from solvers/chens-cosmetics-cn/manifest.json (C4.2) —
+      // supportsFacilityStatus/supportsAddedCustomerExclusion/
+      // supportsReferenceDistances added in C4.13 so the Input-Map/Distances
+      // parity paths (added-customer status control, base reference column)
+      // exercise their real capability gates.
+      {
+        id: "chens-cosmetics-cn",
+        distanceUnit: "km",
+        countryBounds: { sw: [18.0, 73.0], ne: [54.0, 135.0] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: ["none"],
+          demandEditable: true,
+          supportsFacilityStatus: true,
+          supportsAddedCustomerExclusion: true,
+          supportsReferenceDistances: true,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+        },
+      },
     ],
   })),
   // B5.2 — precheck query. Defaults to ok:true/no errors so every existing
@@ -150,7 +171,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
-import { Workspace } from "@/pages/Workspace";
+import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
@@ -1964,5 +1985,307 @@ describe("Workspace — output sidebar tab order (T9, B4)", () => {
     );
     expect(sidebarOutputIds[0]).toBe("sidebar-output-output-map");
     expect(sidebarOutputIds[1]).toBe("sidebar-output-cost-summary");
+  });
+});
+
+// C4.11 — defaultInputsForModel's Chen (chens-cosmetics-cn) branch. This is
+// the concrete new-scenario default POSTed by handleCreateConfirm; it must
+// match chensInputsSchema's contract (coverage mode present, min-distance
+// field absent, high < max, distanceBands == [high, max], no capacity).
+describe("defaultInputsForModel — chens-cosmetics-cn", () => {
+  const d = defaultInputsForModel("chens-cosmetics-cn");
+
+  it("uses coverage mode with avgServiceDistCapKm present and coverageFloorDemand absent", () => {
+    expect(d.objective).toBe("coverage");
+    expect(d.avgServiceDistCapKm).toBe(1000);
+    expect(d.coverageFloorDemand).toBeUndefined();
+  });
+
+  it("locks gap:0 / timeLimitSec:120 like every other model's default", () => {
+    expect(d.gap).toBe(0);
+    expect(d.timeLimitSec).toBe(120);
+  });
+
+  it("has high < max thresholds and distanceBands derived as [high, max]", () => {
+    expect(d.highServiceDistKm).toBe(600);
+    expect(d.maxDistKm).toBe(5000);
+    expect((d.highServiceDistKm as number)).toBeLessThan(d.maxDistKm as number);
+    expect(d.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("has no capacity concept (capacityMode 'none') and p within the 1..25 Chen bound", () => {
+    expect(d.capacityMode).toBe("none");
+    expect(d.p).toBe(3);
+    expect(d.p as number).toBeGreaterThanOrEqual(1);
+    expect(d.p as number).toBeLessThanOrEqual(25);
+  });
+
+  it("starts every scenario-local edit array empty", () => {
+    expect(d.warehouseOverrides).toEqual([]);
+    expect(d.customerOverrides).toEqual([]);
+    expect(d.addedWarehouses).toEqual([]);
+    expect(d.addedCustomers).toEqual([]);
+    expect(d.distanceOverrides).toEqual([]);
+  });
+});
+
+// C4.12 — Chen inputs UI wired end-to-end through Workspace: the objective
+// mode toggle (which seeds the newly-required field AND clears the previous
+// mode's field so only the active field persists), the derived-band resync on
+// a threshold edit, and pMax=25 flowing to BOTH the Optimization Parameters
+// tab and the Solve dialog. Integration tests (not the component-level ones)
+// because the atomic seed/clear/resync logic lives in Workspace, and the
+// save-payload assertion is what proves "only the active field is persisted".
+describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
+  const chensCoverageInputs = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 120,
+    capacityMode: "none",
+    distanceBands: [600, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+  const chensScenario = {
+    id: 1,
+    name: "Chen coverage",
+    modelId: "chens-cosmetics-cn",
+    inputs: chensCoverageInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+
+  function renderChen() {
+    mockUseGetScenario.mockReturnValue({ data: chensScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [chensScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    return render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+  }
+
+  function openParamsTab() {
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+  }
+
+  it("shows the coverage field in coverage mode, swaps to the floor field after toggling to min-distance, and persists ONLY the active mode's field", () => {
+    renderChen();
+    openParamsTab();
+
+    // Coverage mode: cap field visible, floor field absent.
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+
+    // Toggle to min-distance: the visible field SWAPS.
+    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
+    expect(screen.getByTestId("input-coverage-floor")).toBeInTheDocument();
+    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(131645389);
+    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
+
+    // Save — the persisted inputs carry coverageFloorDemand and NOT
+    // avgServiceDistCapKm (the previous mode's field was cleared, matching
+    // C4.6's discriminated schema — not relying on later stripping).
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.scenarioId).toBe(1);
+    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 131645389 });
+    expect(args.data.inputs).not.toHaveProperty("avgServiceDistCapKm");
+  });
+
+  it("toggling min-distance → back to coverage re-seeds the cap and clears the floor (only the active field persists)", () => {
+    renderChen();
+    openParamsTab();
+    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
+    fireEvent.click(screen.getByTestId("chen-objective-coverage"));
+
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-save"));
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs).toMatchObject({ objective: "coverage", avgServiceDistCapKm: 1000 });
+    expect(args.data.inputs).not.toHaveProperty("coverageFloorDemand");
+  });
+
+  it("editing a service-distance threshold resyncs distanceBands to [high, max] in state BEFORE any save (D13/D19)", () => {
+    renderChen();
+    openParamsTab();
+
+    fireEvent.change(screen.getByTestId("input-high-service-dist"), { target: { value: "700" } });
+
+    fireEvent.click(screen.getByTestId("button-save"));
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    // The changed threshold AND the derived bands both landed in the SAME
+    // localInputs update — the save payload proves the resync happened in
+    // component state, not just at the solver boundary.
+    expect(args.data.inputs.highServiceDistKm).toBe(700);
+    expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
+  });
+
+  it("caps P at 25 in BOTH the Optimization Parameters tab AND the Solve dialog (26 unreachable via either surface, D27)", () => {
+    renderChen();
+
+    // Tab slider.
+    openParamsTab();
+    const tabThumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(tabThumb).toHaveAttribute("aria-valuemax", "25");
+
+    // Solve dialog slider.
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    const dialogThumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "25");
+  });
+
+  it("hides the distance-band editor in BOTH the tab and the Solve dialog (Chen bands are derived, D13/D19)", () => {
+    renderChen();
+
+    openParamsTab();
+    expect(screen.queryByTestId("button-bands-plus")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+  });
+});
+
+// C4.13 — Chen (chens-cosmetics-cn) full Input-Map parity: it's single-echelon
+// warehouse→customer like p-median, so every Workspace GATE that lists the
+// p-median models must also list Chen, or a tab silently renders nothing / has
+// no Save. This block asserts each enumerated gate renders real content for a
+// Chen scenario (a stale allowlist on any one of them fails here — the whole
+// point of the gate sweep), plus the move→purge→Save→server-refill loop that
+// makes C4.7's added-entity estimator correct. This is the exact recurring
+// bug class ("shared component's per-model gate updated for one model, forgotten
+// for a sibling") the repo has hit 6+ times, so every gate gets its own assertion.
+describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
+  const chensCoverageInputs = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 120,
+    capacityMode: "none",
+    distanceBands: [600, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+  const chensScenario = {
+    id: 1,
+    name: "Chen coverage",
+    modelId: "chens-cosmetics-cn",
+    inputs: chensCoverageInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+
+  function renderChen(inputsOverride?: Record<string, unknown>) {
+    const s = inputsOverride ? { ...chensScenario, inputs: { ...chensCoverageInputs, ...inputsOverride } } : chensScenario;
+    mockUseGetScenario.mockReturnValue({ data: s } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [s] } as unknown as ReturnType<typeof useListScenarios>);
+    return render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+  }
+
+  // GATE: isEditableInputTab (input-map branch) + saveInLayersRow + the
+  // InputMapTab "pmedian"-mode render branch (Chen uses the fallback, no
+  // separate mode). The Save lives inside the Input Map's own Layers row
+  // (saveInLayersRow suppresses the shared toolbar), so exactly one button-save.
+  it("input-map gate: renders the pmedian-mode Input Map with an inline Save in its Layers row for a Chen scenario", () => {
+    renderChen();
+    // Input Map is one-shot seeded active on mount (didSeedTabRef).
+    expect(screen.getByTestId("input-map-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("pmedian-map-toolbar")).toBeInTheDocument();
+    // saveInLayersRow → the map's own Layers-row Save is present and there is
+    // no duplicate shared-toolbar Save.
+    expect(screen.getAllByTestId("button-save")).toHaveLength(1);
+  });
+
+  // GATE: isEditableInputTab (warehouses branch) + the Warehouses render branch.
+  it("warehouses gate: renders the real WarehousesTab + Save toolbar for a Chen scenario", () => {
+    renderChen();
+    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    expect(screen.getByText("CHI")).toBeInTheDocument();
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+  });
+
+  // GATE: isEditableInputTab (customers branch) + the Customers render branch.
+  it("customers gate: renders the real CustomersTab + Save toolbar for a Chen scenario", () => {
+    renderChen();
+    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    expect(screen.getByText("C1")).toBeInTheDocument();
+    expect(screen.getByText("New York")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+  });
+
+  // GATE: isEditableInputTab (distances branch) + the DistancesTab render
+  // branch. Chen's manifest declares supportsReferenceDistances (raw-km base
+  // matrix, C4.4), so the reference section renders (proves referenceCapable is
+  // wired, not just that the tab shows).
+  it("distances gate: renders DistancesTab with the base-reference section (supportsReferenceDistances) + Save toolbar for a Chen scenario", () => {
+    renderChen();
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("distances-reference-section")).toBeInTheDocument();
+    expect(screen.getByTestId("button-save")).toBeInTheDocument();
+  });
+
+  // Step 1b — the move→purge→Save→server-refill loop, end-to-end through
+  // Workspace's real wiring: an added warehouse's owned distanceOverrides are
+  // purged client-side on move, and the Save response's freshly-estimated rows
+  // (what C4.7's fillEstimatedChensDistances refills server-side) are adopted
+  // and shown as an Estimated chip on the Distances tab. `km` unit is implicit
+  // in the row (Chen's manifest distanceUnit) — this is the input-side
+  // distanceOverrides grid, not a unit-labelled output export.
+  it("move-then-Save refill: moving an added warehouse purges its distance row, and the Save response's fresh estimated row is adopted + shown on Distances", () => {
+    renderChen({
+      addedWarehouses: [{ id: "aw-cn-1", displayCode: "WH-CN-01", city: "Shenzhen", state: "", lat: 22.54, lng: 114.06, capacity: null, status: "active" }],
+      distanceOverrides: [{ fromId: "aw-cn-1", toId: "C1", distance: 500, estimated: true }],
+    });
+
+    // Input Map is seeded active. Marker order = [...warehouses, ...customers]
+    // = [CHI(0), aw-cn-1(1), C1(2)]; right-click the added warehouse.
+    const markers = document.querySelectorAll(".leaflet-marker-icon");
+    fireEvent.contextMenu(markers[1]);
+    fireEvent.click(screen.getByTestId("map-action-move"));
+    const mapEl = document.querySelector(".leaflet-container") as HTMLElement;
+    fireEvent.click(mapEl, { clientX: 15, clientY: 15 });
+    fireEvent.click(screen.getByTestId("move-confirm-confirm"));
+
+    // Save — the sent inputs have the moved warehouse's own distance row purged.
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [saveArgs, saveOpts] = mockUpdateScenario.mutate.mock.calls[0];
+    expect((saveArgs.data.inputs as typeof chensCoverageInputs).distanceOverrides).toEqual([]);
+
+    // Server response: C4.7's estimator refilled the purged pair with a fresh
+    // km estimate for the moved warehouse. onSuccess adopts the RESPONSE inputs.
+    const updated = {
+      ...chensScenario,
+      inputs: {
+        ...(saveArgs.data.inputs as Record<string, unknown>),
+        distanceOverrides: [{ fromId: "aw-cn-1", toId: "C1", distance: 333.3, estimated: true }],
+      },
+    };
+    act(() => {
+      saveOpts.onSuccess(updated);
+    });
+
+    fireEvent.click(screen.getByTestId("sidebar-input-distances"));
+    expect(screen.getByTestId("badge-distance-estimated-aw-cn-1-C1")).toBeInTheDocument();
   });
 });

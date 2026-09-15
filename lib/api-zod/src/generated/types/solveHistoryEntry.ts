@@ -15,8 +15,18 @@ export interface SolveHistoryEntry {
   status: SolveJobStatus;
   /** @nullable */
   objective: number | null;
-  /** @nullable */
-  weightedAvgDistanceMi: number | null;
+  /**
+     * The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null (D21/C4.10).
+     * @nullable
+     */
+  objectiveMode: string | null;
+  /**
+     * Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi removed in C4.10 (D21).
+     * @nullable
+     */
+  weightedAvgDistance: number | null;
+  /** Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10). */
+  distanceUnit: string;
   /** @nullable */
   runTimeSec: number | null;
   queuedAt: Date;

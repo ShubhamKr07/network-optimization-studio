@@ -2,6 +2,7 @@ import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
@@ -12,6 +13,15 @@ import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 // importer to parse with a standard CSV reader, no special first-line
 // handling needed.
 export const TEMPLATE_VERSION = 1;
+
+// C4.9 / D28 — output-entity template version. The three unit-aware OUTPUT
+// exports (assignments, costSummary, serviceStats) bump to 2 (they gained
+// distance_unit / objective_mode columns), at BOTH the JSON wrapper and each
+// row's templateVersion. The input TEMPLATE_VERSION stays 1 (bumping the
+// shared constant would reject every existing v1 input CSV — import.ts checks
+// exact equality). openWarehouses, flows, and the importable distances
+// template all stay v1.
+export const OUTPUT_TEMPLATE_VERSION = 2;
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
@@ -421,6 +431,86 @@ export function applyStationOverrides(overrides: StationOverride[], addedStation
 export function applyGoldCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
   const baseRows: CustomerTemplateRow[] = GOLD_CUSTOMERS.map(c => {
+    const o = byId.get(c.id);
+    const demand = o?.demand ?? c.demand;
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: c.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demand,
+      status,
+      overridden: demand !== c.demand || status !== "active",
+    };
+  });
+  const addedRows: CustomerTemplateRow[] = addedCustomers.map(c => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: c.id,
+    displayCode: c.displayCode ?? null,
+    city: c.city,
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: c.demand,
+    status: "active",
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+// Chapter 4 (chens-cosmetics-cn) — Chen's own 25-warehouse / 197-customer
+// China dataset (CHENS_WAREHOUSES/CHENS_CUSTOMERS), distinct from every other
+// model's, same WarehouseTemplateRow/CustomerTemplateRow shapes (CSV/JSON
+// serialization is dataset-agnostic). Chen warehouses carry STATUS but NO
+// capacity concept at all (single-echelon coverage/min-distance model,
+// capacityMode "none" only — exactly like JADE warehouses), so `capacity` is
+// always null. Chen customers carry status (active/excluded) + demand, exactly
+// like p-median-us's applyCustomerOverrides. Both gain the added-entity second
+// param (Chen's addedWarehouses/addedCustomers), mirroring applyWarehouse/
+// CustomerOverrides. Distances reuse applyDistanceOverrides directly (composite
+// -keyed, dataset-agnostic — same reuse two-echelon/JADE legDistances rely on).
+export function applyChensWarehouseOverrides(
+  overrides: WarehouseOverride[],
+  addedWarehouses: AddedWarehouse[] = [],
+): WarehouseTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: WarehouseTemplateRow[] = CHENS_WAREHOUSES.map(w => {
+    const status = byId.get(w.id)?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: w.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity: null, // no per-warehouse capacity concept in this model
+      status,
+      overridden: status !== "active",
+    };
+  });
+  const addedRows: WarehouseTemplateRow[] = addedWarehouses.map(w => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: w.id,
+    displayCode: w.displayCode ?? null,
+    city: w.city,
+    state: w.state,
+    lat: w.lat,
+    lng: w.lng,
+    capacity: null,
+    status: w.status,
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+export function applyChensCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: CustomerTemplateRow[] = CHENS_CUSTOMERS.map(c => {
     const o = byId.get(c.id);
     const demand = o?.demand ?? c.demand;
     const status = o?.status ?? "active";
@@ -1106,30 +1196,35 @@ export function buildLegDistanceStubRows(
 // own Phase C plan doc for the full rationale).
 // ---------------------------------------------------------------------------
 
+// C4.9 / D24 — `distanceMi` renamed to `distance` + a self-describing
+// `distanceUnit` (from the model's manifest — every model passes its own unit;
+// Chen "km", the mile models "mi"). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
 export interface AssignmentTemplateRow {
   templateVersion: number;
   customerId: string;
   warehouseId: string;
-  distanceMi: number;
+  distance: number;
+  distanceUnit: string;
   band: number | null;
   flow: number;
 }
 
-export function buildAssignmentRows(result: ResultEnvelope): AssignmentTemplateRow[] {
+export function buildAssignmentRows(result: ResultEnvelope, distanceUnit: string): AssignmentTemplateRow[] {
   return result.edges.map(e => ({
-    templateVersion: TEMPLATE_VERSION,
+    templateVersion: OUTPUT_TEMPLATE_VERSION,
     customerId: e.toId,
     warehouseId: e.fromId,
-    distanceMi: e.distance,
+    distance: e.distance,
+    distanceUnit,
     band: e.band ?? null,
     flow: e.flow,
   }));
 }
 
 export function assignmentRowsToCsv(rows: AssignmentTemplateRow[]): string {
-  const header = "template_version,customer_id,warehouse_id,distance_mi,band,flow";
+  const header = "template_version,customer_id,warehouse_id,distance,distance_unit,band,flow";
   const lines = rows.map(r =>
-    [r.templateVersion, r.customerId, r.warehouseId, r.distanceMi, r.band ?? "", r.flow].join(","),
+    [r.templateVersion, r.customerId, r.warehouseId, r.distance, r.distanceUnit, r.band ?? "", r.flow].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1142,26 +1237,66 @@ export interface OpenWarehouseTemplateRow {
   utilization: number | null;
 }
 
+// C4.9 / D29 — build the effective facility id→city lookup (base warehouses/
+// refineries ∪ the scenario's added facilities) buildOpenWarehouseRows needs
+// to label a zero-flow forced-open facility. Chen emits
+// metrics.utilizationByNode EMPTY, so the old city-from-utilizationByNode path
+// blanks every Chen city; a forced-open facility with no assigned customer has
+// no edge either, so its id lives only in metrics.openFacilityIds — the base
+// (or added) dataset is the only place its real city can come from. Lives here
+// (not the route) because this module already imports every model's base
+// dataset. Two-echelon's "open warehouse" node is its refinery, so that model's
+// base set is GOLD_REFINERIES + addedRefineries.
+export function buildEffectiveFacilityCityLookup(
+  modelId: string,
+  inputs: {
+    addedWarehouses?: Array<{ id: string; city: string }>;
+    addedRefineries?: Array<{ id: string; city: string }>;
+  },
+): Map<string, string> {
+  const lookup = new Map<string, string>();
+  const base: Array<{ id: string; city: string }> =
+    modelId === "p-median-us" ? WAREHOUSES
+    : modelId === "p-median-brazil" ? BRAZIL_DATASET_WAREHOUSES
+    : modelId === "chens-cosmetics-cn" ? CHENS_WAREHOUSES
+    : modelId === "two-echelon-jade-us" ? JADE_WAREHOUSES
+    : modelId === "two-echelon-gold-au" ? GOLD_REFINERIES
+    : [];
+  for (const w of base) lookup.set(w.id, w.city);
+  for (const w of inputs.addedWarehouses ?? []) lookup.set(w.id, w.city);
+  for (const r of inputs.addedRefineries ?? []) lookup.set(r.id, r.city);
+  return lookup;
+}
+
 // Sums flow per distinct fromId across edges. Skips mine_to_refinery edges
 // (two-echelon's own leg type, not a facility-open edge for the "which
 // warehouse-equivalent node is open" question this entity answers) — a
 // no-op for p-median-us today (its edges never carry `leg`), kept so this
 // function is already correct if C6.1 later reuses it for two-echelon's
 // refinery_to_customer leg.
-export function buildOpenWarehouseRows(result: ResultEnvelope): OpenWarehouseTemplateRow[] {
+//
+// C4.9 / D29 — unions the edge-derived open ids with metrics.openFacilityIds so
+// a forced-open ZERO-FLOW facility (base or added — it carries no edge) still
+// exports, and sources its city from the effective lookup (utilizationByNode is
+// empty for Chen). Stays v1 (OUTPUT_TEMPLATE_VERSION bump is only for the three
+// unit-aware exports; openWarehouses gained no column).
+export function buildOpenWarehouseRows(result: ResultEnvelope, cityById: Map<string, string>): OpenWarehouseTemplateRow[] {
   const flowByWarehouse = new Map<string, number>();
   for (const e of result.edges) {
     if (e.leg === "mine_to_refinery") continue;
     flowByWarehouse.set(e.fromId, (flowByWarehouse.get(e.fromId) ?? 0) + e.flow);
   }
   const utilByWarehouse = new Map((result.metrics.utilizationByNode ?? []).map(u => [u.warehouseId, u]));
-  return [...flowByWarehouse.entries()].map(([warehouseId, totalFlow]) => {
+  // Edge-derived open ids first (preserving edge order), then any forced-open
+  // zero-flow facility present only in openFacilityIds.
+  const ids = new Set<string>([...flowByWarehouse.keys(), ...(result.metrics.openFacilityIds ?? [])]);
+  return [...ids].map(warehouseId => {
     const u = utilByWarehouse.get(warehouseId);
     return {
       templateVersion: TEMPLATE_VERSION,
       warehouseId,
-      city: u?.city ?? "",
-      totalFlow,
+      city: cityById.get(warehouseId) ?? "",
+      totalFlow: flowByWarehouse.get(warehouseId) ?? 0,
       utilization: u?.utilization ?? null,
     };
   });
@@ -1175,11 +1310,18 @@ export function openWarehouseRowsToCsv(rows: OpenWarehouseTemplateRow[]): string
   return [header, ...lines].join("\n") + "\n";
 }
 
+// C4.9 / D25 — gained `objectiveMode` (Chen's coverage vs min_distance sense,
+// from result.details.objective; null for every model that doesn't emit it) +
+// a self-describing `distanceUnit`. Numeric fields that can be unavailable are
+// typed `number | null` and serialize as EXPLICIT null (never omitted).
+// Bumped to OUTPUT_TEMPLATE_VERSION (D28).
 export interface CostSummaryTemplateRow {
   templateVersion: number;
-  objective: number;
+  objective: number | null;
+  objectiveMode: string | null;
   weightedAvgDistance: number | null;
-  runTimeSec: number;
+  distanceUnit: string;
+  runTimeSec: number | null;
   quality: string;
   solverUsed: string;
 }
@@ -1187,11 +1329,15 @@ export interface CostSummaryTemplateRow {
 // Always exactly one row — a scenario has one current result, not a
 // baseline/current pair (the Reports tab, Task 7, is where baseline
 // comparison happens; this entity is a plain export of the current solve).
-export function buildCostSummaryRows(result: ResultEnvelope): CostSummaryTemplateRow[] {
+export function buildCostSummaryRows(result: ResultEnvelope, distanceUnit: string): CostSummaryTemplateRow[] {
   return [{
-    templateVersion: TEMPLATE_VERSION,
+    templateVersion: OUTPUT_TEMPLATE_VERSION,
     objective: result.objective,
+    // details.objective is Chen's mode string ("coverage" / "min_distance");
+    // absent (undefined) or non-string for every other model → explicit null.
+    objectiveMode: typeof result.details.objective === "string" ? result.details.objective : null,
     weightedAvgDistance: result.metrics.weightedAvgDistance ?? null,
+    distanceUnit,
     runTimeSec: result.runTimeSec,
     quality: result.quality,
     solverUsed: result.solverUsed,
@@ -1199,16 +1345,19 @@ export function buildCostSummaryRows(result: ResultEnvelope): CostSummaryTemplat
 }
 
 export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
-  const header = "template_version,objective,weighted_avg_distance,run_time_sec,quality,solver_used";
+  const header = "template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used";
   const lines = rows.map(r =>
-    [r.templateVersion, r.objective, r.weightedAvgDistance ?? "", r.runTimeSec, csvEscape(r.quality), csvEscape(r.solverUsed)].join(","),
+    [r.templateVersion, r.objective ?? "", csvEscape(r.objectiveMode ?? ""), r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", csvEscape(r.quality), csvEscape(r.solverUsed)].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
 
+// C4.9 / D25 — gained a self-describing `distanceUnit` (band thresholds are in
+// the model's distance unit). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
 export interface ServiceStatsTemplateRow {
   templateVersion: number;
   band: number;
+  distanceUnit: string;
   percent: number;
 }
 
@@ -1219,17 +1368,18 @@ export interface ServiceStatsTemplateRow {
 // student can edit bands post-solve without re-solving (E1.1's existing
 // design). This export entity is a point-in-time snapshot of the actual
 // solved result, so reading the stored metrics field is correct here.
-export function buildServiceStatsRows(result: ResultEnvelope): ServiceStatsTemplateRow[] {
+export function buildServiceStatsRows(result: ResultEnvelope, distanceUnit: string): ServiceStatsTemplateRow[] {
   return (result.metrics.bandCoverage ?? []).map(b => ({
-    templateVersion: TEMPLATE_VERSION,
+    templateVersion: OUTPUT_TEMPLATE_VERSION,
     band: b.band,
+    distanceUnit,
     percent: b.percent,
   }));
 }
 
 export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
-  const header = "template_version,band,percent";
-  const lines = rows.map(r => [r.templateVersion, r.band, r.percent].join(","));
+  const header = "template_version,band,distance_unit,percent";
+  const lines = rows.map(r => [r.templateVersion, r.band, r.distanceUnit, r.percent].join(","));
   return [header, ...lines].join("\n") + "\n";
 }
 

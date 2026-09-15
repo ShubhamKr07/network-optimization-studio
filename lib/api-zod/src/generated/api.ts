@@ -25,7 +25,7 @@ export const HealthCheckResponse = zod.object({
 export const getDatasetQueryModelIdDefault = `p-median-us`;
 
 export const GetDatasetQueryParams = zod.object({
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au', 'p-median-brazil', 'two-echelon-jade-us']).default(getDatasetQueryModelIdDefault)
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'two-echelon-gold-au', 'p-median-brazil', 'two-echelon-jade-us', 'chens-cosmetics-cn']).default(getDatasetQueryModelIdDefault)
 })
 
 export const GetDatasetResponse = zod.object({
@@ -152,7 +152,9 @@ export const GetSolveHistoryResponseItem = zod.object({
   "modelId": zod.string(),
   "status": zod.enum(['queued', 'running', 'succeeded', 'failed']),
   "objective": zod.number().nullable(),
-  "weightedAvgDistanceMi": zod.number().nullable(),
+  "objectiveMode": zod.string().nullable().describe('The solve\'s objective mode (e.g. Chen\'s \"coverage\"\/\"min_distance\") from result details, else null (D21\/C4.10).'),
+  "weightedAvgDistance": zod.number().nullable().describe('Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi removed in C4.10 (D21).'),
+  "distanceUnit": zod.string().describe('Distance unit for weightedAvgDistance (\"mi\"|\"km\"), derived from the model manifest; never null (a failed job still reports its model\'s unit) (D21\/C4.10).'),
   "runTimeSec": zod.number().nullable(),
   "queuedAt": zod.coerce.date(),
   "finishedAt": zod.coerce.date().nullable()
@@ -181,13 +183,13 @@ export const GetLandingSummaryResponse = zod.object({
  * @summary List all scenarios
  */
 export const ListScenariosQueryParams = zod.object({
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max_coverage', 'p_center', 'set_cover']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']).optional().describe('Restrict the list to scenarios of this model (chapter pages scope by this).')
 })
 
 export const ListScenariosResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max_coverage', 'p_center', 'set_cover']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -245,7 +247,7 @@ export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
  */
 export const CreateScenarioBody = zod.object({
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max_coverage', 'p_center', 'set_cover']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']),
   "inputs": zod.object({
 
 }).passthrough()
@@ -262,7 +264,7 @@ export const GetScenarioParams = zod.object({
 export const GetScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max_coverage', 'p_center', 'set_cover']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -331,7 +333,7 @@ export const UpdateScenarioBody = zod.object({
 export const UpdateScenarioResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max_coverage', 'p_center', 'set_cover']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -430,7 +432,7 @@ export const PrecheckScenarioParams = zod.object({
 export const PrecheckScenarioResponse = zod.object({
   "ok": zod.boolean(),
   "errors": zod.array(zod.object({
-  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity']),
+  "code": zod.enum(['completeness', 'id_collision', 'reference_integrity', 'p_range', 'capacity', 'zero_demand', 'no_feasible_route', 'coverage_floor_infeasible']),
   "message": zod.string()
 }).describe('One structured, specific precheck finding (SCN v0.3 Phase B, B2.1) — e.g. \"WH-09 missing distances to 4 customers, C-12, C-15, C-88, C-142\".'))
 }).describe('Result of the semantic precheck against a scenario\'s addedWarehouses\/addedCustomers\/distanceOverrides fields (B1.1). Also the shape of the extra `errors` field on the solve route\'s 422 when the same precheck fails before enqueue.')
@@ -485,7 +487,7 @@ export const ApplyScenarioImportResponse = zod.object({
   "scenario": zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'max_coverage', 'p_center', 'set_cover']),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']),
   "inputs": zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
@@ -567,10 +569,10 @@ export const ExportScenarioQueryParams = zod.object({
 
 export const ExportScenarioResponse = zod.object({
   "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'flows', 'plants', 'plantCapabilities']),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities']),
   "rows": zod.array(zod.object({
 
-}).passthrough())
+}).passthrough()).describe('Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services\/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add.')
 })
 
 

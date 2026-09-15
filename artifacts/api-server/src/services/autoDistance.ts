@@ -2,11 +2,13 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_PLANTS, JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { buildActivePMedianIds, buildActiveTwoEchelonIds, buildActiveJadeIds } from "./precheck.js";
 import { pMedianInputsSchema, type PMedianInputs } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema, type TransportLpInputs } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema, type TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema, type JadeInputs } from "../validation/inputs/jadeInputs.js";
+import { chensInputsSchema, type ChensInputs } from "../validation/inputs/chens.js";
 
 // T1 (Input Map v2) / follow-up item 3 — normalization step run on every
 // persist path (POST create, PATCH, import/apply — see routes/scenarios.ts's
@@ -82,6 +84,27 @@ export function haversineMiles(a: Coord, b: Coord): number {
 
 function clampMi(mi: number): number {
   return Math.max(MIN_DISTANCE_MI, Math.round(mi * 10) / 10);
+}
+
+// C4.7 (Chapter 4, chens-cosmetics-cn) — Chen's dataset is authored in
+// kilometers (raw great-circle km, NO circuity — solve_chens applies the
+// ×1.17 factor itself, D8), unlike every model above which stores miles. So
+// its added-entity estimator needs its own km haversine (earth radius
+// 6371 km) rather than reusing haversineMiles' R_MI=3959. Rounds each
+// estimate to 2 dp and floors at 0.01 km (positive, never 0 for co-located
+// points — same "never 0" invariant as clampMi, just at km precision).
+const R_KM = 6371;
+const MIN_DISTANCE_KM = 0.01;
+
+export function haversineKm(a: Coord, b: Coord): number {
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+function clampKm(km: number): number {
+  return Math.max(MIN_DISTANCE_KM, Math.round(km * 100) / 100);
 }
 
 /**
@@ -432,4 +455,88 @@ export function fillEstimatedJadeDistances(inputs: JadeInputs, dataset: JadeRole
   }
 
   return jadeInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
+}
+
+interface ChensRoleDataset {
+  warehouses: readonly { id: string; lat: number; lng: number }[];
+  customers: readonly { id: string; lat: number; lng: number }[];
+}
+
+const CHENS_DEFAULT: ChensRoleDataset = { warehouses: CHENS_WAREHOUSES, customers: CHENS_CUSTOMERS };
+
+/**
+ * C4.7 (Chapter 4, chens-cosmetics-cn) — Chen's added-entity distance
+ * estimator. Deliberately a SEPARATE function that MIRRORS the core
+ * fillEstimatedDistances algorithm (missing added-entity-pair detection +
+ * haversine fill for the "vice versa" required set), NOT a wrapper around it
+ * (unlike fillEstimatedBrazilDistances, which just injects a circuity
+ * constant) — because it must reparse through `chensInputsSchema` so Chen's
+ * own objective/threshold fields (`objective`, `highServiceDistKm`,
+ * `maxDistKm`, `avgServiceDistCapKm`/`coverageFloorDemand`) survive; routing
+ * Chen inputs through the p-median schema would strip every Chen-only field.
+ *
+ * Differs from the core in exactly three numeric ways, matching Chen's
+ * km-authored raw-distance dataset (D8): a km haversine (`haversineKm`,
+ * R=6371), NO circuity (circuity = 1, since solve_chens applies ×1.17
+ * itself), and 2-dp rounding with a positive 0.01 km floor (never 0 for
+ * co-located points). Pure and idempotent — a pair that already has an
+ * override (manual or previously estimated) is left untouched, so a second
+ * pass is a no-op. Only FILLS genuinely-missing rows; it does NOT repair a
+ * stale estimate after a coordinate change (the frontend move/delete purge,
+ * C4.13, is what makes a re-estimate happen). The final `chensInputsSchema
+ * .parse` also re-applies the D19 `distanceBands = [high, max]` transform, so
+ * a distances-import path that stages a stale third boundary is corrected
+ * here too.
+ */
+export function fillEstimatedChensDistances(
+  inputs: ChensInputs,
+  dataset: ChensRoleDataset = CHENS_DEFAULT,
+): ChensInputs {
+  const added = inputs.addedWarehouses ?? [];
+  const addedC = inputs.addedCustomers ?? [];
+
+  // Per-role coordinate maps — same discipline as the core estimator: a
+  // customer id colliding with a warehouse id must never resolve against the
+  // wrong map.
+  const whCoord = new Map<string, Coord>();
+  for (const w of dataset.warehouses) whCoord.set(w.id, { lat: w.lat, lng: w.lng });
+  for (const w of added) whCoord.set(w.id, { lat: w.lat, lng: w.lng });
+  const custCoord = new Map<string, Coord>();
+  for (const c of dataset.customers) custCoord.set(c.id, { lat: c.lat, lng: c.lng });
+  for (const c of addedC) custCoord.set(c.id, { lat: c.lat, lng: c.lng });
+
+  const addedWhIds = new Set(added.map((w) => w.id));
+  const addedCustIds = new Set(addedC.map((c) => c.id));
+  // Chen shares p-median's warehouse/customer role structure, so
+  // buildActivePMedianIds computes the exact same "active" id lists here
+  // (base entities not inactive/excluded per overrides, plus every added
+  // entity) — no Chen-specific active-id helper needed.
+  const { activeWarehouseIds, activeCustomerIds } = buildActivePMedianIds(inputs, {
+    warehouses: dataset.warehouses,
+    customers: dataset.customers,
+  });
+  const activeAddedCustIds = activeCustomerIds.filter((id) => addedCustIds.has(id));
+
+  const overrides = [...(inputs.distanceOverrides ?? [])];
+  const have = new Set(overrides.map((o) => o.fromId + "|" + o.toId));
+
+  for (const whId of activeWarehouseIds) {
+    // base<->base pairs are covered by the base dataset's own km matrix — an
+    // added warehouse needs a distance to every active customer, a base
+    // warehouse only to the active ADDED customers (the "vice versa"
+    // direction).
+    const required = addedWhIds.has(whId) ? activeCustomerIds : activeAddedCustIds;
+    for (const custId of required) {
+      const key = whId + "|" + custId;
+      if (have.has(key)) continue;
+      const a = whCoord.get(whId);
+      const b = custCoord.get(custId);
+      if (!a || !b) continue;
+      const d = clampKm(haversineKm(a, b));
+      overrides.push({ fromId: whId, toId: custId, distance: d, estimated: true });
+      have.add(key);
+    }
+  }
+
+  return chensInputsSchema.parse({ ...inputs, distanceOverrides: overrides });
 }

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   TEMPLATE_VERSION,
+  OUTPUT_TEMPLATE_VERSION,
+  buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
   applyCustomerOverrides,
   applyMineOverrides,
@@ -844,32 +846,45 @@ function makeResult(overrides: Partial<ResultEnvelope> = {}): ResultEnvelope {
 }
 
 describe("buildAssignmentRows", () => {
-  it("returns one row per edge, mapping fromId/toId to warehouseId/customerId", () => {
-    const rows = buildAssignmentRows(makeResult());
+  it("returns one row per edge, mapping fromId/toId to warehouseId/customerId (D24: distance + distanceUnit, OUTPUT_TEMPLATE_VERSION)", () => {
+    const rows = buildAssignmentRows(makeResult(), "mi");
     expect(rows).toEqual([
-      { templateVersion: TEMPLATE_VERSION, customerId: "C1", warehouseId: "ALN", distanceMi: 42.1, band: 0, flow: 205375 },
-      { templateVersion: TEMPLATE_VERSION, customerId: "C2", warehouseId: "DAL", distanceMi: 812.4, band: 3, flow: 150000 },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 205375 },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, customerId: "C2", warehouseId: "DAL", distance: 812.4, distanceUnit: "mi", band: 3, flow: 150000 },
     ]);
+  });
+
+  it("emits the model's distanceUnit (Chen km) and never a distanceMi field", () => {
+    const rows = buildAssignmentRows(makeResult(), "km");
+    expect(rows[0].distanceUnit).toBe("km");
+    expect(rows[0]).not.toHaveProperty("distanceMi");
   });
 
   it("uses null for band when the edge has no band", () => {
     const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 5 }] });
-    expect(buildAssignmentRows(result)[0].band).toBeNull();
+    expect(buildAssignmentRows(result, "mi")[0].band).toBeNull();
   });
 });
 
 describe("assignmentRowsToCsv", () => {
-  it("emits the template_version,customer_id,warehouse_id,distance_mi,band,flow header and one line per row", () => {
-    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult()));
+  it("emits the template_version,customer_id,warehouse_id,distance,distance_unit,band,flow header and one line per row (D24)", () => {
+    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult(), "mi"));
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,customer_id,warehouse_id,distance_mi,band,flow");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},C1,ALN,42.1,0,205375`);
+    expect(lines[0]).toBe("template_version,customer_id,warehouse_id,distance,distance_unit,band,flow");
+    expect(lines[1]).toBe(`${OUTPUT_TEMPLATE_VERSION},C1,ALN,42.1,mi,0,205375`);
+    expect(csv).not.toContain("distance_mi");
+  });
+
+  it("emits distance_unit=km for a Chen (km) export", () => {
+    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult(), "km"));
+    expect(csv.trim().split("\n")[1]).toBe(`${OUTPUT_TEMPLATE_VERSION},C1,ALN,42.1,km,0,205375`);
   });
 });
 
 describe("buildOpenWarehouseRows", () => {
-  it("returns one row per distinct fromId with total flow and utilization joined by warehouseId", () => {
-    const rows = buildOpenWarehouseRows(makeResult());
+  it("returns one row per distinct fromId with total flow, utilization, and city from the effective lookup", () => {
+    const cityById = new Map([["ALN", "Allentown"], ["DAL", "Dallas"]]);
+    const rows = buildOpenWarehouseRows(makeResult(), cityById);
     expect(rows).toEqual([
       { templateVersion: TEMPLATE_VERSION, warehouseId: "ALN", city: "Allentown", totalFlow: 205375, utilization: 0.41 },
       { templateVersion: TEMPLATE_VERSION, warehouseId: "DAL", city: "Dallas", totalFlow: 150000, utilization: 0.6 },
@@ -884,7 +899,7 @@ describe("buildOpenWarehouseRows", () => {
       ],
       metrics: { utilizationByNode: [{ warehouseId: "ALN", city: "Allentown", utilization: 0.3 }] },
     });
-    expect(buildOpenWarehouseRows(result)).toEqual([
+    expect(buildOpenWarehouseRows(result, new Map([["ALN", "Allentown"]]))).toEqual([
       { templateVersion: TEMPLATE_VERSION, warehouseId: "ALN", city: "Allentown", totalFlow: 150, utilization: 0.3 },
     ]);
   });
@@ -894,70 +909,127 @@ describe("buildOpenWarehouseRows", () => {
       edges: [{ fromId: "kalgoorlie", toId: "daggar-hills", flow: 100, distance: 293.66, leg: "mine_to_refinery" }],
       metrics: {},
     });
-    expect(buildOpenWarehouseRows(result)).toEqual([]);
+    expect(buildOpenWarehouseRows(result, new Map())).toEqual([]);
   });
 
-  it("defaults city to empty string and utilization to null when no matching utilizationByNode entry exists", () => {
+  it("defaults city to empty string and utilization to null when neither the lookup nor utilizationByNode has an entry", () => {
     const result = makeResult({
       edges: [{ fromId: "BAL", toId: "C1", flow: 10, distance: 5 }],
       metrics: {},
     });
-    expect(buildOpenWarehouseRows(result)).toEqual([
+    expect(buildOpenWarehouseRows(result, new Map())).toEqual([
       { templateVersion: TEMPLATE_VERSION, warehouseId: "BAL", city: "", totalFlow: 10, utilization: null },
     ]);
+  });
+
+  // D29 — a forced-open facility with no assigned customer carries no edge; its
+  // id lives only in metrics.openFacilityIds. It must still export, with a
+  // non-blank city sourced from the effective lookup (base OR added facility) —
+  // Chen emits utilizationByNode empty, so the lookup is the only city source.
+  it("exports a base AND an added zero-flow forced-open facility with its real city (openFacilityIds union)", () => {
+    const result = makeResult({
+      edges: [{ fromId: "GZ", toId: "C1", flow: 40, distance: 12 }],
+      metrics: { utilizationByNode: [], openFacilityIds: ["GZ", "BJ", "aw-1"] },
+    });
+    // GZ has flow; BJ (base) + aw-1 (added) are forced-open zero-flow.
+    const cityById = new Map([["GZ", "Guangzhou"], ["BJ", "Beijing"], ["aw-1", "New City"]]);
+    const rows = buildOpenWarehouseRows(result, cityById);
+    expect(rows).toEqual([
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "GZ", city: "Guangzhou", totalFlow: 40, utilization: null },
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "BJ", city: "Beijing", totalFlow: 0, utilization: null },
+      { templateVersion: TEMPLATE_VERSION, warehouseId: "aw-1", city: "New City", totalFlow: 0, utilization: null },
+    ]);
+  });
+});
+
+describe("buildEffectiveFacilityCityLookup", () => {
+  it("maps p-median-us base warehouse ids to their real cities plus added warehouses", () => {
+    const lookup = buildEffectiveFacilityCityLookup("p-median-us", {
+      addedWarehouses: [{ id: "aw-1", city: "New City" }],
+    });
+    expect(lookup.get("ALN")).toBe("Allentown");
+    expect(lookup.get("aw-1")).toBe("New City");
+  });
+
+  it("uses GOLD_REFINERIES (+ addedRefineries) as the base facility set for two-echelon-gold-au", () => {
+    const lookup = buildEffectiveFacilityCityLookup("two-echelon-gold-au", {
+      addedRefineries: [{ id: "ar-1", city: "New Refinery" }],
+    });
+    expect(lookup.get("daggar-hills")).toBe("Daggar Hills");
+    expect(lookup.get("ar-1")).toBe("New Refinery");
+  });
+
+  it("maps Chen base warehouse ids to their cities", () => {
+    const lookup = buildEffectiveFacilityCityLookup("chens-cosmetics-cn", {});
+    expect(lookup.size).toBeGreaterThan(0);
   });
 });
 
 describe("openWarehouseRowsToCsv", () => {
   it("emits the template_version,warehouse_id,city,total_flow,utilization header", () => {
-    const csv = openWarehouseRowsToCsv(buildOpenWarehouseRows(makeResult()));
+    const csv = openWarehouseRowsToCsv(buildOpenWarehouseRows(makeResult(), new Map()));
     expect(csv.trim().split("\n")[0]).toBe("template_version,warehouse_id,city,total_flow,utilization");
   });
 });
 
 describe("buildCostSummaryRows", () => {
-  it("returns exactly one row with the result's objective/weightedAvgDistance/runTimeSec/quality/solverUsed", () => {
-    expect(buildCostSummaryRows(makeResult())).toEqual([{
-      templateVersion: TEMPLATE_VERSION,
+  it("returns exactly one row with objective/objectiveMode/weightedAvgDistance/distanceUnit/runTimeSec/quality/solverUsed (D25, OUTPUT_TEMPLATE_VERSION)", () => {
+    expect(buildCostSummaryRows(makeResult(), "mi")).toEqual([{
+      templateVersion: OUTPUT_TEMPLATE_VERSION,
       objective: 29873735731,
+      objectiveMode: null,
       weightedAvgDistance: 382.9,
+      distanceUnit: "mi",
       runTimeSec: 0.45,
       quality: "Proven optimal",
       solverUsed: "CBC",
     }]);
   });
 
+  it("serializes objectiveMode as an explicit null (not omitted) when details has no objective mode", () => {
+    const row = buildCostSummaryRows(makeResult(), "mi")[0];
+    expect(row.objectiveMode).toBeNull();
+    expect("objectiveMode" in row).toBe(true);
+    expect(JSON.stringify(row)).toContain('"objectiveMode":null');
+  });
+
+  it("carries Chen's coverage/min_distance mode from details.objective + km unit", () => {
+    const row = buildCostSummaryRows(makeResult({ details: { objective: "coverage" } }), "km")[0];
+    expect(row.objectiveMode).toBe("coverage");
+    expect(row.distanceUnit).toBe("km");
+  });
+
   it("uses null for weightedAvgDistance when metrics doesn't have it", () => {
     const result = makeResult({ metrics: {} });
-    expect(buildCostSummaryRows(result)[0].weightedAvgDistance).toBeNull();
+    expect(buildCostSummaryRows(result, "mi")[0].weightedAvgDistance).toBeNull();
   });
 });
 
 describe("costSummaryRowsToCsv", () => {
-  it("emits exactly one data line (plus header)", () => {
-    const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult())).trim().split("\n");
+  it("emits exactly one data line (plus header) with the D25 column set", () => {
+    const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult(), "mi")).trim().split("\n");
     expect(lines.length).toBe(2);
-    expect(lines[0]).toBe("template_version,objective,weighted_avg_distance,run_time_sec,quality,solver_used");
+    expect(lines[0]).toBe("template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used");
   });
 });
 
 describe("buildServiceStatsRows", () => {
-  it("returns one row per bandCoverage entry", () => {
-    expect(buildServiceStatsRows(makeResult())).toEqual([
-      { templateVersion: TEMPLATE_VERSION, band: 200, percent: 30 },
-      { templateVersion: TEMPLATE_VERSION, band: 400, percent: 45 },
+  it("returns one row per bandCoverage entry, each carrying distanceUnit (D25, OUTPUT_TEMPLATE_VERSION)", () => {
+    expect(buildServiceStatsRows(makeResult(), "km")).toEqual([
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "km", percent: 30 },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 400, distanceUnit: "km", percent: 45 },
     ]);
   });
 
   it("returns an empty array when metrics has no bandCoverage", () => {
-    expect(buildServiceStatsRows(makeResult({ metrics: {} }))).toEqual([]);
+    expect(buildServiceStatsRows(makeResult({ metrics: {} }), "mi")).toEqual([]);
   });
 });
 
 describe("serviceStatsRowsToCsv", () => {
-  it("emits the template_version,band,percent header", () => {
-    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult()));
-    expect(csv.trim().split("\n")[0]).toBe("template_version,band,percent");
+  it("emits the template_version,band,distance_unit,percent header (D25)", () => {
+    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult(), "km"));
+    expect(csv.trim().split("\n")[0]).toBe("template_version,band,distance_unit,percent");
   });
 });
 

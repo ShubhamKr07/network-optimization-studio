@@ -27,6 +27,10 @@ const SOLVABLE = [
   "p-median-brazil",
   "two-echelon-gold-au",
   "two-echelon-jade-us",
+  // C4.6: Chapter 4 Chen's Cosmetics joins here in the atomic commit that
+  // registers its KNOWN_SCHEMAS entry + VALID_MODEL_IDS + buildPayload branch
+  // simultaneously (OBS-5 needs all three at once).
+  "chens-cosmetics-cn",
 ];
 
 describe("model registration consistency", () => {
@@ -83,11 +87,14 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     expect(KNOWN_MODEL_IDS).toContain("two-echelon-jade-us");
   });
 
-  it("GET /api/models returns 5 models, including two-echelon-jade-us", async () => {
+  it("GET /api/models returns 6 models, including two-echelon-jade-us", async () => {
     const { default: app } = await import("../../app.js");
     const res = await request(app).get("/api/models");
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(5);
+    // C4.4 — count is a model-registry fact (chens-cosmetics-cn is the 6th
+    // manifest, landed in Wave 1). This is NOT the SOLVABLE fixture — Chen's
+    // KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
+    expect(res.body).toHaveLength(6);
     const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
   });
@@ -121,6 +128,11 @@ const STUB_INPUTS: Record<string, unknown> = {
     p: 2, distanceBands: [200, 400, 800, 1600], gap: 0, timeLimitSec: 60,
     warehouseOverrides: [], customerOverrides: [], plantProductCapability: [],
     addedPlants: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
+  },
+  "chens-cosmetics-cn": {
+    objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
+    avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+    warehouseOverrides: [], customerOverrides: [], addedWarehouses: [], addedCustomers: [], distanceOverrides: [],
   },
 };
 

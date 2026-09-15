@@ -11,6 +11,7 @@ import { ResultEnvelopeSchema } from "./resultEnvelope.js";
 import type { ResultEnvelope } from "./resultEnvelope.js";
 import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
+import { getManifest } from "../registry/modelRegistry.js";
 import { posthog } from "../lib/posthog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -279,14 +280,25 @@ async function writeThroughCache(inputsHash: string, modelId: string, envelope: 
   }
 }
 
-async function markSucceeded(jobId: number, scenarioId: number, envelope: ResultEnvelope): Promise<void> {
+async function markSucceeded(jobId: number, scenarioId: number, modelId: string, envelope: ResultEnvelope): Promise<void> {
+  // D21/C4.10 — resultSummary now carries the objective mode + a unit-tagged
+  // weighted-average distance so the solve-history read (and Landing) can label
+  // each solve without re-deriving the model. objectiveMode is the solver's
+  // details.objective when present (Chen emits "coverage"/"min_distance"; mile
+  // models don't set it) else null; distanceUnit is the model manifest's unit
+  // (mile models "mi", Chen "km"). Replaces the removed mile-locked
+  // weightedAvgDistanceMi.
+  const objectiveMode = typeof envelope.details.objective === "string" ? envelope.details.objective : null;
+  const distanceUnit = getManifest(modelId)?.distanceUnit ?? "mi";
   await db.update(solveJobsTable)
     .set({
       status: "succeeded",
       resultSummary: {
         status: envelope.status,
         objective: envelope.objective,
-        weightedAvgDistanceMi: envelope.metrics.weightedAvgDistance ?? 0,
+        objectiveMode,
+        weightedAvgDistance: envelope.metrics.weightedAvgDistance ?? null,
+        distanceUnit,
         runTimeSec: envelope.runTimeSec,
       },
       finishedAt: new Date(),
@@ -307,7 +319,7 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
   const inputsHash = computeInputsHash(input);
   const cached = await lookupCachedResult(inputsHash);
   if (cached) {
-    await markSucceeded(jobId, scenarioId, cached);
+    await markSucceeded(jobId, scenarioId, input.modelId, cached);
     posthog?.capture({
       distinctId: userId,
       event: "scenario solve completed",
@@ -385,7 +397,7 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
   }
 
   await writeThroughCache(inputsHash, input.modelId, parsed.data);
-  await markSucceeded(jobId, scenarioId, parsed.data);
+  await markSucceeded(jobId, scenarioId, input.modelId, parsed.data);
   posthog?.capture({
     distinctId: userId,
     event: "scenario solve completed",

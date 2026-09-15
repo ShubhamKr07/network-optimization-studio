@@ -100,6 +100,68 @@ describe("jobRunner", () => {
     expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === "optimal")).toBe(true);
   });
 
+  // C4.10/D21 — the succeeded resultSummary now carries objectiveMode +
+  // distanceUnit + a unit-agnostic weightedAvgDistance (no mile-locked
+  // weightedAvgDistanceMi). A mile model has no details.objective, so
+  // objectiveMode is null and the manifest unit is "mi". Driven through the
+  // cache-hit path so markSucceeded runs with a known envelope and no spawn.
+  it("writes the unit-carrying resultSummary shape for a mile model (objectiveMode null, distanceUnit mi)", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)      // markRunning
+      .mockReturnValueOnce(jobUpdateChain)      // markSucceeded — job row
+      .mockReturnValueOnce(scenarioUpdateChain); // markSucceeded — scenario row
+    const cachedEnvelope = {
+      status: "optimal", objective: 94500000, runTimeSec: 0.4, quality: "Optimal",
+      edges: [], metrics: { weightedAvgDistance: 412.6 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "h", modelId: "p-median-us", result: cachedEnvelope },
+    ]));
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+    expect(mockSpawn).not.toHaveBeenCalled();
+    const summarySet = setValues(jobUpdateChain).find((s) => s.status === "succeeded")!;
+    expect(summarySet.resultSummary).toEqual({
+      status: "optimal", objective: 94500000, objectiveMode: null,
+      weightedAvgDistance: 412.6, distanceUnit: "mi", runTimeSec: 0.4,
+    });
+  });
+
+  // C4.10/D21 — a Chen solve emits details.objective ("coverage"/"min_distance")
+  // and its manifest reports km, so the resultSummary carries objectiveMode +
+  // distanceUnit:"km".
+  it("carries objectiveMode from details.objective and the model's km distanceUnit (Chen)", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+    const chenEnvelope = {
+      status: "optimal", objective: 66.0, runTimeSec: 0.7, quality: "optimal",
+      edges: [], metrics: { weightedAvgDistance: 250.5 }, details: { objective: "coverage" }, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "h", modelId: "chens-cosmetics-cn", result: chenEnvelope },
+    ]));
+
+    const chenInput = { modelId: "chens-cosmetics-cn", inputs: { objective: "coverage", p: 3 } } as unknown as SolveInput;
+    await enqueueSolveJob(1, "user-1", chenInput);
+
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+    const summarySet = setValues(jobUpdateChain).find((s) => s.status === "succeeded")!;
+    expect(summarySet.resultSummary).toEqual({
+      status: "optimal", objective: 66.0, objectiveMode: "coverage",
+      weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
+    });
+  });
+
   it("two concurrent solve jobs both start running without waiting for each other", async () => {
     mockDb.insert
       .mockReturnValueOnce(makeChain([{ id: 1 }]))

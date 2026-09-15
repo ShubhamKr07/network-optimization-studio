@@ -38,7 +38,7 @@ vi.mock("react-leaflet", async () => {
   };
 });
 
-const { NetworkMap } = await import("@/components/NetworkMap");
+const { NetworkMap, buildCustomerPopupHtml } = await import("@/components/NetworkMap");
 const { getBandColor } = await import("@/lib/bandPalette");
 
 const dataset = {
@@ -926,6 +926,29 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     // needed here since CustomerPopup itself was not touched by this task.
     expect(container).toBeDefined();
   });
+
+  // C4.11 — CustomerPopup's distance line follows the active model's unit.
+  // The popup markup is built by the pure, exported buildCustomerPopupHtml so
+  // the unit is verifiable without driving Leaflet's imperative L.popup()
+  // through jsdom.
+  const popupInfo = {
+    lat: 41, lng: -91,
+    customerCity: "Sampleburg", customerState: "SB",
+    warehouseCity: "Testville", warehouseState: "TS",
+    distanceMi: 1234, band: 0,
+  };
+
+  it("buildCustomerPopupHtml renders the distance in mi by default", () => {
+    const html = buildCustomerPopupHtml(popupInfo);
+    expect(html).toContain("1,234 mi");
+  });
+
+  it("buildCustomerPopupHtml renders the distance in km (never mi) for a Chen scenario", () => {
+    const html = buildCustomerPopupHtml(popupInfo, "km");
+    expect(html).toContain("1,234 km");
+    expect(html).not.toContain("1,234 mi");
+    expect(html).not.toMatch(/\bmi<\/strong>/);
+  });
 });
 
 // ── Bundle 6.1 (T1) — shared MapLegend, Output variant ──────────────────────
@@ -1069,5 +1092,96 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
     // Labeled by upper bound, not the old ordinal "Band N" — default unit
     // "mi" since this render doesn't pass distanceUnit.
     expect(legend.textContent).toContain("≤ 3000 mi");
+  });
+});
+
+// ── C4.14 (D14) — Chen two-class coverage lens ──────────────────────────────
+// Chen's Cosmetics passes distanceBands = [highServiceDistKm, maxDistKm] (D13),
+// so the SHARED band-coloring path already produces exactly a two-class lens:
+// a warehouse→customer route with distance ≤ high sits in band 0 (covered,
+// getBandColor(0)), and one with high < distance ≤ max sits in band 1
+// (uncovered, getBandColor(1)) — computed CLIENT-SIDE from result.edges, no
+// re-solve. This also proves Chen does NOT gain the two-echelon/JADE leg
+// coloring (Chen edges carry no `leg`), the coal/gold-specific branch a
+// Gate-1 mapped audit must confirm Chen was NOT added to.
+describe("NetworkMap Chen two-class coverage lens (C4.14)", () => {
+  const chenDataset = {
+    warehouses: [
+      { id: "wh-23", city: "Chengdu", state: "", lat: 30.67, lng: 104.07 },
+      { id: "wh-15", city: "Changchun", state: "", lat: 43.87, lng: 125.35 },
+    ],
+    customers: [
+      { id: "cs-near", city: "Nearby", state: "", lat: 30.9, lng: 104.3, demand: 1000 },
+      { id: "cs-far", city: "Faraway", state: "", lat: 41.15, lng: 80.25, demand: 2000 },
+    ],
+  };
+  // Two-class bands: [high=600, max=5000].
+  const chenBands = [600, 5000];
+  const chenResult = {
+    status: "optimal" as const,
+    objective: 66.67,
+    runTimeSec: 0.3,
+    quality: "optimal",
+    edges: [
+      // distance 400 <= 600  -> covered   -> band 0 -> getBandColor(0)
+      { fromId: "wh-23", toId: "cs-near", flow: 1000, distance: 400 },
+      // 600 < 2544 <= 5000   -> uncovered -> band 1 -> getBandColor(1)
+      { fromId: "wh-15", toId: "cs-far", flow: 2000, distance: 2544 },
+    ],
+    metrics: {
+      weightedAvgDistance: 1500,
+      bandCoverage: [{ band: 600, percent: 33 }, { band: 5000, percent: 100 }],
+      utilizationByNode: [],
+    },
+    details: { objective: "coverage", openWarehouseIds: ["wh-23", "wh-15"] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("colors a ≤high route as covered (band 0) and a high<d≤max route as uncovered (band 1), client-side", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={chenDataset}
+        warehouseStatuses={[]}
+        result={chenResult}
+        showRoutes={true}
+        bands={chenBands}
+        countryBounds={{ sw: [18, 73.9], ne: [49.4, 133] }}
+        distanceUnit="km"
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeHtml = (container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "").toLowerCase();
+    const covered = getBandColor(0).toLowerCase();
+    const uncovered = getBandColor(1).toLowerCase();
+    expect(covered).not.toBe(uncovered);
+    expect(routeHtml).toContain(covered);
+    expect(routeHtml).toContain(uncovered);
+    // Exactly two route polylines rendered.
+    expect((routeHtml.match(/<path/g) ?? []).length).toBe(2);
+  });
+
+  it("does NOT gain the coal/gold/JADE leg coloring — Chen edges carry no `leg`", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={chenDataset}
+        warehouseStatuses={[]}
+        result={chenResult}
+        showRoutes={true}
+        bands={chenBands}
+        distanceUnit="km"
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    // Leg colors (two-echelon inbound/outbound) must be absent on Chen routes.
+    expect(routeHtml).not.toContain("var(--map-warehouse-open)");
+    expect(routeHtml).not.toContain("var(--danger)");
   });
 });

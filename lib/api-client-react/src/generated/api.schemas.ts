@@ -367,6 +367,7 @@ export const ScenarioModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
+  'chens-cosmetics-cn': 'chens-cosmetics-cn',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
@@ -433,8 +434,18 @@ export interface SolveHistoryEntry {
   status: SolveJobStatus;
   /** @nullable */
   objective: number | null;
-  /** @nullable */
-  weightedAvgDistanceMi: number | null;
+  /**
+     * The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null (D21/C4.10).
+     * @nullable
+     */
+  objectiveMode: string | null;
+  /**
+     * Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi removed in C4.10 (D21).
+     * @nullable
+     */
+  weightedAvgDistance: number | null;
+  /** Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10). */
+  distanceUnit: string;
   /** @nullable */
   runTimeSec: number | null;
   queuedAt: string;
@@ -469,6 +480,7 @@ export const ScenarioInputModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
+  'chens-cosmetics-cn': 'chens-cosmetics-cn',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',
@@ -496,6 +508,11 @@ export const PrecheckErrorCode = {
   completeness: 'completeness',
   id_collision: 'id_collision',
   reference_integrity: 'reference_integrity',
+  p_range: 'p_range',
+  capacity: 'capacity',
+  zero_demand: 'zero_demand',
+  no_feasible_route: 'no_feasible_route',
+  coverage_floor_infeasible: 'coverage_floor_infeasible',
 } as const;
 
 /**
@@ -616,6 +633,10 @@ export const ExportEnvelopeEntity = {
   distances: 'distances',
   laneCosts: 'laneCosts',
   legDistances: 'legDistances',
+  assignments: 'assignments',
+  openWarehouses: 'openWarehouses',
+  costSummary: 'costSummary',
+  serviceStats: 'serviceStats',
   flows: 'flows',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
@@ -626,6 +647,7 @@ export type ExportEnvelopeRowsItem = { [key: string]: unknown };
 export interface ExportEnvelope {
   templateVersion: number;
   entity: ExportEnvelopeEntity;
+  /** Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add. */
   rows: ExportEnvelopeRowsItem[];
 }
 
@@ -642,6 +664,7 @@ export const GetDatasetModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-jade-us': 'two-echelon-jade-us',
+  'chens-cosmetics-cn': 'chens-cosmetics-cn',
 } as const;
 
 export type GetSolveHistoryParams = {
@@ -667,6 +690,7 @@ export const ListScenariosModelId = {
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'two-echelon-jade-us': 'two-echelon-jade-us',
+  'chens-cosmetics-cn': 'chens-cosmetics-cn',
   max_coverage: 'max_coverage',
   p_center: 'p_center',
   set_cover: 'set_cover',

@@ -25,6 +25,19 @@ describe("AssignmentsTab", () => {
     expect(screen.getByTestId("assignments-empty")).toBeInTheDocument();
   });
 
+  // C4.11 — the Distance column header follows the active model's unit.
+  it("defaults the Distance header to (mi) when no distanceUnit is passed", () => {
+    const { container } = render(<AssignmentsTab result={result} scenarioId={1} />);
+    expect(screen.getByText("Distance (mi)")).toBeInTheDocument();
+    expect(container.querySelector("thead")?.textContent).not.toContain("(km)");
+  });
+
+  it("renders the Distance header in km (never mi) for a Chen scenario (distanceUnit=km)", () => {
+    render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="km" />);
+    expect(screen.getByText("Distance (km)")).toBeInTheDocument();
+    expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
+  });
+
   it("calls downloadEntityExport with entity=assignments when Download CSV is clicked", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<AssignmentsTab result={result} scenarioId={1} />);

@@ -96,8 +96,35 @@ import { track } from "@/lib/analytics";
 // (Studio.tsx:681-690) rather than invented — one branch per model, matching
 // that switch's own structure so a future model flip only needs a new case
 // here, not a rewrite.
-function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
+// C4.12 — Chen mode-field seed defaults, mirroring defaultInputsForModel's
+// Chen case exactly. The mode toggle seeds the newly-required field with these
+// when toggling into a mode whose field is currently absent (D1).
+const CHEN_DEFAULT_AVG_SERVICE_CAP_KM = 1000;
+const CHEN_DEFAULT_COVERAGE_FLOOR_DEMAND = 131645389;
+
+export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
+    // C4.11 — Chen's Cosmetics (Chapter 4). Coverage mode by default, so
+    // avgServiceDistCapKm is present and coverageFloorDemand is absent
+    // (chensInputsSchema's discriminated superRefine). No capacity concept
+    // (capacityMode "none"); distanceBands is the D19 derivation [high, max].
+    case "chens-cosmetics-cn":
+      return {
+        objective: "coverage",
+        p: 3,
+        highServiceDistKm: 600,
+        maxDistKm: 5000,
+        avgServiceDistCapKm: 1000,
+        gap: 0,
+        timeLimitSec: 120,
+        capacityMode: "none",
+        distanceBands: [600, 5000],
+        warehouseOverrides: [],
+        customerOverrides: [],
+        addedWarehouses: [],
+        addedCustomers: [],
+        distanceOverrides: [],
+      };
     case "transport-coal":
       return { distanceBands: [500, 1000, 1500, 2000], gap: 0, timeLimitSec: 120, capacityFactor: 1.0, singleSource: false, capacityInactive: false };
     case "p-median-brazil":
@@ -190,6 +217,19 @@ function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number 
 function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
   const raw = inputs?.distanceBands;
   return Array.isArray(raw) ? (raw as number[]) : [];
+}
+
+// C4.12 — Chen (chens-cosmetics-cn) objective mode + coverage params, all read
+// off the opaque inputs blob (the caller gates these on modelId so no sibling
+// model ever passes them into OptimizationParametersTab's Chen block).
+function objectiveFromInputs(inputs: Record<string, unknown> | null): "coverage" | "min_distance" | undefined {
+  const raw = inputs?.objective;
+  return raw === "coverage" || raw === "min_distance" ? raw : undefined;
+}
+
+function optionalNumberFromInputs(inputs: Record<string, unknown> | null, key: string): number | undefined {
+  const raw = inputs?.[key];
+  return typeof raw === "number" ? raw : undefined;
 }
 
 // A5.1 — transport-coal's mineCapacities/stationDemands persist as sparse
@@ -1247,7 +1287,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // jade-T15.5 — two-echelon-jade-us joins: its Warehouses/Customers/
       // Plants tabs' added-row precheck chips are the first frontend
       // consumer of precheckJadeInputs (T6).
-      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us"),
+      // C4.13 — chens-cosmetics-cn joins: C4.8 built precheckChensInputs
+      // (zero_demand/no_feasible_route/coverage_floor_infeasible +
+      // completeness), and this task's Input-Map/Warehouses/Customers add-row
+      // chips are its first frontend consumer.
+      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn"),
       queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
     },
   });
@@ -1421,6 +1465,49 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
   }
 
+  // C4.12 — Chen objective mode toggle (D1). Atomic (a single functional
+  // setLocalInputs) so the three coupled edits — set `objective`, SEED the
+  // newly-required mode field, and DELETE the other mode's field — land in one
+  // render. C4.6's chensInputsSchema is a discriminated union: the wrong-mode
+  // field must be ABSENT (not just ignored), so deleting is load-bearing, not
+  // cosmetic. Deleting (rather than nulling) keeps the persisted blob exactly
+  // the shape the Zod contract expects. Seeds the default only when the target
+  // field is currently absent — which it always is right after a toggle, since
+  // the opposite toggle deleted it.
+  function setChenObjectiveMode(mode: "coverage" | "min_distance") {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const next: Record<string, unknown> = { ...prev, objective: mode };
+      if (mode === "coverage") {
+        next.avgServiceDistCapKm =
+          typeof prev.avgServiceDistCapKm === "number" ? prev.avgServiceDistCapKm : CHEN_DEFAULT_AVG_SERVICE_CAP_KM;
+        delete next.coverageFloorDemand;
+      } else {
+        next.coverageFloorDemand =
+          typeof prev.coverageFloorDemand === "number" ? prev.coverageFloorDemand : CHEN_DEFAULT_COVERAGE_FLOOR_DEMAND;
+        delete next.avgServiceDistCapKm;
+      }
+      return next;
+    });
+  }
+
+  // C4.12 — editing Chen's high-service / max distance re-derives
+  // `distanceBands` to `[high, max]` in the SAME atomic update (D13/D19): Chen's
+  // bands are a derived two-class coverage lens, not a free-edited list (its
+  // band editor is hidden precisely because these two fields OWN the bands).
+  // Reads `prev` for the unchanged member of the pair so a single edit doesn't
+  // clobber the other threshold.
+  function updateChenServiceDistance(field: "highServiceDistKm" | "maxDistKm", value: number) {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const prevHigh = typeof prev.highServiceDistKm === "number" ? prev.highServiceDistKm : value;
+      const prevMax = typeof prev.maxDistKm === "number" ? prev.maxDistKm : value;
+      const high = field === "highServiceDistKm" ? value : prevHigh;
+      const max = field === "maxDistKm" ? value : prevMax;
+      return { ...prev, [field]: value, distanceBands: [high, max] };
+    });
+  }
+
   // B5.2/B6.2 — deleting an added warehouse/customer/refinery must ALSO
   // purge any distanceOverrides referencing its id, in the SAME localInputs
   // update (not two separate setLocalInputs calls, which would both read
@@ -1580,7 +1667,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // T5 (Bundle 2) — p-median-brazil joins p-median-us here: it shares
       // the exact same PMedianMapInputs shape (T1's manifest parity) and got
       // its own GET /dataset endpoint (T3), so it gets the real editor too.
-      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
+      // C4.13 — chens-cosmetics-cn joins them: it's single-echelon
+      // warehouse→customer like p-median (warehouseOverrides/customerOverrides/
+      // addedWarehouses/addedCustomers/distanceOverrides share p-median-us's
+      // exact field names/shape; only capacity is dropped, already suppressed
+      // by capacityMode="none"), so it reuses the same "pmedian" mode editor
+      // (renderTabContent's fallback branch) and needs the same Save gate.
+      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn")) ||
       // T6 (Bundle 2) — transport-coal's own full-v2 editor
       // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
       // folded into the pmedian check above: TransportLpInputs isn't
@@ -1606,11 +1699,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // WarehousesTab component (its warehouseOverrideSchema matches
       // {id,status} exactly, no capacity field — capacityMode="none"
       // already suppresses that column).
-      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")) ||
+      // C4.13 — chens-cosmetics-cn joins: its warehouseOverride shape is
+      // {id,status} exactly (no capacity — capacityMode="none" suppresses that
+      // column, same as JADE), so it reuses the same WarehousesTab.
+      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       // jade-T15.5 — two-echelon-jade-us's Customers tab reuses
       // CustomersTab too, in its per-product mode (products/productOverrides
       // wired at the render-content branch below).
-      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us")) ||
+      // C4.13 — chens-cosmetics-cn joins: same CustomerOverride {id,status,
+      // demand} shape p-median-us uses (integer demand), same CustomersTab.
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
@@ -1628,7 +1726,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // shares the id too but renders JadeDistancesTab (explicit `leg`
       // field, composite-key identity) — see renderTabContent's own branch
       // below for all three.
-      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us")) ||
+      // C4.13 — chens-cosmetics-cn joins the p-median DistancesTab branch: its
+      // distanceOverrides share p-median-us's exact {fromId,toId,distance}
+      // shape, and its manifest declares supportsReferenceDistances (raw-km
+      // base matrix, C4.4), so it renders DistancesTab (see the render branch
+      // below, extended in the same task).
+      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
 
@@ -1636,8 +1739,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
   // toolbar below; T5 — p-median-brazil joins it (same real editor, same
   // relocated Save).
+  // C4.13 — chens-cosmetics-cn joins: it renders the same "pmedian" mode
+  // InputMapTab (renderTabContent's fallback branch) with its own relocated
+  // Save in the Layers row, so the shared toolbar Save must be suppressed for
+  // it too, exactly as for p-median-us/brazil.
   const saveInLayersRow =
-    activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
+    activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
   // condition from the pmedian one above (same reasoning as
   // isEditableInputTab's own third branch) — its Layers row is a
@@ -2346,7 +2453,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // is {id,status} exactly (no capacity field — capacityMode="none",
     // already resolved generically by capacityModeFromInputs's default,
     // suppresses the Capacity column with zero change here).
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")) {
+    // C4.13 — chens-cosmetics-cn reuses the same WarehousesTab (its
+    // warehouseOverrides is {id,status}; capacityMode="none" already
+    // suppresses the Capacity column via capacityModeFromInputs).
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -2465,10 +2575,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `overrides`/`onChange` (still required props) are wired as an inert
     // no-op for JADE: CustomersTab's own productMode switch never renders
     // the scalar `<CustomerTable>` that would otherwise read them.
+    // C4.13 — chens-cosmetics-cn reuses CustomersTab: scalar CustomerOverride
+    // {id,status,demand} shape (not JADE's per-product), so it takes the
+    // non-JADE props path below.
     if (
       activeTab.kind === "input" &&
       activeTab.entity === "customers" &&
-      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")
+      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")
     ) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       const isJade = modelId === "two-echelon-jade-us";
@@ -2507,7 +2620,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // `deleteAddedEntityAndOverrides` need no per-model branching here.
           // jade-T15.5 handles JADE separately below (its own added-customer
           // shape needs the per-product reader/computed `demand`).
-          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil"
+          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn"
             ? {
                 addedCustomers: addedCustomersFromInputs(localInputs),
                 onAddedCustomersChange: (next: AddedCustomer[]) => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next),
@@ -2591,6 +2704,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           singleSource={singleSourceFromInputs(localInputs)}
           capacityInactive={capacityInactiveFromInputs(localInputs)}
           bomRatio={bomRatioFromInputs(localInputs)}
+          distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
           // jade-T15.5 — two-echelon-jade-us has no static p.max (unlike
           // p-median-us/brazil's schema-level cap of 50): the real bound is
           // the effective active-warehouse count, which genuinely differs
@@ -2599,7 +2713,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // direct modelId check is deliberate here, not a gate to
           // generalize. undefined for every other model — OptimizationParametersTab
           // falls back to its own static default (50) unchanged.
-          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : undefined}
+          // C4.12/D27 — Chen (chens-cosmetics-cn) caps P at 25 (a static
+          // schema-level max, unlike JADE's dynamic active-warehouse count).
+          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "chens-cosmetics-cn" ? 25 : undefined}
+          // C4.12 — Chen inputs UI (all gated on modelId so a sibling model
+          // never receives these; the tab's own Chen block is gated on
+          // `objective != null`). D13/D19: hide the free-edit band editor —
+          // Chen's bands are derived [high, max] from the two thresholds.
+          showBandEditor={modelId !== "chens-cosmetics-cn"}
+          objective={modelId === "chens-cosmetics-cn" ? objectiveFromInputs(localInputs) : undefined}
+          highServiceDistKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
+          maxDistKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
+          avgServiceDistCapKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
+          coverageFloorDemand={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
+          onObjectiveModeChange={setChenObjectiveMode}
+          onServiceDistanceChange={updateChenServiceDistance}
           onChange={(field, value) => updateInputsField(field, value)}
         />
       );
@@ -2615,7 +2743,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // because it's only ever mutated inside handlers that themselves trigger
     // a re-render (handleSaveInputs/handleImportApplied/the scenario-switch
     // effect), so this value is never stale at paint time.
-    if (activeTab.kind === "input" && activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil")) {
+    // C4.13 — chens-cosmetics-cn joins the p-median DistancesTab: same
+    // {fromId,toId,distance} override shape, and supportsReferenceDistances
+    // true (raw-km base×base matrix from GET /models/chens-cosmetics-cn/
+    // reference-distances, C4.4), so `referenceCapable` drives the base column.
+    if (activeTab.kind === "input" && activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
@@ -2902,6 +3034,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             scenarioId={currentScenario!.id}
             displayedInputs={facilityDisplayedInputs(displayedInputs)}
             locationById={jadeOutputLocationById}
+            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
           />
         );
       // T5 — Solution Summary compare (R6+R8). `scenarios` is the same-model
@@ -3100,6 +3233,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         open={solveDialogOpen}
         onOpenChange={setSolveDialogOpen}
         p={pFromInputs(localInputs)}
+        // C4.12/D27 — Chen caps P at 25 in the Solve dialog too (26 can't be
+        // authored from either surface). D13/D19 — Chen has no band editor
+        // here either (bands are derived [high, max]).
+        pMax={modelId === "chens-cosmetics-cn" ? 25 : undefined}
+        showBandEditor={modelId !== "chens-cosmetics-cn"}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // R5 — the DRAFT bands (localInputs), same as p/gap/timeLimitSec

@@ -61,6 +61,7 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
+import { CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -239,6 +240,38 @@ const jadeRow = {
   solvedAt: null,
   createdAt: new Date("2026-01-05T00:00:00Z"),
   updatedAt: new Date("2026-01-05T00:00:00Z"),
+};
+
+// C4.7 — chens-cosmetics-cn (Chapter 4). Coverage-mode inputs; distanceBands
+// seeded deliberately STALE (a third boundary 3000) so the D19 assertion can
+// prove the normalizer's chensInputsSchema reparse rewrites it to [high, max].
+const chensInputs = {
+  objective: "coverage",
+  p: 3,
+  highServiceDistKm: 600,
+  maxDistKm: 5000,
+  avgServiceDistCapKm: 1000,
+  gap: 0,
+  timeLimitSec: 60,
+  capacityMode: "none",
+  distanceBands: [600, 3000, 5000],
+  warehouseOverrides: [],
+  customerOverrides: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const chensRow = {
+  id: 13,
+  name: "Chen Base Case",
+  modelId: "chens-cosmetics-cn",
+  userId: OWNER,
+  inputs: chensInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-06T00:00:00Z"),
+  updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
 
 beforeEach(() => {
@@ -802,6 +835,102 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
   });
 });
 
+// C4.7 (Chapter 4, chens-cosmetics-cn) — auto-estimate normalizer, sixth
+// writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
+// missing added-entity warehouse<->customer distances as RAW-km
+// `estimated: true` rows on all three persist paths (POST create, PATCH,
+// import/apply); the chensInputsSchema reparse also re-applies the D19
+// distanceBands=[high,max] transform.
+describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () => {
+  const newWarehouse = { id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" };
+
+  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer, at raw km", async () => {
+    const cookie = await loginAs(OWNER);
+    const inputsWithAddedWarehouse = { ...chensInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...chensRow, inputs: inputsWithAddedWarehouse }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New Chen", modelId: "chens-cosmetics-cn", inputs: inputsWithAddedWarehouse });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; toId: string; distance: number; estimated?: boolean }>; distanceBands: number[] };
+    };
+    const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
+    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+    // All values are raw km (positive), never 0.
+    expect(fromNew.every((o) => o.distance > 0)).toBe(true);
+    // D19 — the stale 3-boundary distanceBands seed is normalized to [high, max].
+    expect(insertArgs.inputs.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([chensRow]));
+    const newInputs = { ...chensInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...chensRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }>; distanceBands: number[] };
+    };
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
+    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([chensRow]));
+    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    // Blank id is the ADD trigger; the display code goes in display_code and
+    // the persisted id is a server-minted `aw-` uid. Chen has no capacity, so
+    // the capacity column is left blank.
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Wuhan,Hubei,30.5928,114.3055,,active\n";
+    const res = await request(app).post("/api/scenarios/13/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: {
+        distanceOverrides: Array<{ fromId: string; estimated?: boolean }>;
+        addedWarehouses: Array<{ id: string; displayCode?: string }>;
+      };
+    };
+    const addedId = setArgs.inputs.addedWarehouses.find((w) => w.displayCode === "WH-NEW1")!.id;
+    expect(addedId).toMatch(/^aw-/);
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === addedId);
+    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  // D19 (deferred from C4.6) — a `distances` import/apply that stages no band
+  // change at all still corrects a stale third distanceBands boundary, because
+  // the normalizer's chensInputsSchema reparse re-derives distanceBands from
+  // the two thresholds on every persist path.
+  it("POST /api/scenarios/:id/import/apply (distances): a stale third distanceBands boundary is rewritten to [high, max]", async () => {
+    const cookie = await loginAs(OWNER);
+    // chensRow.inputs.distanceBands is the stale [600, 3000, 5000].
+    mockDb.select.mockReturnValue(makeChain([chensRow]));
+    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,wh-15,cs-1,123.4\n";
+    const res = await request(app).post("/api/scenarios/13/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[]; distanceOverrides: Array<{ fromId: string; toId: string; distance: number }> };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    // The staged override was applied (base<->base pair, so it is a real
+    // override the estimator then leaves untouched).
+    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "wh-15" && o.toId === "cs-1");
+    expect(staged?.distance).toBe(123.4);
+  });
+});
+
 // ── Scenario.stale (X1.1) ───────────────────────────────────────────────────
 describe("Scenario.stale", () => {
   it("an unsolved scenario is never stale", async () => {
@@ -1302,7 +1431,11 @@ describe("GET /api/scenarios/:id/export", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("assignments");
-    expect(res.body.rows).toEqual([{ templateVersion: 1, customerId: "C1", warehouseId: "ALN", distanceMi: 42.1, band: 0, flow: 50 }]);
+    // C4.9 / D24 — distanceMi renamed to distance + distanceUnit ("mi" for
+    // p-median-us) ; D28 — wrapper AND row templateVersion == OUTPUT_TEMPLATE_VERSION (2).
+    expect(res.body.templateVersion).toBe(2);
+    expect(res.body.rows).toEqual([{ templateVersion: 2, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+    expect(res.text).not.toContain("distanceMi");
   });
 
   it("exports openWarehouses/costSummary/serviceStats as CSV", async () => {
@@ -1398,7 +1531,99 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/11/export?entity=openWarehouses&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(200);
-    expect(res.body.rows).toEqual([{ templateVersion: 1, warehouseId: "daggar-hills", city: "", totalFlow: 80, utilization: null }]);
+    // C4.9 / D29 — city now sourced from the effective facility lookup
+    // (GOLD_REFINERIES), not the empty utilizationByNode. openWarehouses stays v1.
+    expect(res.body.templateVersion).toBe(1);
+    expect(res.body.rows).toEqual([{ templateVersion: 1, warehouseId: "daggar-hills", city: "Daggar Hills", totalFlow: 80, utilization: null }]);
+  });
+
+  // C4.9 / D28 — output wrapper templateVersion: 2 for the three unit-aware
+  // exports, 1 for openWarehouses (+ distances, an input entity).
+  it("uses OUTPUT_TEMPLATE_VERSION (2) at the JSON wrapper for costSummary/serviceStats, v1 for openWarehouses", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: { bandCoverage: [{ band: 200, percent: 100 }], weightedAvgDistance: 42.1 }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    for (const [entity, expected] of [["costSummary", 2], ["serviceStats", 2], ["openWarehouses", 1]] as const) {
+      mockDb.select.mockReturnValue(makeChain([solvedRow]));
+      const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.templateVersion).toBe(expected);
+    }
+  });
+
+  // C4.9 / D20/D24/D25 — Chen exports its own km unit + coverage objectiveMode.
+  it("exports Chen assignments/costSummary with distance_unit=km and objectiveMode from details", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...chensRow,
+      result: {
+        status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
+        edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
+        metrics: { bandCoverage: [{ band: 500, percent: 87.5 }], weightedAvgDistance: 250.5, utilizationByNode: [], openFacilityIds: ["wh-15"] },
+        details: { objective: "coverage" }, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-06T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const asg = await request(app).get("/api/scenarios/13/export?entity=assignments&format=csv").set("Cookie", cookie);
+    expect(asg.status).toBe(200);
+    expect(asg.text.split("\n")[0]).toBe("template_version,customer_id,warehouse_id,distance,distance_unit,band,flow");
+    expect(asg.text).toContain("2,cn-1,wh-15,250.5,km,0,100");
+    expect(asg.text).not.toContain("distance_mi");
+
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
+    expect(cost.status).toBe(200);
+    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage", distanceUnit: "km", templateVersion: 2 });
+  });
+
+  // C4.9 / D25 — objectiveMode is serialized as explicit null (not omitted) for
+  // a model whose details carries no objective mode.
+  it("serializes costSummary objectiveMode as explicit null when details has no mode (p-median-us)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=costSummary&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows[0].objectiveMode).toBeNull();
+    expect("objectiveMode" in res.body.rows[0]).toBe(true);
+  });
+
+  // C4.9 / D29 — a forced-open zero-flow facility (present only in
+  // metrics.openFacilityIds, no edge) exports WITH its real Chen city.
+  it("exports a zero-flow forced-open Chen facility with its real city (openFacilityIds union)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...chensRow,
+      result: {
+        status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
+        edges: [{ fromId: "wh-17", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
+        // wh-15 (Changchun) is forced-open but serves no customer → no edge.
+        metrics: { utilizationByNode: [], openFacilityIds: ["wh-17", "wh-15"] },
+        details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-06T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const res = await request(app).get("/api/scenarios/13/export?entity=openWarehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const zeroFlow = res.body.rows.find((r: { warehouseId: string }) => r.warehouseId === "wh-15");
+    expect(zeroFlow).toEqual({ templateVersion: 1, warehouseId: "wh-15", city: "Changchun", totalFlow: 0, utilization: null });
   });
 
   it("422s flows export for p-median-us (not in its outputGrids)", async () => {
@@ -2339,6 +2564,9 @@ describe("GET /api/scenarios/:id/solve-jobs/:jobId", () => {
 
 // ── Solve history (G3.2) ─────────────────────────────────────────────────────
 describe("GET /api/solve-history", () => {
+  // Legacy successful row (C4.10): a pre-migration summary carries only the
+  // mile-locked weightedAvgDistanceMi — no objectiveMode/distanceUnit. It must
+  // read back as weightedAvgDistance + distanceUnit:"mi" + objectiveMode:null.
   const historyRow1 = {
     id: 10, scenarioId: 1, status: "succeeded",
     resultSummary: { status: "optimal", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4 },
@@ -2352,6 +2580,24 @@ describe("GET /api/solve-history", () => {
     queuedAt: new Date("2026-01-01T00:00:00Z"),
     finishedAt: new Date("2026-01-01T00:00:05Z"),
     scenarioName: "Coal Base Case", modelId: "transport-coal",
+  };
+  // New-shape successful row (C4.10 producer output): summary already carries
+  // objectiveMode + distanceUnit + the unit-agnostic weightedAvgDistance.
+  const historyRowNew = {
+    id: 11, scenarioId: 4, status: "succeeded",
+    resultSummary: { status: "optimal", objective: 66.0, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7 },
+    queuedAt: new Date("2026-01-03T00:00:00Z"),
+    finishedAt: new Date("2026-01-03T00:00:01Z"),
+    scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+  };
+  // Failed Chen job with no summary: numeric fields null, but distanceUnit is
+  // derived from the model manifest (km) — never null, never a misleading "mi".
+  const historyRowFailedChen = {
+    id: 12, scenarioId: 5, status: "failed",
+    resultSummary: null,
+    queuedAt: new Date("2026-01-04T00:00:00Z"),
+    finishedAt: new Date("2026-01-04T00:00:05Z"),
+    scenarioName: "Chen Broke", modelId: "chens-cosmetics-cn",
   };
 
   it("returns 401 without a session", async () => {
@@ -2367,20 +2613,57 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
+    // Legacy successful row → new unit-carrying shape (C4.10): the old
+    // weightedAvgDistanceMi becomes weightedAvgDistance, unit defaults "mi",
+    // objectiveMode null. The removed field must NOT appear in the response.
     expect(res.body[0]).toMatchObject({
       id: 10, scenarioId: 1, scenarioName: "3 Warehouses", modelId: "p-median-us",
-      status: "succeeded", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4,
+      status: "succeeded", objective: 94500000, objectiveMode: null,
+      weightedAvgDistance: 412.6, distanceUnit: "mi", runTimeSec: 0.4,
+    });
+    expect("weightedAvgDistanceMi" in res.body[0]).toBe(false);
+  });
+
+  it("passes a new-shape summary through unchanged (objectiveMode + km distanceUnit)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([historyRowNew]);
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({
+      id: 11, scenarioId: 4, scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+      status: "succeeded", objective: 66.0, objectiveMode: "coverage",
+      weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
     });
   });
 
-  it("defaults resultSummary fields to null for a failed job with no summary", async () => {
+  it("defaults numeric resultSummary fields to null for a failed job, but distanceUnit stays the model's manifest unit", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockClear();
     mockDb.selectDistinctOn.mockClear();
     configureSolveHistoryMocks([historyRow2]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body[0]).toMatchObject({ status: "failed", objective: null, weightedAvgDistanceMi: null, runTimeSec: null });
+    // transport-coal manifest reports "mi" — the failed job still carries its
+    // own model's unit (never null, never a bare literal fallback).
+    expect(res.body[0]).toMatchObject({
+      status: "failed", objective: null, objectiveMode: null,
+      weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+    });
+  });
+
+  it("derives a failed Chen job's distanceUnit from the manifest (km), not the legacy 'mi' fallback", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([historyRowFailedChen]);
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({
+      status: "failed", objective: null, objectiveMode: null,
+      weightedAvgDistance: null, distanceUnit: "km", runTimeSec: null,
+    });
   });
 
   it("defaults limit to 5 and caps an oversized limit at 50", async () => {

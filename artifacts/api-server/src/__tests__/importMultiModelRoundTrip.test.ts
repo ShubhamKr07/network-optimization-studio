@@ -151,6 +151,39 @@ const jadeRow = {
   updatedAt: new Date("2026-01-05T00:00:00Z"),
 };
 
+// C4.4 — chens-cosmetics-cn (Chapter 4, China coverage/min-distance). Shares
+// p-median-us's warehouses/customers/distances entity set but its OWN 25-WH/
+// 197-customer dataset; export/import must resolve CHEN's rows, never a
+// p-median sibling's.
+const chensInputs = {
+  objective: "coverage",
+  p: 3,
+  highServiceDistKm: 600,
+  maxDistKm: 5000,
+  avgServiceDistCapKm: 1000,
+  gap: 0,
+  timeLimitSec: 120,
+  capacityMode: "none",
+  distanceBands: [600, 5000],
+  warehouseOverrides: [],
+  customerOverrides: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const chensRow = {
+  id: 20,
+  name: "Chen Base Case",
+  modelId: "chens-cosmetics-cn",
+  userId: OWNER,
+  inputs: chensInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-06T00:00:00Z"),
+  updatedAt: new Date("2026-01-06T00:00:00Z"),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
@@ -317,6 +350,186 @@ describe("Multi-model CSV round trip — displayCode collision blocks the real H
 // (`POST /scenarios/:id/reset-to-baseline`) was removed repo-wide in SCN
 // v0.3 Phase 3.2 (see CLAUDE.md's Phase 3.2 Task 1 entry), before this JADE
 // plan was written; there is nothing to register JADE into.
+describe("Chen (chens-cosmetics-cn) — export resolves CHEN's dataset, not a p-median sibling's", () => {
+  it("warehouses export returns Chen's own rows (wh-<n>, no capacity column), NOT p-median-us rows", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const res = await request(app).get("/api/scenarios/20/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(25);
+    const ids = res.body.rows.map((r: { id: string }) => r.id);
+    expect(ids).toContain("wh-15");
+    // A p-median-us warehouse id (ALN) must NOT appear — proves Chen's own
+    // dataset was resolved, not the p-median fallback.
+    expect(ids).not.toContain("ALN");
+    // Chen warehouses have no capacity concept.
+    expect(res.body.rows.every((r: { capacity: number | null }) => r.capacity === null)).toBe(true);
+  });
+
+  it("customers export returns Chen's own 197 rows (cs-<n>), NOT p-median-us's 200", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const res = await request(app).get("/api/scenarios/20/export?entity=customers&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(197);
+    const ids = res.body.rows.map((r: { id: string }) => r.id);
+    expect(ids).toContain("cs-1");
+    expect(ids).not.toContain("C1");
+  });
+
+  it("a sibling model's entity (mines) is rejected (422) for a Chen scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const res = await request(app).get("/api/scenarios/20/export?entity=mines&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+});
+
+describe("Chen (chens-cosmetics-cn) — customers import preview resolves Chen's dataset", () => {
+  it("a base Chen customer (cs-1) status change previews exactly one change", async () => {
+    const cookie = await loginAs(OWNER);
+    // COLUMNS.customers: template_version,id,display_code,city,state,lat,lng,demand,status
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,cs-1,,,,,,458287,excluded\n";
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const res = await request(app).post("/api/scenarios/20/import").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: csv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toEqual([]);
+    expect(res.body.changes).toHaveLength(1);
+    expect(res.body.changes[0]).toMatchObject({ id: "cs-1", after: { status: "excluded" } });
+  });
+
+  it("a p-median-us customer id (C1) is rejected as unknown against Chen's dataset (proves it is NOT the p-median baseline)", async () => {
+    const cookie = await loginAs(OWNER);
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,C1,,,,,,100,excluded\n";
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const res = await request(app).post("/api/scenarios/20/import").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: csv });
+    expect(res.status).toBe(200);
+    expect(res.body.errors).toHaveLength(1);
+    expect(res.body.errors[0]).toMatchObject({ errorClass: "logic" });
+    expect(res.body.errors[0].message).toMatch(/Unknown id "C1"/);
+  });
+});
+
+// C4.6 — D19: the STORED Chen inputs.distanceBands is always exactly
+// [highServiceDistKm, maxDistKm] (chensInputsSchema's transform derives it),
+// so a stale THIRD boundary staged by ANY write path (POST/PATCH/import-apply)
+// can never persist and is never a 422. The customers import/apply path
+// re-validates the merged inputs through validateInputsForModel before storage,
+// so it exercises D19 WITHOUT depending on C4.7's estimator/normalizer.
+describe("Chen (chens-cosmetics-cn) — D19 distanceBands normalized on every write path", () => {
+  it("POST /api/scenarios: a stale third distanceBands boundary is normalized to [high, max] on store (never 422)", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([chensRow]);
+    mockDb.insert.mockReturnValue(chain);
+    const staleInputs = { ...chensInputs, distanceBands: [600, 5000, 99999] };
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Chen New", modelId: "chens-cosmetics-cn", inputs: staleInputs });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[] };
+    };
+    expect(insertArgs.inputs.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("POST /api/scenarios: omitting the five sparse arrays persists them as []", async () => {
+    const cookie = await loginAs(OWNER);
+    const chain = makeChain([chensRow]);
+    mockDb.insert.mockReturnValue(chain);
+    // A minimal-but-valid Chen coverage input with no override/added/distance arrays.
+    const minimalInputs = {
+      objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 5000,
+      avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 120,
+    };
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Chen Minimal", modelId: "chens-cosmetics-cn", inputs: minimalInputs });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: {
+        warehouseOverrides: unknown[]; customerOverrides: unknown[];
+        addedWarehouses: unknown[]; addedCustomers: unknown[]; distanceOverrides: unknown[];
+      };
+    };
+    expect(insertArgs.inputs.warehouseOverrides).toEqual([]);
+    expect(insertArgs.inputs.customerOverrides).toEqual([]);
+    expect(insertArgs.inputs.addedWarehouses).toEqual([]);
+    expect(insertArgs.inputs.addedCustomers).toEqual([]);
+    expect(insertArgs.inputs.distanceOverrides).toEqual([]);
+  });
+
+  it("POST /api/scenarios: two distanceOverrides rows for the same (fromId,toId) pair are rejected (422)", async () => {
+    const cookie = await loginAs(OWNER);
+    const dupInputs = {
+      ...chensInputs,
+      distanceOverrides: [
+        { fromId: "wh-15", toId: "cs-1", distance: 3660 },
+        { fromId: "wh-15", toId: "cs-1", distance: 4000 },
+      ],
+    };
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Chen Dup", modelId: "chens-cosmetics-cn", inputs: dupInputs });
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH /api/scenarios/:id: a stale third distanceBands boundary is normalized to [high, max] on store", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const chain = makeChain([chensRow]);
+    mockDb.update.mockReturnValue(chain);
+    const staleInputs = { ...chensInputs, distanceBands: [600, 5000, 99999] };
+    const res = await request(app).patch("/api/scenarios/20").set("Cookie", cookie)
+      .send({ inputs: staleInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[] };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("POST /api/scenarios/:id/import/apply (customers): re-validation normalizes a stale third distanceBands boundary to [high, max]", async () => {
+    const cookie = await loginAs(OWNER);
+    // The persisted scenario carries a STALE 3-boundary distanceBands; the
+    // customers apply re-validates the merged inputs (validateInputsForModel),
+    // running D19's transform, so the stored value collapses back to [600,5000].
+    const staleRow = { ...chensRow, inputs: { ...chensInputs, distanceBands: [600, 5000, 99999] } };
+    mockDb.select.mockReturnValueOnce(makeChain([staleRow]));
+    const chain = makeChain([staleRow]);
+    mockDb.update.mockReturnValue(chain);
+    const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,cs-1,,,,,,458287,excluded\n";
+    const res = await request(app).post("/api/scenarios/20/import/apply").set("Cookie", cookie)
+      .send({ entity: "customers", csvText: csv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[]; customerOverrides: Array<{ id: string; status: string }> };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    // Sanity: the apply actually merged the customer change it was given.
+    expect(setArgs.inputs.customerOverrides).toContainEqual(
+      expect.objectContaining({ id: "cs-1", status: "excluded" }),
+    );
+  });
+});
+
+describe("Chen (chens-cosmetics-cn) — v1 distances export -> re-import round-trips unchanged", () => {
+  it("exporting a distanceOverride then re-importing it produces zero changes (Chen id space resolves both roles)", async () => {
+    const cookie = await loginAs(OWNER);
+    const rowWithOverride = { ...chensRow, inputs: { ...chensInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
+    mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
+    const exportRes = await request(app).get("/api/scenarios/20/export?entity=distances&format=csv").set("Cookie", cookie);
+    expect(exportRes.status).toBe(200);
+    expect(exportRes.text).toContain("wh-15,cs-1,100");
+
+    // Re-import the exact exported CSV against the same override — no change.
+    mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
+    const importRes = await request(app).post("/api/scenarios/20/import").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: exportRes.text });
+    expect(importRes.status).toBe(200);
+    expect(importRes.body.errors).toEqual([]);
+    expect(importRes.body.changes).toEqual([]);
+  });
+});
+
 describe("JADE (two-echelon-jade-us) — export every entity 200s", () => {
   it.each(["warehouses", "customers", "plants", "plantCapabilities", "legDistances"])("entity=%s -> 200", async (entity) => {
     const cookie = await loginAs(OWNER);

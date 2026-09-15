@@ -167,13 +167,13 @@ interface PopupInfo {
   band: number;
 }
 
-function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void }) {
-  const map = useMap();
-
-  useEffect(() => {
-    const color = getBandColor(info.band);
-
-    const content = `
+// C4.11 — pure popup-markup builder, extracted so the distance unit is
+// verifiable without driving Leaflet's imperative L.popup() through jsdom.
+// `distanceUnit` comes from the active model's manifest (ModelInfo.distanceUnit)
+// — defaults to "mi", Chen (chens-cosmetics-cn) passes "km".
+export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit = "mi"): string {
+  const color = getBandColor(info.band);
+  return `
       <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
         <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
           ${info.customerCity}, ${info.customerState}
@@ -184,7 +184,7 @@ function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void
         </div>
         <div style="margin-bottom:3px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Distance:</span>
-          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${info.distanceMi.toLocaleString()} mi</strong>
+          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${info.distanceMi.toLocaleString()} ${distanceUnit}</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Band:</span>
@@ -193,6 +193,13 @@ function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void
         </div>
       </div>
     `;
+}
+
+function CustomerPopup({ info, onClose, distanceUnit = "mi" }: { info: PopupInfo; onClose: () => void; distanceUnit?: string }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const content = buildCustomerPopupHtml(info, distanceUnit);
 
     const popup = L.popup({
       closeButton: true,
@@ -212,7 +219,7 @@ function CustomerPopup({ info, onClose }: { info: PopupInfo; onClose: () => void
       map.off("popupclose", handleClose);
       map.closePopup(popup);
     };
-  }, [info.customerCity, info.warehouseCity, info.distanceMi, info.band]);
+  }, [info.customerCity, info.warehouseCity, info.distanceMi, info.band, distanceUnit]);
 
   return null;
 }
@@ -443,6 +450,7 @@ export function NetworkMap({
           <CustomerPopup
             info={popupInfo}
             onClose={() => setSelectedCustomerId(null)}
+            distanceUnit={distanceUnit}
           />
         )}
 

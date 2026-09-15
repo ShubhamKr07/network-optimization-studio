@@ -11,5 +11,6 @@ import type { ExportEnvelopeRowsItem } from './exportEnvelopeRowsItem';
 export interface ExportEnvelope {
   templateVersion: number;
   entity: ExportEnvelopeEntity;
+  /** Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add. */
   rows: ExportEnvelopeRowsItem[];
 }

@@ -19,7 +19,14 @@ export type OptimizationParametersField =
   | "capacityFactor"
   | "singleSource"
   | "capacityInactive"
-  | "bomRatio";
+  | "bomRatio"
+  // C4.12 — Chen's Cosmetics (chens-cosmetics-cn) mode-specific coverage
+  // params, routed through the generic `onChange` (a plain single-field draft
+  // update, no cross-field coupling). `highServiceDistKm`/`maxDistKm` are
+  // NOT here — they need an atomic distanceBands resync (D13/D19) and so go
+  // through a dedicated `onServiceDistanceChange` callback instead.
+  | "avgServiceDistCapKm"
+  | "coverageFloorDemand";
 
 interface OptimizationParametersTabProps {
   /** Undefined when the active model has no P concept (transport-coal,
@@ -51,6 +58,37 @@ interface OptimizationParametersTabProps {
   /** two-echelon-gold-au only (Studio.tsx:1349-1371) — the plan's explicit
    * "BOM ratio in Optimization Parameters" requirement for A5.3. */
   bomRatio?: number;
+  /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit),
+   * used in the distance-bands label. Optional/defaults to "mi" so existing
+   * callers stay unchanged; Chen (chens-cosmetics-cn) passes "km". */
+  distanceUnit?: string;
+  // ── C4.12 — Chen's Cosmetics coverage model (chens-cosmetics-cn) ──────────
+  // The whole Chen block is gated on `objective != null` (present only for
+  // Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a sibling
+  // model passing none of these renders none of it, so this stays generic.
+  /** Coverage vs min-distance objective mode. Presence gates the Chen block. */
+  objective?: "coverage" | "min_distance";
+  /** Chen's two service-distance thresholds (both always visible in the
+   * Chen block). Editing either re-derives `distanceBands` to `[high, max]`
+   * via `onServiceDistanceChange` (D13/D19), so these do NOT flow through the
+   * generic `onChange`. */
+  highServiceDistKm?: number;
+  maxDistKm?: number;
+  /** Coverage-mode-only cap (present when `objective === "coverage"`). */
+  avgServiceDistCapKm?: number;
+  /** Min-distance-mode-only floor (present when `objective === "min_distance"`). */
+  coverageFloorDemand?: number;
+  /** Atomic mode toggle — the caller (Workspace) seeds the newly-required
+   * field and CLEARS the previous mode's field in one update, matching
+   * C4.6's discriminated chensInputsSchema. */
+  onObjectiveModeChange?: (mode: "coverage" | "min_distance") => void;
+  /** Atomic service-distance edit — the caller re-derives `distanceBands` to
+   * `[high, max]` in the SAME update (D13/D19). */
+  onServiceDistanceChange?: (field: "highServiceDistKm" | "maxDistKm", value: number) => void;
+  /** D13/D19 — hide the free-edit distance-bands chip editor. Chen's bands
+   * are DERIVED (`[high, max]`), not user-editable, so Workspace passes
+   * `false` for Chen; defaults true, so every other model is unchanged. */
+  showBandEditor?: boolean;
   /** A single (field, value) callback rather than per-field callbacks — this
    * composes directly with Workspace.tsx's `updateInputsField(key, value)`,
    * the same localInputs-draft mechanism WarehousesTab/CustomersTab already
@@ -80,6 +118,15 @@ export function OptimizationParametersTab({
   singleSource,
   capacityInactive,
   bomRatio,
+  distanceUnit = "mi",
+  objective,
+  highServiceDistKm,
+  maxDistKm,
+  avgServiceDistCapKm,
+  coverageFloorDemand,
+  onObjectiveModeChange,
+  onServiceDistanceChange,
+  showBandEditor = true,
   onChange,
 }: OptimizationParametersTabProps) {
   const [addingBand, setAddingBand] = useState(false);
@@ -130,6 +177,106 @@ export function OptimizationParametersTab({
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* C4.12 — Chen's Cosmetics coverage model. Mode toggle (objective) +
+          the two always-visible service-distance thresholds + the one
+          mode-specific field. No capacity concept (capacityMode "none" is
+          persisted, so the Warehouses table never shows a Capacity column);
+          no distance-band editor (bands are derived [high, max], D13). */}
+      {objective != null && (
+        <div className="space-y-4" data-testid="chen-objective-section">
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold text-foreground">Objective</Label>
+            <div
+              className="inline-flex rounded border border-border overflow-hidden"
+              role="group"
+              aria-label="Objective mode"
+              data-testid="chen-objective-toggle"
+            >
+              {(["coverage", "min_distance"] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  data-testid={`chen-objective-${mode}`}
+                  aria-pressed={objective === mode}
+                  onClick={() => onObjectiveModeChange?.(mode)}
+                  className={`text-xs px-3 py-1 transition-colors ${
+                    objective === mode
+                      ? "bg-primary text-white"
+                      : "bg-white text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {mode === "coverage" ? "Coverage" : "Min-distance"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="input-high-service-dist" className="text-xs text-muted-foreground">
+                High-service distance ({distanceUnit})
+              </Label>
+              <Input
+                id="input-high-service-dist"
+                type="number"
+                value={highServiceDistKm ?? ""}
+                onChange={e => onServiceDistanceChange?.("highServiceDistKm", parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm mt-1 font-mono"
+                data-testid="input-high-service-dist"
+              />
+            </div>
+            <div>
+              <Label htmlFor="input-max-dist" className="text-xs text-muted-foreground">
+                Max distance ({distanceUnit})
+              </Label>
+              <Input
+                id="input-max-dist"
+                type="number"
+                value={maxDistKm ?? ""}
+                onChange={e => onServiceDistanceChange?.("maxDistKm", parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm mt-1 font-mono"
+                data-testid="input-max-dist"
+              />
+            </div>
+          </div>
+
+          {objective === "coverage" && (
+            <div>
+              <Label htmlFor="input-avg-service-cap" className="text-xs text-muted-foreground">
+                Avg service distance cap ({distanceUnit})
+              </Label>
+              <Input
+                id="input-avg-service-cap"
+                type="number"
+                value={avgServiceDistCapKm ?? ""}
+                onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm mt-1 font-mono"
+                data-testid="input-avg-service-cap"
+              />
+            </div>
+          )}
+
+          {objective === "min_distance" && (
+            <div>
+              <Label htmlFor="input-coverage-floor" className="text-xs text-muted-foreground">
+                Coverage floor (demand)
+              </Label>
+              <Input
+                id="input-coverage-floor"
+                type="number"
+                value={coverageFloorDemand ?? ""}
+                onChange={e => onChange("coverageFloorDemand", parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm mt-1 font-mono"
+                data-testid="input-coverage-floor"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1" data-testid="coverage-floor-hint">
+                &gt; total demand 199M = infeasible
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -229,9 +376,10 @@ export function OptimizationParametersTab({
         </div>
       )}
 
+      {showBandEditor && (
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold text-foreground">Distance bands (miles)</Label>
+          <Label className="text-xs font-semibold text-foreground">Distance bands ({distanceUnit})</Label>
           <Button
             type="button"
             size="sm"
@@ -301,6 +449,7 @@ export function OptimizationParametersTab({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

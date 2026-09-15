@@ -35,6 +35,16 @@ export function ServiceStatsTab({ result, scenarioId, modelId }: ServiceStatsTab
   }
   const bandCoverage = result.metrics.bandCoverage ?? [];
 
+  // C4.14 (D14) — Chen's Cosmetics coverage KPIs, read off the envelope's
+  // `details`. Gated on the presence of `coveragePct` (a Chen-only field —
+  // absent for every other model's envelope), NOT a `modelId` ternary, so
+  // this block is purely additive and never appears for a non-Chen solve.
+  const details = result.details as
+    | { coveragePct?: number; coveredDemand?: number; uncoveredPct?: number }
+    | undefined;
+  const showCoverageKpis = typeof details?.coveragePct === "number";
+  const avgServiceDistance = result.metrics.weightedAvgDistance;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
@@ -48,6 +58,36 @@ export function ServiceStatsTab({ result, scenarioId, modelId }: ServiceStatsTab
           Download CSV
         </button>
       </div>
+      {/* C4.14 (D14) — Chen coverage KPI summary above the band bars: coverage
+          %, covered demand (exact integer), uncovered %, and the achieved
+          demand-weighted average service distance in the model's unit (km).
+          Additive; only rendered when the envelope carries coverage details. */}
+      {showCoverageKpis && (
+        <dl className="p-2 border-b flex-shrink-0 space-y-1 text-sm" data-testid="service-stats-coverage-kpis">
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Coverage</dt>
+            <dd className="font-medium font-mono" data-testid="service-stats-coverage-pct">{details!.coveragePct!.toFixed(2)} %</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Covered demand</dt>
+            <dd className="font-medium font-mono" data-testid="service-stats-covered-demand">
+              {typeof details!.coveredDemand === "number" ? details!.coveredDemand.toLocaleString() : "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Uncovered</dt>
+            <dd className="font-medium font-mono" data-testid="service-stats-uncovered-pct">
+              {typeof details!.uncoveredPct === "number" ? `${details!.uncoveredPct.toFixed(2)} %` : "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Avg service distance</dt>
+            <dd className="font-medium font-mono" data-testid="service-stats-avg-service-distance">
+              {avgServiceDistance != null ? `${avgServiceDistance.toFixed(1)} ${distanceUnit}` : "—"}
+            </dd>
+          </div>
+        </dl>
+      )}
       {/* R9 — demand-weighted, not a customer count: metrics.bandCoverage[].percent
           is computed from flow/demand, so the label says so explicitly. */}
       <p className="px-2 pt-2 text-xs text-muted-foreground flex-shrink-0">

@@ -181,15 +181,19 @@ Ch.10; slugging avoids it).
   inside. `distanceUnit: "km"` (top-level manifest field; omission defaults `"mi"`).
 
 **Zip acceptance rule (D9):** Nominatim, 1 req/sec, retry/backoff. Normalize to a trimmed string.
-Coverage floor **≥ 85 %** of 222 rows or the extraction **aborts** (no partial commit). Genuine misses
-(server returns no postal code) persist as **absent/blank** — never guessed. **Match rule (D26):** the
-dataset rows store `state: ""`, so there is no expected province to compare against — accept a
-Nominatim result on **normalized city match alone** (case-insensitive, trimmed); if the top result's
-city doesn't match, or multiple equally-ranked results disagree, record the row as **ambiguous** and
-leave `zip` blank (ambiguous rows don't count toward the 85 % floor as hits). A geocode **provenance
-report** (per-row: selected result, hit/miss/ambiguous, normalized value) is committed alongside the
-dataset. Zip is display-only; the integrity check asserts it is never read by
-the solver or any golden.
+**Source (D9/D26 — REVISED in execution, user-directed):** Nominatim was tried first and REJECTED —
+OSM has no city-level postcodes for mainland China (22.5 % coverage). The shipped approach:
+1. **GeoNames CN postal export** (CC-BY 4.0) — city/prefecture-level `NNNN00` codes matched by **nearest
+   lat/lng within 25 km**, most-trailing-zeros tie-break (so metros resolve to the city code, e.g.
+   Shanghai `200000`). Attribution recorded in `dataset/README.md` + the provenance header. Gave 195/222.
+2. **Cited reference overrides** for the 27 GeoNames couldn't place: HK districts → China Post SAR code
+   `999077`, Macau (Aomen) → `999078`; 16 mainland cities → their documented city postal codes (each
+   verified against Wikipedia/China Post and cited per-row in provenance). → **222/222 (100 %)**.
+Zip is **display-only**; the integrity check asserts it is never read by the solver or any golden. A
+per-row **provenance report** (`docs/dataset-audit/chens-geocode-provenance.json`: source, license,
+status hit/hardcoded_reference, assignedZip, matchDistance/referenceSource) is committed. The original
+Nominatim-city-match rule (below) is superseded; kept for history.
+- *(superseded)* ≥85 % floor or abort; Nominatim normalized-city-match; ambiguous→blank.
 
 ## Contract & registration
 

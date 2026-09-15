@@ -1,0 +1,1775 @@
+{
+  "cs-1": {
+    "id": "cs-1",
+    "city": "Aksu",
+    "state": "",
+    "lat": 41.15,
+    "lng": 80.25,
+    "demand": 458287,
+    "zip": "843000"
+  },
+  "cs-2": {
+    "id": "cs-2",
+    "city": "Anqing",
+    "state": "",
+    "lat": 30.5,
+    "lng": 117.05,
+    "demand": 379701,
+    "zip": "246000"
+  },
+  "cs-3": {
+    "id": "cs-3",
+    "city": "Anshan",
+    "state": "",
+    "lat": 41.12,
+    "lng": 122.95,
+    "demand": 1192903,
+    "zip": "114000"
+  },
+  "cs-4": {
+    "id": "cs-4",
+    "city": "Anshun",
+    "state": "",
+    "lat": 26.25,
+    "lng": 105.93,
+    "demand": 448957,
+    "zip": "561000"
+  },
+  "cs-5": {
+    "id": "cs-5",
+    "city": "Anyang",
+    "state": "",
+    "lat": 36.08,
+    "lng": 114.35,
+    "demand": 817193,
+    "zip": "455000"
+  },
+  "cs-6": {
+    "id": "cs-6",
+    "city": "Aomen",
+    "state": "",
+    "lat": 22.27,
+    "lng": 113.56,
+    "demand": 516212,
+    "zip": "999078"
+  },
+  "cs-7": {
+    "id": "cs-7",
+    "city": "Baicheng",
+    "state": "",
+    "lat": 45.62,
+    "lng": 122.82,
+    "demand": 351212,
+    "zip": "137000"
+  },
+  "cs-8": {
+    "id": "cs-8",
+    "city": "Baoding",
+    "state": "",
+    "lat": 38.87,
+    "lng": 115.48,
+    "demand": 1141567,
+    "zip": "071000"
+  },
+  "cs-9": {
+    "id": "cs-9",
+    "city": "Baoji",
+    "state": "",
+    "lat": 34.38,
+    "lng": 107.15,
+    "demand": 472186,
+    "zip": "721000"
+  },
+  "cs-10": {
+    "id": "cs-10",
+    "city": "Baotou",
+    "state": "",
+    "lat": 40.6,
+    "lng": 110.05,
+    "demand": 1363141,
+    "zip": "014000"
+  },
+  "cs-11": {
+    "id": "cs-11",
+    "city": "Beihai",
+    "state": "",
+    "lat": 21.48,
+    "lng": 109.1,
+    "demand": 368271,
+    "zip": "536000"
+  },
+  "cs-12": {
+    "id": "cs-12",
+    "city": "Bengbu",
+    "state": "",
+    "lat": 32.95,
+    "lng": 117.33,
+    "demand": 606043,
+    "zip": "233000"
+  },
+  "cs-13": {
+    "id": "cs-13",
+    "city": "Benxi",
+    "state": "",
+    "lat": 41.33,
+    "lng": 123.75,
+    "demand": 1083983,
+    "zip": "117000"
+  },
+  "cs-14": {
+    "id": "cs-14",
+    "city": "Cangzhou",
+    "state": "",
+    "lat": 38.32,
+    "lng": 116.87,
+    "demand": 605426,
+    "zip": "061000"
+  },
+  "cs-15": {
+    "id": "cs-15",
+    "city": "Changchun",
+    "state": "",
+    "lat": 43.87,
+    "lng": 125.35,
+    "demand": 2813245,
+    "zip": "130000"
+  },
+  "cs-16": {
+    "id": "cs-16",
+    "city": "Changde",
+    "state": "",
+    "lat": 29.03,
+    "lng": 111.68,
+    "demand": 599402,
+    "zip": "415000"
+  },
+  "cs-17": {
+    "id": "cs-17",
+    "city": "Changsha",
+    "state": "",
+    "lat": 28.2,
+    "lng": 112.97,
+    "demand": 2323490,
+    "zip": "410000"
+  },
+  "cs-18": {
+    "id": "cs-18",
+    "city": "Changzhi",
+    "state": "",
+    "lat": 35.22,
+    "lng": 111.75,
+    "demand": 730188,
+    "zip": "046000"
+  },
+  "cs-19": {
+    "id": "cs-19",
+    "city": "Changzhou",
+    "state": "",
+    "lat": 31.78,
+    "lng": 119.97,
+    "demand": 1000831,
+    "zip": "213000"
+  },
+  "cs-20": {
+    "id": "cs-20",
+    "city": "Chaoyang",
+    "state": "",
+    "lat": 41.55,
+    "lng": 120.42,
+    "demand": 500792,
+    "zip": "122000"
+  },
+  "cs-21": {
+    "id": "cs-21",
+    "city": "Chaozhou",
+    "state": "",
+    "lat": 23.67,
+    "lng": 116.64,
+    "demand": 520199,
+    "zip": "521000"
+  },
+  "cs-22": {
+    "id": "cs-22",
+    "city": "Chengde",
+    "state": "",
+    "lat": 40.96,
+    "lng": 117.93,
+    "demand": 464916,
+    "zip": "067000"
+  },
+  "cs-23": {
+    "id": "cs-23",
+    "city": "Chengdu",
+    "state": "",
+    "lat": 30.67,
+    "lng": 104.07,
+    "demand": 3917204,
+    "zip": "610000"
+  },
+  "cs-24": {
+    "id": "cs-24",
+    "city": "Chifeng",
+    "state": "",
+    "lat": 42.27,
+    "lng": 118.95,
+    "demand": 391521,
+    "zip": "024000"
+  },
+  "cs-25": {
+    "id": "cs-25",
+    "city": "Chongqing",
+    "state": "",
+    "lat": 29.57,
+    "lng": 106.58,
+    "demand": 4757368,
+    "zip": "400000"
+  },
+  "cs-26": {
+    "id": "cs-26",
+    "city": "Chuzhou",
+    "state": "",
+    "lat": 32.3,
+    "lng": 118.3,
+    "demand": 355037,
+    "zip": "239000"
+  },
+  "cs-27": {
+    "id": "cs-27",
+    "city": "Daipo",
+    "state": "",
+    "lat": 22.45,
+    "lng": 114.16,
+    "demand": 374588,
+    "zip": "999077"
+  },
+  "cs-28": {
+    "id": "cs-28",
+    "city": "Dalian",
+    "state": "",
+    "lat": 38.92,
+    "lng": 121.65,
+    "demand": 2195151,
+    "zip": "116000"
+  },
+  "cs-29": {
+    "id": "cs-29",
+    "city": "Dandong",
+    "state": "",
+    "lat": 40.13,
+    "lng": 124.4,
+    "demand": 673737,
+    "zip": "118200"
+  },
+  "cs-30": {
+    "id": "cs-30",
+    "city": "Datong",
+    "state": "",
+    "lat": 40.08,
+    "lng": 113.3,
+    "demand": 1071836,
+    "zip": "037000"
+  },
+  "cs-31": {
+    "id": "cs-31",
+    "city": "Dezhou",
+    "state": "",
+    "lat": 37.45,
+    "lng": 116.3,
+    "demand": 464914,
+    "zip": "253000"
+  },
+  "cs-32": {
+    "id": "cs-32",
+    "city": "Dongchang",
+    "state": "",
+    "lat": 41.73,
+    "lng": 125.93,
+    "demand": 414683,
+    "zip": "134000"
+  },
+  "cs-33": {
+    "id": "cs-33",
+    "city": "Dongguan",
+    "state": "",
+    "lat": 23.05,
+    "lng": 113.73,
+    "demand": 405576,
+    "zip": "523000"
+  },
+  "cs-34": {
+    "id": "cs-34",
+    "city": "Dongying",
+    "state": "",
+    "lat": 37.5,
+    "lng": 118.52,
+    "demand": 314933,
+    "zip": "257000"
+  },
+  "cs-35": {
+    "id": "cs-35",
+    "city": "Foshan",
+    "state": "",
+    "lat": 23.03,
+    "lng": 113.12,
+    "demand": 811598,
+    "zip": "528000"
+  },
+  "cs-36": {
+    "id": "cs-36",
+    "city": "Fushun",
+    "state": "",
+    "lat": 41.87,
+    "lng": 123.88,
+    "demand": 1417054,
+    "zip": "113000"
+  },
+  "cs-37": {
+    "id": "cs-37",
+    "city": "Fuxin",
+    "state": "",
+    "lat": 42.01,
+    "lng": 121.65,
+    "demand": 702802,
+    "zip": "123000"
+  },
+  "cs-38": {
+    "id": "cs-38",
+    "city": "Fuzhou",
+    "state": "",
+    "lat": 26.08,
+    "lng": 119.3,
+    "demand": 1265124,
+    "zip": "350000"
+  },
+  "cs-39": {
+    "id": "cs-39",
+    "city": "Ganzhou",
+    "state": "",
+    "lat": 25.95,
+    "lng": 114.93,
+    "demand": 267242,
+    "zip": "341000"
+  },
+  "cs-40": {
+    "id": "cs-40",
+    "city": "Guangzhou",
+    "state": "",
+    "lat": 23.12,
+    "lng": 113.25,
+    "demand": 3097347,
+    "zip": "510000"
+  },
+  "cs-41": {
+    "id": "cs-41",
+    "city": "Guilin",
+    "state": "",
+    "lat": 25.28,
+    "lng": 110.28,
+    "demand": 741605,
+    "zip": "541000"
+  },
+  "cs-42": {
+    "id": "cs-42",
+    "city": "Guiyang",
+    "state": "",
+    "lat": 26.58,
+    "lng": 106.72,
+    "demand": 1203454,
+    "zip": "550000"
+  },
+  "cs-43": {
+    "id": "cs-43",
+    "city": "Haibowan",
+    "state": "",
+    "lat": 39.66,
+    "lng": 106.8,
+    "demand": 257460,
+    "zip": "016000"
+  },
+  "cs-44": {
+    "id": "cs-44",
+    "city": "Haikou",
+    "state": "",
+    "lat": 20.05,
+    "lng": 110.32,
+    "demand": 680177,
+    "zip": "570000"
+  },
+  "cs-45": {
+    "id": "cs-45",
+    "city": "Handan",
+    "state": "",
+    "lat": 36.58,
+    "lng": 114.48,
+    "demand": 1384575,
+    "zip": "056000"
+  },
+  "cs-46": {
+    "id": "cs-46",
+    "city": "Hangu",
+    "state": "",
+    "lat": 39.23,
+    "lng": 117.78,
+    "demand": 253323,
+    "zip": "301500"
+  },
+  "cs-47": {
+    "id": "cs-47",
+    "city": "Hangzhou",
+    "state": "",
+    "lat": 30.25,
+    "lng": 120.17,
+    "demand": 1920846,
+    "zip": "310000"
+  },
+  "cs-48": {
+    "id": "cs-48",
+    "city": "Harbin",
+    "state": "",
+    "lat": 45.75,
+    "lng": 126.65,
+    "demand": 3405339,
+    "zip": "150000"
+  },
+  "cs-49": {
+    "id": "cs-49",
+    "city": "Hebi",
+    "state": "",
+    "lat": 35.95,
+    "lng": 114.22,
+    "demand": 254512,
+    "zip": "456100"
+  },
+  "cs-50": {
+    "id": "cs-50",
+    "city": "Hefei",
+    "state": "",
+    "lat": 31.85,
+    "lng": 117.28,
+    "demand": 1447370,
+    "zip": "230000"
+  },
+  "cs-51": {
+    "id": "cs-51",
+    "city": "Hegang",
+    "state": "",
+    "lat": 47.4,
+    "lng": 130.37,
+    "demand": 778737,
+    "zip": "154100"
+  },
+  "cs-52": {
+    "id": "cs-52",
+    "city": "Hengshui",
+    "state": "",
+    "lat": 37.72,
+    "lng": 115.7,
+    "demand": 491221,
+    "zip": "053000"
+  },
+  "cs-53": {
+    "id": "cs-53",
+    "city": "Hengyang",
+    "state": "",
+    "lat": 26.89,
+    "lng": 112.62,
+    "demand": 753745,
+    "zip": "421000"
+  },
+  "cs-54": {
+    "id": "cs-54",
+    "city": "Heze",
+    "state": "",
+    "lat": 35.23,
+    "lng": 115.45,
+    "demand": 257160,
+    "zip": "274000"
+  },
+  "cs-55": {
+    "id": "cs-55",
+    "city": "Hohhot",
+    "state": "",
+    "lat": 40.82,
+    "lng": 111.64,
+    "demand": 802403,
+    "zip": "010000"
+  },
+  "cs-56": {
+    "id": "cs-56",
+    "city": "Huaibei",
+    "state": "",
+    "lat": 33.95,
+    "lng": 116.75,
+    "demand": 1035805,
+    "zip": "235000"
+  },
+  "cs-57": {
+    "id": "cs-57",
+    "city": "Huainan",
+    "state": "",
+    "lat": 32.63,
+    "lng": 116.98,
+    "demand": 1264768,
+    "zip": "232000"
+  },
+  "cs-58": {
+    "id": "cs-58",
+    "city": "Huaiyin",
+    "state": "",
+    "lat": 33.58,
+    "lng": 119.03,
+    "demand": 557565,
+    "zip": "223000"
+  },
+  "cs-59": {
+    "id": "cs-59",
+    "city": "Huanggang",
+    "state": "",
+    "lat": 23.68,
+    "lng": 117,
+    "demand": 253134,
+    "zip": "438000"
+  },
+  "cs-60": {
+    "id": "cs-60",
+    "city": "Huangshi",
+    "state": "",
+    "lat": 30.22,
+    "lng": 115.1,
+    "demand": 718104,
+    "zip": "435000"
+  },
+  "cs-61": {
+    "id": "cs-61",
+    "city": "Huizhou",
+    "state": "",
+    "lat": 23.08,
+    "lng": 114.4,
+    "demand": 320049,
+    "zip": "516000"
+  },
+  "cs-62": {
+    "id": "cs-62",
+    "city": "Hulan Ergi",
+    "state": "",
+    "lat": 47.21,
+    "lng": 123.61,
+    "demand": 252970,
+    "zip": "161000"
+  },
+  "cs-63": {
+    "id": "cs-63",
+    "city": "Jiamusi",
+    "state": "",
+    "lat": 46.83,
+    "lng": 130.35,
+    "demand": 561974,
+    "zip": "154000"
+  },
+  "cs-64": {
+    "id": "cs-64",
+    "city": "Jiangmen",
+    "state": "",
+    "lat": 22.58,
+    "lng": 113.08,
+    "demand": 631850,
+    "zip": "529000"
+  },
+  "cs-65": {
+    "id": "cs-65",
+    "city": "Jiaojiang",
+    "state": "",
+    "lat": 28.68,
+    "lng": 121.45,
+    "demand": 481402,
+    "zip": "317100"
+  },
+  "cs-66": {
+    "id": "cs-66",
+    "city": "Jiaozuo",
+    "state": "",
+    "lat": 35.25,
+    "lng": 113.22,
+    "demand": 547871,
+    "zip": "454100"
+  },
+  "cs-67": {
+    "id": "cs-67",
+    "city": "Jiaxing",
+    "state": "",
+    "lat": 30.77,
+    "lng": 120.75,
+    "demand": 476703,
+    "zip": "314000"
+  },
+  "cs-68": {
+    "id": "cs-68",
+    "city": "Jilin",
+    "state": "",
+    "lat": 43.85,
+    "lng": 126.55,
+    "demand": 2228535,
+    "zip": "132000"
+  },
+  "cs-69": {
+    "id": "cs-69",
+    "city": "Jinan",
+    "state": "",
+    "lat": 36.67,
+    "lng": 117,
+    "demand": 2227937,
+    "zip": "250000"
+  },
+  "cs-70": {
+    "id": "cs-70",
+    "city": "Jincheng",
+    "state": "",
+    "lat": 35.5,
+    "lng": 112.83,
+    "demand": 449049,
+    "zip": "048000"
+  },
+  "cs-71": {
+    "id": "cs-71",
+    "city": "Jingdezhen",
+    "state": "",
+    "lat": 29.27,
+    "lng": 117.18,
+    "demand": 311728,
+    "zip": "333000"
+  },
+  "cs-72": {
+    "id": "cs-72",
+    "city": "Jining",
+    "state": "",
+    "lat": 35.4,
+    "lng": 116.55,
+    "demand": 519002,
+    "zip": "272000"
+  },
+  "cs-73": {
+    "id": "cs-73",
+    "city": "Jining",
+    "state": "",
+    "lat": 41.04,
+    "lng": 113.09,
+    "demand": 275344,
+    "zip": "012000"
+  },
+  "cs-74": {
+    "id": "cs-74",
+    "city": "Jinxi",
+    "state": "",
+    "lat": 40.75,
+    "lng": 120.83,
+    "demand": 311278,
+    "zip": "125000"
+  },
+  "cs-75": {
+    "id": "cs-75",
+    "city": "Jinzhou",
+    "state": "",
+    "lat": 41.12,
+    "lng": 121.1,
+    "demand": 588094,
+    "zip": "121200"
+  },
+  "cs-76": {
+    "id": "cs-76",
+    "city": "Jiujiang",
+    "state": "",
+    "lat": 29.73,
+    "lng": 115.98,
+    "demand": 253448,
+    "zip": "332000"
+  },
+  "cs-77": {
+    "id": "cs-77",
+    "city": "Jiulong",
+    "state": "",
+    "lat": 22.32,
+    "lng": 114.17,
+    "demand": 1929557,
+    "zip": "999077"
+  },
+  "cs-78": {
+    "id": "cs-78",
+    "city": "Jixi",
+    "state": "",
+    "lat": 45.3,
+    "lng": 130.97,
+    "demand": 484961,
+    "zip": "158100"
+  },
+  "cs-79": {
+    "id": "cs-79",
+    "city": "Kaifeng",
+    "state": "",
+    "lat": 34.85,
+    "lng": 114.35,
+    "demand": 585908,
+    "zip": "475000"
+  },
+  "cs-80": {
+    "id": "cs-80",
+    "city": "Kashi",
+    "state": "",
+    "lat": 39.48,
+    "lng": 75.97,
+    "demand": 321042,
+    "zip": "844000"
+  },
+  "cs-82": {
+    "id": "cs-82",
+    "city": "Kunming",
+    "state": "",
+    "lat": 25.05,
+    "lng": 102.7,
+    "demand": 1105391,
+    "zip": "650000"
+  },
+  "cs-83": {
+    "id": "cs-83",
+    "city": "Kuytun",
+    "state": "",
+    "lat": 44.44,
+    "lng": 84.89,
+    "demand": 257485,
+    "zip": "833000"
+  },
+  "cs-84": {
+    "id": "cs-84",
+    "city": "Langfang",
+    "state": "",
+    "lat": 39.52,
+    "lng": 116.68,
+    "demand": 734039,
+    "zip": "065000"
+  },
+  "cs-85": {
+    "id": "cs-85",
+    "city": "Lanzhou",
+    "state": "",
+    "lat": 36.05,
+    "lng": 103.68,
+    "demand": 1449972,
+    "zip": "730000"
+  },
+  "cs-86": {
+    "id": "cs-86",
+    "city": "Laohekou",
+    "state": "",
+    "lat": 32.39,
+    "lng": 111.66,
+    "demand": 262644,
+    "zip": "442700"
+  },
+  "cs-87": {
+    "id": "cs-87",
+    "city": "Liaoyang",
+    "state": "",
+    "lat": 41.28,
+    "lng": 123.18,
+    "demand": 742723,
+    "zip": "111000"
+  },
+  "cs-88": {
+    "id": "cs-88",
+    "city": "Liaoyuan",
+    "state": "",
+    "lat": 42.9,
+    "lng": 125.13,
+    "demand": 468416,
+    "zip": "136200"
+  },
+  "cs-89": {
+    "id": "cs-89",
+    "city": "Linyi",
+    "state": "",
+    "lat": 35.08,
+    "lng": 118.33,
+    "demand": 277957,
+    "zip": "276000"
+  },
+  "cs-90": {
+    "id": "cs-90",
+    "city": "Liuzhou",
+    "state": "",
+    "lat": 24.28,
+    "lng": 109.25,
+    "demand": 791427,
+    "zip": "545000"
+  },
+  "cs-91": {
+    "id": "cs-91",
+    "city": "Luancheng",
+    "state": "",
+    "lat": 37.88,
+    "lng": 114.65,
+    "demand": 608672,
+    "zip": "051400"
+  },
+  "cs-92": {
+    "id": "cs-92",
+    "city": "Luohe",
+    "state": "",
+    "lat": 33.57,
+    "lng": 114.03,
+    "demand": 516955,
+    "zip": "462000"
+  },
+  "cs-93": {
+    "id": "cs-93",
+    "city": "Luoyang",
+    "state": "",
+    "lat": 34.68,
+    "lng": 112.47,
+    "demand": 1391054,
+    "zip": "471000"
+  },
+  "cs-94": {
+    "id": "cs-94",
+    "city": "Luqiao",
+    "state": "",
+    "lat": 28.58,
+    "lng": 121.38,
+    "demand": 437622,
+    "zip": "317100"
+  },
+  "cs-95": {
+    "id": "cs-95",
+    "city": "Luzhou",
+    "state": "",
+    "lat": 28.88,
+    "lng": 105.38,
+    "demand": 292765,
+    "zip": "646000"
+  },
+  "cs-96": {
+    "id": "cs-96",
+    "city": "Maanshan",
+    "state": "",
+    "lat": 31.73,
+    "lng": 118.48,
+    "demand": 555686,
+    "zip": "243000"
+  },
+  "cs-97": {
+    "id": "cs-97",
+    "city": "Maoming",
+    "state": "",
+    "lat": 21.92,
+    "lng": 110.87,
+    "demand": 663707,
+    "zip": "525200"
+  },
+  "cs-98": {
+    "id": "cs-98",
+    "city": "Mianchang",
+    "state": "",
+    "lat": 23.26,
+    "lng": 116.59,
+    "demand": 359317,
+    "zip": "515000"
+  },
+  "cs-99": {
+    "id": "cs-99",
+    "city": "Mianyang",
+    "state": "",
+    "lat": 31.47,
+    "lng": 104.77,
+    "demand": 271695,
+    "zip": "621000"
+  },
+  "cs-100": {
+    "id": "cs-100",
+    "city": "Mudanjiang",
+    "state": "",
+    "lat": 44.58,
+    "lng": 129.6,
+    "demand": 700538,
+    "zip": "157000"
+  },
+  "cs-101": {
+    "id": "cs-101",
+    "city": "Nanchang",
+    "state": "",
+    "lat": 28.68,
+    "lng": 115.88,
+    "demand": 2156849,
+    "zip": "330000"
+  },
+  "cs-102": {
+    "id": "cs-102",
+    "city": "Nanjing",
+    "state": "",
+    "lat": 32.05,
+    "lng": 118.78,
+    "demand": 3389828,
+    "zip": "210000"
+  },
+  "cs-103": {
+    "id": "cs-103",
+    "city": "Nanning",
+    "state": "",
+    "lat": 22.82,
+    "lng": 108.32,
+    "demand": 795281,
+    "zip": "530000"
+  },
+  "cs-104": {
+    "id": "cs-104",
+    "city": "Nantong",
+    "state": "",
+    "lat": 32.02,
+    "lng": 120.82,
+    "demand": 669054,
+    "zip": "226300"
+  },
+  "cs-105": {
+    "id": "cs-105",
+    "city": "Neijiang",
+    "state": "",
+    "lat": 29.58,
+    "lng": 105.05,
+    "demand": 542253,
+    "zip": "641000"
+  },
+  "cs-106": {
+    "id": "cs-106",
+    "city": "Ningbo",
+    "state": "",
+    "lat": 29.88,
+    "lng": 121.55,
+    "demand": 736240,
+    "zip": "315000"
+  },
+  "cs-107": {
+    "id": "cs-107",
+    "city": "Panjin",
+    "state": "",
+    "lat": 41.18,
+    "lng": 122.05,
+    "demand": 685122,
+    "zip": "124000"
+  },
+  "cs-108": {
+    "id": "cs-108",
+    "city": "Panzhihua",
+    "state": "",
+    "lat": 26.58,
+    "lng": 101.68,
+    "demand": 457574,
+    "zip": "617000"
+  },
+  "cs-109": {
+    "id": "cs-109",
+    "city": "Peking",
+    "state": "",
+    "lat": 39.93,
+    "lng": 116.4,
+    "demand": 7923530,
+    "zip": "100000"
+  },
+  "cs-110": {
+    "id": "cs-110",
+    "city": "Pingdingshan",
+    "state": "",
+    "lat": 33.73,
+    "lng": 113.3,
+    "demand": 889978,
+    "zip": "467000"
+  },
+  "cs-111": {
+    "id": "cs-111",
+    "city": "Pingxiang",
+    "state": "",
+    "lat": 27.62,
+    "lng": 113.85,
+    "demand": 371596,
+    "zip": "337000"
+  },
+  "cs-112": {
+    "id": "cs-112",
+    "city": "Putian",
+    "state": "",
+    "lat": 25.43,
+    "lng": 119.02,
+    "demand": 387764,
+    "zip": "351100"
+  },
+  "cs-113": {
+    "id": "cs-113",
+    "city": "Puyang",
+    "state": "",
+    "lat": 35.7,
+    "lng": 114.98,
+    "demand": 823245,
+    "zip": "457000"
+  },
+  "cs-114": {
+    "id": "cs-114",
+    "city": "Qingdao",
+    "state": "",
+    "lat": 36.07,
+    "lng": 120.32,
+    "demand": 1736114,
+    "zip": "266000"
+  },
+  "cs-115": {
+    "id": "cs-115",
+    "city": "Qinhuangdao",
+    "state": "",
+    "lat": 39.93,
+    "lng": 119.62,
+    "demand": 833239,
+    "zip": "066000"
+  },
+  "cs-116": {
+    "id": "cs-116",
+    "city": "Qiqihar",
+    "state": "",
+    "lat": 47.35,
+    "lng": 124,
+    "demand": 924737,
+    "zip": "161000"
+  },
+  "cs-117": {
+    "id": "cs-117",
+    "city": "Qitaihe",
+    "state": "",
+    "lat": 45.8,
+    "lng": 130.85,
+    "demand": 340236,
+    "zip": "154600"
+  },
+  "cs-118": {
+    "id": "cs-118",
+    "city": "Quanwan",
+    "state": "",
+    "lat": 22.37,
+    "lng": 114.11,
+    "demand": 266055,
+    "zip": "999077"
+  },
+  "cs-119": {
+    "id": "cs-119",
+    "city": "Rongcheng",
+    "state": "",
+    "lat": 23.54,
+    "lng": 116.34,
+    "demand": 1586793,
+    "zip": "522000"
+  },
+  "cs-121": {
+    "id": "cs-121",
+    "city": "Sanmenxia",
+    "state": "",
+    "lat": 34.83,
+    "lng": 111.08,
+    "demand": 494772,
+    "zip": "044000"
+  },
+  "cs-122": {
+    "id": "cs-122",
+    "city": "Shanghai",
+    "state": "",
+    "lat": 31.23,
+    "lng": 121.47,
+    "demand": 16348947,
+    "zip": "200000"
+  },
+  "cs-123": {
+    "id": "cs-123",
+    "city": "Shangrao",
+    "state": "",
+    "lat": 28.47,
+    "lng": 117.97,
+    "demand": 412553,
+    "zip": "334000"
+  },
+  "cs-124": {
+    "id": "cs-124",
+    "city": "Shantou",
+    "state": "",
+    "lat": 23.37,
+    "lng": 116.67,
+    "demand": 1493452,
+    "zip": "515000"
+  },
+  "cs-125": {
+    "id": "cs-125",
+    "city": "Shaoguan",
+    "state": "",
+    "lat": 24.8,
+    "lng": 113.58,
+    "demand": 762371,
+    "zip": "512000"
+  },
+  "cs-126": {
+    "id": "cs-126",
+    "city": "Shaoxing",
+    "state": "",
+    "lat": 30,
+    "lng": 120.57,
+    "demand": 531398,
+    "zip": "312000"
+  },
+  "cs-127": {
+    "id": "cs-127",
+    "city": "Shaoyang",
+    "state": "",
+    "lat": 27,
+    "lng": 111.2,
+    "demand": 674835,
+    "zip": "422200"
+  },
+  "cs-128": {
+    "id": "cs-128",
+    "city": "Shashi",
+    "state": "",
+    "lat": 30.32,
+    "lng": 112.23,
+    "demand": 570044,
+    "zip": "434000"
+  },
+  "cs-129": {
+    "id": "cs-129",
+    "city": "Shatian",
+    "state": "",
+    "lat": 22.38,
+    "lng": 114.19,
+    "demand": 693616,
+    "zip": "999077"
+  },
+  "cs-130": {
+    "id": "cs-130",
+    "city": "Shenyang",
+    "state": "",
+    "lat": 41.8,
+    "lng": 123.45,
+    "demand": 3559349,
+    "zip": "110000"
+  },
+  "cs-131": {
+    "id": "cs-131",
+    "city": "Shenzhen",
+    "state": "",
+    "lat": 22.53,
+    "lng": 114.13,
+    "demand": 1370396,
+    "zip": "518000"
+  },
+  "cs-132": {
+    "id": "cs-132",
+    "city": "Shihezi",
+    "state": "",
+    "lat": 44.3,
+    "lng": 86.03,
+    "demand": 606906,
+    "zip": "832000"
+  },
+  "cs-133": {
+    "id": "cs-133",
+    "city": "Shijiazhuang",
+    "state": "",
+    "lat": 38.05,
+    "lng": 114.48,
+    "demand": 2415478,
+    "zip": "050000"
+  },
+  "cs-134": {
+    "id": "cs-134",
+    "city": "Shiongshui",
+    "state": "",
+    "lat": 22.52,
+    "lng": 114.12,
+    "demand": 565146,
+    "zip": "999077"
+  },
+  "cs-136": {
+    "id": "cs-136",
+    "city": "Shiyan",
+    "state": "",
+    "lat": 32.57,
+    "lng": 110.78,
+    "demand": 426017,
+    "zip": "442000"
+  },
+  "cs-137": {
+    "id": "cs-137",
+    "city": "Siping",
+    "state": "",
+    "lat": 43.17,
+    "lng": 124.33,
+    "demand": 649152,
+    "zip": "136000"
+  },
+  "cs-138": {
+    "id": "cs-138",
+    "city": "Sucheng",
+    "state": "",
+    "lat": 33.95,
+    "lng": 118.29,
+    "demand": 455710,
+    "zip": "223800"
+  },
+  "cs-139": {
+    "id": "cs-139",
+    "city": "Suihua",
+    "state": "",
+    "lat": 46.63,
+    "lng": 126.98,
+    "demand": 252734,
+    "zip": "152000"
+  },
+  "cs-140": {
+    "id": "cs-140",
+    "city": "Suizhou",
+    "state": "",
+    "lat": 31.71,
+    "lng": 113.36,
+    "demand": 353705,
+    "zip": "441300"
+  },
+  "cs-141": {
+    "id": "cs-141",
+    "city": "Suzhou",
+    "state": "",
+    "lat": 31.3,
+    "lng": 120.62,
+    "demand": 1606518,
+    "zip": "215000"
+  },
+  "cs-142": {
+    "id": "cs-142",
+    "city": "Taian",
+    "state": "",
+    "lat": 36.2,
+    "lng": 117.12,
+    "demand": 933760,
+    "zip": "271000"
+  },
+  "cs-143": {
+    "id": "cs-143",
+    "city": "Taiyuan",
+    "state": "",
+    "lat": 37.87,
+    "lng": 112.55,
+    "demand": 2809501,
+    "zip": "030000"
+  },
+  "cs-144": {
+    "id": "cs-144",
+    "city": "Taizhou",
+    "state": "",
+    "lat": 32.49,
+    "lng": 119.9,
+    "demand": 614932,
+    "zip": "225300"
+  },
+  "cs-145": {
+    "id": "cs-145",
+    "city": "Tanggu",
+    "state": "",
+    "lat": 39,
+    "lng": 117.67,
+    "demand": 597322,
+    "zip": "300450"
+  },
+  "cs-146": {
+    "id": "cs-146",
+    "city": "Tangshan",
+    "state": "",
+    "lat": 39.62,
+    "lng": 118.19,
+    "demand": 1627819,
+    "zip": "063000"
+  },
+  "cs-147": {
+    "id": "cs-147",
+    "city": "Tianjin",
+    "state": "",
+    "lat": 39.13,
+    "lng": 117.2,
+    "demand": 3649387,
+    "zip": "300000"
+  },
+  "cs-148": {
+    "id": "cs-148",
+    "city": "Tieling",
+    "state": "",
+    "lat": 42.3,
+    "lng": 123.82,
+    "demand": 350640,
+    "zip": "112000"
+  },
+  "cs-149": {
+    "id": "cs-149",
+    "city": "Tongliao",
+    "state": "",
+    "lat": 43.62,
+    "lng": 122.27,
+    "demand": 270095,
+    "zip": "028000"
+  },
+  "cs-150": {
+    "id": "cs-150",
+    "city": "Tongling",
+    "state": "",
+    "lat": 30.95,
+    "lng": 117.78,
+    "demand": 324728,
+    "zip": "244000"
+  },
+  "cs-151": {
+    "id": "cs-151",
+    "city": "Urumqi",
+    "state": "",
+    "lat": 43.8,
+    "lng": 87.58,
+    "demand": 1628533,
+    "zip": "830000"
+  },
+  "cs-152": {
+    "id": "cs-152",
+    "city": "Weifang",
+    "state": "",
+    "lat": 36.72,
+    "lng": 119.1,
+    "demand": 422040,
+    "zip": "261000"
+  },
+  "cs-153": {
+    "id": "cs-153",
+    "city": "Wenzhou",
+    "state": "",
+    "lat": 28.02,
+    "lng": 120.65,
+    "demand": 885362,
+    "zip": "325000"
+  },
+  "cs-154": {
+    "id": "cs-154",
+    "city": "Wuhan",
+    "state": "",
+    "lat": 30.58,
+    "lng": 114.27,
+    "demand": 4343546,
+    "zip": "430000"
+  },
+  "cs-155": {
+    "id": "cs-155",
+    "city": "Wuhu",
+    "state": "",
+    "lat": 31.35,
+    "lng": 118.37,
+    "demand": 513241,
+    "zip": "241000"
+  },
+  "cs-156": {
+    "id": "cs-156",
+    "city": "Wuxi",
+    "state": "",
+    "lat": 31.58,
+    "lng": 120.3,
+    "demand": 1243036,
+    "zip": "214000"
+  },
+  "cs-157": {
+    "id": "cs-157",
+    "city": "Wuzhou",
+    "state": "",
+    "lat": 23.48,
+    "lng": 111.32,
+    "demand": 271835,
+    "zip": "543000"
+  },
+  "cs-158": {
+    "id": "cs-158",
+    "city": "Xiamen",
+    "state": "",
+    "lat": 24.45,
+    "lng": 118.08,
+    "demand": 636548,
+    "zip": "361000"
+  },
+  "cs-159": {
+    "id": "cs-159",
+    "city": "Xian",
+    "state": "",
+    "lat": 34.27,
+    "lng": 108.9,
+    "demand": 4587818,
+    "zip": "710000"
+  },
+  "cs-160": {
+    "id": "cs-160",
+    "city": "Xiangfan",
+    "state": "",
+    "lat": 32.02,
+    "lng": 112.13,
+    "demand": 468606,
+    "zip": "441000"
+  },
+  "cs-161": {
+    "id": "cs-161",
+    "city": "Xianggangdao",
+    "state": "",
+    "lat": 22.27,
+    "lng": 114.14,
+    "demand": 1309560,
+    "zip": "999077"
+  },
+  "cs-162": {
+    "id": "cs-162",
+    "city": "Xiangtan",
+    "state": "",
+    "lat": 27.85,
+    "lng": 112.9,
+    "demand": 668990,
+    "zip": "411100"
+  },
+  "cs-163": {
+    "id": "cs-163",
+    "city": "Xianyang",
+    "state": "",
+    "lat": 34.37,
+    "lng": 108.7,
+    "demand": 1118112,
+    "zip": "712000"
+  },
+  "cs-164": {
+    "id": "cs-164",
+    "city": "Xigong",
+    "state": "",
+    "lat": 22.33,
+    "lng": 114.25,
+    "demand": 604899,
+    "zip": "999077"
+  },
+  "cs-165": {
+    "id": "cs-165",
+    "city": "Xingtai",
+    "state": "",
+    "lat": 37.07,
+    "lng": 114.49,
+    "demand": 748789,
+    "zip": "054000"
+  },
+  "cs-166": {
+    "id": "cs-166",
+    "city": "Xining",
+    "state": "",
+    "lat": 36.62,
+    "lng": 101.77,
+    "demand": 765485,
+    "zip": "810000"
+  },
+  "cs-167": {
+    "id": "cs-167",
+    "city": "Xinpu",
+    "state": "",
+    "lat": 34.6,
+    "lng": 119.17,
+    "demand": 490649,
+    "zip": "222000"
+  },
+  "cs-168": {
+    "id": "cs-168",
+    "city": "Xinxiang",
+    "state": "",
+    "lat": 35.32,
+    "lng": 113.87,
+    "demand": 743854,
+    "zip": "453000"
+  },
+  "cs-169": {
+    "id": "cs-169",
+    "city": "Xinyang",
+    "state": "",
+    "lat": 32.13,
+    "lng": 114.07,
+    "demand": 2031326,
+    "zip": "464000"
+  },
+  "cs-170": {
+    "id": "cs-170",
+    "city": "Xuanhua",
+    "state": "",
+    "lat": 40.6,
+    "lng": 115.03,
+    "demand": 473281,
+    "zip": "075000"
+  },
+  "cs-171": {
+    "id": "cs-171",
+    "city": "Xuchang",
+    "state": "",
+    "lat": 34.02,
+    "lng": 113.82,
+    "demand": 557220,
+    "zip": "461000"
+  },
+  "cs-172": {
+    "id": "cs-172",
+    "city": "Xuzhou",
+    "state": "",
+    "lat": 34.27,
+    "lng": 117.18,
+    "demand": 1336626,
+    "zip": "221000"
+  },
+  "cs-173": {
+    "id": "cs-173",
+    "city": "Yancheng",
+    "state": "",
+    "lat": 33.39,
+    "lng": 120.12,
+    "demand": 631085,
+    "zip": "224000"
+  },
+  "cs-174": {
+    "id": "cs-174",
+    "city": "Yangjiang",
+    "state": "",
+    "lat": 21.85,
+    "lng": 111.97,
+    "demand": 445158,
+    "zip": "529600"
+  },
+  "cs-175": {
+    "id": "cs-175",
+    "city": "Yangquan",
+    "state": "",
+    "lat": 37.87,
+    "lng": 113.57,
+    "demand": 433675,
+    "zip": "045000"
+  },
+  "cs-176": {
+    "id": "cs-176",
+    "city": "Yangzhou",
+    "state": "",
+    "lat": 32.4,
+    "lng": 119.43,
+    "demand": 541986,
+    "zip": "225000"
+  },
+  "cs-177": {
+    "id": "cs-177",
+    "city": "Yanji",
+    "state": "",
+    "lat": 42.88,
+    "lng": 129.52,
+    "demand": 360540,
+    "zip": "133500"
+  },
+  "cs-178": {
+    "id": "cs-178",
+    "city": "Yantai",
+    "state": "",
+    "lat": 37.53,
+    "lng": 121.4,
+    "demand": 811224,
+    "zip": "265700"
+  },
+  "cs-179": {
+    "id": "cs-179",
+    "city": "Yichang",
+    "state": "",
+    "lat": 30.7,
+    "lng": 111.28,
+    "demand": 483391,
+    "zip": "443000"
+  },
+  "cs-180": {
+    "id": "cs-180",
+    "city": "Yinchuan",
+    "state": "",
+    "lat": 38.47,
+    "lng": 106.32,
+    "demand": 492741,
+    "zip": "750000"
+  },
+  "cs-181": {
+    "id": "cs-181",
+    "city": "Yingcheng",
+    "state": "",
+    "lat": 30.94,
+    "lng": 113.57,
+    "demand": 272961,
+    "zip": "432400"
+  },
+  "cs-182": {
+    "id": "cs-182",
+    "city": "Yingkou",
+    "state": "",
+    "lat": 40.67,
+    "lng": 122.28,
+    "demand": 623451,
+    "zip": "115000"
+  },
+  "cs-183": {
+    "id": "cs-183",
+    "city": "Yining",
+    "state": "",
+    "lat": 43.9,
+    "lng": 81.35,
+    "demand": 282156,
+    "zip": "835000"
+  },
+  "cs-184": {
+    "id": "cs-184",
+    "city": "Yuanlong",
+    "state": "",
+    "lat": 22.44,
+    "lng": 114.02,
+    "demand": 696334,
+    "zip": "999077"
+  },
+  "cs-185": {
+    "id": "cs-185",
+    "city": "Yueyang",
+    "state": "",
+    "lat": 29.38,
+    "lng": 113.1,
+    "demand": 524068,
+    "zip": "414000"
+  },
+  "cs-186": {
+    "id": "cs-186",
+    "city": "Zhangdian",
+    "state": "",
+    "lat": 36.8,
+    "lng": 118.06,
+    "demand": 674380,
+    "zip": "255000"
+  },
+  "cs-187": {
+    "id": "cs-187",
+    "city": "Zhangjiakou",
+    "state": "",
+    "lat": 40.83,
+    "lng": 114.93,
+    "demand": 857555,
+    "zip": "075000"
+  },
+  "cs-188": {
+    "id": "cs-188",
+    "city": "Zhangzhou",
+    "state": "",
+    "lat": 24.52,
+    "lng": 117.67,
+    "demand": 683716,
+    "zip": "363000"
+  },
+  "cs-189": {
+    "id": "cs-189",
+    "city": "Zhanjiang",
+    "state": "",
+    "lat": 21.2,
+    "lng": 110.38,
+    "demand": 729140,
+    "zip": "524000"
+  },
+  "cs-190": {
+    "id": "cs-190",
+    "city": "Zhaoqing",
+    "state": "",
+    "lat": 23.05,
+    "lng": 112.45,
+    "demand": 405243,
+    "zip": "526000"
+  },
+  "cs-191": {
+    "id": "cs-191",
+    "city": "Zhengzhou",
+    "state": "",
+    "lat": 34.75,
+    "lng": 113.67,
+    "demand": 2014810,
+    "zip": "450000"
+  },
+  "cs-192": {
+    "id": "cs-192",
+    "city": "Zhenjiang",
+    "state": "",
+    "lat": 32.22,
+    "lng": 119.43,
+    "demand": 635213,
+    "zip": "212000"
+  },
+  "cs-193": {
+    "id": "cs-193",
+    "city": "Zhongshan",
+    "state": "",
+    "lat": 22.53,
+    "lng": 113.35,
+    "demand": 355546,
+    "zip": "528400"
+  },
+  "cs-194": {
+    "id": "cs-194",
+    "city": "Zhoukou",
+    "state": "",
+    "lat": 33.64,
+    "lng": 114.63,
+    "demand": 420571,
+    "zip": "466000"
+  },
+  "cs-195": {
+    "id": "cs-195",
+    "city": "Zhuhai",
+    "state": "",
+    "lat": 22.28,
+    "lng": 113.57,
+    "demand": 554443,
+    "zip": "519000"
+  },
+  "cs-196": {
+    "id": "cs-196",
+    "city": "Zhumadian",
+    "state": "",
+    "lat": 32.97,
+    "lng": 114.05,
+    "demand": 315210,
+    "zip": "463000"
+  },
+  "cs-197": {
+    "id": "cs-197",
+    "city": "Zhunmen",
+    "state": "",
+    "lat": 22.41,
+    "lng": 113.98,
+    "demand": 532585,
+    "zip": "999077"
+  },
+  "cs-198": {
+    "id": "cs-198",
+    "city": "Zhuzhou",
+    "state": "",
+    "lat": 27.83,
+    "lng": 113.15,
+    "demand": 703888,
+    "zip": "412000"
+  },
+  "cs-199": {
+    "id": "cs-199",
+    "city": "Zigong",
+    "state": "",
+    "lat": 29.4,
+    "lng": 104.78,
+    "demand": 684157,
+    "zip": "643000"
+  },
+  "cs-200": {
+    "id": "cs-200",
+    "city": "Zunyi",
+    "state": "",
+    "lat": 27.7,
+    "lng": 106.92,
+    "demand": 554597,
+    "zip": "563000"
+  }
+}

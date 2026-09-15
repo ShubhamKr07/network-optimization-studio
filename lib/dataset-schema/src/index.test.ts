@@ -61,6 +61,25 @@ describe("two-echelon-jade-us registration (Chapter 9, jade-T2)", () => {
   });
 });
 
+describe("chens-cosmetics-cn registration (Chapter 4, C4.2)", () => {
+  it("validates the chens-cosmetics-cn package against its schema", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn");
+    expect(spec).toBeDefined();
+    const result = validatePackage(spec!);
+    expect(Object.keys(result["warehouses.json"] as object)).toHaveLength(25);
+    expect(Object.keys(result["customers.json"] as object)).toHaveLength(197);
+    expect(Object.keys(result["distances.json"] as object)).toHaveLength(4925);
+  });
+
+  // The TS computeSha256() must match the sha256 stored in version.json
+  // (produced by the extraction script). If these disagree, the two hashing
+  // methods are not byte-compatible.
+  it("computeSha256 matches the version.json sha256 for chens-cosmetics-cn", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn")!;
+    expect(computeSha256(spec)).toBe(readVersion("chens-cosmetics-cn").sha256);
+  });
+});
+
 describe("WarehouseEntry zip field (Phase 3.2, Task 3)", () => {
   it("keeps zip when present", () => {
     const parsed = WarehouseEntry.parse({ id: "ALN", city: "Allentown", state: "PA", lat: 40.6028, lng: -75.4704, zip: "18101" });

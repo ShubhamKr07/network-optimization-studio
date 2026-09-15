@@ -44,7 +44,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us, chens-cosmetics-cn]
             default: p-median-us
       responses:
         "200":
@@ -169,6 +169,7 @@ paths:
               - p-median-brazil
               - two-echelon-gold-au
               - two-echelon-jade-us
+              - chens-cosmetics-cn
               - max_coverage
               - p_center
               - set_cover
@@ -1033,6 +1034,7 @@ components:
             - p-median-brazil
             - two-echelon-gold-au
             - two-echelon-jade-us
+            - chens-cosmetics-cn
             - max_coverage
             - p_center
             - set_cover
@@ -1114,8 +1116,15 @@ components:
           $ref: "#/components/schemas/SolveJobStatus"
         objective:
           type: ["number", "null"]
-        weightedAvgDistanceMi:
+        objectiveMode:
+          type: ["string", "null"]
+          description: The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null (D21/C4.10).
+        weightedAvgDistance:
           type: ["number", "null"]
+          description: Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi removed in C4.10 (D21).
+        distanceUnit:
+          type: string
+          description: Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10).
         runTimeSec:
           type: ["number", "null"]
         queuedAt:
@@ -1124,7 +1133,7 @@ components:
         finishedAt:
           type: ["string", "null"]
           format: date-time
-      required: [id, scenarioId, scenarioName, modelId, status, objective, weightedAvgDistanceMi, runTimeSec, queuedAt, finishedAt]
+      required: [id, scenarioId, scenarioName, modelId, status, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec, queuedAt, finishedAt]
 
     LandingSummary:
       type: object
@@ -1170,6 +1179,7 @@ components:
             - p-median-brazil
             - two-echelon-gold-au
             - two-echelon-jade-us
+            - chens-cosmetics-cn
             - max_coverage
             - p_center
             - set_cover
@@ -1195,7 +1205,7 @@ components:
       properties:
         code:
           type: string
-          enum: [completeness, id_collision, reference_integrity]
+          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible]
         message:
           type: string
 
@@ -1296,9 +1306,10 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, flows, plants, plantCapabilities]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows, plants, plantCapabilities]
         rows:
           type: array
+          description: Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add.
           items:
             type: object
       required: [templateVersion, entity, rows]

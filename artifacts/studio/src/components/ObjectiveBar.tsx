@@ -1,11 +1,16 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { chapterForModelId } from "@/lib/chapters";
+import { formatChenObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 
 interface ObjectiveBarProps {
   result: SolveResult | null;
   scenarioId: number | undefined;
   modelId?: string;
   scenarioName?: string;
+  /** C4.11 — the active model's distance unit (manifest ModelInfo.distanceUnit,
+   * threaded by the caller). Optional/defaults to "mi" so every existing caller
+   * that hasn't wired it stays unchanged; Chen (chens-cosmetics-cn) passes "km". */
+  distanceUnit?: string;
 }
 
 // Neutral model-summary bar. This was previously a gamified "Beat X mi" goal
@@ -16,9 +21,16 @@ interface ObjectiveBarProps {
 // no second per-model table), the scenario name when present, and plain
 // solve stats read straight off `result` when available. No arbitrary
 // targets, no hit/miss coloring, no checkmarks.
-export function ObjectiveBar({ result, modelId, scenarioName }: ObjectiveBarProps) {
+export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit = "mi" }: ObjectiveBarProps) {
   const chapter = chapterForModelId(modelId);
   const avgDistance = result?.metrics.weightedAvgDistance;
+  // C4.14 (D14) — mode-aware objective label: Chen coverage solves report a
+  // percentage, min-distance solves demand-km; every other model keeps the
+  // plain integer format (formatChenObjective returns null -> the ?? default).
+  const objectiveLabel = result
+    ? formatChenObjective(result.objective, objectiveModeOfDetails(result.details))
+      ?? result.objective.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : null;
 
   return (
     <div style={{
@@ -54,8 +66,8 @@ export function ObjectiveBar({ result, modelId, scenarioName }: ObjectiveBarProp
       <div style={{ display: "flex", gap: "7px", flexShrink: 0 }}>
         {result ? (
           <>
-            <StatPill label={`objective ${result.objective.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
-            {avgDistance != null && <StatPill label={`avg distance ${avgDistance.toFixed(0)} mi`} />}
+            <StatPill label={`objective ${objectiveLabel}`} />
+            {avgDistance != null && <StatPill label={`avg distance ${avgDistance.toFixed(0)} ${distanceUnit}`} />}
             <StatPill label={`run ${result.runTimeSec.toFixed(2)}s`} />
           </>
         ) : (

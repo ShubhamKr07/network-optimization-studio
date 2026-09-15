@@ -24,6 +24,9 @@ interface AssignmentsTabProps {
    * Absent for every other model (undefined) -> unchanged id-only
    * rendering. */
   locationById?: Record<string, { city: string; state: string }>;
+  /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit).
+   * Optional/defaults to "mi" so existing callers stay unchanged; Chen passes "km". */
+  distanceUnit?: string;
 }
 
 // Merges addedWarehouses ∪ addedRefineries into one id -> displayCode
@@ -99,7 +102,7 @@ function idCell(id: string, displayLabel: string, locationById: Record<string, {
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
-export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById }: AssignmentsTabProps) {
+export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, distanceUnit = "mi" }: AssignmentsTabProps) {
   if (!result) {
     return (
       <div className="p-4 text-sm text-muted-foreground" data-testid="assignments-empty">
@@ -129,7 +132,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
             <tr>
               <th className="text-left p-2">Customer</th>
               <th className="text-left p-2">Warehouse</th>
-              <th className="text-right p-2">Distance (mi)</th>
+              <th className="text-right p-2">Distance ({distanceUnit})</th>
               <th className="text-right p-2">Flow</th>
             </tr>
           </thead>

@@ -903,3 +903,161 @@ def build_merged_jade_dataset(
         "addedWarehousesById": added_warehouses_by_id,
         "addedCustomersById": added_customers_by_id,
     }
+
+
+def build_merged_chens_dataset(
+    inputs: dict[str, Any],
+    warehouses: dict[str, dict],
+    customers: dict[str, dict],
+    distance: dict[tuple[str, str], float],
+) -> dict[str, Any]:
+    """C4.3: Chen's Cosmetics (`chens-cosmetics-cn`, Chapter 4) `load base ->
+    apply distance overrides -> append added entities -> resolve status /
+    exclusion / demand` pipeline, consumed by `solve_chens` in solve.py as a
+    per-call, non-mutating drop-in for its `WAREHOUSES_CHENS`/`CUSTOMERS_CHENS`/
+    `DISTANCE_CHENS` module-level globals.
+
+    Direct-id keyed end to end (like p-median-brazil / transport-coal /
+    two-echelon-gold-au, DD-2) -- `wh-<n>` / `cs-<n>` string ids, distances
+    keyed by `(whId, csId)` string tuples -- so no id<->index bridge (that is
+    p-median-us-only). Mirrors the STRUCTURE of `build_merged_pmedian_dataset`
+    (base ∪ added entities, base + distance overrides), but keyed by string id
+    and, because Chen's solver reads them directly, additionally returns the
+    resolved forced/inactive/excluded id sets and folds the per-customer
+    integer demand override into the merged customers dict.
+
+    Per-call, non-mutating: the caller's base `warehouses`/`customers`/`distance`
+    (solve.py's module-level globals) are never written to.
+
+    Args:
+        inputs: the validated `inputs` blob (or any dict exposing the same
+            keys) containing `warehouseOverrides`, `customerOverrides`,
+            `addedWarehouses`, `addedCustomers`, `distanceOverrides`
+            (chensInputsSchema, C4.6). All optional, missing keys treated as
+            empty lists.
+        warehouses: base dataset, `WAREHOUSES_CHENS`-shaped
+            `{str_id: {"id", "city", "state", "lat", "lng", "zip"?}}`. Never
+            mutated.
+        customers: base dataset, `CUSTOMERS_CHENS`-shaped
+            `{str_id: {..., "demand": int}}`. Never mutated.
+        distance: base dataset, `DISTANCE_CHENS`-shaped
+            `{(whId, csId): km}` (RAW km, no circuity -- solve_chens applies
+            ×1.17). Never mutated.
+
+    Returns a dict:
+        warehouses: `{**warehouses}` plus one entry per `addedWarehouses` item
+            keyed by its own id, shaped like a base warehouse value (no
+            `status` key -- status is resolved into the forced/inactive sets
+            below, matching every prior merge's "status lives elsewhere, not on
+            the entity dict" convention).
+        customers: `{**customers}` plus one entry per `addedCustomers` item
+            keyed by its own id, `demand` carried directly on the dict, with any
+            base customer's `customerOverrides[].demand` (integer) folded in
+            ("own record wins" for an added customer -- its demand comes from
+            its own record, never a base override).
+        distance: `{**distance, **<resolved distanceOverrides>}` -- each
+            override's `(fromId, toId)` overlays the base dict (fromId a
+            warehouse, toId a customer, checked strictly per role -- same
+            backwards-pair protection as every other merge). Also how an added
+            entity gets any distance at all (L4: no auto-haversine here -- the
+            added-entity estimator, C4.7, fills missing pairs at the route
+            layer before storage; the solver treats a still-missing pair as
+            unreachable).
+        forced: set of warehouse ids marked `forced_open` (base warehouses via
+            `warehouseOverrides`, added warehouses via their own `status`).
+        inactive: set of warehouse ids marked `inactive` (same two sources).
+        excluded: set of customer ids marked `excluded` (base customers via
+            `customerOverrides`, added customers via their own `status`) --
+            exclusion applies uniformly to base + added.
+
+    Raises:
+        UnresolvableIdError: a `distanceOverrides` entry's `fromId` is not a
+            known warehouse id (base or added), or its `toId` is not a known
+            customer id (base or added) -- checked strictly per role.
+    """
+    added_warehouses = inputs.get("addedWarehouses", []) or []
+    added_customers = inputs.get("addedCustomers", []) or []
+    distance_overrides = inputs.get("distanceOverrides", []) or []
+    warehouse_overrides = inputs.get("warehouseOverrides", []) or []
+    customer_overrides = inputs.get("customerOverrides", []) or []
+
+    merged_warehouses = dict(warehouses)
+    for wh in added_warehouses:
+        wid = wh["id"]
+        merged_warehouses[wid] = {
+            "id": wid,
+            "city": wh["city"],
+            "state": wh["state"],
+            "lat": wh["lat"],
+            "lng": wh["lng"],
+        }
+
+    merged_customers = dict(customers)
+    for c in added_customers:
+        cid = c["id"]
+        merged_customers[cid] = {
+            "id": cid,
+            "city": c["city"],
+            "state": c["state"],
+            "lat": c["lat"],
+            "lng": c["lng"],
+            "demand": c["demand"],
+        }
+
+    # Per-customer integer demand override folded into the merged customers
+    # dict (base customers only -- an added customer's demand comes from its
+    # own record above, "own record wins"). A copy is written so the caller's
+    # base dict is never mutated.
+    for override in customer_overrides:
+        cid = override["id"]
+        if override.get("demand") is not None and cid in merged_customers:
+            new_c = dict(merged_customers[cid])
+            new_c["demand"] = override["demand"]
+            merged_customers[cid] = new_c
+
+    merged_distance = dict(distance)
+    for override in distance_overrides:
+        from_id, to_id = override["fromId"], override["toId"]
+        if from_id not in merged_warehouses:
+            raise UnresolvableIdError(
+                f"distanceOverrides references id '{from_id}' that does not resolve as a "
+                "warehouse - not found among warehouse ids in the base chens-cosmetics-cn "
+                "dataset or this scenario's added entities"
+            )
+        if to_id not in merged_customers:
+            raise UnresolvableIdError(
+                f"distanceOverrides references id '{to_id}' that does not resolve as a "
+                "customer - not found among customer ids in the base chens-cosmetics-cn "
+                "dataset or this scenario's added entities"
+            )
+        merged_distance[(from_id, to_id)] = override["distance"]
+
+    forced: set = set()
+    inactive: set = set()
+    for ws in warehouse_overrides:
+        if ws["status"] == "forced_open":
+            forced.add(ws["id"])
+        elif ws["status"] == "inactive":
+            inactive.add(ws["id"])
+    for wh in added_warehouses:
+        if wh.get("status") == "forced_open":
+            forced.add(wh["id"])
+        elif wh.get("status") == "inactive":
+            inactive.add(wh["id"])
+
+    excluded: set = set()
+    for co in customer_overrides:
+        if co["status"] == "excluded":
+            excluded.add(co["id"])
+    for c in added_customers:
+        if c.get("status") == "excluded":
+            excluded.add(c["id"])
+
+    return {
+        "warehouses": merged_warehouses,
+        "customers": merged_customers,
+        "distance": merged_distance,
+        "forced": forced,
+        "inactive": inactive,
+        "excluded": excluded,
+    }

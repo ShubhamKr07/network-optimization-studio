@@ -4,10 +4,23 @@ import { Badge } from "@/components/ui/badge";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
 import { useGetSolveHistory, useGetLandingSummary } from "@workspace/api-client-react";
 import { formatRelativeTime } from "@/lib/relativeTime";
+import { formatChenObjective } from "@/lib/formatObjective";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0] ?? "";
   return n.padStart(2, "0");
+}
+
+// D14/C4.10 — the recent-solves objective is labelled by the solve's objective
+// MODE, not just its raw number: Chen's "coverage" solve reports a percentage
+// (NN.NN %), its "min_distance" solve reports demand-weighted distance
+// (demand-km). Every other model (objectiveMode null — mile p-median, transport,
+// two-echelon) keeps the mode-agnostic "obj <sci-notation>" label unchanged.
+function formatObjective(objective: number, objectiveMode: string | null): string {
+  // C4.14 — the two Chen modes are formatted by the shared helper (single
+  // source of truth); Landing keeps its own mode-agnostic default for every
+  // other model (byte-identical to before this consolidation).
+  return formatChenObjective(objective, objectiveMode) ?? `obj ${objective.toExponential(2)}`;
 }
 
 export function Landing() {
@@ -117,8 +130,8 @@ export function Landing() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
-                    {h.objective != null && <span>obj {h.objective.toExponential(2)}</span>}
-                    {h.weightedAvgDistanceMi != null && <span>{h.weightedAvgDistanceMi.toFixed(1)} mi</span>}
+                    {h.objective != null && <span>{formatObjective(h.objective, h.objectiveMode)}</span>}
+                    {h.weightedAvgDistance != null && <span>{h.weightedAvgDistance.toFixed(1)} {h.distanceUnit}</span>}
                     {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
                   </div>
                 </div>

@@ -4,6 +4,7 @@ import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/tra
 import { GOLD_WAREHOUSES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANTS, JADE_PRODUCTS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 const router = Router();
@@ -24,6 +25,13 @@ router.get("/dataset", (req, res) => {
   }
   if (modelId === "p-median-brazil") {
     res.json({ warehouses: BRAZIL_DATASET_WAREHOUSES, customers: BRAZIL_DATASET_CUSTOMERS });
+    return;
+  }
+  if (modelId === "chens-cosmetics-cn") {
+    // Chapter 4 — Chen's Cosmetics (China single-echelon coverage/min-distance
+    // model). 25 candidate warehouses, 197 customers; warehouses/customers is
+    // the full response, same shape as p-median-us (no plant/product echelon).
+    res.json({ warehouses: CHENS_WAREHOUSES, customers: CHENS_CUSTOMERS });
     return;
   }
   if (modelId === "two-echelon-jade-us") {
