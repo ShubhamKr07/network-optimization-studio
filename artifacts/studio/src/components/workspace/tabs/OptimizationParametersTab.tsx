@@ -51,6 +51,10 @@ interface OptimizationParametersTabProps {
   /** two-echelon-gold-au only (Studio.tsx:1349-1371) — the plan's explicit
    * "BOM ratio in Optimization Parameters" requirement for A5.3. */
   bomRatio?: number;
+  /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit),
+   * used in the distance-bands label. Optional/defaults to "mi" so existing
+   * callers stay unchanged; Chen (chens-cosmetics-cn) passes "km". */
+  distanceUnit?: string;
   /** A single (field, value) callback rather than per-field callbacks — this
    * composes directly with Workspace.tsx's `updateInputsField(key, value)`,
    * the same localInputs-draft mechanism WarehousesTab/CustomersTab already
@@ -80,6 +84,7 @@ export function OptimizationParametersTab({
   singleSource,
   capacityInactive,
   bomRatio,
+  distanceUnit = "mi",
   onChange,
 }: OptimizationParametersTabProps) {
   const [addingBand, setAddingBand] = useState(false);
@@ -231,7 +236,7 @@ export function OptimizationParametersTab({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold text-foreground">Distance bands (miles)</Label>
+          <Label className="text-xs font-semibold text-foreground">Distance bands ({distanceUnit})</Label>
           <Button
             type="button"
             size="sm"

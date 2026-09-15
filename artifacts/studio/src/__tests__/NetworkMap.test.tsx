@@ -38,7 +38,7 @@ vi.mock("react-leaflet", async () => {
   };
 });
 
-const { NetworkMap } = await import("@/components/NetworkMap");
+const { NetworkMap, buildCustomerPopupHtml } = await import("@/components/NetworkMap");
 const { getBandColor } = await import("@/lib/bandPalette");
 
 const dataset = {
@@ -925,6 +925,29 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     // this being reachable without throwing); no snapshot of popup markup
     // needed here since CustomerPopup itself was not touched by this task.
     expect(container).toBeDefined();
+  });
+
+  // C4.11 — CustomerPopup's distance line follows the active model's unit.
+  // The popup markup is built by the pure, exported buildCustomerPopupHtml so
+  // the unit is verifiable without driving Leaflet's imperative L.popup()
+  // through jsdom.
+  const popupInfo = {
+    lat: 41, lng: -91,
+    customerCity: "Sampleburg", customerState: "SB",
+    warehouseCity: "Testville", warehouseState: "TS",
+    distanceMi: 1234, band: 0,
+  };
+
+  it("buildCustomerPopupHtml renders the distance in mi by default", () => {
+    const html = buildCustomerPopupHtml(popupInfo);
+    expect(html).toContain("1,234 mi");
+  });
+
+  it("buildCustomerPopupHtml renders the distance in km (never mi) for a Chen scenario", () => {
+    const html = buildCustomerPopupHtml(popupInfo, "km");
+    expect(html).toContain("1,234 km");
+    expect(html).not.toContain("1,234 mi");
+    expect(html).not.toMatch(/\bmi<\/strong>/);
   });
 });
 

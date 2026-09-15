@@ -23,6 +23,18 @@ describe("OptimizationParametersTab", () => {
     expect(screen.getByText("1,600")).toBeInTheDocument();
   });
 
+  // C4.11 — the distance-bands label follows the active model's unit.
+  it("labels distance bands (mi) by default", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
+  });
+
+  it("labels distance bands (km), never mi, for a Chen scenario (distanceUnit=km)", () => {
+    render(<OptimizationParametersTab {...baseProps} distanceUnit="km" onChange={vi.fn()} />);
+    expect(screen.getByText("Distance bands (km)")).toBeInTheDocument();
+    expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
+  });
+
   it("omits the P section entirely when the model has no P concept (p is undefined)", () => {
     render(<OptimizationParametersTab {...baseProps} p={undefined} onChange={vi.fn()} />);
     expect(screen.queryByTestId("text-p-value")).not.toBeInTheDocument();

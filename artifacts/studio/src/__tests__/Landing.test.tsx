@@ -231,11 +231,12 @@ describe("Landing — live summary (T4)", () => {
     });
     renderLanding();
 
-    // stats line — labs counts every visible chapter (Ch3 + Ch9 = 2; Ch9 has
-    // no summary row so contributes 0 scenarios/solved; Ch10 now hidden);
+    // stats line — labs counts every visible chapter (Ch3 + Ch4 + Ch9 = 3; C4.11
+    // registered chens-cosmetics-cn as a visible Chapter 4, and — like Ch9 here —
+    // it has no summary row so contributes 0 scenarios/solved; Ch10 now hidden);
     // scenarios/solved come from visiblePerChapter only (p-median-us), not
     // summary.totals, which would incorrectly include the hidden transport-coal row.
-    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("2 labs · 3 scenarios · 1 solved");
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("3 labs · 3 scenarios · 1 solved");
 
     // p-median-us: solved + active (the only visible chapter, so it's the
     // most-recently-solved-among-visible even though transport-coal's own

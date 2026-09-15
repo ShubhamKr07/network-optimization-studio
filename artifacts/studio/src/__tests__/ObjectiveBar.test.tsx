@@ -117,6 +117,13 @@ describe("ObjectiveBar — solve stats", () => {
     expect(screen.queryByText("Not yet solved")).not.toBeInTheDocument();
   });
 
+  // C4.11 — the avg-distance stat follows the active model's unit.
+  it("renders avg distance in km (never mi) for a Chen scenario (distanceUnit=km)", () => {
+    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="chens-cosmetics-cn" distanceUnit="km" />);
+    expect(screen.getByText(/avg distance 340 km/)).toBeInTheDocument();
+    expect(screen.queryByText(/avg distance 340 mi/)).not.toBeInTheDocument();
+  });
+
   it("formats a large objective with thousands separators, not scientific notation", () => {
     const bigResult: SolveResult = { ...optimalResult, objective: 29_873_735_731 };
     render(<ObjectiveBar result={bigResult} scenarioId={5} modelId="p-median-us" />);

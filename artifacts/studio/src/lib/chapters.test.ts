@@ -48,3 +48,33 @@ describe("chapters — two-echelon-jade-us (Chapter 9) registration", () => {
     expect(matches).toHaveLength(1);
   });
 });
+
+// C4.11 — Chen's Cosmetics (Chapter 4, chens-cosmetics-cn) registration guard.
+// Same registration-point invariant as the JADE block above: a real Chapter
+// entry (all required fields) so App.tsx's CHAPTERS.map derives /chapter-4
+// automatically — no manual route, no per-model ternary fallthrough.
+describe("chapters — chens-cosmetics-cn (Chapter 4) registration", () => {
+  it("chapterForModelId resolves the Chen entry with the expected fields", () => {
+    const chapter = chapterForModelId("chens-cosmetics-cn");
+    expect(chapter).toBeDefined();
+    expect(chapter?.path).toBe("/chapter-4");
+    expect(chapter?.chapter).toBe("Chapter 4");
+    expect(chapter?.workspace).toBe(true);
+    expect(chapter?.hiddenFromLanding).toBe(false);
+    expect(chapter?.title).toMatch(/Chen/);
+    // Real one-line lab description, not a placeholder.
+    expect(chapter?.description).toBeTruthy();
+    expect(chapter?.description.length).toBeGreaterThan(20);
+    expect(chapter?.labHeaderTitle).toMatch(/Chen/);
+    expect(chapter?.labHeaderSubtitle).toMatch(/Ch 4/);
+  });
+
+  it("chapterPathForModelId resolves /chapter-4 for chens-cosmetics-cn", () => {
+    expect(chapterPathForModelId("chens-cosmetics-cn")).toBe("/chapter-4");
+  });
+
+  it("CHAPTERS is registered exactly once for chens-cosmetics-cn", () => {
+    const matches = CHAPTERS.filter((c) => c.modelId === "chens-cosmetics-cn");
+    expect(matches).toHaveLength(1);
+  });
+});

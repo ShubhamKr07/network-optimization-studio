@@ -1,4 +1,4 @@
-export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us";
+export type StudioModelType = "p-median-us" | "transport-coal" | "p-median-brazil" | "two-echelon-gold-au" | "two-echelon-jade-us" | "chens-cosmetics-cn";
 
 export interface Chapter {
   path: string;
@@ -29,6 +29,17 @@ export const CHAPTERS: Chapter[] = [
     workspace: true,
     labHeaderTitle: "AL's Athletics · Model Lab",
     labHeaderSubtitle: "Ch 3 · p-median · facility location",
+  },
+  {
+    path: "/chapter-4",
+    modelId: "chens-cosmetics-cn",
+    chapter: "Chapter 4",
+    title: "Chen's Cosmetics — Service Coverage",
+    description: "Service-level facility location across China: open warehouses to maximize the demand served within a target service distance.",
+    workspace: true,
+    hiddenFromLanding: false,
+    labHeaderTitle: "Chen's Cosmetics · Model Lab",
+    labHeaderSubtitle: "Ch 4 · service coverage · China warehouses → customers",
   },
   {
     path: "/chapter-5/transport",

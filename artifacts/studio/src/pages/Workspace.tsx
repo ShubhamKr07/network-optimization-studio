@@ -96,8 +96,29 @@ import { track } from "@/lib/analytics";
 // (Studio.tsx:681-690) rather than invented — one branch per model, matching
 // that switch's own structure so a future model flip only needs a new case
 // here, not a rewrite.
-function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
+export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
+    // C4.11 — Chen's Cosmetics (Chapter 4). Coverage mode by default, so
+    // avgServiceDistCapKm is present and coverageFloorDemand is absent
+    // (chensInputsSchema's discriminated superRefine). No capacity concept
+    // (capacityMode "none"); distanceBands is the D19 derivation [high, max].
+    case "chens-cosmetics-cn":
+      return {
+        objective: "coverage",
+        p: 3,
+        highServiceDistKm: 600,
+        maxDistKm: 5000,
+        avgServiceDistCapKm: 1000,
+        gap: 0,
+        timeLimitSec: 120,
+        capacityMode: "none",
+        distanceBands: [600, 5000],
+        warehouseOverrides: [],
+        customerOverrides: [],
+        addedWarehouses: [],
+        addedCustomers: [],
+        distanceOverrides: [],
+      };
     case "transport-coal":
       return { distanceBands: [500, 1000, 1500, 2000], gap: 0, timeLimitSec: 120, capacityFactor: 1.0, singleSource: false, capacityInactive: false };
     case "p-median-brazil":
@@ -2591,6 +2612,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           singleSource={singleSourceFromInputs(localInputs)}
           capacityInactive={capacityInactiveFromInputs(localInputs)}
           bomRatio={bomRatioFromInputs(localInputs)}
+          distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
           // jade-T15.5 — two-echelon-jade-us has no static p.max (unlike
           // p-median-us/brazil's schema-level cap of 50): the real bound is
           // the effective active-warehouse count, which genuinely differs
@@ -2902,6 +2924,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             scenarioId={currentScenario!.id}
             displayedInputs={facilityDisplayedInputs(displayedInputs)}
             locationById={jadeOutputLocationById}
+            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
           />
         );
       // T5 — Solution Summary compare (R6+R8). `scenarios` is the same-model

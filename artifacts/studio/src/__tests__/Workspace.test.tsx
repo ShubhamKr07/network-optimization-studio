@@ -150,7 +150,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
-import { Workspace } from "@/pages/Workspace";
+import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
 import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
@@ -1964,5 +1964,46 @@ describe("Workspace — output sidebar tab order (T9, B4)", () => {
     );
     expect(sidebarOutputIds[0]).toBe("sidebar-output-output-map");
     expect(sidebarOutputIds[1]).toBe("sidebar-output-cost-summary");
+  });
+});
+
+// C4.11 — defaultInputsForModel's Chen (chens-cosmetics-cn) branch. This is
+// the concrete new-scenario default POSTed by handleCreateConfirm; it must
+// match chensInputsSchema's contract (coverage mode present, min-distance
+// field absent, high < max, distanceBands == [high, max], no capacity).
+describe("defaultInputsForModel — chens-cosmetics-cn", () => {
+  const d = defaultInputsForModel("chens-cosmetics-cn");
+
+  it("uses coverage mode with avgServiceDistCapKm present and coverageFloorDemand absent", () => {
+    expect(d.objective).toBe("coverage");
+    expect(d.avgServiceDistCapKm).toBe(1000);
+    expect(d.coverageFloorDemand).toBeUndefined();
+  });
+
+  it("locks gap:0 / timeLimitSec:120 like every other model's default", () => {
+    expect(d.gap).toBe(0);
+    expect(d.timeLimitSec).toBe(120);
+  });
+
+  it("has high < max thresholds and distanceBands derived as [high, max]", () => {
+    expect(d.highServiceDistKm).toBe(600);
+    expect(d.maxDistKm).toBe(5000);
+    expect((d.highServiceDistKm as number)).toBeLessThan(d.maxDistKm as number);
+    expect(d.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("has no capacity concept (capacityMode 'none') and p within the 1..25 Chen bound", () => {
+    expect(d.capacityMode).toBe("none");
+    expect(d.p).toBe(3);
+    expect(d.p as number).toBeGreaterThanOrEqual(1);
+    expect(d.p as number).toBeLessThanOrEqual(25);
+  });
+
+  it("starts every scenario-local edit array empty", () => {
+    expect(d.warehouseOverrides).toEqual([]);
+    expect(d.customerOverrides).toEqual([]);
+    expect(d.addedWarehouses).toEqual([]);
+    expect(d.addedCustomers).toEqual([]);
+    expect(d.distanceOverrides).toEqual([]);
   });
 });
