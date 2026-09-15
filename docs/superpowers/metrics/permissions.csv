@@ -1,1 +1,2 @@
 recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denied_tool,broad_grants,risky_grants,notes
+2026-09-15T11:55:32.165Z,chapter-4-chens,765,24,0,2,Read,90,17,gate: 17 risky grant(s) — human review required
