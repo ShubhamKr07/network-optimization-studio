@@ -1287,7 +1287,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // jade-T15.5 — two-echelon-jade-us joins: its Warehouses/Customers/
       // Plants tabs' added-row precheck chips are the first frontend
       // consumer of precheckJadeInputs (T6).
-      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us"),
+      // C4.13 — chens-cosmetics-cn joins: C4.8 built precheckChensInputs
+      // (zero_demand/no_feasible_route/coverage_floor_infeasible +
+      // completeness), and this task's Input-Map/Warehouses/Customers add-row
+      // chips are its first frontend consumer.
+      enabled: !!currentScenario?.id && (modelId === "p-median-us" || modelId === "transport-coal" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn"),
       queryKey: getPrecheckScenarioQueryKey(currentScenario?.id ?? 0),
     },
   });
@@ -1663,7 +1667,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // T5 (Bundle 2) — p-median-brazil joins p-median-us here: it shares
       // the exact same PMedianMapInputs shape (T1's manifest parity) and got
       // its own GET /dataset endpoint (T3), so it gets the real editor too.
-      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil")) ||
+      // C4.13 — chens-cosmetics-cn joins them: it's single-echelon
+      // warehouse→customer like p-median (warehouseOverrides/customerOverrides/
+      // addedWarehouses/addedCustomers/distanceOverrides share p-median-us's
+      // exact field names/shape; only capacity is dropped, already suppressed
+      // by capacityMode="none"), so it reuses the same "pmedian" mode editor
+      // (renderTabContent's fallback branch) and needs the same Save gate.
+      (activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn")) ||
       // T6 (Bundle 2) — transport-coal's own full-v2 editor
       // (mode="transport", InputMapTab.tsx) — a SEPARATE condition, not
       // folded into the pmedian check above: TransportLpInputs isn't
@@ -1689,11 +1699,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // WarehousesTab component (its warehouseOverrideSchema matches
       // {id,status} exactly, no capacity field — capacityMode="none"
       // already suppresses that column).
-      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")) ||
+      // C4.13 — chens-cosmetics-cn joins: its warehouseOverride shape is
+      // {id,status} exactly (no capacity — capacityMode="none" suppresses that
+      // column, same as JADE), so it reuses the same WarehousesTab.
+      (activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       // jade-T15.5 — two-echelon-jade-us's Customers tab reuses
       // CustomersTab too, in its per-product mode (products/productOverrides
       // wired at the render-content branch below).
-      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us")) ||
+      // C4.13 — chens-cosmetics-cn joins: same CustomerOverride {id,status,
+      // demand} shape p-median-us uses (integer demand), same CustomersTab.
+      (activeTab.entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       (activeTab.entity === "refineries" && modelId === "two-echelon-gold-au") ||
       (activeTab.entity === "mines" && modelId === "transport-coal") ||
       (activeTab.entity === "stations" && modelId === "transport-coal") ||
@@ -1711,7 +1726,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // shares the id too but renders JadeDistancesTab (explicit `leg`
       // field, composite-key identity) — see renderTabContent's own branch
       // below for all three.
-      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us")) ||
+      // C4.13 — chens-cosmetics-cn joins the p-median DistancesTab branch: its
+      // distanceOverrides share p-median-us's exact {fromId,toId,distance}
+      // shape, and its manifest declares supportsReferenceDistances (raw-km
+      // base matrix, C4.4), so it renders DistancesTab (see the render branch
+      // below, extended in the same task).
+      (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
       (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
 
@@ -1719,8 +1739,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
   // toolbar below; T5 — p-median-brazil joins it (same real editor, same
   // relocated Save).
+  // C4.13 — chens-cosmetics-cn joins: it renders the same "pmedian" mode
+  // InputMapTab (renderTabContent's fallback branch) with its own relocated
+  // Save in the Layers row, so the shared toolbar Save must be suppressed for
+  // it too, exactly as for p-median-us/brazil.
   const saveInLayersRow =
-    activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil");
+    activeTab?.kind === "input" && activeTab.entity === "input-map" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn");
   // T6 (Bundle 2) — transport-coal's own Save-in-Layers gate, a SEPARATE
   // condition from the pmedian one above (same reasoning as
   // isEditableInputTab's own third branch) — its Layers row is a
@@ -2429,7 +2453,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // is {id,status} exactly (no capacity field — capacityMode="none",
     // already resolved generically by capacityModeFromInputs's default,
     // suppresses the Capacity column with zero change here).
-    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")) {
+    // C4.13 — chens-cosmetics-cn reuses the same WarehousesTab (its
+    // warehouseOverrides is {id,status}; capacityMode="none" already
+    // suppresses the Capacity column via capacityModeFromInputs).
+    if (activeTab.kind === "input" && activeTab.entity === "warehouses" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <WarehousesTab
@@ -2548,10 +2575,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // `overrides`/`onChange` (still required props) are wired as an inert
     // no-op for JADE: CustomersTab's own productMode switch never renders
     // the scalar `<CustomerTable>` that would otherwise read them.
+    // C4.13 — chens-cosmetics-cn reuses CustomersTab: scalar CustomerOverride
+    // {id,status,demand} shape (not JADE's per-product), so it takes the
+    // non-JADE props path below.
     if (
       activeTab.kind === "input" &&
       activeTab.entity === "customers" &&
-      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us")
+      (modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")
     ) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       const isJade = modelId === "two-echelon-jade-us";
@@ -2590,7 +2620,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // `deleteAddedEntityAndOverrides` need no per-model branching here.
           // jade-T15.5 handles JADE separately below (its own added-customer
           // shape needs the per-product reader/computed `demand`).
-          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil"
+          {...(modelId === "p-median-us" || modelId === "two-echelon-gold-au" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn"
             ? {
                 addedCustomers: addedCustomersFromInputs(localInputs),
                 onAddedCustomersChange: (next: AddedCustomer[]) => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next),
@@ -2713,7 +2743,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // because it's only ever mutated inside handlers that themselves trigger
     // a re-render (handleSaveInputs/handleImportApplied/the scenario-switch
     // effect), so this value is never stale at paint time.
-    if (activeTab.kind === "input" && activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil")) {
+    // C4.13 — chens-cosmetics-cn joins the p-median DistancesTab: same
+    // {fromId,toId,distance} override shape, and supportsReferenceDistances
+    // true (raw-km base×base matrix from GET /models/chens-cosmetics-cn/
+    // reference-distances, C4.4), so `referenceCapable` drives the base column.
+    if (activeTab.kind === "input" && activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "chens-cosmetics-cn")) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
