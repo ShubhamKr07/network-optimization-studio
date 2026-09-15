@@ -38,6 +38,17 @@
 //   the blank decision is driven by the enumerated city-name set below. Net
 //   blank set = exactly the 11 rows the task enumerated. Every box-vs-list
 //   discrepancy is logged (to console + provenance boxDiscrepancies).
+//
+// Reference overrides (C4.1b follow-up): the GeoNames pass leaves 27 rows without
+// a zip — 11 HK/Macau territory rows (no PRC postal system) + 16 mainland rows
+// whose nearest GeoNames point is beyond the 25 km match radius. Rather than ship
+// them blank, REFERENCE_OVERRIDES below assigns each a postal code from a CITED
+// external reference (China Post SAR codes for HK/Macau; Wikipedia city-infobox
+// postal codes for the mainland — every code was verified against its source
+// before being hardcoded here). Overrides are applied AFTER the GeoNames matching
+// pass and ONLY fill rows GeoNames left blank — a GeoNames hit is never altered
+// (an override colliding with a hit is a hard error). These rows get provenance
+// status "hardcoded_reference" carrying assignedZip + referenceSource.
 
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync } from "fs";
 import path from "path";
@@ -77,7 +88,106 @@ const HK_MACAU_CITIES = new Set([
   "Zhunmen",      // Tuen Mun, HK (cs-197)
 ]);
 
-type Status = "hit" | "blank_no_cn_postal" | "miss_too_far";
+type Status = "hit" | "hardcoded_reference" | "blank_no_cn_postal" | "miss_too_far";
+
+// --- Reference overrides (cited) -------------------------------------------
+// Each of the 27 GeoNames-unplaced rows gets a postal code from a verified,
+// cited source. HK/Macau use China Post's SAR-level codes (999077 / 999078);
+// mainland rows use the city's Wikipedia-infobox postal code. Every value was
+// confirmed against the cited reference before being written here.
+const HK_SAR_SOURCE =
+  "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)";
+const MACAU_SAR_SOURCE =
+  "China Post SAR postal code 999078 for Macau (Wikipedia: Postal codes in China, https://en.wikipedia.org/wiki/Postal_codes_in_China)";
+
+interface ReferenceOverride {
+  zip: string;
+  source: string;
+}
+
+const REFERENCE_OVERRIDES: Record<string, ReferenceOverride> = {
+  // --- Hong Kong SAR — China Post code 999077 (no PRC postal system of its own) ---
+  "wh-77": { zip: "999077", source: HK_SAR_SOURCE }, // Jiulong (Kowloon)
+  "cs-77": { zip: "999077", source: HK_SAR_SOURCE }, // Jiulong (Kowloon)
+  "cs-27": { zip: "999077", source: HK_SAR_SOURCE }, // Daipo (Tai Po)
+  "cs-118": { zip: "999077", source: HK_SAR_SOURCE }, // Quanwan (Tsuen Wan)
+  "cs-129": { zip: "999077", source: HK_SAR_SOURCE }, // Shatian (Sha Tin)
+  "cs-134": { zip: "999077", source: HK_SAR_SOURCE }, // Shiongshui (Sheung Shui)
+  "cs-161": { zip: "999077", source: HK_SAR_SOURCE }, // Xianggangdao (Hong Kong Island)
+  "cs-164": { zip: "999077", source: HK_SAR_SOURCE }, // Xigong (Sai Kung)
+  "cs-184": { zip: "999077", source: HK_SAR_SOURCE }, // Yuanlong (Yuen Long)
+  "cs-197": { zip: "999077", source: HK_SAR_SOURCE }, // Zhunmen (Tuen Mun)
+  // --- Macau SAR — China Post code 999078 ---
+  "cs-6": { zip: "999078", source: MACAU_SAR_SOURCE }, // Aomen (Macau)
+  // --- Mainland cities beyond the 25 km GeoNames match radius ---
+  "wh-25": {
+    zip: "400000",
+    source: "Chongqing municipality postal code (Wikipedia: Chongqing, https://en.wikipedia.org/wiki/Chongqing)",
+  },
+  "cs-25": {
+    zip: "400000",
+    source: "Chongqing municipality postal code (Wikipedia: Chongqing, https://en.wikipedia.org/wiki/Chongqing)",
+  },
+  "cs-1": {
+    zip: "843000",
+    source: "Aksu City, Xinjiang postal code (Wikipedia: Aksu City, https://en.wikipedia.org/wiki/Aksu_City)",
+  },
+  "cs-18": {
+    zip: "046000",
+    source: "Changzhi, Shanxi postal code (Wikipedia: Changzhi, https://en.wikipedia.org/wiki/Changzhi)",
+  },
+  "cs-59": {
+    zip: "438000",
+    source:
+      "Huanggang, Hubei postal code (Wikipedia: Huanggang, https://en.wikipedia.org/wiki/Huanggang). NOTE: this row's dataset coords (23.68,117.0) fall in Guangdong, not Hubei — the code is assigned by the city NAME (Huanggang, Hubei); coordinate discrepancy recorded here, coords left untouched.",
+  },
+  "cs-62": {
+    zip: "161000",
+    source:
+      "Qiqihar city postal code (Wikipedia: Qiqihar, https://en.wikipedia.org/wiki/Qiqihar) — Hulan Ergi (Fularji) is a district of Qiqihar, Heilongjiang; city-level code used.",
+  },
+  "cs-78": {
+    zip: "158100",
+    source: "Jixi, Heilongjiang postal code (Wikipedia: Jixi, https://en.wikipedia.org/wiki/Jixi)",
+  },
+  "cs-80": {
+    zip: "844000",
+    source: "Kashgar (Kashi), Xinjiang postal code (Wikipedia: Kashgar, https://en.wikipedia.org/wiki/Kashgar)",
+  },
+  "cs-89": {
+    zip: "276000",
+    source: "Linyi, Shandong postal code (Wikipedia: Linyi, https://en.wikipedia.org/wiki/Linyi)",
+  },
+  "cs-108": {
+    zip: "617000",
+    source: "Panzhihua, Sichuan postal code (Wikipedia: Panzhihua, https://en.wikipedia.org/wiki/Panzhihua)",
+  },
+  "cs-145": {
+    zip: "300450",
+    source:
+      "Tanggu, Tianjin postal code (Wikipedia: Tanggu District, https://en.wikipedia.org/wiki/Tanggu_District) — now within Binhai New Area, Tianjin.",
+  },
+  "cs-155": {
+    zip: "241000",
+    source: "Wuhu, Anhui postal code (Wikipedia: Wuhu, https://en.wikipedia.org/wiki/Wuhu)",
+  },
+  "cs-158": {
+    zip: "361000",
+    source: "Xiamen, Fujian postal code (Wikipedia: Xiamen, https://en.wikipedia.org/wiki/Xiamen)",
+  },
+  "cs-166": {
+    zip: "810000",
+    source: "Xining, Qinghai postal code (Wikipedia: Xining, https://en.wikipedia.org/wiki/Xining)",
+  },
+  "cs-183": {
+    zip: "835000",
+    source: "Yining City, Ili, Xinjiang postal code (Wikipedia: Yining, https://en.wikipedia.org/wiki/Yining)",
+  },
+  "cs-185": {
+    zip: "414000",
+    source: "Yueyang, Hunan postal code (Wikipedia: Yueyang, https://en.wikipedia.org/wiki/Yueyang)",
+  },
+};
 
 interface DatasetRow {
   file: "warehouses" | "customers";
@@ -104,6 +214,7 @@ interface ProvenanceRow {
   matchDistanceKm: number | null;
   geonamesPlacename: string | null;
   geonamesCode: string | null;
+  referenceSource?: string; // set only on "hardcoded_reference" rows
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -166,6 +277,21 @@ function ensureReadmeAttribution(): void {
         line + "\n",
     );
   }
+}
+
+/** Records the manual reference-override note in the dataset README (idempotent). */
+function ensureReadmeOverrideNote(): void {
+  const marker = "China Post SAR codes";
+  const note =
+    "27 rows GeoNames could not place use manual reference overrides: Hong Kong and " +
+    "Macau use China Post SAR codes (999077 / 999078); the other 16 mainland cities " +
+    "use their city postal code, each cited in docs/dataset-audit/chens-geocode-provenance.json.";
+  if (!existsSync(README_PATH)) {
+    ensureReadmeAttribution();
+  }
+  const body = readFileSync(README_PATH, "utf8");
+  if (body.includes(marker)) return; // already noted
+  writeFileSync(README_PATH, body.replace(/\n*$/, "\n") + "\n" + note + "\n");
 }
 
 // --- GeoNames download + parse --------------------------------------------
@@ -330,10 +456,40 @@ function main(): void {
     );
   }
 
+  // GeoNames-only coverage — this is what the COVERAGE_FLOOR guards (the overrides
+  // below must never mask a collapsed GeoNames matching pass).
   const coverageRate = hits / TOTAL_ROWS;
+
+  // Apply the cited reference overrides AFTER the GeoNames pass. An override only
+  // fills a row GeoNames left blank; colliding with a hit is a hard error.
+  let overrides = 0;
+  for (const p of provenance) {
+    const ov = REFERENCE_OVERRIDES[p.id];
+    if (!ov) continue;
+    if (p.status === "hit") {
+      throw new Error(
+        `Reference override for ${p.id} "${p.city}" collides with a GeoNames hit (${p.assignedZip}) — refusing to overwrite a matched code.`,
+      );
+    }
+    p.status = "hardcoded_reference";
+    p.assignedZip = ov.zip;
+    p.referenceSource = ov.source;
+    zipById.set(p.id, ov.zip);
+    overrides++;
+  }
+
+  // Recompute final status tallies from the (now override-augmented) provenance.
+  const finalHits = provenance.filter((p) => p.status === "hit").length;
+  const finalOverrides = provenance.filter((p) => p.status === "hardcoded_reference").length;
+  const finalBlanks = provenance.filter((p) => p.status === "blank_no_cn_postal").length;
+  const finalMisses = provenance.filter((p) => p.status === "miss_too_far").length;
+  const totalCoverageRate = (finalHits + finalOverrides) / TOTAL_ROWS;
+
   console.log(
-    `\n[geocode-chens] ${hits} hits, ${blanks} blank_no_cn_postal, ${misses} miss_too_far / ${TOTAL_ROWS} rows` +
-      ` — coverage ${(coverageRate * 100).toFixed(1)}%`,
+    `\n[geocode-chens] ${finalHits} hits, ${finalOverrides} hardcoded_reference, ` +
+      `${finalBlanks} blank_no_cn_postal, ${finalMisses} miss_too_far / ${TOTAL_ROWS} rows` +
+      ` — GeoNames coverage ${(coverageRate * 100).toFixed(1)}%, total coverage ${(totalCoverageRate * 100).toFixed(1)}%` +
+      ` (${overrides} reference overrides applied)`,
   );
   if (boxDiscrepancies.length) {
     console.log(`[geocode-chens] box-vs-enumerated-list reconciliations (${boxDiscrepancies.length}):`);
@@ -352,14 +508,21 @@ function main(): void {
       "HK/Macau exclusion uses the task's enumerated 11-row list as the authoritative source: " +
       "the literal bounding boxes cannot separate the ~1km cross-border pairs Aomen/Zhuhai and " +
       "Shiongshui/Shenzhen (opposite decisions), and both miss Aomen while wrongly catching Shenzhen. " +
-      "boxDiscrepancies lists every row where the literal box and the enumerated list disagree.",
+      "boxDiscrepancies lists every row where the literal box and the enumerated list disagree. " +
+      "The 27 rows GeoNames could not place (11 HK/Macau territory rows + 16 mainland rows beyond " +
+      "the 25km match radius) carry status 'hardcoded_reference' with a manual, cited postal code: " +
+      "HK/Macau use China Post SAR codes (999077 / 999078); the 16 mainland cities use their city " +
+      "postal code (each entry's referenceSource cites the source). Overrides are applied after the " +
+      "GeoNames pass and never alter a GeoNames hit.",
     boxDiscrepancies,
     totals: {
       rows: rows.length,
-      hits,
-      blank_no_cn_postal: blanks,
-      miss_too_far: misses,
-      coverageRate: Number(coverageRate.toFixed(4)),
+      hits: finalHits,
+      hardcoded_reference: finalOverrides,
+      blank_no_cn_postal: finalBlanks,
+      miss_too_far: finalMisses,
+      geonamesCoverageRate: Number(coverageRate.toFixed(4)),
+      totalCoverageRate: Number(totalCoverageRate.toFixed(4)),
     },
     rows: provenance,
   });
@@ -382,7 +545,11 @@ function main(): void {
   atomicWriteJson(csPath, customers);
   recomputeVersion();
   ensureReadmeAttribution();
-  console.log(`[geocode-chens] spliced ${zipById.size} zips; version.json recomputed; README attribution ensured.`);
+  ensureReadmeOverrideNote();
+  console.log(
+    `[geocode-chens] spliced ${zipById.size} zips (${overrides} from reference overrides); ` +
+      `version.json recomputed; README attribution + override note ensured.`,
+  );
 }
 
 main();

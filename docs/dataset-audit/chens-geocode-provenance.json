@@ -3,8 +3,8 @@
   "license": "CC-BY 4.0",
   "attribution": "Postal data © GeoNames, licensed CC-BY 4.0",
   "retrievedVia": "nearest lat/lng within 25km, most-trailing-zeros tie-break, HK/Macau excluded",
-  "generatedAt": "2026-09-15T05:26:50.832Z",
-  "notes": "HK/Macau exclusion uses the task's enumerated 11-row list as the authoritative source: the literal bounding boxes cannot separate the ~1km cross-border pairs Aomen/Zhuhai and Shiongshui/Shenzhen (opposite decisions), and both miss Aomen while wrongly catching Shenzhen. boxDiscrepancies lists every row where the literal box and the enumerated list disagree.",
+  "generatedAt": "2026-09-15T05:39:56.378Z",
+  "notes": "HK/Macau exclusion uses the task's enumerated 11-row list as the authoritative source: the literal bounding boxes cannot separate the ~1km cross-border pairs Aomen/Zhuhai and Shiongshui/Shenzhen (opposite decisions), and both miss Aomen while wrongly catching Shenzhen. boxDiscrepancies lists every row where the literal box and the enumerated list disagree. The 27 rows GeoNames could not place (11 HK/Macau territory rows + 16 mainland rows beyond the 25km match radius) carry status 'hardcoded_reference' with a manual, cited postal code: HK/Macau use China Post SAR codes (999077 / 999078); the 16 mainland cities use their city postal code (each entry's referenceSource cites the source). Overrides are applied after the GeoNames pass and never alter a GeoNames hit.",
   "boxDiscrepancies": [
     "cs-6 \"Aomen\" (22.27,113.56) is OUTSIDE the literal boxes but BLANKED (enumerated HK/Macau territory)",
     "cs-131 \"Shenzhen\" (22.53,114.13) is INSIDE a literal HK/Macau box but KEPT (mainland city, not in enumerated blank list) → 518000"
@@ -12,9 +12,11 @@
   "totals": {
     "rows": 222,
     "hits": 195,
-    "blank_no_cn_postal": 11,
-    "miss_too_far": 16,
-    "coverageRate": 0.8784
+    "hardcoded_reference": 27,
+    "blank_no_cn_postal": 0,
+    "miss_too_far": 0,
+    "geonamesCoverageRate": 0.8784,
+    "totalCoverageRate": 1
   },
   "rows": [
     {
@@ -55,11 +57,12 @@
       "city": "Chongqing",
       "lat": 29.57,
       "lng": 106.58,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "400000",
       "matchDistanceKm": 53.587,
       "geonamesPlacename": "Yubei District",
-      "geonamesCode": "401100"
+      "geonamesCode": "401100",
+      "referenceSource": "Chongqing municipality postal code (Wikipedia: Chongqing, https://en.wikipedia.org/wiki/Chongqing)"
     },
     {
       "id": "wh-28",
@@ -132,11 +135,12 @@
       "city": "Jiulong",
       "lat": 22.32,
       "lng": 114.17,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "wh-101",
@@ -297,11 +301,12 @@
       "city": "Aksu",
       "lat": 41.15,
       "lng": 80.25,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "843000",
       "matchDistanceKm": 292.749,
       "geonamesPlacename": "Kuytun",
-      "geonamesCode": "833200"
+      "geonamesCode": "833200",
+      "referenceSource": "Aksu City, Xinjiang postal code (Wikipedia: Aksu City, https://en.wikipedia.org/wiki/Aksu_City)"
     },
     {
       "id": "cs-2",
@@ -352,11 +357,12 @@
       "city": "Aomen",
       "lat": 22.27,
       "lng": 113.56,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999078",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999078 for Macau (Wikipedia: Postal codes in China, https://en.wikipedia.org/wiki/Postal_codes_in_China)"
     },
     {
       "id": "cs-7",
@@ -484,11 +490,12 @@
       "city": "Changzhi",
       "lat": 35.22,
       "lng": 111.75,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "046000",
       "matchDistanceKm": 54.268,
       "geonamesPlacename": "Yima",
-      "geonamesCode": "472300"
+      "geonamesCode": "472300",
+      "referenceSource": "Changzhi, Shanxi postal code (Wikipedia: Changzhi, https://en.wikipedia.org/wiki/Changzhi)"
     },
     {
       "id": "cs-19",
@@ -561,11 +568,12 @@
       "city": "Chongqing",
       "lat": 29.57,
       "lng": 106.58,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "400000",
       "matchDistanceKm": 53.587,
       "geonamesPlacename": "Yubei District",
-      "geonamesCode": "401100"
+      "geonamesCode": "401100",
+      "referenceSource": "Chongqing municipality postal code (Wikipedia: Chongqing, https://en.wikipedia.org/wiki/Chongqing)"
     },
     {
       "id": "cs-26",
@@ -583,11 +591,12 @@
       "city": "Daipo",
       "lat": 22.45,
       "lng": 114.16,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-28",
@@ -935,11 +944,12 @@
       "city": "Huanggang",
       "lat": 23.68,
       "lng": 117,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "438000",
       "matchDistanceKm": 38.544,
       "geonamesPlacename": "Chaozhou",
-      "geonamesCode": "521000"
+      "geonamesCode": "521000",
+      "referenceSource": "Huanggang, Hubei postal code (Wikipedia: Huanggang, https://en.wikipedia.org/wiki/Huanggang). NOTE: this row's dataset coords (23.68,117.0) fall in Guangdong, not Hubei — the code is assigned by the city NAME (Huanggang, Hubei); coordinate discrepancy recorded here, coords left untouched."
     },
     {
       "id": "cs-60",
@@ -968,11 +978,12 @@
       "city": "Hulan Ergi",
       "lat": 47.21,
       "lng": 123.61,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "161000",
       "matchDistanceKm": 30.16,
       "geonamesPlacename": "Qiqihar",
-      "geonamesCode": "161000"
+      "geonamesCode": "161000",
+      "referenceSource": "Qiqihar city postal code (Wikipedia: Qiqihar, https://en.wikipedia.org/wiki/Qiqihar) — Hulan Ergi (Fularji) is a district of Qiqihar, Heilongjiang; city-level code used."
     },
     {
       "id": "cs-63",
@@ -1133,22 +1144,24 @@
       "city": "Jiulong",
       "lat": 22.32,
       "lng": 114.17,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-78",
       "city": "Jixi",
       "lat": 45.3,
       "lng": 130.97,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "158100",
       "matchDistanceKm": 52.077,
       "geonamesPlacename": "Qitaihe",
-      "geonamesCode": "154600"
+      "geonamesCode": "154600",
+      "referenceSource": "Jixi, Heilongjiang postal code (Wikipedia: Jixi, https://en.wikipedia.org/wiki/Jixi)"
     },
     {
       "id": "cs-79",
@@ -1166,11 +1179,12 @@
       "city": "Kashi",
       "lat": 39.48,
       "lng": 75.97,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "844000",
       "matchDistanceKm": 30.935,
       "geonamesPlacename": "Artux",
-      "geonamesCode": "845300"
+      "geonamesCode": "845300",
+      "referenceSource": "Kashgar (Kashi), Xinjiang postal code (Wikipedia: Kashgar, https://en.wikipedia.org/wiki/Kashgar)"
     },
     {
       "id": "cs-82",
@@ -1254,11 +1268,12 @@
       "city": "Linyi",
       "lat": 35.08,
       "lng": 118.33,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "276000",
       "matchDistanceKm": 74.632,
       "geonamesPlacename": "Zaozhuang",
-      "geonamesCode": "277000"
+      "geonamesCode": "277000",
+      "referenceSource": "Linyi, Shandong postal code (Wikipedia: Linyi, https://en.wikipedia.org/wiki/Linyi)"
     },
     {
       "id": "cs-90",
@@ -1463,11 +1478,12 @@
       "city": "Panzhihua",
       "lat": 26.58,
       "lng": 101.68,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "617000",
       "matchDistanceKm": 128.904,
       "geonamesPlacename": "Huize County",
-      "geonamesCode": "654200"
+      "geonamesCode": "654200",
+      "referenceSource": "Panzhihua, Sichuan postal code (Wikipedia: Panzhihua, https://en.wikipedia.org/wiki/Panzhihua)"
     },
     {
       "id": "cs-109",
@@ -1573,11 +1589,12 @@
       "city": "Quanwan",
       "lat": 22.37,
       "lng": 114.11,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-119",
@@ -1683,11 +1700,12 @@
       "city": "Shatian",
       "lat": 22.38,
       "lng": 114.19,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-130",
@@ -1738,11 +1756,12 @@
       "city": "Shiongshui",
       "lat": 22.52,
       "lng": 114.12,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-136",
@@ -1848,11 +1867,12 @@
       "city": "Tanggu",
       "lat": 39,
       "lng": 117.67,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "300450",
       "matchDistanceKm": 40.734,
       "geonamesPlacename": "Ninghe District",
-      "geonamesCode": "301500"
+      "geonamesCode": "301500",
+      "referenceSource": "Tanggu, Tianjin postal code (Wikipedia: Tanggu District, https://en.wikipedia.org/wiki/Tanggu_District) — now within Binhai New Area, Tianjin."
     },
     {
       "id": "cs-146",
@@ -1958,11 +1978,12 @@
       "city": "Wuhu",
       "lat": 31.35,
       "lng": 118.37,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "241000",
       "matchDistanceKm": 29.344,
       "geonamesPlacename": "Wuhu",
-      "geonamesCode": "241000"
+      "geonamesCode": "241000",
+      "referenceSource": "Wuhu, Anhui postal code (Wikipedia: Wuhu, https://en.wikipedia.org/wiki/Wuhu)"
     },
     {
       "id": "cs-156",
@@ -1991,11 +2012,12 @@
       "city": "Xiamen",
       "lat": 24.45,
       "lng": 118.08,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "361000",
       "matchDistanceKm": 43.521,
       "geonamesPlacename": "Zhangzhou",
-      "geonamesCode": "363000"
+      "geonamesCode": "363000",
+      "referenceSource": "Xiamen, Fujian postal code (Wikipedia: Xiamen, https://en.wikipedia.org/wiki/Xiamen)"
     },
     {
       "id": "cs-159",
@@ -2024,11 +2046,12 @@
       "city": "Xianggangdao",
       "lat": 22.27,
       "lng": 114.14,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-162",
@@ -2057,11 +2080,12 @@
       "city": "Xigong",
       "lat": 22.33,
       "lng": 114.25,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-165",
@@ -2079,11 +2103,12 @@
       "city": "Xining",
       "lat": 36.62,
       "lng": 101.77,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "810000",
       "matchDistanceKm": 164.099,
       "geonamesPlacename": "Wuwei",
-      "geonamesCode": "733000"
+      "geonamesCode": "733000",
+      "referenceSource": "Xining, Qinghai postal code (Wikipedia: Xining, https://en.wikipedia.org/wiki/Xining)"
     },
     {
       "id": "cs-167",
@@ -2266,33 +2291,36 @@
       "city": "Yining",
       "lat": 43.9,
       "lng": 81.35,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "835000",
       "matchDistanceKm": 41.884,
       "geonamesPlacename": "Ili Kazakh Autonomous Prefecture",
-      "geonamesCode": "835000"
+      "geonamesCode": "835000",
+      "referenceSource": "Yining City, Ili, Xinjiang postal code (Wikipedia: Yining, https://en.wikipedia.org/wiki/Yining)"
     },
     {
       "id": "cs-184",
       "city": "Yuanlong",
       "lat": 22.44,
       "lng": 114.02,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-185",
       "city": "Yueyang",
       "lat": 29.38,
       "lng": 113.1,
-      "status": "miss_too_far",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "414000",
       "matchDistanceKm": 26.62,
       "geonamesPlacename": "Yueyang",
-      "geonamesCode": "414000"
+      "geonamesCode": "414000",
+      "referenceSource": "Yueyang, Hunan postal code (Wikipedia: Yueyang, https://en.wikipedia.org/wiki/Yueyang)"
     },
     {
       "id": "cs-186",
@@ -2420,11 +2448,12 @@
       "city": "Zhunmen",
       "lat": 22.41,
       "lng": 113.98,
-      "status": "blank_no_cn_postal",
-      "assignedZip": null,
+      "status": "hardcoded_reference",
+      "assignedZip": "999077",
       "matchDistanceKm": null,
       "geonamesPlacename": null,
-      "geonamesCode": null
+      "geonamesCode": null,
+      "referenceSource": "China Post SAR postal code 999077 for Hong Kong (Wikipedia: Postal codes in Hong Kong, https://en.wikipedia.org/wiki/Postal_codes_in_Hong_Kong)"
     },
     {
       "id": "cs-198",
