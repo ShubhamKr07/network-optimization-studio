@@ -1,8 +1,8 @@
 # Harness metrics store
 
 Append-only CSVs recording how the development process actually runs. Written by the harness
-scripts/skills (`pnpm harness:record`, `flake-audit.sh`, `pnpm smoke`, `/harness-retro`, the
-`docs-audit`/`docs-apply` skills) and summarized by `pnpm harness:report`.
+scripts/skills (`pnpm harness:record`, `pnpm harness:permissions`, `flake-audit.sh`, `pnpm smoke`,
+`/harness-retro`, the `docs-audit`/`docs-apply` skills) and summarized by `pnpm harness:report`.
 
 This store **layers on** the existing `.superpowers/sdd/` ledger — it does not replace it.
 `.superpowers/sdd/` stays the canonical task-record system; these CSVs *derive* from it (+ git),
@@ -89,6 +89,26 @@ Any value that cannot be derived is the literal string `unknown` — never an es
 | `pr_state` | `open` \| `merged` \| `skipped_dirty_tree` \| `no_gh`. |
 | `applied` / `kept` | counts resolved by `/docs-apply` at merge (`applied`=change kept, `kept`=reverted). |
 | `resolved_at` | ISO datetime `/docs-apply` merged the PR, or empty while open. |
+
+### `permissions.csv` — one row per retro permission audit (`pnpm harness:permissions`)
+| column | meaning |
+|--------|---------|
+| `recorded_at` | ISO datetime the audit ran. |
+| `task_id` | task the audit covers. Unique; recorder refuses duplicates without `--force`. |
+| `allow_total` | count of `permissions.allow` entries in `.claude/settings.local.json` (machine-local). |
+| `allow_new` | entries added since the last audit (diff vs `.harness/permissions/allow-baseline.json`, gitignored scratch). |
+| `deny_total` | count of `permissions.deny` entries. |
+| `denials_in_window` | runtime tool calls the human denied within the task's `[started_at,finished_at]` window, from the session transcript. |
+| `top_denied_tool` | most-denied tool in the window, or empty. |
+| `broad_grants` | allow entries classified `broad` (scoped wildcards, e.g. `Bash(pnpm run *)`). |
+| `risky_grants` | allow entries classified `risky` (whole-tool/whole-server grants, `git push`, `rm -rf`/`sudo`/`chmod`, arbitrary `psql *`, secret/env exposure). |
+| `notes` | `gate: …` reasons when the audit gated, else empty. |
+
+The audit **evaluates** grants with a transparent ordered ruleset (see
+`scripts/src/harness/lib/permissions.ts`); rules only *surface* grants for human review, never
+auto-decide. It **gates** (exit code 3, STOP-and-ask) on any `risky` grant or a recurring denial (a
+tool denied this window that was the `top_denied_tool` of a prior audit) — the 2nd-occurrence
+philosophy of rule 1, applied to permissions.
 
 ## Finding states (docs pipeline)
 
