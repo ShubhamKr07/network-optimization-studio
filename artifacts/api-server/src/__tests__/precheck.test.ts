@@ -1516,6 +1516,23 @@ describe("precheckChensInputs — C4.8 semantic precheck", () => {
       // C-1/C-2 still have demand and routes.
       expect(precheckChensInputs(inputs, CHENS_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
     });
+
+    it("does NOT fire in coverage mode even carrying a residual coverageFloorDemand that would exceed the coverable-demand upper bound", () => {
+      // D18/C4.8: coverage_floor_infeasible only applies in min_distance mode
+      // — coverage mode enforces the avg-distance cap instead, never the
+      // coverage floor. A coverage-mode scenario can carry a residual
+      // coverageFloorDemand (authorable via a direct API PATCH; the UI's
+      // clear-other-field prevents it normally) without being falsely
+      // 422-blocked against a constraint that never runs in this mode.
+      // Baseline coverable demand at highServiceDistKm 500 (×1.17) is
+      // 100+200+300=600 (all three customers coverable by some warehouse) —
+      // 999999 would exceed it by a wide margin if the check ran.
+      const inputs: ChensInputs = {
+        ...CHENS_BASE_COVERAGE,
+        coverageFloorDemand: 999999,
+      };
+      expect(precheckChensInputs(inputs, CHENS_DATASET_FAKE)).toEqual({ ok: true, errors: [] });
+    });
   });
 
   describe("p_range (reused, D18)", () => {

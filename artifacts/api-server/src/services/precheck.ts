@@ -315,7 +315,7 @@ export function precheckChensInputs(
   // --- coverage_floor_infeasible (min_distance only): coverageFloorDemand vs
   // a cheap NECESSARY upper bound on coverable demand. coverageFloorDemand is
   // only present in min_distance mode (undefined in coverage mode → skipped).
-  if (inputs.coverageFloorDemand != null) {
+  if (inputs.objective === "min_distance" && inputs.coverageFloorDemand != null) {
     let coverableDemand = 0;
     for (const custId of activeCustomerIds) {
       const coverable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.highServiceDistKm));
