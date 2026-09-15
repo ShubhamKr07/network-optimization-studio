@@ -2,6 +2,7 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
@@ -124,6 +125,21 @@ export const BRAZIL_DATASET: PrecheckDataset = {
 // a structurally different shape: no warehouseOverrides/customerOverrides
 // status arrays at all).
 export const TRANSPORT_DATASET: PrecheckDataset = { warehouses: TRANSPORT_COAL_WAREHOUSES, customers: TRANSPORT_COAL_CUSTOMERS };
+
+// Chapter 4 (chens-cosmetics-cn) — Chen's base dataset, shaped for this
+// service (25 candidate warehouses + 197 customers). Chen shares p-median's
+// warehouse/customer role structure and reuses buildPMedianIdSpaces for the
+// `distances` import entity's reference-integrity check (import.ts) — that's
+// all this constant is needed for in C4.4. The full Chen semantic-precheck
+// function (precheckChensInputs) lands in C4.8; this is only the base-dataset
+// id space it will also build on. supportsAddedCustomerExclusion reads the
+// manifest capability (true for Chen), same pattern as DEFAULT/BRAZIL above.
+export const CHENS_DATASET: PrecheckDataset = {
+  warehouses: CHENS_WAREHOUSES,
+  customers: CHENS_CUSTOMERS,
+  supportsAddedCustomerExclusion:
+    getManifest("chens-cosmetics-cn")?.capabilities.supportsAddedCustomerExclusion ?? false,
+};
 
 /**
  * Builds the strict per-role id spaces (base dataset + this scenario's added

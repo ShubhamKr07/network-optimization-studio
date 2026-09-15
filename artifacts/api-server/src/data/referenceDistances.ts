@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import path from "path";
 import { SOLVERS_ROOT, readVersion } from "@workspace/dataset-schema";
 import { WAREHOUSES, CUSTOMERS, type WarehouseCandidate, type Customer } from "./dataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "./chensDataset.js";
 
 // Bundle 2.2 (B2.2-T2, B3 backend) — boot-time loader for the immutable
 // base×base reference-distance matrix backing GET
@@ -126,9 +127,59 @@ function buildJadeReferenceDistances(): ReferenceDistancesData {
   };
 }
 
+// Chapter 4 (chens-cosmetics-cn) — Chen's distances.json is a flat DistanceMap
+// keyed DIRECTLY by entity id ("wh-15,cs-1"), like two-echelon/JADE, NOT by
+// ordinal like p-median-us — so it needs its own builder rather than reusing
+// the ordinal buildReferenceDistancePairs. Every key resolves as exactly one
+// warehouse->customer pair (role membership is validated strictly: fromId must
+// be a warehouse, toId a customer — a malformed or unresolved key throws, same
+// "fail loud on corruption" contract as the ordinal/JADE builders), and the
+// full 25×197 = 4925-pair matrix must be present (a JSON object can't hold a
+// duplicate key, so 4925 unique keys all resolving inside the cartesian
+// product means they ARE the complete product — no pair missing/extra).
+export function buildChensReferenceDistancePairs(
+  distancesRaw: Record<string, number>,
+  warehouses: WarehouseCandidate[],
+  customers: Customer[],
+): ReferenceDistancePair[] {
+  const warehouseIds = new Set(warehouses.map((w) => w.id));
+  const customerIds = new Set(customers.map((c) => c.id));
+  const pairs: ReferenceDistancePair[] = [];
+  for (const [key, distance] of Object.entries(distancesRaw)) {
+    const [fromId, toId] = key.split(",");
+    if (!fromId || !toId) {
+      throw new Error(`referenceDistances: malformed Chen distance key "${key}"`);
+    }
+    if (!warehouseIds.has(fromId) || !customerIds.has(toId)) {
+      throw new Error(
+        `referenceDistances: unresolved Chen pair "${key}" (fromId "${fromId}" must be a warehouse, toId "${toId}" must be a customer)`,
+      );
+    }
+    pairs.push({ fromId, fromCode: fromId, toId, toCode: toId, distance });
+  }
+  const expected = warehouseIds.size * customerIds.size;
+  if (pairs.length !== expected) {
+    throw new Error(`referenceDistances: expected ${expected} Chen pairs (${warehouseIds.size}×${customerIds.size}), got ${pairs.length}`);
+  }
+  return pairs;
+}
+
+function buildChensReferenceDistances(): ReferenceDistancesData {
+  const distancesPath = path.join(SOLVERS_ROOT, "chens-cosmetics-cn", "dataset", "distances.json");
+  const raw = JSON.parse(readFileSync(distancesPath, "utf8")) as Record<string, number>;
+  const pairs = buildChensReferenceDistancePairs(raw, CHENS_WAREHOUSES, CHENS_CUSTOMERS);
+  const { sha256 } = readVersion("chens-cosmetics-cn");
+  return {
+    modelId: "chens-cosmetics-cn",
+    pairs,
+    etag: `"${sha256}"`,
+  };
+}
+
 const REFERENCE_DISTANCES_BY_MODEL: Record<string, ReferenceDistancesData> = {
   "p-median-us": buildPMedianUsReferenceDistances(),
   "two-echelon-jade-us": buildJadeReferenceDistances(),
+  "chens-cosmetics-cn": buildChensReferenceDistances(),
 };
 
 /** Undefined for any model that hasn't registered a builder above (route 422s on that, gated first by the manifest capability). */

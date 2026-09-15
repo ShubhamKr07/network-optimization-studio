@@ -83,11 +83,14 @@ describe("listability: two-echelon-jade-us (Chapter 9, JADE) is discoverable", (
     expect(KNOWN_MODEL_IDS).toContain("two-echelon-jade-us");
   });
 
-  it("GET /api/models returns 5 models, including two-echelon-jade-us", async () => {
+  it("GET /api/models returns 6 models, including two-echelon-jade-us", async () => {
     const { default: app } = await import("../../app.js");
     const res = await request(app).get("/api/models");
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(5);
+    // C4.4 — count is a model-registry fact (chens-cosmetics-cn is the 6th
+    // manifest, landed in Wave 1). This is NOT the SOLVABLE fixture — Chen's
+    // KNOWN_SCHEMAS/SOLVABLE registration is C4.6's atomic commit.
+    expect(res.body).toHaveLength(6);
     const ids = (res.body as Array<{ id: string }>).map((m) => m.id);
     expect(ids).toContain("two-echelon-jade-us");
   });

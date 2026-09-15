@@ -2,6 +2,7 @@ import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
 import { BRAZIL_DATASET_WAREHOUSES, BRAZIL_DATASET_CUSTOMERS } from "../data/brazilDataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
@@ -421,6 +422,86 @@ export function applyStationOverrides(overrides: StationOverride[], addedStation
 export function applyGoldCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
   const byId = new Map(overrides.map(o => [o.id, o]));
   const baseRows: CustomerTemplateRow[] = GOLD_CUSTOMERS.map(c => {
+    const o = byId.get(c.id);
+    const demand = o?.demand ?? c.demand;
+    const status = o?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: c.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: c.city,
+      state: c.state,
+      lat: c.lat,
+      lng: c.lng,
+      demand,
+      status,
+      overridden: demand !== c.demand || status !== "active",
+    };
+  });
+  const addedRows: CustomerTemplateRow[] = addedCustomers.map(c => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: c.id,
+    displayCode: c.displayCode ?? null,
+    city: c.city,
+    state: c.state,
+    lat: c.lat,
+    lng: c.lng,
+    demand: c.demand,
+    status: "active",
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+// Chapter 4 (chens-cosmetics-cn) — Chen's own 25-warehouse / 197-customer
+// China dataset (CHENS_WAREHOUSES/CHENS_CUSTOMERS), distinct from every other
+// model's, same WarehouseTemplateRow/CustomerTemplateRow shapes (CSV/JSON
+// serialization is dataset-agnostic). Chen warehouses carry STATUS but NO
+// capacity concept at all (single-echelon coverage/min-distance model,
+// capacityMode "none" only — exactly like JADE warehouses), so `capacity` is
+// always null. Chen customers carry status (active/excluded) + demand, exactly
+// like p-median-us's applyCustomerOverrides. Both gain the added-entity second
+// param (Chen's addedWarehouses/addedCustomers), mirroring applyWarehouse/
+// CustomerOverrides. Distances reuse applyDistanceOverrides directly (composite
+// -keyed, dataset-agnostic — same reuse two-echelon/JADE legDistances rely on).
+export function applyChensWarehouseOverrides(
+  overrides: WarehouseOverride[],
+  addedWarehouses: AddedWarehouse[] = [],
+): WarehouseTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: WarehouseTemplateRow[] = CHENS_WAREHOUSES.map(w => {
+    const status = byId.get(w.id)?.status ?? "active";
+    return {
+      templateVersion: TEMPLATE_VERSION,
+      id: w.id,
+      displayCode: null, // base entities have no displayCode concept
+      city: w.city,
+      state: w.state,
+      lat: w.lat,
+      lng: w.lng,
+      capacity: null, // no per-warehouse capacity concept in this model
+      status,
+      overridden: status !== "active",
+    };
+  });
+  const addedRows: WarehouseTemplateRow[] = addedWarehouses.map(w => ({
+    templateVersion: TEMPLATE_VERSION,
+    id: w.id,
+    displayCode: w.displayCode ?? null,
+    city: w.city,
+    state: w.state,
+    lat: w.lat,
+    lng: w.lng,
+    capacity: null,
+    status: w.status,
+    overridden: true,
+  }));
+  return [...baseRows, ...addedRows];
+}
+
+export function applyChensCustomerOverrides(overrides: CustomerOverride[], addedCustomers: AddedCustomer[] = []): CustomerTemplateRow[] {
+  const byId = new Map(overrides.map(o => [o.id, o]));
+  const baseRows: CustomerTemplateRow[] = CHENS_CUSTOMERS.map(c => {
     const o = byId.get(c.id);
     const demand = o?.demand ?? c.demand;
     const status = o?.status ?? "active";

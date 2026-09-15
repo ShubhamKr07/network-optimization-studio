@@ -22,6 +22,8 @@ import {
   applyLaneCostOverrides,
   applyJadeWarehouseOverrides,
   applyJadeCustomerOverrides,
+  applyChensWarehouseOverrides,
+  applyChensCustomerOverrides,
   applyPlantOverrides,
   applyPlantCapabilityOverrides,
   buildDistanceStubRows,
@@ -51,7 +53,7 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, buildJadeIdSpaces, BRAZIL_DATASET } from "../services/precheck.js";
+import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
@@ -532,6 +534,10 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
+  // C4.4 — chens-cosmetics-cn shares p-median-us's exact entity set
+  // (warehouses/customers/distances) but its OWN base dataset, so it needs its
+  // own guard + export branch (below), never the p-median fallback's dataset.
+  const entityIsChens = entity === "warehouses" || entity === "customers" || entity === "distances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances export" });
     return;
@@ -548,7 +554,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances export" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us") {
+  if (scenario.modelId === "chens-cosmetics-cn" && !entityIsChens) {
+    res.status(422).json({ error: "chens-cosmetics-cn scenarios only support warehouses/customers/distances export" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "chens-cosmetics-cn") {
     res.status(422).json({ error: "Export is not supported for this model" });
     return;
   }
@@ -795,6 +805,74 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     const rows = entity === "warehouses"
       ? applyJadeWarehouseOverrides(inputs.warehouseOverrides ?? [], inputs.addedWarehouses ?? [])
       : applyJadeCustomerOverrides(inputs.customerOverrides ?? [], inputs.addedCustomers ?? []);
+    if (format === "csv") {
+      const csv = entity === "warehouses"
+        ? warehouseRowsToCsv(rows as Parameters<typeof warehouseRowsToCsv>[0])
+        : customerRowsToCsv(rows as Parameters<typeof customerRowsToCsv>[0]);
+      res.type("text/csv").send(csv);
+      return;
+    }
+    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    return;
+  }
+
+  // C4.4 — chens-cosmetics-cn: same warehouses/customers/distances entity set
+  // as p-median-us, but its OWN China dataset (CHENS_WAREHOUSES/CHENS_CUSTOMERS
+  // via applyChens* / CHENS_DATASET for stubs) — must NOT fall through to the
+  // p-median fallback below, which would export p-median-us rows. Chen
+  // warehouses have no capacity (status only); distances reuse
+  // applyDistanceOverrides/buildDistanceStubRows exactly like p-median.
+  if (scenario.modelId === "chens-cosmetics-cn") {
+    const inputs = scenario.inputs as {
+      warehouseOverrides?: Parameters<typeof applyChensWarehouseOverrides>[0];
+      customerOverrides?: Parameters<typeof applyChensCustomerOverrides>[0];
+      addedWarehouses?: Parameters<typeof applyChensWarehouseOverrides>[1];
+      addedCustomers?: Parameters<typeof applyChensCustomerOverrides>[1];
+      distanceOverrides?: Parameters<typeof applyDistanceOverrides>[0];
+    };
+
+    if (entity === "distances") {
+      if (stubFor) {
+        const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], CHENS_DATASET);
+        if (stubRows === null) {
+          res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known warehouse or customer (base dataset or this scenario's added entities)` });
+          return;
+        }
+        posthog?.capture({
+          distinctId: req.userId!,
+          event: "scenario data exported",
+          properties: { scenario_id: id, model_id: scenario.modelId, entity, format, stub_for: stubFor },
+        });
+        if (format === "csv") {
+          res.type("text/csv").send(distanceRowsToCsv(stubRows));
+          return;
+        }
+        res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+        return;
+      }
+
+      const distanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+      posthog?.capture({
+        distinctId: req.userId!,
+        event: "scenario data exported",
+        properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+      });
+      if (format === "csv") {
+        res.type("text/csv").send(distanceRowsToCsv(distanceRows));
+        return;
+      }
+      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: distanceRows });
+      return;
+    }
+
+    const rows = entity === "warehouses"
+      ? applyChensWarehouseOverrides(inputs.warehouseOverrides ?? [], inputs.addedWarehouses ?? [])
+      : applyChensCustomerOverrides(inputs.customerOverrides ?? [], inputs.addedCustomers ?? []);
+    posthog?.capture({
+      distinctId: req.userId!,
+      event: "scenario data exported",
+      properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
+    });
     if (format === "csv") {
       const csv = entity === "warehouses"
         ? warehouseRowsToCsv(rows as Parameters<typeof warehouseRowsToCsv>[0])
@@ -1125,6 +1203,7 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
+  const entityIsChens = entity === "warehouses" || entity === "customers" || entity === "distances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1141,7 +1220,11 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
     res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us") {
+  if (scenario.modelId === "chens-cosmetics-cn" && !entityIsChens) {
+    res.status(422).json({ error: "chens-cosmetics-cn scenarios only support warehouses/customers/distances import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "chens-cosmetics-cn") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }
@@ -1187,6 +1270,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const entityIsCoal = entity === "mines" || entity === "stations" || entity === "laneCosts";
   const entityIsTwoEchelon = entity === "refineries" || entity === "customers" || entity === "legDistances";
   const entityIsJade = entity === "warehouses" || entity === "customers" || entity === "plants" || entity === "plantCapabilities" || entity === "legDistances";
+  const entityIsChens = entity === "warehouses" || entity === "customers" || entity === "distances";
   if ((scenario.modelId === "p-median-us" || scenario.modelId === "p-median-brazil") && !entityIsPMedian) {
     res.status(422).json({ error: "p-median-us/p-median-brazil scenarios only support warehouses/customers/distances import" });
     return;
@@ -1203,7 +1287,11 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
     res.status(422).json({ error: "two-echelon-jade-us scenarios only support warehouses/customers/plants/plantCapabilities/legDistances import" });
     return;
   }
-  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us") {
+  if (scenario.modelId === "chens-cosmetics-cn" && !entityIsChens) {
+    res.status(422).json({ error: "chens-cosmetics-cn scenarios only support warehouses/customers/distances import" });
+    return;
+  }
+  if (scenario.modelId !== "p-median-us" && scenario.modelId !== "p-median-brazil" && scenario.modelId !== "transport-coal" && scenario.modelId !== "two-echelon-gold-au" && scenario.modelId !== "two-echelon-jade-us" && scenario.modelId !== "chens-cosmetics-cn") {
     res.status(422).json({ error: "Import is not supported for this model" });
     return;
   }

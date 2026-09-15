@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import express from "express";
 import request from "supertest";
 import referenceDistancesRouter from "../routes/referenceDistances.js";
-import { buildReferenceDistancePairs, getReferenceDistances } from "../data/referenceDistances.js";
+import { buildReferenceDistancePairs, buildChensReferenceDistancePairs, getReferenceDistances } from "../data/referenceDistances.js";
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
+import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
 
 // A minimal standalone app — mirrors registry.test.ts's pattern, avoiding
 // the full app.ts (and therefore @workspace/db / DATABASE_URL) for a route
@@ -156,5 +157,64 @@ describe("JADE (two-echelon-jade-us) reference distances", () => {
 
     expect(second.status).toBe(304);
     expect(second.text).toBe("");
+  });
+});
+
+// Chapter 4 (chens-cosmetics-cn) — Chen's distances.json is a flat DistanceMap
+// keyed DIRECTLY by entity id ("wh-15,cs-1"), like two-echelon/JADE, NOT by
+// ordinal — so its builder splits the key and validates role membership
+// (fromId a warehouse, toId a customer), throwing on any malformed/unresolved
+// key. km, not mi.
+describe("Chen (chens-cosmetics-cn) reference distances", () => {
+  it("builds all 4925 pairs (25×197) at boot", () => {
+    const data = getReferenceDistances("chens-cosmetics-cn");
+    expect(data).toBeDefined();
+    expect(data!.pairs).toHaveLength(4925);
+  });
+
+  it("the loaded matrix carries the golden wh-15 -> cs-1 == 3660 raw-km pair", () => {
+    const data = getReferenceDistances("chens-cosmetics-cn")!;
+    const pair = data.pairs.find((p) => p.fromId === "wh-15" && p.toId === "cs-1");
+    expect(pair).toBeDefined();
+    expect(pair!.distance).toBe(3660);
+    expect(pair!.fromCode).toBe("wh-15");
+    expect(pair!.toCode).toBe("cs-1");
+  });
+
+  it("every pair resolves to a real Chen warehouse/customer id (strict role membership)", () => {
+    const data = getReferenceDistances("chens-cosmetics-cn")!;
+    const warehouseIds = new Set(CHENS_WAREHOUSES.map((w) => w.id));
+    const customerIds = new Set(CHENS_CUSTOMERS.map((c) => c.id));
+    for (const pair of data.pairs) {
+      expect(warehouseIds.has(pair.fromId)).toBe(true);
+      expect(customerIds.has(pair.toId)).toBe(true);
+    }
+  });
+
+  it("throws on a malformed key (no comma)", () => {
+    expect(() =>
+      buildChensReferenceDistancePairs({ "wh-15": 10 }, CHENS_WAREHOUSES, CHENS_CUSTOMERS),
+    ).toThrow(/malformed Chen distance key/);
+  });
+
+  it("throws on an unresolved pair (a customer id in the warehouse slot)", () => {
+    expect(() =>
+      buildChensReferenceDistancePairs({ "cs-1,cs-2": 10 }, CHENS_WAREHOUSES, CHENS_CUSTOMERS),
+    ).toThrow(/unresolved Chen pair/);
+  });
+
+  it("throws when the full matrix is incomplete (count mismatch)", () => {
+    expect(() =>
+      buildChensReferenceDistancePairs({ "wh-15,cs-1": 3660 }, CHENS_WAREHOUSES, CHENS_CUSTOMERS),
+    ).toThrow(/expected 4925 Chen pairs/);
+  });
+
+  it("GET /api/models/chens-cosmetics-cn/reference-distances returns 4925 pairs + distanceUnit 'km'", async () => {
+    const res = await request(testApp).get("/api/models/chens-cosmetics-cn/reference-distances");
+    expect(res.status).toBe(200);
+    expect(res.body.pairs).toHaveLength(4925);
+    expect(res.body.distanceUnit).toBe("km");
+    expect(res.headers.etag).toBeDefined();
+    expect(res.headers.etag).toMatch(/^".+"$/);
   });
 });
