@@ -2,6 +2,7 @@ import { Router } from "express";
 import { desc, eq } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth.js";
+import { getManifest } from "../registry/modelRegistry.js";
 
 const router = Router();
 
@@ -44,7 +45,26 @@ router.get("/solve-history", async (req, res) => {
     .limit(limit);
 
   res.json(rows.map((r) => {
-    const summary = r.resultSummary as { objective?: number; weightedAvgDistanceMi?: number; runTimeSec?: number } | null;
+    const summary = r.resultSummary as {
+      objective?: number;
+      objectiveMode?: string | null;
+      weightedAvgDistance?: number;
+      weightedAvgDistanceMi?: number;
+      distanceUnit?: string;
+      runTimeSec?: number;
+    } | null;
+    // D21/C4.10 — unit-carrying shape. distanceUnit is NEVER null:
+    //  - a new solve writes it from the model manifest (jobRunner markSucceeded);
+    //  - a LEGACY successful summary (has only weightedAvgDistanceMi, no
+    //    distanceUnit) falls back to the literal "mi" — those rows were all
+    //    mile-model solves, so "mi" is correct for them specifically;
+    //  - any other case (a failed/absent summary — status != succeeded) derives
+    //    the unit from the model's manifest, so a failed job still reports its
+    //    own model's unit rather than a misleading "mi".
+    const modelUnit = getManifest(r.modelId)?.distanceUnit ?? "mi";
+    const distanceUnit =
+      summary?.distanceUnit ??
+      (summary != null && r.status === "succeeded" ? "mi" : modelUnit);
     return {
       id: r.id,
       scenarioId: r.scenarioId,
@@ -52,7 +72,9 @@ router.get("/solve-history", async (req, res) => {
       modelId: r.modelId,
       status: r.status,
       objective: summary?.objective ?? null,
-      weightedAvgDistanceMi: summary?.weightedAvgDistanceMi ?? null,
+      objectiveMode: summary?.objectiveMode ?? null,
+      weightedAvgDistance: summary?.weightedAvgDistance ?? summary?.weightedAvgDistanceMi ?? null,
+      distanceUnit,
       runTimeSec: summary?.runTimeSec ?? null,
       queuedAt: r.queuedAt.toISOString(),
       finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,

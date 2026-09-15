@@ -1116,17 +1116,15 @@ components:
           $ref: "#/components/schemas/SolveJobStatus"
         objective:
           type: ["number", "null"]
-        weightedAvgDistanceMi:
-          type: ["number", "null"]
         objectiveMode:
           type: ["string", "null"]
-          description: Additive-optional (C4.5). The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null. Producer lands in C4.10; kept optional here so this commit stays green.
+          description: The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null (D21/C4.10).
         weightedAvgDistance:
           type: ["number", "null"]
-          description: Additive-optional (C4.5). Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi. Producer lands in C4.10.
+          description: Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi removed in C4.10 (D21).
         distanceUnit:
           type: string
-          description: Additive-optional (C4.5). Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest. Producer lands in C4.10.
+          description: Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10).
         runTimeSec:
           type: ["number", "null"]
         queuedAt:
@@ -1135,7 +1133,7 @@ components:
         finishedAt:
           type: ["string", "null"]
           format: date-time
-      required: [id, scenarioId, scenarioName, modelId, status, objective, weightedAvgDistanceMi, runTimeSec, queuedAt, finishedAt]
+      required: [id, scenarioId, scenarioName, modelId, status, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec, queuedAt, finishedAt]
 
     LandingSummary:
       type: object

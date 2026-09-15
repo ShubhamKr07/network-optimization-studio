@@ -2564,6 +2564,9 @@ describe("GET /api/scenarios/:id/solve-jobs/:jobId", () => {
 
 // ── Solve history (G3.2) ─────────────────────────────────────────────────────
 describe("GET /api/solve-history", () => {
+  // Legacy successful row (C4.10): a pre-migration summary carries only the
+  // mile-locked weightedAvgDistanceMi — no objectiveMode/distanceUnit. It must
+  // read back as weightedAvgDistance + distanceUnit:"mi" + objectiveMode:null.
   const historyRow1 = {
     id: 10, scenarioId: 1, status: "succeeded",
     resultSummary: { status: "optimal", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4 },
@@ -2577,6 +2580,24 @@ describe("GET /api/solve-history", () => {
     queuedAt: new Date("2026-01-01T00:00:00Z"),
     finishedAt: new Date("2026-01-01T00:00:05Z"),
     scenarioName: "Coal Base Case", modelId: "transport-coal",
+  };
+  // New-shape successful row (C4.10 producer output): summary already carries
+  // objectiveMode + distanceUnit + the unit-agnostic weightedAvgDistance.
+  const historyRowNew = {
+    id: 11, scenarioId: 4, status: "succeeded",
+    resultSummary: { status: "optimal", objective: 66.0, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7 },
+    queuedAt: new Date("2026-01-03T00:00:00Z"),
+    finishedAt: new Date("2026-01-03T00:00:01Z"),
+    scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+  };
+  // Failed Chen job with no summary: numeric fields null, but distanceUnit is
+  // derived from the model manifest (km) — never null, never a misleading "mi".
+  const historyRowFailedChen = {
+    id: 12, scenarioId: 5, status: "failed",
+    resultSummary: null,
+    queuedAt: new Date("2026-01-04T00:00:00Z"),
+    finishedAt: new Date("2026-01-04T00:00:05Z"),
+    scenarioName: "Chen Broke", modelId: "chens-cosmetics-cn",
   };
 
   it("returns 401 without a session", async () => {
@@ -2592,20 +2613,57 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
+    // Legacy successful row → new unit-carrying shape (C4.10): the old
+    // weightedAvgDistanceMi becomes weightedAvgDistance, unit defaults "mi",
+    // objectiveMode null. The removed field must NOT appear in the response.
     expect(res.body[0]).toMatchObject({
       id: 10, scenarioId: 1, scenarioName: "3 Warehouses", modelId: "p-median-us",
-      status: "succeeded", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4,
+      status: "succeeded", objective: 94500000, objectiveMode: null,
+      weightedAvgDistance: 412.6, distanceUnit: "mi", runTimeSec: 0.4,
+    });
+    expect("weightedAvgDistanceMi" in res.body[0]).toBe(false);
+  });
+
+  it("passes a new-shape summary through unchanged (objectiveMode + km distanceUnit)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([historyRowNew]);
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({
+      id: 11, scenarioId: 4, scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+      status: "succeeded", objective: 66.0, objectiveMode: "coverage",
+      weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
     });
   });
 
-  it("defaults resultSummary fields to null for a failed job with no summary", async () => {
+  it("defaults numeric resultSummary fields to null for a failed job, but distanceUnit stays the model's manifest unit", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockClear();
     mockDb.selectDistinctOn.mockClear();
     configureSolveHistoryMocks([historyRow2]);
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body[0]).toMatchObject({ status: "failed", objective: null, weightedAvgDistanceMi: null, runTimeSec: null });
+    // transport-coal manifest reports "mi" — the failed job still carries its
+    // own model's unit (never null, never a bare literal fallback).
+    expect(res.body[0]).toMatchObject({
+      status: "failed", objective: null, objectiveMode: null,
+      weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+    });
+  });
+
+  it("derives a failed Chen job's distanceUnit from the manifest (km), not the legacy 'mi' fallback", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockClear();
+    mockDb.selectDistinctOn.mockClear();
+    configureSolveHistoryMocks([historyRowFailedChen]);
+    const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({
+      status: "failed", objective: null, objectiveMode: null,
+      weightedAvgDistance: null, distanceUnit: "km", runTimeSec: null,
+    });
   });
 
   it("defaults limit to 5 and caps an oversized limit at 50", async () => {

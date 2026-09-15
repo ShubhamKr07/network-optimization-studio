@@ -10,6 +10,17 @@ function chapterNumber(chapterLabel: string): string {
   return n.padStart(2, "0");
 }
 
+// D14/C4.10 — the recent-solves objective is labelled by the solve's objective
+// MODE, not just its raw number: Chen's "coverage" solve reports a percentage
+// (NN.NN %), its "min_distance" solve reports demand-weighted distance
+// (demand-km). Every other model (objectiveMode null — mile p-median, transport,
+// two-echelon) keeps the mode-agnostic "obj <sci-notation>" label unchanged.
+function formatObjective(objective: number, objectiveMode: string | null): string {
+  if (objectiveMode === "coverage") return `${objective.toFixed(2)} %`;
+  if (objectiveMode === "min_distance") return `${objective.toExponential(2)} demand-km`;
+  return `obj ${objective.toExponential(2)}`;
+}
+
 export function Landing() {
   const { data: history } = useGetSolveHistory({ limit: 5 });
   const { data: summary, isPending, isError } = useGetLandingSummary();
@@ -117,8 +128,8 @@ export function Landing() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
-                    {h.objective != null && <span>obj {h.objective.toExponential(2)}</span>}
-                    {h.weightedAvgDistanceMi != null && <span>{h.weightedAvgDistanceMi.toFixed(1)} mi</span>}
+                    {h.objective != null && <span>{formatObjective(h.objective, h.objectiveMode)}</span>}
+                    {h.weightedAvgDistance != null && <span>{h.weightedAvgDistance.toFixed(1)} {h.distanceUnit}</span>}
                     {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
                   </div>
                 </div>

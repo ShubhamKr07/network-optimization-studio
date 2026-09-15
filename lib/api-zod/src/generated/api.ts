@@ -152,10 +152,9 @@ export const GetSolveHistoryResponseItem = zod.object({
   "modelId": zod.string(),
   "status": zod.enum(['queued', 'running', 'succeeded', 'failed']),
   "objective": zod.number().nullable(),
-  "weightedAvgDistanceMi": zod.number().nullable(),
-  "objectiveMode": zod.string().nullish().describe('Additive-optional (C4.5). The solve\'s objective mode (e.g. Chen\'s \"coverage\"\/\"min_distance\") from result details, else null. Producer lands in C4.10; kept optional here so this commit stays green.'),
-  "weightedAvgDistance": zod.number().nullish().describe('Additive-optional (C4.5). Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi. Producer lands in C4.10.'),
-  "distanceUnit": zod.string().optional().describe('Additive-optional (C4.5). Distance unit for weightedAvgDistance (\"mi\"|\"km\"), derived from the model manifest. Producer lands in C4.10.'),
+  "objectiveMode": zod.string().nullable().describe('The solve\'s objective mode (e.g. Chen\'s \"coverage\"\/\"min_distance\") from result details, else null (D21\/C4.10).'),
+  "weightedAvgDistance": zod.number().nullable().describe('Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi removed in C4.10 (D21).'),
+  "distanceUnit": zod.string().describe('Distance unit for weightedAvgDistance (\"mi\"|\"km\"), derived from the model manifest; never null (a failed job still reports its model\'s unit) (D21\/C4.10).'),
   "runTimeSec": zod.number().nullable(),
   "queuedAt": zod.coerce.date(),
   "finishedAt": zod.coerce.date().nullable()

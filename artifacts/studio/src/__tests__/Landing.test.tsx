@@ -78,7 +78,7 @@ describe("Landing", () => {
 
   it("prefixes recent-solve rows with the chapter label", () => {
     mockUseGetSolveHistory.mockReturnValue({
-      data: [{ id: 10, scenarioId: 1, scenarioName: "Baseline", modelId: "p-median-us", status: "succeeded", objective: 1, weightedAvgDistanceMi: 1, runTimeSec: 1, queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z" }],
+      data: [{ id: 10, scenarioId: 1, scenarioName: "Baseline", modelId: "p-median-us", status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1, queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z" }],
     });
     renderLanding();
     expect(screen.getByText(/Chapter 3 ·/)).toBeInTheDocument();
@@ -91,12 +91,12 @@ describe("Landing — Recent solves (G3.2)", () => {
       data: [
         {
           id: 10, scenarioId: 1, scenarioName: "3 Warehouses", modelId: "p-median-us",
-          status: "succeeded", objective: 94500000, weightedAvgDistanceMi: 412.6, runTimeSec: 0.4,
+          status: "succeeded", objective: 94500000, objectiveMode: null, weightedAvgDistance: 412.6, distanceUnit: "mi", runTimeSec: 0.4,
           queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
         },
         {
           id: 9, scenarioId: 2, scenarioName: "5 Warehouses", modelId: "p-median-us",
-          status: "failed", objective: null, weightedAvgDistanceMi: null, runTimeSec: null,
+          status: "failed", objective: null, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
           queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:05Z",
         },
       ],
@@ -116,7 +116,7 @@ describe("Landing — Recent solves (G3.2)", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 11, scenarioId: 3, scenarioName: "Coal Base Case", modelId: "transport-coal",
-        status: "succeeded", objective: 1, weightedAvgDistanceMi: 1, runTimeSec: 1,
+        status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1,
         queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
       }],
     });
@@ -131,7 +131,7 @@ describe("Landing — Recent solves (G3.2)", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 10, scenarioId: 1, scenarioName: "3 Warehouses", modelId: "p-median-us",
-        status: "succeeded", objective: 1, weightedAvgDistanceMi: 1, runTimeSec: 1,
+        status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1,
         queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
       }],
     });
@@ -146,13 +146,46 @@ describe("Landing — Recent solves (G3.2)", () => {
     mockUseGetSolveHistory.mockReturnValue({
       data: [{
         id: 42, scenarioId: 8, scenarioName: "Brazil Base Case", modelId: "p-median-brazil",
-        status: "succeeded", objective: 650000, weightedAvgDistanceMi: null, runTimeSec: 0.9,
+        status: "succeeded", objective: 650000, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: 0.9,
         queuedAt: "2026-01-03T00:00:00Z", finishedAt: "2026-01-03T00:00:01Z",
       }],
     });
     renderLanding();
     expect(screen.queryByText("Brazil Base Case")).not.toBeInTheDocument();
     expect(screen.queryByTestId("link-solve-history-42")).not.toBeInTheDocument();
+  });
+});
+
+// C4.10/D14 — the recent-solves objective label is mode-aware: a coverage
+// solve renders as a percentage, a min-distance solve as demand-km, keyed on
+// objectiveMode; a null-mode (mile) solve keeps the "obj <sci-notation>" label.
+describe("Landing — mode-aware recent-solve objective label (D14)", () => {
+  it("renders a coverage solve's objective as a percentage and its distance in km", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 20, scenarioId: 4, scenarioName: "Chen Coverage", modelId: "chens-cosmetics-cn",
+        status: "succeeded", objective: 66.5, objectiveMode: "coverage", weightedAvgDistance: 250.5, distanceUnit: "km", runTimeSec: 0.7,
+        queuedAt: "2026-01-05T00:00:00Z", finishedAt: "2026-01-05T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByText("66.50 %")).toBeInTheDocument();
+    expect(screen.getByText("250.5 km")).toBeInTheDocument();
+    // NOT the mile-model "obj ..." label.
+    expect(screen.queryByText(/^obj /)).not.toBeInTheDocument();
+  });
+
+  it("renders a min-distance solve's objective in demand-km", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 21, scenarioId: 5, scenarioName: "Chen Min-Distance", modelId: "chens-cosmetics-cn",
+        status: "succeeded", objective: 123456789, objectiveMode: "min_distance", weightedAvgDistance: 300.2, distanceUnit: "km", runTimeSec: 0.9,
+        queuedAt: "2026-01-06T00:00:00Z", finishedAt: "2026-01-06T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByText(/demand-km$/)).toBeInTheDocument();
+    expect(screen.getByText("300.2 km")).toBeInTheDocument();
   });
 });
 
