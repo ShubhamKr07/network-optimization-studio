@@ -279,3 +279,105 @@ describe("ManifestSchema — all real manifests still validate (Bundle 2.2, B2.2
     }
   });
 });
+
+describe("ManifestSchema — chens-cosmetics-cn (Chapter 4, C4.2)", () => {
+  it("parses cleanly and carries the km unit + Chapter 4 + exact outputGrids", async () => {
+    const { readManifest } = await import("./index");
+    const manifest = readManifest("chens-cosmetics-cn");
+    expect(manifest.id).toBe("chens-cosmetics-cn");
+    expect(manifest.distanceUnit).toBe("km");
+    expect(manifest.chapter).toBe("Chapter 4");
+    expect(manifest.capabilities.outputGrids).toEqual([
+      "openWarehouses",
+      "assignments",
+      "costSummary",
+      "serviceStats",
+    ]);
+    expect(manifest.capabilities.supportsP).toBe(true);
+    expect(manifest.capabilities.capacityModes).toEqual(["none"]);
+    expect(manifest.capabilities.supportsFacilityStatus).toBe(true);
+    expect(manifest.capabilities.supportsAddedCustomerExclusion).toBe(true);
+    expect(manifest.capabilities.supportsReferenceDistances).toBe(true);
+  });
+
+  it("inputsSchema is complete and shape-exact (mirrors p-median nested constraints, drops warehouse capacity)", async () => {
+    const { readManifest } = await import("./index");
+    const inputsSchema = readManifest("chens-cosmetics-cn").inputsSchema as {
+      type: string;
+      properties: Record<string, any>;
+      required: string[];
+    };
+
+    // Exact 15-key property set.
+    expect(Object.keys(inputsSchema.properties).sort()).toEqual(
+      [
+        "objective",
+        "p",
+        "highServiceDistKm",
+        "maxDistKm",
+        "avgServiceDistCapKm",
+        "coverageFloorDemand",
+        "gap",
+        "timeLimitSec",
+        "capacityMode",
+        "distanceBands",
+        "warehouseOverrides",
+        "customerOverrides",
+        "addedWarehouses",
+        "addedCustomers",
+        "distanceOverrides",
+      ].sort(),
+    );
+
+    const props = inputsSchema.properties;
+
+    // objective enum + p bounds (1..25).
+    expect(props.objective.enum).toEqual(["coverage", "min_distance"]);
+    expect(props.p.type).toBe("integer");
+    expect(props.p.minimum).toBe(1);
+    expect(props.p.maximum).toBe(25);
+
+    // distanceBands: exactly two positive numbers.
+    expect(props.distanceBands.minItems).toBe(2);
+    expect(props.distanceBands.maxItems).toBe(2);
+    expect(props.distanceBands.items.exclusiveMinimum).toBe(0);
+
+    // Nested required arrays.
+    expect(props.addedWarehouses.items.required).toEqual(["id", "city", "state", "lat", "lng", "status"]);
+    expect(props.addedWarehouses.items.required).toContain("state");
+    expect(props.addedCustomers.items.required).toEqual(["id", "city", "state", "lat", "lng", "demand"]);
+    expect(props.addedCustomers.items.required).toContain("state");
+    expect(props.customerOverrides.items.required).toEqual(["id", "status"]);
+    expect(props.distanceOverrides.items.required).toEqual(["fromId", "toId", "distance"]);
+
+    // Status enums exact.
+    expect(props.warehouseOverrides.items.properties.status.enum).toEqual(["active", "forced_open", "inactive"]);
+    expect(props.customerOverrides.items.properties.status.enum).toEqual(["active", "excluded"]);
+    expect(props.addedWarehouses.items.properties.status.enum).toEqual(["active", "forced_open", "inactive"]);
+    expect(props.addedCustomers.items.properties.status.enum).toEqual(["active", "excluded"]);
+
+    // addedCustomers[].status is optional (NOT in required) — the advertised exclusion capability, default active.
+    expect(props.addedCustomers.items.required).not.toContain("status");
+
+    // Added-entity ids carry minLength: 1.
+    expect(props.addedWarehouses.items.properties.id.minLength).toBe(1);
+    expect(props.addedCustomers.items.properties.id.minLength).toBe(1);
+
+    // distanceOverrides.distance exclusiveMinimum 0 + estimated boolean.
+    expect(props.distanceOverrides.items.properties.distance.exclusiveMinimum).toBe(0);
+    expect(props.distanceOverrides.items.properties.estimated.type).toBe("boolean");
+
+    // Integer demand (D30).
+    expect(props.addedCustomers.items.properties.demand.type).toBe("integer");
+    expect(props.customerOverrides.items.properties.demand.type).toBe("integer");
+    expect(props.coverageFloorDemand.type).toBe("integer");
+
+    // timeLimitSec integer >= 1.
+    expect(props.timeLimitSec.type).toBe("integer");
+    expect(props.timeLimitSec.minimum).toBe(1);
+
+    // Chen has NO warehouse capacity fields.
+    expect(props.warehouseOverrides.items.properties.capacity).toBeUndefined();
+    expect(props.addedWarehouses.items.properties.capacity).toBeUndefined();
+  });
+});

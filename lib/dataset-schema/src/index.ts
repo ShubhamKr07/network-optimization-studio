@@ -157,6 +157,14 @@ export const PACKAGE_SPECS: ModelPackageSpec[] = [
       "plant_product_capability.json": z.array(JadeCapabilityEntry),
     },
   },
+  {
+    modelId: "chens-cosmetics-cn",
+    files: {
+      "warehouses.json": z.record(z.string(), WarehouseEntry),
+      "customers.json": z.record(z.string(), CustomerEntry),
+      "distances.json": DistanceMap,
+    },
+  },
 ];
 
 function packageDir(modelId: string): string {
@@ -252,6 +260,7 @@ export const MODEL_IDS = [
   "p-median-brazil",
   "two-echelon-gold-au",
   "two-echelon-jade-us",
+  "chens-cosmetics-cn",
 ] as const;
 
 /** Reads and Zod-validates a model's manifest.json. Throws on schema mismatch. */
