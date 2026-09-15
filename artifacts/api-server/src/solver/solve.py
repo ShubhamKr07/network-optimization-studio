@@ -11,6 +11,7 @@ from merge_inputs import (
     build_merged_transport_dataset,
     build_merged_two_echelon_dataset,
     build_merged_jade_dataset,
+    build_merged_chens_dataset,
 )
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,22 @@ def _jade_distances():
     dict keyed by (fromId, toId) spanning both legs (same one-dict-two-legs
     convention as two-echelon-gold-au's _gold_distances())."""
     return {tuple(k.split(',')): v for k, v in _JADE_DIST_RAW.items()}
+
+# ---------------------------------------------------------------------------
+# Dataset: Chen's Cosmetics — China coverage model (Chapter 4)
+# Source: ChensCosmeticsV1 Step 3.ipynb (Watson et al. Ch.4)
+# 25 candidate warehouses -> 197 customers; distances are RAW km (circuity
+# ×1.17 applied in solve_chens only, D8). Direct-id keyed (wh-<n>/cs-<n>),
+# distances keyed by "wh-15,cs-1" (like two-echelon), NOT ordinals.
+# solvers/chens-cosmetics-cn/dataset/
+# ---------------------------------------------------------------------------
+_CHENS_WH_RAW   = _safe_load("chens-cosmetics-cn", "warehouses.json", default={})
+_CHENS_CU_RAW   = _safe_load("chens-cosmetics-cn", "customers.json", default={})
+_CHENS_DIST_RAW = _safe_load("chens-cosmetics-cn", "distances.json", default={})
+
+WAREHOUSES_CHENS = dict(_CHENS_WH_RAW)
+CUSTOMERS_CHENS  = dict(_CHENS_CU_RAW)
+DISTANCE_CHENS   = {(k.split(',')[0], k.split(',')[1]): v for k, v in _CHENS_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
 # Standardized result envelope (Phase 3.5, G2.1). `details` deliberately
@@ -1182,6 +1199,94 @@ def solve_jade(inp):
     )
 
 # ---------------------------------------------------------------------------
+# Chen's Cosmetics coverage solver (Chapter 4)
+# China single-echelon warehouse -> customer service-level model with two
+# coupled objectives behind one mode toggle (hard rule 6: ONE objective-sense
+# branch, everything else is a coefficient/constraint change, not a code path):
+#   coverage      -> MAXIMISE high-service-covered demand s.t. avg distance cap
+#   min_distance  -> MINIMISE total demand-weighted distance s.t. coverage floor
+# Distances are RAW km in DISTANCE_CHENS; circuity ×1.17 is applied here only
+# (D8). Demand is the integer domain (D30) -- edge flow = integer demand,
+# details.coveredDemand is an exact integer sum.
+# ---------------------------------------------------------------------------
+def solve_chens(inp):
+    # Dataset load-failure containment (H4): a corrupt/missing Chen dataset is
+    # captured in _LOAD_ERRORS at import time, never crashing other models.
+    if "chens-cosmetics-cn" in _LOAD_ERRORS:
+        return _load_error_envelope("chens-cosmetics-cn")
+    from pulp import (LpProblem, LpMaximize, LpMinimize, LpVariable, lpSum,
+                      LpInteger, LpStatus, value, PULP_CBC_CMD)
+    t = time.time()
+    m = build_merged_chens_dataset(inp, WAREHOUSES_CHENS, CUSTOMERS_CHENS, DISTANCE_CHENS)
+    cand = [wid for wid in m["warehouses"] if wid not in m["inactive"]]
+    custs = [cid for cid in m["customers"] if cid not in m["excluded"]]
+    dem = {cid: m["customers"][cid]["demand"] for cid in custs}
+    total = sum(dem.values())
+    hi, mx, p = inp["highServiceDistKm"], inp["maxDistKm"], inp["p"]
+    if total <= 0:
+        return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
+                         _EMPTY_METRICS, _EMPTY_DETAILS, "Total effective demand is zero")
+    # ×1.17 circuity applied in-solver only. .get((w,c), 9999) sentinel matches
+    # every other model's missing-pair convention: an added entity with no
+    # distanceOverrides/estimate to some counterpart is simply unreachable
+    # (adj 9999 km fails both hi and mx thresholds), never a KeyError crash --
+    # the "solver never throws" contract. Numerically identical to a direct
+    # index for the base dataset (all 4925 pairs present).
+    adj = {(w, c): m["distance"].get((w, c), 9999) * 1.17 for w in cand for c in custs}
+    hsp = {k: (1 if v <= hi else 0) for k, v in adj.items()}
+    mdp = {k: (1 if v <= mx else 0) for k, v in adj.items()}
+    mode = inp["objective"]
+    prob = LpProblem("chens", LpMaximize if mode == "coverage" else LpMinimize)
+    a = LpVariable.dicts("A", [(w, c) for w in cand for c in custs], 0, 1, LpInteger)
+    o = LpVariable.dicts("O", cand, 0, 1, LpInteger)
+    if mode == "coverage":
+        prob += lpSum(hsp[w, c] * dem[c] * a[w, c] for w in cand for c in custs)
+        prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs) <= inp["avgServiceDistCapKm"] * total
+    else:
+        prob += lpSum(adj[w, c] * dem[c] * a[w, c] for w in cand for c in custs)
+        prob += lpSum(hsp[w, c] * dem[c] * a[w, c] for w in cand for c in custs) >= inp["coverageFloorDemand"]
+    for c in custs:
+        prob += lpSum(a[w, c] for w in cand) == 1
+    prob += lpSum(o[w] for w in cand) == p
+    for w in cand:
+        if w in m["forced"]:
+            prob += o[w] == 1
+        for c in custs:
+            prob += a[w, c] <= o[w]
+            prob += a[w, c] <= mdp[w, c]
+    prob.solve(PULP_CBC_CMD(msg=0, gapRel=inp["gap"], timeLimit=inp["timeLimitSec"]))
+    st = LpStatus[prob.status]
+    if st == "Infeasible":                                            # D17: mathematical infeasibility ONLY
+        return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
+                         _EMPTY_METRICS, _EMPTY_DETAILS, "No feasible assignment under the constraints")
+    if st != "Optimal":                                              # Not Solved / Undefined / Unbounded / timeout → error
+        return _envelope("error", "error", 0, round(time.time() - t, 2), [],
+                         _EMPTY_METRICS, _EMPTY_DETAILS, f"Solver terminated with status: {st}")
+    edges = []
+    covered = 0.0
+    tdd = 0.0
+    for w in cand:
+        for c in custs:
+            v = a[w, c].varValue
+            if v and v > 0.5:
+                d = adj[w, c]
+                edges.append({"fromId": w, "toId": c, "distance": round(d, 2), "flow": dem[c]})
+                tdd += dem[c] * d
+                if hsp[w, c]:
+                    covered += dem[c]
+    open_ids = sorted(w for w in cand if o[w].varValue and o[w].varValue > 0.5)
+    cov = round(covered * 100 / total, 4)                            # D22: coveragePct 4-dp
+    avg = round(tdd / total, 2)                                      # D22: avg 2-dp
+    metrics = {"openFacilityIds": open_ids, "weightedAvgDistance": avg, "utilizationByNode": [],
+               "bandCoverage": [{"band": hi, "percent": cov}, {"band": mx, "percent": 100.0}]}
+    details = {"objective": mode, "p": p, "highServiceDistKm": hi, "maxDistKm": mx,
+               "avgServiceDistCapKm": inp.get("avgServiceDistCapKm"), "coverageFloorDemand": inp.get("coverageFloorDemand"),
+               "openWarehouseIds": open_ids, "coveragePct": cov, "coveredDemand": int(covered),
+               "uncoveredPct": round(100 - cov, 4), "assignments": []}
+    obj = cov if mode == "coverage" else round(value(prob.objective), 2)   # D22: min-dist objective 2-dp
+    return _envelope("optimal", "optimal", obj, round(time.time() - t, 2), edges, metrics, details)
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 def solve(inp):
@@ -1194,6 +1299,8 @@ def solve(inp):
         return solve_two_echelon(inp)
     if model_type == 'two_echelon_jade':
         return solve_jade(inp)
+    if model_type == 'chens':
+        return solve_chens(inp)
     if model_type == 'p_median':
         return solve_pmedian(inp)
     return _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,

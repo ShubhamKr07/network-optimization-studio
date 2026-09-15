@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "child_process";
+import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
@@ -56,6 +57,52 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
       ],
     }) as { status: string };
     expect(raw.status).toBe("infeasible");
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
+  });
+
+  it("chens-cosmetics-cn (coverage) emits an envelope that validates against the shared schema", () => {
+    const raw = runSolver({
+      modelType: "chens", objective: "coverage", p: 3, highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+    }) as { status: string };
+    expect(raw.status).toBe("optimal");
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
+  });
+
+  it("chens-cosmetics-cn model-level infeasible (coverage floor) validates against the shared schema", () => {
+    const raw = runSolver({
+      modelType: "chens", objective: "min_distance", p: 3, highServiceDistKm: 600,
+      maxDistKm: 5000, coverageFloorDemand: 500100100, gap: 0, timeLimitSec: 60,
+    }) as { status: string };
+    expect(raw.status).toBe("infeasible");
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
+  });
+
+  it("chens-cosmetics-cn zero-demand infeasible (all customers excluded) validates against the shared schema", () => {
+    // tests dir is a sibling of solver/; walk to repo root for the dataset.
+    const customersPath = path.resolve(
+      __dirname, "..", "..", "..", "..",
+      "solvers", "chens-cosmetics-cn", "dataset", "customers.json",
+    );
+    const customerIds = Object.keys(JSON.parse(readFileSync(customersPath, "utf8")));
+    const raw = runSolver({
+      modelType: "chens", objective: "coverage", p: 3, highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+      customerOverrides: customerIds.map((id) => ({ id, status: "excluded" })),
+    }) as { status: string };
+    expect(raw.status).toBe("infeasible");
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
+  });
+
+  it("chens-cosmetics-cn unexpected error (valid JSON missing required field) validates as an error envelope", () => {
+    // Valid JSON that omits `p` reaches solve(inp) and throws inside the
+    // __main__ try -> error envelope. (Malformed JSON would fail json.loads
+    // BEFORE the try, a process-level exit, not an envelope -- so NOT used.)
+    const raw = runSolver({
+      modelType: "chens", objective: "coverage", highServiceDistKm: 600,
+      maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
+    }) as { status: string };
+    expect(raw.status).toBe("error");
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
