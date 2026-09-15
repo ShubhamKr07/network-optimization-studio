@@ -1431,7 +1431,11 @@ describe("GET /api/scenarios/:id/export", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("assignments");
-    expect(res.body.rows).toEqual([{ templateVersion: 1, customerId: "C1", warehouseId: "ALN", distanceMi: 42.1, band: 0, flow: 50 }]);
+    // C4.9 / D24 — distanceMi renamed to distance + distanceUnit ("mi" for
+    // p-median-us) ; D28 — wrapper AND row templateVersion == OUTPUT_TEMPLATE_VERSION (2).
+    expect(res.body.templateVersion).toBe(2);
+    expect(res.body.rows).toEqual([{ templateVersion: 2, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+    expect(res.text).not.toContain("distanceMi");
   });
 
   it("exports openWarehouses/costSummary/serviceStats as CSV", async () => {
@@ -1527,7 +1531,99 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/11/export?entity=openWarehouses&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(200);
-    expect(res.body.rows).toEqual([{ templateVersion: 1, warehouseId: "daggar-hills", city: "", totalFlow: 80, utilization: null }]);
+    // C4.9 / D29 — city now sourced from the effective facility lookup
+    // (GOLD_REFINERIES), not the empty utilizationByNode. openWarehouses stays v1.
+    expect(res.body.templateVersion).toBe(1);
+    expect(res.body.rows).toEqual([{ templateVersion: 1, warehouseId: "daggar-hills", city: "Daggar Hills", totalFlow: 80, utilization: null }]);
+  });
+
+  // C4.9 / D28 — output wrapper templateVersion: 2 for the three unit-aware
+  // exports, 1 for openWarehouses (+ distances, an input entity).
+  it("uses OUTPUT_TEMPLATE_VERSION (2) at the JSON wrapper for costSummary/serviceStats, v1 for openWarehouses", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: { bandCoverage: [{ band: 200, percent: 100 }], weightedAvgDistance: 42.1 }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    for (const [entity, expected] of [["costSummary", 2], ["serviceStats", 2], ["openWarehouses", 1]] as const) {
+      mockDb.select.mockReturnValue(makeChain([solvedRow]));
+      const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.templateVersion).toBe(expected);
+    }
+  });
+
+  // C4.9 / D20/D24/D25 — Chen exports its own km unit + coverage objectiveMode.
+  it("exports Chen assignments/costSummary with distance_unit=km and objectiveMode from details", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...chensRow,
+      result: {
+        status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
+        edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
+        metrics: { bandCoverage: [{ band: 500, percent: 87.5 }], weightedAvgDistance: 250.5, utilizationByNode: [], openFacilityIds: ["wh-15"] },
+        details: { objective: "coverage" }, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-06T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const asg = await request(app).get("/api/scenarios/13/export?entity=assignments&format=csv").set("Cookie", cookie);
+    expect(asg.status).toBe(200);
+    expect(asg.text.split("\n")[0]).toBe("template_version,customer_id,warehouse_id,distance,distance_unit,band,flow");
+    expect(asg.text).toContain("2,cn-1,wh-15,250.5,km,0,100");
+    expect(asg.text).not.toContain("distance_mi");
+
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
+    expect(cost.status).toBe(200);
+    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage", distanceUnit: "km", templateVersion: 2 });
+  });
+
+  // C4.9 / D25 — objectiveMode is serialized as explicit null (not omitted) for
+  // a model whose details carries no objective mode.
+  it("serializes costSummary objectiveMode as explicit null when details has no mode (p-median-us)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=costSummary&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows[0].objectiveMode).toBeNull();
+    expect("objectiveMode" in res.body.rows[0]).toBe(true);
+  });
+
+  // C4.9 / D29 — a forced-open zero-flow facility (present only in
+  // metrics.openFacilityIds, no edge) exports WITH its real Chen city.
+  it("exports a zero-flow forced-open Chen facility with its real city (openFacilityIds union)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...chensRow,
+      result: {
+        status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
+        edges: [{ fromId: "wh-17", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
+        // wh-15 (Changchun) is forced-open but serves no customer → no edge.
+        metrics: { utilizationByNode: [], openFacilityIds: ["wh-17", "wh-15"] },
+        details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-06T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([solvedRow]));
+    const res = await request(app).get("/api/scenarios/13/export?entity=openWarehouses&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const zeroFlow = res.body.rows.find((r: { warehouseId: string }) => r.warehouseId === "wh-15");
+    expect(zeroFlow).toEqual({ templateVersion: 1, warehouseId: "wh-15", city: "Changchun", totalFlow: 0, utilization: null });
   });
 
   it("422s flows export for p-median-us (not in its outputGrids)", async () => {

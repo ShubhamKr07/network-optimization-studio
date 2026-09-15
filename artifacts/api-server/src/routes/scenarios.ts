@@ -10,6 +10,8 @@ import { validateInputsForModel } from "../validation/inputs/index.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import {
   TEMPLATE_VERSION,
+  OUTPUT_TEMPLATE_VERSION,
+  buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
   applyCustomerOverrides,
   applyMineOverrides,
@@ -517,11 +519,23 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       properties: { scenario_id: id, model_id: scenario.modelId, entity, format },
     });
 
+    // C4.9 / D20/D24/D25 — the three unit-aware output exports carry the
+    // model's manifest distanceUnit (mile models "mi", Chen "km"); manifest is
+    // non-null here (the outputGrids gate above already returned on a missing
+    // manifest). D29 — the effective facility id→city lookup (base dataset ∪
+    // this scenario's added facilities) so a forced-open zero-flow facility
+    // exports with its real city.
+    const distanceUnit = manifest.distanceUnit ?? "mi";
+    const cityById = buildEffectiveFacilityCityLookup(
+      scenario.modelId,
+      scenario.inputs as { addedWarehouses?: Array<{ id: string; city: string }>; addedRefineries?: Array<{ id: string; city: string }> },
+    );
+
     const rows: AssignmentTemplateRow[] | OpenWarehouseTemplateRow[] | CostSummaryTemplateRow[] | ServiceStatsTemplateRow[] | FlowTemplateRow[] =
-      entity === "assignments" ? buildAssignmentRows(result)
-      : entity === "openWarehouses" ? buildOpenWarehouseRows(result)
-      : entity === "costSummary" ? buildCostSummaryRows(result)
-      : entity === "serviceStats" ? buildServiceStatsRows(result)
+      entity === "assignments" ? buildAssignmentRows(result, distanceUnit)
+      : entity === "openWarehouses" ? buildOpenWarehouseRows(result, cityById)
+      : entity === "costSummary" ? buildCostSummaryRows(result, distanceUnit)
+      : entity === "serviceStats" ? buildServiceStatsRows(result, distanceUnit)
       : buildFlowRows(result);
 
     if (format === "csv") {
@@ -533,7 +547,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       res.type("text/csv").send(csv);
       return;
     }
-    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows });
+    // D28 — assignments/costSummary/serviceStats bump to OUTPUT_TEMPLATE_VERSION
+    // at the JSON wrapper too (== each row's templateVersion); openWarehouses/
+    // flows stay v1.
+    const wrapperVersion =
+      entity === "assignments" || entity === "costSummary" || entity === "serviceStats"
+        ? OUTPUT_TEMPLATE_VERSION : TEMPLATE_VERSION;
+    res.json({ templateVersion: wrapperVersion, entity, rows });
     return;
   }
 
