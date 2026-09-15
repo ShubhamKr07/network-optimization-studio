@@ -1023,6 +1023,39 @@ function jadeLocationMapFromInputs(
   return map;
 }
 
+// ch4-tab-city-labels — Chen (chens-cosmetics-cn) Open Warehouses/Customer
+// Assignments/Distances id -> {city, state} map. Same shape and shared
+// consumers as jadeLocationMapFromInputs above (single-echelon: only
+// warehouses/customers, no plants echelon), but requires only `city` — Chen's
+// dataset carries `state: ""` for every row (China, no province backfill in
+// scope), so gating on `row.city && row.state` the way JADE's map does would
+// drop every Chen row. `state` is threaded through as-is (empty string) —
+// formatCityState() (lib/formatLocation.ts) is what turns that into a
+// city-only label with no trailing ", " at each render site.
+function chenLocationMapFromInputs(
+  dataset:
+    | {
+        warehouses?: { id: string; city?: string; state?: string }[];
+        customers?: { id: string; city?: string; state?: string }[];
+      }
+    | undefined,
+  inputs: Record<string, unknown> | null,
+): Record<string, { city: string; state: string }> {
+  const map: Record<string, { city: string; state: string }> = {};
+  const rowsWithLocation: { id: string; city?: string; state?: string }[][] = [
+    dataset?.warehouses ?? [],
+    dataset?.customers ?? [],
+    addedWarehousesFromInputs(inputs) as { id: string; city?: string; state?: string }[],
+    addedCustomersFromInputs(inputs) as { id: string; city?: string; state?: string }[],
+  ];
+  for (const rows of rowsWithLocation) {
+    for (const row of rows) {
+      if (row.city) map[row.id] = { city: row.city, state: row.state ?? "" };
+    }
+  }
+  return map;
+}
+
 // T9 (T6 wiring) — the snapshot shape OpenWarehousesTab.tsx's
 // OpenWarehousesDisplayedInputs and AssignmentsTab.tsx's
 // AssignmentsDisplayedInputs both accept (a structural superset covers
@@ -2767,6 +2800,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           referenceCapable={activeModelManifest?.capabilities?.supportsReferenceDistances}
           inactiveWarehouseIds={inactiveWarehouseIdsFromInputs(localInputs)}
           excludedCustomerIds={excludedCustomerIdsFromInputs(localInputs)}
+          // ch4-tab-city-labels — Chen-only city label (its 4925 raw-km ids
+          // are opaque `wh-`/`cs-` ids with no separate city column on this
+          // grid, unlike the base Warehouses/Customers tabs). p-median-us/
+          // brazil pass undefined here, unchanged (DistancesTab's own
+          // "no city column" design, Bundle 6.1 resolution #5).
+          locationById={modelId === "chens-cosmetics-cn" ? chenLocationMapFromInputs(dataset, localInputs) : undefined}
         />
       );
     }
@@ -3010,6 +3049,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // the shared components themselves.
       const jadeOutputLocationById =
         modelId === "two-echelon-jade-us" ? jadeLocationMapFromInputs(dataset, displayedInputs) : undefined;
+      // ch4-tab-city-labels — same SAME-snapshot pattern as jadeOutputLocationById
+      // above, Chen-only. Only wired into Open Warehouses/Customer Assignments
+      // (this task's explicit scope) — Solution Summary/Flows stay JADE-only,
+      // unchanged. Mutually exclusive with jadeOutputLocationById by modelId,
+      // so `??` below always resolves to at most one non-undefined map.
+      const chenOutputLocationById =
+        modelId === "chens-cosmetics-cn" ? chenLocationMapFromInputs(dataset, displayedInputs) : undefined;
       if (activeTab.entity === "open-warehouses")
         return (
           <OpenWarehousesTab
@@ -3024,7 +3070,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               displayedInputs,
               modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
             )}
-            locationById={jadeOutputLocationById}
+            locationById={jadeOutputLocationById ?? chenOutputLocationById}
           />
         );
       if (activeTab.entity === "customer-assignments")
@@ -3033,7 +3079,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             result={result}
             scenarioId={currentScenario!.id}
             displayedInputs={facilityDisplayedInputs(displayedInputs)}
-            locationById={jadeOutputLocationById}
+            locationById={jadeOutputLocationById ?? chenOutputLocationById}
             distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
           />
         );

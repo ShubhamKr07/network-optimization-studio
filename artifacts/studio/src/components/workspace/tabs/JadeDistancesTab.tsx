@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { formatCityState } from "@/lib/formatLocation";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer) in one flat array, keyed
@@ -243,7 +244,7 @@ export function JadeDistancesTab({
   // undefined when the id has no known location — caller falls back to the id.
   const locationLabel = (id: string) => {
     const loc = locationById?.[id];
-    return loc ? `${loc.city}, ${loc.state}` : undefined;
+    return loc ? formatCityState(loc.city, loc.state) : undefined;
   };
   // Combined text a From/To filter matches against: the "City, ST" label AND
   // the id/displayCode, so filtering by either city or id works.

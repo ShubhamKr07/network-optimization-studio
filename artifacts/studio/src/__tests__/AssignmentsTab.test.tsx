@@ -155,6 +155,29 @@ describe("AssignmentsTab", () => {
     });
   });
 
+  // ch4-tab-city-labels — Chen (state: "") city-only label, no trailing ", "
+  describe("Chen city-only label (locationById, state: \"\")", () => {
+    it("shows the city with no trailing comma/space for both customer and warehouse cells", () => {
+      render(
+        <AssignmentsTab
+          result={result}
+          scenarioId={1}
+          locationById={{
+            C1: { city: "Shenzhen", state: "" },
+            ALN: { city: "Guangzhou", state: "" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-C1");
+      expect(row).toHaveTextContent("Shenzhen");
+      expect(row).toHaveTextContent("C1");
+      expect(row).toHaveTextContent("Guangzhou");
+      expect(row).toHaveTextContent("ALN");
+      expect(row.textContent).not.toMatch(/Shenzhen,/);
+      expect(row.textContent).not.toMatch(/Guangzhou,/);
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // Same rationale as OpenWarehousesTab's equivalent test: this component

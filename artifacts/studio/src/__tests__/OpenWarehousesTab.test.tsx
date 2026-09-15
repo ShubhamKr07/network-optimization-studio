@@ -179,6 +179,23 @@ describe("OpenWarehousesTab", () => {
     });
   });
 
+  // ch4-tab-city-labels — Chen (state: "") city-only label, no trailing ", "
+  describe("Chen city-only label (locationById, state: \"\")", () => {
+    it("shows the city with the id kept as a sub-label, and no trailing comma/space", () => {
+      render(
+        <OpenWarehousesTab
+          result={result}
+          scenarioId={1}
+          locationById={{ ALN: { city: "Guangzhou", state: "" } }}
+        />,
+      );
+      const row = screen.getByTestId("open-warehouse-row-ALN");
+      expect(row).toHaveTextContent("Guangzhou");
+      expect(row).toHaveTextContent("ALN");
+      expect(row.textContent).not.toMatch(/Guangzhou,/);
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // The component has no `localInputs` prop at all — `displayedInputs` is

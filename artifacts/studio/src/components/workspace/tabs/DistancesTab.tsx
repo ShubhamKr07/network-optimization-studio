@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { formatCityState } from "@/lib/formatLocation";
 
 export interface DistanceOverride {
   fromId: string;
@@ -65,6 +66,18 @@ interface DistancesTabProps {
   /** B3 — base-dataset customer ids currently EXCLUDED in the scenario's live
    * `localInputs` draft. Same filter semantics as `inactiveWarehouseIds`. */
   excludedCustomerIds?: string[];
+  /** ch4-tab-city-labels — Chen (chens-cosmetics-cn)-only — id -> {city,
+   * state} (base dataset ∪ added entities), built by Workspace.tsx's
+   * `chenLocationMapFromInputs` off the same `localInputs` draft this tab's
+   * other props already read. Chen's dataset carries `state: ""` for every
+   * row (China, no province backfill), so `state` here is always "" —
+   * formatCityState() renders city-only, never a trailing ", ". When
+   * present, the From/To cells show the city as the primary label with the
+   * id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
+   * Absent for every other model (undefined) -> unchanged id-only
+   * rendering (Bundle 6.1 resolution #5's original "no city column"
+   * design stays intact for p-median-us/brazil). */
+  locationById?: Record<string, { city: string; state: string }>;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -153,6 +166,7 @@ export function DistancesTab({
   referenceCapable,
   inactiveWarehouseIds,
   excludedCustomerIds,
+  locationById,
 }: DistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -217,6 +231,15 @@ export function DistancesTab({
   // fromCode/toCode and added rows on displayCodeById?.[id] ?? id, without
   // needing two separate filter predicates.
   const displayValue = (id: string) => displayCodeById?.[id] ?? id;
+
+  // ch4-tab-city-labels — Chen-only city label (mirrors JadeDistancesTab.tsx's
+  // own `locationLabel`). undefined when the id has no known location
+  // (locationById absent — every model but Chen) — callers fall back to
+  // displayValue(id), unchanged.
+  const locationLabel = (id: string) => {
+    const loc = locationById?.[id];
+    return loc ? formatCityState(loc.city, loc.state) : undefined;
+  };
 
   // Resolution #2/#3 — complete, UNFILTERED (no text search) merged row list:
   // a base pair passes when it's active/included OR it carries a current or
@@ -575,31 +598,65 @@ export function DistancesTab({
                     data-testid={`row-distance-${r.fromId}-${r.toId}`}
                     className={changed ? "bg-amber-50" : r.override?.estimated ? "bg-sky-50" : undefined}
                   >
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-1">
-                        {displayCodeById?.[r.fromId] ?? r.fromId}
-                        {fromUnknown && (
-                          <span
-                            title="Unknown warehouse ID — not found in this scenario's warehouses"
-                            data-testid={`warning-unknown-from-${r.fromId}-${r.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
-                        )}
-                      </div>
+                    <TableCell className="text-xs">
+                      {locationLabel(r.fromId) ? (
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1">
+                            <span>{locationLabel(r.fromId)}</span>
+                            {fromUnknown && (
+                              <span
+                                title="Unknown warehouse ID — not found in this scenario's warehouses"
+                                data-testid={`warning-unknown-from-${r.fromId}-${r.toId}`}
+                              >
+                                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono text-[10px] text-muted-foreground">{displayValue(r.fromId)}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 font-mono">
+                          {displayCodeById?.[r.fromId] ?? r.fromId}
+                          {fromUnknown && (
+                            <span
+                              title="Unknown warehouse ID — not found in this scenario's warehouses"
+                              data-testid={`warning-unknown-from-${r.fromId}-${r.toId}`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-1">
-                        {displayCodeById?.[r.toId] ?? r.toId}
-                        {toUnknown && (
-                          <span
-                            title="Unknown customer ID — not found in this scenario's customers"
-                            data-testid={`warning-unknown-to-${r.fromId}-${r.toId}`}
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          </span>
-                        )}
-                      </div>
+                    <TableCell className="text-xs">
+                      {locationLabel(r.toId) ? (
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1">
+                            <span>{locationLabel(r.toId)}</span>
+                            {toUnknown && (
+                              <span
+                                title="Unknown customer ID — not found in this scenario's customers"
+                                data-testid={`warning-unknown-to-${r.fromId}-${r.toId}`}
+                              >
+                                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono text-[10px] text-muted-foreground">{displayValue(r.toId)}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 font-mono">
+                          {displayCodeById?.[r.toId] ?? r.toId}
+                          {toUnknown && (
+                            <span
+                              title="Unknown customer ID — not found in this scenario's customers"
+                              data-testid={`warning-unknown-to-${r.fromId}-${r.toId}`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">{baseCell(r)}</TableCell>
                     <TableCell>
