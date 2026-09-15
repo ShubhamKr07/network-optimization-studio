@@ -1,5 +1,6 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { formatCityState } from "@/lib/formatLocation";
 
 // B2.2-T6 — same snapshot shape as OpenWarehousesTab.tsx's
 // OpenWarehousesDisplayedInputs (kept as a separate local declaration per
@@ -16,13 +17,14 @@ interface AssignmentsTabProps {
   scenarioId: number;
   /** Optional (back-compat default: ids rendered raw). */
   displayedInputs?: AssignmentsDisplayedInputs | null;
-  /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
-   * by Workspace.tsx's `jadeLocationMapFromInputs` off the SAME snapshot
-   * `displayedInputs` reflects. When present, both the Customer and
-   * Warehouse cells show "City, ST" as the primary label with the
-   * id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
-   * Absent for every other model (undefined) -> unchanged id-only
-   * rendering. */
+  /** JADE/Chen-only — id -> {city, state} (base dataset ∪ added entities),
+   * built by Workspace.tsx's `jadeLocationMapFromInputs`/
+   * `chenLocationMapFromInputs` off the SAME snapshot `displayedInputs`
+   * reflects. When present, both the Customer and Warehouse cells show the
+   * city (JADE: "City, ST"; Chen: city-only, via formatCityState()) as the
+   * primary label with the id/displayCode as a mono sub-label (mirrors
+   * JadeDistancesTab.tsx). Absent for every other model (undefined) ->
+   * unchanged id-only rendering. */
   locationById?: Record<string, { city: string; state: string }>;
   /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit).
    * Optional/defaults to "mi" so existing callers stay unchanged; Chen passes "km". */
@@ -93,7 +95,7 @@ function idCell(id: string, displayLabel: string, locationById: Record<string, {
   if (!loc) return displayLabel;
   return (
     <div className="flex flex-col">
-      <span>{loc.city}, {loc.state}</span>
+      <span>{formatCityState(loc.city, loc.state)}</span>
       <span className="font-mono text-[10px] text-muted-foreground">{displayLabel}</span>
     </div>
   );

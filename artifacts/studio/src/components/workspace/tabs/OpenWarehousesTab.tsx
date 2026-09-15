@@ -1,5 +1,6 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { formatCityState } from "@/lib/formatLocation";
 
 // B2.2-T6 — a read-only SNAPSHOT of the fields this tab needs from
 // Scenario.inputs, passed by Workspace.tsx (T9 wires the real call site;
@@ -32,12 +33,13 @@ interface OpenWarehousesTabProps {
   scenarioId: number;
   /** Optional (back-compat default: Utilization shown, ids rendered raw). */
   displayedInputs?: OpenWarehousesDisplayedInputs | null;
-  /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
-   * by Workspace.tsx's `jadeLocationMapFromInputs` off the SAME snapshot
-   * `displayedInputs` reflects. When present, the Warehouse cell shows
-   * "City, ST" as the primary label with the id/displayCode as a mono
-   * sub-label (mirrors JadeDistancesTab.tsx). Absent for every other model
-   * (undefined) -> unchanged id-only rendering. */
+  /** JADE/Chen-only — id -> {city, state} (base dataset ∪ added entities),
+   * built by Workspace.tsx's `jadeLocationMapFromInputs`/
+   * `chenLocationMapFromInputs` off the SAME snapshot `displayedInputs`
+   * reflects. When present, the Warehouse cell shows the city (JADE: "City,
+   * ST"; Chen: city-only, via formatCityState()) as the primary label with
+   * the id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
+   * Absent for every other model (undefined) -> unchanged id-only rendering. */
   locationById?: Record<string, { city: string; state: string }>;
 }
 
@@ -137,7 +139,7 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
                 <td className="p-2">
                   {loc ? (
                     <div className="flex flex-col">
-                      <span>{loc.city}, {loc.state}</span>
+                      <span>{formatCityState(loc.city, loc.state)}</span>
                       <span className="font-mono text-[10px] text-muted-foreground">{codeById[r.warehouseId] ?? r.warehouseId}</span>
                     </div>
                   ) : (

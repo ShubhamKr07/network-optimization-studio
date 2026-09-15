@@ -1143,3 +1143,47 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
     expect(screen.getByTestId("button-distances-next")).not.toBeDisabled();
   });
 });
+
+// ch4-tab-city-labels — Chen (chens-cosmetics-cn) city label. Chen's dataset
+// carries `state: ""` for every row (China, no province backfill in scope) —
+// the primary label must render city-only, never a trailing ", ".
+describe("DistancesTab — Chen city-only label (locationById, state: \"\")", () => {
+  it("shows the city as the primary label with the id kept as a mono sub-label, and no trailing comma/space", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+        locationById={{
+          WH01: { city: "Guangzhou", state: "" },
+          C001: { city: "Shenzhen", state: "" },
+        }}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).toHaveTextContent("Guangzhou");
+    expect(row).toHaveTextContent("WH01");
+    expect(row).toHaveTextContent("Shenzhen");
+    expect(row).toHaveTextContent("C001");
+    expect(row.textContent).not.toMatch(/Guangzhou,/);
+    expect(row.textContent).not.toMatch(/Shenzhen,/);
+  });
+
+  it("falls back to unchanged ID-only rendering when locationById is absent (p-median-us/brazil default, no regression)", () => {
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        warehouseIds={["WH01", "WH02"]}
+        customerIds={["C001", "C002"]}
+        onChange={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).toHaveTextContent("WH01");
+    expect(row).toHaveTextContent("C001");
+    expect(row).not.toHaveTextContent("Guangzhou");
+  });
+});
