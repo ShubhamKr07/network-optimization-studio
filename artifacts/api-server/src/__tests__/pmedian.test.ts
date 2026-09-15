@@ -702,4 +702,66 @@ describe("buildPayload()", () => {
       }
     }
   });
+
+  // C4.6 — chens-cosmetics-cn (Chapter 4). buildPayload emits modelType
+  // "chens" (D16) + the scalar params + the sparse edit arrays straight
+  // through by their exact schema names (merge_inputs.py resolves status/
+  // exclusion/demand itself, direct-id DD-2). distanceBands is already
+  // normalized to [high, max] by the schema's D19 transform before it ever
+  // reaches buildPayload.
+  const chensBaseInputs = {
+    objective: "coverage" as const,
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    coverageFloorDemand: undefined,
+    gap: 0,
+    timeLimitSec: 60,
+    capacityMode: "none" as const,
+    distanceBands: [600, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+
+  it("sends modelType=chens with scalar params for chens-cosmetics-cn", () => {
+    const payload = buildPayload({ modelId: "chens-cosmetics-cn", inputs: chensBaseInputs });
+    expect(payload.modelType).toBe("chens");
+    expect(payload.objective).toBe("coverage");
+    expect(payload.p).toBe(3);
+    expect(payload.highServiceDistKm).toBe(600);
+    expect(payload.maxDistKm).toBe(5000);
+    expect(payload.avgServiceDistCapKm).toBe(1000);
+    expect(payload.gap).toBe(0);
+    expect(payload.timeLimitSec).toBe(60);
+  });
+
+  it("normalizes distanceBands to [highServiceDistKm, maxDistKm] on the payload", () => {
+    const payload = buildPayload({ modelId: "chens-cosmetics-cn", inputs: chensBaseInputs });
+    expect(payload.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("forwards the sparse edit arrays by their exact schema names for chens-cosmetics-cn", () => {
+    const inputs = {
+      ...chensBaseInputs,
+      warehouseOverrides: [{ id: "wh-40", status: "forced_open" as const }],
+      customerOverrides: [{ id: "cs-1", status: "active" as const, demand: 999 }],
+      addedWarehouses: [{ id: "wh-new-1", city: "Chengdu", state: "", lat: 30.6, lng: 104.1, status: "active" as const }],
+      addedCustomers: [{ id: "cs-new-1", city: "Xi'an", state: "", lat: 34.3, lng: 108.9, demand: 500, status: "active" as const }],
+      distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 3660 }],
+    };
+    const payload = buildPayload({ modelId: "chens-cosmetics-cn", inputs });
+    expect(payload.warehouseOverrides).toEqual(inputs.warehouseOverrides);
+    expect(payload.customerOverrides).toEqual(inputs.customerOverrides);
+    expect(payload.addedWarehouses).toEqual(inputs.addedWarehouses);
+    expect(payload.addedCustomers).toEqual(inputs.addedCustomers);
+    expect(payload.distanceOverrides).toEqual(inputs.distanceOverrides);
+    // Direct-id models do NOT reshape into p-median's warehouseStatuses/
+    // excludedCustomerIds wire shape — the Python merge does that itself.
+    expect(payload).not.toHaveProperty("warehouseStatuses");
+    expect(payload).not.toHaveProperty("excludedCustomerIds");
+  });
 });

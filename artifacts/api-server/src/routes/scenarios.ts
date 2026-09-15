@@ -75,6 +75,9 @@ export const VALID_MODEL_IDS = new Set([
   // most-missed registration point (a hardcoded Set entirely separate from
   // the manifest registry).
   "two-echelon-jade-us",
+  // C4.6: Chapter 4 Chen's Cosmetics — registered here alongside
+  // KNOWN_SCHEMAS + buildPayload (same atomic commit) per OBS-5 Gate 1.4.
+  "chens-cosmetics-cn",
   "max_coverage",
   "p_center",
   "set_cover",
