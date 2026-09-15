@@ -21,6 +21,8 @@ const mockUseListModels = vi.fn(() => ({
     { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
     // jade-T14 — Chapter 9 JADE has real facility open/closed status (no P).
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsP: false, supportsFacilityStatus: true } },
+    // C4.14 — Chen's Cosmetics: km, real facility status.
+    { id: "chens-cosmetics-cn", distanceUnit: "km", capabilities: { supportsP: true, supportsFacilityStatus: true } },
   ],
 }));
 
@@ -436,5 +438,56 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     expect(screen.getByTestId("cost-summary-list")).toBeInTheDocument();
     expect(screen.getByTestId("button-download-cost-summary-csv")).toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-table")).not.toBeInTheDocument();
+  });
+});
+
+// C4.14 (D14) — Chen mode-aware objective + incompatible-mode compare restriction.
+describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4.14)", () => {
+  const coverageResult = {
+    status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
+    edges: [], metrics: { weightedAvgDistance: 812.4, bandCoverage: [] },
+    details: { objective: "coverage", coveragePct: 66.6667 }, solverUsed: "CBC", infeasibilityReason: null,
+  };
+  const minDistanceResult = {
+    status: "optimal" as const, objective: 131645389, runTimeSec: 0.4, quality: "optimal",
+    edges: [], metrics: { weightedAvgDistance: 640.2, bandCoverage: [] },
+    details: { objective: "min_distance" }, solverUsed: "CBC", infeasibilityReason: null,
+  };
+  const coverageA = scenario({ id: 60, name: "Coverage A", modelId: "chens-cosmetics-cn", result: coverageResult });
+  const coverageB = scenario({ id: 61, name: "Coverage B", modelId: "chens-cosmetics-cn", result: { ...coverageResult, objective: 70.0 } });
+  const minDist = scenario({ id: 62, name: "Min-Dist", modelId: "chens-cosmetics-cn", result: minDistanceResult });
+
+  it("single-scenario: a coverage solve shows a % objective", () => {
+    render(<CostSummaryTab result={coverageResult} scenarioId={60} modelId="chens-cosmetics-cn" />);
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("66.67 %");
+  });
+
+  it("single-scenario: a min-distance solve shows a demand-km objective", () => {
+    render(<CostSummaryTab result={minDistanceResult} scenarioId={62} modelId="chens-cosmetics-cn" />);
+    expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-km");
+  });
+
+  it("with a coverage anchor selected, a different-mode (min-distance) scenario is DISABLED with a hint; a same-mode one is enabled", () => {
+    render(<CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} />);
+    // Same mode (coverage) — selectable.
+    expect(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")).not.toBeDisabled();
+    // Different mode (min_distance) — blocked with a mode hint (NOT a solve-first hint; it IS solved).
+    expect(screen.getByTestId("cost-summary-compare-toggle-62").querySelector("input")).toBeDisabled();
+    expect(screen.getByTestId("cost-summary-compare-mode-hint-62")).toHaveTextContent("different objective");
+    expect(screen.queryByTestId("cost-summary-compare-hint-62")).not.toBeInTheDocument();
+  });
+
+  it("two SAME-mode coverage scenarios compare together (mode-aware % in each column)", () => {
+    render(<CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} />);
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-table")).toBeInTheDocument();
+    expect(screen.getByTestId("cost-summary-compare-objective-60")).toHaveTextContent("66.67 %");
+    expect(screen.getByTestId("cost-summary-compare-objective-61")).toHaveTextContent("70.00 %");
+  });
+
+  it("with a min-distance anchor, coverage scenarios are the ones blocked (symmetry)", () => {
+    render(<CostSummaryTab result={minDist.result} scenarioId={62} modelId="chens-cosmetics-cn" scenarios={[minDist, coverageA, coverageB]} />);
+    expect(screen.getByTestId("cost-summary-compare-toggle-60").querySelector("input")).toBeDisabled();
+    expect(screen.getByTestId("cost-summary-compare-mode-hint-60")).toHaveTextContent("different objective");
   });
 });

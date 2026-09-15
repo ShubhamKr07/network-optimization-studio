@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { formatChenObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 
 interface CostSummaryTabProps {
   result: SolveResult | null;
@@ -60,6 +61,16 @@ function openFacilityIds(result: SolveResult): Set<string> {
 
 function bandBoundaries(result: SolveResult): number[] {
   return (result.metrics.bandCoverage ?? []).map(b => b.band);
+}
+
+// C4.14 (D14) — a solved scenario's objective MODE, read off its own envelope
+// `details.objective` ("coverage" | "min_distance" for Chen; null for every
+// other model, which has no such discriminator). Used both to LABEL the
+// objective mode-aware and to block comparing two Chen scenarios solved under
+// different modes (their objectives are in different units — a coverage % and
+// a demand-km total can't share a column).
+function scenarioObjectiveMode(s: Scenario | undefined): string | null {
+  return objectiveModeOfDetails(s?.result?.details);
 }
 
 // T5 (B5) — a scenario's own scenario-local added facilities, read directly
@@ -160,10 +171,28 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
 
   const [selectedIds, setSelectedIds] = useState<number[]>(() => [scenarioId]);
 
+  // C4.14 (D14) — the objective mode the current selection is LOCKED to: the
+  // mode of the first already-selected scenario that carries one. While a Chen
+  // coverage scenario is selected, only other coverage scenarios can join (and
+  // vice-versa for min_distance) — a different-mode scenario's objective is in
+  // an incompatible unit. Null (no selected scenario carries a mode — every
+  // non-Chen model) imposes NO restriction, so every existing model is
+  // byte-for-byte unaffected.
+  const lockedObjectiveMode =
+    selectedIds
+      .map(id => scenarioObjectiveMode(sameModelScenarios.find(x => x.id === id)))
+      .find((m): m is string => m != null) ?? null;
+
   function toggleScenario(id: number, checked: boolean) {
     setSelectedIds(prev => {
       if (checked) {
         if (prev.includes(id) || prev.length >= MAX_COMPARE) return prev;
+        // Defense in depth — the checkbox is already `disabled` for a
+        // mode-mismatched scenario, but never let one slip into the selection.
+        const candidateMode = scenarioObjectiveMode(sameModelScenarios.find(x => x.id === id));
+        const anchorMode =
+          prev.map(pid => scenarioObjectiveMode(sameModelScenarios.find(x => x.id === pid))).find((m): m is string => m != null) ?? null;
+        if (anchorMode != null && candidateMode != null && candidateMode !== anchorMode) return prev;
         return [...prev, id];
       }
       if (prev.length <= 1) return prev; // at least one scenario always stays selected
@@ -190,9 +219,18 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         {sameModelScenarios.map(s => {
           const checked = selectedIds.includes(s.id);
           const eligible = s.result != null && !s.stale;
+          // C4.14 (D14) — a solved scenario of the WRONG objective mode can't
+          // be added to a selection already locked to another mode. Only ever
+          // fires for Chen (the only model with a mode discriminator); the
+          // currently-selected anchor stays checked and un-disabled.
+          const modeMismatch =
+            !checked &&
+            lockedObjectiveMode != null &&
+            scenarioObjectiveMode(s) != null &&
+            scenarioObjectiveMode(s) !== lockedObjectiveMode;
           const disabled =
             isBrowsingHistory ||
-            (!checked && (!eligible || selectedIds.length >= MAX_COMPARE)) ||
+            (!checked && (!eligible || modeMismatch || selectedIds.length >= MAX_COMPARE)) ||
             (checked && selectedIds.length <= 1);
           return (
             <label key={s.id} className="flex items-center gap-1 text-xs" data-testid={`cost-summary-compare-toggle-${s.id}`}>
@@ -201,6 +239,11 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               {!eligible && (
                 <span className="text-muted-foreground" data-testid={`cost-summary-compare-hint-${s.id}`}>
                   (solve first)
+                </span>
+              )}
+              {eligible && modeMismatch && (
+                <span className="text-muted-foreground" data-testid={`cost-summary-compare-mode-hint-${s.id}`}>
+                  (different objective)
                 </span>
               )}
             </label>
@@ -225,7 +268,13 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     // fields are simply absent for every pre-existing model's envelope, so
     // these two rows never appear for them (byte-identical row set to before
     // this task).
-    const rows: Array<[string, string, boolean]> = [["Objective", result.objective.toLocaleString(), true]];
+    // C4.14 (D14) — mode-aware objective (coverage % / min-distance demand-km);
+    // formatChenObjective returns null for every non-Chen model, keeping the
+    // plain toLocaleString format unchanged there.
+    const objectiveText =
+      formatChenObjective(result.objective, objectiveModeOfDetails(result.details))
+      ?? result.objective.toLocaleString();
+    const rows: Array<[string, string, boolean]> = [["Objective", objectiveText, true]];
     if (result.metrics.inboundCost != null) {
       rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
     }
@@ -294,7 +343,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               <td className="p-2 text-muted-foreground">Objective</td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-objective-${s.id}`}>
-                  {s.result!.objective.toLocaleString()}
+                  {formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString()}
                 </td>
               ))}
             </tr>

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
 import { useGetSolveHistory, useGetLandingSummary } from "@workspace/api-client-react";
 import { formatRelativeTime } from "@/lib/relativeTime";
+import { formatChenObjective } from "@/lib/formatObjective";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0] ?? "";
@@ -16,9 +17,10 @@ function chapterNumber(chapterLabel: string): string {
 // (demand-km). Every other model (objectiveMode null — mile p-median, transport,
 // two-echelon) keeps the mode-agnostic "obj <sci-notation>" label unchanged.
 function formatObjective(objective: number, objectiveMode: string | null): string {
-  if (objectiveMode === "coverage") return `${objective.toFixed(2)} %`;
-  if (objectiveMode === "min_distance") return `${objective.toExponential(2)} demand-km`;
-  return `obj ${objective.toExponential(2)}`;
+  // C4.14 — the two Chen modes are formatted by the shared helper (single
+  // source of truth); Landing keeps its own mode-agnostic default for every
+  // other model (byte-identical to before this consolidation).
+  return formatChenObjective(objective, objectiveMode) ?? `obj ${objective.toExponential(2)}`;
 }
 
 export function Landing() {

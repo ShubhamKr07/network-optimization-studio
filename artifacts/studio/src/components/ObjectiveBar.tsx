@@ -1,5 +1,6 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { chapterForModelId } from "@/lib/chapters";
+import { formatChenObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 
 interface ObjectiveBarProps {
   result: SolveResult | null;
@@ -23,6 +24,13 @@ interface ObjectiveBarProps {
 export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit = "mi" }: ObjectiveBarProps) {
   const chapter = chapterForModelId(modelId);
   const avgDistance = result?.metrics.weightedAvgDistance;
+  // C4.14 (D14) — mode-aware objective label: Chen coverage solves report a
+  // percentage, min-distance solves demand-km; every other model keeps the
+  // plain integer format (formatChenObjective returns null -> the ?? default).
+  const objectiveLabel = result
+    ? formatChenObjective(result.objective, objectiveModeOfDetails(result.details))
+      ?? result.objective.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : null;
 
   return (
     <div style={{
@@ -58,7 +66,7 @@ export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit = "mi
       <div style={{ display: "flex", gap: "7px", flexShrink: 0 }}>
         {result ? (
           <>
-            <StatPill label={`objective ${result.objective.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+            <StatPill label={`objective ${objectiveLabel}`} />
             {avgDistance != null && <StatPill label={`avg distance ${avgDistance.toFixed(0)} ${distanceUnit}`} />}
             <StatPill label={`run ${result.runTimeSec.toFixed(2)}s`} />
           </>

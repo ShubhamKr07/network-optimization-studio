@@ -12,6 +12,8 @@ const mockUseListModels = vi.fn(() => ({
     // numbers are geographically miles; zero data change).
     { id: "two-echelon-gold-au", distanceUnit: "mi" },
     { id: "two-echelon-jade-us", distanceUnit: "mi" },
+    // C4.14 — Chen's Cosmetics reports distances in km.
+    { id: "chens-cosmetics-cn", distanceUnit: "km" },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -119,6 +121,37 @@ describe("ServiceStatsTab", () => {
     it("does not render an overflow row when bandCoverage has no band: -1 entry (no regression)", () => {
       render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
       expect(screen.queryByTestId("service-stats-band--1")).not.toBeInTheDocument();
+    });
+  });
+
+  // C4.14 (D14) — Chen coverage KPI summary block (from envelope `details`),
+  // gated on the presence of `details.coveragePct`, never a modelId ternary.
+  describe("Chen's Cosmetics — coverage KPIs (C4.14)", () => {
+    const chenResult = {
+      status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
+      edges: [],
+      metrics: { weightedAvgDistance: 812.4, bandCoverage: [{ band: 600, percent: 66 }, { band: 5000, percent: 100 }] },
+      details: { objective: "coverage", coveragePct: 66.6667, coveredDemand: 131645389, uncoveredPct: 33.3333 },
+      solverUsed: "CBC", infeasibilityReason: null,
+    };
+
+    it("renders Coverage %, Covered demand, Uncovered %, and Avg service distance (km) from details", () => {
+      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="chens-cosmetics-cn" />);
+      expect(screen.getByTestId("service-stats-coverage-pct")).toHaveTextContent("66.67 %");
+      expect(screen.getByTestId("service-stats-covered-demand")).toHaveTextContent("131,645,389");
+      expect(screen.getByTestId("service-stats-uncovered-pct")).toHaveTextContent("33.33 %");
+      expect(screen.getByTestId("service-stats-avg-service-distance")).toHaveTextContent("812.4 km");
+    });
+
+    it("still renders the existing band rows below the KPI block", () => {
+      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="chens-cosmetics-cn" />);
+      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
+      expect(screen.getByTestId("service-stats-band-5000")).toHaveTextContent("100%");
+    });
+
+    it("does NOT render the coverage KPI block for a non-Chen model (no details.coveragePct)", () => {
+      render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
+      expect(screen.queryByTestId("service-stats-coverage-kpis")).not.toBeInTheDocument();
     });
   });
 });

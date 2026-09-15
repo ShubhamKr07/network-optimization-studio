@@ -58,6 +58,19 @@ describe("ObjectiveBar — chapter/title by model", () => {
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
   });
+
+  // C4.14 (Gate-1 header audit) — the header title/subtitle come from the
+  // CHAPTERS lookup, so Chen must show its OWN Chapter 4 / Chen's Cosmetics
+  // title AND must NOT fall back to a coal/gold branch (the header-ternary
+  // bug class the mapped audit exists to catch).
+  it("chens-cosmetics-cn shows Chapter 4 / Chen's Cosmetics, NOT AL's Athletics or Coal Transport LP", () => {
+    render(<ObjectiveBar result={null} scenarioId={40} modelId="chens-cosmetics-cn" />);
+    expect(screen.getByText("Chapter 4")).toBeInTheDocument();
+    expect(screen.getByText(/Chen's Cosmetics/)).toBeInTheDocument();
+    expect(screen.queryByText(/AL's Athletics/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Coal Transport LP/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Gold Refinery Siting/)).not.toBeInTheDocument();
+  });
 });
 
 // ── Teaching-intent description ─────────────────────────────────────────────
@@ -142,5 +155,32 @@ describe("ObjectiveBar — solve stats", () => {
     render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="p-median-us" />);
     expect(screen.queryByText(/✓/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Beat/)).not.toBeInTheDocument();
+  });
+
+  // C4.14 (D14) — the objective stat is mode-aware for Chen, keyed on
+  // details.objective (coverage -> NN.NN %, min_distance -> demand-km).
+  it("renders a Chen coverage objective as a percentage", () => {
+    const coverage: SolveResult = {
+      ...optimalResult, objective: 66.6667,
+      details: { objective: "coverage", coveragePct: 66.6667 },
+    };
+    render(<ObjectiveBar result={coverage} scenarioId={40} modelId="chens-cosmetics-cn" distanceUnit="km" />);
+    expect(screen.getByText(/objective 66\.67 %/)).toBeInTheDocument();
+  });
+
+  it("renders a Chen min-distance objective as demand-km", () => {
+    const minDist: SolveResult = {
+      ...optimalResult, objective: 131645389,
+      details: { objective: "min_distance" },
+    };
+    render(<ObjectiveBar result={minDist} scenarioId={41} modelId="chens-cosmetics-cn" distanceUnit="km" />);
+    expect(screen.getByText(/objective 1\.32e\+8 demand-km/)).toBeInTheDocument();
+  });
+
+  it("keeps the plain integer objective for a non-Chen model (no details.objective)", () => {
+    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="p-median-us" />);
+    expect(screen.getByText(/objective 1,000,000/)).toBeInTheDocument();
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/demand-km/)).not.toBeInTheDocument();
   });
 });
