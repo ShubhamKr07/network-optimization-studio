@@ -184,3 +184,114 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
     expect(screen.queryByTestId("button-p-quick-25")).not.toBeInTheDocument();
   });
 });
+
+// C4.12 — Chen's Cosmetics (chens-cosmetics-cn) coverage model: objective
+// mode toggle, the two service-distance thresholds, the mode-specific field,
+// pMax=25 (D27), and NO band editor (D13/D19). The whole block is gated on
+// `objective != null` (present only for Chen) — a sibling model passing none
+// of these renders none of it.
+const chenCoverageProps = {
+  p: 3,
+  pMax: 25,
+  gap: 0,
+  timeLimitSec: 120,
+  distanceBands: [600, 5000],
+  distanceUnit: "km",
+  objective: "coverage" as const,
+  highServiceDistKm: 600,
+  maxDistKm: 5000,
+  avgServiceDistCapKm: 1000,
+  showBandEditor: false,
+  onChange: vi.fn(),
+};
+
+describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
+  it("renders the objective toggle only when `objective` is set (not for other models)", () => {
+    const { rerender } = render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("chen-objective-toggle")).not.toBeInTheDocument();
+    rerender(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
+    expect(screen.getByTestId("chen-objective-toggle")).toBeInTheDocument();
+  });
+
+  it("coverage mode shows the avg-service-cap field and HIDES the coverage-floor field", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+    // Both thresholds are always visible in either mode.
+    expect(screen.getByTestId("input-high-service-dist")).toHaveValue(600);
+    expect(screen.getByTestId("input-max-dist")).toHaveValue(5000);
+  });
+
+  it("min-distance mode shows the coverage-floor field (+ infeasible hint) and HIDES avg-service-cap", () => {
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        objective="min_distance"
+        avgServiceDistCapKm={undefined}
+        coverageFloorDemand={131645389}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(131645389);
+    expect(screen.getByTestId("coverage-floor-hint")).toHaveTextContent("199M");
+    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
+  });
+
+  it("clicking a mode button calls onObjectiveModeChange with that mode (the atomic toggle lives in Workspace)", () => {
+    const onObjectiveModeChange = vi.fn();
+    render(<OptimizationParametersTab {...chenCoverageProps} onObjectiveModeChange={onObjectiveModeChange} onChange={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
+    expect(onObjectiveModeChange).toHaveBeenCalledWith("min_distance");
+    fireEvent.click(screen.getByTestId("chen-objective-coverage"));
+    expect(onObjectiveModeChange).toHaveBeenCalledWith("coverage");
+  });
+
+  it("editing a service-distance threshold calls onServiceDistanceChange (NOT the generic onChange — bands resync there)", () => {
+    const onServiceDistanceChange = vi.fn();
+    const onChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...chenCoverageProps}
+        onServiceDistanceChange={onServiceDistanceChange}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-high-service-dist"), { target: { value: "700" } });
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+    fireEvent.change(screen.getByTestId("input-max-dist"), { target: { value: "4000" } });
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("maxDistKm", 4000);
+    // The generic onChange never fired for the thresholds.
+    expect(onChange).not.toHaveBeenCalledWith("highServiceDistKm", expect.anything());
+    expect(onChange).not.toHaveBeenCalledWith("maxDistKm", expect.anything());
+  });
+
+  it("editing the avg-service-cap calls the generic onChange('avgServiceDistCapKm', value)", () => {
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...chenCoverageProps} onChange={onChange} />);
+    fireEvent.change(screen.getByTestId("input-avg-service-cap"), { target: { value: "1200" } });
+    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapKm", 1200);
+  });
+
+  // D27 — the P slider caps at 25 (26 cannot be authored), and the 25
+  // quick-select still renders (25 <= 25).
+  it("caps the P slider at 25 (26 is unreachable)", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
+    const thumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "25");
+    expect(screen.getByTestId("button-p-quick-25")).toBeInTheDocument();
+  });
+
+  // D13/D19 — Chen's bands are derived [high, max]; the free-edit band editor
+  // is hidden (showBandEditor={false}).
+  it("hides the distance-band editor entirely (showBandEditor=false)", () => {
+    render(<OptimizationParametersTab {...chenCoverageProps} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("button-bands-plus")).not.toBeInTheDocument();
+    // The label "Distance bands (km)" belongs only to the (now-hidden) editor.
+    expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
+  });
+
+  it("still shows the band editor for a normal model (showBandEditor defaults true)", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+  });
+});

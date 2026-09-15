@@ -136,6 +136,19 @@ vi.mock("@workspace/api-client-react", () => ({
           outputGrids: ["openWarehouses", "flows", "assignments", "costSummary", "serviceStats"],
         },
       },
+      // C4.12 — Chen's Cosmetics (Chapter 4, chens-cosmetics-cn), a km coverage
+      // model with capacityMode "none" only.
+      {
+        id: "chens-cosmetics-cn",
+        distanceUnit: "km",
+        countryBounds: { sw: [18.0, 73.0], ne: [54.0, 135.0] },
+        capabilities: {
+          supportsP: true,
+          capacityModes: ["none"],
+          demandEditable: true,
+          outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+        },
+      },
     ],
   })),
   // B5.2 — precheck query. Defaults to ok:true/no errors so every existing
@@ -2005,5 +2018,130 @@ describe("defaultInputsForModel — chens-cosmetics-cn", () => {
     expect(d.addedWarehouses).toEqual([]);
     expect(d.addedCustomers).toEqual([]);
     expect(d.distanceOverrides).toEqual([]);
+  });
+});
+
+// C4.12 — Chen inputs UI wired end-to-end through Workspace: the objective
+// mode toggle (which seeds the newly-required field AND clears the previous
+// mode's field so only the active field persists), the derived-band resync on
+// a threshold edit, and pMax=25 flowing to BOTH the Optimization Parameters
+// tab and the Solve dialog. Integration tests (not the component-level ones)
+// because the atomic seed/clear/resync logic lives in Workspace, and the
+// save-payload assertion is what proves "only the active field is persisted".
+describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
+  const chensCoverageInputs = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 120,
+    capacityMode: "none",
+    distanceBands: [600, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+  const chensScenario = {
+    id: 1,
+    name: "Chen coverage",
+    modelId: "chens-cosmetics-cn",
+    inputs: chensCoverageInputs,
+    result: null,
+    stale: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+
+  function renderChen() {
+    mockUseGetScenario.mockReturnValue({ data: chensScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [chensScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    return render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+  }
+
+  function openParamsTab() {
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+  }
+
+  it("shows the coverage field in coverage mode, swaps to the floor field after toggling to min-distance, and persists ONLY the active mode's field", () => {
+    renderChen();
+    openParamsTab();
+
+    // Coverage mode: cap field visible, floor field absent.
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+
+    // Toggle to min-distance: the visible field SWAPS.
+    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
+    expect(screen.getByTestId("input-coverage-floor")).toBeInTheDocument();
+    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(131645389);
+    expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
+
+    // Save — the persisted inputs carry coverageFloorDemand and NOT
+    // avgServiceDistCapKm (the previous mode's field was cleared, matching
+    // C4.6's discriminated schema — not relying on later stripping).
+    fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.scenarioId).toBe(1);
+    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 131645389 });
+    expect(args.data.inputs).not.toHaveProperty("avgServiceDistCapKm");
+  });
+
+  it("toggling min-distance → back to coverage re-seeds the cap and clears the floor (only the active field persists)", () => {
+    renderChen();
+    openParamsTab();
+    fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
+    fireEvent.click(screen.getByTestId("chen-objective-coverage"));
+
+    expect(screen.getByTestId("input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("input-coverage-floor")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-save"));
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect(args.data.inputs).toMatchObject({ objective: "coverage", avgServiceDistCapKm: 1000 });
+    expect(args.data.inputs).not.toHaveProperty("coverageFloorDemand");
+  });
+
+  it("editing a service-distance threshold resyncs distanceBands to [high, max] in state BEFORE any save (D13/D19)", () => {
+    renderChen();
+    openParamsTab();
+
+    fireEvent.change(screen.getByTestId("input-high-service-dist"), { target: { value: "700" } });
+
+    fireEvent.click(screen.getByTestId("button-save"));
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    // The changed threshold AND the derived bands both landed in the SAME
+    // localInputs update — the save payload proves the resync happened in
+    // component state, not just at the solver boundary.
+    expect(args.data.inputs.highServiceDistKm).toBe(700);
+    expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
+  });
+
+  it("caps P at 25 in BOTH the Optimization Parameters tab AND the Solve dialog (26 unreachable via either surface, D27)", () => {
+    renderChen();
+
+    // Tab slider.
+    openParamsTab();
+    const tabThumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
+    expect(tabThumb).toHaveAttribute("aria-valuemax", "25");
+
+    // Solve dialog slider.
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    const dialogThumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "25");
+  });
+
+  it("hides the distance-band editor in BOTH the tab and the Solve dialog (Chen bands are derived, D13/D19)", () => {
+    renderChen();
+
+    openParamsTab();
+    expect(screen.queryByTestId("button-bands-plus")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
   });
 });

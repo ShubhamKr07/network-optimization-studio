@@ -83,3 +83,33 @@ describe("SolveDialog — R5 distance-band editor", () => {
     expect(screen.getByTestId("solve-dialog-button-remove-band-200")).toBeDisabled();
   });
 });
+
+// C4.12 — Chen (chens-cosmetics-cn): the Solve dialog caps P at 25 (D27) and
+// hides the band editor (D13/D19 — bands are derived [high, max]). Both are
+// opt-in props (default 50 / true), so every other model's Solve dialog is
+// unchanged.
+describe("SolveDialog — Chen pMax + no band editor (C4.12)", () => {
+  it("defaults the P slider max to 50 when pMax is omitted (every existing model unaffected)", () => {
+    renderDialog({ p: 3 });
+    const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "50");
+  });
+
+  it("caps the P slider at 25 when pMax=25 (26 is unreachable from the Solve dialog)", () => {
+    renderDialog({ p: 3, pMax: 25 });
+    const thumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
+    expect(thumb).toHaveAttribute("aria-valuemax", "25");
+  });
+
+  it("shows the band editor by default (showBandEditor omitted)", () => {
+    renderDialog({ distanceBands: [200, 400] });
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
+  });
+
+  it("hides the band editor entirely when showBandEditor=false", () => {
+    renderDialog({ distanceBands: [600, 5000], showBandEditor: false, distanceUnit: "km" });
+    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-band-600")).not.toBeInTheDocument();
+    expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
+  });
+});

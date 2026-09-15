@@ -53,6 +53,13 @@ describe("WarehouseTable", () => {
     expect(screen.queryByText("Capacity")).not.toBeInTheDocument();
   });
 
+  // C4.12 — Chen's Cosmetics persists capacityMode "none" (no capacity
+  // concept), so its Warehouses table is status-only: no Capacity column.
+  it("does NOT show a Capacity column when capacityMode is 'none' (Chen's mode)", () => {
+    render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+    expect(screen.queryByText("Capacity")).not.toBeInTheDocument();
+  });
+
   it("shows a Capacity column when capacityMode is per_wh", () => {
     render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="per_wh" onChange={vi.fn()} />);
     expect(screen.getByText("Capacity")).toBeInTheDocument();

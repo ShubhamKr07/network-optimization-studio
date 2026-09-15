@@ -96,6 +96,12 @@ import { track } from "@/lib/analytics";
 // (Studio.tsx:681-690) rather than invented — one branch per model, matching
 // that switch's own structure so a future model flip only needs a new case
 // here, not a rewrite.
+// C4.12 — Chen mode-field seed defaults, mirroring defaultInputsForModel's
+// Chen case exactly. The mode toggle seeds the newly-required field with these
+// when toggling into a mode whose field is currently absent (D1).
+const CHEN_DEFAULT_AVG_SERVICE_CAP_KM = 1000;
+const CHEN_DEFAULT_COVERAGE_FLOOR_DEMAND = 131645389;
+
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
     // C4.11 — Chen's Cosmetics (Chapter 4). Coverage mode by default, so
@@ -211,6 +217,19 @@ function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number 
 function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
   const raw = inputs?.distanceBands;
   return Array.isArray(raw) ? (raw as number[]) : [];
+}
+
+// C4.12 — Chen (chens-cosmetics-cn) objective mode + coverage params, all read
+// off the opaque inputs blob (the caller gates these on modelId so no sibling
+// model ever passes them into OptimizationParametersTab's Chen block).
+function objectiveFromInputs(inputs: Record<string, unknown> | null): "coverage" | "min_distance" | undefined {
+  const raw = inputs?.objective;
+  return raw === "coverage" || raw === "min_distance" ? raw : undefined;
+}
+
+function optionalNumberFromInputs(inputs: Record<string, unknown> | null, key: string): number | undefined {
+  const raw = inputs?.[key];
+  return typeof raw === "number" ? raw : undefined;
 }
 
 // A5.1 — transport-coal's mineCapacities/stationDemands persist as sparse
@@ -1442,6 +1461,49 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
   }
 
+  // C4.12 — Chen objective mode toggle (D1). Atomic (a single functional
+  // setLocalInputs) so the three coupled edits — set `objective`, SEED the
+  // newly-required mode field, and DELETE the other mode's field — land in one
+  // render. C4.6's chensInputsSchema is a discriminated union: the wrong-mode
+  // field must be ABSENT (not just ignored), so deleting is load-bearing, not
+  // cosmetic. Deleting (rather than nulling) keeps the persisted blob exactly
+  // the shape the Zod contract expects. Seeds the default only when the target
+  // field is currently absent — which it always is right after a toggle, since
+  // the opposite toggle deleted it.
+  function setChenObjectiveMode(mode: "coverage" | "min_distance") {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const next: Record<string, unknown> = { ...prev, objective: mode };
+      if (mode === "coverage") {
+        next.avgServiceDistCapKm =
+          typeof prev.avgServiceDistCapKm === "number" ? prev.avgServiceDistCapKm : CHEN_DEFAULT_AVG_SERVICE_CAP_KM;
+        delete next.coverageFloorDemand;
+      } else {
+        next.coverageFloorDemand =
+          typeof prev.coverageFloorDemand === "number" ? prev.coverageFloorDemand : CHEN_DEFAULT_COVERAGE_FLOOR_DEMAND;
+        delete next.avgServiceDistCapKm;
+      }
+      return next;
+    });
+  }
+
+  // C4.12 — editing Chen's high-service / max distance re-derives
+  // `distanceBands` to `[high, max]` in the SAME atomic update (D13/D19): Chen's
+  // bands are a derived two-class coverage lens, not a free-edited list (its
+  // band editor is hidden precisely because these two fields OWN the bands).
+  // Reads `prev` for the unchanged member of the pair so a single edit doesn't
+  // clobber the other threshold.
+  function updateChenServiceDistance(field: "highServiceDistKm" | "maxDistKm", value: number) {
+    setLocalInputs(prev => {
+      if (!prev) return prev;
+      const prevHigh = typeof prev.highServiceDistKm === "number" ? prev.highServiceDistKm : value;
+      const prevMax = typeof prev.maxDistKm === "number" ? prev.maxDistKm : value;
+      const high = field === "highServiceDistKm" ? value : prevHigh;
+      const max = field === "maxDistKm" ? value : prevMax;
+      return { ...prev, [field]: value, distanceBands: [high, max] };
+    });
+  }
+
   // B5.2/B6.2 — deleting an added warehouse/customer/refinery must ALSO
   // purge any distanceOverrides referencing its id, in the SAME localInputs
   // update (not two separate setLocalInputs calls, which would both read
@@ -2621,7 +2683,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // direct modelId check is deliberate here, not a gate to
           // generalize. undefined for every other model — OptimizationParametersTab
           // falls back to its own static default (50) unchanged.
-          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : undefined}
+          // C4.12/D27 — Chen (chens-cosmetics-cn) caps P at 25 (a static
+          // schema-level max, unlike JADE's dynamic active-warehouse count).
+          pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "chens-cosmetics-cn" ? 25 : undefined}
+          // C4.12 — Chen inputs UI (all gated on modelId so a sibling model
+          // never receives these; the tab's own Chen block is gated on
+          // `objective != null`). D13/D19: hide the free-edit band editor —
+          // Chen's bands are derived [high, max] from the two thresholds.
+          showBandEditor={modelId !== "chens-cosmetics-cn"}
+          objective={modelId === "chens-cosmetics-cn" ? objectiveFromInputs(localInputs) : undefined}
+          highServiceDistKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
+          maxDistKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
+          avgServiceDistCapKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
+          coverageFloorDemand={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
+          onObjectiveModeChange={setChenObjectiveMode}
+          onServiceDistanceChange={updateChenServiceDistance}
           onChange={(field, value) => updateInputsField(field, value)}
         />
       );
@@ -3123,6 +3199,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         open={solveDialogOpen}
         onOpenChange={setSolveDialogOpen}
         p={pFromInputs(localInputs)}
+        // C4.12/D27 — Chen caps P at 25 in the Solve dialog too (26 can't be
+        // authored from either surface). D13/D19 — Chen has no band editor
+        // here either (bands are derived [high, max]).
+        pMax={modelId === "chens-cosmetics-cn" ? 25 : undefined}
+        showBandEditor={modelId !== "chens-cosmetics-cn"}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // R5 — the DRAFT bands (localInputs), same as p/gap/timeLimitSec
