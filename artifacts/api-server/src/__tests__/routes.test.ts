@@ -61,6 +61,7 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
+import { CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
@@ -239,6 +240,38 @@ const jadeRow = {
   solvedAt: null,
   createdAt: new Date("2026-01-05T00:00:00Z"),
   updatedAt: new Date("2026-01-05T00:00:00Z"),
+};
+
+// C4.7 — chens-cosmetics-cn (Chapter 4). Coverage-mode inputs; distanceBands
+// seeded deliberately STALE (a third boundary 3000) so the D19 assertion can
+// prove the normalizer's chensInputsSchema reparse rewrites it to [high, max].
+const chensInputs = {
+  objective: "coverage",
+  p: 3,
+  highServiceDistKm: 600,
+  maxDistKm: 5000,
+  avgServiceDistCapKm: 1000,
+  gap: 0,
+  timeLimitSec: 60,
+  capacityMode: "none",
+  distanceBands: [600, 3000, 5000],
+  warehouseOverrides: [],
+  customerOverrides: [],
+  addedWarehouses: [],
+  addedCustomers: [],
+  distanceOverrides: [],
+};
+
+const chensRow = {
+  id: 13,
+  name: "Chen Base Case",
+  modelId: "chens-cosmetics-cn",
+  userId: OWNER,
+  inputs: chensInputs,
+  result: null,
+  solvedAt: null,
+  createdAt: new Date("2026-01-06T00:00:00Z"),
+  updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
 
 beforeEach(() => {
@@ -799,6 +832,102 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
     const outbound = setArgs.inputs.distanceOverrides.filter((o) => o.leg === "warehouse_to_customer" && o.fromId === addedId);
     expect(outbound.length).toBe(JADE_CUSTOMERS.length);
     expect(outbound.every((o) => o.estimated === true)).toBe(true);
+  });
+});
+
+// C4.7 (Chapter 4, chens-cosmetics-cn) — auto-estimate normalizer, sixth
+// writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
+// missing added-entity warehouse<->customer distances as RAW-km
+// `estimated: true` rows on all three persist paths (POST create, PATCH,
+// import/apply); the chensInputsSchema reparse also re-applies the D19
+// distanceBands=[high,max] transform.
+describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () => {
+  const newWarehouse = { id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" };
+
+  it("POST /api/scenarios: an added warehouse with no distanceOverrides gets estimated rows to every active customer, at raw km", async () => {
+    const cookie = await loginAs(OWNER);
+    const inputsWithAddedWarehouse = { ...chensInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...chensRow, inputs: inputsWithAddedWarehouse }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "New Chen", modelId: "chens-cosmetics-cn", inputs: inputsWithAddedWarehouse });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; toId: string; distance: number; estimated?: boolean }>; distanceBands: number[] };
+    };
+    const fromNew = insertArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
+    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+    // All values are raw km (positive), never 0.
+    expect(fromNew.every((o) => o.distance > 0)).toBe(true);
+    // D19 — the stale 3-boundary distanceBands seed is normalized to [high, max].
+    expect(insertArgs.inputs.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([chensRow]));
+    const newInputs = { ...chensInputs, addedWarehouses: [newWarehouse] };
+    const chain = makeChain([{ ...chensRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceOverrides: Array<{ fromId: string; estimated?: boolean }>; distanceBands: number[] };
+    };
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
+    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+  });
+
+  it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([chensRow]));
+    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    // Blank id is the ADD trigger; the display code goes in display_code and
+    // the persisted id is a server-minted `aw-` uid. Chen has no capacity, so
+    // the capacity column is left blank.
+    const addCsv = "template_version,id,display_code,city,state,lat,lng,capacity,status\n1,,WH-NEW1,Wuhan,Hubei,30.5928,114.3055,,active\n";
+    const res = await request(app).post("/api/scenarios/13/import/apply").set("Cookie", cookie)
+      .send({ entity: "warehouses", csvText: addCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: {
+        distanceOverrides: Array<{ fromId: string; estimated?: boolean }>;
+        addedWarehouses: Array<{ id: string; displayCode?: string }>;
+      };
+    };
+    const addedId = setArgs.inputs.addedWarehouses.find((w) => w.displayCode === "WH-NEW1")!.id;
+    expect(addedId).toMatch(/^aw-/);
+    const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === addedId);
+    expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
+    expect(fromNew.every((o) => o.estimated === true)).toBe(true);
+  });
+
+  // D19 (deferred from C4.6) — a `distances` import/apply that stages no band
+  // change at all still corrects a stale third distanceBands boundary, because
+  // the normalizer's chensInputsSchema reparse re-derives distanceBands from
+  // the two thresholds on every persist path.
+  it("POST /api/scenarios/:id/import/apply (distances): a stale third distanceBands boundary is rewritten to [high, max]", async () => {
+    const cookie = await loginAs(OWNER);
+    // chensRow.inputs.distanceBands is the stale [600, 3000, 5000].
+    mockDb.select.mockReturnValue(makeChain([chensRow]));
+    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,wh-15,cs-1,123.4\n";
+    const res = await request(app).post("/api/scenarios/13/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[]; distanceOverrides: Array<{ fromId: string; toId: string; distance: number }> };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    // The staged override was applied (base<->base pair, so it is a real
+    // override the estimator then leaves untouched).
+    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "wh-15" && o.toId === "cs-1");
+    expect(staged?.distance).toBe(123.4);
   });
 });
 

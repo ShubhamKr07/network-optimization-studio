@@ -55,11 +55,12 @@ import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
-import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances } from "../services/autoDistance.js";
+import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedChensDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
+import type { ChensInputs } from "../validation/inputs/chens.js";
 
 const router = Router();
 
@@ -294,6 +295,15 @@ function normalizeAddedEntityDistances(modelId: string, data: Record<string, unk
   // unaffected.
   if (modelId === "two-echelon-jade-us") {
     return fillEstimatedJadeDistances(data as unknown as JadeInputs) as unknown as Record<string, unknown>;
+  }
+  // C4.7 (Chapter 4) — chens-cosmetics-cn fills missing added-entity
+  // warehouse<->customer distances as `estimated` raw km (R=6371, no
+  // circuity) on every persist path (POST create, PATCH, import/apply). Its
+  // reparse through chensInputsSchema also re-applies the D19
+  // distanceBands=[high,max] transform, so a distances-import staging a stale
+  // third boundary is corrected here.
+  if (modelId === "chens-cosmetics-cn") {
+    return fillEstimatedChensDistances(data as unknown as ChensInputs) as unknown as Record<string, unknown>;
   }
   return data;
 }
