@@ -15,4 +15,5 @@ export const GetDatasetModelId = {
   'two-echelon-gold-au': 'two-echelon-gold-au',
   'p-median-brazil': 'p-median-brazil',
   'two-echelon-jade-us': 'two-echelon-jade-us',
+  'chens-cosmetics-cn': 'chens-cosmetics-cn',
 } as const;

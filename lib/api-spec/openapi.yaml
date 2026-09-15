@@ -44,7 +44,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us]
+            enum: [p-median-us, transport-coal, two-echelon-gold-au, p-median-brazil, two-echelon-jade-us, chens-cosmetics-cn]
             default: p-median-us
       responses:
         "200":
@@ -169,6 +169,7 @@ paths:
               - p-median-brazil
               - two-echelon-gold-au
               - two-echelon-jade-us
+              - chens-cosmetics-cn
               - max_coverage
               - p_center
               - set_cover
@@ -1033,6 +1034,7 @@ components:
             - p-median-brazil
             - two-echelon-gold-au
             - two-echelon-jade-us
+            - chens-cosmetics-cn
             - max_coverage
             - p_center
             - set_cover
@@ -1116,6 +1118,15 @@ components:
           type: ["number", "null"]
         weightedAvgDistanceMi:
           type: ["number", "null"]
+        objectiveMode:
+          type: ["string", "null"]
+          description: Additive-optional (C4.5). The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null. Producer lands in C4.10; kept optional here so this commit stays green.
+        weightedAvgDistance:
+          type: ["number", "null"]
+          description: Additive-optional (C4.5). Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi. Producer lands in C4.10.
+        distanceUnit:
+          type: string
+          description: Additive-optional (C4.5). Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest. Producer lands in C4.10.
         runTimeSec:
           type: ["number", "null"]
         queuedAt:
@@ -1170,6 +1181,7 @@ components:
             - p-median-brazil
             - two-echelon-gold-au
             - two-echelon-jade-us
+            - chens-cosmetics-cn
             - max_coverage
             - p_center
             - set_cover
@@ -1195,7 +1207,7 @@ components:
       properties:
         code:
           type: string
-          enum: [completeness, id_collision, reference_integrity]
+          enum: [completeness, id_collision, reference_integrity, p_range, capacity, zero_demand, no_feasible_route, coverage_floor_infeasible]
         message:
           type: string
 
@@ -1296,9 +1308,10 @@ components:
           type: integer
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, flows, plants, plantCapabilities]
+          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows, plants, plantCapabilities]
         rows:
           type: array
+          description: Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add.
           items:
             type: object
       required: [templateVersion, entity, rows]

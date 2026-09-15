@@ -17,6 +17,18 @@ export interface SolveHistoryEntry {
   objective: number | null;
   /** @nullable */
   weightedAvgDistanceMi: number | null;
+  /**
+     * Additive-optional (C4.5). The solve's objective mode (e.g. Chen's "coverage"/"min_distance") from result details, else null. Producer lands in C4.10; kept optional here so this commit stays green.
+     * @nullable
+     */
+  objectiveMode?: string | null;
+  /**
+     * Additive-optional (C4.5). Unit-agnostic weighted-average distance (companion to distanceUnit), superseding the mile-locked weightedAvgDistanceMi. Producer lands in C4.10.
+     * @nullable
+     */
+  weightedAvgDistance?: number | null;
+  /** Additive-optional (C4.5). Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest. Producer lands in C4.10. */
+  distanceUnit?: string;
   /** @nullable */
   runTimeSec: number | null;
   queuedAt: Date;
