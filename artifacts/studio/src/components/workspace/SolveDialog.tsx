@@ -58,6 +58,21 @@ interface SolveDialogProps {
    * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
    * defaults true, so every other model's Solve dialog is unchanged. */
   showBandEditor?: boolean;
+  // ── Chen's Cosmetics (chens-cosmetics-cn) objective mode toggle ──────────
+  // Mirrors OptimizationParametersTab's own Chen block (same props, same
+  // gate: presence of `objective`), but scoped down to just the toggle +
+  // the active mode's field — the two always-visible service-distance
+  // thresholds stay tab-only, this dialog doesn't need them to run a solve.
+  /** Coverage vs min-distance objective mode. Presence gates the section. */
+  objective?: "coverage" | "min_distance";
+  /** Coverage-mode-only cap (present when `objective === "coverage"`). */
+  avgServiceDistCapKm?: number;
+  /** Min-distance-mode-only floor (present when `objective === "min_distance"`). */
+  coverageFloorDemand?: number;
+  /** Atomic mode toggle — same `setChenObjectiveMode` handler Workspace.tsx
+   * passes to OptimizationParametersTab (single source of truth for the
+   * clear-other-field transition logic; this dialog never reimplements it). */
+  onObjectiveModeChange?: (mode: "coverage" | "min_distance") => void;
   /** Writes directly into Workspace.tsx's `localInputs` draft via
    * `updateInputsField` — the exact same callback shape
    * OptimizationParametersTab uses, so there is exactly one source of
@@ -86,6 +101,10 @@ export function SolveDialog({
   distanceBands,
   distanceUnit,
   showBandEditor = true,
+  objective,
+  avgServiceDistCapKm,
+  coverageFloorDemand,
+  onObjectiveModeChange,
   onChange,
   phase,
   errorMessage,
@@ -140,6 +159,76 @@ export function SolveDialog({
                 data-testid="solve-dialog-slider-p"
                 className="my-1"
               />
+            </div>
+          )}
+
+          {/* Chen's Cosmetics coverage/min-distance mode toggle — mirrors
+              OptimizationParametersTab's own Chen block, scoped to just the
+              toggle + the active mode's field. */}
+          {objective != null && (
+            <div className="space-y-2" data-testid="solve-dialog-chen-objective-section">
+              <Label className="text-xs font-semibold text-foreground">Objective</Label>
+              <div
+                className="inline-flex rounded border border-border overflow-hidden"
+                role="group"
+                aria-label="Objective mode"
+                data-testid="solve-dialog-chen-objective-toggle"
+              >
+                {(["coverage", "min_distance"] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    data-testid={`solve-dialog-chen-objective-${mode}`}
+                    aria-pressed={objective === mode}
+                    disabled={busy}
+                    onClick={() => onObjectiveModeChange?.(mode)}
+                    className={`text-xs px-3 py-1 transition-colors ${
+                      objective === mode
+                        ? "bg-primary text-white"
+                        : "bg-white text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {mode === "coverage" ? "Coverage" : "Min-distance"}
+                  </button>
+                ))}
+              </div>
+
+              {objective === "coverage" && (
+                <div>
+                  <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
+                    Avg service distance cap ({distanceUnit ?? "mi"})
+                  </Label>
+                  <Input
+                    id="solve-dialog-input-avg-service-cap"
+                    type="number"
+                    value={avgServiceDistCapKm ?? ""}
+                    disabled={busy}
+                    onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
+                    className="h-8 text-sm mt-1 font-mono"
+                    data-testid="solve-dialog-input-avg-service-cap"
+                  />
+                </div>
+              )}
+
+              {objective === "min_distance" && (
+                <div>
+                  <Label htmlFor="solve-dialog-input-coverage-floor" className="text-xs text-muted-foreground">
+                    Coverage floor (demand)
+                  </Label>
+                  <Input
+                    id="solve-dialog-input-coverage-floor"
+                    type="number"
+                    value={coverageFloorDemand ?? ""}
+                    disabled={busy}
+                    onChange={e => onChange("coverageFloorDemand", parseFloat(e.target.value) || 0)}
+                    className="h-8 text-sm mt-1 font-mono"
+                    data-testid="solve-dialog-input-coverage-floor"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1" data-testid="solve-dialog-coverage-floor-hint">
+                    &gt; total demand 199M = infeasible
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

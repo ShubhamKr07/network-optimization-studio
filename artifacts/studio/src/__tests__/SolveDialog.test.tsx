@@ -113,3 +113,72 @@ describe("SolveDialog — Chen pMax + no band editor (C4.12)", () => {
     expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
   });
 });
+
+// Chen objective-mode toggle in the Run Optimizer dialog — mirrors
+// OptimizationParametersTab's own Chen block. Gated on `objective != null`
+// (opt-in prop, default undefined), so every other model's dialog is
+// unaffected.
+describe("SolveDialog — Chen objective mode toggle", () => {
+  it("shows the toggle + active-mode field for a Chen scenario (coverage)", () => {
+    renderDialog({ objective: "coverage", avgServiceDistCapKm: 1000, distanceUnit: "km" });
+    expect(screen.getByTestId("solve-dialog-chen-objective-toggle")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
+  });
+
+  it("shows the coverage-floor field (with the infeasibility hint) in min-distance mode", () => {
+    renderDialog({ objective: "min_distance", coverageFloorDemand: 131645389, distanceUnit: "km" });
+    expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-coverage-floor-hint")).toHaveTextContent("> total demand 199M = infeasible");
+    expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
+  });
+
+  it("toggling Coverage → Min-distance calls the shared onObjectiveModeChange handler, which swaps the visible field and keeps only the active mode's field persisted", () => {
+    const onObjectiveModeChange = vi.fn();
+    // Simulates Workspace.tsx's real setChenObjectiveMode transition: it
+    // clears the previous mode's field and seeds the new one atomically —
+    // this test asserts the dialog calls the SAME handler (not a
+    // reimplementation) and re-renders correctly once the parent applies it.
+    const { rerender } = renderDialog({
+      objective: "coverage",
+      avgServiceDistCapKm: 1000,
+      distanceUnit: "km",
+      onObjectiveModeChange,
+    });
+
+    fireEvent.click(screen.getByTestId("solve-dialog-chen-objective-min_distance"));
+    expect(onObjectiveModeChange).toHaveBeenCalledWith("min_distance");
+    expect(onObjectiveModeChange).toHaveBeenCalledTimes(1);
+
+    // Re-render as Workspace.tsx would after applying setChenObjectiveMode's
+    // atomic update: objective flips, coverageFloorDemand is seeded,
+    // avgServiceDistCapKm is gone (undefined) — only the active field shows.
+    rerender(
+      <SolveDialog
+        open
+        onOpenChange={vi.fn()}
+        gap={0}
+        timeLimitSec={120}
+        distanceBands={[200, 400, 800]}
+        phase="idle"
+        onChange={vi.fn()}
+        onSolve={vi.fn()}
+        objective="min_distance"
+        coverageFloorDemand={131645389}
+        avgServiceDistCapKm={undefined}
+        distanceUnit="km"
+        onObjectiveModeChange={onObjectiveModeChange}
+      />,
+    );
+
+    expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
+  });
+
+  it("does not render the toggle for a non-Chen scenario (objective omitted)", () => {
+    renderDialog({ p: 3 });
+    expect(screen.queryByTestId("solve-dialog-chen-objective-toggle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
+  });
+});

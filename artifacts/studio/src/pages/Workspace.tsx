@@ -3238,6 +3238,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         // here either (bands are derived [high, max]).
         pMax={modelId === "chens-cosmetics-cn" ? 25 : undefined}
         showBandEditor={modelId !== "chens-cosmetics-cn"}
+        // Chen's coverage/min-distance mode toggle — same wiring as
+        // OptimizationParametersTab above (`setChenObjectiveMode` is the
+        // single shared transition handler; do not reimplement its
+        // clear-other-field logic here).
+        objective={modelId === "chens-cosmetics-cn" ? objectiveFromInputs(localInputs) : undefined}
+        avgServiceDistCapKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "avgServiceDistCapKm") : undefined}
+        coverageFloorDemand={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
+        onObjectiveModeChange={setChenObjectiveMode}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
         // R5 — the DRAFT bands (localInputs), same as p/gap/timeLimitSec
