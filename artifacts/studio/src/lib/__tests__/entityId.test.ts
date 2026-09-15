@@ -46,6 +46,17 @@ describe("nextDisplayCode", () => {
   it("uses the PL prefix for plants", () => {
     expect(nextDisplayCode("pl", "KY", "Ashland", [])).toBe("PL-KY-ASHLAND-01");
   });
+
+  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset with no state
+  // data; every row's `state` is "". Omits the state segment entirely
+  // instead of emitting a double dash.
+  it("omits the state segment (no double dash) when state is blank", () => {
+    expect(nextDisplayCode("wh", "", "Shanghai", [])).toBe("WH-SHANGHAI-01");
+  });
+
+  it("bumps sequence on collision even with a blank state", () => {
+    expect(nextDisplayCode("wh", "", "Shanghai", ["WH-SHANGHAI-01"])).toBe("WH-SHANGHAI-02");
+  });
 });
 
 describe("newUid", () => {

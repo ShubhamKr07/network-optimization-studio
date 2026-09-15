@@ -667,3 +667,87 @@ describe("CustomersTab — per-product demand (Chapter 9 JADE, T11)", () => {
     expect(nextAdded).toMatchObject({ demands: { "product-1": 40, "product-2": 25 }, demand: 65 });
   });
 });
+
+// Chen's Cosmetics (chens-cosmetics-cn) — a China dataset where every
+// customer row has `state: ""`. `hasStateColumn` is gated on DATA PRESENCE
+// by the caller (Workspace.tsx), not modelId — this component just respects
+// the prop.
+describe("CustomersTab — hasStateColumn (Chen's Cosmetics, no state data)", () => {
+  it("omitting hasStateColumn (default true) keeps the State column — unchanged behavior", () => {
+    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.getByText("State")).toBeInTheDocument();
+    expect(screen.getByText("NY")).toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false drops the State column header and cells from the base table", () => {
+    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} hasStateColumn={false} />);
+    expect(screen.queryByText("State")).not.toBeInTheDocument();
+    expect(screen.queryByText("NY")).not.toBeInTheDocument();
+    // City still renders.
+    expect(screen.getByText("New York")).toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false hides the State input in the add-row form", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+        hasStateColumn={false}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    expect(screen.queryByTestId("input-new-customer-state")).not.toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false: add-row succeeds with city+lat+lng+demand only (no state), state stored as empty string", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+        hasStateColumn={false}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-city"), "Shanghai");
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "121.47");
+    await userEvent.type(screen.getByTestId("input-new-customer-demand"), "500");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).toHaveBeenCalledTimes(1);
+    const [added] = onAddedCustomersChange.mock.calls[0][0];
+    expect(added).toMatchObject({ city: "Shanghai", state: "", lat: 31.23, lng: 121.47, demand: 500 });
+  });
+
+  it("hasStateColumn=false: leaving City blank still rejects the add-row (city-only requirement)", async () => {
+    const onAddedCustomersChange = vi.fn();
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        addedCustomers={[]}
+        onAddedCustomersChange={onAddedCustomersChange}
+        onDeleteCustomer={vi.fn()}
+        hasStateColumn={false}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    await userEvent.type(screen.getByTestId("input-new-customer-lat"), "31.23");
+    await userEvent.type(screen.getByTestId("input-new-customer-lng"), "121.47");
+    await userEvent.click(screen.getByTestId("button-add-customer-confirm"));
+
+    expect(onAddedCustomersChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-add-customer-error")).toHaveTextContent("City is required.");
+  });
+});

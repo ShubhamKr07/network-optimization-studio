@@ -96,4 +96,19 @@ describe("WarehouseTable", () => {
     await userEvent.click(screen.getByTestId("button-wh-CHI-active"));
     expect(onChange).toHaveBeenCalledWith([]);
   });
+
+  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset with no state
+  // data. `hasStateColumn` defaults true (unchanged for every other caller).
+  it("omitting hasStateColumn (default true) keeps the State column", () => {
+    render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} />);
+    expect(screen.getByText("State")).toBeInTheDocument();
+    expect(screen.getByText("IL")).toBeInTheDocument();
+  });
+
+  it("hasStateColumn=false drops the State column header and cells", () => {
+    render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} hasStateColumn={false} />);
+    expect(screen.queryByText("State")).not.toBeInTheDocument();
+    expect(screen.queryByText("IL")).not.toBeInTheDocument();
+    expect(screen.getByText("Chicago")).toBeInTheDocument();
+  });
 });

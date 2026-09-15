@@ -113,4 +113,19 @@ describe("CustomerTable", () => {
     expect(screen.getByTestId("input-customer-demand-ALN")).toHaveClass("font-mono");
     expect(screen.getByText("Allentown")).not.toHaveClass("font-mono");
   });
+
+  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset with no state
+  // data. `hasStateColumn` defaults true (unchanged for every other caller).
+  it("omitting hasStateColumn (default true) keeps the State column", () => {
+    render(<CustomerTable customers={customers.slice(0, 2)} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.getByText("State")).toBeInTheDocument();
+    expect(screen.getAllByText("XX").length).toBe(2);
+  });
+
+  it("hasStateColumn=false drops the State column header and cells", () => {
+    render(<CustomerTable customers={customers.slice(0, 2)} overrides={[]} onChange={vi.fn()} hasStateColumn={false} />);
+    expect(screen.queryByText("State")).not.toBeInTheDocument();
+    expect(screen.queryByText("XX")).not.toBeInTheDocument();
+    expect(screen.getByText("City1")).toBeInTheDocument();
+  });
 });

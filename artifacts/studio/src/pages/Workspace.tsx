@@ -1270,6 +1270,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   });
   const updateScenario = useUpdateScenario();
 
+  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset where every
+  // warehouse/customer row has `state: ""`. Gate WarehousesTab/CustomersTab's
+  // State column + the add-form's state-required check on DATA PRESENCE
+  // (does the resolved base dataset actually carry a non-blank state
+  // anywhere), not `modelId === "chens-cosmetics-cn"` — CLAUDE.md's
+  // most-recurring bug class is exactly a per-model gate a sibling model
+  // silently misses. Defaults true while `dataset` hasn't resolved yet
+  // (safer default — only hide once we've positively confirmed no state
+  // data).
+  const hasStateColumn = useMemo(() => {
+    if (!dataset) return true;
+    const rows = [...(dataset.warehouses ?? []), ...(dataset.customers ?? [])];
+    return rows.some(row => row.state?.trim());
+  }, [dataset]);
+
   // A3.1 — Output Map tab's countryBounds, sourced the same way Studio.tsx
   // sources activeModelManifest (Studio.tsx:225/239) — GET /api/models is
   // independent of GET /dataset with no ordering guarantee, so this can
@@ -2513,6 +2528,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           precheckErrors={precheck?.errors}
           prefillCoords={pendingPrefill}
           onPrefillConsumed={() => setPendingPrefill(null)}
+          hasStateColumn={hasStateColumn}
         />
       );
     }
@@ -2544,6 +2560,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           precheckErrors={precheck?.errors}
           prefillCoords={pendingPrefill}
           onPrefillConsumed={() => setPendingPrefill(null)}
+          hasStateColumn={hasStateColumn}
         />
       );
     }
@@ -2639,6 +2656,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onImportApplied={handleImportApplied}
           prefillCoords={pendingPrefill}
           onPrefillConsumed={() => setPendingPrefill(null)}
+          hasStateColumn={hasStateColumn}
           // T5 (Step 1b/2b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model here defaults true. Never applied to the "Added customers"

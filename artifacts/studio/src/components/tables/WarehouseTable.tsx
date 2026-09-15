@@ -12,6 +12,8 @@ interface WarehouseTableProps {
   overrides: WarehouseOverride[];
   capacityMode: "none" | "uniform" | "per_wh";
   onChange: (next: WarehouseOverride[]) => void;
+  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
+  hasStateColumn?: boolean;
 }
 
 const STATUSES = ["active", "forced_open", "inactive"] as const;
@@ -24,7 +26,7 @@ const STATUSES = ["active", "forced_open", "inactive"] as const;
 // can't drift between callers. The stored/API enum (and every `data-testid`,
 // which still uses the raw enum values below) is untouched.
 
-export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }: WarehouseTableProps) {
+export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, hasStateColumn = true }: WarehouseTableProps) {
   // Local draft text, keyed by warehouse id — decoupled from the committed
   // override so an in-progress keystroke isn't snapped back before the user
   // finishes typing (same rationale as CustomerTable's demand drafts).
@@ -51,7 +53,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
           <TableRow>
             <TableHead>ID</TableHead>
             <TableHead>City</TableHead>
-            <TableHead>State</TableHead>
+            {hasStateColumn && <TableHead>State</TableHead>}
             <TableHead>Latitude</TableHead>
             <TableHead>Longitude</TableHead>
             {warehouses.some(w => w.zip) && <TableHead>Zip</TableHead>}
@@ -67,7 +69,7 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange }
               <TableRow key={wh.id}>
                 <TableCell className="font-mono text-xs">{wh.id}</TableCell>
                 <TableCell className="text-xs">{wh.city}</TableCell>
-                <TableCell className="text-xs">{wh.state}</TableCell>
+                {hasStateColumn && <TableCell className="text-xs">{wh.state}</TableCell>}
                 <TableCell className="text-xs font-mono">{wh.lat.toFixed(4)}</TableCell>
                 <TableCell className="text-xs font-mono">{wh.lng.toFixed(4)}</TableCell>
                 {warehouses.some(w => w.zip) && <TableCell className="text-xs font-mono">{wh.zip ?? "—"}</TableCell>}

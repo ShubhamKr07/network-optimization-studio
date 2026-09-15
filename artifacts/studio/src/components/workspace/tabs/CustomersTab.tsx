@@ -99,6 +99,8 @@ interface CustomersTabProps {
    * tab's "gate on the actual wired capability" fix). */
   productOverrides?: CustomerProductOverride[];
   onProductOverridesChange?: (next: CustomerProductOverride[]) => void;
+  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-customers table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
+  hasStateColumn?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -125,6 +127,7 @@ export function CustomersTab({
   products = [],
   productOverrides = [],
   onProductOverridesChange,
+  hasStateColumn = true,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   // T11 — the actual switch: per-product mode only renders when the caller
@@ -286,8 +289,8 @@ export function CustomersTab({
     const lat = parseFloat(newLat);
     const lng = parseFloat(newLng);
 
-    if (!city || !state) {
-      setAddError("City and state are both required.");
+    if (!city || (hasStateColumn && !state)) {
+      setAddError(hasStateColumn ? "City and state are both required." : "City is required.");
       return;
     }
     // T9 (team-lead decision) — displayCode is now the user-facing,
@@ -427,7 +430,7 @@ export function CustomersTab({
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>City</TableHead>
-                <TableHead>State</TableHead>
+                {hasStateColumn && <TableHead>State</TableHead>}
                 <TableHead>Latitude</TableHead>
                 <TableHead>Longitude</TableHead>
                 {productMode
@@ -462,7 +465,7 @@ export function CustomersTab({
                       </div>
                     </TableCell>
                     <TableCell className="text-xs">{c.city}</TableCell>
-                    <TableCell className="text-xs">{c.state}</TableCell>
+                    {hasStateColumn && <TableCell className="text-xs">{c.state}</TableCell>}
                     <TableCell className="text-xs font-mono">{c.lat.toFixed(4)}</TableCell>
                     <TableCell className="text-xs font-mono">{c.lng.toFixed(4)}</TableCell>
                     {productMode ? (
@@ -525,14 +528,16 @@ export function CustomersTab({
             className="h-7 text-xs w-28"
             data-testid="input-new-customer-city"
           />
-          <Input
-            placeholder="State"
-            value={newState}
-            onChange={e => setNewState(e.target.value)}
-            onBlur={handleCityStateBlur}
-            className="h-7 text-xs w-16"
-            data-testid="input-new-customer-state"
-          />
+          {hasStateColumn && (
+            <Input
+              placeholder="State"
+              value={newState}
+              onChange={e => setNewState(e.target.value)}
+              onBlur={handleCityStateBlur}
+              className="h-7 text-xs w-16"
+              data-testid="input-new-customer-state"
+            />
+          )}
           <Input
             type="number"
             placeholder="Lat"
@@ -679,7 +684,7 @@ export function CustomersTab({
           </Table>
         </div>
       ) : (
-        <CustomerTable customers={customers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} />
+        <CustomerTable customers={customers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
       )}
       {addedSection}
       {importDialog}
