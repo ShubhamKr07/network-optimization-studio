@@ -9,6 +9,7 @@
     "migrate-scenario-inputs": "tsx ./src/migrate-scenario-inputs.ts",
     "strip-network-edits": "tsx ./src/strip-network-edits.ts",
     "harness:record": "tsx ./src/harness/record-task.ts",
+    "harness:permissions": "tsx ./src/harness/audit-permissions.ts",
     "smoke": "tsx ./src/deploy/smoke.ts",
     "harness:report": "tsx ./src/harness/report.ts",
     "docs:audit": "tsx ./src/harness/docs-audit.ts",

@@ -50,14 +50,19 @@ A measurement + self-correction layer that makes the dev process observable. Spe
 `.superpowers/sdd/` ledger (derives from it + git), never replaces it. Never fabricate a metric —
 underivable values are the literal `unknown`.
 
-**Metrics store** (`docs/superpowers/metrics/`, five append-only CSVs + README with the two rules):
+**Metrics store** (`docs/superpowers/metrics/`, six append-only CSVs + README with the two rules):
 `tasks` (one row per finished task), `failures` (per gate failure, taxonomy `cause`), `flake`,
-`deploys`, `docs-audit`. Weekly report → `reports/YYYY-WW.md`.
+`deploys`, `docs-audit`, `permissions` (per retro permission audit — grants classified
+risky/broad/ok + denials attributed to the task window). Weekly report → `reports/YYYY-WW.md`.
 
 **Commands** (TS under `scripts/src/harness/` + `scripts/src/deploy/`, `tsx`-run; shell at
 `scripts/harness/`; root `pnpm` aliases delegate):
 - `pnpm harness:record --task <id> …` — append a task row (derives timestamps/merged_sha; `tokens`
   always `unknown` — no job token source). Refuses duplicates without `--force`.
+- `pnpm harness:permissions --task <id>` — audit `.claude/settings.local.json` grants (classify
+  risky/broad/ok) + attribute runtime tool denials from the session transcript to the task window;
+  append a `permissions.csv` row. **Exits 3 (STOP-and-ask) on a risky grant or a recurring denial.**
+  Baseline for `allow_new` is gitignored scratch (`.harness/permissions/`). Run by `/harness-retro`.
 - `pnpm harness:report [--week YYYY-WW]` — write the weekly report (medians, flake top-5, deploy
   rollup, failure causes + 2nd-occurrence flags, `## Documentation`).
 - `pnpm smoke --env production|preview` — 7 post-deploy checks from outside Render
