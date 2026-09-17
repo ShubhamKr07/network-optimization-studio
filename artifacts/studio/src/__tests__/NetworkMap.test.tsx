@@ -998,7 +998,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     lat: 41, lng: -91,
     customerCity: "Sampleburg", customerState: "SB",
     warehouseCity: "Testville", warehouseState: "TS",
-    distanceMi: 1234, band: 0,
+    distanceMi: 1234, band: 0, bandLabelText: "Band 1",
   };
 
   it("buildCustomerPopupHtml renders the distance in mi by default", () => {
