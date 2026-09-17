@@ -111,4 +111,41 @@ describe("WarehouseTable", () => {
     expect(screen.queryByText("IL")).not.toBeInTheDocument();
     expect(screen.getByText("Chicago")).toBeInTheDocument();
   });
+
+  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu.
+  describe("enableFilters (B6)", () => {
+    const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
+      id: `WH${i}`,
+      city: `City${i}`,
+      state: "IL",
+      lat: 41 + i * 0.01,
+      lng: -87 - i * 0.01,
+    }));
+
+    it("defaults to false: no FilterMenu even with >10 rows", () => {
+      render(<WarehouseTable warehouses={manyWarehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("enableFilters=true with <=10 rows: FilterMenu stays hidden (runtime threshold)", () => {
+      render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} enableFilters />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("enableFilters=true with >10 rows: FilterMenu is shown", () => {
+      render(<WarehouseTable warehouses={manyWarehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} enableFilters />);
+      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    });
+
+    it("filtering by ID (text) narrows the rendered rows", async () => {
+      render(<WarehouseTable warehouses={manyWarehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} enableFilters />);
+      await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      await userEvent.type(screen.getByTestId("input-filter-id"), "WH1");
+      // "WH1" matches WH1, WH10, WH11 (substring match).
+      expect(screen.getByText("City1")).toBeInTheDocument();
+      expect(screen.getByText("City10")).toBeInTheDocument();
+      expect(screen.getByText("City11")).toBeInTheDocument();
+      expect(screen.queryByText("City2")).not.toBeInTheDocument();
+    });
+  });
 });

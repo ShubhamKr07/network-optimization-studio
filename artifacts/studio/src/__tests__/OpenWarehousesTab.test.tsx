@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import * as exportEntity from "@/lib/exportEntity";
@@ -212,5 +213,54 @@ describe("OpenWarehousesTab", () => {
     render(<OpenWarehousesTab result={result} scenarioId={1} displayedInputs={savedSnapshot} />);
     expect(screen.getByText("Utilization")).toBeInTheDocument();
     expect(screen.getByTestId("open-warehouse-row-ALN")).toHaveTextContent("41%");
+  });
+
+  // B6 (spec §8) — audit confirmation. JADE's uncapacitated
+  // (`capacityModes: []`) shape already renders "Demand Served" with no "%"
+  // (covered above); this asserts no '10,000,000' literal anywhere either.
+  it("JADE-shaped result (capacityModes: []) shows no '10,000,000' text anywhere", () => {
+    const jadeResult = {
+      status: "optimal" as const, objective: 254060828.6157, runTimeSec: 1.2, quality: "Proven optimal",
+      edges: [{ fromId: "wh-11", toId: "customer-1", flow: 500, distance: 42.1, leg: "warehouse_to_customer" as const }],
+      metrics: {},
+      details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+    render(<OpenWarehousesTab result={jadeResult} scenarioId={1} displayedInputs={{ capacityModes: [] }} />);
+    expect(screen.queryByText(/10,000,000/)).not.toBeInTheDocument();
+  });
+
+  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu.
+  describe("enableFilters (B6)", () => {
+    const manyWarehousesResult = {
+      status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+      edges: Array.from({ length: 11 }, (_, i) => ({ fromId: `WH${i}`, toId: `C${i}`, flow: 10, distance: 1 })),
+      metrics: {},
+      details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    };
+
+    it("defaults to false: no FilterMenu even with >10 rows (other-model behavior unchanged)", () => {
+      render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("enableFilters=true with <=10 rows: FilterMenu stays hidden", () => {
+      render(<OpenWarehousesTab result={result} scenarioId={1} enableFilters />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("enableFilters=true with >10 rows: FilterMenu is shown", () => {
+      render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} enableFilters />);
+      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    });
+
+    it("filtering by Warehouse (text) narrows the rendered rows", async () => {
+      render(<OpenWarehousesTab result={manyWarehousesResult} scenarioId={1} enableFilters />);
+      await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      await userEvent.type(screen.getByTestId("input-filter-warehouse"), "WH1");
+      // "WH1" matches WH1 and WH10 (substring match).
+      expect(screen.getByTestId("open-warehouse-row-WH1")).toBeInTheDocument();
+      expect(screen.getByTestId("open-warehouse-row-WH10")).toBeInTheDocument();
+      expect(screen.queryByTestId("open-warehouse-row-WH2")).not.toBeInTheDocument();
+    });
   });
 });

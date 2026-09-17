@@ -1,6 +1,9 @@
+import { useMemo } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatCityState } from "@/lib/formatLocation";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 
 // B2.2-T6 — a read-only SNAPSHOT of the fields this tab needs from
 // Scenario.inputs, passed by Workspace.tsx (T9 wires the real call site;
@@ -41,6 +44,16 @@ interface OpenWarehousesTabProps {
    * the id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
    * Absent for every other model (undefined) -> unchanged id-only rendering. */
   locationById?: Record<string, { city: string; state: string }>;
+  /** B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu. Defaults
+   * `false`: every existing caller (every non-JADE model) is completely
+   * unaffected — the underlying `useTableFilters` hook is still called
+   * unconditionally (rules of hooks — this component has an early-return
+   * branch, so `rows`/the hook must be computed BEFORE it), but with no
+   * FilterMenu ever mounted its filter state can never become non-empty, and
+   * `displayRows` explicitly falls back to the unfiltered `rows` array when
+   * this is `false`. Only the JADE Workspace path passes `true` (wired by
+   * INT). */
+  enableFilters?: boolean;
 }
 
 interface OpenWarehouseRow {
@@ -93,11 +106,12 @@ function displayCodeById(displayedInputs: OpenWarehousesDisplayedInputs | null |
   return map;
 }
 
-export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById }: OpenWarehousesTabProps) {
-  if (!result) {
-    return <div className="p-4 text-sm text-muted-foreground" data-testid="open-warehouses-empty">No solved result yet.</div>;
-  }
-  const rows = openWarehouseRows(result);
+export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById, enableFilters = false }: OpenWarehousesTabProps) {
+  // B6 (spec §10) — `rows`/the filter hook must be computed BEFORE the
+  // early-return below (rules of hooks: no conditional hook calls). `!result`
+  // degrades to an empty rows array here; the early return still fires
+  // exactly as before, just after these otherwise-inert computations.
+  const rows = result ? openWarehouseRows(result) : [];
   // jade-T14 — an explicit EMPTY `capacityModes` array (JADE's uncapacitated,
   // demand-served-in-tons model, manifest `capacityModes: []`) means "show
   // Demand Served, never a %"; `capacityModes` absent (every pre-existing
@@ -109,18 +123,60 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
   const showUtilization = !showDemandServed && displayedInputs?.capacityMode !== "none";
   const codeById = displayCodeById(displayedInputs);
 
+  const filterDescriptors = useMemo<ColumnFilterDescriptor<OpenWarehouseRow>[]>(() => {
+    const descriptors: ColumnFilterDescriptor<OpenWarehouseRow>[] = [
+      {
+        key: "warehouse",
+        label: "Warehouse",
+        type: "text",
+        accessor: r => {
+          const loc = locationById?.[r.warehouseId];
+          const code = codeById[r.warehouseId] ?? r.warehouseId;
+          return loc ? `${formatCityState(loc.city, loc.state)} ${code}` : code;
+        },
+      },
+      {
+        key: "flow",
+        label: showDemandServed ? "Demand Served" : "Total Flow",
+        type: "number",
+        accessor: r => r.totalFlow,
+      },
+    ];
+    if (showUtilization) {
+      descriptors.push({
+        key: "utilization",
+        label: "Utilization",
+        type: "number",
+        accessor: r => r.utilization ?? undefined,
+      });
+    }
+    return descriptors;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationById, codeById, showDemandServed, showUtilization]);
+  const tableFilters = useTableFilters(rows, filterDescriptors);
+  const displayRows = enableFilters ? tableFilters.filteredRows : rows;
+
+  if (!result) {
+    return <div className="p-4 text-sm text-muted-foreground" data-testid="open-warehouses-empty">No solved result yet.</div>;
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between p-2 border-b flex-shrink-0">
         <span className="text-sm font-medium">Open Warehouses</span>
-        <button
-          type="button"
-          data-testid="button-download-open-warehouses-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted"
-          onClick={() => downloadEntityExport(scenarioId, "openWarehouses", "csv")}
-        >
-          Download CSV
-        </button>
+        <div className="flex items-center gap-1.5">
+          {enableFilters && tableFilters.totalCount > 10 && (
+            <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />
+          )}
+          <button
+            type="button"
+            data-testid="button-download-open-warehouses-csv"
+            className="text-xs border rounded px-2 py-1 hover:bg-muted"
+            onClick={() => downloadEntityExport(scenarioId, "openWarehouses", "csv")}
+          >
+            Download CSV
+          </button>
+        </div>
       </div>
       <div className="overflow-auto flex-1">
         <table className="w-full text-sm">
@@ -132,7 +188,7 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => {
+            {displayRows.map(r => {
               const loc = locationById?.[r.warehouseId];
               return (
               <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">

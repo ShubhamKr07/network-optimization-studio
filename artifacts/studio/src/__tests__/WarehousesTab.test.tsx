@@ -76,6 +76,43 @@ describe("WarehousesTab", () => {
     render(<WarehousesTab warehouses={[]} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
     expect(screen.getByTestId("warehouses-tab-empty")).toBeInTheDocument();
   });
+
+  // B6 (spec §8) — audit confirmation. JADE's manifest declares
+  // `capacityModes: []` (uncapacitated warehouses) — Workspace.tsx passes
+  // capacityMode="none" for it, same as this test's default arg.
+  it("JADE-shaped call (capacityMode='none') shows no Capacity column and no '10,000,000' text anywhere", () => {
+    render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+    expect(screen.queryByText("Capacity")).not.toBeInTheDocument();
+    expect(screen.queryByText(/10,000,000/)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("spinbutton").length).toBe(0);
+  });
+
+  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu, threaded
+  // through to the underlying WarehouseTable.
+  describe("enableFilters (B6)", () => {
+    const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
+      id: `WH${i}`,
+      city: `City${i}`,
+      state: "IL",
+      lat: 41 + i * 0.01,
+      lng: -87 - i * 0.01,
+    }));
+
+    it("defaults to false: no FilterMenu even with >10 rows (other-model behavior unchanged)", () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("enableFilters=true with <=10 rows: FilterMenu stays hidden", () => {
+      render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("enableFilters=true with >10 rows: FilterMenu is shown", () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
+      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    });
+  });
 });
 
 // T11 (Chapter 9 JADE) — JADE has no per-warehouse capacity concept

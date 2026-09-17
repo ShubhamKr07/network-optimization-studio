@@ -86,6 +86,13 @@ interface WarehousesTabProps {
   onPrefillConsumed?: () => void;
   /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-warehouses table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
   hasStateColumn?: boolean;
+  /** B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu on the
+   * base `WarehouseTable`. Defaults `false`: every existing caller (every
+   * non-JADE model, including two-echelon-gold-au's Refineries reuse) is
+   * completely unaffected. Only the JADE Workspace path passes `true`
+   * (wired by INT). Threaded straight through to `WarehouseTable`, which
+   * owns the actual runtime `>10 rendered rows` visibility rule. */
+  enableFilters?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -116,6 +123,7 @@ export function WarehousesTab({
   prefillCoords,
   onPrefillConsumed,
   hasStateColumn = true,
+  enableFilters = false,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
@@ -515,7 +523,14 @@ export function WarehousesTab({
   return (
     <div data-testid={`${entity}-tab`}>
       {toolbar}
-      <WarehouseTable warehouses={candidates} overrides={overrides} capacityMode={capacityMode} onChange={onChange} hasStateColumn={hasStateColumn} />
+      <WarehouseTable
+        warehouses={candidates}
+        overrides={overrides}
+        capacityMode={capacityMode}
+        onChange={onChange}
+        hasStateColumn={hasStateColumn}
+        enableFilters={enableFilters}
+      />
       {addedSection}
       {importDialog}
     </div>

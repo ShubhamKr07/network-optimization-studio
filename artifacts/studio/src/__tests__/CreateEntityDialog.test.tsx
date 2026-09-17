@@ -174,6 +174,19 @@ describe("CreateEntityDialog", () => {
       renderDialog({ role: MINE_ROLE });
       expect(screen.getByTestId("create-entity-capacity")).toBeInTheDocument();
     });
+
+    // B6 (JADE Ch.9 Workspace Bundle, spec §8) — audit confirmation. JADE's
+    // manifest declares `capacityModes: []` (warehouses stay uncapacitated,
+    // §8) and Workspace.tsx passes capacityMode="none" for its Warehouses
+    // input map — the default WAREHOUSE_ROLE + capacityMode="none" call
+    // shape a real JADE "New warehouse" dialog renders with. No capacity
+    // control, and no 10,000,000 (the solve.py Big-M constant, D1, never a
+    // UI-visible value) anywhere on screen.
+    it("JADE-shaped call (default role, capacityMode='none') shows no Capacity control and no '10,000,000' text anywhere", () => {
+      renderDialog({ capacityMode: "none" });
+      expect(screen.queryByTestId("create-entity-capacity")).not.toBeInTheDocument();
+      expect(screen.queryByText(/10,000,000/)).not.toBeInTheDocument();
+    });
   });
 
   // T8 (Bundle 2.2, A3) — a newly-created customer is always "added", so the
