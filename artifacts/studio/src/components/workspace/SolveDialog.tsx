@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { JadeBandEditor } from "@/components/workspace/tabs/JadeBandEditor";
+import { useElapsed, type ElapsedJobStatus } from "@/lib/useElapsed";
 
 /**
  * `"idle"` — dialog just opened / previous run finished cleanly.
@@ -27,6 +29,13 @@ export type SolveDialogPhase = "idle" | "saving" | "solving" | "failed";
 interface SolveDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** jade B9 — active model id. Only "two-echelon-jade-us" (JADE, Ch.9)
+   * renders the fixed-4-slot, fully-validated `JadeBandEditor` in place of
+   * the chip editor below — mirrors OptimizationParametersTab's (B8) own
+   * `modelId`-gated branch exactly, so the two surfaces can never diverge on
+   * which editor a given model gets. Every other modelId (including
+   * undefined) is unaffected. */
+  modelId?: string;
   /** Same `localInputs` draft A1.2's Optimization Parameters tab reads/writes
    * (Workspace.tsx passes both these values and `onChange` through
    * unchanged) — undefined for models with no P concept, mirroring that
@@ -58,6 +67,30 @@ interface SolveDialogProps {
    * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
    * defaults true, so every other model's Solve dialog is unchanged. */
   showBandEditor?: boolean;
+  /** jade B9 — fires on every validity transition of the JADE fixed-4 band
+   * editor (mirrors OptimizationParametersTab's identically-named prop, B8).
+   * This dialog does NOT and CANNOT disable its own Run button from this
+   * signal — that gate lives in Workspace.tsx/INT, which observes validity
+   * centrally and guards every save/solve entry point (Save, save-before-
+   * solve, and this dialog's Run). No-op for every non-JADE model (the chip
+   * editor never calls this). */
+  onDistanceBandsValidityChange?: (isValid: boolean) => void;
+  // ── jade B9 — running solve clock (spec §9) ───────────────────────────────
+  // All four OPTIONAL, default undefined: with none supplied the dialog
+  // renders nothing timing-related (every existing caller is unaffected).
+  // INT threads the real polled `GET solve-job` timestamps/status through.
+  /** When the current job was enqueued. */
+  queuedAt?: Date | string | number | null;
+  /** When the solver actually started running (null while still queued). */
+  startedAt?: Date | string | number | null;
+  /** When the job reached a terminal state (null while queued/running). */
+  finishedAt?: Date | string | number | null;
+  /** The polled job's own lifecycle status — distinct from this dialog's
+   * `phase` below (which also covers the save-before-solve step). An
+   * infeasible result still arrives as `"succeeded"` (the solver never
+   * throws) — "terminal" here is a job-lifecycle concept, not an
+   * optimal/infeasible one. */
+  jobStatus?: ElapsedJobStatus;
   // ── Chen's Cosmetics (chens-cosmetics-cn) objective mode toggle ──────────
   // Mirrors OptimizationParametersTab's own Chen block (same props, same
   // gate: presence of `objective`), but scoped down to just the toggle +
@@ -94,6 +127,7 @@ interface SolveDialogProps {
 export function SolveDialog({
   open,
   onOpenChange,
+  modelId,
   p,
   pMax = 50,
   gap,
@@ -101,6 +135,11 @@ export function SolveDialog({
   distanceBands,
   distanceUnit,
   showBandEditor = true,
+  onDistanceBandsValidityChange,
+  queuedAt,
+  startedAt,
+  finishedAt,
+  jobStatus,
   objective,
   avgServiceDistCapKm,
   coverageFloorDemand,
@@ -113,6 +152,12 @@ export function SolveDialog({
   const busy = phase === "saving" || phase === "solving";
   const [addingBand, setAddingBand] = useState(false);
   const [newBandValue, setNewBandValue] = useState("");
+  const isJade = modelId === "two-echelon-jade-us";
+
+  // jade B9 — live solve clock (spec §9). All four inputs are optional and
+  // default to undefined; with none supplied `elapsed.label` is null and
+  // nothing timing-related renders (every existing caller is unaffected).
+  const elapsed = useElapsed({ queuedAt, startedAt, finishedAt, status: jobStatus });
 
   // R5 — same add/remove logic as OptimizationParametersTab's own bands
   // editor (dedupe, sort ascending), writing through the shared `onChange`
@@ -264,13 +309,31 @@ export function SolveDialog({
             </div>
           </div>
 
+          {/* jade B9 — for modelId==="two-echelon-jade-us", the fixed-4-slot,
+              fully-validated JadeBandEditor replaces the chip editor below —
+              mirrors OptimizationParametersTab's (B8) own modelId-gated
+              branch exactly, so the two surfaces can never diverge on which
+              editor a given model gets. It never publishes an invalid set;
+              validity surfaces up via onDistanceBandsValidityChange for
+              Workspace.tsx/INT to gate Save/Run on — this dialog's own Run
+              button is NOT disabled here. */}
+          {showBandEditor && isJade && (
+            <JadeBandEditor
+              bands={distanceBands}
+              onChange={next => onChange("distanceBands", next)}
+              onValidityChange={onDistanceBandsValidityChange}
+              distanceUnit={distanceUnit}
+            />
+          )}
+
           {/* R5 — distance-band range editor, prefilled from the scenario's
               current `inputs.distanceBands` and two-way synced with the same
               draft `onChange` as p/gap/timeLimitSec above. Mirrors
               OptimizationParametersTab's own bands chip editor exactly (same
               add/dedupe/sort/remove behavior) so the two surfaces can never
-              show conflicting values for the same field. */}
-          {showBandEditor && (
+              show conflicting values for the same field. Every non-JADE
+              model keeps this editor unchanged. */}
+          {showBandEditor && !isJade && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-foreground">
@@ -358,6 +421,22 @@ export function SolveDialog({
               <Loader2 className="w-4 h-4 animate-spin" />
               {phase === "saving" ? "Saving changes…" : "Solving…"}
             </div>
+          )}
+
+          {/* jade B9 — live solve clock (spec §9). Renders whenever a
+              `queuedAt` was supplied, regardless of `phase` — so the frozen
+              total is still visible on a `"failed"` job (the dialog stays
+              open showing the error, per spec §9's terminal-time
+              visibility note), not just while `busy`. Nothing renders when
+              no timing props were supplied (elapsed.label is null). */}
+          {elapsed.label && (
+            <p
+              className="text-xs font-mono text-muted-foreground"
+              data-testid="solve-dialog-elapsed"
+              aria-live="polite"
+            >
+              {elapsed.label}
+            </p>
           )}
 
           {phase === "failed" && errorMessage && (
