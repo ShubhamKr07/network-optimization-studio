@@ -22,6 +22,7 @@ import {
   type Scenario,
   type SolveResult,
   type Plant,
+  type SolveJob,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,12 +48,14 @@ import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { InputMapTab, type TransportMapInputs, type TwoEchelonMapInputs, type JadeMapInputs } from "@/components/workspace/tabs/InputMapTab";
-import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
+import { OutputMapTab, type SolveTiming } from "@/components/workspace/tabs/OutputMapTab";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 import { ServiceStatsTab } from "@/components/workspace/tabs/ServiceStatsTab";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
+import { JadeAssignmentsTab } from "@/components/workspace/tabs/JadeAssignmentsTab";
+import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import { PlantsTab, type AddedPlant } from "@/components/workspace/tabs/PlantsTab";
 import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
@@ -217,6 +220,23 @@ function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number 
 function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
   const raw = inputs?.distanceBands;
   return Array.isArray(raw) ? (raw as number[]) : [];
+}
+
+// jade-INT (#1, spec §2 "One band field; a bands-only save is non-geometric")
+// — key-level diff between two `inputs` snapshots, same JSON.stringify
+// per-key comparison `isDirty` already uses for the whole-object case.
+// handleSaveInputs uses this to detect a SAVE whose only changed key is
+// `distanceBands`, so it can sync the displayed history entry in place
+// (see the result-history append effect's own comment on why a bands-only
+// save would otherwise silently revert on step-away/step-back).
+function diffInputKeys(prev: Record<string, unknown> | null, next: Record<string, unknown>): string[] {
+  const prevObj = prev ?? {};
+  const keys = new Set([...Object.keys(prevObj), ...Object.keys(next)]);
+  const changed: string[] = [];
+  for (const k of keys) {
+    if (JSON.stringify(prevObj[k]) !== JSON.stringify(next[k])) changed.push(k);
+  }
+  return changed;
 }
 
 // C4.12 — Chen (chens-cosmetics-cn) objective mode + coverage params, all read
@@ -1244,6 +1264,13 @@ interface WorkspaceProps {
 interface ResultHistoryEntry {
   result: SolveResult;
   inputs: Record<string, unknown>;
+  // jade-INT (#8, spec §9 "terminal-time visibility") — frozen solve timing
+  // for the job that produced THIS entry's result, attached at append time
+  // (see the append effect below). Absent for the scenario's own
+  // already-persisted result on first load/scenario-switch (session-local,
+  // per spec's own "after reload, suppressed" resolution) and for any entry
+  // a bands-only save resynced in place (that path never touches timing).
+  timing?: SolveTiming;
 }
 
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
@@ -1408,6 +1435,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   });
   const historyScenarioIdRef = useRef<number | null | undefined>(undefined);
 
+  // jade-INT (#8, spec §9 R-plan-3 "timing handoff race") — job success
+  // (the poll effect below) is observed BEFORE the scenario refetch it
+  // triggers lands a genuinely new `.result` and this append effect fires.
+  // So the derived SolveTiming for a just-succeeded job is retained here,
+  // keyed by {scenarioId, jobId}, and consumed by the append effect below
+  // the FIRST time it appends a new entry for that same scenario — never
+  // attached to the currently-displayed (older) entry.
+  const retainedTimingRef = useRef<{ scenarioId: number; jobId: number; timing: SolveTiming } | null>(null);
+
   useEffect(() => {
     if (!currentScenario) return;
     if (historyScenarioIdRef.current !== currentScenario.id) {
@@ -1436,12 +1472,33 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // re-renders.
     const latest = currentScenario.result;
     if (!latest) return;
+    // jade-INT (#8) — pre-check against the OUTER resultHistoryState (this
+    // render's closure, already up to date from the previous run of this
+    // same effect) so the retained-timing lookup/clear below only happens
+    // when this really is a genuinely new result, not a duplicate
+    // background-refetch re-render — mirrors the double-guard the updater
+    // below already applies against `prev`.
+    const newestExisting = resultHistoryState.items[resultHistoryState.items.length - 1];
+    const willAppend = !newestExisting || newestExisting.result !== latest;
+    const retained = retainedTimingRef.current;
+    const timingForThisAppend =
+      willAppend && retained && retained.scenarioId === currentScenario.id ? retained.timing : undefined;
     setResultHistoryState(prev => {
       const newest = prev.items[prev.items.length - 1];
       if (newest && newest.result === latest) return prev;
-      const entry: ResultHistoryEntry = { result: latest, inputs: currentScenario.inputs as Record<string, unknown> };
+      const entry: ResultHistoryEntry = {
+        result: latest,
+        inputs: currentScenario.inputs as Record<string, unknown>,
+        timing: timingForThisAppend,
+      };
       return { items: [...prev.items, entry], index: prev.items.length };
     });
+    if (timingForThisAppend) {
+      // Consumed — never re-attach the same retained timing to a LATER
+      // append (e.g. an unrelated result change for the same scenario that
+      // isn't this job's own success).
+      retainedTimingRef.current = null;
+    }
   }, [currentScenario?.result, currentScenario?.id]);
 
   // Stepping through history also restores the exact inputs that produced
@@ -1503,6 +1560,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     resultHistoryState.index >= 0
       ? (resultHistoryState.items[resultHistoryState.index]?.inputs ?? null)
       : ((currentScenario?.inputs as Record<string, unknown> | undefined) ?? null);
+
+  // jade-INT (#8, spec §9) — the DISPLAYED history entry's own frozen solve
+  // timing (undefined for the scenario's already-persisted result on first
+  // load/scenario-switch, and for any entry stepped to before this session
+  // ever solved it) — passed to the Output Map overlay, which suppresses
+  // the timing line entirely when this is undefined rather than showing a
+  // mismatched value.
+  const displayedTiming: SolveTiming | undefined =
+    resultHistoryState.index >= 0 ? resultHistoryState.items[resultHistoryState.index]?.timing : undefined;
 
   const isDirty =
     localInputs != null &&
@@ -1636,6 +1702,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   function handleSaveInputs() {
     if (!currentScenario || !localInputs || !isDirty) return;
+    // jade-INT (#1, spec §2 R6-1/R-plan-2) — guard the Save entry point too
+    // (never PATCH an invalid JADE band draft; the editor itself never
+    // publishes one, but this stays a real guard rather than relying on
+    // that alone, matching handleSolve's own guard).
+    if (!jadeBandsValid) return;
     const scenarioId = currentScenario.id;
     const inputs = localInputs;
     // T8 — pre-save snapshot, diffed post-save against the response's own
@@ -1649,6 +1720,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // (laneCostOverridesFromInputs on a non-transport `inputs` blob is
     // always []).
     const preSaveLaneCostOverrides = laneCostOverridesFromInputs(inputs);
+    // jade-INT (#1, spec §2 "One band field; a bands-only save is
+    // non-geometric" + "sync the history entry on a bands-only save") — is
+    // `distanceBands` the SOLE changed key relative to what's currently
+    // saved? If so, this save is non-geometric (the backend, A4, already
+    // skips the stale bump for exactly this case) and the CURRENTLY
+    // DISPLAYED history entry's own `inputs.distanceBands` would otherwise
+    // go stale the moment a step-away/step-back restores its pre-save
+    // snapshot (see the result-history stepper's own comment on this exact
+    // failure mode). Diffed against `savedInputsRef.current` — the
+    // last-known-saved snapshot BEFORE this save, i.e. what the server
+    // itself will diff against.
+    const isBandsOnlyChange = (() => {
+      const changed = diffInputKeys(savedInputsRef.current, inputs);
+      return changed.length === 1 && changed[0] === "distanceBands";
+    })();
+    const displayedHistoryIndexAtSaveTime = resultHistoryState.index;
     updateScenario.mutate(
       { scenarioId, data: { inputs } },
       {
@@ -1676,6 +1763,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           reportEstimatedDistanceWatches(scenarioId, preSaveDistanceOverrides, distanceOverridesFromInputs(updated.inputs));
           // T6 (Bundle 2) — transport-coal's own "N lane costs estimated" watch.
           reportEstimatedLaneCostWatches(scenarioId, preSaveLaneCostOverrides, laneCostOverridesFromInputs(updated.inputs));
+          // jade-INT (#1) — sync the DISPLAYED history entry's bands in
+          // place so stepping away and back preserves the save (the entry's
+          // `.result` is untouched — this is a non-geometric edit).
+          if (isBandsOnlyChange) {
+            const savedBands = distanceBandsFromInputs(updated.inputs);
+            setResultHistoryState(prev => {
+              const idx = displayedHistoryIndexAtSaveTime;
+              if (idx < 0 || !prev.items[idx]) return prev;
+              const items = prev.items.slice();
+              items[idx] = { ...items[idx], inputs: { ...items[idx].inputs, distanceBands: savedBands } };
+              return { ...prev, items };
+            });
+          }
         },
       },
     );
@@ -2223,9 +2323,28 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [solveError, setSolveError] = useState<string | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
 
+  // jade-INT (#1, spec §2 R6-1/R-plan-2) — JADE fixed-4 band-editor
+  // validity, mirrored from whichever surface (OptimizationParametersTab or
+  // SolveDialog) currently has the editor mounted. Defaults true so every
+  // non-JADE model (whose editors never call onDistanceBandsValidityChange)
+  // is completely unaffected. Neither editor can disable Save/Run itself —
+  // this is the single piece of centralized state every save/solve entry
+  // point below gates on.
+  const [jadeBandsValid, setJadeBandsValid] = useState(true);
+
+  // jade-INT (#8, spec §9) — a persisted mirror of the last polled solve-job
+  // snapshot, threaded into SolveDialog's live clock. Needed because
+  // useGetSolveJob's cached `data` disappears the instant `pollingJobId`
+  // resets to null (a DIFFERENT queryKey, never fetched) — which happens on
+  // BOTH success and failure, including the failure case where the dialog
+  // is required to keep showing the frozen total (spec §9's "on failed the
+  // dialog stays open ... shows the frozen total in-dialog").
+  const [lastJobSnapshot, setLastJobSnapshot] = useState<SolveJob | null>(null);
+
   function openSolveDialog() {
     setSolveError(null);
     setSolvePhase("idle");
+    setLastJobSnapshot(null);
     setSolveDialogOpen(true);
   }
 
@@ -2241,6 +2360,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // Never let this dialog become a second place where that bug can recur.
   function handleSolve() {
     if (!currentScenario) return;
+    // jade-INT (#1, spec §2 R6-1/R-plan-2) — guard EVERY solve entry point
+    // (this covers both the direct solve and the save-before-solve branch
+    // below, and — since SolveDialog's Run button wires onSolve={handleSolve}
+    // with no `disabled` prop of its own — the dialog's Run button too) on
+    // the JADE fixed-4 band editor's validity. Never enqueue a solve (or
+    // silently save whatever the editor last published) while it's invalid.
+    if (!jadeBandsValid) {
+      setSolvePhase("failed");
+      setSolveError("Fix the invalid distance bands before solving.");
+      return;
+    }
     setSolveError(null);
     const scenarioId = currentScenario.id;
 
@@ -2312,9 +2442,42 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     },
   });
 
+  // jade-INT (#8, spec §9) — mirror every poll tick into a state that
+  // survives `pollingJobId` resetting to null (see `lastJobSnapshot`'s own
+  // comment above for why useGetSolveJob's own `data` can't be trusted past
+  // that point), so SolveDialog's live clock keeps its queuedAt/startedAt/
+  // finishedAt/status even once polling stops (terminal success — the
+  // dialog closes anyway — or terminal failure — the dialog stays open and
+  // must keep showing the frozen total).
+  useEffect(() => {
+    if (jobStatus) setLastJobSnapshot(jobStatus);
+  }, [jobStatus]);
+
   useEffect(() => {
     if (!jobStatus || !currentScenario) return;
     if (jobStatus.status === "succeeded") {
+      // jade-INT (#8, spec §9 R-plan-3) — retain this job's derived
+      // SolveTiming BEFORE resetting pollingJobId/invalidating queries: the
+      // append effect that will eventually create the new ResultHistoryEntry
+      // for this result runs on a LATER render (once the refetch below
+      // lands), by which point jobStatus/pollingJobId may already be gone.
+      if (pollingJobId != null) {
+        const queuedMs = jobStatus.queuedAt ? new Date(jobStatus.queuedAt).getTime() : null;
+        const startedMs = jobStatus.startedAt ? new Date(jobStatus.startedAt).getTime() : null;
+        const finishedMs = jobStatus.finishedAt ? new Date(jobStatus.finishedAt).getTime() : null;
+        if (queuedMs != null && finishedMs != null) {
+          const activeStartMs = startedMs ?? queuedMs;
+          retainedTimingRef.current = {
+            scenarioId: currentScenario.id,
+            jobId: pollingJobId,
+            timing: {
+              totalSec: (finishedMs - queuedMs) / 1000,
+              queuedSec: (activeStartMs - queuedMs) / 1000,
+              activeSec: (finishedMs - activeStartMs) / 1000,
+            },
+          };
+        }
+      }
       setSolvePhase("idle");
       setPollingJobId(null);
       setSolveDialogOpen(false);
@@ -2529,6 +2692,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           prefillCoords={pendingPrefill}
           onPrefillConsumed={() => setPendingPrefill(null)}
           hasStateColumn={hasStateColumn}
+          // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
+          // true only on the JADE path; every other model sharing this
+          // branch (p-median-us/brazil/Chen) keeps the default `false`.
+          enableFilters={modelId === "two-echelon-jade-us"}
         />
       );
     }
@@ -2657,6 +2824,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           prefillCoords={pendingPrefill}
           onPrefillConsumed={() => setPendingPrefill(null)}
           hasStateColumn={hasStateColumn}
+          // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
+          // true only on the JADE path; every other model sharing this
+          // branch keeps the default `false`.
+          enableFilters={isJade}
           // T5 (Step 1b/2b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model here defaults true. Never applied to the "Added customers"
@@ -2747,6 +2918,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <OptimizationParametersTab
+          // jade-INT (#1, spec §2 R3-1/R6-1) — modelId gates the fixed-4
+          // JadeBandEditor branch inside this component; without it, JADE
+          // would silently keep the free add/remove chip editor that can
+          // violate the exactly-4/positive/ascending invariant.
+          modelId={modelId}
+          onDistanceBandsValidityChange={setJadeBandsValid}
           p={pFromInputs(localInputs)}
           gap={gapFromInputs(localInputs)}
           timeLimitSec={timeLimitSecFromInputs(localInputs)}
@@ -3004,10 +3181,20 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // reads displayedInputs (R5's displayedInputs principle, P1).
           warehouseStatuses={warehouseStatusesFromInputs(displayedInputs, modelId)}
           result={activeTab.entity === "output-map" ? displayedResult : null}
-          // T4 — displayedInputs, not localInputs: editing draft bands (Run
-          // Optimizer dialog / Optimization Parameters) must not recolor a
-          // solve that's already displayed (R5's displayedInputs principle).
-          bands={distanceBandsFromInputs(displayedInputs)}
+          // jade-INT (#1 live band recolor, spec §2) — LIVE
+          // localInputs.distanceBands, all models, OVERRIDING T4's
+          // displayedInputs-only rule for this one lens: requirement #1
+          // demands a band edit recolor lanes/legend/report columns
+          // immediately, with zero network calls, and without invalidating
+          // the on-screen solve. Geometry (edges/assignments/added
+          // entities, everywhere else in this call) still comes from
+          // displayedResult/displayedInputs — only the band color/label
+          // lens is live. A distanceBands-only save is classified
+          // non-geometric server-side (scenarios.ts, A4) and the displayed
+          // history entry is resynced in place on save (handleSaveInputs
+          // above), so persisting this edit never staleifies the scenario
+          // or reverts on step-away/step-back either.
+          bands={distanceBandsFromInputs(localInputs)}
           countryBounds={activeModelManifest?.countryBounds}
           addedWarehouses={
             !projectsAddedEntities
@@ -3030,6 +3217,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   : addedCustomersFromInputs(displayedInputs)
           }
           hideClosedWarehouses={hidesClosedFacilities}
+          // jade-INT (#2, spec §3 R2-4) — base dataset plants ∪ this solve
+          // snapshot's scenario-local addedPlants (reuses
+          // effectivePlantsForCapabilityMatrix's identical base∪added
+          // projection — same union the Capability Matrix tab already
+          // builds, just off displayedInputs here instead of localInputs,
+          // matching every other prop on this call). undefined for every
+          // non-JADE model — OutputMapTab's own `plants = []` default
+          // keeps them unaffected.
+          plants={modelId === "two-echelon-jade-us" ? effectivePlantsForCapabilityMatrix(dataset, displayedInputs) : undefined}
+          // jade-INT (#8, spec §9) — the displayed history entry's own
+          // frozen timing; suppressed by OutputMapTab itself when absent.
+          timing={displayedTiming}
         />
       );
     }
@@ -3089,6 +3288,32 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               modelId === "two-echelon-jade-us" ? activeModelManifest?.capabilities?.capacityModes : undefined,
             )}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
+            // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
+            // true only on the JADE path.
+            enableFilters={modelId === "two-echelon-jade-us"}
+          />
+        );
+      // jade-INT (#4/#5, spec §5) — JADE gets its own product-level
+      // Customer Assignments table (`JadeAssignmentsTab`), NOT the shared
+      // `AssignmentsTab` — the shared component stays byte-identical for
+      // transport-coal/two-echelon-gold-au (spec's explicit "no regression
+      // to shared tabs"). Snapshot props (`displayedResult`/`displayedInputs`
+      // /`dataset`), never `localInputs`; `bands` is the LIVE
+      // `localInputs.distanceBands` presentation lens (same source the map
+      // reads, §2), not the frozen snapshot's bands, so this column's labels
+      // always agree with the map's colors.
+      if (activeTab.entity === "customer-assignments" && modelId === "two-echelon-jade-us")
+        return (
+          <JadeAssignmentsTab
+            result={result}
+            dataset={dataset}
+            bands={distanceBandsFromInputs(localInputs)}
+            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
+            scenarioId={currentScenario!.id}
+            displayedInputs={{
+              addedWarehouses: addedWarehousesFromInputs(displayedInputs),
+              addedCustomers: jadeAddedCustomersFromInputs(displayedInputs),
+            }}
           />
         );
       if (activeTab.entity === "customer-assignments")
@@ -3119,11 +3344,43 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             locationById={jadeOutputLocationById}
           />
         );
+      // jade-INT (#4/#5, spec §5b) — JADE gets its own two-inner-tab Flows
+      // component (`JadeFlowsTab`), NOT the shared `FlowsTab` — same
+      // "no regression to shared tabs" reasoning as Customer Assignments
+      // above. Live `bands` lens, same as JadeAssignmentsTab.
+      if (activeTab.entity === "flows" && modelId === "two-echelon-jade-us")
+        return (
+          <JadeFlowsTab
+            result={result}
+            dataset={dataset}
+            bands={distanceBandsFromInputs(localInputs)}
+            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
+            scenarioId={currentScenario!.id}
+          />
+        );
       if (activeTab.entity === "flows")
         return <FlowsTab result={result} scenarioId={currentScenario!.id} locationById={jadeOutputLocationById} />;
       // T3 wired ServiceStatsTab's modelId prop (R9's per-model distance
       // unit) but left this call site unwired — closing that gap here.
-      return <ServiceStatsTab result={result} scenarioId={currentScenario!.id} modelId={modelId} />;
+      // jade-INT (#4/#5, spec §6) — JADE-only Plant Production snapshot
+      // props (effective plants/products/base capabilities from
+      // dataset/displayedInputs — never localInputs — same snapshot
+      // contract every other output report honors) + the LIVE
+      // `presentationBands` lens driving both the Plant Production section's
+      // gate and the JADE two-leg coverage-bar recompute (spec §2 R2-3). All
+      // five stay `undefined` for every non-JADE model, unaffected.
+      return (
+        <ServiceStatsTab
+          result={result}
+          scenarioId={currentScenario!.id}
+          modelId={modelId}
+          effectivePlants={modelId === "two-echelon-jade-us" ? effectivePlantsForCapabilityMatrix(dataset, displayedInputs) : undefined}
+          products={modelId === "two-echelon-jade-us" ? (dataset?.products ?? []) : undefined}
+          baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
+          capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(displayedInputs) : []}
+          presentationBands={modelId === "two-echelon-jade-us" ? distanceBandsFromInputs(localInputs) : undefined}
+        />
+      );
     }
 
     // Every other entry (every remaining Output grid not already handled
@@ -3257,7 +3514,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 size="sm"
                 variant="outline"
                 onClick={handleSaveInputs}
-                disabled={!isDirty || updateScenario.isPending}
+                // jade-INT (#1, spec §2 R6-1/R-plan-2) — never enable Save
+                // while the JADE fixed-4 band editor is invalid (always
+                // false for every non-JADE model — see `jadeBandsValid`'s
+                // own comment).
+                disabled={!isDirty || updateScenario.isPending || !jadeBandsValid}
                 data-testid="button-save"
                 className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
               >
@@ -3296,6 +3557,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       <SolveDialog
         open={solveDialogOpen}
         onOpenChange={setSolveDialogOpen}
+        // jade-INT (#1, spec §2 R3-1/R6-1) — same modelId gate as
+        // OptimizationParametersTab above, so the two surfaces can never
+        // diverge on which band editor a given model gets.
+        modelId={modelId}
+        onDistanceBandsValidityChange={setJadeBandsValid}
+        // jade-INT (#8, spec §9) — live solve clock, sourced from
+        // `lastJobSnapshot` (survives `pollingJobId` resetting to null on
+        // both success and failure — see that state's own comment).
+        queuedAt={lastJobSnapshot?.queuedAt ?? null}
+        startedAt={lastJobSnapshot?.startedAt ?? null}
+        finishedAt={lastJobSnapshot?.finishedAt ?? null}
+        jobStatus={lastJobSnapshot?.status}
         p={pFromInputs(localInputs)}
         // C4.12/D27 — Chen caps P at 25 in the Solve dialog too (26 can't be
         // authored from either surface). D13/D19 — Chen has no band editor

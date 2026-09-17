@@ -523,8 +523,14 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
       [
         OUTPUT_MAP,
         OPEN_WAREHOUSES,
-        CUSTOMER_ASSIGNMENTS,
-        FLOWS,
+        // jade-INT (#4/#5) — JADE renders its OWN JadeAssignmentsTab/
+        // JadeFlowsTab (spec §5's "no regression to shared tabs"), not the
+        // shared AssignmentsTab/FlowsTab CUSTOMER_ASSIGNMENTS/FLOWS
+        // constants above assert on — asserting on each component's own
+        // stable root testid instead (JadeFlowsTab has no single top-level
+        // download button; its two inner-tab downloads are per-leg).
+        { sidebarId: "customer-assignments", tabTestId: "jade-assignments-tab" },
+        { sidebarId: "flows", tabTestId: "jade-flows-tab" },
         COST_SUMMARY,
         SERVICE_STATS,
         // two-echelon-jade-us is the SECOND model whose outputGrids

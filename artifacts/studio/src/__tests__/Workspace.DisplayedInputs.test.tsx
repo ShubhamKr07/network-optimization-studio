@@ -167,7 +167,13 @@ describe("Workspace — displayedInputs snapshot (T4/R5)", () => {
     expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600] }));
   });
 
-  it("editing DRAFT distance bands in Optimization Parameters does NOT change the Output Map's bands — it still reflects the displayed solve's own snapshot", () => {
+  // jade-INT (#1, spec §2 R5-1/§22) — T4's "displayedInputs, never the
+  // draft" rule is explicitly OVERRIDDEN for the band color/label lens:
+  // requirement #1 demands a band edit recolor the Output Map immediately,
+  // with zero network calls, and without invalidating the on-screen solve.
+  // These two tests replace the pre-INT ones that asserted the OLD
+  // (now-superseded) "does NOT change" behavior.
+  it("editing DRAFT distance bands in Optimization Parameters DOES immediately recolor the Output Map, with zero network calls", () => {
     renderWorkspace();
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
@@ -176,10 +182,12 @@ describe("Workspace — displayedInputs snapshot (T4/R5)", () => {
     outputMapTabSpy.mockClear();
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
 
-    expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600] }));
+    expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800] }));
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
   });
 
-  it("editing DRAFT distance bands via the Solve dialog also does NOT recolor the currently-displayed Output Map", () => {
+  it("editing DRAFT distance bands via the Solve dialog also DOES immediately recolor the Output Map, with zero network calls", () => {
     renderWorkspace();
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
@@ -189,7 +197,9 @@ describe("Workspace — displayedInputs snapshot (T4/R5)", () => {
     outputMapTabSpy.mockClear();
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
 
-    expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800, 1600] }));
+    expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [200, 400, 800] }));
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
   });
 });
 
