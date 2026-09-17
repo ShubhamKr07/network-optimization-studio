@@ -295,3 +295,65 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
     expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
   });
 });
+
+// jade B8 — OptimizationParametersTab renders JadeBandEditor (fixed-4-slot,
+// fully validated) only for modelId==="two-echelon-jade-us"; every other
+// model (including modelId undefined) keeps the existing chip editor
+// unchanged.
+describe("OptimizationParametersTab — JADE band editor wiring (B8)", () => {
+  it("renders the chip editor (not JadeBandEditor) when modelId is undefined", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
+  });
+
+  it("renders the chip editor (not JadeBandEditor) for a non-JADE modelId", () => {
+    render(<OptimizationParametersTab {...baseProps} modelId="p-median-us" onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
+  });
+
+  it("renders JadeBandEditor (not the chip editor) for modelId two-echelon-jade-us", () => {
+    render(<OptimizationParametersTab {...baseProps} modelId="two-echelon-jade-us" onChange={vi.fn()} />);
+    expect(screen.getByTestId("jade-band-editor")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-bands-plus")).not.toBeInTheDocument();
+  });
+
+  it("JadeBandEditor edits flow through the tab's generic onChange('distanceBands', ...)", () => {
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...baseProps} modelId="two-echelon-jade-us" onChange={onChange} />);
+    fireEvent.change(screen.getByTestId("jade-band-slot-1"), { target: { value: "500" } });
+    expect(onChange).toHaveBeenCalledWith("distanceBands", [200, 500, 800, 1600]);
+  });
+
+  it("an invalid JADE band edit does not call the tab's onChange, and fires onDistanceBandsValidityChange(false)", () => {
+    const onChange = vi.fn();
+    const onDistanceBandsValidityChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...baseProps}
+        modelId="two-echelon-jade-us"
+        onChange={onChange}
+        onDistanceBandsValidityChange={onDistanceBandsValidityChange}
+      />,
+    );
+    onChange.mockClear();
+    fireEvent.change(screen.getByTestId("jade-band-slot-0"), { target: { value: "0" } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onDistanceBandsValidityChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId("jade-band-error")).toBeInTheDocument();
+  });
+
+  it("a valid JADE band edit fires onDistanceBandsValidityChange(true)", () => {
+    const onDistanceBandsValidityChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...baseProps}
+        modelId="two-echelon-jade-us"
+        onChange={vi.fn()}
+        onDistanceBandsValidityChange={onDistanceBandsValidityChange}
+      />,
+    );
+    expect(onDistanceBandsValidityChange).toHaveBeenLastCalledWith(true);
+  });
+});
