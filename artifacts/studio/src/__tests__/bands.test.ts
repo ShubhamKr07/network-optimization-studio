@@ -5,6 +5,7 @@ import {
   computeAutoBands,
   assignBandOrOverflow,
   computeCumulativeBandCoverage,
+  bandLabel,
   OVERFLOW_BAND,
 } from "@/lib/bands";
 
@@ -225,5 +226,34 @@ describe("computeCumulativeBandCoverage (jade-T14)", () => {
       { band: 200, percent: 0 },
       { band: 400, percent: 100 },
     ]);
+  });
+});
+
+// jade-A1 — shared "Distance Band" column formatter (spec §11), built on
+// assignBandOrOverflow so labels always match the map's band colors.
+describe("bandLabel (jade-A1)", () => {
+  it("labels a distance strictly inside a band as 1-indexed 'Band N'", () => {
+    expect(bandLabel(150, [200, 400, 800])).toBe("Band 1");
+    expect(bandLabel(250, [200, 400, 800])).toBe("Band 2");
+    expect(bandLabel(700, [200, 400, 800])).toBe("Band 3");
+  });
+
+  it("treats a distance exactly on a boundary as within that (upper-inclusive) band", () => {
+    expect(bandLabel(200, [200, 400, 800])).toBe("Band 1");
+    expect(bandLabel(400, [200, 400, 800])).toBe("Band 2");
+    expect(bandLabel(800, [200, 400, 800])).toBe("Band 3");
+  });
+
+  it("labels a distance above the highest boundary as 'Overflow', not the last band", () => {
+    expect(bandLabel(2907.302, [200, 400, 800, 1600])).toBe("Overflow");
+    expect(bandLabel(801, [200, 400, 800])).toBe("Overflow");
+  });
+
+  it("sorts unsorted band input before labeling", () => {
+    expect(bandLabel(250, [800, 200, 400])).toBe("Band 2");
+  });
+
+  it("returns 'Band 1' for empty bands (matches assignBandOrOverflow's 0 fallback)", () => {
+    expect(bandLabel(100, [])).toBe("Band 1");
   });
 });

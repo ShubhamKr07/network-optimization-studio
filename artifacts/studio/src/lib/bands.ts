@@ -103,6 +103,15 @@ export function assignBandOrOverflow(distance: number, bands: number[]): number 
   return idx === -1 ? OVERFLOW_BAND : idx;
 }
 
+// jade-A1 (SCN JADE Ch.9 bundle, spec §11) — one shared "Distance Band"
+// column/label formatter, built on assignBandOrOverflow so it always
+// matches the map's colors (getBandColor, bandPalette.ts) exactly: 1-indexed
+// "Band N" for a real band, "Overflow" for the OVERFLOW_BAND sentinel.
+export function bandLabel(distance: number, bands: number[]): string {
+  const index = assignBandOrOverflow(distance, bands);
+  return index === OVERFLOW_BAND ? "Overflow" : `Band ${index + 1}`;
+}
+
 // Cumulative rollup (each boundary counts all flow at or under it, not just
 // the flow strictly between the previous and this boundary — the opposite of
 // `computeBandCoverage`'s exclusive semantics) plus a separately labelled

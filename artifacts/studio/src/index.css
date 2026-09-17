@@ -330,6 +330,15 @@
   /* five-color distance bands (0=nearest .. 4=farthest) */
   --band-0: #16A34A; --band-1: #84CC16; --band-2: #F59E0B; --band-3: #EF4444; --band-4: #DC2626;
 
+  /* jade-A1 — distinct color for a lane/edge beyond the highest configured
+     band boundary (OVERFLOW_BAND, lib/bands.ts). The --band-0..4 ramp is a
+     single green→red hue progression (near→far); reusing violet
+     (#7C3AED, already the design system's --map-ring-multiselect hue —
+     the one other place a "categorically different, not just farther"
+     state is signaled) keeps overflow visually unmistakable from every
+     band color instead of looking like a 6th, darker-red step. */
+  --band-overflow: #7C3AED;
+
   /* charts: 1..5 HSL (@theme-mapped); grid/axis hex (not mapped) */
   --chart-1: 82 52% 33%; --chart-2: 83 8% 20%; --chart-3: 79 44% 62%;
   --chart-4: 26 90% 37%; --chart-5: 81 6% 51%;
