@@ -1,19 +1,23 @@
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 
 // R9 — distanceUnit is sourced from GET /api/models (via useListModels),
 // so this suite mocks it the same way other Workspace-tab tests do
-// (e.g. Workspace.OutputMap.test.tsx).
+// (e.g. Workspace.OutputMap.test.tsx). B4 extends the mock with
+// `capabilities.supportsPlantProductCapability` — the manifest flag the
+// Plant Production section + JADE coverage recompute gate on (never on
+// `modelId` directly).
 const mockUseListModels = vi.fn(() => ({
   data: [
-    { id: "p-median-us", distanceUnit: "mi" },
+    { id: "p-median-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
     // Bundle 2 (B2-T1) relabels two-echelon-gold-au "km" -> "mi" (its base
     // numbers are geographically miles; zero data change).
-    { id: "two-echelon-gold-au", distanceUnit: "mi" },
-    { id: "two-echelon-jade-us", distanceUnit: "mi" },
+    { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
+    { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: true } },
     // C4.14 — Chen's Cosmetics reports distances in km.
-    { id: "chens-cosmetics-cn", distanceUnit: "km" },
+    { id: "chens-cosmetics-cn", distanceUnit: "km", capabilities: { supportsPlantProductCapability: false } },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -152,6 +156,243 @@ describe("ServiceStatsTab", () => {
     it("does NOT render the coverage KPI block for a non-Chen model (no details.coveragePct)", () => {
       render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
       expect(screen.queryByTestId("service-stats-coverage-kpis")).not.toBeInTheDocument();
+    });
+  });
+
+  // B4 (JADE Ch.9 Workspace bundle, spec §6) — Plant Production section:
+  // the full effective plants × products grid, left-joined to aggregated
+  // inbound production. All fixtures below use 4 plants × 4 products = 16
+  // rows, matching the real JADE dataset shape (grounding fact: 4 diagonal
+  // cells capacity 210,000,000, 12 off-diagonal cells capacity 0).
+  describe("Chapter 9 JADE — Plant Production section", () => {
+    const plants = [
+      { id: "p1", name: "Plant One", city: "A", state: "AA", lat: 0, lng: 0 },
+      { id: "p2", name: "Plant Two", city: "B", state: "BB", lat: 0, lng: 0 },
+      { id: "p3", name: "Plant Three", city: "C", state: "CC", lat: 0, lng: 0 },
+      { id: "p4", name: "Plant Four", city: "D", state: "DD", lat: 0, lng: 0 },
+    ];
+    const products = [
+      { id: "product-1", name: "Product 1" },
+      { id: "product-2", name: "Product 2" },
+      { id: "product-3", name: "Product 3" },
+      { id: "product-4", name: "Product 4" },
+    ];
+    // 4 diagonal cells enabled (base capacity 210,000,000), 12 off-diagonal
+    // cells disabled (base capacity 0) — matches the real dataset's own
+    // 16-cell matrix shape exactly (§1 grounding facts).
+    const baseCapabilities = plants.flatMap((plant, pi) =>
+      products.map((product, ki) => ({
+        plantId: plant.id,
+        productId: product.id,
+        capacity: pi === ki ? 210_000_000 : 0,
+      })),
+    );
+    // Enables one base off-diagonal cell (p1 can now also make product-2) —
+    // proves the JADE_ENABLED_CAPACITY fallback (210,000,000), not the
+    // base cell's own (zero) capacity.
+    const capabilityOverrides = [{ plantId: "p1", productId: "product-2", enabled: true }];
+    // Inbound (plant_to_warehouse) edges feed "Actual production"; a
+    // warehouse_to_customer edge (no productId) must never be summed in.
+    const edges = [
+      { fromId: "p1", toId: "w1", leg: "plant_to_warehouse" as const, productId: "product-1", flow: 500, distance: 100 },
+      { fromId: "p1", toId: "w2", leg: "plant_to_warehouse" as const, productId: "product-1", flow: 300, distance: 150 },
+      { fromId: "p2", toId: "w1", leg: "plant_to_warehouse" as const, productId: "product-2", flow: 200, distance: 120 },
+      { fromId: "w1", toId: "c1", leg: "warehouse_to_customer" as const, flow: 9999, distance: 50 },
+    ];
+    const jadeResult = { ...result, edges, metrics: {} };
+
+    function renderJade() {
+      return render(
+        <ServiceStatsTab
+          result={jadeResult}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          effectivePlants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          capabilityOverrides={capabilityOverrides}
+        />,
+      );
+    }
+
+    it("renders the full 16-row plants × products grid, dropping nothing", () => {
+      renderJade();
+      const rows = screen.getAllByTestId(/^row-plant-production-/);
+      expect(rows).toHaveLength(16);
+    });
+
+    it("shows a zero-production row for an enabled cell with no inbound flow (p3/product-3)", () => {
+      renderJade();
+      const row = screen.getByTestId("row-plant-production-p3-product-3");
+      expect(row).toHaveTextContent("Plant Three");
+      expect(row).toHaveTextContent("Product 3");
+      expect(row).toHaveTextContent("0"); // actual
+      expect(row).toHaveTextContent("210,000,000"); // capacity
+      expect(row).toHaveTextContent("210,000,000"); // remaining == capacity - 0
+    });
+
+    it("shows a disabled row with capacity 0 and remaining '—' (p2/product-1, no override)", () => {
+      renderJade();
+      const row = screen.getByTestId("row-plant-production-p2-product-1");
+      expect(row).toHaveTextContent("0"); // capacity
+      expect(row).toHaveTextContent("—"); // remaining, not a number
+    });
+
+    it("computes actual production summed across multiple inbound edges for the same (plant, product)", () => {
+      renderJade();
+      const row = screen.getByTestId("row-plant-production-p1-product-1");
+      expect(row).toHaveTextContent("800"); // 500 + 300
+      expect(row).toHaveTextContent("210,000,000"); // base diagonal capacity
+      expect(row).toHaveTextContent("209,999,200"); // 210,000,000 - 800
+    });
+
+    it("uses the JADE_ENABLED_CAPACITY fallback (210,000,000) for an enabled base off-diagonal override, not the base cell's own 0 capacity", () => {
+      renderJade();
+      const row = screen.getByTestId("row-plant-production-p1-product-2");
+      expect(row).toHaveTextContent("210,000,000"); // capacity, from the override
+      expect(row).toHaveTextContent("0"); // no inbound edges for (p1, product-2)
+    });
+
+    it("never sums a warehouse_to_customer edge into actual production", () => {
+      renderJade();
+      // If the outbound edge (flow 9999) leaked into (p1, product-1)'s
+      // actual, it would show 500+300+9999=10799, not 800.
+      const row = screen.getByTestId("row-plant-production-p1-product-1");
+      expect(row).not.toHaveTextContent("10,799");
+      expect(row).not.toHaveTextContent("10799");
+    });
+
+    it("shows the Plant Production filter menu at 16 rows", async () => {
+      renderJade();
+      expect(screen.getByTestId("plant-production-section")).toBeInTheDocument();
+      const trigger = screen.getByTestId("button-filter-menu-trigger");
+      expect(trigger).toBeInTheDocument();
+      const user = userEvent.setup();
+      await user.click(trigger);
+      expect(screen.getByTestId("text-filter-count")).toHaveTextContent("16 of 16");
+    });
+
+    it("hides the section entirely when the JADE snapshot props are not wired (optional-props pattern)", () => {
+      render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" />);
+      expect(screen.queryByTestId("plant-production-section")).not.toBeInTheDocument();
+    });
+
+    it("hides the section for a non-JADE model even if the snapshot props are (mistakenly) passed", () => {
+      render(
+        <ServiceStatsTab
+          result={jadeResult}
+          scenarioId={1}
+          modelId="p-median-us"
+          effectivePlants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          capabilityOverrides={capabilityOverrides}
+        />,
+      );
+      expect(screen.queryByTestId("plant-production-section")).not.toBeInTheDocument();
+    });
+  });
+
+  // B4 (spec §2 R2-3/§6) — JADE two-leg band-coverage recompute: cumulative,
+  // over warehouse_to_customer edges ONLY, from the live `presentationBands`
+  // instead of the frozen result.metrics.bandCoverage.
+  describe("Chapter 9 JADE — coverage recompute from live bands, warehouse_to_customer only", () => {
+    // Deliberately huge/near distance so that if this inbound edge were
+    // wrongly included, band-100's percent and the overall total would be
+    // wildly different from the hand-computed expectation below.
+    const inboundEdge = { fromId: "p1", toId: "w1", leg: "plant_to_warehouse" as const, productId: "product-1", flow: 99_999, distance: 10 };
+    const outboundEdges = [
+      { fromId: "w1", toId: "c1", leg: "warehouse_to_customer" as const, flow: 100, distance: 50 },
+      { fromId: "w1", toId: "c2", leg: "warehouse_to_customer" as const, flow: 200, distance: 250 },
+      { fromId: "w2", toId: "c3", leg: "warehouse_to_customer" as const, flow: 300, distance: 550 },
+      { fromId: "w2", toId: "c4", leg: "warehouse_to_customer" as const, flow: 400, distance: 1500 },
+    ];
+    // Frozen server-side bandCoverage deliberately uses different percents
+    // at the SAME boundaries, so a passing test proves the live recompute
+    // path (not the frozen one) actually rendered.
+    const jadeResult = {
+      ...result,
+      edges: [inboundEdge, ...outboundEdges],
+      metrics: {
+        bandCoverage: [
+          { band: 100, percent: 99 },
+          { band: 300, percent: 99 },
+          { band: 600, percent: 99 },
+          { band: 1000, percent: 99 },
+        ],
+      },
+    };
+    const editedBands = [100, 300, 600, 1000];
+
+    it("recomputes cumulative coverage from live bands over warehouse_to_customer edges only, excluding inbound flow", () => {
+      render(
+        <ServiceStatsTab
+          result={jadeResult}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          presentationBands={editedBands}
+        />,
+      );
+      // totalFlow = 100+200+300+400 = 1000 (outbound only — the 99,999-flow
+      // inbound edge at distance 10 is excluded, or band-100 would read ~99%).
+      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
+      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("30%");
+      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("60%");
+      expect(screen.getByTestId("service-stats-band-1000")).toHaveTextContent("60%");
+    });
+
+    it("renders a distinct overflow row above the highest edited boundary", () => {
+      render(
+        <ServiceStatsTab
+          result={jadeResult}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          presentationBands={editedBands}
+        />,
+      );
+      const overflowRow = screen.getByTestId("service-stats-band--1");
+      expect(overflowRow).toHaveTextContent("> 1000 mi");
+      expect(overflowRow).toHaveTextContent("40%"); // 400/1000
+    });
+
+    it("does NOT use the frozen result.metrics.bandCoverage percents once presentationBands is wired", () => {
+      render(
+        <ServiceStatsTab
+          result={jadeResult}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          presentationBands={editedBands}
+        />,
+      );
+      expect(screen.getByTestId("service-stats-band-100")).not.toHaveTextContent("99%");
+    });
+  });
+
+  // Regression: non-JADE models (and JADE itself before presentationBands is
+  // wired) must keep reading the frozen result.metrics.bandCoverage exactly
+  // as before this task — B4's live recompute is additive, JADE-gated.
+  describe("Non-JADE regression — frozen coverage unaffected", () => {
+    const outboundEdges = [
+      { fromId: "w1", toId: "c1", leg: "warehouse_to_customer" as const, flow: 100, distance: 50 },
+    ];
+
+    it("a non-JADE model ignores a (mistakenly) passed presentationBands prop and keeps the frozen bars", () => {
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: outboundEdges }}
+          scenarioId={1}
+          modelId="p-median-us"
+          presentationBands={[10, 20, 30, 40]}
+        />,
+      );
+      expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
+      expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("45%");
+      expect(screen.queryByTestId("service-stats-band-10")).not.toBeInTheDocument();
+    });
+
+    it("JADE itself keeps the frozen bars when presentationBands is not wired yet", () => {
+      render(<ServiceStatsTab result={result} scenarioId={1} modelId="two-echelon-jade-us" />);
+      expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
     });
   });
 });
