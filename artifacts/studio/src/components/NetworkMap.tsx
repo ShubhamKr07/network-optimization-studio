@@ -4,12 +4,13 @@ import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
-import type { Dataset, SolveResult, Edge } from "@workspace/api-client-react";
-import { assignBand } from "@/lib/bands";
+import type { Dataset, SolveResult, Edge, Plant } from "@workspace/api-client-react";
+import { assignBandOrOverflow, bandLabel } from "@/lib/bands";
 import { getBandColor } from "@/lib/bandPalette";
 import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
+import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -140,9 +141,61 @@ const createStarIcon = (
   });
 };
 
+// jade-B1 (#2) — Output Map plant marker: reuses the input-map square symbol
+// (EntityMarkers.plantSquareSvg) rather than a hand-drawn copy, so it can
+// never visually drift from the Input Map's own plant icon. A plant has no
+// status/selection vocabulary of its own (see EntityMarkers.tsx's own
+// comment), so — unlike createTriangleIcon/createStarIcon — this takes no
+// status/highlight arguments; it's a fixed icon.
+function createPlantIcon(): L.DivIcon {
+  return L.divIcon({
+    html: plantSquareSvg(),
+    className: "",
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
+
 function MapClickDeselect({ onDeselect }: { onDeselect: () => void }) {
   useMapEvents({ click: onDeselect });
   return null;
+}
+
+// jade-B1 (#2, spec §3 "Bounds constraint" + review R-plan-4) — union of
+// marker coordinates, degenerate-guarded. Returns null (not a bounds box)
+// when fewer than 2 finite [lat,lng] pairs are present, so callers can chain
+// a fallback (rendered markers -> all effective entities -> manifest
+// countryBounds) instead of ever computing a box from 0-1 points.
+type LatLngTuple = [number, number];
+
+function boundsFromCoords(coords: LatLngTuple[]): [LatLngTuple, LatLngTuple] | null {
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  let count = 0;
+  for (const [lat, lng] of coords) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    count++;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+  if (count < 2) return null;
+  return [[minLat, minLng], [maxLat, maxLng]];
+}
+
+// Minimum padding (degrees) applied to every axis so a box degenerate on
+// one axis (e.g. two markers sharing a latitude, or ultimately a single
+// manifest fallback point) never yields a zero-area Leaflet maxBounds —
+// "always PAD so a single point never yields degenerate bounds" (spec §3).
+const MIN_BOUNDS_PAD_DEG = 1.5;
+
+function padBounds([[minLat, minLng], [maxLat, maxLng]]: [LatLngTuple, LatLngTuple]): [LatLngTuple, LatLngTuple] {
+  const latPad = Math.max((maxLat - minLat) * 0.1, MIN_BOUNDS_PAD_DEG);
+  const lngPad = Math.max((maxLng - minLng) * 0.1, MIN_BOUNDS_PAD_DEG);
+  return [[minLat - latPad, minLng - lngPad], [maxLat + latPad, maxLng + lngPad]];
 }
 
 // E5.1: fits the map to the model's manifest-derived bounds on mount (and
@@ -165,6 +218,10 @@ interface PopupInfo {
   warehouseState: string;
   distanceMi: number;
   band: number;
+  // jade-B1 (#1 all-site overflow) — "Band N" / "Overflow" text, computed
+  // via the shared bandLabel() so this popup can never hand-roll
+  // `Band ${band + 1}` and disagree with the map's own overflow sentinel.
+  bandLabelText: string;
 }
 
 // C4.11 — pure popup-markup builder, extracted so the distance unit is
@@ -189,7 +246,7 @@ export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit = "mi"): st
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Band:</span>
           <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
-          <strong style="font-family:var(--app-font-mono)">Band ${info.band + 1}</strong>
+          <strong style="font-family:var(--app-font-mono)">${info.bandLabelText}</strong>
         </div>
       </div>
     `;
@@ -219,7 +276,7 @@ function CustomerPopup({ info, onClose, distanceUnit = "mi" }: { info: PopupInfo
       map.off("popupclose", handleClose);
       map.closePopup(popup);
     };
-  }, [info.customerCity, info.warehouseCity, info.distanceMi, info.band, distanceUnit]);
+  }, [info.customerCity, info.warehouseCity, info.distanceMi, info.band, distanceUnit, info.bandLabelText]);
 
   return null;
 }
@@ -281,6 +338,25 @@ interface NetworkMapProps {
   // it. Wiring the actual checkboxes into the Output Map tab is T15.5's job
   // (Workspace.tsx integration) — this prop is the seam it consumes.
   visibleLegs?: string[];
+  // jade-B1 (#2) — Chapter 9 JADE's third map-entity kind (square marker,
+  // supply role, no status/open-close decision — see spec §3 "Approach").
+  // A SEPARATE prop, NOT a `kind: "plant"` warehouses variant: the generated
+  // WarehouseCandidateKind permits only "mine" | "facility", so folding
+  // plants into `dataset.warehouses` with a 3rd kind would force an
+  // OpenAPI/codegen change for no benefit. Optional, default `[]` — every
+  // non-JADE caller (and every existing test literal) renders exactly as
+  // before. Authoritative for plant markers AND for resolving an inbound
+  // (`plant_to_warehouse`) edge's `fromId` — the pre-existing
+  // `dataset.warehouses`-fold lookup (Workspace.tsx's
+  // jadePlantsAsWarehouseCandidates) remains only as a compatibility
+  // fallback below, not the marker source.
+  plants?: Plant[];
+  // jade-B1 (#2) — independent layer-visibility toggle for plant markers,
+  // mirroring showWarehouseMarkers/showCustomerMarkers. Deliberately NOT
+  // folded into showWarehouseMarkers: a plant is never subject to
+  // hideClosedWarehouses either (it's not a facility-location choice), so it
+  // needs its own toggle, not the warehouse one. Default `true`.
+  showPlantMarkers?: boolean;
 }
 
 export function NetworkMap({
@@ -289,6 +365,7 @@ export function NetworkMap({
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
   hideClosedWarehouses = false, distanceUnit = "mi", visibleLegs,
+  plants = [], showPlantMarkers = true,
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
@@ -304,7 +381,12 @@ export function NetworkMap({
   // instance, correct init props) the moment the real countryBounds lands,
   // instead of trying to mutate a Leaflet option that was never designed to
   // be mutated after construction.
-  const mapKey = countryBounds ? `${countryBounds.sw.join(",")}_${countryBounds.ne.join(",")}` : "fallback";
+  //
+  // jade-B1 (#2, spec §3 "Bounds constraint") — the effective bounds/mapKey
+  // below now derive from the union of marker coordinates rather than
+  // `countryBounds` alone (computed further down, once `getStatus` exists);
+  // `mapBounds.maxBounds`/`.minZoom` from `countryBounds` remain the
+  // degenerate-guard's LAST-resort fallback tier.
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
 
@@ -330,6 +412,54 @@ export function NetworkMap({
     if (result && openWarehouseIds?.includes(whId)) return "open";
     return entry ? entry.status : "potential";
   };
+
+  // jade-B1 (#2, spec §3 "Bounds constraint" + review R-plan-4) — mirrors the
+  // route-pane/marker-loop's own hideClosedWarehouses predicate exactly (a
+  // mine is always visible; every other candidate only when open/forced_open
+  // under hideClosedWarehouses), so the bounds union never disagrees with
+  // what's actually rendered.
+  const isWarehouseRenderedForBounds = (w: { id: string; kind?: string }) => {
+    if (!hideClosedWarehouses) return true;
+    if (w.kind === "mine") return true;
+    const status = getStatus(w.id);
+    return status === "open" || status === "forced_open";
+  };
+
+  // Tier 1: union of the coordinates actually being rendered right now
+  // (respects every layer toggle + hideClosedWarehouses) — "every plant is
+  // visible" (OQ-1) without a wider fitBounds() call being clamped back by
+  // maxBoundsViscosity=1.0 (P2-6), since this same union also becomes
+  // maxBounds itself below.
+  const renderedCoords: LatLngTuple[] = [
+    ...(showPlantMarkers ? plants.map((p): LatLngTuple => [p.lat, p.lng]) : []),
+    ...(showWarehouseMarkers
+      ? dataset.warehouses.filter(isWarehouseRenderedForBounds).map((w): LatLngTuple => [w.lat, w.lng])
+      : []),
+    ...(showCustomerMarkers ? dataset.customers.map((c): LatLngTuple => [c.lat, c.lng]) : []),
+  ];
+  // Tier 2 (degenerate-bounds guard, review R-plan-4): every effective
+  // entity's coordinates regardless of toggle state — used only when Tier 1
+  // has fewer than 2 valid coords (every layer off, or a single marker).
+  const allEntityCoords: LatLngTuple[] = [
+    ...plants.map((p): LatLngTuple => [p.lat, p.lng]),
+    ...dataset.warehouses.map((w): LatLngTuple => [w.lat, w.lng]),
+    ...dataset.customers.map((c): LatLngTuple => [c.lat, c.lng]),
+  ];
+  // Tier 3: the manifest's own countryBounds (or the continental-US
+  // fallback), used only when even Tier 2 can't form a real box (e.g. a
+  // dataset with a single total entity).
+  const rawBounds = boundsFromCoords(renderedCoords) ?? boundsFromCoords(allEntityCoords) ?? mapBounds.maxBounds;
+  const effectiveBounds = padBounds(rawBounds);
+  const effectiveCenter: LatLngTuple = [
+    (effectiveBounds[0][0] + effectiveBounds[1][0]) / 2,
+    (effectiveBounds[0][1] + effectiveBounds[1][1]) / 2,
+  ];
+  // This union — not countryBounds alone — now drives maxBounds, FitBounds's
+  // target, AND the remount key together (P2-6): react-leaflet's maxBounds
+  // is construction-time-only, so a genuinely different box requires a full
+  // MapContainer remount, exactly like the pre-existing countryBounds-keyed
+  // remount this replaces/generalizes.
+  const mapKey = `${effectiveBounds[0].join(",")}_${effectiveBounds[1].join(",")}`;
 
   // Edges: fromId=warehouseId, toId=customerId (Phase 3.5 G2.1 model-agnostic shape).
   const assignmentMap = useMemo(() => {
@@ -388,7 +518,11 @@ export function NetworkMap({
       warehouseCity: warehouse.city,
       warehouseState: warehouse.state,
       distanceMi: edge.distance,
-      band: assignBand(edge.distance, bands),
+      // jade-B1 (#1 all-site overflow) — assignBandOrOverflow so a
+      // beyond-highest-boundary distance gets the OVERFLOW_BAND sentinel
+      // (-1) here too, not folded into the last real band.
+      band: assignBandOrOverflow(edge.distance, bands),
+      bandLabelText: bandLabel(edge.distance, bands),
     };
   }, [selectedCustomerId, result, assignmentMap, dataset, bands]);
 
@@ -434,16 +568,16 @@ export function NetworkMap({
     <div className="relative w-full h-full flex flex-col min-h-0 bg-white border rounded-lg overflow-hidden shadow-sm">
       <MapContainer
         key={mapKey}
-        center={mapBounds.center}
+        center={effectiveCenter}
         zoom={4}
         minZoom={mapBounds.minZoom}
-        maxBounds={mapBounds.maxBounds}
+        maxBounds={effectiveBounds}
         maxBoundsViscosity={1.0}
         className="w-full flex-1 z-0"
         zoomControl={false}
         boxZoom={false}
       >
-        <FitBounds bounds={mapBounds.maxBounds} />
+        <FitBounds bounds={effectiveBounds} />
         <MapClickDeselect onDeselect={handleDeselect} />
 
         {popupInfo && (
@@ -477,8 +611,18 @@ export function NetworkMap({
               const toEntity = isInboundEdge
                 ? dataset.warehouses.find((w) => w.id === edge.toId)
                 : dataset.customers.find((c) => c.id === edge.toId);
-              const warehouse = dataset.warehouses.find((w) => w.id === edge.fromId);
-              if (!toEntity || !warehouse) return null;
+              // jade-B1 (#2, spec §3 "Effective plants incl. scenario-added")
+              // — an inbound edge's fromId is a plant for JADE. `plants` (the
+              // new prop) is now authoritative; dataset.warehouses.find(...)
+              // remains only as a compatibility fallback for callers that
+              // still fold plants into dataset.warehouses (pre-INT
+              // Workspace.tsx) or for every non-JADE two-echelon model (Ch10
+              // mine_to_refinery), whose source entity genuinely does live in
+              // dataset.warehouses and has no `plants` prop at all.
+              const fromEntity = isInboundEdge
+                ? (plants.find((p) => p.id === edge.fromId) ?? dataset.warehouses.find((w) => w.id === edge.fromId))
+                : dataset.warehouses.find((w) => w.id === edge.fromId);
+              if (!toEntity || !fromEntity) return null;
 
               // An inbound leg isn't tied to any one customer, so
               // customer-focus dimming (inspecting a specific customer's
@@ -486,23 +630,34 @@ export function NetworkMap({
               const focused = isInboundEdge || isCustomerFocused(edge.toId);
               const dimmed = !isInboundEdge && anySelection && !focused;
 
-              // Two-echelon models tag each edge with its leg so the map can
-              // style each echelon differently (jade-T13: extends the same
-              // shared palette to plant_to_warehouse/warehouse_to_customer,
-              // with a neutral fallback for any unrecognized leg value).
-              // When leg is absent (every single-echelon model), fall back
-              // to the existing band-color behavior completely unchanged.
-              const legColor = getLegColor(edge.leg) ?? getBandColor(assignBand(edge.distance, bands));
+              // jade-B1 (#1 all-site overflow + JADE leg-vs-band coloring
+              // resolution, spec §2) — the "Color lanes: Distance band"
+              // toggle governs a two-echelon edge's color, using the SAME
+              // empty-bands-array-means-off encoding OutputMapTab already
+              // uses for every model's own "Plain" lane mode (colorByBand
+              // false -> bands=[]): when bands is non-empty (colorByBand ON,
+              // the default post-solve state), distance-band coloring wins
+              // for EVERY edge, JADE/Ch10 included, via assignBandOrOverflow
+              // so an out-of-range lane gets the distinct overflow color
+              // instead of folding into the last band. When bands is empty
+              // (colorByBand OFF), a two-echelon edge falls back to its leg
+              // color (green inbound / red outbound) exactly as before; a
+              // single-echelon edge (no leg) still resolves via
+              // assignBandOrOverflow(distance, []), which returns band 0 —
+              // unchanged "Plain" behavior.
+              const bandColor = getBandColor(assignBandOrOverflow(edge.distance, bands));
+              const legColor = getLegColor(edge.leg);
+              const routeColor = legColor != null && bands.length === 0 ? legColor : bandColor;
 
               return (
                 <Polyline
                   key={`route-${edge.leg ?? "none"}-${edge.fromId}-${edge.toId}`}
                   positions={[
                     [toEntity.lat, toEntity.lng],
-                    [warehouse.lat, warehouse.lng],
+                    [fromEntity.lat, fromEntity.lng],
                   ]}
                   pathOptions={{
-                    color: legColor,
+                    color: routeColor,
                     weight: focused && hasCustomerSelection ? 4 : 2,
                     opacity: dimmed ? 0.1 : focused && hasCustomerSelection ? 1 : 0.75,
                   }}
@@ -520,7 +675,7 @@ export function NetworkMap({
                     sticky
                   >
                     <span className="text-xs">
-                      {warehouse.city} → {toEntity.city}
+                      {fromEntity.city} → {toEntity.city}
                       <br />
                       <span className="font-mono">{edge.distance} {distanceUnit}</span>
                     </span>
@@ -532,7 +687,10 @@ export function NetworkMap({
 
         {showCustomerMarkers && dataset.customers.map((c) => {
           const assignment = assignmentMap.get(c.id);
-          const assignmentBand = assignment ? assignBand(assignment.distance, bands) : 0;
+          // jade-B1 (#1 all-site overflow) — assignBandOrOverflow so a
+          // customer beyond the highest boundary highlights with the
+          // distinct overflow color/label, not the last band's.
+          const assignmentBand = assignment ? assignBandOrOverflow(assignment.distance, bands) : 0;
           const focused = isCustomerFocused(c.id);
           const dimmed = anySelection && !focused;
           const isCustomerSelected = c.id === selectedCustomerId;
@@ -577,7 +735,7 @@ export function NetworkMap({
                 <span className="font-semibold text-xs">
                   {(c as unknown as { city?: string }).city ?? c.id}, {(c as unknown as { state?: string }).state ?? ""}
                   {" · "}
-                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· Band ${assignmentBand + 1}` : ""}</span>
+                  <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${bandLabel(assignment.distance, bands)}` : ""}</span>
                 </span>
               </Tooltip>
             </CircleMarker>
@@ -629,6 +787,20 @@ export function NetworkMap({
             </Marker>
           );
         })}
+
+        {/* jade-B1 (#2) — plant markers: reuse the input-map square symbol,
+            NEVER subject to hideClosedWarehouses (a plant is a fixed supply
+            source, not a facility-location open/close decision). Gated only
+            on the independent showPlantMarkers toggle. */}
+        {showPlantMarkers && plants.map((p) => (
+          <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
+            <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+              <span className="font-semibold text-xs">
+                {p.id} — {p.city}, {p.state}
+              </span>
+            </Tooltip>
+          </Marker>
+        ))}
       </MapContainer>
 
       <MapLegend
@@ -642,6 +814,8 @@ export function NetworkMap({
         bands={bands}
         hintText={hintText}
         distanceUnit={distanceUnit}
+        hasPlants={plants.length > 0}
+        showPlantLayer={showPlantMarkers}
       />
     </div>
   );

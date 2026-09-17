@@ -251,7 +251,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
   });
 });
 
-// ── Map bounds fix: resolving countryBounds after initial mount ────────────
+// ── Map bounds: resolving countryBounds after initial mount ────────────────
 // Regression test for: Chapter 10 (Australia-bounded) showing the continental
 // US map. react-leaflet's MapContainer applies center/maxBounds/minZoom only
 // at construction — they're not reactive. GET /api/models (source of
@@ -261,11 +261,25 @@ describe("NetworkMap warehouse icon shape by kind", () => {
 // later FitBounds() call can't override (maxBoundsViscosity=1.0 clamps the
 // view back to the stale bounds). The fix keys <MapContainer> on the
 // resolved bounds so React fully remounts it once real bounds arrive.
-describe("NetworkMap remounts on countryBounds resolution", () => {
-  it("replaces the Leaflet map DOM node when countryBounds changes from undefined to a real value", () => {
+//
+// jade-B1 (#2, spec §3 "Bounds constraint") — bounds now derive PRIMARILY
+// from the union of rendered marker coordinates (Tier 1), which are already
+// present at first mount for every real caller (dataset is a required prop),
+// so the original two-query race is structurally moot whenever there are
+// >=2 real marker coords: the map is correctly bounded on the very first
+// mount, no remount needed. countryBounds only matters as the LAST-resort
+// Tier-3 fallback (spec's degenerate-bounds guard) — exercised below with a
+// single-total-entity dataset, where both Tier 1 and Tier 2 are degenerate.
+describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () => {
+  const singleEntityDataset = {
+    warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+    customers: [],
+  };
+
+  it("replaces the Leaflet map DOM node when a degenerate dataset's manifest countryBounds changes from undefined to a real value (Tier-3 fallback)", () => {
     const { container, rerender } = render(
       <NetworkMap
-        dataset={dataset}
+        dataset={singleEntityDataset}
         warehouseStatuses={[]}
         result={null}
         showRoutes={false}
@@ -281,7 +295,7 @@ describe("NetworkMap remounts on countryBounds resolution", () => {
 
     rerender(
       <NetworkMap
-        dataset={dataset}
+        dataset={singleEntityDataset}
         warehouseStatuses={[]}
         result={null}
         showRoutes={false}
@@ -301,7 +315,7 @@ describe("NetworkMap remounts on countryBounds resolution", () => {
     expect(secondMapNode).not.toBe(firstMapNode);
   });
 
-  it("does NOT remount when countryBounds is unchanged across renders", () => {
+  it("does NOT remount when countryBounds is unchanged across renders (2+ real marker coords already determine the union)", () => {
     const bounds = { sw: [-38.5, 113.0], ne: [-16.0, 154.5] };
     const { container, rerender } = render(
       <NetworkMap
@@ -329,6 +343,44 @@ describe("NetworkMap remounts on countryBounds resolution", () => {
         showRoutes={true}
         bands={[500, 1000, 1500, 2000]}
         countryBounds={{ sw: [-38.5, 113.0], ne: [-16.0, 154.5] }}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const secondMapNode = container.querySelector(".leaflet-container");
+    expect(secondMapNode).toBe(firstMapNode);
+  });
+
+  it("does NOT remount when an unrelated layer toggle changes but the rendered-marker union stays the same (>=2 coords both times)", () => {
+    // dataset (module-level, top of file) has 1 warehouse + 1 customer —
+    // toggling showCustomerMarkers off would drop below 2 rendered coords
+    // and correctly trigger the degenerate-guard fallback (a real bounds
+    // CHANGE, tested separately below); toggling something that does NOT
+    // affect the rendered union (hideClosedWarehouses, with no result so
+    // isOpen is always false and there's no mine) must not remount.
+    const { container, rerender } = render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const firstMapNode = container.querySelector(".leaflet-container");
+    rerender(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -533,7 +585,13 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
         warehouseStatuses={[]}
         result={result}
         showRoutes={true}
-        bands={[500, 1000, 1500, 2000, 2600]}
+        // jade-B1 (#1 leg-vs-band coloring resolution) — bands=[] is the
+        // shared "Color lanes: Distance band" OFF signal (same encoding
+        // OutputMapTab already uses for the "Plain" lane mode): leg colors
+        // win only when bands is empty. Non-empty bands now means BAND
+        // colors win even for a two-echelon edge — asserted in its own
+        // dedicated describe block below.
+        bands={[]}
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -541,8 +599,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
       />,
     );
     // Isolate the route-pane SVG so the assertion reflects the polylines'
-    // strokes, not the band-legend swatches (which always paint Band 1 and,
-    // with 5 bands, Band 5 regardless of edges).
+    // strokes, not the band-legend swatches.
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
     // mine→refinery leg = var(--map-warehouse-open), refinery→customer leg = var(--danger).
@@ -586,7 +643,9 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
         warehouseStatuses={[]}
         result={result}
         showRoutes={true}
-        bands={[500, 1000, 1500, 2000, 2600]}
+        // bands=[] -> "Color lanes: Distance band" OFF -> leg colors (see
+        // the comment on the sibling test above).
+        bands={[]}
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -704,7 +763,11 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         warehouseStatuses={[]}
         result={jadeResult}
         showRoutes={true}
-        bands={[200, 400, 800, 1600]}
+        // jade-B1 (#1 leg-vs-band coloring resolution) — bands=[] is the
+        // "Color lanes: Distance band" OFF signal, so leg colors win here;
+        // the ON case (non-empty bands -> band colors win even for a
+        // two-echelon edge) is asserted in its own describe block below.
+        bands={[]}
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -727,7 +790,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         warehouseStatuses={[]}
         result={jadeResult}
         showRoutes={true}
-        bands={[200, 400, 800, 1600]}
+        bands={[]}
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -745,7 +808,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         warehouseStatuses={[]}
         result={jadeResult}
         showRoutes={true}
-        bands={[200, 400, 800, 1600]}
+        bands={[]}
         multiSelectedWarehouseIds={[]}
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
@@ -778,7 +841,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
           warehouseStatuses={[]}
           result={unknownLegResult}
           showRoutes={true}
-          bands={[200, 400, 800, 1600]}
+          bands={[]}
           multiSelectedWarehouseIds={[]}
           multiSelectedCustomerIds={[]}
           onToggleWarehouseMultiSelect={() => {}}
@@ -1183,5 +1246,426 @@ describe("NetworkMap Chen two-class coverage lens (C4.14)", () => {
     // Leg colors (two-echelon inbound/outbound) must be absent on Chen routes.
     expect(routeHtml).not.toContain("var(--map-warehouse-open)");
     expect(routeHtml).not.toContain("var(--danger)");
+  });
+});
+
+// ── jade-B1 (#1 all-site overflow) — overflow consistent across lane,
+// customer highlight, popup, and tooltip for a single overflow customer;
+// on-boundary still resolves to the real band, not overflow ────────────────
+describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
+  const overflowDataset = {
+    warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+    customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 }],
+  };
+  const bands = [500, 1000, 1500, 2000];
+  const overflowDistance = 2500; // beyond every boundary in `bands`
+  const overflowResult = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [{ fromId: "W1", toId: "C1", flow: 5000, distance: overflowDistance }],
+    metrics: { weightedAvgDistance: overflowDistance, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["W1"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("colors the lane with the distinct overflow color, not the last band's color", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={overflowDataset}
+        warehouseStatuses={[]}
+        result={overflowResult}
+        showRoutes={true}
+        bands={bands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    expect(routeHtml.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
+    // NOT the last real band's color (the old folding behavior).
+    expect(routeHtml.toLowerCase()).not.toContain(getBandColor(3).toLowerCase());
+  });
+
+  it("reads 'Overflow' (not a Band N label) in the customer hover tooltip", () => {
+    tooltipChildren.length = 0;
+    render(
+      <NetworkMap
+        dataset={overflowDataset}
+        warehouseStatuses={[]}
+        result={overflowResult}
+        showRoutes={true}
+        bands={bands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const customerTooltip = tooltipChildren.find((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent?.includes("Sampleburg");
+    });
+    expect(customerTooltip).toBeDefined();
+    const { container: tooltipContainer } = render(<>{customerTooltip}</>);
+    expect(tooltipContainer.textContent).toContain("Overflow");
+    expect(tooltipContainer.textContent).not.toMatch(/Band \d/);
+  });
+
+  it("highlights the selected overflow customer with the overflow color (fill + stroke)", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={overflowDataset}
+        warehouseStatuses={[]}
+        result={overflowResult}
+        showRoutes={false}
+        bands={bands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    // showRoutes=false -> the customer CircleMarker is the only
+    // .leaflet-interactive element (no route polylines to collide with).
+    const customerMarker = container.querySelector(".leaflet-overlay-pane .leaflet-interactive") as HTMLElement;
+    expect(customerMarker).not.toBeNull();
+    fireEvent.click(customerMarker);
+    // isCustomerSelected -> fillColor/color both resolve via
+    // getBandColor(assignmentBand), which for this overflow distance is the
+    // overflow color, not the (unused, 4-boundary) last-band color.
+    const overlayHtml = container.querySelector(".leaflet-overlay-pane")?.innerHTML ?? "";
+    expect(overlayHtml.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
+  });
+
+  it("shows the overflow color + 'Overflow' label in the click-triggered customer popup", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={overflowDataset}
+        warehouseStatuses={[]}
+        result={overflowResult}
+        showRoutes={false}
+        bands={bands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const customerMarker = container.querySelector(".leaflet-overlay-pane .leaflet-interactive") as HTMLElement;
+    fireEvent.click(customerMarker);
+    // CustomerPopup opens a REAL imperative L.popup() attached to the map's
+    // own DOM (not a normal React child) — query the whole container, same
+    // convention as the pre-existing "does NOT change the click-based
+    // CustomerPopup content or behavior" test's click-without-throwing check,
+    // but this time asserting the actual popup content.
+    expect(container.innerHTML).toContain("Overflow");
+    expect(container.innerHTML).not.toMatch(/Band \d/);
+    expect(container.innerHTML.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
+  });
+
+  it("a distance exactly on a boundary resolves to that band, not overflow (upper-inclusive)", () => {
+    const onBoundaryResult = {
+      ...overflowResult,
+      edges: [{ fromId: "W1", toId: "C1", flow: 5000, distance: 2000 }], // == the highest boundary
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={overflowDataset}
+        warehouseStatuses={[]}
+        result={onBoundaryResult}
+        showRoutes={true}
+        bands={bands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    // Band index 3 (the 4th/last boundary, 2000) — NOT the overflow color.
+    expect(routeHtml.toLowerCase()).toContain(getBandColor(3).toLowerCase());
+    expect(routeHtml.toLowerCase()).not.toContain(getBandColor(-1).toLowerCase());
+  });
+});
+
+// ── jade-B1 (#1 leg-vs-band coloring resolution) — band coloring wins for a
+// two-echelon edge once "Color lanes: Distance band" is ON (bands
+// non-empty); leg colors are the OFF-only fallback (already covered above,
+// in the jade-T13 describe block, via bands=[]) ────────────────────────────
+describe("NetworkMap band coloring overrides leg coloring when bands is non-empty (jade-B1 fix)", () => {
+  const jadeDataset = {
+    warehouses: [
+      { id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 },
+      { id: "wh-11", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 },
+    ],
+    customers: [
+      { id: "customer-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 500 },
+    ],
+  };
+  const jadeResult = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [
+      { fromId: "plant-1", toId: "wh-11", flow: 100, distance: 1500, leg: "plant_to_warehouse" as const },
+      { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 900, leg: "warehouse_to_customer" as const },
+    ],
+    metrics: { weightedAvgDistance: 1000, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["wh-11"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("uses distance-band colors, not leg colors, for both legs when bands is non-empty (Color-by-band ON)", () => {
+    const bands = [200, 400, 800, 1600];
+    const { container } = render(
+      <NetworkMap
+        dataset={jadeDataset}
+        warehouseStatuses={[]}
+        result={jadeResult}
+        showRoutes={true}
+        bands={bands}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    // Neither leg color appears — this is the fix: the "leg color wins for
+    // JADE; band toggle inert" bug is gone.
+    expect(routeHtml).not.toContain("var(--map-warehouse-open)");
+    expect(routeHtml).not.toContain("var(--danger)");
+    // Both edges' real band colors DO appear (1500mi and 900mi both fall
+    // under the 1600 boundary -> index 3 for both under this band set).
+    expect(routeHtml.toLowerCase()).toContain(getBandColor(3).toLowerCase());
+  });
+});
+
+// ── jade-B1 (#2) — plant markers + inbound-route connection to plant
+// coords ─────────────────────────────────────────────────────────────────
+describe("NetworkMap plant markers (jade-B1 #2)", () => {
+  const jadePlantDataset = {
+    warehouses: [{ id: "wh-11", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 }],
+    customers: [{ id: "customer-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 500 }],
+  };
+  const plants = [{ id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 }];
+  const plantResult = {
+    status: "optimal" as const,
+    objective: 1,
+    runTimeSec: 0.1,
+    quality: "Optimal",
+    edges: [
+      { fromId: "plant-1", toId: "wh-11", flow: 100, distance: 1500, leg: "plant_to_warehouse" as const },
+      { fromId: "wh-11", toId: "customer-1", flow: 500, distance: 900, leg: "warehouse_to_customer" as const },
+    ],
+    metrics: { weightedAvgDistance: 1000, bandCoverage: [], utilizationByNode: [] },
+    details: { openWarehouseIds: ["wh-11"], assignments: [] },
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("renders a plant marker (square icon, not the triangle/star warehouse icons) at its own coordinates, plus a Tooltip", () => {
+    tooltipChildren.length = 0;
+    const { container } = render(
+      <NetworkMap
+        dataset={jadePlantDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        plants={plants}
+      />,
+    );
+    // 1 warehouse (triangle/polygon) + 1 plant (square/rect) marker.
+    const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
+    expect(markers.length).toBe(2);
+    const plantMarker = Array.from(markers).find((m) => m.innerHTML.includes("<rect"));
+    expect(plantMarker).toBeDefined();
+    expect(plantMarker?.innerHTML).not.toContain("<polygon");
+    const plantTooltip = tooltipChildren.find((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent?.includes("Springfield");
+    });
+    expect(plantTooltip).toBeDefined();
+  });
+
+  it("does NOT render plant markers when showPlantMarkers is false, but the inbound route still draws (plants remain authoritative for endpoint resolution)", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={jadePlantDataset}
+        warehouseStatuses={[]}
+        result={plantResult}
+        showRoutes={true}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        plants={plants}
+        showPlantMarkers={false}
+      />,
+    );
+    const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
+    // Only the 1 warehouse marker — the plant marker is suppressed.
+    expect(markers.length).toBe(1);
+    // Both routes still draw (2 <path> elements) — plant_to_warehouse's
+    // fromId resolves against the `plants` prop regardless of the marker
+    // toggle (mirrors showWarehouseMarkers/showCustomerMarkers' own
+    // "gate rendering only, never route lookups" contract).
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    const pathCount = (routeHtml.match(/<path/g) ?? []).length;
+    expect(pathCount).toBe(2);
+  });
+
+  it("renders the plant_to_warehouse route connecting to the plant's own coordinates even when the plant is NOT folded into dataset.warehouses (the real, un-folded shape)", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={jadePlantDataset}
+        warehouseStatuses={[]}
+        result={plantResult}
+        showRoutes={true}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        plants={plants}
+      />,
+    );
+    // dataset.warehouses has NO "plant-1" entry at all — the fromId lookup
+    // MUST resolve via the `plants` prop for the inbound route to draw.
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    const pathCount = (routeHtml.match(/<path/g) ?? []).length;
+    expect(pathCount).toBe(2);
+  });
+
+  it("falls back to dataset.warehouses when a caller still folds plants there and passes no `plants` prop (pre-INT compatibility)", () => {
+    const foldedDataset = {
+      warehouses: [
+        { id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 },
+        { id: "wh-11", city: "Phoenix", state: "AZ", lat: 33.45, lng: -112.07 },
+      ],
+      customers: [{ id: "customer-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 500 }],
+    };
+    const { container } = render(
+      <NetworkMap
+        dataset={foldedDataset}
+        warehouseStatuses={[]}
+        result={plantResult}
+        showRoutes={true}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        // no `plants` prop at all -> defaults to []
+      />,
+    );
+    const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
+    const pathCount = (routeHtml.match(/<path/g) ?? []).length;
+    expect(pathCount).toBe(2);
+  });
+});
+
+// ── jade-B1 (#2) — union-of-rendered-markers bounds + degenerate-bounds
+// guard (review R-plan-4) ───────────────────────────────────────────────────
+describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () => {
+  const farPlant = [{ id: "plant-far", city: "Farplantville", state: "AK", lat: 64.2, lng: -149.5 }];
+  const closeDataset = {
+    warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+    customers: [{ id: "C1", city: "Sampleburg", state: "SB", lat: 40.5, lng: -90.5, demand: 100 }],
+  };
+
+  it("expands maxBounds to include a plant far outside the other markers' area", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={closeDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        plants={farPlant}
+      />,
+    );
+    const lastProps = mapContainerProps[mapContainerProps.length - 1];
+    const maxBounds = lastProps.maxBounds as [[number, number], [number, number]];
+    // The plant's own lat (64.2) must fall within the fitted maxBounds —
+    // proves the union (not just the two close-together warehouse/customer
+    // coords) drove maxBounds.
+    expect(maxBounds[0][0]).toBeLessThanOrEqual(64.2);
+    expect(maxBounds[1][0]).toBeGreaterThanOrEqual(64.2);
+  });
+
+  it("falls back to all-effective-entity coords (padded, non-degenerate) when every marker layer is toggled off", () => {
+    const { container } = render(
+      <NetworkMap
+        dataset={closeDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        showWarehouseMarkers={false}
+        showCustomerMarkers={false}
+      />,
+    );
+    const lastProps = mapContainerProps[mapContainerProps.length - 1];
+    const maxBounds = lastProps.maxBounds as [[number, number], [number, number]];
+    // Finite, non-degenerate (real span on both axes) — falls back to the
+    // full closeDataset union (W1 at 40/-90, C1 at 40.5/-90.5) rather than
+    // collapsing to a zero-area box or NaN.
+    expect(Number.isFinite(maxBounds[0][0])).toBe(true);
+    expect(Number.isFinite(maxBounds[1][0])).toBe(true);
+    expect(maxBounds[1][0] - maxBounds[0][0]).toBeGreaterThan(0);
+    expect(maxBounds[1][1] - maxBounds[0][1]).toBeGreaterThan(0);
+    // Still encloses both real entities.
+    expect(maxBounds[0][0]).toBeLessThanOrEqual(40);
+    expect(maxBounds[1][0]).toBeGreaterThanOrEqual(40.5);
+    void container;
+  });
+
+  it("falls back to a padded, non-degenerate box for a single-total-entity dataset with no countryBounds (manifest fallback tier)", () => {
+    const singleEntityDataset = {
+      warehouses: [{ id: "W1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+      customers: [],
+    };
+    render(
+      <NetworkMap
+        dataset={singleEntityDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const lastProps = mapContainerProps[mapContainerProps.length - 1];
+    const maxBounds = lastProps.maxBounds as [[number, number], [number, number]];
+    expect(Number.isFinite(maxBounds[0][0])).toBe(true);
+    expect(Number.isFinite(maxBounds[1][0])).toBe(true);
+    // Non-zero-area on both axes — the "always PAD" requirement.
+    expect(maxBounds[1][0] - maxBounds[0][0]).toBeGreaterThan(0);
+    expect(maxBounds[1][1] - maxBounds[0][1]).toBeGreaterThan(0);
   });
 });

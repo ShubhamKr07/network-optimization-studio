@@ -161,10 +161,13 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
     );
     const html = routePaneHtml(container);
     // 100mi edge -> band 0. 900mi edge exceeds every boundary in
-    // [250,500,750] (3 bands, indices 0-2) -> assignBand returns the last
-    // index, 2 -> distinct palette colors from band 0.
+    // [250,500,750] (3 bands, indices 0-2) -> jade-B1's all-site overflow
+    // fix resolves it to the distinct OVERFLOW color (-1), never folded into
+    // the last real band (index 2) — a real behavior change from the old
+    // assignBand-folding this test previously asserted.
     expect(html.toLowerCase()).toContain(getBandColor(0).toLowerCase());
-    expect(html.toLowerCase()).toContain(getBandColor(2).toLowerCase());
+    expect(html.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
+    expect(html.toLowerCase()).not.toContain(getBandColor(2).toLowerCase());
   });
 
   it("colors every lane identically (band-0 color) when Color-by-band is turned OFF, regardless of each edge's real distance", () => {
@@ -175,8 +178,9 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
 
     const html = routePaneHtml(container);
     // Both edges (100mi and 900mi — normally different bands) must render
-    // the SAME uniform color, and NOT the "should be different" band-2 color.
-    expect(html.toLowerCase()).not.toContain(getBandColor(2).toLowerCase());
+    // the SAME uniform color, and NOT the "should be different" overflow
+    // color a non-empty-bands render would produce.
+    expect(html.toLowerCase()).not.toContain(getBandColor(-1).toLowerCase());
     expect(routePathCount(container)).toBe(2);
   });
 
@@ -186,10 +190,11 @@ describe("OutputMapTab — lane coloring (plain vs distance band)", () => {
     );
     const html = routePaneHtml(container);
     // Same 100mi/900mi edges as above still resolve to different bands under
-    // the DD-5 default [250,500,750], proving the fallback was applied
-    // rather than the empty array silently collapsing every edge to band 0.
+    // the DD-5 default [250,500,750] (900mi overflows it), proving the
+    // fallback was applied rather than the empty array silently collapsing
+    // every edge to band 0.
     expect(html.toLowerCase()).toContain(getBandColor(0).toLowerCase());
-    expect(html.toLowerCase()).toContain(getBandColor(2).toLowerCase());
+    expect(html.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
   });
 
   it("the Color-by-band checkbox is disabled once Lanes itself is off", () => {
@@ -395,6 +400,12 @@ describe("OutputMapTab — per-leg lane visibility toggles (jade-T15.6)", () => 
     const { container } = render(
       <OutputMapTab dataset={twoLegDataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,
     );
+    // jade-B1 — "Color lanes: Distance band" is ON by default, which (per
+    // the leg-vs-band coloring fix) now makes band colors win over leg
+    // colors. Turn it off so this test can keep identifying the surviving
+    // route by its LEG color (the thing this test is actually about —
+    // visibility filtering, not color-mode selection).
+    fireEvent.click(screen.getByTestId("checkbox-color-lanes-band"));
     fireEvent.click(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse"));
 
     expect(screen.getByTestId("checkbox-toggle-leg-plant_to_warehouse")).toHaveAttribute("aria-checked", "false");
@@ -477,5 +488,114 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
   it("is absent when result is null (pre-solve / inactive tab)", () => {
     render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={null} bands={[250, 500, 750]} />);
     expect(screen.queryByTestId("output-map-metric-overlay")).not.toBeInTheDocument();
+  });
+});
+
+// ── jade-B1 (#3 three weighted-average distances) ──────────────────────────
+describe("OutputMapTab — three weighted-average distance lines (jade-B1 #3)", () => {
+  const twoLegResult = {
+    ...result,
+    edges: [
+      { fromId: "plant-1", toId: "W1", flow: 100, distance: 1500, leg: "plant_to_warehouse" as const },
+      { fromId: "W1", toId: "C1", flow: 100, distance: 900, leg: "warehouse_to_customer" as const },
+    ],
+    metrics: {
+      ...result.metrics,
+      weightedAvgDistance: 1200,
+      avgDistanceByLeg: [
+        { leg: "plant_to_warehouse", avgDistance: 1500, totalFlow: 100 },
+        { leg: "warehouse_to_customer", avgDistance: 900, totalFlow: 100 },
+      ],
+    },
+  };
+
+  it("shows three labelled avg-distance lines (per-leg x2 + overall) for a two-echelon result", () => {
+    render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,
+    );
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    // Per-leg lines, labelled via legLabel() (never a hardcoded JADE-only string).
+    expect(overlay).toHaveTextContent("Plant → Warehouse avg distance:");
+    expect(overlay).toHaveTextContent("1500.0 mi");
+    expect(overlay).toHaveTextContent("Warehouse → Customer avg distance:");
+    expect(overlay).toHaveTextContent("900.0 mi");
+    // Overall line.
+    expect(overlay).toHaveTextContent("Overall avg distance:");
+    expect(overlay).toHaveTextContent("1200.0 mi");
+    // The old single "Weighted avg distance:" line is replaced, not duplicated.
+    expect(overlay.textContent).not.toContain("Weighted avg distance:");
+  });
+
+  it("shows a single 'Weighted avg distance' line for a single-leg/no-leg model (unchanged behavior)", () => {
+    render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />,
+    );
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    expect(overlay).toHaveTextContent("Weighted avg distance:");
+    expect(overlay.textContent).not.toContain("Plant → Warehouse avg distance:");
+    expect(overlay.textContent).not.toContain("Overall avg distance:");
+  });
+});
+
+// ── jade-B1 (#8 timing overlay) ─────────────────────────────────────────────
+describe("OutputMapTab — timing overlay (jade-B1 #8)", () => {
+  it("renders the frozen total + queued/active split when the `timing` prop is provided", () => {
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={result}
+        bands={[250, 500, 750]}
+        timing={{ totalSec: 12.4, queuedSec: 2.1, activeSec: 10.3 }}
+      />,
+    );
+    const timing = screen.getByTestId("output-map-timing");
+    expect(timing).toHaveTextContent("12.4s");
+    expect(timing).toHaveTextContent("2.1s");
+    expect(timing).toHaveTextContent("10.3s");
+  });
+
+  it("renders nothing (suppressed) when the `timing` prop is absent", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    expect(screen.queryByTestId("output-map-timing")).not.toBeInTheDocument();
+  });
+
+  it("is suppressed even with a result, if timing is explicitly absent (not just pre-solve)", () => {
+    render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} timing={undefined} />,
+    );
+    expect(screen.queryByTestId("output-map-timing")).not.toBeInTheDocument();
+  });
+});
+
+// ── jade-B1 (#2) — Plants layer toggle ──────────────────────────────────────
+describe("OutputMapTab — Plants layer toggle (jade-B1 #2)", () => {
+  const plants = [{ id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 }];
+
+  it("does NOT show a Plants checkbox when there are no plants", () => {
+    render(<OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} />);
+    expect(screen.queryByTestId("checkbox-toggle-plants")).not.toBeInTheDocument();
+  });
+
+  it("shows a Plants checkbox (checked by default) and renders a plant marker when plants are supplied", () => {
+    const { container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} plants={plants} />,
+    );
+    expect(screen.getByTestId("checkbox-toggle-plants")).toHaveAttribute("aria-checked", "true");
+    const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
+    const plantMarker = Array.from(markers).find((m) => m.innerHTML.includes("<rect"));
+    expect(plantMarker).toBeDefined();
+  });
+
+  it("unchecking Plants hides the plant marker", () => {
+    const { container } = render(
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={result} bands={[250, 500, 750]} plants={plants} />,
+    );
+    fireEvent.click(screen.getByTestId("checkbox-toggle-plants"));
+    const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
+    const plantMarker = Array.from(markers).find((m) => m.innerHTML.includes("<rect"));
+    expect(plantMarker).toBeUndefined();
+    // Warehouse marker (a <polygon>) still renders — only the plant layer toggled.
+    expect(warehouseMarkerCount(container)).toBe(1);
   });
 });

@@ -4,6 +4,7 @@ import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation
 import { demandTone, makeQuintileRadius, QUINTILE_RADII } from "./types";
 import { warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "./EntityMarkers";
 import { getBandColor } from "@/lib/bandPalette";
+import { OVERFLOW_BAND } from "@/lib/bands";
 
 const STATUSES: WhStatus[] = ["active", "forced_open", "inactive"];
 
@@ -131,6 +132,13 @@ export interface MapLegendProps {
    * distance-band swatch's upper bound ("≤ {bound} {distanceUnit}") instead
    * of the old ordinal "Band N". Optional, default `"mi"`. */
   distanceUnit?: string;
+  /** jade-B1 (#2) — Output variant only: whether the dataset has plant
+   * entities (two-echelon-jade-us). Gates the "Plant" status entry (ANDed
+   * with `showPlantLayer`, the live Plants-layer-toggle state) — mirrors
+   * `hasMine`'s data-driven gate, kept separate from `showWarehouseLayer`
+   * since Plants has its own independent layer toggle. Optional, default
+   * `false`. */
+  hasPlants?: boolean;
 }
 
 // Static overlay — status swatches + demand reference bubbles (Input) or
@@ -158,6 +166,7 @@ export function MapLegend({
   hintText = null,
   showPlantLayer = false,
   distanceUnit = "mi",
+  hasPlants = false,
 }: MapLegendProps = {}) {
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
@@ -184,6 +193,13 @@ export function MapLegend({
           : []),
         ...(showCustomerLayer
           ? [{ key: "customer", testid: "legend-output-customer", svg: CUSTOMER_DOT_SVG, label: "Customer" }]
+          : []),
+        // jade-B1 (#2) — Plants has its own independent layer toggle
+        // (showPlantLayer), separate from showWarehouseLayer; gated by
+        // hasPlants (data-driven, mirrors hasMine) so non-JADE output maps
+        // never show this row.
+        ...(hasPlants && showPlantLayer
+          ? [{ key: "plant", testid: "legend-output-plant", svg: plantSquareSvg(), label: "Plant" }]
           : []),
       ]
     : [
@@ -286,6 +302,24 @@ export function MapLegend({
                 </span>
               </Fragment>
             ))}
+            {/* jade-B1 (#1 all-site overflow) — a distance beyond the
+                highest boundary gets its own distinct swatch, never folded
+                into the last band's color. Only shown alongside at least one
+                real band (an empty `bands` array means "Plain"/leg-color
+                mode — no bands to overflow past). testid deliberately does
+                NOT start with "legend-band-" so it can't collide with the
+                `[data-testid^="legend-band-"]` per-band-count selector
+                existing tests use. */}
+            {bands.length > 0 && (
+              <Fragment>
+                <span
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: getBandColor(OVERFLOW_BAND) }}
+                  data-testid="legend-overflow-band"
+                />
+                <span className="text-muted-foreground font-mono text-[10px]">Overflow</span>
+              </Fragment>
+            )}
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { Dataset, SolveResult } from "@workspace/api-client-react";
+import type { Dataset, Plant, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import { NetworkMap } from "@/components/NetworkMap";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,6 +8,16 @@ import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import type { CountryBounds } from "@/lib/mapBounds";
 import { copyMapToClipboard, downloadMapAsPng, isClipboardImageWriteSupported } from "@/lib/copyMapToClipboard";
 import { toast } from "@/hooks/use-toast";
+
+// jade-B1 (#8 timing overlay, spec §9) — a frozen, per-history-entry solve
+// timing. Optional/no default — when the caller (eventually INT) has no
+// matching timing for the displayed result, the timing line is simply
+// suppressed (renders nothing) rather than showing a mismatched value.
+export interface SolveTiming {
+  totalSec: number;
+  queuedSec: number;
+  activeSec: number;
+}
 
 // jade-T15.6 — derives a human-readable lane label from a leg string value
 // itself (e.g. "plant_to_warehouse" -> "Plant → Warehouse"), never from a
@@ -90,6 +100,18 @@ interface OutputMapTabProps {
   // modelId prop. Optional/defaults to "mi" so any call site that hasn't
   // threaded it through yet keeps compiling unchanged.
   modelId?: string;
+  // jade-B1 (#2) — Chapter 9 JADE's plant echelon. Optional, default `[]` —
+  // every non-JADE caller (and every existing test literal) is unaffected.
+  // Passed straight through to NetworkMap's own `plants` prop (INT is
+  // responsible for supplying `effectivePlants = dataset.plants ∪
+  // displayedInputs.addedPlants`, per spec §3's review R2-4 — this tab
+  // itself has no opinion on where the array comes from).
+  plants?: Plant[];
+  // jade-B1 (#8 timing overlay) — optional frozen solve timing for the
+  // DISPLAYED result/history entry. Suppressed entirely when absent (e.g.
+  // no caller has wired it yet, or the displayed entry has no matching
+  // timing — INT's job, per spec §9).
+  timing?: SolveTiming;
 }
 
 // A3.1 — Output Map tab: re-homes NetworkMap with independent layer toggles
@@ -106,10 +128,12 @@ interface OutputMapTabProps {
 export function OutputMapTab({
   dataset, warehouseStatuses, result, bands, countryBounds,
   addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false, modelId,
+  plants = [], timing,
 }: OutputMapTabProps) {
   const [showWarehouses, setShowWarehouses] = useState(true);
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
+  const [showPlants, setShowPlants] = useState(true);
   const [colorByBand, setColorByBand] = useState(true);
   const mapRef = useRef<HTMLDivElement>(null);
   const [clipboardSupported] = useState(() => isClipboardImageWriteSupported());
@@ -263,6 +287,20 @@ export function OutputMapTab({
           />
           <Label htmlFor="output-map-toggle-lanes" className="text-xs">Lanes</Label>
         </div>
+        {/* jade-B1 (#2) — only shown when there's a plant echelon to toggle
+            at all (mirrors showLegToggles' distinctLegs.length>=2 gate), so
+            no non-JADE model ever shows an irrelevant "Plants" checkbox. */}
+        {plants.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Checkbox
+              id="output-map-toggle-plants"
+              checked={showPlants}
+              onCheckedChange={checked => setShowPlants(checked === true)}
+              data-testid="checkbox-toggle-plants"
+            />
+            <Label htmlFor="output-map-toggle-plants" className="text-xs">Plants</Label>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 pl-3 border-l">
           <Checkbox
             id="output-map-color-by-band"
@@ -312,12 +350,48 @@ export function OutputMapTab({
               <span className="text-muted-foreground">Objective: </span>
               <span className="font-medium font-mono">{result.objective.toLocaleString()}</span>
             </div>
-            <div>
-              <span className="text-muted-foreground">Weighted avg distance: </span>
-              <span className="font-medium font-mono">
-                {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
-              </span>
-            </div>
+            {/* jade-B1 (#3 three weighted-average distances, spec §4) — a
+                two-echelon result (>=2 avgDistanceByLeg entries) shows one
+                labelled line per leg PLUS an overall line; every other
+                (single-leg/no-leg) model keeps the single existing line.
+                Labels derive from the leg string itself via the same
+                legLabel() this file already uses for the leg-toggle
+                checkboxes above — never a hardcoded "Plant"/"Warehouse"
+                allowlist, so this generalizes to any two-echelon model. */}
+            {result.metrics.avgDistanceByLeg && result.metrics.avgDistanceByLeg.length >= 2 ? (
+              <>
+                {result.metrics.avgDistanceByLeg.map(l => (
+                  <div key={l.leg} data-testid={`output-map-leg-avg-${l.leg}`}>
+                    <span className="text-muted-foreground">{legLabel(l.leg)} avg distance: </span>
+                    <span className="font-medium font-mono">{l.avgDistance.toFixed(1)} {distanceUnit}</span>
+                  </div>
+                ))}
+                <div data-testid="output-map-overall-avg">
+                  <span className="text-muted-foreground">Overall avg distance: </span>
+                  <span className="font-medium font-mono">
+                    {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <span className="text-muted-foreground">Weighted avg distance: </span>
+                <span className="font-medium font-mono">
+                  {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
+                </span>
+              </div>
+            )}
+            {/* jade-B1 (#8 timing overlay, spec §9) — suppressed entirely
+                (no DOM at all) when the caller has no matching timing for
+                the displayed result, per the spec's explicit "suppress
+                rather than show a mismatched value" resolution. */}
+            {timing && (
+              <div data-testid="output-map-timing">
+                <span className="text-muted-foreground">Solve time: </span>
+                <span className="font-medium font-mono">{timing.totalSec.toFixed(1)}s</span>
+                <span className="text-muted-foreground"> (queued {timing.queuedSec.toFixed(1)}s · active {timing.activeSec.toFixed(1)}s)</span>
+              </div>
+            )}
           </div>
         )}
         <NetworkMap
@@ -336,6 +410,8 @@ export function OutputMapTab({
           hideClosedWarehouses={hideClosedWarehouses}
           distanceUnit={distanceUnit}
           visibleLegs={visibleLegs}
+          plants={plants}
+          showPlantMarkers={showPlants}
         />
       </div>
     </div>
