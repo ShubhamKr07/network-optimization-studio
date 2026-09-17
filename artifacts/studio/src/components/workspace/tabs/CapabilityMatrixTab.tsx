@@ -1,16 +1,23 @@
+import { useMemo } from "react";
 import type { Plant, Product, PlantProductCapability } from "@workspace/api-client-react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { isCellEnabled, cellCapacity, type CapabilityOverride } from "@/lib/jadeCapability";
 
 // T11 (Chapter 9 JADE) — matches `jadeInputsSchema`'s
 // `plantProductCapability[]` shape exactly (`{plantId, productId, enabled}`,
 // pair-unique). A sparse override array over the base 16-cell matrix
 // (`Dataset.plantProductCapabilities`).
-export interface CapabilityOverride {
-  plantId: string;
-  productId: string;
-  enabled: boolean;
-}
+//
+// B5 (JADE Ch.9 Workspace Bundle, spec §7) — re-exported from
+// `lib/jadeCapability.ts` (A2), which is now the single source of truth for
+// this shape and the enabled/capacity math (`isCellEnabled`/`cellCapacity`).
+// Re-exported (not re-declared) so existing consumers
+// (`InputMapTab.tsx`/`Workspace.tsx`) that import `CapabilityOverride` from
+// THIS file keep working unchanged.
+export type { CapabilityOverride };
 
 interface CapabilityMatrixTabProps {
   /** Effective plants — base ∪ added, projection built by Workspace.tsx
@@ -37,9 +44,33 @@ interface CapabilityMatrixTabProps {
   locationById?: Record<string, { city: string; state: string }>;
 }
 
-function baseEnabled(baseCapabilities: PlantProductCapability[], plantId: string, productId: string): boolean {
-  const cell = baseCapabilities.find(c => c.plantId === plantId && c.productId === productId);
-  return (cell?.capacity ?? 0) > 0;
+// B5 — a plant row (not a product column) is this table's filterable unit
+// (spec §10: "the Capability Matrix's 16 *cells* render as 4 plant *rows*").
+// A single text descriptor covers name/id/city/state via one combined
+// search string (mirrors JadeDistancesTab's own `searchText` helper), plus
+// a select descriptor on State for a quick narrow-down.
+function buildFilterDescriptors(
+  locationById: Record<string, { city: string; state: string }> | undefined,
+): ColumnFilterDescriptor<Plant>[] {
+  return [
+    {
+      key: "plant",
+      label: "Plant",
+      type: "text",
+      accessor: plant => {
+        const loc = locationById?.[plant.id];
+        return [plant.name ?? plant.id, plant.id, loc?.city ?? plant.city, loc?.state ?? plant.state]
+          .filter(Boolean)
+          .join(" ");
+      },
+    },
+    {
+      key: "state",
+      label: "State",
+      type: "select",
+      accessor: plant => locationById?.[plant.id]?.state ?? plant.state,
+    },
+  ];
 }
 
 // T11 — the Capability Matrix input tab: an effective-plants × 4-products
@@ -49,6 +80,13 @@ function baseEnabled(baseCapabilities: PlantProductCapability[], plantId: string
 // every other override table in this codebase already uses (WarehouseTable/
 // CustomerTable's own `isNoOp` checks), just keyed by a (plantId, productId)
 // pair instead of a single id.
+//
+// B5 — each cell ALSO shows a read-only capacity readout (`cellCapacity`,
+// A2): enabled -> the base cell's own capacity if >0, else the shared
+// `JADE_ENABLED_CAPACITY` (210,000,000) constant — including a base
+// off-diagonal cell (base capacity 0) the scenario enables, not only
+// added-plant cells (spec §7, matches `merge_inputs.py:869`); disabled -> 0.
+// No numeric editing — the checkbox remains the sole control.
 export function CapabilityMatrixTab({
   plants,
   products,
@@ -57,20 +95,20 @@ export function CapabilityMatrixTab({
   onChange,
   locationById,
 }: CapabilityMatrixTabProps) {
-  function getOverride(plantId: string, productId: string) {
-    return overrides.find(o => o.plantId === plantId && o.productId === productId);
-  }
+  const filterDescriptors = useMemo(() => buildFilterDescriptors(locationById), [locationById]);
+  const tableFilters = useTableFilters(plants, filterDescriptors);
+  const { filteredRows, totalCount, filteredCount } = tableFilters;
 
   function effectiveEnabled(plantId: string, productId: string): boolean {
-    const o = getOverride(plantId, productId);
-    if (o) return o.enabled;
-    return baseEnabled(baseCapabilities, plantId, productId);
+    return isCellEnabled(baseCapabilities, overrides, plantId, productId);
   }
 
   function toggle(plantId: string, productId: string) {
     const current = effectiveEnabled(plantId, productId);
     const next = !current;
-    const base = baseEnabled(baseCapabilities, plantId, productId);
+    // Base-only default (empty overrides) — the "does this differ from the
+    // base?" check the upsert-or-remove logic below needs.
+    const base = isCellEnabled(baseCapabilities, [], plantId, productId);
     const rest = overrides.filter(o => !(o.plantId === plantId && o.productId === productId));
     onChange(next === base ? rest : [...rest, { plantId, productId, enabled: next }]);
   }
@@ -84,53 +122,83 @@ export function CapabilityMatrixTab({
   }
 
   return (
-    <div className="max-h-[60vh] overflow-y-auto" data-testid="capability-matrix-tab">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Plant</TableHead>
-            {products.map(product => (
-              <TableHead key={product.id}>{product.name}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {plants.map(plant => (
-            <TableRow key={plant.id} data-testid={`row-capability-${plant.id}`}>
-              <TableCell className="text-xs">
-                {locationById?.[plant.id] ? (
-                  <div className="flex flex-col">
-                    <span>{locationById[plant.id].city}, {locationById[plant.id].state}</span>
-                    <span className="font-mono text-[10px] text-muted-foreground">{plant.id}</span>
-                  </div>
-                ) : (
-                  <>
-                    <span className="font-mono">{plant.name ?? plant.id}</span>
-                    {plant.city && (
-                      <span className="text-muted-foreground ml-1">
-                        ({plant.city}, {plant.state})
-                      </span>
-                    )}
-                  </>
-                )}
-              </TableCell>
-              {products.map(product => {
-                const checked = effectiveEnabled(plant.id, product.id);
-                return (
-                  <TableCell key={product.id}>
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={() => toggle(plant.id, product.id)}
-                      data-testid={`checkbox-capability-${plant.id}-${product.id}`}
-                      aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
-                    />
-                  </TableCell>
-                );
-              })}
+    <div data-testid="capability-matrix-tab">
+      <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+        <p className="text-xs text-muted-foreground max-w-md" data-testid="text-capability-capacity-label">
+          Capacity shown below each checkbox is the capacity per plant-product
+          combination — not the plant's total capacity.
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground" data-testid="text-capability-count">
+            {filteredCount} of {totalCount}
+          </span>
+          {totalCount > 10 && <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />}
+        </div>
+      </div>
+      <div className="max-h-[60vh] overflow-y-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Plant</TableHead>
+              {products.map(product => (
+                <TableHead key={product.id}>{product.name}</TableHead>
+              ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {filteredRows.map(plant => (
+              <TableRow key={plant.id} data-testid={`row-capability-${plant.id}`}>
+                <TableCell className="text-xs">
+                  {locationById?.[plant.id] ? (
+                    <div className="flex flex-col">
+                      <span>{locationById[plant.id].city}, {locationById[plant.id].state}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">{plant.id}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-mono">{plant.name ?? plant.id}</span>
+                      {plant.city && (
+                        <span className="text-muted-foreground ml-1">
+                          ({plant.city}, {plant.state})
+                        </span>
+                      )}
+                    </>
+                  )}
+                </TableCell>
+                {products.map(product => {
+                  const checked = effectiveEnabled(plant.id, product.id);
+                  const capacity = cellCapacity(baseCapabilities, plant.id, product.id, checked);
+                  return (
+                    <TableCell key={product.id}>
+                      <div className="flex flex-col items-start gap-0.5">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggle(plant.id, product.id)}
+                          data-testid={`checkbox-capability-${plant.id}-${product.id}`}
+                          aria-label={`${plant.name ?? plant.id} can make ${product.name}`}
+                        />
+                        <span
+                          className="font-mono text-[10px] text-muted-foreground"
+                          data-testid={`text-capability-capacity-${plant.id}-${product.id}`}
+                        >
+                          {capacity.toLocaleString()}
+                        </span>
+                      </div>
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            ))}
+            {filteredRows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={products.length + 1} className="text-xs text-muted-foreground text-center py-3">
+                  No plants match the current filter.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

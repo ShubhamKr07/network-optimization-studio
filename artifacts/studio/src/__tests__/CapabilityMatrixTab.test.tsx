@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CapabilityMatrixTab } from "@/components/workspace/tabs/CapabilityMatrixTab";
+import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 
 // T11 (Chapter 9 JADE) — the Capability Matrix tab: an effective-plants ×
 // 4-products checkbox grid. Base cells default from the 16-cell matrix
@@ -151,5 +152,160 @@ describe("CapabilityMatrixTab", () => {
       <CapabilityMatrixTab plants={[]} products={products} baseCapabilities={[]} overrides={[]} onChange={vi.fn()} />,
     );
     expect(screen.getByTestId("capability-matrix-empty")).toBeInTheDocument();
+  });
+
+  // B5 (spec §7) — read-only capacity readout per cell, sourced from A2's
+  // shared `cellCapacity` helper.
+  describe("read-only capacity (A2 jadeCapability wiring)", () => {
+    it("a disabled base off-diagonal cell shows 0", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      // plant-1/product-2 is off-diagonal (base capacity 0) and off by
+      // default (no override).
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0");
+    });
+
+    // Controlled harness — CapabilityMatrixTab itself is a pure/controlled
+    // component (overrides come from the parent), so a live-toggle test
+    // needs a small wrapper that actually applies `onChange`'s result back
+    // as `overrides`, the same way Workspace.tsx's real call site does.
+    function ControlledHarness() {
+      const [overrides, setOverrides] = useState<CapabilityOverride[]>([]);
+      return (
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={overrides}
+          onChange={setOverrides}
+        />
+      );
+    }
+
+    it("enabling a base off-diagonal cell flips the displayed value 0 -> 210,000,000 live", async () => {
+      render(<ControlledHarness />);
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0");
+      await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("210,000,000");
+    });
+
+    it("disabling it again flips the value back 210,000,000 -> 0 live", async () => {
+      render(<ControlledHarness />);
+      await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("210,000,000");
+      await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0");
+    });
+
+    it("a base-diagonal (already-capacitated) cell shows its own base capacity, unaffected by JADE_ENABLED_CAPACITY", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveTextContent("210,000,000");
+    });
+
+    it("an added plant's cell (no base entry) enabled shows 210,000,000; disabled shows 0", () => {
+      const plantsWithAdded = [...plants, { id: "ap-new-1", name: undefined, city: "C", state: "QLD", lat: 3, lng: 3 }];
+      render(
+        <CapabilityMatrixTab
+          plants={plantsWithAdded}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[{ plantId: "ap-new-1", productId: "product-1", enabled: true }]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("text-capability-capacity-ap-new-1-product-1")).toHaveTextContent("210,000,000");
+      expect(screen.getByTestId("text-capability-capacity-ap-new-1-product-2")).toHaveTextContent("0");
+    });
+  });
+
+  it("checkbox behavior is unchanged: toggling still fires onChange with the same upsert-or-remove semantics", async () => {
+    const onChange = vi.fn();
+    render(
+      <CapabilityMatrixTab
+        plants={plants}
+        products={products}
+        baseCapabilities={baseCapabilities}
+        overrides={[]}
+        onChange={onChange}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("checkbox-capability-plant-1-product-2"));
+    expect(onChange).toHaveBeenCalledWith([{ plantId: "plant-1", productId: "product-2", enabled: true }]);
+  });
+
+  it("shows the 'capacity per plant-product combination' label", () => {
+    render(
+      <CapabilityMatrixTab
+        plants={plants}
+        products={products}
+        baseCapabilities={baseCapabilities}
+        overrides={[]}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("text-capability-capacity-label")).toHaveTextContent(
+      /capacity per plant-product combination/i,
+    );
+  });
+
+  // B5 (spec §10) — FilterMenu wired with the runtime >10 rendered-plant-row
+  // rule: base matrix stays at 4 rows (hidden), added plants can push it
+  // past 10 (shown).
+  describe("FilterMenu (runtime >10 rendered plant rows)", () => {
+    it("hides the filter menu at the base 4 plant rows", () => {
+      const fourPlants = [
+        { id: "plant-1", name: "Plant One", city: "A", state: "QLD", lat: 1, lng: 1 },
+        { id: "plant-2", name: "Plant Two", city: "B", state: "QLD", lat: 2, lng: 2 },
+        { id: "plant-3", name: "Plant Three", city: "C", state: "QLD", lat: 3, lng: 3 },
+        { id: "plant-4", name: "Plant Four", city: "D", state: "QLD", lat: 4, lng: 4 },
+      ];
+      render(
+        <CapabilityMatrixTab
+          plants={fourPlants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("shows the filter menu once added plants push rendered plant rows past 10", () => {
+      const manyPlants = Array.from({ length: 12 }, (_, i) => ({
+        id: `plant-${i + 1}`,
+        name: `Plant ${i + 1}`,
+        city: `City${i + 1}`,
+        state: "QLD",
+        lat: i,
+        lng: i,
+      }));
+      render(
+        <CapabilityMatrixTab
+          plants={manyPlants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+      expect(screen.getByTestId("text-capability-count")).toHaveTextContent("12 of 12");
+    });
   });
 });
