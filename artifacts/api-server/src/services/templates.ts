@@ -1419,3 +1419,159 @@ export function flowRowsToCsv(rows: FlowTemplateRow[]): string {
   );
   return [header, ...lines].join("\n") + "\n";
 }
+
+// ---------------------------------------------------------------------------
+// JADE Ch.9 workspace bundle, task A4 — two-echelon-jade-us's own
+// `assignments`/`flows` export builders (spec §5c). The generic
+// buildAssignmentRows/buildFlowRows above derive rows from `result.edges`,
+// which is correct for every other model but wrong for JADE:
+//   - JADE's outbound (warehouse_to_customer) edges are already aggregated
+//     ACROSS a customer's products (single-source), so an edges-derived
+//     "assignments" export can never be product-level — the on-screen
+//     JadeAssignmentsTab (B2, product-level) instead reads
+//     `details.assignments`, which IS per-(product,customer). This export
+//     must match that, not `buildAssignmentRows`.
+//   - JADE's inbound (plant_to_warehouse) edges are already per-product, one
+//     row per positive (plant,warehouse,product) flow — the on-screen
+//     JadeFlowsTab's Plant->Warehouse inner table (B3) aggregates them per
+//     (plant,warehouse) pair, summing flow across products. `buildFlowRows`
+//     has no such aggregation, so it would export one row per product
+//     instead of one row per plant-warehouse pair.
+// Every other model keeps using buildAssignmentRows/buildFlowRows unchanged
+// (scenarios.ts branches on modelId before choosing which builder to call).
+// ---------------------------------------------------------------------------
+
+// Server-side mirror of the frontend's `bandLabel` (lib/bands.ts, task A1 —
+// a separate isolated worktree not merged into this one). Deliberately NOT
+// imported from the frontend package (this is a backend-only task with zero
+// frontend dependency); the two are documented to share identical semantics
+// and are independently unit-tested: upper-inclusive boundary assignment
+// (distance <= boundary -> that boundary's band), 1-indexed "Band N" labels,
+// "Overflow" for any distance above the highest boundary. `bands` is sorted
+// defensively (the caller normally already has it ascending, since
+// `jadeInputsSchema.distanceBands` requires strictly-ascending values, but a
+// legacy/malformed row is handled the same way solve.py's own
+// `sorted(inp.get('distanceBands', ...))` does).
+export function jadeBandLabel(distance: number, bands: number[]): string {
+  const sorted = [...bands].sort((a, b) => a - b);
+  for (let i = 0; i < sorted.length; i++) {
+    if (distance <= sorted[i]) return `Band ${i + 1}`;
+  }
+  return "Overflow";
+}
+
+// Matches 5a's on-screen contract exactly: Product / Customer / Assigned
+// Warehouse / Distance / Distance Band -- no Demand, no Flow. One row per
+// (product, customer) from `details.assignments`
+// (`{customerId, warehouseId, productId, flow, distanceMi}` --
+// solve.py:1145-1148), not `result.edges`.
+export interface JadeAssignmentTemplateRow {
+  templateVersion: number;
+  productId: string;
+  customerId: string;
+  warehouseId: string;
+  distance: number;
+  distanceUnit: string;
+  band: string;
+}
+
+interface JadeRawDetailAssignment {
+  customerId: string;
+  warehouseId: string;
+  productId: string;
+  distanceMi: number;
+}
+
+function isJadeRawDetailAssignment(value: unknown): value is JadeRawDetailAssignment {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.customerId === "string"
+    && typeof v.warehouseId === "string"
+    && typeof v.productId === "string"
+    && typeof v.distanceMi === "number";
+}
+
+export function buildJadeAssignmentRows(
+  result: ResultEnvelope,
+  distanceUnit: string,
+  bands: number[],
+): JadeAssignmentTemplateRow[] {
+  const raw = result.details.assignments;
+  const list = Array.isArray(raw) ? raw : [];
+  return list.filter(isJadeRawDetailAssignment).map(a => ({
+    templateVersion: OUTPUT_TEMPLATE_VERSION,
+    productId: a.productId,
+    customerId: a.customerId,
+    warehouseId: a.warehouseId,
+    distance: a.distanceMi,
+    distanceUnit,
+    band: jadeBandLabel(a.distanceMi, bands),
+  }));
+}
+
+export function jadeAssignmentRowsToCsv(rows: JadeAssignmentTemplateRow[]): string {
+  const header = "product,customer,assigned_warehouse,distance,distance_band";
+  const lines = rows.map(r =>
+    [r.productId, r.customerId, r.warehouseId, r.distance, csvEscape(r.band)].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}
+
+// Matches 5b/5c's combined on-screen contract: ONE file spanning both legs,
+// neutral union schema `leg,from_id,to_id,distance,distance_band,flows`.
+// Inbound (plant_to_warehouse) rows are aggregated per (plant,warehouse)
+// pair, `flows` summed across products (mirrors the Plant->Warehouse inner
+// tab); outbound (warehouse_to_customer) rows are already one per customer
+// in `result.edges` (single-source), so no aggregation is needed there.
+export interface JadeFlowTemplateRow {
+  templateVersion: number;
+  leg: "plant_to_warehouse" | "warehouse_to_customer";
+  fromId: string;
+  toId: string;
+  distance: number;
+  band: string;
+  flows: number;
+}
+
+export function buildJadeFlowRows(result: ResultEnvelope, bands: number[]): JadeFlowTemplateRow[] {
+  const inboundByPair = new Map<string, { fromId: string; toId: string; distance: number; flows: number }>();
+  for (const e of result.edges) {
+    if (e.leg !== "plant_to_warehouse") continue;
+    const key = `${e.fromId}|${e.toId}`;
+    const existing = inboundByPair.get(key);
+    if (existing) {
+      existing.flows += e.flow;
+    } else {
+      inboundByPair.set(key, { fromId: e.fromId, toId: e.toId, distance: e.distance, flows: e.flow });
+    }
+  }
+  const inboundRows: JadeFlowTemplateRow[] = [...inboundByPair.values()].map(p => ({
+    templateVersion: OUTPUT_TEMPLATE_VERSION,
+    leg: "plant_to_warehouse",
+    fromId: p.fromId,
+    toId: p.toId,
+    distance: p.distance,
+    band: jadeBandLabel(p.distance, bands),
+    flows: p.flows,
+  }));
+  const outboundRows: JadeFlowTemplateRow[] = result.edges
+    .filter(e => e.leg === "warehouse_to_customer")
+    .map(e => ({
+      templateVersion: OUTPUT_TEMPLATE_VERSION,
+      leg: "warehouse_to_customer" as const,
+      fromId: e.fromId,
+      toId: e.toId,
+      distance: e.distance,
+      band: jadeBandLabel(e.distance, bands),
+      flows: e.flow,
+    }));
+  return [...inboundRows, ...outboundRows];
+}
+
+export function jadeFlowRowsToCsv(rows: JadeFlowTemplateRow[]): string {
+  const header = "leg,from_id,to_id,distance,distance_band,flows";
+  const lines = rows.map(r =>
+    [r.leg, r.fromId, r.toId, r.distance, csvEscape(r.band), r.flows].join(","),
+  );
+  return [header, ...lines].join("\n") + "\n";
+}

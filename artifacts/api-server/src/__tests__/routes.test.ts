@@ -998,6 +998,95 @@ describe("Scenario.stale", () => {
   });
 });
 
+// ── distanceBands non-staling save (JADE Ch.9 workspace bundle, task A4) ────
+// Spec §2 (strict rule, approver-decided Option C): a save is non-geometric
+// (does NOT bump inputsUpdatedAt / trip `stale`) ONLY when `distanceBands`
+// is the SOLE changed `inputs` key — for ALL models, since bands are
+// non-geometric everywhere (sent to the solver only to stamp reporting
+// metadata, never the objective/open-set/assignments). Scoped to
+// routes/scenarios.ts's `diffInputKeys()` helper.
+describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
+  it("a distanceBands-only PATCH does not stale a previously-solved p-median-us scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const solvedRow = { ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const newInputs = { ...pmedianInputs, distanceBands: [300, 500, 900, 1700] };
+    const chain = makeChain([{ ...solvedRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: newInputs });
+
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(false);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+
+  it("a distanceBands-only PATCH does not stale a previously-solved JADE scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-05T00:00:00Z");
+    const solvedRow = { ...jadeRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const newInputs = { ...jadeInputs, distanceBands: [250, 450, 850, 1650] };
+    const chain = makeChain([{ ...solvedRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: newInputs });
+
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(false);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+
+  it("a distanceBands+p PATCH DOES stale (a geometric key changing wins, even alongside distanceBands)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const solvedRow = { ...pmedianRow, result: { status: "optimal" }, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const newInputs = { ...pmedianInputs, distanceBands: [300, 500, 900, 1700], p: 5 };
+    const bumpedAt = new Date("2026-01-02T00:00:00Z");
+    const chain = makeChain([{ ...solvedRow, inputs: newInputs, inputsUpdatedAt: bumpedAt }]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie).send({ inputs: newInputs });
+
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(true);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).toHaveProperty("inputsUpdatedAt");
+  });
+
+  // Moved here from the frontend task per the task brief — the JADE fixed-4
+  // band editor (a separate, frontend-only worktree) enforces the full
+  // invariant client-side, but the schema itself (unchanged by this task)
+  // must still reject a hand-crafted API body that bypasses the UI.
+  it("a hand-crafted invalid distanceBands (wrong count) still 422s on JADE (schema unchanged)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, distanceBands: [200, 400, 800] } });
+    expect(res.status).toBe(422);
+  });
+
+  it("a hand-crafted invalid distanceBands (non-positive) still 422s on JADE", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, distanceBands: [0, 400, 800, 1600] } });
+    expect(res.status).toBe(422);
+  });
+
+  it("a hand-crafted invalid distanceBands (non-ascending) still 422s on JADE", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
+      .send({ inputs: { ...jadeInputs, distanceBands: [800, 400, 200, 1600] } });
+    expect(res.status).toBe(422);
+  });
+});
+
 // ── Delete scenario ────────────────────────────────────────────────────────
 describe("DELETE /api/scenarios/:id", () => {
   it("returns 204 on successful delete", async () => {
@@ -1633,6 +1722,195 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/1/export?entity=flows&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(422);
+  });
+});
+
+// ── JADE model-branched assignments/flows export (task A4, spec §5c) ───────
+// two-echelon-jade-us gets model-specific schemas for entity=assignments
+// (product-level, from details.assignments) and entity=flows (ONE combined
+// file spanning both legs, P->W aggregated across products) — every other
+// model keeps using the generic edges-derived buildAssignmentRows/
+// buildFlowRows, unchanged.
+describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flows (task A4)", () => {
+  // PL1 supplies WH1 with two products (P1, P2) — the inbound edges are
+  // per-product, so P->W aggregation (summing flow across products into one
+  // row per plant-warehouse pair) is actually exercised. WH1 serves two
+  // customers: C1 at 250mi (within [200,400,800,1600] -> "Band 2") and C2 at
+  // 2000mi (beyond the highest boundary -> "Overflow").
+  const jadeSolvedRow = {
+    ...jadeRow,
+    inputs: { ...jadeInputs, distanceBands: [200, 400, 800, 1600] },
+    result: {
+      status: "optimal", objective: 1000, runTimeSec: 0.5, quality: "Proven optimal",
+      edges: [
+        { fromId: "PL1", toId: "WH1", flow: 100, distance: 150, leg: "plant_to_warehouse", productId: "P1" },
+        { fromId: "PL1", toId: "WH1", flow: 50, distance: 150, leg: "plant_to_warehouse", productId: "P2" },
+        { fromId: "WH1", toId: "C1", flow: 120, distance: 250, leg: "warehouse_to_customer" },
+        { fromId: "WH1", toId: "C2", flow: 900, distance: 2000, leg: "warehouse_to_customer" },
+      ],
+      metrics: {},
+      details: {
+        openWarehouseIds: ["WH1"],
+        assignments: [
+          { customerId: "C1", warehouseId: "WH1", productId: "P1", flow: 80, distanceMi: 250 },
+          { customerId: "C1", warehouseId: "WH1", productId: "P2", flow: 40, distanceMi: 250 },
+          { customerId: "C2", warehouseId: "WH1", productId: "P1", flow: 900, distanceMi: 2000 },
+        ],
+      },
+      solverUsed: "CBC", infeasibilityReason: null,
+    },
+    solvedAt: new Date("2026-01-05T00:00:00Z"),
+  };
+
+  it("exports JADE assignments as JSON — product-level, one row per (product, customer), from details.assignments", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
+
+    const res = await request(app).get("/api/scenarios/12/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("assignments");
+    expect(res.body.templateVersion).toBe(2);
+    expect(res.body.rows).toEqual([
+      { templateVersion: 2, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
+      { templateVersion: 2, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
+      { templateVersion: 2, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "Overflow" },
+    ]);
+    // No demand/flow column — product-level, per spec §5a.
+    expect(res.body.rows.every((r: Record<string, unknown>) => !("flow" in r) && !("demand" in r))).toBe(true);
+  });
+
+  it("exports JADE assignments as CSV with the exact literal header (no demand/flow)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
+
+    const res = await request(app).get("/api/scenarios/12/export?entity=assignments&format=csv").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("product,customer,assigned_warehouse,distance,distance_band");
+    expect(lines).toContain("P1,C1,WH1,250,Band 2");
+    expect(lines).toContain("P1,C2,WH1,2000,Overflow");
+  });
+
+  it("exports JADE flows as JSON — ONE combined file, P->W aggregated across products, W->C one row per customer", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
+
+    const res = await request(app).get("/api/scenarios/12/export?entity=flows&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.entity).toBe("flows");
+    expect(res.body.rows).toEqual([
+      // Inbound: PL1->WH1 aggregated across P1 (100) + P2 (50) = 150.
+      { templateVersion: 2, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 },
+      // Outbound: one row per customer, no per-product duplication.
+      { templateVersion: 2, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, band: "Band 2", flows: 120 },
+      { templateVersion: 2, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, band: "Overflow", flows: 900 },
+    ]);
+  });
+
+  it("exports JADE flows as CSV with the exact literal combined header", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
+
+    const res = await request(app).get("/api/scenarios/12/export?entity=flows&format=csv").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    const lines = (res.text as string).trim().split("\n");
+    expect(lines[0]).toBe("leg,from_id,to_id,distance,distance_band,flows");
+    expect(lines).toContain("plant_to_warehouse,PL1,WH1,150,Band 1,150");
+    expect(lines).toContain("warehouse_to_customer,WH1,C2,2000,Overflow,900");
+  });
+
+  it("JADE distance_band reflects the CURRENT SAVED scenario.inputs.distanceBands, not solve.py's default", async () => {
+    const cookie = await loginAs(OWNER);
+    // Narrow the bands so 250mi (previously "Band 2" under [200,400,800,1600])
+    // now overflows past a lowered highest boundary.
+    const narrowRow = { ...jadeSolvedRow, inputs: { ...jadeSolvedRow.inputs, distanceBands: [50, 100, 150, 200] } };
+    mockDb.select.mockReturnValueOnce(makeChain([narrowRow]));
+
+    const res = await request(app).get("/api/scenarios/12/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows.find((r: { customerId: string }) => r.customerId === "C1").band).toBe("Overflow");
+  });
+
+  // Export after a non-staling bands-only save (spec §2/§5c, review R3-4) —
+  // reflects the newly SAVED bands, proving the PATCH staleness change (this
+  // same task) and the export's band source (also this task) compose
+  // correctly end to end.
+  it("export reflects new bands after a non-staling bands-only save", async () => {
+    const cookie = await loginAs(OWNER);
+
+    // Step 1: PATCH a distanceBands-only change — must not stale.
+    const narrowedBands = [100, 200, 800, 1600];
+    const newInputs = { ...jadeSolvedRow.inputs, distanceBands: narrowedBands };
+    mockDb.select.mockReturnValueOnce(makeChain([jadeSolvedRow]));
+    const patchChain = makeChain([{ ...jadeSolvedRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValueOnce(patchChain);
+
+    const patchRes = await request(app).patch("/api/scenarios/12").set("Cookie", cookie).send({ inputs: newInputs });
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.stale).toBe(false);
+    const setArg = (patchChain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+
+    // Step 2: export reads the newly saved bands — 250mi was "Band 2" under
+    // the original [200,400,800,1600]; under the narrowed [100,200,800,1600]
+    // it reclassifies to "Band 3".
+    mockDb.select.mockReturnValueOnce(makeChain([{ ...jadeSolvedRow, inputs: newInputs }]));
+    const exportRes = await request(app).get("/api/scenarios/12/export?entity=assignments&format=json").set("Cookie", cookie);
+    expect(exportRes.status).toBe(200);
+    expect(exportRes.body.rows.find((r: { customerId: string }) => r.customerId === "C1").band).toBe("Band 3");
+  });
+
+  // Non-JADE regression (task A4) — proves the generic edges-derived
+  // buildAssignmentRows/buildFlowRows path (p-median-us/transport-coal/
+  // two-echelon-gold-au/p-median-brazil/chens-cosmetics-cn) is byte-identical
+  // to before the JADE branch was added.
+  it("a non-JADE model's assignments export is unaffected by the JADE branch (byte-identical regression)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...pmedianRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    // Still the GENERIC edges-derived shape (customerId/warehouseId, a
+    // numeric band index) — NOT the JADE product-level shape
+    // (product/customer/assigned_warehouse, a string band label).
+    expect(res.body.rows).toEqual([{ templateVersion: 2, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+  });
+
+  it("a non-JADE model's flows export is unaffected by the JADE branch (byte-identical regression)", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedRow = {
+      ...transportRow,
+      result: {
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
+        edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      },
+      stale: false,
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+
+    const res = await request(app).get("/api/scenarios/8/export?entity=flows&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    // Still the GENERIC single-file shape with a numeric band and NO `leg`/
+    // `flows` fields — NOT the JADE combined leg/flows shape.
+    expect(res.body.rows).toEqual([{ templateVersion: 1, fromId: "KY", toId: "CHI", distanceMi: 300, band: null, flow: 500 }]);
   });
 });
 

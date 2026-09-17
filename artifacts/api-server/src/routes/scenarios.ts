@@ -38,6 +38,14 @@ import {
   buildServiceStatsRows,
   buildFlowRows,
   flowRowsToCsv,
+  // JADE Ch.9 workspace bundle, task A4 (spec §5c) — two-echelon-jade-us's
+  // own assignments/flows export builders, branched on scenario.modelId
+  // below (see the OUTPUT_ENTITIES block in the export route). Every other
+  // model keeps using buildAssignmentRows/buildFlowRows above, unchanged.
+  buildJadeAssignmentRows,
+  buildJadeFlowRows,
+  jadeAssignmentRowsToCsv,
+  jadeFlowRowsToCsv,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -52,7 +60,7 @@ import {
   costSummaryRowsToCsv,
   serviceStatsRowsToCsv,
 } from "../services/templates.js";
-import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow } from "../services/templates.js";
+import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow, JadeAssignmentTemplateRow, JadeFlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
 import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, precheckChensInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
@@ -92,6 +100,32 @@ export const VALID_MODEL_IDS = new Set([
 // result !== null implies solvedAt !== null.
 function isStale(row: typeof scenariosTable.$inferSelect): boolean {
   return row.result != null && row.inputsUpdatedAt > row.solvedAt!;
+}
+
+// JADE Ch.9 workspace bundle, task A4 — key-level diff between an existing
+// scenario's stored `inputs` and a freshly-validated candidate `inputs`,
+// used by the PATCH handler to decide whether a save is "non-geometric"
+// (spec §2's strict distanceBands-only rule). Per-key comparison (not a
+// whole-object deep-equal) via JSON.stringify, so an unrelated key's own
+// internal ordering can't mask or manufacture a change in a DIFFERENT key.
+// A key present in only one side (e.g. a legacy row saved before a field
+// existed) always counts as changed — JSON.stringify(undefined) !== the
+// stringified present value.
+function diffInputKeys(
+  oldInputs: Record<string, unknown>,
+  newInputs: Record<string, unknown>,
+): string[] {
+  const keys = new Set([
+    ...Object.keys(oldInputs ?? {}),
+    ...Object.keys(newInputs ?? {}),
+  ]);
+  const changed: string[] = [];
+  for (const key of keys) {
+    if (JSON.stringify(oldInputs?.[key]) !== JSON.stringify(newInputs?.[key])) {
+      changed.push(key);
+    }
+  }
+  return changed;
 }
 
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
@@ -179,8 +213,26 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
       res.status(422).json({ error: validation.error });
       return;
     }
-    updateObj.inputs = normalizeAddedEntityDistances(existing.modelId, validation.data);
-    updateObj.inputsUpdatedAt = new Date();
+    const normalizedInputs = normalizeAddedEntityDistances(existing.modelId, validation.data);
+    updateObj.inputs = normalizedInputs;
+    // JADE Ch.9 workspace bundle, task A4 / spec §2 (strict, approver-decided
+    // Option C) — a save is non-geometric (does NOT bump inputsUpdatedAt /
+    // trip the `stale` derivation) ONLY when `distanceBands` is the SOLE
+    // changed `inputs` key, for ALL models (bands are non-geometric
+    // everywhere: sent to the solver only to stamp reporting metadata, never
+    // the objective/open-set/assignments — E1.1 already recomputes coverage
+    // client-side and ignores the solver's stamped bands). A diff that also
+    // touches any other `inputs` key (p, capacityMode, warehouseOverrides,
+    // addedWarehouses, distanceOverrides, gap, ...) stays geometric and
+    // bumps as before. Scenario `name` is a separate column, untouched here.
+    const changedInputKeys = diffInputKeys(
+      existing.inputs as Record<string, unknown>,
+      normalizedInputs as Record<string, unknown>,
+    );
+    const isBandsOnlyChange = changedInputKeys.every((key) => key === "distanceBands");
+    if (!isBandsOnlyChange) {
+      updateObj.inputsUpdatedAt = new Date();
+    }
   }
   if (body.result !== undefined) updateObj.result = body.result;
 
@@ -530,6 +582,41 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       scenario.modelId,
       scenario.inputs as { addedWarehouses?: Array<{ id: string; city: string }>; addedRefineries?: Array<{ id: string; city: string }> },
     );
+
+    // JADE Ch.9 workspace bundle, task A4 (spec §5c) — two-echelon-jade-us's
+    // `assignments`/`flows` export branches to its own model-specific
+    // builders (see services/templates.ts's header comment on why the
+    // generic buildAssignmentRows/buildFlowRows below are wrong for this
+    // model: JADE's edges are already aggregated/product-split in ways that
+    // don't match the on-screen product-level Customer Assignments and
+    // per-(plant,warehouse) Flows contracts). Every other model — INCLUDING
+    // JADE's own openWarehouses/costSummary/serviceStats entities — falls
+    // through to the generic path below, byte-identical to before.
+    if (scenario.modelId === "two-echelon-jade-us" && (entity === "assignments" || entity === "flows")) {
+      // distance_band is derived from the CURRENT SAVED
+      // scenario.inputs.distanceBands (spec §5c / review R3-4) — under
+      // Option C there is no persisted solved-band snapshot (a bands-only
+      // save overwrites inputs.distanceBands without a new result), so this
+      // is the only server-side band source available; the export reflects
+      // the last SAVED bands, diverging only from unsaved UI edits. Falls
+      // back to solve.py's own default (solve.py:936) for a
+      // legacy/malformed row with no distanceBands at all.
+      const bands = ((scenario.inputs as { distanceBands?: unknown }).distanceBands as number[] | undefined) ?? [200, 400, 800, 1600];
+      const jadeRows: JadeAssignmentTemplateRow[] | JadeFlowTemplateRow[] =
+        entity === "assignments"
+          ? buildJadeAssignmentRows(result, distanceUnit, bands)
+          : buildJadeFlowRows(result, bands);
+
+      if (format === "csv") {
+        const csv = entity === "assignments"
+          ? jadeAssignmentRowsToCsv(jadeRows as JadeAssignmentTemplateRow[])
+          : jadeFlowRowsToCsv(jadeRows as JadeFlowTemplateRow[]);
+        res.type("text/csv").send(csv);
+        return;
+      }
+      res.json({ templateVersion: OUTPUT_TEMPLATE_VERSION, entity, rows: jadeRows });
+      return;
+    }
 
     const rows: AssignmentTemplateRow[] | OpenWarehouseTemplateRow[] | CostSummaryTemplateRow[] | ServiceStatsTemplateRow[] | FlowTemplateRow[] =
       entity === "assignments" ? buildAssignmentRows(result, distanceUnit)

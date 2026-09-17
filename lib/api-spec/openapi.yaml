@@ -450,6 +450,25 @@ paths:
       operationId: exportScenario
       tags: [scenarios]
       summary: Export a scenario's warehouse or customer data, overrides merged over baseline
+      description: >-
+        JADE Ch.9 workspace bundle (task A4, spec §5c): for
+        two-echelon-jade-us, entity=assignments and entity=flows use
+        model-specific schemas instead of the generic edges-derived export
+        every other model gets (branched server-side on the scenario's
+        modelId, entity enum unchanged). entity=assignments is
+        product-level — one row per (product, customer) sourced from the
+        solved result's details.assignments — with columns
+        product,customer,assigned_warehouse,distance,distance_band (no
+        demand/flow). entity=flows is ONE combined file spanning both legs,
+        columns leg,from_id,to_id,distance,distance_band,flows: inbound
+        plant_to_warehouse rows are aggregated per (plant,warehouse) pair
+        with flows summed across products; outbound warehouse_to_customer
+        rows are one per customer. distance_band is derived from the
+        scenario's CURRENT SAVED inputs.distanceBands (server-side
+        bandLabel-equivalent: "Band N" 1-indexed, upper-inclusive boundary,
+        "Overflow" above the highest boundary) — it reflects the last saved
+        bands, not unsaved UI edits. Every other model's assignments/flows
+        export is unchanged.
       parameters:
         - name: scenarioId
           in: path
