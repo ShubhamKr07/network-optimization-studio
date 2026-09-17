@@ -310,6 +310,7 @@ export function WarehousesTab({
       scenarioId={scenarioId}
       entity={entity}
       onApplied={onImportApplied}
+      enableFilters={enableFilters}
     />
   );
 

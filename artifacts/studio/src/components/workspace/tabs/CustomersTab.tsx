@@ -448,6 +448,7 @@ export function CustomersTab({
       scenarioId={scenarioId}
       entity="customers"
       onApplied={onImportApplied}
+      enableFilters={enableFilters}
     />
   );
 
