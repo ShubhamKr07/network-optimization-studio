@@ -3,7 +3,7 @@ import {
   usePreviewScenarioImport,
   useApplyScenarioImport,
 } from "@workspace/api-client-react";
-import type { Scenario, ImportApplyRequestMode } from "@workspace/api-client-react";
+import type { Scenario, ImportApplyRequestMode, ImportError, ImportRowChange } from "@workspace/api-client-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 
 interface ImportDialogProps {
   open: boolean;
@@ -20,9 +22,16 @@ interface ImportDialogProps {
   // already-generated `ImportRequestEntity` (openapi.yaml) exactly.
   entity: "warehouses" | "customers" | "mines" | "stations" | "refineries" | "distances" | "laneCosts" | "legDistances" | "plants" | "plantCapabilities";
   onApplied?: (scenario: Scenario) => void;
+  /** B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in gate for the shared
+   * A3 `FilterMenu`/`useTableFilters`, wired into the Errors and Changes
+   * preview grids as TWO SEPARATE tables — each shows/hides its own
+   * FilterMenu by its own unfiltered row count (spec §10's explicit call-
+   * out). Defaults `false`: every existing caller (every non-JADE
+   * ImportDialog usage) is byte-identical to before this task. */
+  enableFilters?: boolean;
 }
 
-export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied }: ImportDialogProps) {
+export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied, enableFilters = false }: ImportDialogProps) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [csvText, setCsvText] = useState("");
   const [mode, setMode] = useState<ImportApplyRequestMode>("all_or_nothing");
@@ -78,6 +87,28 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
 
   const preview = previewMutation.data;
 
+  // B7 — the Errors grid and the Changes grid are SEPARATE tables for the
+  // filter threshold (spec §10's explicit call-out): each independently
+  // shows/hides its own FilterMenu by its OWN unfiltered row count. Both
+  // hooks are called unconditionally (Rules of Hooks); when `preview` is
+  // undefined they operate on an empty array, which is harmless.
+  const errorFilterDescriptors: ColumnFilterDescriptor<ImportError>[] = [
+    { key: "line", label: "Line", type: "number", accessor: err => err.line ?? undefined },
+    { key: "errorClass", label: "Class", type: "select", accessor: err => err.errorClass },
+    { key: "message", label: "Message", type: "text", accessor: err => err.message },
+  ];
+  const errorTableFilters = useTableFilters(preview?.errors ?? [], errorFilterDescriptors);
+  const displayedErrors = errorTableFilters.filteredRows;
+  const showErrorFilterMenu = enableFilters && (preview?.errors.length ?? 0) > 10;
+
+  const changeFilterDescriptors: ColumnFilterDescriptor<ImportRowChange>[] = [
+    { key: "id", label: "ID", type: "text", accessor: c => c.id },
+    { key: "line", label: "Line", type: "number", accessor: c => c.line },
+  ];
+  const changeTableFilters = useTableFilters(preview?.changes ?? [], changeFilterDescriptors);
+  const displayedChanges = changeTableFilters.filteredRows;
+  const showChangeFilterMenu = enableFilters && (preview?.changes.length ?? 0) > 10;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl">
@@ -107,8 +138,13 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
           {preview && (
             <>
               {preview.errors.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-destructive">Errors ({preview.errors.length})</p>
+                <div className="space-y-1" data-testid="import-errors-section">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-destructive">Errors ({preview.errors.length})</p>
+                    {showErrorFilterMenu && (
+                      <FilterMenu descriptors={errorFilterDescriptors} tableFilters={errorTableFilters} />
+                    )}
+                  </div>
                   <div className="max-h-40 overflow-y-auto border border-red-200 rounded">
                     <Table>
                       <TableHeader>
@@ -119,7 +155,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {preview.errors.map((err, i) => (
+                        {displayedErrors.map((err, i) => (
                           <TableRow key={i} className="bg-red-50" data-testid={`import-error-row-${i}`}>
                             <TableCell className="text-xs">{err.line ?? "—"}</TableCell>
                             <TableCell className="text-xs">
@@ -137,8 +173,13 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
               )}
 
               {preview.changes.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-green-700">Changes ({preview.changes.length})</p>
+                <div className="space-y-1" data-testid="import-changes-section">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-green-700">Changes ({preview.changes.length})</p>
+                    {showChangeFilterMenu && (
+                      <FilterMenu descriptors={changeFilterDescriptors} tableFilters={changeTableFilters} />
+                    )}
+                  </div>
                   <div className="max-h-40 overflow-y-auto border border-green-200 rounded">
                     <Table>
                       <TableHeader>
@@ -150,7 +191,7 @@ export function ImportDialog({ open, onOpenChange, scenarioId, entity, onApplied
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {preview.changes.map((c, i) => (
+                        {displayedChanges.map((c, i) => (
                           <TableRow key={i} className="bg-green-50" data-testid={`import-change-row-${i}`}>
                             <TableCell className="text-xs font-mono">{c.id}</TableCell>
                             <TableCell className="text-xs">{c.line}</TableCell>

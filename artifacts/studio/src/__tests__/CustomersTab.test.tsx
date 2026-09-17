@@ -751,3 +751,40 @@ describe("CustomersTab — hasStateColumn (Chen's Cosmetics, no state data)", ()
     expect(screen.getByTestId("text-add-customer-error")).toHaveTextContent("City is required.");
   });
 });
+
+// B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in `enableFilters` gate on
+// the shared A3 FilterMenu. Defaults `false`: every test above (every
+// existing caller) omits the prop and must see zero behavior change.
+describe("CustomersTab — enableFilters (B7, opt-in shared FilterMenu)", () => {
+  const manyCustomers = Array.from({ length: 12 }, (_, i) => ({
+    id: `C${i + 1}`,
+    city: `City${i + 1}`,
+    state: "NY",
+    lat: 40 + i,
+    lng: -74 - i,
+    demand: 100 + i,
+  }));
+
+  it("omitting enableFilters never renders the FilterMenu trigger, even with >10 rows", () => {
+    render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+  });
+
+  it("enableFilters=true hides the FilterMenu at <=10 rows", () => {
+    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} enableFilters />);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+  });
+
+  it("enableFilters=true shows the FilterMenu and narrows the base table once rows exceed 10", async () => {
+    render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} enableFilters />);
+    expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(screen.getByText("City5")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-city"), "City5");
+
+    expect(screen.getByText("City5")).toBeInTheDocument();
+    expect(screen.queryByText("City1")).not.toBeInTheDocument();
+  });
+});

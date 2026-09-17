@@ -14,6 +14,8 @@ import {
 } from "@/lib/precheckDisplay";
 import { lookupCity } from "@/lib/gazetteer";
 import { newUid, nextDisplayCode } from "@/lib/entityId";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 
 // B5.2 — matches `addedCustomerSchema` in
 // artifacts/api-server/src/validation/inputs/pMedian.ts exactly (server-side
@@ -101,6 +103,18 @@ interface CustomersTabProps {
   onProductOverridesChange?: (next: CustomerProductOverride[]) => void;
   /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-customers table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
   hasStateColumn?: boolean;
+  /** B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in gate for the shared
+   * A3 `FilterMenu`/`useTableFilters`. Defaults `false` so every existing
+   * caller (p-median-us, two-echelon-gold-au) is byte-identical to before
+   * this task; the JADE Workspace path (INT, #9) supplies `true`. When
+   * `false`, `useTableFilters` is still called (Rules of Hooks) but its
+   * `filterState` can never become non-empty (no control is ever mounted to
+   * set it), so `filteredRows === rows` always — zero behavior change. The
+   * FilterMenu itself is additionally gated on the base table's unfiltered
+   * row count `>10` (runtime rule, spec §10) — only the "Customers input"
+   * base table is wired; the separate "Added customers" table isn't named
+   * in spec §10's JADE table list. */
+  enableFilters?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -128,6 +142,7 @@ export function CustomersTab({
   productOverrides = [],
   onProductOverridesChange,
   hasStateColumn = true,
+  enableFilters = false,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   // T11 — the actual switch: per-product mode only renders when the caller
@@ -342,6 +357,44 @@ export function CustomersTab({
     resetAddForm();
   }
 
+  // B7 — descriptors for the BASE customers table only (spec §10's JADE
+  // table list names "Customers input", not the separate "Added customers"
+  // section). ID/City/(State) text; demand number — per-product columns
+  // under productMode, a single scalar column otherwise. Built fresh every
+  // render (not memoized) — same pattern as every other *Tab.tsx's inline
+  // JSX, cheap at this table's row counts.
+  const customerFilterDescriptors: ColumnFilterDescriptor<Customer>[] = [
+    { key: "id", label: "ID", type: "text", accessor: c => c.id },
+    { key: "city", label: "City", type: "text", accessor: c => c.city },
+  ];
+  if (hasStateColumn) {
+    customerFilterDescriptors.push({ key: "state", label: "State", type: "text", accessor: c => c.state });
+  }
+  if (productMode) {
+    for (const product of products) {
+      customerFilterDescriptors.push({
+        key: `demand:${product.id}`,
+        label: product.name,
+        type: "number",
+        accessor: c => getProductOverride(c.id)?.demands?.[product.id] ?? c.demands?.[product.id] ?? 0,
+      });
+    }
+  } else {
+    customerFilterDescriptors.push({
+      key: "demand",
+      label: "Demand",
+      type: "number",
+      accessor: c => overrides.find(o => o.id === c.id)?.demand ?? c.demand,
+    });
+  }
+  // Called unconditionally (Rules of Hooks). When `enableFilters` is false,
+  // no `<FilterMenu>` is ever mounted, so `filterState` can never become
+  // non-empty and `filteredRows` stays byte-identical to `customers` —
+  // every existing (non-JADE) caller sees zero behavior change.
+  const customerTableFilters = useTableFilters(customers, customerFilterDescriptors);
+  const displayedCustomers = customerTableFilters.filteredRows;
+  const showCustomerFilterMenu = enableFilters && customers.length > 10;
+
   const toolbar = (
     <div className="flex items-center gap-1.5 mb-2" data-testid="customers-tab-toolbar">
       <Button
@@ -374,6 +427,11 @@ export function CustomersTab({
       >
         <Upload className="w-3.5 h-3.5 mr-1" /> Upload
       </Button>
+      {showCustomerFilterMenu && (
+        <div className="ml-auto">
+          <FilterMenu descriptors={customerFilterDescriptors} tableFilters={customerTableFilters} />
+        </div>
+      )}
     </div>
   );
 
@@ -630,7 +688,7 @@ export function CustomersTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {customers.map(c => {
+              {displayedCustomers.map(c => {
                 const o = getProductOverride(c.id);
                 const status = o?.status ?? "active";
                 return (
@@ -684,7 +742,7 @@ export function CustomersTab({
           </Table>
         </div>
       ) : (
-        <CustomerTable customers={customers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
+        <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
       )}
       {addedSection}
       {importDialog}

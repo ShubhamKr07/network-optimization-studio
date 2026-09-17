@@ -8,6 +8,8 @@ import { Download, Upload, X } from "lucide-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { lookupCity } from "@/lib/gazetteer";
 import { cityCode } from "@/lib/entityId";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 
 // T11 (Chapter 9 JADE) — a plant's uid prefix + display-code minting is
 // deliberately NOT threaded through `lib/entityId.ts`'s shared
@@ -103,6 +105,28 @@ export function PlantsTab({
   onPrefillConsumed,
 }: PlantsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+
+  // B7 (JADE Ch.9 Workspace Bundle, spec §10) — base plants and "Added
+  // plants" stay TWO SEPARATE physical tables (unchanged structure); each
+  // gets its OWN `FilterMenu`, shown/hidden by its OWN unfiltered row count
+  // (`>10`), independent of the other table's count.
+  const plantFilterDescriptors: ColumnFilterDescriptor<Plant>[] = [
+    { key: "id", label: "ID", type: "text", accessor: p => p.name ?? p.id },
+    { key: "city", label: "City", type: "text", accessor: p => p.city },
+    { key: "state", label: "State", type: "text", accessor: p => p.state },
+  ];
+  const plantTableFilters = useTableFilters(plants, plantFilterDescriptors);
+  const displayedPlants = plantTableFilters.filteredRows;
+  const showPlantFilterMenu = plants.length > 10;
+
+  const addedPlantFilterDescriptors: ColumnFilterDescriptor<AddedPlant>[] = [
+    { key: "id", label: "ID", type: "text", accessor: p => p.displayCode ?? p.id },
+    { key: "city", label: "City", type: "text", accessor: p => p.city },
+    { key: "state", label: "State", type: "text", accessor: p => p.state },
+  ];
+  const addedPlantTableFilters = useTableFilters(addedPlants, addedPlantFilterDescriptors);
+  const displayedAddedPlants = addedPlantTableFilters.filteredRows;
+  const showAddedPlantFilterMenu = addedPlants.length > 10;
 
   const [addingRow, setAddingRow] = useState(false);
   const [newCity, setNewCity] = useState("");
@@ -228,6 +252,11 @@ export function PlantsTab({
       >
         <Upload className="w-3.5 h-3.5 mr-1" /> Upload
       </Button>
+      {showPlantFilterMenu && (
+        <div className="ml-auto">
+          <FilterMenu descriptors={plantFilterDescriptors} tableFilters={plantTableFilters} />
+        </div>
+      )}
     </div>
   );
 
@@ -245,7 +274,12 @@ export function PlantsTab({
   // has neither concept; see the AddedPlant type's header comment).
   const addedSection = onAddedPlantsChange != null && (
     <div className="mt-4" data-testid="added-plants-section">
-      <h3 className="text-xs font-semibold text-muted-foreground mb-1.5">Added plants</h3>
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <h3 className="text-xs font-semibold text-muted-foreground">Added plants</h3>
+        {showAddedPlantFilterMenu && (
+          <FilterMenu descriptors={addedPlantFilterDescriptors} tableFilters={addedPlantTableFilters} />
+        )}
+      </div>
       {addedPlants.length === 0 ? (
         <p className="text-xs text-muted-foreground mb-2" data-testid="added-plants-empty">
           No added plants yet — use "+ Add plant" below to create one.
@@ -264,7 +298,7 @@ export function PlantsTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {addedPlants.map(p => (
+              {displayedAddedPlants.map(p => (
                 <TableRow key={p.id} data-testid={`row-added-plant-${p.id}`}>
                   <TableCell className="font-mono text-xs">{p.displayCode ?? p.id}</TableCell>
                   <TableCell className="text-xs">{p.city}</TableCell>
@@ -381,7 +415,7 @@ export function PlantsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {plants.map(p => (
+            {displayedPlants.map(p => (
               <TableRow key={p.id}>
                 <TableCell className="font-mono text-xs">{p.name ?? p.id}</TableCell>
                 <TableCell className="text-xs">{p.city}</TableCell>

@@ -10,6 +10,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatCityState } from "@/lib/formatLocation";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor, type FilterValue } from "@/lib/useTableFilters";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer) in one flat array, keyed
@@ -191,8 +193,6 @@ export function JadeDistancesTab({
   inactiveWarehouseIds,
   excludedCustomerIds,
 }: JadeDistancesTabProps) {
-  const [fromFilter, setFromFilter] = useState("");
-  const [toFilter, setToFilter] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
@@ -292,17 +292,38 @@ export function JadeDistancesTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referencePairs, distanceOverrides, baseByKey, overrideByKey, savedByKey, inactiveWarehouseIdSet, excludedCustomerIdSet]);
 
-  function matchesText(fromDisp: string, toDisp: string): boolean {
-    return (
-      fromDisp.toLowerCase().includes(fromFilter.toLowerCase()) && toDisp.toLowerCase().includes(toFilter.toLowerCase())
-    );
-  }
+  // B7 (JADE Ch.9 Workspace Bundle, spec §10) — migrated from the old
+  // free-text From/To `Input`s to the shared A3 `FilterMenu`/
+  // `useTableFilters`. Descriptor keys are deliberately "from"/"to" —
+  // `FilterMenu` derives each control's `data-testid` as
+  // `input-filter-${key}`, so this preserves the pre-migration testids
+  // (`input-filter-from`/`input-filter-to`) exactly, just now rendered
+  // inside a popover. `searchText` (defined above) is unchanged — same
+  // "City, ST" ∪ display-code/id substring match as before.
+  const distanceFilterDescriptors: ColumnFilterDescriptor<MergedRow>[] = [
+    { key: "from", label: "From", type: "text", accessor: r => searchText(r.fromId) },
+    { key: "to", label: "To", type: "text", accessor: r => searchText(r.toId) },
+  ];
+  const rawTableFilters = useTableFilters(mergedRowsAll, distanceFilterDescriptors);
+  const mergedRows: MergedRow[] = rawTableFilters.filteredRows;
 
-  const mergedRows: MergedRow[] = useMemo(
-    () => mergedRowsAll.filter(r => matchesText(searchText(r.fromId), searchText(r.toId))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mergedRowsAll, fromFilter, toFilter, displayCodeById, locationById],
-  );
+  // Page resets to 1 on any user-driven filter EDIT (mirrors the old
+  // per-`Input` `onChange`'s own `setPage(1)`), but NOT when the focus
+  // effect below clears filters as part of a deliberate page jump — hence a
+  // SEPARATE wrapped object (`filterMenuTableFilters`) passed only to
+  // `<FilterMenu>`, while the focus effect calls the raw, unwrapped
+  // `rawTableFilters.clearAll()` directly.
+  const filterMenuTableFilters = {
+    ...rawTableFilters,
+    setFilter: (key: string, value: FilterValue | undefined) => {
+      rawTableFilters.setFilter(key, value);
+      setPage(1);
+    },
+    clearAll: () => {
+      rawTableFilters.clearAll();
+      setPage(1);
+    },
+  };
 
   const pageCount = Math.max(1, Math.ceil(mergedRows.length / PAGE_SIZE));
 
@@ -315,13 +336,26 @@ export function JadeDistancesTab({
   // Post-Save precheck toast's "jump to it" action: clear the filters (so
   // the target row can't be filtered out of view), then select the target's
   // page, computed against the UNFILTERED merged list.
+  //
+  // B7 — the `Object.keys(...).length > 0` guard is load-bearing, not
+  // cosmetic: `rawTableFilters.clearAll()` (`useTableFilters.ts`) always
+  // calls `setFilterState({})` with a BRAND NEW object, which React never
+  // bails out of (unlike the pre-migration `setFromFilter("")`'s idempotent
+  // same-primitive-value bail-out). `mergedRowsAll` is itself a new array
+  // reference on every render whenever `referenceCapable` is falsy (its own
+  // `referencePairs = referenceQuery.data?.pairs ?? []` yields a fresh `[]`
+  // each render while `data` stays undefined) — this effect's own
+  // `[focusEntityId, mergedRowsAll]` deps therefore re-fire every render,
+  // and an unconditional `clearAll()` would re-trigger a state change every
+  // time, an infinite render loop. Only actually clear when there's
+  // something to clear.
   useEffect(() => {
     if (!focusEntityId) return;
-    setFromFilter("");
-    setToFilter("");
+    if (Object.keys(rawTableFilters.filterState).length > 0) rawTableFilters.clearAll();
     const idx = mergedRowsAll.findIndex(r => r.fromId === focusEntityId || r.toId === focusEntityId);
     if (idx < 0) return;
     setPage(Math.floor(idx / PAGE_SIZE) + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusEntityId, mergedRowsAll]);
 
   useEffect(() => {
@@ -497,26 +531,9 @@ export function JadeDistancesTab({
         <Upload className="w-3.5 h-3.5 mr-1" /> Upload
       </Button>
       <div className="flex-1" />
-      <Input
-        placeholder="Filter from…"
-        value={fromFilter}
-        onChange={e => {
-          setFromFilter(e.target.value);
-          setPage(1);
-        }}
-        className="h-7 text-xs w-36"
-        data-testid="input-filter-from"
-      />
-      <Input
-        placeholder="Filter to…"
-        value={toFilter}
-        onChange={e => {
-          setToFilter(e.target.value);
-          setPage(1);
-        }}
-        className="h-7 text-xs w-36"
-        data-testid="input-filter-to"
-      />
+      {mergedRowsAll.length > 10 && (
+        <FilterMenu descriptors={distanceFilterDescriptors} tableFilters={filterMenuTableFilters} />
+      )}
     </div>
   );
 

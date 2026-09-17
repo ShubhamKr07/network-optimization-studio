@@ -27,6 +27,27 @@ const overrides = [
   { leg: "warehouse_to_customer" as const, fromId: "wh-2", toId: "customer-1", distance: 88 },
 ];
 
+// B7 (JADE Ch.9 Workspace Bundle, spec §10) — the FilterMenu is gated on
+// `mergedRowsAll.length > 10` (runtime rule, STRICTLY greater-than); `overrides`
+// alone (3 rows) sits below that threshold, so any test exercising the filter
+// UI needs the unfiltered merged row count pushed above 10. These 10 filler
+// rows are distinct from every row any test below asserts on (unique
+// fromId/toId pairs, never colliding with plant-1/wh-1/wh-2/customer-1/
+// ap-1234) — 10, not 9, so even a single extra override (resolution #8's
+// 1-row `uidOverrides`) still lands at 11 total, past the ">10" boundary.
+const filterThresholdFillers = Array.from({ length: 10 }, (_, i) => ({
+  leg: "warehouse_to_customer" as const,
+  fromId: `wh-${20 + i}`,
+  toId: `customer-${50 + i}`,
+  distance: 500 + i,
+}));
+
+async function openDistanceFilterMenu() {
+  const user = userEvent.setup();
+  await user.click(screen.getByTestId("button-filter-menu-trigger"));
+  return user;
+}
+
 // 2600 real-shaped base pairs: 4 plants x 25 warehouses (inbound) + 25
 // warehouses x 100 customers (outbound) — matches the spec's own count.
 function buildReferencePairs() {
@@ -176,11 +197,11 @@ describe("JadeDistancesTab — From/To city, state labels (locationById)", () =>
     expect(within(row).queryByText(/, AZ/)).not.toBeInTheDocument();
   });
 
-  it("filters From by the city label, not just the id", () => {
+  it("filters From by the city label, not just the id", async () => {
     renderWithQueryClient(
       <JadeDistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={[...overrides, ...filterThresholdFillers]}
+        savedDistanceOverrides={[...overrides, ...filterThresholdFillers]}
         plantIds={plantIds}
         warehouseIds={warehouseIds}
         customerIds={customerIds}
@@ -188,7 +209,8 @@ describe("JadeDistancesTab — From/To city, state labels (locationById)", () =>
         locationById={{ "plant-1": { city: "Detroit", state: "MI" }, "wh-1": { city: "Phoenix", state: "AZ" } }}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "Detroit" } });
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-from"), "Detroit");
     expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toBeInTheDocument();
     expect(screen.queryByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).not.toBeInTheDocument();
   });
@@ -256,42 +278,47 @@ describe("JadeDistancesTab — merged table with the reference matrix (2600 pair
   });
 });
 
-describe("JadeDistancesTab — From/To filters", () => {
-  it("filters visible rows by the from-id filter text across both legs", () => {
+describe("JadeDistancesTab — From/To filters (migrated to the shared FilterMenu, B7)", () => {
+  it("filters visible rows by the from-id filter text across both legs", async () => {
     renderWithQueryClient(
       <JadeDistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={[...overrides, ...filterThresholdFillers]}
+        savedDistanceOverrides={[...overrides, ...filterThresholdFillers]}
         plantIds={plantIds}
         warehouseIds={warehouseIds}
         customerIds={customerIds}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "wh-2" } });
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-from"), "wh-2");
     expect(screen.queryByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-2-customer-1")).toBeInTheDocument();
   });
 
-  it("filters visible rows by the to-id filter text", () => {
+  it("filters visible rows by the to-id filter text", async () => {
     renderWithQueryClient(
       <JadeDistancesTab
-        distanceOverrides={overrides}
-        savedDistanceOverrides={overrides}
+        distanceOverrides={[...overrides, ...filterThresholdFillers]}
+        savedDistanceOverrides={[...overrides, ...filterThresholdFillers]}
         plantIds={plantIds}
         warehouseIds={warehouseIds}
         customerIds={customerIds}
         onChange={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-to"), { target: { value: "wh-1" } });
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-to"), "wh-1");
     expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toBeInTheDocument();
     expect(screen.queryByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).not.toBeInTheDocument();
   });
 
-  it("resolution #8: an added entity is found by typing its DISPLAY code (not its raw uid) into the filters", () => {
-    const uidOverrides = [{ leg: "plant_to_warehouse" as const, fromId: "ap-1234", toId: "wh-1", distance: 55 }];
+  it("resolution #8: an added entity is found by typing its DISPLAY code (not its raw uid) into the filters", async () => {
+    const uidOverrides = [
+      { leg: "plant_to_warehouse" as const, fromId: "ap-1234", toId: "wh-1", distance: 55 },
+      ...filterThresholdFillers,
+    ];
     renderWithQueryClient(
       <JadeDistancesTab
         distanceOverrides={uidOverrides}
@@ -303,11 +330,39 @@ describe("JadeDistancesTab — From/To filters", () => {
         displayCodeById={{ "ap-1234": "PL-CO-DENVER-01" }}
       />,
     );
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "PL-CO-DENVER" } });
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-from"), "PL-CO-DENVER");
     expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-ap-1234-wh-1")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "ap-1234" } });
+    await user.clear(screen.getByTestId("input-filter-from"));
+    await user.type(screen.getByTestId("input-filter-from"), "ap-1234");
     expect(screen.queryByTestId("row-jadedistance-plant_to_warehouse-ap-1234-wh-1")).not.toBeInTheDocument();
+  });
+
+  it("page resets to 1 on a filter edit, but NOT while the focus-jump effect is deliberately setting a page", async () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      leg: "warehouse_to_customer" as const,
+      fromId: `wh-${(i % 25) + 1}`,
+      toId: `customer-${i + 1}`,
+      distance: 100 + i,
+    }));
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={many}
+        savedDistanceOverrides={many}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={many.map(o => o.toId)}
+        onChange={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("button-jadedistances-next"));
+    expect(screen.getByTestId("jadedistances-page-indicator")).toHaveTextContent("Page 2 of 3");
+
+    await user.click(screen.getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-from"), "wh-1");
+    expect(screen.getByTestId("jadedistances-page-indicator")).toHaveTextContent("Page 1 of");
   });
 });
 
@@ -484,8 +539,9 @@ describe("JadeDistancesTab — status filter (inactive warehouse / excluded cust
     // Both wh-1|customer-1 (excluded, hidden) and wh-1|customer-2 (kept) sort
     // deep in the 2600-pair merged list — filter down to wh-1's outbound rows
     // so both are on the same (visible) page.
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "wh-1" } });
-    fireEvent.change(screen.getByTestId("input-filter-to"), { target: { value: "customer-" } });
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-from"), "wh-1");
+    await user.type(screen.getByTestId("input-filter-to"), "customer-");
     expect(screen.getByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-2")).toBeInTheDocument();
     expect(screen.queryByTestId("row-jadedistance-warehouse_to_customer-wh-1-customer-1")).not.toBeInTheDocument();
   });
@@ -507,7 +563,8 @@ describe("JadeDistancesTab — added-entity override rows", () => {
       />,
     );
     await waitFor(() => expect(screen.queryByTestId("jadedistances-reference-loading")).not.toBeInTheDocument());
-    fireEvent.change(screen.getByTestId("input-filter-from"), { target: { value: "aw-1234" } });
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-from"), "aw-1234");
     const row = screen.getByTestId("row-jadedistance-warehouse_to_customer-aw-1234-customer-1");
     expect(row).toHaveTextContent("—");
   });
@@ -893,5 +950,87 @@ describe("JadeDistancesTab — pagination", () => {
     await userEvent.click(screen.getByTestId("button-jadedistances-next"));
 
     expect(screen.getByTestId("jadedistances-page-indicator")).toHaveTextContent("Page 2 of 3");
+  });
+});
+
+// B7 (JADE Ch.9 Workspace Bundle, spec §10) — the FilterMenu's own runtime
+// visibility rule: hidden at an unfiltered merged-row count <=10, shown >10.
+describe("JadeDistancesTab — FilterMenu visibility threshold (B7)", () => {
+  it("hides the FilterMenu when the unfiltered merged row count is <=10", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+  });
+
+  it("shows the FilterMenu once the unfiltered merged row count exceeds 10", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={[...overrides, ...filterThresholdFillers]}
+        savedDistanceOverrides={[...overrides, ...filterThresholdFillers]}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+  });
+});
+
+// B7 — the focus/filter-reset handling preserved from the pre-migration
+// free-text filters: the post-Save precheck toast's "jump to it" action
+// clears any active filter so the target row can't stay hidden, then jumps
+// to the page containing it.
+describe("JadeDistancesTab — focus/filter-reset handling preserved (B7)", () => {
+  it("clears an active filter and jumps to the target row's page when focusEntityId is set", async () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      leg: "warehouse_to_customer" as const,
+      fromId: `wh-${(i % 25) + 1}`,
+      toId: `customer-${i + 1}`,
+      distance: 100 + i,
+    }));
+    const Wrapper = () => {
+      const [focusEntityId, setFocusEntityId] = useState<string | null>(null);
+      return (
+        <>
+          <button data-testid="trigger-focus" onClick={() => setFocusEntityId("customer-115")}>
+            focus
+          </button>
+          <JadeDistancesTab
+            distanceOverrides={many}
+            savedDistanceOverrides={many}
+            plantIds={plantIds}
+            warehouseIds={warehouseIds}
+            customerIds={many.map(o => o.toId)}
+            onChange={vi.fn()}
+            focusEntityId={focusEntityId}
+          />
+        </>
+      );
+    };
+    renderWithQueryClient(<Wrapper />);
+
+    // Apply a To filter that unambiguously excludes the eventual focus
+    // target — "customer-2" matches customer-2/20-29 but not "customer-115"
+    // (no substring overlap), unlike "customer-1" which would (it's a
+    // prefix of "customer-115" too).
+    const user = await openDistanceFilterMenu();
+    await user.type(screen.getByTestId("input-filter-to"), "customer-2");
+    expect(screen.queryByTestId("row-jadedistance-warehouse_to_customer-wh-15-customer-115")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("trigger-focus"));
+
+    // The filter is cleared (the trigger badge disappears) and the page
+    // jumps to wherever "customer-115" (idx 114, page 3 at 50/page) lives.
+    expect(screen.queryByTestId("text-filter-active-count")).not.toBeInTheDocument();
+    expect(screen.getByTestId("jadedistances-page-indicator")).toHaveTextContent("Page 3 of 3");
   });
 });

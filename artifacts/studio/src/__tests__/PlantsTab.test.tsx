@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlantsTab } from "@/components/workspace/tabs/PlantsTab";
@@ -197,5 +197,73 @@ describe("PlantsTab — Input Map prefill (Phase 3.2, Task 4 pattern)", () => {
     );
     expect(screen.queryByTestId("add-plant-row-form")).not.toBeInTheDocument();
     expect(onPrefillConsumed).not.toHaveBeenCalled();
+  });
+});
+
+// B7 (JADE Ch.9 Workspace Bundle, spec §10) — base plants and "Added plants"
+// stay TWO SEPARATE physical tables, each with its OWN FilterMenu, shown at
+// runtime only when ITS OWN unfiltered row count exceeds 10 — independent of
+// the other table's count.
+describe("PlantsTab — FilterMenu, two independent tables (B7)", () => {
+  const fourPlants = [
+    { id: "plant-1", name: "Plant One", city: "Daggar Hills", state: "QLD", lat: -25.0, lng: 143.0 },
+    { id: "plant-2", name: "Plant Two", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68 },
+    { id: "plant-3", name: "Plant Three", city: "Brisbane", state: "QLD", lat: -27.47, lng: 153.03 },
+    { id: "plant-4", name: "Plant Four", city: "Toowoomba", state: "QLD", lat: -27.56, lng: 151.95 },
+  ];
+  const manyAddedPlants = Array.from({ length: 11 }, (_, i) => ({
+    id: `ap-${i + 1}`,
+    city: `AddedCity${i + 1}`,
+    state: "CO",
+    lat: 39 + i,
+    lng: -105 - i,
+  }));
+
+  it("base plants table (4 rows) hides its FilterMenu", () => {
+    render(<PlantsTab plants={fourPlants} addedPlants={[]} onAddedPlantsChange={vi.fn()} onDeletePlant={vi.fn()} />);
+    const toolbar = screen.getByTestId("plants-tab-toolbar");
+    expect(within(toolbar).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+  });
+
+  it("the Added-plants table with >10 added rows SHOWS its own FilterMenu (positive test), independent of the (4-row, hidden) base table", () => {
+    render(
+      <PlantsTab
+        plants={fourPlants}
+        addedPlants={manyAddedPlants}
+        onAddedPlantsChange={vi.fn()}
+        onDeletePlant={vi.fn()}
+      />,
+    );
+    const toolbar = screen.getByTestId("plants-tab-toolbar");
+    const addedSection = screen.getByTestId("added-plants-section");
+    // Base table (4 rows) still hides its own menu...
+    expect(within(toolbar).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    // ...while the Added-plants table (11 rows, >10) shows its own.
+    expect(within(addedSection).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+  });
+
+  it("filtering the Added-plants table narrows its rows without affecting the (unfiltered) base table", async () => {
+    render(
+      <PlantsTab
+        plants={fourPlants}
+        addedPlants={manyAddedPlants}
+        onAddedPlantsChange={vi.fn()}
+        onDeletePlant={vi.fn()}
+      />,
+    );
+    const addedSection = screen.getByTestId("added-plants-section");
+    expect(within(addedSection).getAllByTestId(/^row-added-plant-/).length).toBe(11);
+
+    const user = userEvent.setup();
+    await user.click(within(addedSection).getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-city"), "AddedCity1");
+
+    // "AddedCity1" matches AddedCity1 and AddedCity10/11 (substring) — 3 rows.
+    expect(within(addedSection).getAllByTestId(/^row-added-plant-/).length).toBe(3);
+    // Base table is completely unaffected.
+    expect(screen.getByText("Daggar Hills")).toBeInTheDocument();
+    expect(screen.getByText("Cunnamulla")).toBeInTheDocument();
+    expect(screen.getByText("Brisbane")).toBeInTheDocument();
+    expect(screen.getByText("Toowoomba")).toBeInTheDocument();
   });
 });

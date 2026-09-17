@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -123,5 +123,77 @@ describe("ImportDialog", () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// B7 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in `enableFilters`, wired
+// into the Errors and Changes preview grids as TWO SEPARATE tables, each
+// shown/hidden by its OWN unfiltered row count (>10).
+function manyErrors(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    errorClass: (i % 2 === 0 ? "logic" : "syntax") as "logic" | "syntax",
+    line: i + 1,
+    message: `Row ${i + 1} is bad`,
+  }));
+}
+function manyChanges(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `ID${i + 1}`,
+    line: i + 1,
+    before: { x: i },
+    after: { x: i + 1 },
+  }));
+}
+
+describe("ImportDialog — enableFilters (B7, opt-in shared FilterMenu, independent Errors/Changes thresholds)", () => {
+  it("omitting enableFilters never renders a FilterMenu, even with >10 errors and >10 changes", async () => {
+    mockFetchRoutes({ errors: manyErrors(12), changes: manyChanges(12), warnings: [] });
+    renderDialog();
+    await uploadFile();
+    await waitFor(() => expect(screen.getByText("Errors (12)")).toBeInTheDocument());
+    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+  });
+
+  it("enableFilters=true: Errors grid shows its own FilterMenu when >10 unfiltered errors, while Changes stays hidden at <=10", async () => {
+    mockFetchRoutes({ errors: manyErrors(11), changes: manyChanges(5), warnings: [] });
+    renderDialog({ enableFilters: true });
+    await uploadFile();
+    await waitFor(() => expect(screen.getByText("Errors (11)")).toBeInTheDocument());
+
+    const errorsSection = screen.getByTestId("import-errors-section");
+    const changesSection = screen.getByTestId("import-changes-section");
+    expect(within(errorsSection).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    expect(within(changesSection).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+  });
+
+  it("enableFilters=true: Changes grid shows its own FilterMenu when >10 unfiltered changes, while Errors stays hidden at <=10 (independent thresholds, reverse case)", async () => {
+    mockFetchRoutes({ errors: manyErrors(3), changes: manyChanges(11), warnings: [] });
+    renderDialog({ enableFilters: true });
+    await uploadFile();
+    await waitFor(() => expect(screen.getByText("Changes (11)")).toBeInTheDocument());
+
+    const errorsSection = screen.getByTestId("import-errors-section");
+    const changesSection = screen.getByTestId("import-changes-section");
+    expect(within(errorsSection).queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    expect(within(changesSection).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+  });
+
+  it("enableFilters=true: filtering the Errors grid narrows its rows without touching the Changes grid", async () => {
+    mockFetchRoutes({ errors: manyErrors(11), changes: manyChanges(11), warnings: [] });
+    renderDialog({ enableFilters: true });
+    await uploadFile();
+    await waitFor(() => expect(screen.getByText("Errors (11)")).toBeInTheDocument());
+
+    const errorsSection = screen.getByTestId("import-errors-section");
+    const changesSection = screen.getByTestId("import-changes-section");
+    expect(within(changesSection).getAllByTestId(/^import-change-row-/).length).toBe(11);
+
+    const user = userEvent.setup();
+    await user.click(within(errorsSection).getByTestId("button-filter-menu-trigger"));
+    await user.type(screen.getByTestId("input-filter-message"), "Row 1 is bad");
+
+    expect(within(errorsSection).getAllByTestId(/^import-error-row-/).length).toBe(1);
+    // Changes grid is completely untouched by the Errors grid's own filter.
+    expect(within(changesSection).getAllByTestId(/^import-change-row-/).length).toBe(11);
   });
 });
