@@ -257,11 +257,16 @@ function isDenial(content: string, isError: unknown): boolean {
   return false;
 }
 
+// NOT truncated (permission-review-loop Task 6 / Important 7): the full command is required for
+// exact deny candidates and full-command digests downstream (buildCandidates, Task 8) — a 120-char
+// cut would silently corrupt both. Denied commands never enter git untransformed anyway (they go
+// through redactCommand/scanSensitive before anything is committed), so retaining the full text
+// here is safe.
 function summarizeInput(input: unknown): string {
   if (input && typeof input === "object" && "command" in (input as Record<string, unknown>)) {
-    return String((input as Record<string, unknown>).command).slice(0, 120);
+    return String((input as Record<string, unknown>).command);
   }
-  return JSON.stringify(input ?? null).slice(0, 120);
+  return JSON.stringify(input ?? null);
 }
 
 /**
