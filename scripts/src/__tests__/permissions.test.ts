@@ -13,7 +13,10 @@ import {
   sha256Hex,
   matchesProjectAllow,
   suggestRule,
+  buildCandidates,
+  type Candidate,
 } from "../harness/lib/permissions.js";
+import type { ManagedMap } from "../harness/lib/permissionManaged.js";
 import { evaluateAudit, transcriptDirFor } from "../harness/audit-permissions.js";
 
 describe("parseStandingPermissions", () => {
@@ -428,5 +431,161 @@ describe("transcriptDirFor", () => {
     expect(transcriptDirFor("/Users/x/network-optimization-studio")).toMatch(
       /\.claude\/projects\/-Users-x-network-optimization-studio$/,
     );
+  });
+});
+
+// --- buildCandidates (T8) -------------------------------------------------
+
+function ledgerLine(o: Record<string, unknown>): string {
+  return JSON.stringify(o);
+}
+
+function ledgerPrompted(toolUseId: string, at: string, command: string, permissionMode = "default"): string {
+  return ledgerLine({ at, sessionId: "s1", toolUseId, event: "prompted", command, permissionMode });
+}
+
+function ledgerExecuted(toolUseId: string, at: string, permissionMode = "default"): string {
+  return ledgerLine({ at, sessionId: "s1", toolUseId, event: "executed", permissionMode });
+}
+
+function emptyManaged(): ManagedMap {
+  return {};
+}
+
+describe("buildCandidates (T8)", () => {
+  it("produces a grant candidate for a promotable command not in the project allowlist", () => {
+    const ledger = [ledgerPrompted("t1", "2026-09-14T10:00:00.000Z", "git log -5"), ledgerExecuted("t1", "2026-09-14T10:00:01.000Z")].join(
+      "\n",
+    );
+    const candidates = buildCandidates({ ledger, transcript: "", projectAllow: [], managed: emptyManaged() });
+    const grants = candidates.filter((c) => c.kind === "grant");
+    expect(grants).toHaveLength(1);
+    expect(grants[0].proposedRule).toBe("Bash(git log *)"); // template-generalized
+    expect(grants[0].level).toBe("broad"); // classified on the PROPOSED rule, not the raw command
+    expect(grants[0].sensitive).toBe(false);
+    expect(grants[0].reviewLocalOnly).toBe(false);
+    expect(grants[0].provenance).toBe("prompted_and_executed");
+    expect(grants[0].count).toBe(1);
+  });
+
+  it("filters out a promotable command already covered by the project allowlist (not-covered filter)", () => {
+    const ledger = [ledgerPrompted("t1", "2026-09-14T10:00:00.000Z", "pnpm -v"), ledgerExecuted("t1", "2026-09-14T10:00:01.000Z")].join(
+      "\n",
+    );
+    const candidates = buildCandidates({
+      ledger,
+      transcript: "",
+      projectAllow: ["Bash(pnpm -v)"],
+      managed: emptyManaged(),
+    });
+    expect(candidates.filter((c) => c.kind === "grant")).toHaveLength(0);
+  });
+
+  it("dedupes repeated occurrences of the same effective rule into one candidate with an aggregated count", () => {
+    const ledger = [
+      ledgerPrompted("t1", "2026-09-14T10:00:00.000Z", "git log -5"),
+      ledgerExecuted("t1", "2026-09-14T10:00:01.000Z"),
+      ledgerPrompted("t2", "2026-09-15T10:00:00.000Z", "git log --oneline"), // different raw command, same template rule
+      ledgerExecuted("t2", "2026-09-15T10:00:01.000Z"),
+    ].join("\n");
+    const candidates = buildCandidates({ ledger, transcript: "", projectAllow: [], managed: emptyManaged() });
+    const grants = candidates.filter((c) => c.kind === "grant");
+    expect(grants).toHaveLength(1);
+    expect(grants[0].count).toBe(2);
+    expect(grants[0].firstSeen).toBe("2026-09-14T10:00:00.000Z");
+    expect(grants[0].lastSeen).toBe("2026-09-15T10:00:00.000Z");
+  });
+
+  it("a sensitive grant candidate carries no proposedRule and is reviewLocalOnly", () => {
+    // Not caught by any redaction placeholder (no Bearer/db-url/password/email/env shape) but a
+    // residual >=16-char mixed-class token, so scanSensitive flags it (mirrors the T2 fixture).
+    const sensitiveCommand = "mycli --deploy sk_live_51H8abcdEFGH1234ijkl";
+    const ledger = [
+      ledgerPrompted("t1", "2026-09-14T10:00:00.000Z", sensitiveCommand),
+      ledgerExecuted("t1", "2026-09-14T10:00:01.000Z"),
+    ].join("\n");
+    const candidates = buildCandidates({ ledger, transcript: "", projectAllow: [], managed: emptyManaged() });
+    const grants = candidates.filter((c) => c.kind === "grant");
+    expect(grants).toHaveLength(1);
+    expect(grants[0].sensitive).toBe(true);
+    expect(grants[0].reviewLocalOnly).toBe(true);
+    expect(grants[0].proposedRule).toBeUndefined();
+    expect(grants[0].redactedPreview).toBe("sensitive — review locally");
+  });
+
+  it("produces a deny candidate from a transcript denial, classified on its own proposed rule", () => {
+    const t = transcript([
+      toolUse("d1", "Bash", { command: "git push --force origin main" }, "2026-09-14T10:00:00.000Z"),
+      denial("d1", "2026-09-14T10:00:01.000Z"),
+    ]);
+    const candidates = buildCandidates({ ledger: "", transcript: t, projectAllow: [], managed: emptyManaged() });
+    const denies = candidates.filter((c) => c.kind === "deny");
+    expect(denies).toHaveLength(1);
+    expect(denies[0].level).toBe("destructive"); // never generalized
+    expect(denies[0].proposedRule).toBe("Bash(git push --force origin main)");
+    expect(denies[0].provenance).toBe("prompted_and_denied");
+  });
+
+  it("produces a revoke candidate from a stale managed rule", () => {
+    const managed: ManagedMap = {
+      "Bash(git log *)": {
+        owner: "shubham",
+        rationale: "test",
+        firstSeen: "2026-01-01T00:00:00.000Z",
+        lastSeen: "2026-01-01T00:00:00.000Z",
+        count: 5,
+      },
+    };
+    const candidates = buildCandidates({
+      ledger: "",
+      transcript: "",
+      projectAllow: [],
+      managed,
+      now: "2026-03-01T00:00:00.000Z",
+      staleWeeks: 8,
+    });
+    const revokes = candidates.filter((c) => c.kind === "revoke");
+    expect(revokes).toHaveLength(1);
+    expect(revokes[0].proposedRule).toBe("Bash(git log *)");
+  });
+
+  it("splits candidates by kind (grant/deny/revoke can all appear together)", () => {
+    const ledger = [ledgerPrompted("t1", "2026-09-14T10:00:00.000Z", "git status"), ledgerExecuted("t1", "2026-09-14T10:00:01.000Z")].join(
+      "\n",
+    );
+    const t = transcript([
+      toolUse("d1", "Bash", { command: "rm -rf /tmp/scratch" }, "2026-09-14T11:00:00.000Z"),
+      denial("d1", "2026-09-14T11:00:01.000Z"),
+    ]);
+    const managed: ManagedMap = {
+      "Bash(pnpm run build)": {
+        owner: "shubham",
+        rationale: "test",
+        firstSeen: "2026-01-01T00:00:00.000Z",
+        lastSeen: "2026-01-01T00:00:00.000Z",
+        count: 1,
+      },
+    };
+    const candidates = buildCandidates({
+      ledger,
+      transcript: t,
+      projectAllow: [],
+      managed,
+      now: "2026-03-01T00:00:00.000Z",
+      staleWeeks: 8,
+    });
+    const kinds = new Set(candidates.map((c) => c.kind));
+    expect(kinds).toEqual(new Set(["grant", "deny", "revoke"]));
+  });
+
+  it("candidate ids are stable across two independent runs with the same input", () => {
+    const ledger = [ledgerPrompted("t1", "2026-09-14T10:00:00.000Z", "git log -5"), ledgerExecuted("t1", "2026-09-14T10:00:01.000Z")].join(
+      "\n",
+    );
+    const input = { ledger, transcript: "", projectAllow: [], managed: emptyManaged() };
+    const a = buildCandidates(input);
+    const b = buildCandidates(input);
+    expect(a.map((c: Candidate) => c.id)).toEqual(b.map((c: Candidate) => c.id));
+    expect(a[0].id).toHaveLength(12);
   });
 });

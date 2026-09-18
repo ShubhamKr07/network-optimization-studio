@@ -13,14 +13,22 @@
 // Redaction/digest primitives are dependency-free plain ESM shared with the standalone Claude
 // Code hook (`.claude/hooks/permission-ledger.mjs`, which cannot import an uncompiled .ts module)
 // — re-exported here rather than duplicated, per the permission-review-loop design (Important 5).
-export {
+import {
   escapeCell,
   redactCommand,
   scanSensitive,
   sha256Hex,
 } from "../../../../.claude/hooks/lib/permissionsCore.mjs";
+export { escapeCell, redactCommand, scanSensitive, sha256Hex };
 
 import { PERMISSION_TEMPLATES, pnpmRunTemplateRule } from "./permissionTemplates.js";
+import { parseLedger, correlate, promotableCommands, type Provenance } from "./permissionLedger.js";
+import {
+  proposeRevocations,
+  computeCandidateId,
+  CANDIDATE_SCHEMA_VERSION,
+  type ManagedMap,
+} from "./permissionManaged.js";
 
 export type GrantLevel = "destructive" | "risky" | "broad" | "ok";
 
@@ -325,4 +333,175 @@ export function topDeniedTool(denials: Denial[]): string {
   let n = 0;
   for (const [k, v] of c) if (v > n) { top = k; n = v; }
   return top;
+}
+
+// --- Task 8: buildCandidates ------------------------------------------------
+
+/**
+ * A reviewable unit surfaced to the weekly permission-review artifact. `proposedRule` is the exact
+ * literal rule text that would be written into `.claude/settings.json` if accepted — present for
+ * every non-sensitive candidate (Critical 1's "non-sensitive exact rules may enter Git" branch),
+ * omitted entirely for a `sensitive` one (which is `reviewLocalOnly` and never usable via the
+ * remote apply path). `level` classifies the PROPOSED rule (or, when sensitive, the hypothetical
+ * exact rule — never the raw command text itself, which never appears here).
+ */
+export interface Candidate {
+  schemaVersion: number;
+  id: string;
+  kind: "grant" | "deny" | "revoke";
+  commandDigest: string;
+  redactedPreview: string;
+  proposedRule?: string;
+  level: GrantLevel;
+  provenance: Provenance;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  sensitive: boolean;
+  reviewLocalOnly: boolean;
+}
+
+export interface BuildCandidatesInput {
+  /** Raw gitignored ledger JSONL text (`.harness/permissions/ledger.jsonl`). */
+  ledger: string;
+  /** Raw concatenated transcript JSONL text. */
+  transcript: string;
+  /** The merged content of the inspected project Bash allowlists (tracked + local). */
+  projectAllow: string[];
+  managed: ManagedMap;
+  window?: Window;
+  /** ISO now, for revoke staleness — defaults to the current time. */
+  now?: string;
+  /** Weeks of no usage before a managed rule is proposed for revoke — defaults to 8. */
+  staleWeeks?: number;
+}
+
+const DEFAULT_STALE_WEEKS = 8;
+
+interface CandidateAccum {
+  proposedRule?: string;
+  sensitive: boolean;
+  redactedPreview: string;
+  level: GrantLevel;
+  commandDigest: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+function accumKey(sensitive: boolean, proposedRule: string | undefined, digest: string): string {
+  return sensitive ? `sensitive:${digest}` : `rule:${proposedRule}`;
+}
+
+function upsertAccum(groups: Map<string, CandidateAccum>, key: string, at: string, digest: string, seed: () => CandidateAccum): void {
+  const existing = groups.get(key);
+  if (!existing) {
+    groups.set(key, seed());
+    return;
+  }
+  existing.count += 1;
+  if (at && (!existing.lastSeen || at > existing.lastSeen)) {
+    existing.lastSeen = at;
+    existing.commandDigest = digest;
+  }
+  if (at && (!existing.firstSeen || at < existing.firstSeen)) existing.firstSeen = at;
+}
+
+function accumToCandidate(kind: "grant" | "deny", provenance: Provenance, g: CandidateAccum): Candidate {
+  const idSource = g.sensitive ? g.commandDigest : (g.proposedRule as string);
+  return {
+    schemaVersion: CANDIDATE_SCHEMA_VERSION,
+    id: computeCandidateId(kind, idSource),
+    kind,
+    commandDigest: g.commandDigest,
+    redactedPreview: g.redactedPreview,
+    proposedRule: g.proposedRule,
+    level: g.level,
+    provenance,
+    count: g.count,
+    firstSeen: g.firstSeen,
+    lastSeen: g.lastSeen,
+    sensitive: g.sensitive,
+    reviewLocalOnly: g.sensitive,
+  };
+}
+
+/**
+ * Build the full candidate list for the weekly permission-review artifact:
+ *  - grant candidates: promotable ledger commands (`prompted_and_executed`, T6) not already present
+ *    in `projectAllow` (T3's narrow claim), deduped by their effective proposed rule;
+ *  - deny candidates: transcript denials (`parseDenials`, now full-command per Important 7), deduped
+ *    the same way;
+ *  - revoke candidates: stale/expired managed rules (T5's `proposeRevocations`).
+ * Every candidate's `level` classifies its PROPOSED rule (Critical 2), and a sensitive command
+ * (Critical 1) never gets a `proposedRule` at all — only `redactedPreview: "sensitive — review
+ * locally"`, `sensitive: true`, `reviewLocalOnly: true`.
+ */
+export function buildCandidates(input: BuildCandidatesInput): Candidate[] {
+  const { ledger, transcript, projectAllow, managed, window } = input;
+  const now = input.now ?? new Date().toISOString();
+  const staleWeeks = input.staleWeeks ?? DEFAULT_STALE_WEEKS;
+
+  const candidates: Candidate[] = [];
+
+  // --- grant candidates ---
+  const promotable = promotableCommands(correlate(parseLedger(ledger, window)));
+  const grantGroups = new Map<string, CandidateAccum>();
+
+  for (const rec of promotable) {
+    if (matchesProjectAllow(rec.command, projectAllow)) continue; // already covered — not a candidate
+    const sensitive = scanSensitive(rec.command);
+    const exactRule = `Bash(${rec.command.trim()})`;
+    const proposedRule = sensitive ? undefined : suggestRule(rec.command);
+    const level = classifyRule(proposedRule ?? exactRule).level;
+    const redactedPreview = sensitive ? "sensitive — review locally" : escapeCell(redactCommand(rec.command));
+    const key = accumKey(sensitive, proposedRule, rec.commandDigest);
+
+    upsertAccum(grantGroups, key, rec.at, rec.commandDigest, () => ({
+      proposedRule,
+      sensitive,
+      redactedPreview,
+      level,
+      commandDigest: rec.commandDigest,
+      count: 1,
+      firstSeen: rec.at,
+      lastSeen: rec.at,
+    }));
+  }
+
+  for (const g of grantGroups.values()) candidates.push(accumToCandidate("grant", "prompted_and_executed", g));
+
+  // --- deny candidates ---
+  const denials = parseDenials(transcript, window);
+  const denyGroups = new Map<string, CandidateAccum>();
+
+  for (const d of denials) {
+    if (d.tool !== "Bash" || !d.input) continue; // Bash-centric per the loop's scope
+    const command = d.input;
+    const sensitive = scanSensitive(command);
+    const exactRule = `Bash(${command.trim()})`;
+    const proposedRule = sensitive ? undefined : suggestRule(command);
+    const level = classifyRule(proposedRule ?? exactRule).level;
+    const redactedPreview = sensitive ? "sensitive — review locally" : escapeCell(redactCommand(command));
+    const digest = sha256Hex(command);
+    const key = accumKey(sensitive, proposedRule, digest);
+
+    upsertAccum(denyGroups, key, d.at, digest, () => ({
+      proposedRule,
+      sensitive,
+      redactedPreview,
+      level,
+      commandDigest: digest,
+      count: 1,
+      firstSeen: d.at,
+      lastSeen: d.at,
+    }));
+  }
+
+  for (const g of denyGroups.values()) candidates.push(accumToCandidate("deny", "prompted_and_denied", g));
+
+  // --- revoke candidates ---
+  for (const r of proposeRevocations(managed, now, staleWeeks)) candidates.push(r);
+
+  return candidates;
 }
