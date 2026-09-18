@@ -2,297 +2,342 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A weekly loop that captures the Bash permissions Claude was granted/denied (provenance-aware), surfaces them redacted in the Monday harness PR, and lets a human promote accepted patterns into the tracked project `.claude/settings.json` via a deterministic, code-enforced apply.
+**Goal:** A weekly loop that captures the Bash permissions Claude was prompted-for and granted/denied (provenance-aware), surfaces them redacted in the Monday harness PR, and lets a human promote accepted patterns into the tracked project `.claude/settings.json` via a deterministic, code-enforced apply.
 
-**Architecture:** Local capture (clean worktree → dedicated `permissions-capture` branch) reads a PreToolUse hook ledger + transcript + current project allowlist, emits a redacted structured artifact. The Monday workflow renders it into the weekly PR. A hardened `permission-apply.yml` runs a deterministic `permissions-apply.ts` — the sole settings mutator — gated on label/base/head/actor/review/freshness and a strict decision grammar.
+**Architecture:** Local capture (clean worktree → dedicated `permissions-capture` branch) reads a local PreToolUse/Notification hook ledger + transcript + current project allowlist, emits a redacted structured artifact. The Monday workflow deterministically fetches + validates that artifact and renders it into the weekly PR. A hardened `permission-apply.yml` runs the **default-branch** `permissions-apply` implementation over PR comments + artifact **as data** (never PR-head code) — the sole settings mutator — gated on label/base/head/actor/review/freshness + a strict, per-decision-authorized grammar.
 
 **Tech Stack:** TypeScript (ESM, `.js` import specifiers), `tsx`, vitest, Node `node:crypto`, GitHub Actions, Claude Code hooks + settings.
 
-Spec: `docs/superpowers/specs/2026-09-18-permission-review-loop-design.md`. Read its "Review Resolution" + Decisions A/B before starting.
+Spec: `docs/superpowers/specs/2026-09-18-permission-review-loop-design.md`. Read its "Review Resolution" + Decisions A/B, and this plan's "Plan Review Resolution" (2 Critical + 9 Important + 4 Minor) before starting.
+
+**Review status:** Revised per the 2026-09-18 plan review — all Critical/Important/Minor resolved (see appendix). Decisions A/B are intentional user overrides, out of scope for review.
 
 ## Global Constraints
 
-- **Raw commands NEVER enter git.** Committed artifacts carry only `redactedPreview` + `commandDigest` (sha256) + structured metadata. `sensitive: true` → remote shows `sensitive — review locally`; full text only in a gitignored local sidecar. Every rendered field is markdown/control-char escaped.
-- **Authorization is deterministic code, never `SKILL.md`.** `permissions-apply.ts` is the sole file that writes `.claude/settings.json`. The model may only trigger it.
-- **Apply target is the project-scoped tracked `.claude/settings.json`** — never `~/.claude/settings.json`, never another project. Writes are atomic, schema-validated, deduped.
-- **Only `explicit_once`-provenance grants are promotable.** Transcript-only executions are observations.
-- **Exact-by-default.** Generalization only from the reviewed template registry. Classification always runs on the *proposed rule* (post-edit), never the observed command.
-- **Levels + keywords:** `ok`/`broad` → `@claude allow`; `risky` → `@claude allow-risky`; `destructive` → `@claude allow-destructive` (exact byte-for-byte, kept per Decision B); `@claude deny`; `@claude revoke`. Keyword must be ≥ the effective level; escalation refused.
-- **Two-phase apply.** Per-candidate comments record decisions only; one final `@claude apply permission review` freezes + makes a single settings commit.
-- **One task = one commit**, message `[perm-loop-Tn] <summary>`, verified green before the next.
-- **TDD.** Test first, watch it fail, implement, watch it pass, commit.
+- **No SECRETS in git (narrowed from "no raw commands").** The secret scan is authoritative: a candidate that passes → non-sensitive → its exact `proposedRule` + `redactedPreview` may be committed verbatim (required so remote apply can write the rule). A candidate that trips the scan → `sensitive: true`, **carries no `proposedRule`** in the committed artifact, is `reviewLocalOnly`, and is promotable **only via a local apply** reading the gitignored sidecar — never the PR/CI path. Full commands live only in the gitignored local ledger + sidecar. Every rendered field is escaped per the Task 2 canonical contract.
+- **Promotable = an observable "prompted_and_executed" signal** (Task 0 confirms the exact events). Already-allowlisted commands never prompt, so they never become candidates. Transcript-only executions with no prompt event are observations, not candidates.
+- **Authorization is deterministic code, never `SKILL.md`.** `permissionApply.ts` (run from the **default branch**) is the sole logic that writes `.claude/settings.json`. The model never mutates settings and is never in the apply data path.
+- **Apply target is the project-scoped tracked `.claude/settings.json`** — never `~/.claude/settings.json`, never another project. Writes atomic, schema-validated, deduped.
+- **Exact-by-default.** Generalization only from the reviewed template registry. Classification always runs on the effective *proposed rule* (post-edit), never the observed command.
+- **Levels + keywords:** `ok`/`broad` → `allow`; `risky` → `allow-risky`; `destructive` → `allow-destructive` (exact byte-for-byte, Decision B); `deny`; `revoke`; `defer`. Keyword ≥ effective level; escalation refused. Restrictive decisions (`deny`/`revoke`/`defer`) are outside level-ordering.
+- **Every decision is authorized** (comment id + author + association + timestamp), not just the final freeze. **Two-phase:** per-candidate comments record decisions; one final authorized `@claude apply permission review` freezes (all candidates decided/deferred), bound to the PR head SHA, single settings commit.
+- **Gate per task:** `pnpm --filter @workspace/scripts typecheck` + `pnpm --filter @workspace/scripts test` green before each commit.
+- **One task = one commit**, `[perm-loop-Tn] <summary>`. **TDD.**
 
 ## File Structure
 
 ```
-scripts/src/harness/lib/permissions.ts          (extend, OBS-12) classification, redaction, matcher, candidates
+.claude/hooks/lib/permissionsCore.mjs           (new) dep-free redact + digest, shared by hook AND TS (+ .d.ts)
+.claude/hooks/permission-ledger.mjs             (new) PreToolUse/Notification ledger hook
+.claude/settings.json                           (extend) register the hook(s)
+scripts/src/harness/lib/permissions.ts          (extend, OBS-12) classification, matcher, candidates; re-exports core
 scripts/src/harness/lib/permissionTemplates.ts  (new) reviewed generalization registry
-scripts/src/harness/lib/permissionLedger.ts     (new) provenance ledger parse + types
-scripts/src/harness/lib/permissionApply.ts      (new) pure decision-parse + enforce + settings-mutation core
-scripts/src/harness/permissions-capture.ts       (new CLI) build + write artifacts
-scripts/src/harness/permissions-apply.ts         (new CLI) apply a frozen decision set (wraps lib)
+scripts/src/harness/lib/permissionManaged.ts    (new) rule-keyed managed map + usage/revocation
+scripts/src/harness/lib/permissionLedger.ts     (new) provenance ledger parse (full command, local)
+scripts/src/harness/lib/permissionApply.ts      (new) pure decision-parse + per-decision auth + enforce + mutate
+scripts/src/harness/permissions-capture.ts       (new CLI)
+scripts/src/harness/permissions-apply.ts         (new CLI: remote-data + local modes)
 scripts/src/harness/report.ts                    (extend) `## Permission review` section
-scripts/harness/permissions-capture-weekly.sh    (new) worktree + capture branch wrapper
-.claude/hooks/permission-ledger.mjs              (new) PreToolUse ledger hook
-.github/workflows/permission-apply.yml           (new) hardened apply workflow
-.github/workflows/harness-weekly.yml             (extend) render permission-review into the PR
-docs/superpowers/metrics/permissions-review/     (new dir) <YYYY-WW>.{json,md} committed artifacts
-docs/superpowers/metrics/permissions-managed.json(new) managed-rule provenance + expiry
-docs/ops/permission-review-cron.md               (new) launchd install + operation
-scripts/src/__tests__/permissions.test.ts        (extend)
-scripts/src/__tests__/permissionApply.test.ts    (new)
-scripts/src/__tests__/permissionsCapture.test.ts (new)
-scripts/src/__tests__/report.test.ts             (extend, if present; else new)
+scripts/harness/permissions-capture-weekly.sh    (new) worktree + capture branch + lease push
+.github/workflows/permission-apply.yml           (new) hardened apply (default-branch code, PR data-only)
+.github/workflows/harness-weekly.yml             (extend) deterministic fetch+validate+render, isolated from the model
+docs/superpowers/metrics/permissions-review/     (new) <YYYY-WW>.{json,md}
+docs/superpowers/metrics/permissions-managed.json(new, seed {}) rule-keyed managed map
+docs/ops/permission-review-cron.md               (new)
+scripts/src/__tests__/{permissions,permissionApply,permissionsCapture,permissionManaged,report}.test.ts
 ```
+
+Type spine (used consistently T1→T18): `GrantLevel = "destructive"|"risky"|"broad"|"ok"`; `Provenance` (Task 0-confirmed set); `LedgerRecord {at, sessionId, toolUseId, command(full,local-only), commandDigest, provenance, decision}`; `Candidate {schemaVersion, id, kind:"grant"|"deny"|"revoke", commandDigest, redactedPreview, proposedRule?, level, provenance, count, firstSeen, lastSeen, sensitive, reviewLocalOnly}`; `ManagedMap = Record<rule, {owner, rationale, firstSeen, lastSeen, count, expiry?}>`; `Decision {id, keyword, overrideRule?, actor, association, rationale?, commentId, at}`; `Artifact {schemaVersion, sourceCommit, trackedSettingsDigest, window, generatedAt, candidates}`.
+
+---
+
+### Task 0 (BLOCKING SPIKE): provenance observability
+
+**Files:** `docs/superpowers/specs/2026-09-18-permission-provenance-spike.md` (findings, committed). No product code.
+
+- [ ] Against the **installed** Claude Code version, empirically determine which hook events fire and what they carry for: a prompted-then-approved Bash call, a denied one, an already-allowlisted one, `acceptEdits`/bypass, builtin read-only. Candidate events: `PreToolUse`, `PermissionRequest`, `Notification`, `PostToolUse` (+ transcript records). Correlate by `session_id`+`tool_use_id`.
+- [ ] Define the **observable promotable signal** (target: `prompted_and_executed` = a permission-prompt event for the tool_use_id followed by a successful `PostToolUse`) and the full `Provenance` enum with evidence per state.
+- [ ] **Gate:** if no signal distinguishes a human-prompted approval from auto-approval, STOP and choose with the user: opt-in local approval recorder vs. redesign. Do not proceed to T1+ until this is settled.
+- [ ] **Commit** `[perm-loop-T0] provenance observability spike (findings + confirmed signal)`.
 
 ---
 
 ### Task 1: `destructive` level + `classifyRule`
-
-**Files:** Modify `scripts/src/harness/lib/permissions.ts`; Test `scripts/src/__tests__/permissions.test.ts`.
-
-**Interfaces:**
-- Produces: `type GrantLevel = "destructive" | "risky" | "broad" | "ok"`; `classifyRule(rule: string): GrantClass` (classifies a full `Tool(pattern)` rule string — the post-edit path). `classifyGrant` remains for OBS-12 callers and now delegates to `classifyRule`.
-
-- [ ] **Step 1: Failing tests.** Add to `permissions.test.ts`:
-```ts
-import { classifyRule } from "../harness/lib/permissions.js";
-describe("classifyRule — destructive split", () => {
-  it("classifies the destructive subset", () => {
-    for (const r of ["Bash(rm -rf x)", "Bash(sudo x)", "Bash(chmod +x x)", "Bash(git reset --hard)", "Bash(git push --force)", "Bash(dd if=/dev/zero of=x)"])
-      expect(classifyRule(r).level).toBe("destructive");
-  });
-  it("keeps risky/broad/ok distinct from destructive", () => {
-    expect(classifyRule("Bash(git push origin main)").level).toBe("risky");   // plain push, not force
-    expect(classifyRule("Bash(pnpm run *)").level).toBe("broad");
-    expect(classifyRule("Bash(pnpm -v)").level).toBe("ok");
-    expect(classifyRule("Bash(*)").level).toBe("risky");
-  });
-});
-```
-- [ ] **Step 2: Run — fail** (`classifyRule` undefined). `npx vitest run src/__tests__/permissions.test.ts`.
-- [ ] **Step 3: Implement.** In `permissions.ts`: extend `GrantLevel` with `"destructive"`. Add destructive rules (ordered FIRST): `rm -r`/`rm -rf`, `sudo`, `chmod`/`chown`, `dd if=`, `mkfs`, `git clean`, `git reset --hard`, `--force`/`push -f`/force-push, SQL `\bDROP\b`/`\bTRUNCATE\b`. Move `git reset --hard`, `chmod/chown`, `--force` out of the current risky rules into destructive. Keep plain `git push` (no force) as risky. Add:
-```ts
-export function classifyRule(rule: string): GrantClass {
-  return classifyGrant(rule); // classifyGrant already parses Tool(arg); rules ARE entries
-}
-```
-(If `classifyGrant`’s internals need the level enum widened, do it here.)
-- [ ] **Step 4: Run — pass.**
-- [ ] **Step 5: Commit** `[perm-loop-T1] add destructive level + classifyRule`.
+**Files:** `permissions.ts`; `permissions.test.ts`. Produces `classifyRule(rule)`, widened `GrantLevel`.
+- [ ] TDD (tests from the prior revision: destructive subset = `rm -r*`/`rm -rf`, `sudo`, `chmod`/`chown`, `dd if=`, `mkfs`, `git clean`, `git reset --hard`, `--force`/force-push, SQL `DROP`/`TRUNCATE`; plain `git push` stays risky; `Bash(*)` risky). Move reset-hard/chmod/force out of risky into destructive. `classifyRule` classifies a full `Tool(pattern)` rule (post-edit path). Gate. Commit `[perm-loop-T1]`.
 
 ---
 
-### Task 2: Redaction + secret scan
-
-**Files:** Modify `permissions.ts`; Test `permissions.test.ts`.
-
-**Interfaces:** Produces `redactCommand(cmd: string): string`, `scanSensitive(cmd: string): boolean`, `escapeCell(s: string): string` (markdown table + control-char escape).
-
-- [ ] **Step 1: Failing tests.**
-```ts
-import { redactCommand, scanSensitive, escapeCell } from "../harness/lib/permissions.js";
-describe("redaction", () => {
-  it("masks db urls, tokens, passwords, emails, inline env", () => {
-    const r = redactCommand('psql postgresql://u:p@h:5432/db -c "x"; curl -H "Authorization: Bearer abc123" a@b.com PASSWORD=hunter2');
-    expect(r).not.toMatch(/hunter2|abc123|postgresql:\/\/u:p@/);
-    expect(r).toMatch(/<db-url>|<token>|<password>|<email>/);
-  });
-  it("scanSensitive flags high-entropy leftovers, clears clean commands", () => {
-    expect(scanSensitive("gh secret set X --body 9f8a7c6b5e4d3f2a1b0c")).toBe(true);
-    expect(scanSensitive("pnpm -v")).toBe(false);
-  });
-  it("escapeCell neutralizes pipes/newlines/backticks/html", () => {
-    expect(escapeCell("a|b\n`c`<d>")).toBe("a\\|b `c`<d>".replace(/\n/g," ").replace(/`/g,"\\`").replace(/</g,"&lt;")); // exact form asserted in impl
-  });
-});
-```
-(Adjust the `escapeCell` expectation to the implemented deterministic form.)
-- [ ] **Step 2: Run — fail.**
-- [ ] **Step 3: Implement.** Deterministic ordered replacements → typed placeholders; `scanSensitive` = any residual token matching a high-entropy heuristic (≥16 chars mixed-class) or known secret keywords after redaction; `escapeCell` escapes `|`→`\|`, newlines→space, backtick→`` \` ``, `<`→`&lt;`.
-- [ ] **Step 4: Run — pass.** **Step 5: Commit** `[perm-loop-T2] command redaction + secret scan + cell escaping`.
+### Task 2: canonical escaping + redaction + secret scan
+**Files:** shared `permissionsCore.mjs` (redact + digest, dep-free) + `.d.ts`; `permissions.ts` re-exports; `permissions.test.ts`. Produces `redactCommand`, `scanSensitive`, `escapeCell`, `sha256Hex`.
+- [ ] **Lock the exact escaping contract** (Minor 3): `escapeCell` applies, in order — replace CR/LF/NUL/other control chars → single space; `&`→`&amp;`; `<`→`&lt;`; `>`→`&gt;`; `|`→`\|`; backtick→`` \` ``; strip Unicode bidi controls (U+202A–U+202E, U+2066–U+2069). Test asserts the exact output for a fixture containing all of them.
+- [ ] `redactCommand` deterministic ordered replacements → typed placeholders (`<db-url>`,`<token>`,`<password>`,`<email>`,`<env>`,`<home-path>`). `scanSensitive` = residual ≥16-char mixed-class token OR secret keyword after redaction. `sha256Hex` via `node:crypto` (shared so hook + TS produce identical digests).
+- [ ] TDD (redaction masks db-url/token/password/email/inline-env; scan flags high-entropy leftovers, clears clean; escaping exact). Gate. Commit `[perm-loop-T2]`.
 
 ---
 
-### Task 3: Project-allow matcher (narrow claim)
-
-**Files:** Modify `permissions.ts`; Test `permissions.test.ts`.
-
-**Interfaces:** Produces `matchesProjectAllow(command: string, allow: string[]): boolean` — true iff a `Bash(pattern)` entry (with `*` glob) matches `command`. Documented to claim ONLY "present in the inspected project allowlists", never "auto-approved".
-
-- [ ] **Step 1: Failing tests.**
-```ts
-import { matchesProjectAllow } from "../harness/lib/permissions.js";
-it("matches glob allow entries; misses uncovered commands", () => {
-  const allow = ["Bash(git log *)", "Bash(pnpm -v)"];
-  expect(matchesProjectAllow("git log --oneline -5", allow)).toBe(true);
-  expect(matchesProjectAllow("pnpm -v", allow)).toBe(true);
-  expect(matchesProjectAllow("rm -rf x", allow)).toBe(false);
-});
-```
-- [ ] **Step 2: fail. Step 3: Implement** (extract `Bash(...)` inner, translate `*`→`.*`, anchor, `RegExp` test; non-Bash entries ignored). **Step 4: pass. Step 5: Commit** `[perm-loop-T3] project-allow glob matcher (narrow claim)`.
+### Task 3: project-allow matcher (metachar-safe, narrow claim)
+**Files:** `permissions.ts`; tests. Produces `matchesProjectAllow(command, allow)`.
+- [ ] **Escape regex metacharacters in the literal rule text FIRST** (Minor 1: `$ [ ] ( ) \ . + ? ^ { } |`), THEN expand the permission `*`→`.*`, THEN anchor. Non-Bash entries ignored. Documented to claim only "present in the inspected project allowlists", never "auto-approved".
+- [ ] TDD incl. a covered/uncovered case per metacharacter. Gate. Commit `[perm-loop-T3]`.
 
 ---
 
-### Task 4: Template registry + `suggestRule`
-
-**Files:** Create `scripts/src/harness/lib/permissionTemplates.ts`; Modify `permissions.ts`; Test `permissions.test.ts`.
-
-**Interfaces:** Produces `TEMPLATES: {match: RegExp, rule: (m) => string}[]` (small, reviewed) and `suggestRule(command: string): string` — a matching template's wildcard rule, else the exact `Bash(<command>)`.
-
-- [ ] **Step 1: Failing tests.**
-```ts
-import { suggestRule } from "../harness/lib/permissions.js";
-it("generalizes only via the reviewed registry, else exact", () => {
-  expect(suggestRule("git log --oneline -5")).toBe("Bash(git log *)");
-  expect(suggestRule("pnpm --filter api-server test")).toBe("Bash(pnpm --filter * test)"); // if registered
-  expect(suggestRule("docker run --rm x")).toBe("Bash(docker run --rm x)"); // NOT generalized — dangerous family
-  expect(suggestRule("rm -rf x")).toBe("Bash(rm -rf x)"); // destructive stays exact
-});
-```
-- [ ] **Step 2: fail. Step 3: Implement** the registry with a *short, safe* list (git read subcommands `log|status|diff|show|branch --list`, `pnpm -v`, `pnpm --filter * test|typecheck`, `pnpm run <known>` — NOT `pnpm exec`, NOT `docker run`, NOT `git config`, NOT `git push`). `suggestRule` returns exact for destructive/unmatched. **Step 4: pass. Step 5: Commit** `[perm-loop-T4] reviewed template registry + exact-by-default suggestRule`.
+### Task 4: template registry + `suggestRule`
+**Files:** `permissionTemplates.ts`; `permissions.ts`; tests. Produces `suggestRule(command)`.
+- [ ] Exact-by-default; generalize ONLY via a short reviewed registry (git read subcommands, `pnpm -v`, `pnpm --filter * test|typecheck`, `pnpm run <known>` — NOT `pnpm exec`/`docker run`/`git config`/`git push`). Destructive/unmatched → exact. TDD. Gate. Commit `[perm-loop-T4]`.
 
 ---
 
-### Task 5: Provenance ledger (hook + parse)
-
-**Files:** Create `.claude/hooks/permission-ledger.mjs`, `scripts/src/harness/lib/permissionLedger.ts`; Test `permissions.test.ts`.
-
-**Interfaces:** Produces `type Provenance = "explicit_once"|"session_allow"|"standing_allow"|"sandbox_auto"|"builtin_readonly"|"bypass"|"unknown"`; `LedgerRecord {at, commandDigest, redactedPreview, provenance, decision}`; `parseLedger(jsonl: string, window): LedgerRecord[]`; `promotableCommands(records): Map<digest, {count, firstSeen, lastSeen}>` (only `explicit_once` + `decision==="approve"`).
-
-- [ ] **Step 0: Verify hook capability.** Confirm against Claude Code hook docs what a PreToolUse hook receives and whether it can observe the human's approve/deny. If it cannot prove `explicit_once`, the hook records `provenance:"unknown"` and `promotableCommands` returns empty → capture is observation-only (documented safe fallback). Record the finding in the commit body.
-- [ ] **Step 1: Failing test** for `parseLedger`/`promotableCommands` (fixture JSONL with mixed provenance; assert only `explicit_once+approve` are promotable, window-filtered, deduped by digest with counts).
-- [ ] **Step 2: fail. Step 3: Implement** `permissionLedger.ts` (pure parse) + the hook `.mjs` (reads hook JSON on stdin, computes digest via `node:crypto`, `redactCommand`, best-effort provenance, appends a line to `.harness/permissions/ledger.jsonl`; never blocks the tool — always exits 0). **Step 4: pass. Step 5: Commit** `[perm-loop-T5] provenance ledger hook + parse (explicit_once only promotable)`.
+### Task 5: managed-rule map + usage matcher + revocation (MOVED EARLIER — Important 6)
+**Files:** `permissionManaged.ts`; seed `permissions-managed.json` = `{}`; tests. Produces `ManagedMap`; `refreshUsage(managed, executedCommands): ManagedMap` (matches via `matchesProjectAllow` per rule, bumps `lastSeen`/`count`); `proposeRevocations(managed, now, staleWeeks): Candidate[]` (unused ≥ staleWeeks or past `expiry`).
+- [ ] TDD: usage refresh matches wildcard rules (not digest-vs-key); stale/expired → revoke candidate; recently-used → none. Gate. Commit `[perm-loop-T5]`.
 
 ---
 
-### Task 6: `buildCandidates`
-
-**Files:** Modify `permissions.ts`; Test `permissions.test.ts`.
-
-**Interfaces:** Consumes T1–T5. Produces `Candidate` (spec data model) and `buildCandidates({ledger, transcript, projectAllow, managed, window}): Candidate[]` — grant candidates (promotable ledger digests whose command isn't `matchesProjectAllow`), deny candidates (from `parseDenials`), revoke proposals (managed rules unused ≥ N weeks). Each: `id = sha256(kind+"\0"+proposedRule)[:12]`, classify `proposedRule`, set `sensitive` from `scanSensitive`, `redactedPreview` or `"sensitive — review locally"`.
-
-- [ ] **Step 1: Failing tests** — grant/deny/revoke split; dedupe; classification on proposed rule; sensitive withholding; not-covered filter; id stability across two runs of the same input.
-- [ ] **Step 2: fail. Step 3: Implement. Step 4: pass. Step 5: Commit** `[perm-loop-T6] buildCandidates (grants+denies+revoke, redacted, classified)`.
+### Task 6: provenance ledger (hook writes full command locally; pure parse)
+**Files:** `.claude/hooks/permission-ledger.mjs`; `permissionLedger.ts`; extend OBS-12 `parseDenials` (drop the 120-char truncation — Important 7); tests.
+- [ ] Hook: reads hook JSON on stdin, records `{at, sessionId, toolUseId, command(FULL), commandDigest(sha256 via core), provenance(per Task 0), decision}` to gitignored `.harness/permissions/ledger.jsonl`; imports `permissionsCore.mjs` for redact/digest (no `.ts` import, no logic duplication — Important 5/7); **never blocks the tool, always exit 0**.
+- [ ] `parseLedger(jsonl, window)` + `promotableCommands(records)` (only the Task-0 promotable provenance; keyed by `sessionId+toolUseId`; digest as integrity; full command retained for local use only).
+- [ ] TDD. Gate. Commit `[perm-loop-T6]`.
 
 ---
 
-### Task 7: Capture CLI + artifact writers
-
-**Files:** Create `scripts/src/harness/permissions-capture.ts`; Test `scripts/src/__tests__/permissionsCapture.test.ts`. Add `harness:permissions:capture` to `scripts/package.json` + root `package.json`.
-
-**Interfaces:** Consumes T6. Produces `writeArtifact(dir, week, meta, candidates)` → `<week>.json` (authoritative: `{schemaVersion, sourceCommit, settingsDigest, window, generatedAt, candidates}`), `<week>.md` (generated view: `## Grant candidates`, `## Deny candidates`, `## Revoke proposals`, `## ⚠ Destructive — review in full`, header + legend), and the gitignored local sidecar `.harness/permissions/<week>.local.json` (full commands). Flags `--weeks-ago N`, `--dry-run`.
-
-- [ ] **Step 1: Failing tests** — all four MD sections render; destructive block shows redacted-full or `sensitive — review locally`; **no raw secret appears anywhere in json/md**; every cell escaped; `--dry-run` writes nothing; `settingsDigest` computed from the merged project allow.
-- [ ] **Step 2: fail. Step 3: Implement** (reads via `transcriptDirFor` (OBS-12), ledger path, tracked `settings.json` ∪ local `settings.local.json`, managed sidecar; `sourceCommit` via git). **Step 4: pass. Step 5: Commit** `[perm-loop-T7] capture CLI + redacted artifact writers`.
+### Task 7: register the hook + validate settings (Important 5)
+**Files:** `.claude/settings.json` (add the `hooks` registration for the Task-0 event set); a small validator test.
+- [ ] Add the exact hook registration; a test asserts `.claude/settings.json` parses, matches the settings schema shape, and references the committed hook path. Gate. Commit `[perm-loop-T7]`.
 
 ---
 
-### Task 8: Cron wrapper + worktree + launchd doc
-
-**Files:** Create `scripts/harness/permissions-capture-weekly.sh`, `docs/ops/permission-review-cron.md`; Modify `.gitignore`.
-
-- [ ] **Step 1:** `.gitignore` add `.harness/permissions/` already covered by `.harness/`; add explicit note. Ensure `.claude/hooks/` is NOT ignored (hook is committed) but `ledger.jsonl` + `*.local.json` under `.harness/` are ignored (they are).
-- [ ] **Step 2: Implement `permissions-capture-weekly.sh`:** create/refresh a clean worktree at `.harness/permissions-wt` on a fresh `permissions-capture` branch off `origin/main`; run `pnpm harness:permissions:capture`; `git add docs/superpowers/metrics/permissions-review/<week>.json <week>.md`; assert the staged set equals exactly those paths (`test "$(git diff --cached --name-only)" = ...`); commit `[permissions] weekly capture <week>`; force-push the `permissions-capture` branch; remove the worktree. Refuse on a dirty main checkout.
-- [ ] **Step 3:** `permission-review-cron.md`: the launchd plist (Mondays ~12:30 UTC), install/uninstall commands, and the manual `pnpm harness:permissions:capture --dry-run` check.
-- [ ] **Step 4: Verify** the script with `bash -n` + a `--dry-run` local run. **Step 5: Commit** `[perm-loop-T8] weekly capture wrapper (worktree + capture branch) + cron doc`.
+### Task 8: `buildCandidates`
+**Files:** `permissions.ts`; tests. Consumes T1–T6. Produces `Candidate` + `buildCandidates({ledger, transcript, projectAllow, managed, window})`.
+- [ ] Grant candidates = promotable ledger commands not `matchesProjectAllow`; deny candidates (de-truncated `parseDenials`); revoke via T5. `id = sha256(kind+"\0"+proposedRuleOrDigest)[:12]`; classify the proposed rule; **sensitive → `sensitive:true`, `reviewLocalOnly:true`, NO `proposedRule`, preview `"sensitive — review locally"`** (Critical 1); non-sensitive → exact/registry `proposedRule` verbatim.
+- [ ] TDD incl. sensitive-omits-proposedRule, id stability, not-covered filter, kind splits. Gate. Commit `[perm-loop-T8]`.
 
 ---
 
-### Task 9: `## Permission review` report section
-
-**Files:** Modify `scripts/src/harness/report.ts`; Test `scripts/src/__tests__/report.test.ts`.
-
-**Interfaces:** `buildReport` gains a `## Permission review` section reading the newest `docs/superpowers/metrics/permissions-review/*.md` (tracked → CI-visible); notes its `generatedAt` + freshness; placeholder line when none exists.
-
-- [ ] **Step 1: Failing test** — section present + inlines a fixture artifact; omitted/placeholder when none. **Step 2: fail. Step 3: Implement** (insert before `## What changed since last week`). **Step 4: pass. Step 5: Commit** `[perm-loop-T9] harness report permission-review section`.
+### Task 9: capture CLI + artifact writers (split digests)
+**Files:** `permissions-capture.ts`; `permissionsCapture.test.ts`; aliases.
+- [ ] `<week>.json` (authoritative: `{schemaVersion, sourceCommit, trackedSettingsDigest, window, generatedAt, candidates}`), `<week>.md` (generated view: Grant/Deny/Revoke/`## ⚠ Destructive — review in full` + header + legend), gitignored `.harness/permissions/<week>.local.json` (full commands + `localAllowDigest`). `trackedSettingsDigest` = canonical hash of tracked `settings.json` `permissions` only (CI-reproducible — Important 1); `localAllowDigest` informational, local sidecar only.
+- [ ] TDD: no secret in json/md; sensitive candidate carries no rule; destructive non-sensitive rendered full; `--dry-run` no writes; digests as specified. Gate. Commit `[perm-loop-T9]`.
 
 ---
 
-### Task 10: Managed-rule sidecar + revoke proposals
-
-**Files:** Create `docs/superpowers/metrics/permissions-managed.json` (seed `{}`); Modify `permissions.ts` (managed types + `proposeRevocations`); Test `permissions.test.ts`.
-
-**Interfaces:** Produces `ManagedRule {rule, owner, rationale, firstSeen, lastSeen, count, expiry?}`; `proposeRevocations(managed, activeDigests, now, staleWeeks): Candidate[]` (managed rules unused ≥ staleWeeks or past `expiry`).
-
-- [ ] **Step 1: Failing test** — a rule unused > staleWeeks yields a `revoke` candidate; a recently-used one doesn't; expired one does. **Step 2: fail. Step 3: Implement. Step 4: pass. Step 5: Commit** `[perm-loop-T10] managed-rule provenance + revoke proposals`.
+### Task 10: weekly capture wrapper (worktree, lease, trap) — Minor 4 / Important 8
+**Files:** `permissions-capture-weekly.sh`; `permission-review-cron.md`; `.gitignore`.
+- [ ] Isolated worktree off the fetched `origin/main`; run capture; also `refreshUsage` on `permissions-managed.json` and stage it; assert the staged set == exactly the review artifacts + managed map; commit `[permissions] weekly capture <week>`; `git push --force-with-lease` the `permissions-capture` branch against an explicitly fetched ref; **`trap` cleanup** removes the worktree/partial branch on failure. A dirty primary checkout does NOT block (all work in the worktree). `bash -n` + `--dry-run` verify. Commit `[perm-loop-T10]`.
 
 ---
 
-### Task 11: `permissionApply.ts` — deterministic enforcement core
-
-**Files:** Create `scripts/src/harness/lib/permissionApply.ts`; Test `scripts/src/__tests__/permissionApply.test.ts`.
-
-**Interfaces:** Consumes T1/T6/T10. Produces:
-```ts
-type Keyword = "allow" | "allow-risky" | "allow-destructive" | "deny" | "revoke";
-interface Decision { id: string; keyword: Keyword; overrideRule?: string; }
-interface ApplyInput { artifact: Artifact; decisions: Decision[]; settings: SettingsJson; managed: ManagedRule[]; now: string; }
-interface ApplyResult { settings: SettingsJson; managed: ManagedRule[]; applied: string[]; refused: {id:string, reason:string}[]; }
-function applyDecisions(input: ApplyInput): ApplyResult;
-```
-Enforcement (each a test):
-- keyword ≥ effective level of the effective rule (`overrideRule ?? candidate.proposedRule`), recomputed via `classifyRule`; escalation → refuse.
-- `allow`/`allow-risky` → append rule to `permissions.allow`; `deny` → `permissions.deny`; `revoke` → remove from allow + managed.
-- destructive: only via `allow-destructive`; effective rule must equal the candidate's captured exact command byte-for-byte (no override wildcard) → else refuse.
-- candidate id must exist in the artifact AND `id === sha256(kind+"\0"+proposedRule)[:12]` (tamper check) → else refuse.
-- dedupe against existing allow/deny; never remove/reorder on allow.
-- managed sidecar updated with owner/rationale/first-last/count.
-
-- [ ] **Step 1: Failing tests** covering EVERY enforcement bullet + the Critical-2 cases: `allow <id> as Bash(*)` under bare `allow` → refused; destructive override differing byte-for-byte → refused; tampered id → refused; idempotent re-apply (already-present rule) → no dup.
-- [ ] **Step 2: fail. Step 3: Implement (pure, no I/O). Step 4: pass. Step 5: Commit** `[perm-loop-T11] deterministic apply core (level enforcement, tamper/escalation guards)`.
+### Task 11: `## Permission review` report section (deterministic — Important 9)
+**Files:** `report.ts`; `report.test.ts`.
+- [ ] `buildReport` inlines the fetched-and-validated `<week>.md` deterministically; notes `generatedAt` + freshness; placeholder when absent. TDD. Gate. Commit `[perm-loop-T11]`.
 
 ---
 
-### Task 12: Decision grammar parser + two-phase freeze
-
-**Files:** Modify `permissionApply.ts` (or a sibling `permissionDecisions.ts`); Test `permissionApply.test.ts`.
-
-**Interfaces:** Produces `parseDecisions(comments: {body:string, at:string}[]): Decision[]` — recognizes `@claude (allow|allow-risky|allow-destructive|deny|revoke) <id> [as Bash(<rule>)]`, last-writer-wins per id; and `isFrozen(comments): boolean` (a `@claude apply permission review` present) + `allDecidedOrDeferred(artifact, decisions)`.
-
-- [ ] **Step 1: Failing tests** — grammar parse (each keyword + `as` override); last-writer-wins; freeze requires every candidate decided/deferred (else the freeze is rejected). **Step 2: fail. Step 3: Implement. Step 4: pass. Step 5: Commit** `[perm-loop-T12] decision grammar + two-phase freeze`.
+### Task 12: decision model + per-decision-authorized parser (Important 3)
+**Files:** `permissionApply.ts`; tests. Produces `parseDecisions(comments: {commentId, body, author, association, at}[]): Decision[]`, `isFrozen`, `allDecidedOrDeferred`.
+- [ ] Grammar `@claude (allow|allow-risky|allow-destructive|deny|revoke|defer) <id> [as Bash(<rule>)]`; **authorize every decision** (drop comments from unauthorized authors before last-writer-wins); legal kind/keyword pairs; `defer` supported; carry `actor`+`rationale`. TDD: unauthorized author's decision ignored; last-writer-wins among authorized; freeze requires all decided/deferred. Gate. Commit `[perm-loop-T12]`.
 
 ---
 
-### Task 13: `permissions-apply.ts` CLI + hardened workflow + weekly render
-
-**Files:** Create `scripts/src/harness/permissions-apply.ts`, `.github/workflows/permission-apply.yml`; Modify `.github/workflows/harness-weekly.yml`. Add `harness:permissions:apply` alias.
-
-- [ ] **Step 1: CLI** `permissions-apply.ts`: read the PR's artifact (`--week`), the settings + managed files, the frozen decisions (`--decisions <file>` produced by the workflow from PR comments); validate `schemaVersion`/`sourceCommit`/`settingsDigest`/**freshness** (`--max-age-days`, default 8); call `applyDecisions`; write `.claude/settings.json` + `permissions-managed.json` atomically; schema-validate; print applied/refused. Exit non-zero on any refusal.
-- [ ] **Step 2: `permission-apply.yml`** (dedicated, NOT `claude.yml`): trigger `issue_comment` containing `@claude apply permission review`; **gate** `if:` on PR having the `permission-review` label, base `main`, head `harness-weekly/*`, comment author ∈ authorized actors, PR `review_decision == APPROVED`; `permissions: contents: write, pull-requests: write`; steps: checkout PR head, `pnpm install`, extract decisions from PR comments into a file (deterministic parser, not model freehand), run `pnpm harness:permissions:apply`, commit `[permissions] apply review <week>` + push; `claude_args` restricted to `--allowedTools "Read"` only (the mutation is the script, not the model).
-- [ ] **Step 3: harness-weekly.yml** — after writing the report, copy the latest committed `permissions-review/<week>.md` in and instruct the PR body to include a `## Permission review` section + the `permission-review` label; the report section (Task 9) already renders it.
-- [ ] **Step 4: Verify** — `bash -n` / actionlint if available; unit-test the decisions-extraction parser (Task 12) that the workflow calls. CI run is out-of-band (documented). **Step 5: Commit** `[perm-loop-T13] apply CLI + hardened permission-apply workflow + weekly render`.
+### Task 13: deterministic apply core (Critical 1/2, Important 2)
+**Files:** `permissionApply.ts`; `permissionApply.test.ts`. Produces `applyDecisions({artifact, decisions, settings, managed, now, sourceBlobMatches})`.
+- [ ] Per decision: recompute effective level via `classifyRule(overrideRule ?? proposedRule)`; keyword ≥ level else refuse; **reject any decision on a `reviewLocalOnly` candidate via this (remote) path** (Critical 1); destructive → `allow-destructive` only + effective rule == captured exact command byte-for-byte; **tamper check binds to the fetched source commit blob**, not just id (Important 2); dedupe vs existing allow/deny; `revoke` removes from allow + managed; update `ManagedMap` (owner/rationale/first-last/count). Writes only `.claude/settings.json` + managed map; schema-validate.
+- [ ] TDD every enforcement bullet incl. `as Bash(*)` under bare `allow` refused, sensitive-via-remote refused, tampered blob refused, idempotent re-apply. Gate. Commit `[perm-loop-T13]`.
 
 ---
 
-### Task 14: Docs + gitignore + aliases
-
-**Files:** Modify `CLAUDE.md` (harness section: the loop + commands + the two Decisions), `docs/superpowers/metrics/README.md` (permissions-review artifact + managed sidecar columns), `.gitignore` (ensure `ledger.jsonl`, `*.local.json`, `permissions-wt/` ignored; `.claude/hooks/` tracked).
-
-- [ ] **Step 1:** Edits above. **Step 2: Verify** `git check-ignore` for the local-only paths + `git ls-files` for the hook. **Step 3: Commit** `[perm-loop-T14] docs + gitignore + aliases for the permission-review loop`.
+### Task 14: apply CLI (remote-data + local modes)
+**Files:** `permissions-apply.ts`; alias.
+- [ ] `--mode remote`: inputs = validated artifact JSON + decisions file (produced by the workflow), validate `schemaVersion`/`sourceCommit`/`trackedSettingsDigest`/**freshness** (`--max-age-days` default 8) before `applyDecisions`; write results. `--mode local`: read the gitignored sidecar to promote a `reviewLocalOnly`/sensitive candidate into local settings, interactively, never in CI. TDD the validation gates. Gate. Commit `[perm-loop-T14]`.
 
 ---
 
-### Task 15 (QA): end-to-end pipeline on fixtures
+### Task 15: hardened `permission-apply.yml` (Important 4/3)
+**Files:** `.github/workflows/permission-apply.yml`.
+- [ ] Trigger on the final freeze comment. **Gate `if:`** required label `permission-review` + base `main` + head `harness-weekly/*` + authorized actor + `review_decision == APPROVED`. **Run the apply implementation from the DEFAULT branch** (checkout `main` for code); fetch PR comments + the PR's artifact as **data only** (GitHub API), no PR-head checkout-execute, **no `pnpm install` of PR head**; run `permissions-apply --mode remote`; write the two result files back to the PR branch via a narrow API step; commit `[permissions] apply review <week>`. Per-PR **concurrency group** + optimistic head-SHA check. No `claude_args`/model in the path. `actionlint` if available. Commit `[perm-loop-T15]`.
 
-**Files:** Create `scripts/src/__tests__/permissionLoop.e2e.test.ts`.
+---
 
-**Interfaces:** Consumes the whole pipeline. No browser (harness tooling) — the QA gate is a full local fixture run.
+### Task 16: weekly workflow — deterministic fetch/validate/render (Important 2/9)
+**Files:** `.github/workflows/harness-weekly.yml`.
+- [ ] Add a deterministic **pre-report** step: fetch the exact remote `permissions-capture` commit, validate source SHA + `<week>` + freshness + allowed file set, copy `<week>.json` + `<week>.md` into the tree; THEN `pnpm harness:report` (renders the section) and commit both artifacts with the report. The permission artifact is handled entirely by deterministic steps — **never passed to the claude-code-action** docs-audit step. Add the `permission-review` label to the PR. `actionlint`. Commit `[perm-loop-T16]`.
 
-- [ ] **Step 1: Failing test** — seed a fixture ledger (mixed provenance incl. one `explicit_once` grant, one denial, one destructive `explicit_once`, one command carrying a fake secret), a fixture project allow, a fixture managed sidecar. Run capture → assert: artifact has the grant/deny/destructive candidates, the secret NEVER appears in json/md, destructive rendered redacted-full, sensitive one withheld. Then run `applyDecisions` with a frozen set: `allow` the ok grant, `allow-destructive` the destructive (exact), a bad `allow <destructive-id>` → refused, an `allow <id> as Bash(*)` → refused. Assert final settings.json has exactly the two intended allow entries, managed sidecar updated, refusals recorded.
-- [ ] **Step 2: fail. Step 3: make green** (fixtures + wiring only; no new product code). **Step 4: Full gate** — `scripts` typecheck + full `npx vitest run`. **Step 5: Commit** `[perm-loop-T15] e2e fixture test of capture→artifact→apply`.
+---
+
+### Task 17: docs + gitignore + aliases (Minor 2)
+**Files:** `CLAUDE.md`, `metrics/README.md`, `.gitignore`.
+- [ ] Document the loop + commands (`harness:permissions:capture`, `:apply`) + Decisions A/B; README: artifact + managed-map columns + the narrowed no-secrets invariant. `.gitignore`: ensure `.harness/permissions/` (ledger + `*.local.json`) + `.harness/permissions-wt/` ignored, `.claude/hooks/` tracked. Verify with `git check-ignore` / `git ls-files`. Commit `[perm-loop-T17]`.
+
+---
+
+### Task 18 (QA): e2e fixture pipeline + security cases
+**Files:** `scripts/src/__tests__/permissionLoop.e2e.test.ts`.
+- [ ] Seed fixtures (ledger with a promotable grant, a denial, a destructive promotable, a secret-bearing command; project allow; managed map). capture → assert candidates correct, **no secret anywhere in json/md**, destructive non-sensitive full, sensitive → no rule + `reviewLocalOnly`. `applyDecisions` (remote) with a frozen set: `allow` ok grant; `allow-destructive` exact; refuse `allow <destructive>`; refuse `allow <id> as Bash(*)`; refuse a `reviewLocalOnly` candidate via remote; refuse a tampered-blob artifact; refuse an unauthorized-author decision. Assert final settings has exactly the intended entries + managed updated.
+- [ ] **Full gate:** `pnpm --filter @workspace/scripts typecheck` + `pnpm --filter @workspace/scripts test`. Commit `[perm-loop-T18]`.
 
 ---
 
 ## Self-Review
 
-- **Spec coverage:** Critical 1 → T2/T6/T7 (redaction, no-raw-in-git, sensitive). Critical 2 → T11 (effective-level reclassify, tamper/escalation, byte-for-byte destructive). Review 1 → T8/T13 (worktree, capture branch, workflow fetch+validate). Review 2 → T11/T13 (code + hardened workflow, not skill). Review 3 → T5 (provenance ledger, explicit_once only). Review 4 → T3 (narrow claim). Review 5 → T4 (exact-by-default + registry) with Decision B kept in T11. Review 6 → T7 (metadata) + T12/T13 (freshness + two-phase freeze). Review 7 → T10 (managed + revoke). Decision A → T2/T7 (destructive redacted-full else review-locally). Decision B → T11 (`allow-destructive` kept).
-- **Placeholders:** none — each task has concrete files, signatures, test names.
-- **Type consistency:** `GrantLevel`, `Candidate`, `Decision`, `Keyword`, `Provenance`, `ManagedRule`, `Artifact` used consistently T1→T15.
-- **Verification gate per task:** `scripts` typecheck + `npx vitest run` green before each commit; full suite at T15.
+- **Every review comment mapped:** Critical 1 → Global Constraints + T8/T9/T13 (no-secrets invariant, sensitive→no rule→local-only). Critical 2 → T0 (blocking spike) + observable provenance. Important 1 → T9 (split digests). Important 2 → T16 (pre-report fetch/validate) + T13 (blob-bound tamper check). Important 3 → T12 (per-decision auth, `defer`, pairs, actor/rationale) + T15 (head-SHA bind, concurrency). Important 4 → T15 (default-branch code, data-only, API write). Important 5 → T2 (shared core) + T6 (hook imports core) + T7 (register). Important 6 → T5 moved before T8; `ManagedMap` map type throughout. Important 7 → T6 (full command in local ledger, `sessionId+toolUseId`) + de-truncated `parseDenials`. Important 8 → T5/T10 (`refreshUsage` on capture branch). Important 9 → T11/T16 (deterministic, isolated from the model). Minor 1 → T3. Minor 2 → gate wording throughout. Minor 3 → T2 locked contract. Minor 4 → T10 lease + trap.
+- **Ordering:** T0 gates all; T5 (managed) precedes T8 (buildCandidates); T12/T13 precede the CLIs/workflows. One-green-commit holds.
+- **Types:** the type spine is fixed once above and referenced by every task.
+- **No placeholders:** each task names files, signatures, and exact test obligations.
 
 ## Execution Handoff
 
-Two options:
-1. **Subagent-driven / agent-team (recommended for this security-sensitive, multi-file feature).**
-2. **Inline execution** with per-task checkpoints.
+1. **Subagent-driven / agent-team (recommended — security-sensitive, ~18 tasks, TDD).** Note: T0 is a blocking human/spike gate before dispatch.
+2. **Inline**, per-task checkpoints.
+
+---
+
+## Review Comments — 2026-09-18
+
+Decision A (redacted-full destructive display) and Decision B (retaining exact
+`allow-destructive`) were explicitly excluded from this review and remain unchanged.
+
+### Critical comments
+
+1. **The tracked artifact still contains raw commands through `proposedRule`.** The global constraint
+   says raw commands never enter Git, but exact-by-default `proposedRule` contains the literal command,
+   `buildCandidates` includes it, and Task 7 serializes the full candidate into tracked JSON. A
+   sensitive candidate therefore leaks through `proposedRule` even if `redactedPreview` says
+   `sensitive — review locally`; the proposed no-secret fixture cannot pass without behavior absent
+   from the data model. Choose and encode one complete contract:
+   - non-sensitive exact rules may enter Git, and the invariant is narrowed accordingly;
+   - sensitive candidates have no `proposedRule`, are marked `reviewLocalOnly`, and cannot use the
+     tracked-settings remote apply path; or
+   - if no literal command may enter Git, only registry-generated generalized rules may use remote
+     apply. An accepted sensitive exact rule cannot be written into tracked `.claude/settings.json`
+     without violating the same invariant.
+
+2. **The required provenance signal is not yet proven observable, and the feasibility check occurs
+   too late.** `PreToolUse` fires before permission evaluation. `PermissionRequest` fires before the
+   prompt, while `PostToolUse` proves successful execution but not which human option was selected;
+   the documented events do not directly report `explicit_once` versus `session_allow`. Task 5's safe
+   fallback marks everything `unknown`, which yields no promotable grants and therefore fails the
+   feature's primary goal after four earlier implementation commits have already landed. Move this to
+   a blocking Task 0 live spike against the installed Claude Code version. Require evidence for every
+   claimed provenance state and identify the actual event correlation (`PermissionRequest`,
+   `PostToolUse`, settings/config changes, transcript records). If exact provenance cannot be proven,
+   redesign the product around an observable state such as `prompted_and_executed` or an opt-in local
+   approval recorder; observation-only must not count as successful delivery. See the official
+   [hooks reference](https://code.claude.com/docs/en/hooks#permissionrequest).
+
+### Important comments
+
+1. **`settingsDigest` cannot be reproduced by CI as specified.** Task 7 hashes the merged tracked +
+   local project allowlists, while Task 13 validates that digest in GitHub Actions, where
+   `.claude/settings.local.json` does not exist. Split this into a `trackedSettingsDigest` that CI
+   recomputes and enforces, plus an informational `localAllowDigest` or
+   `effectiveLocalAllowDigest` retained in the local sidecar. Define canonical serialization and
+   whether the tracked digest covers the entire settings object or only `permissions`.
+
+2. **The capture artifact is fetched too late, and Task 13 mentions only Markdown.** The existing
+   weekly workflow runs `harness:report` before its PR-building phase. Copying the permission-review
+   Markdown afterward means the report cannot render it, while the apply workflow also needs the
+   authoritative JSON. Add a deterministic pre-report step that fetches the exact remote
+   `permissions-capture` commit, validates its source SHA/week/freshness/allowed file set, copies both
+   `<week>.json` and `<week>.md`, and only then runs `harness:report`. Commit both artifacts with the
+   report. A candidate id hash is not authenticity: artifact validation must bind the PR copy to the
+   fetched capture commit so changing both `proposedRule` and `id` cannot pass as an untampered source.
+
+3. **Decision authorization applies only to the final trigger, not to every decision.**
+   `parseDecisions` receives only `{body, at}`, so an unauthorized comment can become the
+   last-writer-wins decision for an id before an authorized user posts the final freeze comment.
+   Include stable comment id, author identity, author permission/association, and timestamp in the
+   parser input; authorize every decision, not just the final trigger. Also:
+   - add `defer` to `Keyword` and the grammar, since `allDecidedOrDeferred` otherwise cannot succeed;
+   - carry actor + rationale into `Decision`, because `ManagedRule` requires owner/rationale;
+   - define legal candidate-kind/keyword pairs (`grant -> allow*|defer`, `deny -> deny|defer`,
+     `revoke -> revoke|defer`) and define that restrictive decisions do not participate in the
+     allow-keyword level ordering; and
+   - bind the frozen set to the PR head SHA and add a per-PR workflow concurrency group with an
+     optimistic head check so simultaneous final comments cannot race.
+
+4. **The hardened workflow executes mutable PR-head code with a write token.** Task 13 checks out the
+   PR head, runs `pnpm install`, and executes the PR's `permissions-apply.ts` while holding
+   `contents: write`. That executes mutable package metadata, lifecycle scripts, lockfile-selected
+   dependencies, and mutation logic inside the privileged job. Run the trusted apply implementation
+   from the default branch and treat PR comments/artifacts only as input data. Write the two permitted
+   result files back to the PR branch through a narrow GitHub API step, and do not execute code or
+   install lifecycle scripts from that branch. The exact comment already triggers the workflow, so no
+   Claude action is required; remove the otherwise contradictory `claude_args --allowedTools Read`.
+   See the Claude Code Action
+   [security guidance](https://github.com/anthropics/claude-code-action/blob/main/docs/security.md).
+
+5. **The hook file is created but never registered.** Tracking
+   `.claude/hooks/permission-ledger.mjs` does not make Claude Code execute it. Once Task 0 determines
+   the necessary event set, add an explicit task that updates `.claude/settings.json` with the exact
+   hook registrations and validates the resulting settings structure. The implementation must also
+   define how the standalone `.mjs` shares the identical digest/redaction contract with the TypeScript
+   capture code without importing an uncompiled `.ts` module or duplicating security-sensitive logic
+   that can drift.
+
+6. **Task ordering and managed-rule types are inconsistent.** Task 6 consumes managed-rule types and
+   emits revoke candidates, and Task 7 reads the managed sidecar, but Task 10 does not introduce that
+   model or revocation logic until later. This cannot satisfy the one-green-commit-before-the-next
+   rule. Move the managed types, sidecar seed, matching, and revocation primitives before candidate
+   construction, or explicitly defer revoke support and extend `buildCandidates` afterward. Choose one
+   sidecar representation consistently: the file is seeded as `{}` and described as a rule-keyed map,
+   while `ApplyInput` currently declares `ManagedRule[]`.
+
+7. **The candidate data flow does not define recovery of the literal command.** `LedgerRecord` contains
+   only a digest and redacted preview, yet `suggestRule`, exact-rule construction, the local sidecar,
+   and byte-for-byte destructive validation require the full command. Specify the correlation key and
+   source used to recover it (prefer `session_id + tool_use_id`, with digest as an integrity check),
+   and keep the literal only in a local-only structure. OBS-12's current `parseDenials` truncates input
+   to 120 characters, so it must be extended or replaced before it can provide exact deny candidates
+   or full-command digests.
+
+8. **Managed-rule usage is never refreshed.** `lastSeen` and `count` are updated when a decision is
+   applied, but weekly capture does not persist usage of already-managed rules. A frequently used rule
+   will therefore eventually look stale and be proposed for revocation. Define how executed commands
+   are matched against managed exact/wildcard rules, how usage updates are persisted on the capture
+   branch, and how those updates merge safely with a concurrent settings-apply commit. Comparing
+   command digests directly with rule keys is insufficient for wildcard rules.
+
+9. **Escaped command previews remain prompt-injection input to the weekly Claude action.** Markdown
+   and control-character escaping prevents malformed rendering; it does not neutralize a natural-
+   language instruction embedded in a command preview. The current weekly action has Bash/write
+   access while assembling the PR. Fetch and append the permission artifact only after the
+   Claude-driven docs-audit step, using deterministic code, or remove the model from PR assembly. The
+   apply workflow must continue to parse only authoritative JSON and comments, never model output.
+
+### Minor comments
+
+1. **Escape regex metacharacters before expanding permission wildcards.** Task 3 cannot translate
+   `*` directly to `.*`; it must first escape `$`, `[`, `(`, `\\`, and every other regular-expression
+   metacharacter in literal rule text, then expand the permission wildcard and anchor the result. Add
+   covered/uncovered tests containing each metacharacter.
+
+2. **Use the repository's pnpm commands.** Replace `npx vitest` with
+   `pnpm --filter @workspace/scripts test` or `pnpm --filter @workspace/scripts exec vitest run ...`.
+   The root repository is pnpm-only. The final gate should name the exact scripts typecheck + complete
+   scripts test commands.
+
+3. **Lock the escaping assertion before implementation.** Task 2's instruction to “adjust the
+   expectation” is not a failing TDD contract. Specify the exact escaping order and output, including
+   `&`, `<`, `>`, pipes, CR/LF, NUL/control characters, backticks, and Unicode bidi controls, then keep
+   the test fixed.
+
+4. **Use lease-protected capture-branch replacement.** Replace unconditional force-push with
+   `--force-with-lease` against an explicitly fetched remote ref, and add cleanup/trap behavior so a
+   failed cron run does not leave a registered worktree or partially updated branch behind. A dirty
+   primary checkout need not block capture when all work occurs in an isolated worktree off the
+   validated remote commit.
+
+## Plan Review Resolution — 2026-09-18
+
+All Critical + Important + Minor comments accepted and folded into the tasks above; see "Self-Review"
+for the comment→task map. Two resolutions reframe earlier wording (not user-locked decisions):
+
+- **Critical 1** → the "no raw commands" constraint is narrowed to **"no secrets"** (the reviewer's
+  offered option a+b): non-sensitive exact rules are committed verbatim so remote apply can write them;
+  sensitive candidates carry no `proposedRule`, are `reviewLocalOnly`, and are promotable only via a
+  local apply. This keeps Decision B (exact `allow-destructive`) coherent.
+- **Critical 2** → promotable provenance changes from the unobservable `explicit_once` to an
+  **observable `prompted_and_executed`** signal, confirmed by the blocking **Task 0** spike before any
+  implementation.
