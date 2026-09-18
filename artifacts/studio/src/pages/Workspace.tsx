@@ -3368,9 +3368,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // contract every other output report honors). These four stay
       // `undefined` for every non-JADE model, unaffected.
       //
-      // SSC-T1 (spec §4b) — the LIVE `presentationBands` lens (driving
-      // both the Plant Production section's gate on JADE and the
-      // coverage-bar recompute generally, spec §2 R2-3/§4a) is now wired
+      // SSC-T1 (spec §4b) — the LIVE `presentationBands` lens drives the
+      // ServiceStats coverage-bar recompute (spec §2 R2-3/§4a). It does NOT
+      // gate the Plant Production section — that gates separately on
+      // `supportsPlantProductCapability` + its snapshot props. Now wired
       // for every distance-band model EXCEPT `chens-cosmetics-cn`, whose
       // "coverage" is a distinct min-distance concept the distance-band
       // recompute doesn't apply to — it stays on the frozen
