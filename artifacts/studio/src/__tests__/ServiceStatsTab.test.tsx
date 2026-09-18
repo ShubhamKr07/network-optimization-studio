@@ -368,31 +368,140 @@ describe("ServiceStatsTab", () => {
     });
   });
 
-  // Regression: non-JADE models (and JADE itself before presentationBands is
-  // wired) must keep reading the frozen result.metrics.bandCoverage exactly
-  // as before this task — B4's live recompute is additive, JADE-gated.
-  describe("Non-JADE regression — frozen coverage unaffected", () => {
-    const outboundEdges = [
-      { fromId: "w1", toId: "c1", leg: "warehouse_to_customer" as const, flow: 100, distance: 50 },
-    ];
-
-    it("a non-JADE model ignores a (mistakenly) passed presentationBands prop and keeps the frozen bars", () => {
-      render(
-        <ServiceStatsTab
-          result={{ ...result, edges: outboundEdges }}
-          scenarioId={1}
-          modelId="p-median-us"
-          presentationBands={[10, 20, 30, 40]}
-        />,
-      );
+  // Regression: a model with no presentationBands wired at all (any
+  // pre-existing call site, or JADE before INT wired it) must keep
+  // reading the frozen result.metrics.bandCoverage exactly as before.
+  describe("Frozen-coverage regression — presentationBands absent", () => {
+    it("a model with no presentationBands prop reads the frozen bars", () => {
+      render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
       expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
       expect(screen.getByTestId("service-stats-band-400")).toHaveTextContent("45%");
-      expect(screen.queryByTestId("service-stats-band-10")).not.toBeInTheDocument();
     });
 
     it("JADE itself keeps the frozen bars when presentationBands is not wired yet", () => {
       render(<ServiceStatsTab result={result} scenarioId={1} modelId="two-echelon-jade-us" />);
       expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("30%");
+    });
+  });
+
+  // SSC-T1 (spec §4/§5) — non-JADE ServiceStats live coverage: the 4
+  // distance-band models (us/brazil/transport/gold-au) now recompute live
+  // from presentationBands the same way JADE already does, generalized
+  // off the JADE-only gate. chens-cosmetics-cn stays frozen.
+  describe("SSC-T1 — non-JADE distance-band models recompute live", () => {
+    it("a single-echelon model (no leg on any edge) recomputes over ALL edges and shows the overflow row", () => {
+      const singleEchelonEdges = [
+        { fromId: "w1", toId: "c1", flow: 100, distance: 50 },
+        { fromId: "w1", toId: "c2", flow: 200, distance: 250 },
+        { fromId: "w2", toId: "c3", flow: 300, distance: 550 },
+        { fromId: "w2", toId: "c4", flow: 400, distance: 1500 },
+      ];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: singleEchelonEdges }}
+          scenarioId={1}
+          modelId="p-median-us"
+          presentationBands={[100, 300, 600, 1000]}
+        />,
+      );
+      // totalFlow = 100+200+300+400 = 1000, all edges included (no leg to
+      // filter on for a single-echelon model).
+      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
+      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("30%");
+      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("60%");
+      expect(screen.getByTestId("service-stats-band-1000")).toHaveTextContent("60%");
+      const overflowRow = screen.getByTestId("service-stats-band--1");
+      expect(overflowRow).toHaveTextContent("> 1000 mi");
+      expect(overflowRow).toHaveTextContent("40%"); // the 1500-distance edge (400/1000)
+    });
+
+    it("two-echelon-gold-au recomputes over refinery_to_customer edges ONLY, excluding an inbound mine_to_refinery edge", () => {
+      const inboundEdge = { fromId: "m1", toId: "r1", leg: "mine_to_refinery" as const, flow: 99_999, distance: 10 };
+      const outboundEdges = [
+        { fromId: "r1", toId: "c1", leg: "refinery_to_customer" as const, flow: 100, distance: 50 },
+        { fromId: "r1", toId: "c2", leg: "refinery_to_customer" as const, flow: 900, distance: 250 },
+      ];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [inboundEdge, ...outboundEdges] }}
+          scenarioId={1}
+          modelId="two-echelon-gold-au"
+          presentationBands={[100, 300]}
+        />,
+      );
+      // totalFlow = 100+900 = 1000 (outbound only) — if the 99,999-flow
+      // inbound edge leaked in, band-100 would read close to 100%.
+      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
+      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
+      expect(screen.queryByTestId("service-stats-band--1")).not.toBeInTheDocument();
+    });
+
+    it("an edited boundary reclassifies the bars with no network call (same rendered props, different bands)", () => {
+      const edges = [
+        { fromId: "w1", toId: "c1", flow: 100, distance: 50 },
+        { fromId: "w1", toId: "c2", flow: 100, distance: 250 },
+      ];
+      const { rerender } = render(
+        <ServiceStatsTab
+          result={{ ...result, edges }}
+          scenarioId={1}
+          modelId="p-median-us"
+          presentationBands={[100]}
+        />,
+      );
+      // Only the 50-distance edge is within 100 -> 50%.
+      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("50%");
+
+      // Widen the boundary to 300 — a pure prop change, no fetch/mutation.
+      rerender(
+        <ServiceStatsTab
+          result={{ ...result, edges }}
+          scenarioId={1}
+          modelId="p-median-us"
+          presentationBands={[300]}
+        />,
+      );
+      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
+    });
+
+    it("chens-cosmetics-cn stays frozen even if presentationBands were (mistakenly) passed", () => {
+      const chenResult = {
+        status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
+        edges: [{ fromId: "w1", toId: "c1", flow: 100, distance: 50 }],
+        metrics: { weightedAvgDistance: 812.4, bandCoverage: [{ band: 600, percent: 66 }, { band: 5000, percent: 100 }] },
+        details: { objective: "coverage", coveragePct: 66.6667, coveredDemand: 131645389, uncoveredPct: 33.3333 },
+        solverUsed: "CBC", infeasibilityReason: null,
+      };
+      render(
+        <ServiceStatsTab
+          result={chenResult}
+          scenarioId={1}
+          modelId="chens-cosmetics-cn"
+          presentationBands={[10, 20, 30]}
+        />,
+      );
+      // Frozen bars, not the (mistaken) live recompute over the presentationBands.
+      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
+      expect(screen.getByTestId("service-stats-band-5000")).toHaveTextContent("100%");
+      expect(screen.queryByTestId("service-stats-band-10")).not.toBeInTheDocument();
+    });
+
+    it("JADE (two-echelon-jade-us) is unchanged — still warehouse_to_customer edges only", () => {
+      const inboundEdge = { fromId: "p1", toId: "w1", leg: "plant_to_warehouse" as const, productId: "product-1", flow: 99_999, distance: 10 };
+      const outboundEdges = [
+        { fromId: "w1", toId: "c1", leg: "warehouse_to_customer" as const, flow: 100, distance: 50 },
+        { fromId: "w1", toId: "c2", leg: "warehouse_to_customer" as const, flow: 900, distance: 250 },
+      ];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [inboundEdge, ...outboundEdges] }}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          presentationBands={[100, 300]}
+        />,
+      );
+      expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
+      expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
     });
   });
 });

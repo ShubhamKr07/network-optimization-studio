@@ -3365,10 +3365,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // jade-INT (#4/#5, spec §6) — JADE-only Plant Production snapshot
       // props (effective plants/products/base capabilities from
       // dataset/displayedInputs — never localInputs — same snapshot
-      // contract every other output report honors) + the LIVE
-      // `presentationBands` lens driving both the Plant Production section's
-      // gate and the JADE two-leg coverage-bar recompute (spec §2 R2-3). All
-      // five stay `undefined` for every non-JADE model, unaffected.
+      // contract every other output report honors). These four stay
+      // `undefined` for every non-JADE model, unaffected.
+      //
+      // SSC-T1 (spec §4b) — the LIVE `presentationBands` lens (driving
+      // both the Plant Production section's gate on JADE and the
+      // coverage-bar recompute generally, spec §2 R2-3/§4a) is now wired
+      // for every distance-band model EXCEPT `chens-cosmetics-cn`, whose
+      // "coverage" is a distinct min-distance concept the distance-band
+      // recompute doesn't apply to — it stays on the frozen
+      // result.metrics.bandCoverage.
       return (
         <ServiceStatsTab
           result={result}
@@ -3378,7 +3384,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           products={modelId === "two-echelon-jade-us" ? (dataset?.products ?? []) : undefined}
           baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
           capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(displayedInputs) : []}
-          presentationBands={modelId === "two-echelon-jade-us" ? distanceBandsFromInputs(localInputs) : undefined}
+          presentationBands={modelId !== "chens-cosmetics-cn" ? distanceBandsFromInputs(localInputs) : undefined}
         />
       );
     }

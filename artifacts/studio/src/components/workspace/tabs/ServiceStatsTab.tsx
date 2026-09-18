@@ -3,6 +3,7 @@ import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "
 import { useListModels } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { computeCumulativeBandCoverage } from "@/lib/bands";
+import { isOutboundLeg } from "@/lib/legPalette";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
@@ -40,16 +41,17 @@ interface ServiceStatsTabProps {
    * whose ABSENCE means "not wired yet"). */
   capabilityOverrides?: CapabilityOverride[];
 
-  // B4 (spec §2 R2-3 / §6) — JADE two-leg band-coverage recompute. The
-  // LIVE `distanceBands` (`localInputs.distanceBands`, spec's
-  // "presentationBands" color/label lens), NOT the frozen result
-  // snapshot's bands. Default `undefined` -> every model (including JADE
-  // until INT wires this) keeps reading the frozen
-  // `result.metrics.bandCoverage` exactly as before this task — see the
-  // "Reads the solver's own metrics.bandCoverage" note above. Also gated
-  // on `supportsPlantProductCapability` (defensively — even if a future
-  // caller passes this for a non-JADE model, only JADE recomputes, since
-  // only JADE has two legs to select `warehouse_to_customer` out of).
+  // B4 (spec §2 R2-3 / §6), generalized by SSC-T1 (spec §4a) — live
+  // band-coverage recompute. The LIVE `distanceBands`
+  // (`localInputs.distanceBands`, spec's "presentationBands" color/label
+  // lens), NOT the frozen result snapshot's bands. Default `undefined` ->
+  // the component keeps reading the frozen `result.metrics.bandCoverage`
+  // exactly as before B4 — see the "Reads the solver's own
+  // metrics.bandCoverage" note above. Model selection lives in the
+  // CALLER (Workspace.tsx passes this for every distance-band model
+  // except `chens-cosmetics-cn`, whose "coverage" is a distinct
+  // min-distance concept, not a distance-band recompute) — this prop is
+  // no longer gated on `supportsPlantProductCapability` internally.
   presentationBands?: number[];
 }
 
@@ -121,18 +123,28 @@ const PLANT_PRODUCTION_FILTER_DESCRIPTORS: ColumnFilterDescriptor<PlantProductio
   { key: "capacity", label: "Enabled capacity", type: "number", accessor: (r) => r.capacity },
 ];
 
-// Reads the solver's own metrics.bandCoverage directly (a point-in-time
-// snapshot of the actual solved result) — deliberately NOT the interactive
-// client-recomputed-from-edges band display the Output Map / Reports tab
-// use, which lets a student re-color/re-bucket post-solve without
-// re-solving (E1.1). This tab shows what the solve ACTUALLY achieved.
+// By default reads the solver's own metrics.bandCoverage directly (a
+// point-in-time snapshot of the actual solved result) — deliberately NOT
+// the interactive client-recomputed-from-edges band display the Output
+// Map / Reports tab use, which lets a student re-color/re-bucket
+// post-solve without re-solving (E1.1).
 //
-// B4 exception (JADE only, spec §2 R2-3/§6): when `presentationBands` is
-// wired AND the active model supports plant-product capability, the
-// coverage bars instead recompute client-side from the live bands over
-// `warehouse_to_customer` edges only (never `plant_to_warehouse` — mixing
-// legs would double-count throughput). Every other model, and JADE itself
-// until INT wires `presentationBands`, is unaffected.
+// SSC-T1 (spec §4a), generalizing B4's original JADE-only exception:
+// whenever the caller wires `presentationBands`, the coverage bars
+// instead recompute client-side from the live bands over the model's
+// OUTBOUND/demand-serving edges — `isOutboundLeg()` (refinery_to_customer
+// / warehouse_to_customer) when any edge carries a `leg` (two-echelon
+// models), else every edge (single-echelon models, which have no `leg`
+// concept and thus no inbound leg to exclude). Never `plant_to_warehouse`
+// / `mine_to_refinery` — mixing legs would double-count throughput.
+// `chens-cosmetics-cn` (a distinct min-distance coverage concept) stays
+// frozen: gated both by the caller (Workspace.tsx never wires
+// `presentationBands` for it) and, belt-and-suspenders, here on the
+// envelope's own `showCoverageKpis` shape (see below) — never a
+// `modelId` check.
+// Workspace.tsx wires this for every distance-band model EXCEPT
+// `chens-cosmetics-cn` (a distinct min-distance coverage concept, stays
+// frozen) — model selection lives entirely in the caller now.
 export function ServiceStatsTab({
   result,
   scenarioId,
@@ -176,19 +188,25 @@ export function ServiceStatsTab({
   const showPlantProduction =
     supportsPlantProductCapability && effectivePlants != null && products != null && baseCapabilities != null;
 
-  // JADE two-leg coverage recompute (spec §2 R2-3/§6) — cumulative +
-  // explicit overflow row, over warehouse_to_customer edges ONLY.
-  const useLiveCoverage =
-    supportsPlantProductCapability && presentationBands != null && presentationBands.length > 0;
-  const outboundEdges = useMemo(() => edges.filter((e) => e.leg === "warehouse_to_customer"), [edges]);
+  // SSC-T1 (spec §4a) — live coverage recompute, generalized off the
+  // original JADE-only gate. Model selection lives in the caller
+  // (Workspace.tsx never passes this for chens-cosmetics-cn), so here the
+  // gate is purely "is it wired".
+  const useLiveCoverage = presentationBands != null && presentationBands.length > 0;
+  // Per-model service-edge selection (spec §4a): if any edge carries a
+  // `leg` (two-echelon models — gold-au/jade), keep only the
+  // outbound/demand-serving leg (refinery_to_customer /
+  // warehouse_to_customer) so an inbound mine/plant leg never
+  // double-counts throughput. Single-echelon models (us/brazil/transport)
+  // never tag `leg` at all, so every edge is already the service leg.
+  const serviceEdges = useMemo(() => {
+    const hasLegs = edges.some((e) => e.leg != null);
+    return hasLegs ? edges.filter((e) => isOutboundLeg(e.leg)) : edges;
+  }, [edges]);
 
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-empty">No solved result yet.</div>;
   }
-
-  const bandCoverage = useLiveCoverage
-    ? computeCumulativeBandCoverage(outboundEdges, presentationBands as number[])
-    : (result.metrics.bandCoverage ?? []);
 
   // C4.14 (D14) — Chen's Cosmetics coverage KPIs, read off the envelope's
   // `details`. Gated on the presence of `coveragePct` (a Chen-only field —
@@ -198,6 +216,18 @@ export function ServiceStatsTab({
     | { coveragePct?: number; coveredDemand?: number; uncoveredPct?: number }
     | undefined;
   const showCoverageKpis = typeof details?.coveragePct === "number";
+
+  // SSC-T1 (spec §5d) — belt-and-suspenders: chens-cosmetics-cn's
+  // "coverage" is a distinct min-distance concept the distance-band
+  // recompute doesn't apply to. Workspace.tsx never passes
+  // `presentationBands` for it, but gate on the envelope's own shape here
+  // too (`showCoverageKpis`, the same Chen-only signal the KPI block
+  // above uses — never a `modelId` ternary) so a chens result stays on
+  // the frozen `result.metrics.bandCoverage` even if a future caller
+  // mistakenly wired `presentationBands` for it.
+  const bandCoverage = useLiveCoverage && !showCoverageKpis
+    ? computeCumulativeBandCoverage(serviceEdges, presentationBands as number[])
+    : (result.metrics.bandCoverage ?? []);
   const avgServiceDistance = result.metrics.weightedAvgDistance;
 
   return (

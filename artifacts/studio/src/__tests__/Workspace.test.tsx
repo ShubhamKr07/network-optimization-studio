@@ -2289,3 +2289,109 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     expect(screen.getByTestId("badge-distance-estimated-aw-cn-1-C1")).toBeInTheDocument();
   });
 });
+
+// SSC-T1 — non-JADE ServiceStats live coverage: Workspace now wires the live
+// `presentationBands` lens (= distanceBandsFromInputs(localInputs), the same
+// value already fed to the Output Map) into ServiceStatsTab for EVERY
+// distance-band model, not just JADE — EXCEPT chens-cosmetics-cn, whose
+// "coverage" is a distinct min-distance concept that stays frozen on
+// result.metrics.bandCoverage. Verified end-to-end through the real
+// Workspace render (not just ServiceStatsTab's own component-level tests),
+// proving the wiring at the actual call site, not just the component's
+// internal gate.
+describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () => {
+  const solvedPmedianInputs = {
+    ...pmedianInputs,
+    // Deliberately different from the frozen result's own bandCoverage
+    // boundary/percent below — a passing "live" assertion proves this edited
+    // value (not the frozen one) drove the rendered bars.
+    distanceBands: [999],
+  };
+  const solvedPmedianScenario = {
+    id: 1,
+    name: "Solved p-median",
+    modelId: "p-median-us",
+    inputs: solvedPmedianInputs,
+    result: {
+      status: "optimal" as const,
+      objective: 100,
+      runTimeSec: 0.1,
+      quality: "Proven optimal",
+      edges: [{ fromId: "CHI", toId: "C1", flow: 100, distance: 42.1 }],
+      metrics: { bandCoverage: [{ band: 50, percent: 10 }] },
+      details: {},
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+
+  it("passes presentationBands to ServiceStats for a non-JADE distance-band model (p-median-us) — bars recompute from the live edited bands, not the frozen ones", () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedPmedianScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedPmedianScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    renderWorkspace();
+
+    fireEvent.click(screen.getByTestId("sidebar-output-service-stats"));
+
+    // Live band (999, 100% — the only edge is well within it), not the
+    // frozen 50/10%.
+    expect(screen.getByTestId("service-stats-band-999")).toHaveTextContent("100%");
+    expect(screen.queryByTestId("service-stats-band-50")).not.toBeInTheDocument();
+  });
+
+  const chensCoverageInputsForBands = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 120,
+    capacityMode: "none",
+    // Deliberately different from the frozen result's own bandCoverage
+    // boundary below — if Workspace mistakenly wired presentationBands for
+    // chens, this value would drive a live recompute and this test would
+    // catch it.
+    distanceBands: [111],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+  const solvedChensScenario = {
+    id: 1,
+    name: "Solved Chen coverage",
+    modelId: "chens-cosmetics-cn",
+    inputs: chensCoverageInputsForBands,
+    result: {
+      status: "optimal" as const,
+      objective: 66.6667,
+      runTimeSec: 0.3,
+      quality: "optimal",
+      edges: [{ fromId: "wh-40", toId: "cs-1", flow: 100, distance: 300 }],
+      metrics: { weightedAvgDistance: 300, bandCoverage: [{ band: 600, percent: 66 }] },
+      details: { objective: "coverage", coveragePct: 66.6667, coveredDemand: 100, uncoveredPct: 33.3333 },
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+
+  it("does NOT pass presentationBands to ServiceStats for chens-cosmetics-cn — bars stay frozen on result.metrics.bandCoverage", () => {
+    mockUseGetScenario.mockReturnValue({ data: solvedChensScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedChensScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+
+    fireEvent.click(screen.getByTestId("sidebar-output-service-stats"));
+
+    // Frozen band (600, 66% from result.metrics.bandCoverage), not the
+    // (never-wired) live 111 boundary from localInputs.distanceBands.
+    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
+    expect(screen.queryByTestId("service-stats-band-111")).not.toBeInTheDocument();
+  });
+});
