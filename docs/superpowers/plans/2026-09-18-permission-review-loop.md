@@ -15,7 +15,7 @@ Spec: `docs/superpowers/specs/2026-09-18-permission-review-loop-design.md`. Read
 ## Global Constraints
 
 - **No SECRETS in git (narrowed from "no raw commands").** The secret scan is authoritative: a candidate that passes → non-sensitive → its exact `proposedRule` + `redactedPreview` may be committed verbatim (required so remote apply can write the rule). A candidate that trips the scan → `sensitive: true`, **carries no `proposedRule`** in the committed artifact, is `reviewLocalOnly`, and is promotable **only via a local apply** reading the gitignored sidecar — never the PR/CI path. Full commands live only in the gitignored local ledger + sidecar. Every rendered field is escaped per the Task 2 canonical contract.
-- **Promotable = an observable "prompted_and_executed" signal** (Task 0 confirms the exact events). Already-allowlisted commands never prompt, so they never become candidates. Transcript-only executions with no prompt event are observations, not candidates.
+- **Promotable = the observable `prompted_and_executed` signal** (T0 CONFIRMED, CC 2.1.216): a `PermissionRequest` hook fired for a Bash `tool_use_id` (only happens when NOT already allowlisted) **+** a matching `PostToolUse` success, with `permission_mode` ∉ {`bypassPermissions`}. Denials = `PermissionRequest` with no `PostToolUse` + transcript marker. `auto_no_prompt`/`bypass`/`unknown` are observations, never candidates. See `specs/2026-09-18-permission-provenance-spike.md`.
 - **Authorization is deterministic code, never `SKILL.md`.** `permissionApply.ts` (run from the **default branch**) is the sole logic that writes `.claude/settings.json`. The model never mutates settings and is never in the apply data path.
 - **Apply target is the project-scoped tracked `.claude/settings.json`** — never `~/.claude/settings.json`, never another project. Writes atomic, schema-validated, deduped.
 - **Exact-by-default.** Generalization only from the reviewed template registry. Classification always runs on the effective *proposed rule* (post-edit), never the observed command.
@@ -47,18 +47,17 @@ docs/ops/permission-review-cron.md               (new)
 scripts/src/__tests__/{permissions,permissionApply,permissionsCapture,permissionManaged,report}.test.ts
 ```
 
-Type spine (used consistently T1→T18): `GrantLevel = "destructive"|"risky"|"broad"|"ok"`; `Provenance` (Task 0-confirmed set); `LedgerRecord {at, sessionId, toolUseId, command(full,local-only), commandDigest, provenance, decision}`; `Candidate {schemaVersion, id, kind:"grant"|"deny"|"revoke", commandDigest, redactedPreview, proposedRule?, level, provenance, count, firstSeen, lastSeen, sensitive, reviewLocalOnly}`; `ManagedMap = Record<rule, {owner, rationale, firstSeen, lastSeen, count, expiry?}>`; `Decision {id, keyword, overrideRule?, actor, association, rationale?, commentId, at}`; `Artifact {schemaVersion, sourceCommit, trackedSettingsDigest, window, generatedAt, candidates}`.
+Type spine (used consistently T1→T18): `GrantLevel = "destructive"|"risky"|"broad"|"ok"`; `Provenance = "prompted_and_executed"|"prompted_and_denied"|"auto_no_prompt"|"bypass"|"unknown"` (T0-confirmed); `LedgerEvent {at, sessionId, toolUseId, event:"prompted"|"executed", command?(full,local-only,on prompted), permissionMode}` (two hooks, correlated by `toolUseId`); `LedgerRecord {at, sessionId, toolUseId, command(full,local-only), commandDigest, provenance, decision}` (derived by correlation); `Candidate {schemaVersion, id, kind:"grant"|"deny"|"revoke", commandDigest, redactedPreview, proposedRule?, level, provenance, count, firstSeen, lastSeen, sensitive, reviewLocalOnly}`; `ManagedMap = Record<rule, {owner, rationale, firstSeen, lastSeen, count, expiry?}>`; `Decision {id, keyword, overrideRule?, actor, association, rationale?, commentId, at}`; `Artifact {schemaVersion, sourceCommit, trackedSettingsDigest, window, generatedAt, candidates}`.
 
 ---
 
-### Task 0 (BLOCKING SPIKE): provenance observability
+### Task 0 (BLOCKING SPIKE): provenance observability — ✅ DONE, PASS
 
-**Files:** `docs/superpowers/specs/2026-09-18-permission-provenance-spike.md` (findings, committed). No product code.
+**Files:** `docs/superpowers/specs/2026-09-18-permission-provenance-spike.md` (findings, committed).
 
-- [ ] Against the **installed** Claude Code version, empirically determine which hook events fire and what they carry for: a prompted-then-approved Bash call, a denied one, an already-allowlisted one, `acceptEdits`/bypass, builtin read-only. Candidate events: `PreToolUse`, `PermissionRequest`, `Notification`, `PostToolUse` (+ transcript records). Correlate by `session_id`+`tool_use_id`.
-- [ ] Define the **observable promotable signal** (target: `prompted_and_executed` = a permission-prompt event for the tool_use_id followed by a successful `PostToolUse`) and the full `Provenance` enum with evidence per state.
-- [ ] **Gate:** if no signal distinguishes a human-prompted approval from auto-approval, STOP and choose with the user: opt-in local approval recorder vs. redesign. Do not proceed to T1+ until this is settled.
-- [ ] **Commit** `[perm-loop-T0] provenance observability spike (findings + confirmed signal)`.
+- [x] Probed CC 2.1.216 + the official hooks reference. `PermissionRequest` fires only when a tool needs a decision (not-already-allowlisted); `PostToolUse` fires after success; neither exposes the chosen option. Correlating both by `tool_use_id` gives the observable **`prompted_and_executed`** signal. Full `Provenance` enum + evidence table in the findings doc.
+- [x] **Gate PASSED** — signal is observable, no redesign. Two-hook ledger design confirmed (see T6/T7).
+- [x] **Committed** `[perm-loop-T0]`.
 
 ---
 
@@ -95,17 +94,17 @@ Type spine (used consistently T1→T18): `GrantLevel = "destructive"|"risky"|"br
 
 ---
 
-### Task 6: provenance ledger (hook writes full command locally; pure parse)
-**Files:** `.claude/hooks/permission-ledger.mjs`; `permissionLedger.ts`; extend OBS-12 `parseDenials` (drop the 120-char truncation — Important 7); tests.
-- [ ] Hook: reads hook JSON on stdin, records `{at, sessionId, toolUseId, command(FULL), commandDigest(sha256 via core), provenance(per Task 0), decision}` to gitignored `.harness/permissions/ledger.jsonl`; imports `permissionsCore.mjs` for redact/digest (no `.ts` import, no logic duplication — Important 5/7); **never blocks the tool, always exit 0**.
-- [ ] `parseLedger(jsonl, window)` + `promotableCommands(records)` (only the Task-0 promotable provenance; keyed by `sessionId+toolUseId`; digest as integrity; full command retained for local use only).
-- [ ] TDD. Gate. Commit `[perm-loop-T6]`.
+### Task 6: provenance ledger — TWO hooks + correlating parse (T0-confirmed)
+**Files:** `.claude/hooks/permission-ledger.mjs` (one script, dispatches on `hook_event_name`); `permissionLedger.ts`; extend OBS-12 `parseDenials` (drop the 120-char truncation — Important 7); tests.
+- [ ] Hook: reads hook JSON on stdin; on `PermissionRequest` appends `{at, sessionId, toolUseId, event:"prompted", command:tool_input.command (FULL), permissionMode}`; on `PostToolUse` appends `{at, sessionId, toolUseId, event:"executed", permissionMode}` — to gitignored `.harness/permissions/ledger.jsonl`. Only acts for `tool_name==="Bash"`. Imports `permissionsCore.mjs` for digest (no `.ts` import — Important 5/7); **never blocks, always exit 0**.
+- [ ] `parseLedger(jsonl, window): LedgerEvent[]` then `correlate(events): LedgerRecord[]` — join `prompted`+`executed` by `toolUseId` → `provenance`: both & non-bypass → `prompted_and_executed`; prompted only → `prompted_and_denied` (confirm via `parseDenials`); executed only → `auto_no_prompt`; bypass mode → `bypass`. `promotableCommands(records)` returns only `prompted_and_executed` (full command retained local-only; digest as integrity).
+- [ ] TDD (correlation matrix per provenance state, window filter, dedupe). Gate. Commit `[perm-loop-T6]`.
 
 ---
 
-### Task 7: register the hook + validate settings (Important 5)
-**Files:** `.claude/settings.json` (add the `hooks` registration for the Task-0 event set); a small validator test.
-- [ ] Add the exact hook registration; a test asserts `.claude/settings.json` parses, matches the settings schema shape, and references the committed hook path. Gate. Commit `[perm-loop-T7]`.
+### Task 7: register both hooks + validate settings (Important 5)
+**Files:** `.claude/settings.json` (add `hooks.PermissionRequest` + `hooks.PostToolUse`, matcher `"Bash"`, both → the committed `permission-ledger.mjs`); a validator test.
+- [ ] Add both registrations; a test asserts `.claude/settings.json` parses, both events reference the committed hook path, and the structure matches the settings schema shape. Gate. Commit `[perm-loop-T7]`.
 
 ---
 
