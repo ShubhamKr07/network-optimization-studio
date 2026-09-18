@@ -31,8 +31,14 @@ services:
   - type: web
     name: nos-studio
     runtime: static
+    # NOTE: `corepack enable` removed 2026-09-18 — Render's build image now
+    # ships pnpm at a read-only /usr/bin/pnpm, so `corepack enable`'s symlink
+    # step fails with `EROFS: read-only file system, unlink '/usr/bin/pnpm'`.
+    # `corepack prepare … --activate` pins pnpm@9 without that symlink step.
+    # nos-studio is dashboard-managed, so this Blueprint edit keeps the spec
+    # accurate; the live fix is the matching dashboard Build Command edit.
     buildCommand: >-
-      corepack enable && corepack prepare pnpm@9 --activate &&
+      corepack prepare pnpm@9 --activate &&
       pnpm install --frozen-lockfile &&
       pnpm --filter studio... --if-present run build
     staticPublishPath: artifacts/studio/dist/public
