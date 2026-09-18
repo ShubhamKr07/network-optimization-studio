@@ -11,6 +11,7 @@ import {
   redactCommand,
   scanSensitive,
   sha256Hex,
+  matchesProjectAllow,
 } from "../harness/lib/permissions.js";
 import { evaluateAudit, transcriptDirFor } from "../harness/audit-permissions.js";
 
@@ -171,6 +172,80 @@ describe("redactCommand / scanSensitive (T2)", () => {
     );
     expect(sha256Hex("hello")).toBe(sha256Hex("hello"));
     expect(sha256Hex("hello")).not.toBe(sha256Hex("world"));
+  });
+});
+
+describe("matchesProjectAllow (T3 — metachar-safe, narrow claim)", () => {
+  it("ignores non-Bash entries entirely", () => {
+    expect(matchesProjectAllow("git status", ["Read(foo)", "Edit(bar)", "mcp__render"])).toBe(false);
+  });
+
+  it("a bare whole-tool Bash grant covers any command", () => {
+    expect(matchesProjectAllow("anything at all", ["Bash"])).toBe(true);
+  });
+
+  it("expands the permission * wildcard to .* after escaping", () => {
+    expect(matchesProjectAllow("pnpm run build", ["Bash(pnpm run *)"])).toBe(true);
+    expect(matchesProjectAllow("pnpm test", ["Bash(pnpm run *)"])).toBe(false);
+  });
+
+  it("returns false, never throws, when nothing covers the command", () => {
+    expect(matchesProjectAllow("rm -rf /", ["Bash(pnpm -v)"])).toBe(false);
+  });
+
+  // One covered (exact match) + one uncovered (a command that would incorrectly match if the
+  // metacharacter were left as live regex syntax instead of escaped literal text) case for EACH
+  // regex metacharacter in `$ [ ] ( ) \ . + ? ^ { } |`.
+  it("escapes '.' — a literal dot must not act as 'any character'", () => {
+    expect(matchesProjectAllow("cat notes.txt", ["Bash(cat notes.txt)"])).toBe(true);
+    expect(matchesProjectAllow("cat notesXtxt", ["Bash(cat notes.txt)"])).toBe(false);
+  });
+
+  it("escapes '+' — a literal plus must not act as 'one or more'", () => {
+    expect(matchesProjectAllow("echo a+b", ["Bash(echo a+b)"])).toBe(true);
+    expect(matchesProjectAllow("echo aab", ["Bash(echo a+b)"])).toBe(false);
+  });
+
+  it("escapes '?' — a literal question mark must not act as 'optional'", () => {
+    expect(matchesProjectAllow("echo colou?r", ["Bash(echo colou?r)"])).toBe(true);
+    expect(matchesProjectAllow("echo color", ["Bash(echo colou?r)"])).toBe(false);
+  });
+
+  it("escapes '^' — a literal caret must not act as an anchor", () => {
+    expect(matchesProjectAllow("echo a^b", ["Bash(echo a^b)"])).toBe(true);
+    expect(matchesProjectAllow("echo ab", ["Bash(echo a^b)"])).toBe(false);
+  });
+
+  it("escapes '$' — a literal dollar must not act as an anchor", () => {
+    expect(matchesProjectAllow("echo pay$5", ["Bash(echo pay$5)"])).toBe(true);
+    expect(matchesProjectAllow("echo pay5", ["Bash(echo pay$5)"])).toBe(false);
+  });
+
+  it("escapes '(' and ')' — literal parens must not act as a grouping construct", () => {
+    expect(matchesProjectAllow("echo (a)", ["Bash(echo (a))"])).toBe(true);
+    expect(matchesProjectAllow("echo a", ["Bash(echo (a))"])).toBe(false);
+  });
+
+  it("escapes '[' and ']' — literal brackets must not act as a character class", () => {
+    expect(matchesProjectAllow("echo [ab]", ["Bash(echo [ab])"])).toBe(true);
+    expect(matchesProjectAllow("echo a", ["Bash(echo [ab])"])).toBe(false);
+  });
+
+  it("escapes '{' and '}' — literal braces must not act as a quantifier", () => {
+    expect(matchesProjectAllow("echo x{1}", ["Bash(echo x{1})"])).toBe(true);
+    expect(matchesProjectAllow("echo x", ["Bash(echo x{1})"])).toBe(false);
+  });
+
+  it("escapes '\\\\' — a literal backslash must not act as an escape prefix", () => {
+    expect(matchesProjectAllow("echo C:\\data", ["Bash(echo C:\\data)"])).toBe(true);
+    // Without escaping, "\\d" would behave as the digit class \d, incorrectly matching "5".
+    expect(matchesProjectAllow("echo C:5ata", ["Bash(echo C:\\data)"])).toBe(false);
+  });
+
+  it("escapes '|' — a literal pipe must not act as top-level alternation", () => {
+    expect(matchesProjectAllow("echo a|b", ["Bash(echo a|b)"])).toBe(true);
+    // Without escaping, "^echo a|b$" would match ANY string starting with "echo a".
+    expect(matchesProjectAllow("echo aXYZ", ["Bash(echo a|b)"])).toBe(false);
   });
 });
 

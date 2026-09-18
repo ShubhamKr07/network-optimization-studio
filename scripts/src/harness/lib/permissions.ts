@@ -173,6 +173,40 @@ export function classifyAll(allow: string[]): GrantClass[] {
   return allow.map(classifyGrant);
 }
 
+// Regex metacharacters that must be escaped in the LITERAL rule text before the permission
+// syntax's own `*` wildcard is expanded to `.*` — otherwise, e.g., a rule like
+// `Bash(cat notes.txt)` would let "." act as regex "match any character" and incorrectly report
+// coverage for `cat notesXtxt`, or `Bash(echo a|b)` would let "|" act as top-level alternation and
+// incorrectly report coverage for any command merely starting with "echo a". Order is: escape
+// these metachars FIRST, THEN expand the (still-literal, un-escaped) `*` to `.*`, THEN anchor with
+// ^...$.
+const REGEX_METACHARS = /[$[\]()\\.+?^{}|]/g;
+
+/**
+ * Does `command` appear to be covered by an entry in `allow` (a project-scoped Bash allowlist —
+ * e.g. the merged content of the two inspected project allowlist files)?
+ *
+ * IMPORTANT — this is a NARROW claim, not a reimplementation of Claude Code's full permission
+ * evaluation: it only checks the `Bash(<pattern>)` entries in the two allowlists PASSED IN, via a
+ * metachar-safe glob translation of each entry's `*` wildcard. It does not model compound-command
+ * splitting, safe-environment-prefix normalization, built-in read-only commands, deny/ask
+ * precedence, or managed/CLI/user-scope rules. Callers must describe the result only as "present
+ * (or not present) in the inspected project allowlists" — never as "would be auto-approved" (or
+ * "would be denied").
+ */
+export function matchesProjectAllow(command: string, allow: string[]): boolean {
+  for (const entry of allow) {
+    const { tool, arg } = toolAndArg(entry);
+    if (tool !== "Bash") continue; // non-Bash entries ignored
+    if (arg === null) return true; // bare `Bash` — whole-tool grant covers any command
+    const escaped = arg.replace(REGEX_METACHARS, "\\$&");
+    const expanded = escaped.replace(/\*/g, ".*");
+    const re = new RegExp(`^${expanded}$`);
+    if (re.test(command)) return true;
+  }
+  return false;
+}
+
 /** Set difference of the current allow list against a stored baseline. */
 export function diffAllow(current: string[], baseline: string[]): AllowDiff {
   const base = new Set(baseline);
