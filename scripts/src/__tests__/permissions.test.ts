@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseStandingPermissions,
   classifyGrant,
+  classifyRule,
   classifyAll,
   diffAllow,
   parseDenials,
@@ -60,6 +61,48 @@ describe("classifyGrant", () => {
     expect(classifyGrant("Bash(brew install *)").level).toBe("broad");
     expect(classifyGrant("Bash(pnpm -v)").level).toBe("ok");
     expect(classifyGrant("Bash(pg_isready)").level).toBe("ok");
+  });
+});
+
+describe("classifyRule / destructive level (T1)", () => {
+  it("classifies rm -r*/rm -rf, sudo, chmod/chown, dd if=, mkfs, git clean as destructive", () => {
+    expect(classifyGrant("Bash(rm -rf test-results)").level).toBe("destructive");
+    expect(classifyGrant("Bash(rm -r build)").level).toBe("destructive");
+    expect(classifyGrant("Bash(sudo apt install x)").level).toBe("destructive");
+    expect(classifyGrant("Bash(chmod +x scripts/x.sh)").level).toBe("destructive");
+    expect(classifyGrant("Bash(chown user file)").level).toBe("destructive");
+    expect(classifyGrant("Bash(dd if=/dev/zero of=/dev/sda)").level).toBe("destructive");
+    expect(classifyGrant("Bash(mkfs.ext4 /dev/sda1)").level).toBe("destructive");
+    expect(classifyGrant("Bash(git clean -fd)").level).toBe("destructive");
+  });
+
+  it("classifies git reset --hard and --force/force-push as destructive (moved out of risky)", () => {
+    expect(classifyGrant("Bash(git reset --hard HEAD~1)").level).toBe("destructive");
+    expect(classifyGrant("Bash(git push --force origin main)").level).toBe("destructive");
+    expect(classifyGrant("Bash(git checkout --force)").level).toBe("destructive");
+  });
+
+  it("classifies SQL DROP/TRUNCATE as destructive", () => {
+    expect(classifyGrant("Bash(psql -c 'DROP TABLE users')").level).toBe("destructive");
+    expect(classifyGrant("Bash(psql -c 'TRUNCATE TABLE users')").level).toBe("destructive");
+  });
+
+  it("keeps plain git push (no force) as risky", () => {
+    expect(classifyGrant("Bash(git push origin main)").level).toBe("risky");
+    expect(classifyGrant("Bash(git push origin main)").ruleId).toBe("git_push");
+  });
+
+  it("keeps a whole-tool/unrestricted-wildcard Bash grant as risky, not destructive", () => {
+    expect(classifyGrant("Bash").level).toBe("risky");
+    expect(classifyGrant("Bash(*)").level).toBe("risky");
+  });
+
+  it("classifyRule classifies a full Tool(pattern) rule identically to classifyGrant (post-edit path)", () => {
+    expect(classifyRule("Bash(rm -rf test-results)").level).toBe("destructive");
+    expect(classifyRule("Bash(git push --force origin main)").level).toBe("destructive");
+    expect(classifyRule("Bash(pnpm run *)").level).toBe("broad");
+    expect(classifyRule("Bash(pnpm -v)").level).toBe("ok");
+    expect(classifyRule("Bash(rm -rf x)")).toEqual(classifyGrant("Bash(rm -rf x)"));
   });
 });
 

@@ -10,7 +10,7 @@
  * This module is pure (parse + classify only); all I/O lives in audit-permissions.ts.
  */
 
-export type GrantLevel = "risky" | "broad" | "ok";
+export type GrantLevel = "destructive" | "risky" | "broad" | "ok";
 
 export interface GrantClass {
   entry: string;
@@ -68,9 +68,32 @@ interface Rule {
   test: (entry: string, tool: string, arg: string | null) => boolean;
 }
 
-// Ordered — first match wins, so risky rules must precede broad ones (e.g. `git push *` is risky,
-// not merely a scoped wildcard). Rules only SURFACE grants for human review; they never auto-decide.
+// Ordered — first match wins. Destructive rules are ordered FIRST so an irreversible/system-level
+// command is never shadowed by a broader risky/broad rule that happens to also match (e.g.
+// `git push --force *` must classify as destructive, not merely as the risky `git_push` rule).
+// Risky rules follow, then broad. Rules only SURFACE grants for human review; they never auto-decide.
 const RULES: Rule[] = [
+  {
+    id: "destructive_bash",
+    level: "destructive",
+    reason: "destructive/irreversible shell command",
+    test: (_e, tool, arg) =>
+      tool === "Bash" && arg !== null &&
+      /\brm\s+-[a-z]*r|\brm\s+-rf\b|\bsudo\b|\bchmod\b|\bchown\b|\bmkfs\b|\bdd\s+if=|\bgit\s+clean\b/.test(arg),
+  },
+  {
+    id: "git_reset_hard_or_force",
+    level: "destructive",
+    reason: "force/hard-reset — overwrites history or state irreversibly",
+    test: (_e, tool, arg) =>
+      tool === "Bash" && arg !== null && /--force\b|\breset\s+--hard\b|\bcheckout\s+--force\b/.test(arg),
+  },
+  {
+    id: "sql_destructive",
+    level: "destructive",
+    reason: "destructive SQL — drops or truncates data irreversibly",
+    test: (_e, tool, arg) => tool === "Bash" && arg !== null && /\b(DROP|TRUNCATE)\b/i.test(arg),
+  },
   {
     id: "whole_tool_grant",
     level: "risky",
@@ -84,25 +107,10 @@ const RULES: Rule[] = [
     test: (_e, _tool, arg) => arg !== null && /^\s*:?\*?\s*$/.test(arg),
   },
   {
-    id: "destructive_bash",
-    level: "risky",
-    reason: "destructive/irreversible shell command",
-    test: (_e, tool, arg) =>
-      tool === "Bash" && arg !== null &&
-      /\brm\s+-[a-z]*r|\brm\s+-rf\b|\bsudo\b|\bchmod\b|\bchown\b|\bmkfs\b|\bdd\s+if=|\bgit\s+clean\b/.test(arg),
-  },
-  {
     id: "git_push",
     level: "risky",
     reason: "outward push — mutates a remote",
     test: (_e, tool, arg) => tool === "Bash" && arg !== null && /\bgit\s+push\b/.test(arg),
-  },
-  {
-    id: "force_op",
-    level: "risky",
-    reason: "force/hard-reset — overwrites history or state",
-    test: (_e, tool, arg) =>
-      tool === "Bash" && arg !== null && /--force\b|\breset\s+--hard\b|\bcheckout\s+--force\b/.test(arg),
   },
   {
     id: "secret_exposure",
@@ -132,13 +140,23 @@ const RULES: Rule[] = [
   },
 ];
 
-/** Classify one allow entry. First matching rule wins; unmatched entries are `ok`. */
-export function classifyGrant(entry: string): GrantClass {
-  const { tool, arg } = toolAndArg(entry);
+/**
+ * Classify a full `Tool(pattern)` rule — e.g. a settings.local.json allow entry, or a proposed
+ * rule after a human edit/override. First matching rule wins; unmatched entries are `ok`. This is
+ * the "post-edit" classification path: callers must always re-run this on the *effective* rule
+ * (after any override), never trust a classification computed before the edit.
+ */
+export function classifyRule(rule: string): GrantClass {
+  const { tool, arg } = toolAndArg(rule);
   for (const r of RULES) {
-    if (r.test(entry, tool, arg)) return { entry, level: r.level, ruleId: r.id, reason: r.reason };
+    if (r.test(rule, tool, arg)) return { entry: rule, level: r.level, ruleId: r.id, reason: r.reason };
   }
-  return { entry, level: "ok", ruleId: "specific", reason: "fully-specified" };
+  return { entry: rule, level: "ok", ruleId: "specific", reason: "fully-specified" };
+}
+
+/** Classify one allow entry (OBS-12 name, kept for existing call sites). Delegates to `classifyRule`. */
+export function classifyGrant(entry: string): GrantClass {
+  return classifyRule(entry);
 }
 
 export function classifyAll(allow: string[]): GrantClass[] {
