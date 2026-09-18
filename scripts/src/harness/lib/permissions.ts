@@ -20,6 +20,8 @@ export {
   sha256Hex,
 } from "../../../../.claude/hooks/lib/permissionsCore.mjs";
 
+import { PERMISSION_TEMPLATES, pnpmRunTemplateRule } from "./permissionTemplates.js";
+
 export type GrantLevel = "destructive" | "risky" | "broad" | "ok";
 
 export interface GrantClass {
@@ -205,6 +207,28 @@ export function matchesProjectAllow(command: string, allow: string[]): boolean {
     if (re.test(command)) return true;
   }
   return false;
+}
+
+/**
+ * Suggest the `Bash(<rule>)` permission rule for a raw command. Exact by default — generalization
+ * to a wildcard happens ONLY when the command matches an entry in the small, reviewed
+ * `PERMISSION_TEMPLATES` registry (`permissionTemplates.ts`). A command whose exact-wrapped rule
+ * classifies as `destructive` is NEVER generalized, even if it superficially resembles a template
+ * (e.g. `git push --force ...` still contains `git push`, but must stay the exact literal command).
+ * An unmatched command also falls back to exact.
+ */
+export function suggestRule(command: string): string {
+  const trimmed = command.trim();
+  const exact = `Bash(${trimmed})`;
+  if (classifyRule(exact).level === "destructive") return exact;
+
+  for (const t of PERMISSION_TEMPLATES) {
+    if (t.test(trimmed)) return t.rule;
+  }
+  const runRule = pnpmRunTemplateRule(trimmed);
+  if (runRule) return runRule;
+
+  return exact;
 }
 
 /** Set difference of the current allow list against a stored baseline. */

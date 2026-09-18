@@ -12,6 +12,7 @@ import {
   scanSensitive,
   sha256Hex,
   matchesProjectAllow,
+  suggestRule,
 } from "../harness/lib/permissions.js";
 import { evaluateAudit, transcriptDirFor } from "../harness/audit-permissions.js";
 
@@ -246,6 +247,62 @@ describe("matchesProjectAllow (T3 — metachar-safe, narrow claim)", () => {
     expect(matchesProjectAllow("echo a|b", ["Bash(echo a|b)"])).toBe(true);
     // Without escaping, "^echo a|b$" would match ANY string starting with "echo a".
     expect(matchesProjectAllow("echo aXYZ", ["Bash(echo a|b)"])).toBe(false);
+  });
+});
+
+describe("suggestRule (T4 — exact-by-default + reviewed template registry)", () => {
+  it("is exact by default for an arbitrary command", () => {
+    expect(suggestRule("echo hello")).toBe("Bash(echo hello)");
+    expect(suggestRule("ls -la")).toBe("Bash(ls -la)");
+  });
+
+  it("generalizes git read subcommands (log, status, diff, show)", () => {
+    expect(suggestRule("git log --oneline -5")).toBe("Bash(git log *)");
+    expect(suggestRule("git status")).toBe("Bash(git status *)");
+    expect(suggestRule("git diff HEAD~1")).toBe("Bash(git diff *)");
+    expect(suggestRule("git show abc123")).toBe("Bash(git show *)");
+  });
+
+  it("generalizes git branch --list only (not bare git branch, which can create one)", () => {
+    expect(suggestRule("git branch --list")).toBe("Bash(git branch --list *)");
+    expect(suggestRule("git branch feature-x")).toBe("Bash(git branch feature-x)");
+  });
+
+  it("generalizes pnpm -v", () => {
+    expect(suggestRule("pnpm -v")).toBe("Bash(pnpm -v)");
+  });
+
+  it("generalizes pnpm --filter <pkg> test|typecheck, wildcarding only the package name", () => {
+    expect(suggestRule("pnpm --filter api-server test")).toBe("Bash(pnpm --filter * test)");
+    expect(suggestRule("pnpm --filter studio typecheck")).toBe("Bash(pnpm --filter * typecheck)");
+  });
+
+  it("does NOT generalize pnpm --filter <pkg> test:watch as if it were plain test", () => {
+    expect(suggestRule("pnpm --filter api-server test:watch")).toBe(
+      "Bash(pnpm --filter api-server test:watch)",
+    );
+  });
+
+  it("proposes an exact per-script rule for a known pnpm run script (never wildcards the script name)", () => {
+    expect(suggestRule("pnpm run test")).toBe("Bash(pnpm run test)");
+    expect(suggestRule("pnpm run build")).toBe("Bash(pnpm run build)");
+  });
+
+  it("falls back to exact for an unknown pnpm run script", () => {
+    expect(suggestRule("pnpm run some-custom-script")).toBe("Bash(pnpm run some-custom-script)");
+  });
+
+  it("does NOT generalize pnpm exec, docker run, git config, or git push", () => {
+    expect(suggestRule("pnpm exec vitest run")).toBe("Bash(pnpm exec vitest run)");
+    expect(suggestRule("docker run -it ubuntu bash")).toBe("Bash(docker run -it ubuntu bash)");
+    expect(suggestRule("git config user.name foo")).toBe("Bash(git config user.name foo)");
+    expect(suggestRule("git push origin main")).toBe("Bash(git push origin main)");
+  });
+
+  it("never generalizes a destructive command, even if it superficially resembles a template", () => {
+    expect(suggestRule("git push --force origin main")).toBe("Bash(git push --force origin main)");
+    expect(suggestRule("git reset --hard HEAD~1")).toBe("Bash(git reset --hard HEAD~1)");
+    expect(suggestRule("rm -rf /tmp/x")).toBe("Bash(rm -rf /tmp/x)");
   });
 });
 
