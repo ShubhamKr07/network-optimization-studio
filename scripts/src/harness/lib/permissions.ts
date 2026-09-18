@@ -10,6 +10,16 @@
  * This module is pure (parse + classify only); all I/O lives in audit-permissions.ts.
  */
 
+// Redaction/digest primitives are dependency-free plain ESM shared with the standalone Claude
+// Code hook (`.claude/hooks/permission-ledger.mjs`, which cannot import an uncompiled .ts module)
+// — re-exported here rather than duplicated, per the permission-review-loop design (Important 5).
+export {
+  escapeCell,
+  redactCommand,
+  scanSensitive,
+  sha256Hex,
+} from "../../../../.claude/hooks/lib/permissionsCore.mjs";
+
 export type GrantLevel = "destructive" | "risky" | "broad" | "ok";
 
 export interface GrantClass {

@@ -7,6 +7,10 @@ import {
   diffAllow,
   parseDenials,
   topDeniedTool,
+  escapeCell,
+  redactCommand,
+  scanSensitive,
+  sha256Hex,
 } from "../harness/lib/permissions.js";
 import { evaluateAudit, transcriptDirFor } from "../harness/audit-permissions.js";
 
@@ -103,6 +107,70 @@ describe("classifyRule / destructive level (T1)", () => {
     expect(classifyRule("Bash(pnpm run *)").level).toBe("broad");
     expect(classifyRule("Bash(pnpm -v)").level).toBe("ok");
     expect(classifyRule("Bash(rm -rf x)")).toEqual(classifyGrant("Bash(rm -rf x)"));
+  });
+});
+
+describe("escapeCell (T2 — locked escaping contract)", () => {
+  it("applies the exact locked order for a fixture containing every escaped class", () => {
+    // CR, LF, NUL, another control char (SOH \x01), then &, <, >, |, `, then bidi controls
+    // (U+202A LRE ... U+202E RLO, U+2066 LRI ... U+2069 PDI) surrounding a "z".
+    const input =
+      "a\rb\nc\x00d\x01e & <tag> | `code` " +
+      "‪z‮ " +
+      "⁦w⁩";
+    const expected = "a b c d e &amp; &lt;tag&gt; \\| \\`code\\` z w";
+    expect(escapeCell(input)).toBe(expected);
+  });
+});
+
+describe("redactCommand / scanSensitive (T2)", () => {
+  it("redacts a db connection URL to <db-url>", () => {
+    expect(redactCommand("psql postgres://user:secretpass@db.example.com:5432/mydb")).toBe(
+      "psql <db-url>",
+    );
+  });
+
+  it("redacts a bearer token to <token>", () => {
+    expect(redactCommand("curl -H 'Authorization: Bearer abcdef123456'")).toBe(
+      "curl -H 'Authorization: <token>'",
+    );
+  });
+
+  it("redacts an explicit --password flag to <password>", () => {
+    expect(redactCommand("mysqldump --password=hunter2 mydb")).toBe("mysqldump <password> mydb");
+  });
+
+  it("redacts an email address to <email>", () => {
+    expect(redactCommand("mail me at shubham.kumar549@gmail.com")).toBe("mail me at <email>");
+  });
+
+  it("redacts an inline KEY=value env prefix to <env>", () => {
+    expect(redactCommand("FOO_SECRET=abc123 node script.js")).toBe("<env> node script.js");
+  });
+
+  it("redacts an absolute home path to <home-path>", () => {
+    expect(redactCommand("cat /Users/shubhamkr/.ssh/id_rsa")).toBe("cat <home-path>/.ssh/id_rsa");
+  });
+
+  it("scanSensitive is false for a clean command", () => {
+    expect(scanSensitive("echo hello world")).toBe(false);
+    expect(scanSensitive("pnpm --filter api-server test")).toBe(false);
+  });
+
+  it("scanSensitive flags a residual >=16-char mixed-class token that redaction didn't catch", () => {
+    expect(scanSensitive("mycli --deploy sk_live_51H8abcdEFGH1234ijkl")).toBe(true);
+  });
+
+  it("scanSensitive flags a secret keyword even without a matched value pattern", () => {
+    expect(scanSensitive("curl -H 'X-My-Secret-Value: yes'")).toBe(true);
+  });
+
+  it("sha256Hex is deterministic and matches node:crypto for a known input", () => {
+    expect(sha256Hex("hello")).toBe(
+      "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    );
+    expect(sha256Hex("hello")).toBe(sha256Hex("hello"));
+    expect(sha256Hex("hello")).not.toBe(sha256Hex("world"));
   });
 });
 
