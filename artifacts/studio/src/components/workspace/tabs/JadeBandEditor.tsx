@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -105,6 +105,18 @@ export function JadeBandEditor({ bands, onChange, onValidityChange, distanceUnit
     onValidityChange?.(isValid);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isValid]);
+
+  // Review Minor-1 — restore validity on unmount. Invalid drafts are never
+  // published, so whatever the caller holds (localInputs.distanceBands) is
+  // always a valid 4-tuple; if the user leaves the tab / closes the dialog
+  // mid-invalid-edit, signal valid so the caller's Save/Run gate doesn't stay
+  // stuck disabled on a value that is, in fact, valid. Ref-backed so the
+  // unmount cleanup always calls the latest callback.
+  const onValidityChangeRef = useRef(onValidityChange);
+  onValidityChangeRef.current = onValidityChange;
+  useEffect(() => {
+    return () => onValidityChangeRef.current?.(true);
+  }, []);
 
   function handleSlotChange(index: number, value: string) {
     const next = [...draft];

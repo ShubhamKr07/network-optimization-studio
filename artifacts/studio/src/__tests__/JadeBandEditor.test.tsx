@@ -122,4 +122,18 @@ describe("JadeBandEditor", () => {
     expect(screen.getByTestId("jade-band-slot-3")).toBeInTheDocument();
     expect(screen.queryByTestId("jade-band-slot-4")).not.toBeInTheDocument();
   });
+
+  it("restores validity (onValidityChange(true)) on unmount so the caller's Save gate never stays stuck (review Minor-1)", () => {
+    const onValidityChange = vi.fn();
+    const { unmount } = render(
+      <JadeBandEditor bands={validBands} onChange={vi.fn()} onValidityChange={onValidityChange} />,
+    );
+    // Drive the draft invalid (duplicate) — validity goes false.
+    fireEvent.change(screen.getByTestId("jade-band-slot-1"), { target: { value: "200" } });
+    expect(onValidityChange).toHaveBeenLastCalledWith(false);
+    // Leaving the tab / closing the dialog unmounts the editor mid-invalid-edit;
+    // the last PUBLISHED value is still valid, so the caller must not stay gated.
+    unmount();
+    expect(onValidityChange).toHaveBeenLastCalledWith(true);
+  });
 });
