@@ -132,7 +132,7 @@ empty state — all OUTSIDE the physical `<Table>`. Define the two regions as a 
   model's `inputEntriesForModel(...)` list (after the last entity tab, before Optimization Parameters).
 - **renderTabContent:** new branch `activeTab.entity === "added-entities"` → `<AddedEntitiesTab …>`
   wiring each inner sub-tab to the SAME props (`addedWarehouses`/`onAddedWarehousesChange`/…,
-  precheck errors, `hasStateData`, etc.) the base tabs get today.
+  precheck errors, `hasStateColumn`, etc. — the REAL shared prop name, Codex round-2) the base tabs get today.
 - **Save gate:** the `added-entities` entity joins the save-eligible set (it is an inputs editor); the
   existing dirty-tracking on `localInputs` already covers added arrays — just ensure the tab is not
   excluded by the save-gate allowlist (`Workspace.tsx:1811+`).
@@ -167,10 +167,14 @@ that exist (both JADE; other models' output tables have no band column). `Filter
 `select` options from the distinct `accessor(row)` values.
 
 **Change:** replace the band **filter option value** with a unit-aware range label. Add a helper
-`bandRangeLabel(distance, bands, unit): string` in `lib/bands.ts` beside `bandLabel`:
+`bandRangeLabel(distance, bands, unit): string` in `lib/bands.ts` beside `bandLabel`. It MUST
+**sort a copy of `bands` ascending first** and classify + build the label from that same sorted copy
+(mirrors `bandLabel`/`assignBandOrOverflow`/`computeCumulativeBandCoverage`, which all `[...bands].sort()`
+— Codex round-2 P2; a label built from the original order could disagree with the cell's `Band N`):
+- empty `bands` → `"All distances"` (no boundary to bucket by — never leak `undefined` into a label)
 - Band 0: `"≤ <b0> <unit>"`
 - Band i (i>0, ≤ last): `"<b(i-1)>–<b(i)> <unit>"`
-- Overflow: `"> <lastBoundary> <unit>"`
+- Overflow (> last boundary): `"> <lastBoundary> <unit>"`
 - `unit` = the model's distance unit (`mi` for us/brazil/transport/gold-au/jade, `km` for chens),
   resolved the same way the tabs already resolve `distanceUnit`.
 
@@ -188,13 +192,21 @@ filter as the exact option string. When boundaries/unit change, an active select
 no longer matches any option (`"≤ 300 mi"`) → zero rows + an orphaned active-filter badge. Policy:
 **on any band-boundary/unit change, clear the Distance Band filter** (reset that key to "all"). Implement
 via an effect keyed on the boundary-signature + unit that resets only the `band` filter key (leaving
-other column filters intact).
+other column filters in the same table intact).
 
-**Where:** change the band descriptor's `accessor` to
-`r => bandRangeLabel(r.distanceMi/​r.distance, effectiveBands, unit)` AND add the memo deps AND the
-clear-on-change effect. Keep the **table cell** column as-is (still `bandLabel` → "Band N") — filters
-only. Applies to every Distance-Band filter descriptor (currently the two JADE tabs); any future band
-filter inherits by using the same helper + the same memo-deps/clear pattern.
+**Three independent band filters, not two (Codex round-2 P2):** there are THREE Distance-Band filter
+states, each with its own `useTableFilters` instance and its own `band` key:
+1. `JadeFlowsTab` Plant→Warehouse inner table (`pwFilters`, `pwDescriptors`)
+2. `JadeFlowsTab` Warehouse→Customer inner table (`wcFilters`, `wcDescriptors`)
+3. `JadeAssignmentsTab` Customer Assignments (`tableFilters`, `filterDescriptors`)
+Each of the three needs the memo-deps fix AND its own clear-on-change effect resetting its own `band`
+key; a clear in one inner table must not touch the other, and must not touch that table's non-band filters.
+
+**Where:** for each of the three descriptor sets, change the band descriptor's `accessor` to
+`r => bandRangeLabel(r.distanceMi/​r.distance, effectiveBands, unit)` AND add `[boundary-signature, unit]`
+to that `useMemo`'s deps AND add that table's clear-on-change effect. Keep the **table cell** column
+as-is (still `bandLabel` → "Band N") — filters only. Any future band filter inherits by using the same
+helper + the same memo-deps/clear pattern.
 
 **DoD:** Distance-Band filter dropdowns list ranges like `"≤ 250 mi"`, `"250–500 mi"`, `"> 1000 mi"`
 (km for chens), not "Band N"; editing bands updates the ranges live with no re-solve; filtering by a
@@ -207,19 +219,29 @@ range selects exactly the rows whose distance falls in it; table cells still rea
 - **Item 1:** `EntityMarkers` unit — `plantSquareSvg()` contains the factory path + `--map-plant`;
   `designTokens.contract.test.ts` inventory includes `--map-plant: #2E7D32`.
 - **Item 2:** `plantIdCityState` unit (id + City, State; name ignored); RTL that Flows P→W /
-  Plant-Production / Capability-Matrix plant cells render id + City, State; **added-plant test** — a
-  solved `plant_to_warehouse` edge whose plant is only in `displayedInputs.addedPlants` renders
-  `<id> — <City>, <State>`, not the raw id.
-- **Item 3:** RTL — info `<p>` has no `max-w-md` (single-line desktop); a capacity readout renders `… Units`.
+  Plant-Production / Capability-Matrix plant cells render id + City, State; **component added-plant
+  test** — a solved `plant_to_warehouse` edge whose plant is only in the passed effective-plants array
+  renders `<id> — <City>, <State>`, not the raw id. **Workspace-level snapshot regression (Codex
+  round-2 P2):** the displayed solved snapshot (`displayedInputs`) contains an added plant AND the
+  current unsaved `localInputs` draft differs — the Flows plant label must resolve from the **snapshot**,
+  not the draft; step the result-history stepper and assert the plant lookup + displayed result advance
+  together (proves the call-site wiring, which a child-only test cannot).
+- **Item 3:** RTL — info `<p>` has no `max-w-md` **and has `md:whitespace-nowrap`** (Codex round-2
+  minor — the absence of `max-w-md` alone doesn't prove single-line); a capacity readout renders `… Units`.
 - **Item 4:** RTL — AddedEntitiesTab renders correct inner sub-tabs per model; base tab with
   `showAddedSection={false}` renders no add form; Added tab with `showBaseTable={false}` renders **no
   base table, no CSV toolbar, no import dialog, no base filter/count**; the CSV toolbar renders exactly
   once (base tab); add/delete through the new tab mutates `localInputs`. Tab-coverage sweep
   (`Workspace.TabCoverage.test.tsx`) extended with the new entity. **No** prefill test (flow removed).
-- **Item 5:** `bandRangeLabel` unit (each band + overflow, mi and km); RTL that **re-rendering an
-  already-mounted** JADE report with changed bands changes the filter options with no solve/network
-  call (proves the memo-deps fix); RTL that selecting a range then editing boundaries **clears** the
-  band filter (row count returns to unfiltered, no orphaned badge).
+- **Item 5:** `bandRangeLabel` unit (each band + overflow, mi and km; **exact-boundary** distances +
+  an **unsorted-boundary** input + empty-array → `"All distances"` — Codex round-2 P2); RTL that
+  **re-rendering an already-mounted** report with changed bands changes the filter options with no
+  solve/network call (proves the memo-deps fix); RTL that selecting a range then editing boundaries
+  **clears** the band filter (row count returns to unfiltered, no orphaned badge). **Cover all THREE
+  band filters** (Codex round-2 P2) — `JadeFlowsTab` P→W (`pwFilters`) and W→C (`wcFilters`) and
+  `JadeAssignmentsTab` (`tableFilters`): in Flows, select a range in EACH inner table then edit bands
+  and assert both `pwFilters` and `wcFilters` clear their OWN `band` key while any active non-band
+  filter in the same table survives.
 
 ## 7. QA (real browser)
 
@@ -243,10 +265,11 @@ range selects exactly the rows whose distance falls in it; table cells still rea
 
 ---
 
-## 9. Review comments — Codex (2026-09-19)
+## 9. Review comments — Codex (2026-09-19) — SUPERSEDED / RESOLVED (history)
 
-**Review status: changes requested.** The following comments were validated against the matching
-`workspace-fixups-2026-09-19` implementation at `8439c9a`.
+**Status: RESOLVED.** All eight comments below were folded into §1–§8; see the §10 resolution table.
+Retained verbatim for history only — the current normative status is in §10 (round 1) and §12 (round 2).
+The original round-1 status was "changes requested".
 
 ### [P1] Remove the obsolete Input-Map prefill reconciliation
 
@@ -348,3 +371,87 @@ All 8 comments folded into §1–§8 above (normative body is now self-consisten
 | P2 | PlantsTab omitted from Item 2 | **Resolved by narrowing (approver-confirmed): named surfaces only.** Input Plants tab explicitly out of scope (§2, §8). |
 | P2 | `--map-plant` not deterministic | **Accepted.** Pinned `#2E7D32` (approver-confirmed); added to `designTokens.contract.test.ts` inventory (§1). |
 | P2 | Narrow-screen `whitespace-nowrap` claim | **Accepted.** §3 uses `md:whitespace-nowrap` (single-line ≥ md, wraps below); false "degrades gracefully" claim removed. |
+
+---
+
+## 11. Second review comments — Codex (2026-09-19)
+
+**Review status: changes requested (no P1 blockers; four P2 findings plus two minor corrections).**
+Reviewed against the revised spec and matching implementation at `a3116f0`.
+
+### [P2] Reconcile the historical review status with the resolution
+
+Section 9 still says **"Review status: changes requested"**, while Section 10 says all eight comments
+were folded into the normative body and that there are no open alternatives. Those two statements give
+an approver conflicting status signals.
+
+Mark Section 9 as resolved/superseded and retained for history, or remove the duplicated historical
+comments and retain only the Section 10 resolution table. The document should have one unambiguous
+current review status before approval.
+
+### [P2] Define boundary normalization inside `bandRangeLabel`
+
+The existing `bandLabel` path classifies against an ascending copy of the boundaries, but the new
+helper's formulas refer directly to `b0`, `b(i-1)`, and `b(i)` without stating that the helper must
+normalize the input first. A literal implementation could classify a distance using sorted boundaries
+but construct the displayed range from the original order, making the range label disagree with the
+table's `Band N` classification.
+
+Require `bandRangeLabel` to sort a copy of `bands` ascending before both classification and label
+construction. Define its empty-array behavior rather than allowing `undefined` to leak into a label.
+Extend the helper tests with exact-boundary cases and an unsorted-boundary input, even though JADE's
+current editor publishes only valid ascending values; this keeps the shared helper safe for the future
+callers Section 5 explicitly anticipates.
+
+### [P2] Cover all three independent Distance Band filters
+
+The test requirement currently says to rerender "a JADE report." There are actually three Distance
+Band filters with independent state:
+
+1. Flows — Plant → Warehouse (`pwFilters`)
+2. Flows — Warehouse → Customer (`wcFilters`)
+3. Customer Assignments (`tableFilters`)
+
+Require parameterized or explicit coverage for all three descriptors. For `JadeFlowsTab`, edit bands
+after selecting a range in each inner table and prove that both `pwFilters` and `wcFilters` clear their
+own `band` key. Also assert that clearing the band filter preserves any active non-band filter in the
+same physical table.
+
+### [P2] Prove the added-plant solved-snapshot wiring at Workspace level
+
+A component-level `JadeFlowsTab` test can pass a prepared effective-plants array directly and still
+allow the Workspace call site to be implemented incorrectly with unsaved `localInputs`. Item 2's key
+contract is specifically that output labels resolve from `displayedInputs`, the snapshot that produced
+the displayed solve.
+
+Add a Workspace-level regression where the displayed solved snapshot contains an added plant and the
+current unsaved draft differs. The Flows plant label must resolve from the displayed snapshot. Ideally
+also step through result history so the test proves the plant lookup and displayed result advance
+together, not merely that an added plant can be formatted by the child component.
+
+### Minor: use the real state-column prop name
+
+Section 4 says the wrapper forwards `hasStateData`; the existing shared tab prop is
+`hasStateColumn`. Replace the example name so the implementation plan does not invent a parallel prop
+or omit Chen's state-column behavior accidentally.
+
+### Minor: assert the responsive class required by Item 3
+
+The Item 3 test only requires that the paragraph no longer have `max-w-md`. That does not prove the
+new desktop single-line behavior. Assert that the paragraph has `md:whitespace-nowrap` as well as not
+having `max-w-md`; retain the real-browser narrow-width check for normal wrapping/no overflow.
+
+---
+
+## 12. Review resolution — round 2 (Codex, 2026-09-19)
+
+**Current status: RESOLVED — no open items.** All round-2 comments folded into §1–§8.
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P2 | §9 vs §10 conflicting status | **Accepted.** §9 re-headed SUPERSEDED/RESOLVED (history only); current status lives in §10 + §12. |
+| P2 | `bandRangeLabel` boundary normalization | **Accepted.** §5 requires `[...bands].sort()` before classify + label (matches `bandLabel`); empty → `"All distances"`; tests add exact-boundary + unsorted-input + empty cases. |
+| P2 | All THREE band filters, not two | **Accepted.** §5 enumerates `pwFilters`/`wcFilters`/`tableFilters` — each gets memo-deps + its own clear effect; §6 tests each, incl. non-band-filter survival + inner-table isolation. |
+| P2 | Prove added-plant wiring at Workspace level | **Accepted.** §6 adds a Workspace regression: snapshot has the added plant, unsaved draft differs, label resolves from `displayedInputs`; steps result history to prove lookup+result advance together. |
+| Minor | Real prop name `hasStateColumn` | **Accepted.** §4 corrected (`hasStateColumn`, not `hasStateData`). |
+| Minor | Assert `md:whitespace-nowrap` | **Accepted.** §6 Item-3 test asserts the class present, not just `max-w-md` absent. |
