@@ -53,11 +53,12 @@ boundary lands in that boundary's band, matching `assignBandOrOverflow`'s `<=`);
 
 ## T2 — `plantIdCityState` helper (item 2 foundation) · leaf
 **File:** `artifacts/studio/src/lib/formatLocation.ts` (+ its test). Spec §2.
-- Add `export function plantIdCityState(plant: { id: string; city: string; state: string }): string`
+- Add `export function plantIdCityState(plant: { id: string; city: string; state: string; name?: string }): string`
   → `` `${plant.id} — ${formatCityState(plant.city, plant.state)}` `` (reuse existing `formatCityState`).
-  `name` intentionally not shown.
-**Tests:** id + City, State; a plant with a `name` still returns id + City, State (name ignored);
-empty state → `formatCityState`'s existing behavior.
+  `name?` is in the type (documents the name-ignored contract + avoids TS excess-property errors when a
+  literal with `name` is passed — Codex plan-review P2) but is deliberately NOT read.
+**Tests:** id + City, State; a plant object literal WITH a `name` still returns id + City, State (name
+ignored — compiles because `name?` is in the param type); empty state → `formatCityState`'s existing behavior.
 
 ## T3 — plant factory icon + token (item 1) · leaf
 **Files:** `EntityMarkers.tsx`, `index.css`, `__tests__/designTokens.contract.test.ts` (+ `EntityMarkers` test). Spec §1.
@@ -93,16 +94,24 @@ renders `<id> — <City>, <State>`.
   `dataset?.plants`, so the standalone commit is green and unchanged for base plants). The P→W Plant
   column resolves via `plantIdCityState` against `effectivePlants ?? dataset?.plants ?? []`. INT will
   pass the real `dataset.plants ∪ addedPlantsFromInputs(displayedInputs)`.
+  **`pwRows` memo dep (Codex plan-review P1):** `pwRows` is memoized `[result, dataset,
+  effectiveBands.join(",")]` and builds `plantLabel` — so it MUST also depend on `effectivePlants`, else
+  a changed effective-plants set with unchanged result/dataset/bands yields stale plant labels. Add a
+  stable signature to the dep array (e.g. `(effectivePlants ?? dataset?.plants ?? []).map(p=>p.id).join(",")`,
+  or a plant-id→label `Map` memoized on that signature and referenced by the row builder). `wcRows`
+  builds no plant label — leave it unchanged.
 - **Item 5 (both inner tables):** for BOTH `pwDescriptors` and `wcDescriptors`, change the `band`
   descriptor `accessor` to `r => bandRangeLabel(r.distance, effectiveBands, unit)` (import T1's helper);
   add `[effectiveBands.join(","), unit]` to each `useMemo` dep array; add a clear-on-change effect PER
   inner table that resets only that table's `band` filter key when `[effectiveBands.join(","), unit]`
   changes (leave the table's other filters intact). `unit` = the tab's existing `distanceUnit`.
 **Tests:** P→W Plant column shows `<id> — <City>, <State>`; **added-plant via `effectivePlants` prop**
-resolves to id+City,State not raw id; both inner-table band filters list ranges; a rerender with
-changed `bands` changes the options with no network call (proves memo deps); selecting a range in each
-inner table then changing bands clears THAT table's `band` key while a non-band filter in the same table
-survives; the two inner tables' clears are independent.
+resolves to id+City,State not raw id; **rerender with SAME `result`+`dataset` but a CHANGED
+`effectivePlants` collection updates the plant label** (proves the `pwRows` dep fix — Codex P1); both
+inner-table band filters list ranges; a rerender with changed `bands` changes the options with no
+network call (proves memo deps); selecting a range in each inner table then changing bands clears THAT
+table's `band` key while a non-band filter in the same table survives; the two inner tables' clears are
+independent.
 
 ## T7 — JadeAssignmentsTab: band ranges (item 5) · leaf, needs T1
 **File:** `JadeAssignmentsTab.tsx` (+ test). Spec §5.
@@ -121,9 +130,14 @@ range → edit bands → band filter cleared, non-band filter survives.
 - **`showAddedSection={false}`** hides: add-row form + added-rows table (the `addedSection`). Leaves the
   base table + count/filter + empty state + toolbar + import dialog.
 - Defaults `true`/`true` → existing render byte-identical; standalone commit green.
+- **Dead-prefill cleanup — T8's half (Codex plan-review P1, deterministic split):** remove the
+  `prefillCoords` / `onPrefillConsumed` props from all five base-tab prop interfaces + their
+  destructuring, remove the now-dead prefill open-effect in each, and delete the prefill / null-prefill
+  component tests in each base tab's test file. **T8 does NOT touch `Workspace.tsx`** (INT removes the
+  call-site props + `pendingPrefill` state — see INT). Neither task edits the other's files.
 **Tests (per tab that has both regions):** `showBaseTable={false}` renders no base table / no toolbar /
 no import trigger / no base filter, but renders the add form; `showAddedSection={false}` renders the
-base table + toolbar but no add form; default renders both (unchanged).
+base table + toolbar but no add form; default renders both (unchanged). Prefill tests deleted (flow dead).
 
 ## T9 — AddedEntitiesTab (item 4 part B) · needs T8
 **File:** `AddedEntitiesTab.tsx` (new, + test). Spec §4.
@@ -140,37 +154,174 @@ base table + toolbar but no add form; default renders both (unchanged).
 
 ## INT — Workspace integration (items 2, 4, 5 wiring + cleanup) · sole `Workspace.tsx` writer · needs T6+T8+T9
 **Files:** `pages/Workspace.tsx`, `Workspace.*.test.tsx`, `Workspace.TabCoverage.test.tsx`. Spec §2, §4.
-1. **Item 2 Flows wiring:** pass `effectivePlants={[...(dataset?.plants ?? []), ...addedPlantsFromInputs(displayedInputs)]}`
-   (dedupe by id, base wins) to `<JadeFlowsTab>` — the SOLVED snapshot `displayedInputs`, never `localInputs`.
+1. **Item 2 Flows wiring:** pass a **deduped, memoized** effective-plants projection to `<JadeFlowsTab>`
+   — the SOLVED snapshot `displayedInputs`, never `localInputs`. Concatenation does NOT dedupe (Codex
+   plan-review P2). Actual algorithm: seed a `Map` with base `dataset.plants` keyed by id, then add each
+   `addedPlantsFromInputs(displayedInputs)` plant ONLY if its id is absent (base wins on collision);
+   `[...map.values()]`. Memoize on `[dataset, displayedInputs]` so unrelated Workspace renders don't
+   rebuild the array (keeps `JadeFlowsTab`'s `pwRows` memo stable). Add an **id-collision regression**:
+   an added plant sharing a base plant's id resolves to the BASE plant's City/State.
 2. **Item 4 sidebar:** append `{ id: "added-entities", label: "Added Entities" }` to every model's
    `inputEntriesForModel(...)` list (after the last entity tab, before Optimization Parameters).
 3. **Item 4 renderTabContent:** new branch `activeTab.entity === "added-entities"` → `<AddedEntitiesTab …>`
    with the per-model sub-tab set + all base-tab pass-through props.
 4. **Item 4 base call sites:** every base `*Tab` render passes `showAddedSection={false}`.
 5. **Item 4 save gate:** add `added-entities` to the save-eligible allowlist (`Workspace.tsx:1811+`).
-6. **Dead-code cleanup (spec §4):** remove `pendingPrefill` state + `setPendingPrefill` + every
-   `prefillCoords`/`onPrefillConsumed` prop pass; if a base tab's prefill open-effect is now dead, T8 or
-   INT removes it (INT owns the call-site props; note in the commit which side removed the effect).
+6. **Dead-code cleanup — INT's half (Codex plan-review P1):** remove `pendingPrefill` state +
+   `setPendingPrefill` from `Workspace.tsx` and remove every `prefillCoords`/`onPrefillConsumed` prop
+   passed at the base-tab call sites. **INT does NOT touch the base-tab files** — T8 owns the interface,
+   destructuring, dead effects, and prefill component tests (see T8). The two halves are disjoint by file.
 **Tests:**
 - **Workspace-level added-plant snapshot regression:** displayed snapshot has an added plant, unsaved
   `localInputs` draft differs → Flows plant label resolves from the snapshot; step result history and
   assert lookup + displayed result advance together.
+- **Per-model Added-Entities integration matrix (Codex plan-review P2):** data-driven over all five
+  configs — us/brazil → {Warehouses, Customers}; transport → {Mines, Stations}; gold-au →
+  {Refineries, Customers}; jade → {Plants, Warehouses, Customers}; chens → {Warehouses, Customers}.
+  Assert each model's Added Entities tab renders exactly its inner sub-tab set AND the high-risk
+  model-specific wiring reaches the reused base component: JADE Customers still in per-product demand
+  mode, Gold passes `entity="refineries"`, Chen passes `hasStateColumn={false}`. (A generic T9 callback
+  test can't catch these call-site regressions.)
 - `Workspace.TabCoverage.test.tsx` extended with `added-entities` for every model.
 - RTL: base tab shows no inline add section; Added Entities tab shows the correct sub-tabs; placing an
   entity on the Input Map (existing in-place flow) makes the row appear in the Added Entities sub-tab.
 
 ## QA — real browser (qa-sdet) · last
-**File:** `e2e/workspace-fixups.spec.ts` (new). Spec §7. Run twice; report product bugs to controller.
+**File:** `e2e/workspace-fixups.spec.ts` (new). Spec §7. Run **twice**; report product bugs to controller.
+- **Target the MERGED branch, not the config default (Codex plan-review P1):** `playwright.config.ts`
+  defaults `BASE_URL` to a remote Replit URL and defines no `webServer`, so an unset `E2E_BASE_URL`
+  would test stale remote code. Serve the merged branch locally (CLAUDE.md recipe): api-server
+  `DATABASE_URL=... PORT=3001 pnpm --filter api-server run dev`; studio
+  `PORT=<p> BASE_PATH=/ API_PROXY_TARGET=http://localhost:3001 pnpm --filter studio run dev`; run
+  `E2E_BASE_URL=http://127.0.0.1:<p> npx playwright test e2e/workspace-fixups.spec.ts` (from
+  `artifacts/studio`). **Both green runs must be recorded against the explicit local branch URL** — a
+  run against the config's default remote URL is not accepted evidence.
 - Plant markers = factory on Input + Output maps + legend (JADE).
 - A plant-bearing table shows id + City, State.
 - Capability Matrix: single-line info at desktop; readouts end in `Units`.
 - Added Entities tab present for ≥2 models; place an entity on the Input Map → row appears in the
   correct Added Entities sub-tab → Save persists; base tab has no inline add section; CSV toolbar only
   on the base tab.
-- Edit a band post-solve → each JADE Distance-Band filter re-ranges live (no `/solve`); filter by a
-  range selects the right rows; editing boundaries while a range is selected clears that band filter.
+- **Band-range clear via a mount-preserving surface (Codex plan-review QA note):** with a JADE OUTPUT
+  tab (Flows or Customer Assignments) active and a range filter selected, edit the bands via the **Run
+  Optimizer (SolveDialog) modal** — it hosts `JadeBandEditor` and opens OVER the active tab WITHOUT
+  unmounting it (verified). Navigating to the Optimization Parameters tab instead would unmount the
+  report and reset filters — a false "cleared". Assert: options re-range live (no `/solve` fired by the
+  edit itself), an **unrelated non-band filter in the same table survives**, and the band filter is
+  cleared. Also verify filtering by a range selects the right rows.
 
 ## Gate (controller, on merged state after each cherry-pick + final)
 `pnpm run typecheck` + `pnpm --filter studio test`. (api-server/pytest unaffected — frontend-only; do
 NOT run `e2e_accuracy.py`.) Then whole-branch review (independent lens) → merge to local `main`.
 Deploy held unless approved (frontend-only → `nos-studio`).
+
+---
+
+## Review comments — Codex (2026-09-19) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All seven comments folded into the task bodies above; see the resolution table at
+the end. Retained verbatim for history. Original round status was "changes requested".
+
+### [P1] Point browser QA at the merged branch, not the default remote deployment
+
+The plan schedules real-browser QA before deployment and then explicitly holds deployment unless it is
+approved. However, `artifacts/studio/playwright.config.ts` defaults `BASE_URL` to an existing remote
+Replit deployment when `E2E_BASE_URL` is absent and defines no local `webServer`. As written, both QA
+runs can pass while exercising none of the code from this branch.
+
+Specify how the merged branch is served locally or through an approved preview, set `E2E_BASE_URL`
+explicitly, and provide the exact targeted Playwright command. The QA evidence/final gate must record
+two successful runs against that explicit branch URL; do not accept a run against the config's default
+remote URL. For example, if local auth/API configuration supports it, start the merged Studio build on
+a known port and run the targeted spec twice with `E2E_BASE_URL=http://127.0.0.1:<port>`.
+
+### [P1] Add `effectivePlants` to the P→W row memo contract
+
+T6 changes P→W plant resolution to read the new `effectivePlants` prop, but only prescribes new memo
+dependencies for the filter descriptors. The current `pwRows` value is itself memoized with
+`[result, dataset, effectiveBands.join(",")]`. If `effectivePlants` changes without one of those values
+changing, the table retains stale plant labels.
+
+Require `effectivePlants` (or a stable plant-lookup signature derived from it) in the `pwRows` memo
+dependencies. Because INT currently proposes an inline array, either memoize the effective-plants
+projection in Workspace or use a stable signature/lookup in `JadeFlowsTab` so unrelated Workspace
+renders do not force row reconstruction. Add a component regression that rerenders with the same
+`result` and `dataset` but a changed `effectivePlants` collection and observes the new plant label.
+
+### [P1] Assign dead-prefill cleanup according to the single-writer map
+
+The ownership table assigns the five base tab files and their tests exclusively to T8, and
+`Workspace.tsx` exclusively to INT. The INT task nevertheless says "T8 or INT" may remove a base
+tab's prefill effect. That is ambiguous and permits either an ownership violation or incomplete
+cleanup.
+
+Assign the work deterministically:
+
+- **T8:** remove `prefillCoords` / `onPrefillConsumed` from all five base-tab prop interfaces and
+  destructuring; remove the five dead effects and the ten existing prefill/null-prefill component
+  tests.
+- **INT:** remove `pendingPrefill` / `setPendingPrefill` from Workspace and remove every base-tab
+  call-site prop.
+
+Neither task should edit the other's owned files.
+
+### [P2] Prove every model's Added Entities sub-tab contract
+
+T9 tests only an arbitrary two-subtab set, while Tab Coverage proves only that the outer
+`added-entities` entry renders. Neither test guarantees that INT supplies the correct per-model inner
+set or the model-specific props required by the reused base components.
+
+Add a data-driven Workspace integration matrix covering all five configurations:
+
+- `p-median-us` / `p-median-brazil`: Warehouses, Customers
+- `transport-coal`: Mines, Stations
+- `two-echelon-gold-au`: Refineries, Customers
+- `two-echelon-jade-us`: Plants, Warehouses, Customers
+- `chens-cosmetics-cn`: Warehouses, Customers
+
+Also exercise the highest-risk model-specific wiring: JADE Customers remains in per-product demand
+mode; Gold passes `entity="refineries"`; Chen passes `hasStateColumn={false}`. A generic T9 callback
+test alone will not detect those integration regressions.
+
+### [P2] Make the T2 helper type consistent with the name-ignored test
+
+T2 declares `plantIdCityState` with the structural parameter
+`{ id: string; city: string; state: string }`, but its test explicitly passes a plant with `name` to
+prove the name is ignored. A direct object literal with `name` fails TypeScript excess-property
+checking.
+
+Include `name?: string` in the helper's structural parameter type (while deliberately not reading it),
+or type the test fixture as the generated `Plant` before passing it. The former documents the
+name-ignored contract more clearly.
+
+### [P2] Replace the non-deduplicating effective-plants example
+
+INT says to pass
+`[...(dataset?.plants ?? []), ...addedPlantsFromInputs(displayedInputs)]` and labels it "dedupe by id,
+base wins," but concatenation does not deduplicate. Replace the example with the actual projection
+algorithm: seed a keyed collection with base plants, then add only scenario plants whose ids are not
+already present. Add an ID-collision regression proving the base plant wins.
+
+### QA clarification — preserve the mounted report while editing bands
+
+The real-browser test for clearing an active band filter must edit bands through a surface that leaves
+the output report mounted, such as the Run Optimizer modal over the active output tab. Navigating to a
+different Workspace tab may unmount the report and discard all filter state, producing a false-positive
+"cleared" result without exercising the keyed clear-on-change effect. State the exact UI path in the QA
+task and assert that an unrelated active filter survives the band edit.
+
+---
+
+## Review resolution (Codex plan review, 2026-09-19)
+
+**Current status: RESOLVED — no open items.** All folded into the task bodies.
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | QA points at default remote deployment | **Accepted.** Verified `playwright.config.ts` defaults `BASE_URL` to a Replit URL, no `webServer`. QA task now mandates local serve + explicit `E2E_BASE_URL` + exact command; both green runs recorded against the local branch URL. |
+| P1 | `effectivePlants` missing from `pwRows` memo | **Accepted.** Verified `pwRows` deps `[result, dataset, effectiveBands.join(",")]` build `plantLabel`. T6 adds an effective-plants signature to `pwRows` deps + a changed-effectivePlants-only regression. |
+| P1 | Dead-prefill cleanup ownership ambiguous | **Accepted.** Deterministic split: T8 owns base-tab interfaces/destructuring/dead effects/prefill tests; INT owns `pendingPrefill` state + call-site props. Disjoint by file. |
+| P2 | Prove every model's Added-Entities sub-tab set | **Accepted.** INT adds a data-driven 5-config matrix + high-risk wiring asserts (JADE per-product demand, Gold `entity="refineries"`, Chen `hasStateColumn={false}`). |
+| P2 | T2 helper type vs name-ignored test | **Accepted.** `name?: string` added to the param type (not read). |
+| P2 | Non-dedup effective-plants concat | **Accepted.** INT uses a keyed `Map` projection (base wins), memoized on `[dataset, displayedInputs]`; id-collision regression. |
+| QA | Edit bands via a mount-preserving surface | **Accepted.** Verified SolveDialog hosts `JadeBandEditor` and opens over the active tab without unmounting. QA edits bands via the Run Optimizer modal over an active output tab; asserts an unrelated filter survives + band filter clears. |
