@@ -1,0 +1,122 @@
+name: Permission Apply
+
+# permission-review-loop Task 15 — the hardened apply path (design doc Important 3/4).
+#
+# Triggered by the freeze comment "@claude apply permission review" on a harness-weekly PR. It runs
+# the TRUSTED apply implementation from the DEFAULT branch over the PR's comments + artifact treated
+# purely as DATA — it never checks out or executes PR-head code, never `pnpm install`s the PR head,
+# and writes only the two permitted result files back to the PR branch via a narrow API call. There
+# is NO model/claude-code-action in this path; authorization + mutation are deterministic code.
+#
+# NOTE: like the repo's other workflows, this has not yet been exercised by a real Actions run — its
+# first live run on a real permission-review PR is the validation step.
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    # First gate (cheap, from the event): a PR comment carrying the freeze trigger, from an
+    # authorized association. The full base/head/label/review gate runs in the "Resolve" step below.
+    if: >-
+      ${{ github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude apply permission review') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: permission-apply-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout the DEFAULT branch (trusted code — never the PR head)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve + gate PR metadata (base/head/label/review)
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR="${{ github.event.issue.number }}"
+          data=$(gh pr view "$PR" --json headRefName,headRefOid,baseRefName,labels,reviewDecision)
+          head=$(jq -r .headRefName <<<"$data")
+          base=$(jq -r .baseRefName <<<"$data")
+          headsha=$(jq -r .headRefOid <<<"$data")
+          review=$(jq -r .reviewDecision <<<"$data")
+          labels=$(jq -r '[.labels[].name] | join(",")' <<<"$data")
+          case "$head" in harness-weekly/*) ;; *) echo "head '$head' is not a harness-weekly branch" >&2; exit 1 ;; esac
+          [ "$base" = "main" ] || { echo "base '$base' != main" >&2; exit 1; }
+          [ "$review" = "APPROVED" ] || { echo "PR not APPROVED (reviewDecision=$review)" >&2; exit 1; }
+          printf '%s\n' "$labels" | tr ',' '\n' | grep -qx "permission-review" \
+            || { echo "PR missing the 'permission-review' label" >&2; exit 1; }
+          echo "head=$head" >>"$GITHUB_OUTPUT"
+          echo "headsha=$headsha" >>"$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile # from main — trusted lockfile, no PR-head deps
+
+      - name: Gather PR comments + artifact (DATA only — no PR-head execution)
+        id: data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR="${{ github.event.issue.number }}"
+          HEADSHA="${{ steps.pr.outputs.headsha }}"
+          # Comments in the DecisionComment[] shape the CLI expects (author + association carried through).
+          gh api --paginate "repos/${{ github.repository }}/issues/$PR/comments" \
+            --jq '[.[] | {commentId: (.id|tostring), body: .body, author: .user.login, association: .author_association, at: .created_at}]' \
+            > /tmp/comments.json
+          # Fetch the PR head + the capture branch as refs; read blobs with `git show` (never checkout/execute).
+          git fetch origin "$HEADSHA" "+refs/heads/permissions-capture:refs/remotes/origin/permissions-capture" 2>/dev/null || git fetch origin || true
+          ART=$(git ls-tree -r --name-only "$HEADSHA" -- docs/superpowers/metrics/permissions-review | grep '\.json$' | sort | tail -1)
+          [ -n "$ART" ] || { echo "no permission-review artifact on the PR head" >&2; exit 1; }
+          git show "$HEADSHA:$ART" > /tmp/artifact.json
+          SRC=$(jq -r .sourceCommit /tmp/artifact.json)
+          # sourceBlobMatches (Important 2): the PR's artifact blob must byte-match the SAME path at its
+          # declared sourceCommit — only the local capture job could have produced that. If it doesn't
+          # match (or sourceCommit is unreachable), the flag stays off and applyDecisions refuses everything.
+          BLOB_OK=false
+          if git cat-file -e "$SRC^{commit}" 2>/dev/null && git show "$SRC:$ART" > /tmp/artifact_src.json 2>/dev/null; then
+            if cmp -s /tmp/artifact.json /tmp/artifact_src.json; then BLOB_OK=true; fi
+          fi
+          echo "src=$SRC" >>"$GITHUB_OUTPUT"
+          echo "blob_ok=$BLOB_OK" >>"$GITHUB_OUTPUT"
+
+      - name: Apply (deterministic; default-branch code over PR data)
+        run: |
+          set -euo pipefail
+          LEASE=""
+          [ "${{ steps.data.outputs.blob_ok }}" = "true" ] && LEASE="--source-blob-matches"
+          pnpm harness:permissions:apply -- --mode remote \
+            --artifact /tmp/artifact.json --comments /tmp/comments.json \
+            --source-commit "${{ steps.data.outputs.src }}" $LEASE \
+            --settings .claude/settings.json \
+            --managed docs/superpowers/metrics/permissions-managed.json \
+            --authorized-associations "OWNER,MEMBER,COLLABORATOR"
+
+      - name: Write the two result files back to the PR branch (narrow API — no checkout push)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEAD="${{ steps.pr.outputs.head }}"
+          for f in .claude/settings.json docs/superpowers/metrics/permissions-managed.json; do
+            cur=$(gh api "repos/${{ github.repository }}/contents/$f?ref=$HEAD" --jq .sha 2>/dev/null || echo "")
+            args=(--method PUT "repos/${{ github.repository }}/contents/$f"
+              -f "message=[permissions] apply review"
+              -f "branch=$HEAD"
+              -f "content=$(base64 < "$f" | tr -d '\n')")
+            [ -n "$cur" ] && args+=(-f "sha=$cur")
+            gh api "${args[@]}"
+          done
