@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
-import { bandLabel } from "@/lib/bands";
+import { bandLabel, bandRangeLabel } from "@/lib/bands";
 
 // jsdom does not implement URL.createObjectURL/revokeObjectURL at all, so
 // vi.spyOn (which requires the property to already exist as a function)
@@ -275,8 +275,9 @@ describe("JadeFlowsTab", () => {
       const lines = text.split("\n");
       expect(lines[0]).toBe("Plant,Warehouse,Distance,Flow,Distance Band");
       expect(lines).toHaveLength(3); // header + 2 aggregated rows
-      // Values containing a comma (e.g. "Bethlehem, PA") are CSV-quoted.
-      expect(text).toContain('"Bethlehem, PA","Chicago, IL",293.7 mi,1400,Band 2');
+      // Values containing a comma (e.g. "plant-1 — Bethlehem, PA") are CSV-quoted.
+      // Item 2: the Plant column is "<id> — City, State", not just "City, State".
+      expect(text).toContain('"plant-1 — Bethlehem, PA","Chicago, IL",293.7 mi,1400,Band 2');
       expect(text).not.toMatch(/product/i);
     });
 
@@ -297,6 +298,189 @@ describe("JadeFlowsTab", () => {
       const lines = text.split("\n");
       expect(lines[0]).toBe("Warehouse,Customer,Distance,Flows,Distance Band");
       expect(lines).toHaveLength(3); // header + 2 rows
+    });
+  });
+
+  // Workspace fixups bundle (T6, item 2) — the P->W Plant column resolves via
+  // the shared `plantIdCityState` helper ("<id> — City, State") against
+  // `effectivePlants ?? dataset?.plants ?? []`.
+  describe("Item 2: plant id + City, State (effectivePlants)", () => {
+    it("P -> W Plant column shows exactly '<id> — <City>, <State>' for a base dataset plant", () => {
+      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
+      expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("plant-1 — Bethlehem, PA");
+    });
+
+    it("resolves an added-plant edge via the effectivePlants prop to id + City, State, not the raw id", () => {
+      const addedPlantResult = makeResult([
+        { fromId: "aw-plant-9", toId: "wh-11", flow: 50, distance: 42.1, leg: "plant_to_warehouse" },
+      ]);
+      render(
+        <JadeFlowsTab
+          result={addedPlantResult}
+          dataset={dataset}
+          bands={bands}
+          effectivePlants={[{ id: "aw-plant-9", city: "Denver", state: "CO", lat: 0, lng: 0 }]}
+        />,
+      );
+      const row = screen.getByTestId("jade-flow-pw-row-aw-plant-9-wh-11");
+      expect(row).toHaveTextContent("aw-plant-9 — Denver, CO");
+    });
+
+    it("falls back to the raw id when effectivePlants is provided but doesn't contain the edge's plant", () => {
+      const addedPlantResult = makeResult([
+        { fromId: "unresolved-plant", toId: "wh-11", flow: 50, distance: 42.1, leg: "plant_to_warehouse" },
+      ]);
+      render(
+        <JadeFlowsTab
+          result={addedPlantResult}
+          dataset={dataset}
+          bands={bands}
+          effectivePlants={[{ id: "aw-plant-9", city: "Denver", state: "CO", lat: 0, lng: 0 }]}
+        />,
+      );
+      expect(screen.getByTestId("jade-flow-pw-row-unresolved-plant-wh-11")).toHaveTextContent("unresolved-plant");
+    });
+
+    it("rerendering with the SAME result+dataset+plant id but CHANGED City/State in effectivePlants updates the P -> W label (proves the label-field memo signature, not just plant-id membership)", () => {
+      const initialPlants = [
+        { id: "plant-1", city: "Bethlehem", state: "PA", lat: 1, lng: 1 },
+        { id: "plant-2", city: "Houston", state: "TX", lat: 2, lng: 2 },
+      ];
+      const { rerender } = render(
+        <JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} effectivePlants={initialPlants} />,
+      );
+      expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("plant-1 — Bethlehem, PA");
+
+      // Same result/dataset references, same plant-1 id — only City/State changed.
+      const movedPlants = [
+        { id: "plant-1", city: "Reading", state: "PA", lat: 1, lng: 1 },
+        { id: "plant-2", city: "Houston", state: "TX", lat: 2, lng: 2 },
+      ];
+      rerender(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} effectivePlants={movedPlants} />);
+      expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("plant-1 — Reading, PA");
+    });
+  });
+
+  // Workspace fixups bundle (T6, item 5) — the Distance Band filter option
+  // values (NOT the table cell, which stays "Band N"/"Overflow") become
+  // unit-aware ranges, recompute live on a bands/unit change, and clear their
+  // own stale selection independently per inner table.
+  describe("Item 5: live distance-band range filters (both inner tables)", () => {
+    const spreadBands = [250, 500, 750, 1000];
+
+    function bandSpreadPwEdges(count: number) {
+      return Array.from({ length: count }, (_, i) => ({
+        fromId: `plant-${i}`,
+        toId: `wh-${i}`,
+        flow: 10 + i,
+        distance: 100 + i * 150,
+        leg: "plant_to_warehouse" as const,
+      }));
+    }
+    function bandSpreadWcEdges(count: number) {
+      return Array.from({ length: count }, (_, i) => ({
+        fromId: `wh-${i}`,
+        toId: `customer-${i}`,
+        flow: 10 + i,
+        distance: 100 + i * 150,
+        leg: "warehouse_to_customer" as const,
+      }));
+    }
+    // Both helpers above, with bands=[250,500,750,1000], produce the same 5
+    // distinct range labels in first-seen order for either leg.
+    const expectedRangeLabels = ["≤ 250 mi", "250–500 mi", "500–750 mi", "750–1000 mi", "> 1000 mi"];
+
+    it("both inner tables' Distance Band filter dropdown lists unit-aware ranges, not 'Band N'", async () => {
+      const user = userEvent.setup();
+      const spreadResult = makeResult([...bandSpreadPwEdges(11), ...bandSpreadWcEdges(11)]);
+      render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
+
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      let popover = screen.getByTestId("filter-menu-popover");
+      let labels = within(popover)
+        .getAllByTestId(/^option-filter-band-/)
+        .map(el => el.textContent);
+      expect(labels).toEqual(expectedRangeLabels);
+      expect(labels.some(l => l?.startsWith("Band"))).toBe(false);
+      await user.keyboard("{Escape}");
+
+      await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      popover = screen.getByTestId("filter-menu-popover");
+      labels = within(popover)
+        .getAllByTestId(/^option-filter-band-/)
+        .map(el => el.textContent);
+      expect(labels).toEqual(expectedRangeLabels);
+    });
+
+    it("table cells still read 'Band N'/'Overflow' even though the filter options are ranges", () => {
+      const spreadResult = makeResult(bandSpreadPwEdges(11));
+      render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
+      expect(screen.getByTestId("jade-flow-pw-row-plant-0-wh-0")).toHaveTextContent(bandLabel(100, spreadBands));
+    });
+
+    it("editing bands re-ranges the filter options live on a rerender, with no re-solve/network call (proves the memo-deps fix)", async () => {
+      const user = userEvent.setup();
+      const spreadResult = makeResult(bandSpreadPwEdges(11));
+      const { rerender } = render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
+
+      // JadeFlowsTab performs no data fetching at all (pure-props component)
+      // — there is nothing to spy on for "no network call"; the memo-deps fix
+      // is proven by the options actually changing on a plain prop rerender.
+      rerender(<JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" />);
+
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      const popover = screen.getByTestId("filter-menu-popover");
+      const labels = within(popover)
+        .getAllByTestId(/^option-filter-band-/)
+        .map(el => el.textContent);
+      expect(labels).toEqual(["≤ 1000 mi", "> 1000 mi"]);
+    });
+
+    it("selecting a range in EACH inner table, then changing bands, clears only that table's own band filter — non-band filters survive and the two clears are independent", async () => {
+      const user = userEvent.setup();
+      const spreadResult = makeResult([...bandSpreadPwEdges(11), ...bandSpreadWcEdges(11)]);
+      const { rerender } = render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
+
+      // Plant -> Warehouse: select a band range + a non-band (flow) filter.
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      let popover = screen.getByTestId("filter-menu-popover");
+      await user.click(
+        within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(100, spreadBands, "mi")}`),
+      );
+      await user.type(within(popover).getByTestId("input-filter-flow-min"), "5");
+      expect(within(popover).getByTestId("button-clear-filter-band")).toBeInTheDocument();
+      expect(within(popover).getByTestId("button-clear-filter-flow")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      // Warehouse -> Customer: select a DIFFERENT band range + a non-band (customer) filter.
+      await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      popover = screen.getByTestId("filter-menu-popover");
+      await user.click(
+        within(popover).getByTestId(`checkbox-filter-band-${bandRangeLabel(1600, spreadBands, "mi")}`),
+      );
+      await user.type(within(popover).getByTestId("input-filter-customer"), "customer-9");
+      expect(within(popover).getByTestId("button-clear-filter-band")).toBeInTheDocument();
+      expect(within(popover).getByTestId("button-clear-filter-customer")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      // Change bands — both tables' own "band" filter should clear.
+      rerender(<JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" />);
+
+      // Still on the Warehouse -> Customer tab: band cleared, customer filter survives.
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      popover = screen.getByTestId("filter-menu-popover");
+      expect(within(popover).queryByTestId("button-clear-filter-band")).not.toBeInTheDocument();
+      expect(within(popover).getByTestId("button-clear-filter-customer")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      // Switch back to Plant -> Warehouse: its own band filter was cleared independently too, flow filter survives.
+      await user.click(screen.getByTestId("button-jade-flows-inner-plant-warehouse"));
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      popover = screen.getByTestId("filter-menu-popover");
+      expect(within(popover).queryByTestId("button-clear-filter-band")).not.toBeInTheDocument();
+      expect(within(popover).getByTestId("button-clear-filter-flow")).toBeInTheDocument();
     });
   });
 });

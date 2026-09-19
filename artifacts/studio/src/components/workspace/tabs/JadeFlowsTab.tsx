@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
-import type { Dataset, Edge, SolveResult } from "@workspace/api-client-react";
+import { useEffect, useMemo, useState } from "react";
+import type { Dataset, Edge, Plant, SolveResult } from "@workspace/api-client-react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
-import { bandLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
-import { formatCityState } from "@/lib/formatLocation";
+import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
 
 // B3 (JADE Ch.9 Workspace Bundle, spec §5b) — Chapter 9 JADE's Flows tab.
 // JADE has TWO distinct facility->facility legs (plant_to_warehouse inbound,
@@ -61,6 +61,13 @@ interface JadeFlowsTabProps {
   /** Optional — base dataset (plants/warehouses/customers id->name/city/state
    * lookups). Absent renders raw ids. */
   dataset?: Dataset | null;
+  /** Workspace fixups bundle (T6, item 2) — optional effective-plants lookup
+   * for the P->W Plant column (`dataset.plants ∪ addedPlantsFromInputs(SOLVED
+   * snapshot)`, wired by INT). Defaults to `undefined`, which falls back to
+   * `dataset?.plants` — so this component still typechecks/renders standalone
+   * and behaves unchanged for base-only plants before INT wires the real
+   * union. */
+  effectivePlants?: Plant[];
   /** Live `distanceBands` (spec §2's "presentation-band" lens — the SAME
    * live array the map/legend read, so this column's labels always agree
    * with the map's colors). Falls back to the shared `DEFAULT_DISTANCE_BANDS`
@@ -85,8 +92,15 @@ function displayLabel(row: { name?: string; city?: string; state?: string } | un
   return id;
 }
 
-function plantLabel(id: string, dataset: Dataset | null | undefined): string {
-  return displayLabel(dataset?.plants?.find(p => p.id === id), id);
+// Workspace fixups bundle (T6, item 2) — resolves the P->W Plant column via
+// the shared `plantIdCityState` helper ("<id> — City, State", `name` never
+// shown) against the effective-plants list (`effectivePlants ?? dataset?.plants
+// ?? []`, wired by the caller). Falls back to the raw id when the plant isn't
+// found in that list at all (unresolved edge, matches every other id-fallback
+// in this file).
+function resolvePlantLabel(id: string, plants: Plant[]): string {
+  const plant = plants.find(p => p.id === id);
+  return plant ? plantIdCityState(plant) : id;
 }
 
 function warehouseLabel(id: string, dataset: Dataset | null | undefined): string {
@@ -144,10 +158,25 @@ function downloadClientCsv(filename: string, headers: string[], rows: (string | 
   URL.revokeObjectURL(url);
 }
 
-export function JadeFlowsTab({ result = null, dataset = null, bands = [], distanceUnit = "mi" }: JadeFlowsTabProps) {
+export function JadeFlowsTab({
+  result = null,
+  dataset = null,
+  bands = [],
+  distanceUnit = "mi",
+  effectivePlants,
+}: JadeFlowsTabProps) {
   const [innerTab, setInnerTab] = useState<InnerTab>("plant-warehouse");
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
+
+  // Workspace fixups bundle (T6, item 2) — the plant list used to resolve
+  // the P->W Plant column. A signature over id+city+state (not just id) is
+  // used as the `pwRows` memo dep below so a plant KEEPING its id but
+  // gaining a changed City/State (e.g. stepping the result-history stepper
+  // to a different solved snapshot) still refreshes the label — an id-only
+  // signature would miss that.
+  const plants = effectivePlants ?? dataset?.plants ?? [];
+  const plantsSignature = plants.map(p => `${p.id}|${p.city}|${p.state}`).join(";");
 
   const pwRows: PlantWarehouseRow[] = useMemo(() => {
     if (!result) return [];
@@ -155,14 +184,14 @@ export function JadeFlowsTab({ result = null, dataset = null, bands = [], distan
       key: `${r.plantId}|${r.warehouseId}`,
       plantId: r.plantId,
       warehouseId: r.warehouseId,
-      plantLabel: plantLabel(r.plantId, dataset),
+      plantLabel: resolvePlantLabel(r.plantId, plants),
       warehouseLabel: warehouseLabel(r.warehouseId, dataset),
       distance: r.distance,
       flow: r.flow,
       band: bandLabel(r.distance, effectiveBands),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, dataset, effectiveBands.join(",")]);
+  }, [result, dataset, effectiveBands.join(","), plantsSignature]);
 
   const wcRows: WarehouseCustomerRow[] = useMemo(() => {
     if (!result) return [];
@@ -179,15 +208,28 @@ export function JadeFlowsTab({ result = null, dataset = null, bands = [], distan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, dataset, effectiveBands.join(",")]);
 
+  // Workspace fixups bundle (T6, item 5) — the `band` descriptor's accessor
+  // computes a unit-aware RANGE label (e.g. "≤ 250 mi") for filtering,
+  // distinct from the table CELL which still reads the row's own
+  // `bandLabel`-derived "Band N"/"Overflow" (unchanged above). The descriptor
+  // is a closure over `effectiveBands`/`distanceUnit`, so those must be in
+  // this useMemo's deps (an empty dep array would freeze the range options at
+  // their first-render values and never update when bands/unit change).
   const pwDescriptors: ColumnFilterDescriptor<PlantWarehouseRow>[] = useMemo(
     () => [
       { key: "plant", label: "Plant", type: "select", accessor: r => r.plantLabel },
       { key: "warehouse", label: "Warehouse", type: "select", accessor: r => r.warehouseLabel },
       { key: "distance", label: "Distance", type: "number", accessor: r => r.distance },
       { key: "flow", label: "Flow", type: "number", accessor: r => r.flow },
-      { key: "band", label: "Distance Band", type: "select", accessor: r => r.band },
+      {
+        key: "band",
+        label: "Distance Band",
+        type: "select",
+        accessor: r => bandRangeLabel(r.distance, effectiveBands, distanceUnit),
+      },
     ],
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [effectiveBands.join(","), distanceUnit],
   );
 
   const wcDescriptors: ColumnFilterDescriptor<WarehouseCustomerRow>[] = useMemo(
@@ -196,9 +238,15 @@ export function JadeFlowsTab({ result = null, dataset = null, bands = [], distan
       { key: "customer", label: "Customer", type: "text", accessor: r => r.customerLabel },
       { key: "distance", label: "Distance", type: "number", accessor: r => r.distance },
       { key: "flow", label: "Flows", type: "number", accessor: r => r.flow },
-      { key: "band", label: "Distance Band", type: "select", accessor: r => r.band },
+      {
+        key: "band",
+        label: "Distance Band",
+        type: "select",
+        accessor: r => bandRangeLabel(r.distance, effectiveBands, distanceUnit),
+      },
     ],
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [effectiveBands.join(","), distanceUnit],
   );
 
   // Both hooks are called unconditionally regardless of which inner tab is
@@ -206,6 +254,27 @@ export function JadeFlowsTab({ result = null, dataset = null, bands = [], distan
   // rendered below.
   const pwFilters = useTableFilters(pwRows, pwDescriptors);
   const wcFilters = useTableFilters(wcRows, wcDescriptors);
+
+  // Workspace fixups bundle (T6, item 5) — stale-selection policy: when the
+  // band boundaries/unit change, an active "band" selection (e.g. "≤ 250 mi")
+  // may no longer match any of the freshly-recomputed range options (the
+  // FilterMenu derives its select options from `pwDescriptors`/`wcDescriptors`
+  // above, which just changed too) — clear ONLY that table's own "band" key,
+  // leaving every other active filter on that table intact. Each inner
+  // table's clear is independent of the other (separate effects, separate
+  // `useTableFilters` instances) — selecting a range on Plant -> Warehouse and
+  // then editing bands must not touch Warehouse -> Customer's filters, and
+  // vice versa. `setFilter` is a stable `useCallback` (empty deps in
+  // `useTableFilters`), so it's intentionally omitted from these deps.
+  useEffect(() => {
+    pwFilters.setFilter("band", undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveBands.join(","), distanceUnit]);
+
+  useEffect(() => {
+    wcFilters.setFilter("band", undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveBands.join(","), distanceUnit]);
 
   function handleDownloadPw() {
     downloadClientCsv(
