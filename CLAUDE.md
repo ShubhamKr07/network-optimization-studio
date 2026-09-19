@@ -63,6 +63,22 @@ risky/broad/ok + denials attributed to the task window). Weekly report → `repo
   risky/broad/ok) + attribute runtime tool denials from the session transcript to the task window;
   append a `permissions.csv` row. **Exits 3 (STOP-and-ask) on a risky grant or a recurring denial.**
   Baseline for `allow_new` is gitignored scratch (`.harness/permissions/`). Run by `/harness-retro`.
+- **Weekly permission-review loop** (grants/denials → reviewed promotion into the tracked project
+  allowlist): `pnpm harness:permissions:capture [--dry-run|--write-managed]` builds this week's
+  candidate list from the local **PreToolUse/PostToolUse ledger** (`.claude/hooks/permission-ledger.mjs`
+  → `.harness/permissions/ledger.jsonl`, provenance `prompted_and_executed`) + transcripts, writing a
+  redacted TRACKED artifact `docs/superpowers/metrics/permissions-review/<week>.{json,md}` (+ a
+  gitignored `<week>.local.json` with full commands). **No secrets in git**: a command that trips the
+  secret scan is committed as `sensitive — review locally` with NO rule and is promotable only via a
+  local apply. `scripts/harness/permissions-capture-weekly.sh` (local Mon cron, see
+  `docs/ops/permission-review-cron.md`) commits it to the `permissions-capture` branch; the Monday
+  harness-weekly workflow renders it into the PR (`## Permission review`). Review by commenting
+  `@claude allow|allow-risky|allow-destructive|deny|revoke|defer <id> [as Bash(<rule>)]`, then
+  `@claude apply permission review` — the hardened `permission-apply.yml` runs `pnpm
+  harness:permissions:apply` (deterministic; default-branch code over PR data only) which writes the
+  accepted rules into the **project-scoped tracked `.claude/settings.json`** (never user-global). A
+  risky grant needs `allow-risky`; **destructive needs `allow-destructive` (exact byte-for-byte, kept
+  by explicit decision — Decision B)** and is shown redacted-in-full for review (Decision A).
 - `pnpm harness:report [--week YYYY-WW]` — write the weekly report (medians, flake top-5, deploy
   rollup, failure causes + 2nd-occurrence flags, `## Documentation`).
 - `pnpm smoke --env production|preview` — 7 post-deploy checks from outside Render
