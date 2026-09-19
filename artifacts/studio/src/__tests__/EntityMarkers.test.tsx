@@ -82,12 +82,19 @@ describe("SVG-string icon builders", () => {
     expect(svg).toContain("<circle");
   });
 
-  // jade-T12 (Chapter 9 JADE)
-  it("plantSquareSvg returns a string (never a React element) using the supply-role token", () => {
+  // jade-T12 (Chapter 9 JADE), updated for the T3 factory-silhouette icon.
+  it("plantSquareSvg returns a string (never a React element) rendering a filled factory silhouette on --map-plant", () => {
     const svg = plantSquareSvg();
     expect(typeof svg).toBe("string");
+    expect(svg).toContain("<svg");
+    // No longer a bare stroked square: a factory body (saw-tooth roofline
+    // polygon) plus window panes, not a plain <rect>.
+    expect(svg).toContain("<polygon");
     expect(svg).toContain("<rect");
-    expect(svg).toContain("var(--map-warehouse)");
+    expect(svg).toContain("var(--map-plant)");
+    expect(svg).not.toContain("var(--map-warehouse)");
+    // Marker sizing/bounds/legend geometry envelope is unchanged.
+    expect(svg).toContain('width="20" height="20" viewBox="0 0 24 24"');
   });
 
   // Bundle 3 (T10) regression: warehouse triangles now key off the

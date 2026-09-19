@@ -24,15 +24,20 @@ export interface EntityMarkersToggles {
   plants?: boolean;
 }
 
-/** jade-T12 — the OFF-state square plant marker SVG, mirroring
+/** jade-T12 — the OFF-state plant marker SVG, mirroring
  * `warehouseTriangleSvg`'s own exported-pure-string-builder convention (a
  * plant has no status vocabulary to key a marker style off — see
  * PLANT_ROLE/statusPresentation.ts's own comment — so this takes no
- * argument, unlike the triangle builder). Reuses the same `--map-warehouse`
- * supply-role token family (a plant is supply, not demand) rather than
- * inventing a new CSS custom property this task's file list doesn't cover. */
+ * argument, unlike the triangle builder). A filled factory silhouette
+ * (body + saw-tooth/zig-zag roofline + 3 window panes) keyed off the
+ * dedicated `--map-plant` token (index.css) rather than the warehouse
+ * supply-role token — a plant is a distinct third map-entity kind, not a
+ * warehouse. Window panes reuse the already-defined `--surface-band-fg`
+ * (off-white) as a cut-out color rather than introducing another new
+ * custom property. Envelope (`width="20" height="20" viewBox="0 0 24 24"`)
+ * is unchanged so marker sizing/bounds/legend geometry are unaffected. */
 export function plantSquareSvg(): string {
-  return `<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" fill="none" stroke="var(--map-warehouse)" stroke-width="2" /></svg>`;
+  return `<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><polygon points="2,22 2,10 6,4 6,10 10,4 10,10 14,4 14,10 18,4 18,10 22,4 22,22" fill="var(--map-plant)" /><rect x="5" y="14" width="3" height="4" fill="var(--surface-band-fg)" /><rect x="10.5" y="14" width="3" height="4" fill="var(--surface-band-fg)" /><rect x="16" y="14" width="3" height="4" fill="var(--surface-band-fg)" /></svg>`;
 }
 
 /** A2 (Bundle 2.2) — the fixed OFF-state customer/station marker radius,

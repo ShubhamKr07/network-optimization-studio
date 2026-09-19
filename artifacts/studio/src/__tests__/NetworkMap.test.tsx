@@ -1487,12 +1487,17 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
         plants={plants}
       />,
     );
-    // 1 warehouse (triangle/polygon) + 1 plant (square/rect) marker.
+    // 1 warehouse (triangle) + 1 plant (factory silhouette) marker.
+    // T3 — plantSquareSvg is now a filled factory silhouette (saw-tooth
+    // roofline polygon + window-pane rects) on the dedicated `--map-plant`
+    // token, distinct from the warehouse triangle's `--map-warehouse`
+    // family, so identity is asserted via token rather than "no polygon"
+    // (both shapes legitimately use <polygon> now).
     const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
     expect(markers.length).toBe(2);
-    const plantMarker = Array.from(markers).find((m) => m.innerHTML.includes("<rect"));
+    const plantMarker = Array.from(markers).find((m) => m.innerHTML.includes("var(--map-plant)"));
     expect(plantMarker).toBeDefined();
-    expect(plantMarker?.innerHTML).not.toContain("<polygon");
+    expect(plantMarker?.innerHTML).not.toContain("var(--map-warehouse)");
     const plantTooltip = tooltipChildren.find((child) => {
       const { container } = render(<>{child}</>);
       return container.textContent?.includes("Springfield");

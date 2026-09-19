@@ -361,7 +361,7 @@
   --map-warehouse: #181A15; --map-warehouse-open: #5F7F28; --map-customer: #93B747;
   --map-customer-stroke: #48611E; --map-flow: #7DA436; --map-inactive: #ADB1A4;
   --map-ring-forced-open: #2D6CDF; --map-ring-select: #FCD34D; --map-ring-multiselect: #7C3AED;
-  --map-default-stroke: #83887A;
+  --map-default-stroke: #83887A; --map-plant: #2E7D32;
 
   /* fonts (all three serif vars → Source Serif 4) */
   --app-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
