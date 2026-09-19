@@ -40,12 +40,16 @@ function baseInputs(overrides: Partial<CaptureInputs> = {}): CaptureInputs {
 }
 
 describe("parseArgs", () => {
-  it("defaults to weeksAgo 0, dryRun false", () => {
-    expect(parseArgs([])).toEqual({ weeksAgo: 0, dryRun: false });
+  it("defaults to weeksAgo 0, dryRun false, writeManaged false", () => {
+    expect(parseArgs([])).toEqual({ weeksAgo: 0, dryRun: false, writeManaged: false });
   });
 
   it("parses --weeks-ago and --dry-run", () => {
-    expect(parseArgs(["--weeks-ago", "2", "--dry-run"])).toEqual({ weeksAgo: 2, dryRun: true });
+    expect(parseArgs(["--weeks-ago", "2", "--dry-run"])).toEqual({ weeksAgo: 2, dryRun: true, writeManaged: false });
+  });
+
+  it("parses --write-managed (weekly-wrapper only)", () => {
+    expect(parseArgs(["--write-managed"])).toEqual({ weeksAgo: 0, dryRun: false, writeManaged: true });
   });
 });
 
@@ -218,5 +222,26 @@ describe("writeCaptureResult", () => {
     expect(written.schemaVersion).toBe(result.artifact.schemaVersion);
     expect(paths.jsonPath).toContain(join("docs", "superpowers", "metrics", "permissions-review"));
     expect(paths.localPath).toContain(join(".harness", "permissions"));
+  });
+
+  it("does NOT write permissions-managed.json without --write-managed", () => {
+    const result = runCapture(baseInputs());
+    const paths = writeCaptureResult(result, { root: dir, dryRun: false });
+    expect(paths.managedPath).toBeUndefined();
+    expect(existsSync(join(dir, "docs", "superpowers", "metrics", "permissions-managed.json"))).toBe(false);
+  });
+
+  it("writes the refreshed managed map only with --write-managed (weekly wrapper)", () => {
+    const result = runCapture(baseInputs());
+    const paths = writeCaptureResult(result, { root: dir, dryRun: false, writeManaged: true });
+    expect(paths.managedPath).toBe(join(dir, "docs", "superpowers", "metrics", "permissions-managed.json"));
+    expect(existsSync(paths.managedPath!)).toBe(true);
+    expect(JSON.parse(readFileSync(paths.managedPath!, "utf8"))).toEqual(result.managed);
+  });
+
+  it("--write-managed + --dry-run writes nothing", () => {
+    const result = runCapture(baseInputs());
+    const paths = writeCaptureResult(result, { root: dir, dryRun: true, writeManaged: true });
+    expect(existsSync(paths.managedPath!)).toBe(false);
   });
 });

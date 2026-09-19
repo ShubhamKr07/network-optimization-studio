@@ -38,10 +38,13 @@ export const CAPTURE_SCHEMA_VERSION = 1;
 export interface CaptureFlags {
   weeksAgo: number;
   dryRun: boolean;
+  /** Persist the refreshed managed-rule usage map back to permissions-managed.json (weekly wrapper
+   * only — off by default so an ad-hoc capture never churns the tracked managed sidecar). */
+  writeManaged: boolean;
 }
 
 export function parseArgs(argv: string[]): CaptureFlags {
-  const f: CaptureFlags = { weeksAgo: 0, dryRun: false };
+  const f: CaptureFlags = { weeksAgo: 0, dryRun: false, writeManaged: false };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case "--weeks-ago":
@@ -49,6 +52,9 @@ export function parseArgs(argv: string[]): CaptureFlags {
         break;
       case "--dry-run":
         f.dryRun = true;
+        break;
+      case "--write-managed":
+        f.writeManaged = true;
         break;
     }
   }
@@ -120,6 +126,8 @@ export interface CaptureResult {
   artifact: CaptureArtifact;
   markdown: string;
   local: CaptureLocalSidecar;
+  /** The managed-rule map with this window's usage refreshed (persisted only via `--write-managed`). */
+  managed: ManagedMap;
 }
 
 /** Extract every Bash tool_use's full command from a transcript, regardless of provenance -- the
@@ -270,7 +278,7 @@ export function runCapture(inputs: CaptureInputs): CaptureResult {
     commands,
   };
 
-  return { week, artifact, markdown, local };
+  return { week, artifact, markdown, local, managed: managedRefreshed };
 }
 
 /**
@@ -297,12 +305,16 @@ function findRawCommandForCandidate(candidate: Candidate, input: BuildCandidates
 export interface WriteOpts {
   root: string;
   dryRun: boolean;
+  /** Also persist result.managed to permissions-managed.json (weekly wrapper only). */
+  writeManaged?: boolean;
 }
 
 export interface WrittenPaths {
   jsonPath: string;
   mdPath: string;
   localPath: string;
+  /** Present only when `writeManaged` was set. */
+  managedPath?: string;
 }
 
 export function writeCaptureResult(result: CaptureResult, opts: WriteOpts): WrittenPaths {
@@ -311,6 +323,7 @@ export function writeCaptureResult(result: CaptureResult, opts: WriteOpts): Writ
   const mdPath = join(reviewDir, `${result.week}.md`);
   const localDir = join(opts.root, ".harness", "permissions");
   const localPath = join(localDir, `${result.week}.local.json`);
+  const managedPath = join(opts.root, "docs", "superpowers", "metrics", "permissions-managed.json");
 
   if (!opts.dryRun) {
     mkdirSync(reviewDir, { recursive: true });
@@ -318,9 +331,12 @@ export function writeCaptureResult(result: CaptureResult, opts: WriteOpts): Writ
     writeFileSync(mdPath, result.markdown + "\n");
     mkdirSync(localDir, { recursive: true });
     writeFileSync(localPath, JSON.stringify(result.local, null, 2) + "\n");
+    if (opts.writeManaged) {
+      writeFileSync(managedPath, JSON.stringify(result.managed, null, 2) + "\n");
+    }
   }
 
-  return { jsonPath, mdPath, localPath };
+  return opts.writeManaged ? { jsonPath, mdPath, localPath, managedPath } : { jsonPath, mdPath, localPath };
 }
 
 // --- CLI ---------------------------------------------------------------
@@ -373,7 +389,7 @@ function main(): void {
     sourceCommit: gitHeadSha(root),
   });
 
-  const paths = writeCaptureResult(result, { root, dryRun: flags.dryRun });
+  const paths = writeCaptureResult(result, { root, dryRun: flags.dryRun, writeManaged: flags.writeManaged });
   const verb = flags.dryRun ? "would write" : "wrote";
   process.stdout.write(
     `permissions-capture (week ${result.week}): ${result.artifact.candidates.length} candidates — ${verb} ${paths.jsonPath}\n`,
