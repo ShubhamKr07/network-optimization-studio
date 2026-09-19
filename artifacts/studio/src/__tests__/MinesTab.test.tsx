@@ -240,38 +240,82 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
   });
 });
 
-// Phase 3.2, Task 4 — Input Map click-to-place prefill.
-describe("MinesTab — Input Map prefill (Phase 3.2, Task 4)", () => {
-  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
-    const onPrefillConsumed = vi.fn();
+// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
+// flags let the new Added Entities tab reuse the base tab's own add-row
+// UX without also rendering the base table/toolbar/import dialog, while the
+// base entity tab keeps everything except the added section.
+describe("MinesTab — showAddedSection / showBaseTable (T8)", () => {
+  const addedMinesProps = {
+    addedMines: [],
+    onAddedMinesChange: vi.fn(),
+    onDeleteMine: vi.fn(),
+  };
+
+  it("showBaseTable={false}: renders the added-only region + '+ Add mine' affordance, but no base table/toolbar/import trigger", () => {
     render(
       <MinesTab
-        mines={[]} overrides={[]} onChange={vi.fn()}
-        addedMines={[]}
-        onAddedMinesChange={vi.fn()}
-        onDeleteMine={vi.fn()}
-        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        mines={mines}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={7}
+        showBaseTable={false}
+        {...addedMinesProps}
+      />,
     );
-    expect(screen.getByTestId("input-new-mine-lat")).toHaveValue(40.1234);
-    expect(screen.getByTestId("input-new-mine-lng")).toHaveValue(-75.5678);
-    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("added-mines-section")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-mine-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("mines-tab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mines-tab-toolbar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-export-mines-csv")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-import-mines")).not.toBeInTheDocument();
+    expect(screen.queryByText("M1")).not.toBeInTheDocument();
   });
 
-  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
-    const onPrefillConsumed = vi.fn();
+  it("showBaseTable={false}: clicking '+ Add mine' opens the add-row form", async () => {
     render(
       <MinesTab
-        mines={mines} overrides={[]} onChange={vi.fn()}
-        addedMines={[]}
-        onAddedMinesChange={vi.fn()}
-        onDeleteMine={vi.fn()}
-        prefillCoords={null}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        mines={mines}
+        overrides={[]}
+        onChange={vi.fn()}
+        showBaseTable={false}
+        {...addedMinesProps}
+      />,
     );
     expect(screen.queryByTestId("add-mine-row-form")).not.toBeInTheDocument();
-    expect(onPrefillConsumed).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("button-add-mine-row"));
+    expect(screen.getByTestId("add-mine-row-form")).toBeInTheDocument();
+  });
+
+  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
+    render(
+      <MinesTab
+        mines={mines}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={7}
+        showAddedSection={false}
+        {...addedMinesProps}
+      />,
+    );
+    expect(screen.queryByTestId("added-mines-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-mine-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("mines-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("mines-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByText("M1")).toBeInTheDocument();
+  });
+
+  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
+    render(
+      <MinesTab
+        mines={mines}
+        overrides={[]}
+        onChange={vi.fn()}
+        {...addedMinesProps}
+      />,
+    );
+    expect(screen.getByTestId("mines-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("mines-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("added-mines-section")).toBeInTheDocument();
+    expect(screen.getByText("M1")).toBeInTheDocument();
   });
 });

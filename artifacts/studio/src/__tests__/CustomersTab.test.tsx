@@ -458,39 +458,83 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
   });
 });
 
-// Phase 3.2, Task 4 — Input Map click-to-place prefill.
-describe("CustomersTab — Input Map prefill (Phase 3.2, Task 4)", () => {
-  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
-    const onPrefillConsumed = vi.fn();
+// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
+// flags let the new Added Entities tab reuse the base tab's own add-row
+// UX without also rendering the base table/toolbar/import dialog, while the
+// base entity tab keeps everything except the added section.
+describe("CustomersTab — showAddedSection / showBaseTable (T8)", () => {
+  const addedCustomersProps = {
+    addedCustomers: [],
+    onAddedCustomersChange: vi.fn(),
+    onDeleteCustomer: vi.fn(),
+  };
+
+  it("showBaseTable={false}: renders the added-only region + '+ Add customer' affordance, but no base table/toolbar/import trigger", () => {
     render(
       <CustomersTab
-        customers={[]} overrides={[]} onChange={vi.fn()}
-        addedCustomers={[]}
-        onAddedCustomersChange={vi.fn()}
-        onDeleteCustomer={vi.fn()}
-        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={7}
+        showBaseTable={false}
+        {...addedCustomersProps}
+      />,
     );
-    expect(screen.getByTestId("input-new-customer-lat")).toHaveValue(40.1234);
-    expect(screen.getByTestId("input-new-customer-lng")).toHaveValue(-75.5678);
-    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("added-customers-section")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-customer-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("customers-tab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("customers-tab-toolbar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-export-customers-csv")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-import-customers")).not.toBeInTheDocument();
+    expect(screen.queryByText("C1")).not.toBeInTheDocument();
   });
 
-  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
-    const onPrefillConsumed = vi.fn();
+  it("showBaseTable={false}: clicking '+ Add customer' opens the add-row form", async () => {
     render(
       <CustomersTab
-        customers={customers} overrides={[]} onChange={vi.fn()}
-        addedCustomers={[]}
-        onAddedCustomersChange={vi.fn()}
-        onDeleteCustomer={vi.fn()}
-        prefillCoords={null}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        showBaseTable={false}
+        {...addedCustomersProps}
+      />,
     );
     expect(screen.queryByTestId("add-customer-row-form")).not.toBeInTheDocument();
-    expect(onPrefillConsumed).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("button-add-customer-row"));
+    expect(screen.getByTestId("add-customer-row-form")).toBeInTheDocument();
+  });
+
+  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={7}
+        showAddedSection={false}
+        {...addedCustomersProps}
+      />,
+    );
+    expect(screen.queryByTestId("added-customers-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-customer-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("customers-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("customers-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByText("C1")).toBeInTheDocument();
+  });
+
+  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
+    render(
+      <CustomersTab
+        customers={customers}
+        overrides={[]}
+        onChange={vi.fn()}
+        {...addedCustomersProps}
+      />,
+    );
+    expect(screen.getByTestId("customers-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("customers-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("added-customers-section")).toBeInTheDocument();
+    expect(screen.getByText("C1")).toBeInTheDocument();
   });
 });
 

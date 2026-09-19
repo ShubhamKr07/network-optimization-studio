@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import { StationTable, type StationOverride } from "@/components/tables/StationTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -51,9 +51,19 @@ interface StationsTabProps {
   onDeleteStation?: (id: string) => void;
   /** B6.1 stage 3's precheck errors for the current scenario — drives the inline "N mines lack a lane cost" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
-  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
-  prefillCoords?: { lat: number; lng: number } | null;
-  onPrefillConsumed?: () => void;
+  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
+   * add-row form + added-rows table + precheck chips + delete (the
+   * `addedSection` below). Used by the base entity tab call site
+   * (`showAddedSection={false}`), which keeps only the base table + its
+   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
+  showAddedSection?: boolean;
+  /** T8 — when `false`, hides the base `StationTable`, its count/filter,
+   * its empty state, the CSV Upload/Download toolbar, AND the import
+   * dialog — leaving ONLY the add-row form + added-rows table + precheck
+   * chips + delete. Used by the new Added Entities tab
+   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
+   * byte-identical. */
+  showBaseTable?: boolean;
 }
 
 // A5.1 — transport-coal's Stations input tab. Mirrors MinesTab (same file
@@ -77,8 +87,8 @@ export function StationsTab({
   onAddedStationsChange,
   onDeleteStation,
   precheckErrors = [],
-  prefillCoords,
-  onPrefillConsumed,
+  showAddedSection = true,
+  showBaseTable = true,
 }: StationsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -132,15 +142,6 @@ export function StationsTab({
       setNewDisplayCode(nextDisplayCode("st", state, city, existingCodes));
     }
   }
-
-  // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
-  useEffect(() => {
-    if (!prefillCoords) return;
-    setAddingRow(true);
-    setNewLat(String(prefillCoords.lat));
-    setNewLng(String(prefillCoords.lng));
-    onPrefillConsumed?.();
-  }, [prefillCoords, onPrefillConsumed]);
 
   function upsertAddedDemand(id: string, demand: number) {
     onAddedStationsChange?.(addedStations.map(s => (s.id === id ? { ...s, demand } : s)));
@@ -387,6 +388,13 @@ export function StationsTab({
     </div>
   );
 
+  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
+  // form/table/chips/delete: no base table, no count/filter, no empty
+  // state, no CSV toolbar, no import dialog.
+  if (!showBaseTable) {
+    return <div>{showAddedSection && addedSection}</div>;
+  }
+
   if (stations.length === 0) {
     return (
       <div>
@@ -394,7 +402,7 @@ export function StationsTab({
         <p className="text-sm text-muted-foreground" data-testid="stations-tab-empty">
           No stations in this dataset.
         </p>
-        {addedSection}
+        {showAddedSection && addedSection}
         {importDialog}
       </div>
     );
@@ -404,7 +412,7 @@ export function StationsTab({
     <div data-testid="stations-tab">
       {toolbar}
       <StationTable stations={stations} overrides={overrides} onChange={onChange} />
-      {addedSection}
+      {showAddedSection && addedSection}
       {importDialog}
     </div>
   );

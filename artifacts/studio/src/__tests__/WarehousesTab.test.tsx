@@ -643,39 +643,87 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
   });
 });
 
-// Phase 3.2, Task 4 — Input Map click-to-place prefill.
-describe("WarehousesTab — Input Map prefill (Phase 3.2, Task 4)", () => {
-  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
-    const onPrefillConsumed = vi.fn();
+// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
+// flags let the new Added Entities tab reuse the base tab's own add-row
+// UX without also rendering the base table/toolbar/import dialog, while the
+// base entity tab keeps everything except the added section.
+describe("WarehousesTab — showAddedSection / showBaseTable (T8)", () => {
+  const addedWarehousesProps = {
+    addedWarehouses: [],
+    onAddedWarehousesChange: vi.fn(),
+    onDeleteWarehouse: vi.fn(),
+  };
+
+  it("showBaseTable={false}: renders the added-only region + '+ Add warehouse' affordance, but no base table/toolbar/import trigger/filter", () => {
     render(
       <WarehousesTab
-        warehouses={[]} overrides={[]} capacityMode="none" onChange={vi.fn()}
-        addedWarehouses={[]}
-        onAddedWarehousesChange={vi.fn()}
-        onDeleteWarehouse={vi.fn()}
-        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        scenarioId={7}
+        showBaseTable={false}
+        {...addedWarehousesProps}
+      />,
     );
-    expect(screen.getByTestId("input-new-warehouse-lat")).toHaveValue(40.1234);
-    expect(screen.getByTestId("input-new-warehouse-lng")).toHaveValue(-75.5678);
-    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-warehouse-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("warehouses-tab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("warehouses-tab-toolbar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-export-warehouses-csv")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-import-warehouses")).not.toBeInTheDocument();
+    expect(screen.queryByText("CHI")).not.toBeInTheDocument();
   });
 
-  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
-    const onPrefillConsumed = vi.fn();
+  it("showBaseTable={false}: clicking '+ Add warehouse' opens the add-row form", async () => {
     render(
       <WarehousesTab
-        warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()}
-        addedWarehouses={[]}
-        onAddedWarehousesChange={vi.fn()}
-        onDeleteWarehouse={vi.fn()}
-        prefillCoords={null}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        showBaseTable={false}
+        {...addedWarehousesProps}
+      />,
     );
     expect(screen.queryByTestId("add-warehouse-row-form")).not.toBeInTheDocument();
-    expect(onPrefillConsumed).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
+    expect(screen.getByTestId("add-warehouse-row-form")).toBeInTheDocument();
+  });
+
+  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        scenarioId={7}
+        showAddedSection={false}
+        {...addedWarehousesProps}
+      />,
+    );
+    expect(screen.queryByTestId("added-warehouses-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-warehouse-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByText("CHI")).toBeInTheDocument();
+  });
+
+  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
+    render(
+      <WarehousesTab
+        warehouses={warehouses}
+        overrides={[]}
+        capacityMode="none"
+        onChange={vi.fn()}
+        {...addedWarehousesProps}
+      />,
+    );
+    expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
+    expect(screen.getByText("CHI")).toBeInTheDocument();
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Scenario } from "@workspace/api-client-react";
 import { MineTable, type MineOverride } from "@/components/tables/MineTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -55,9 +55,18 @@ interface MinesTabProps {
   onDeleteMine?: (id: string) => void;
   /** B6.1 stage 3's precheck errors for the current scenario — drives the inline "missing N lane costs" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
-  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
-  prefillCoords?: { lat: number; lng: number } | null;
-  onPrefillConsumed?: () => void;
+  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
+   * add-row form + added-rows table + precheck chips + delete (the
+   * `addedSection` below). Used by the base entity tab call site
+   * (`showAddedSection={false}`), which keeps only the base table + its
+   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
+  showAddedSection?: boolean;
+  /** T8 — when `false`, hides the base `MineTable`, its count/filter, its
+   * empty state, the CSV Upload/Download toolbar, AND the import dialog —
+   * leaving ONLY the add-row form + added-rows table + precheck chips +
+   * delete. Used by the new Added Entities tab (`showBaseTable={false}`).
+   * Defaults `true` — every pre-T8 caller is byte-identical. */
+  showBaseTable?: boolean;
 }
 
 // A5.1 — transport-coal's Mines input tab. Same shape as WarehousesTab/
@@ -84,8 +93,8 @@ export function MinesTab({
   onAddedMinesChange,
   onDeleteMine,
   precheckErrors = [],
-  prefillCoords,
-  onPrefillConsumed,
+  showAddedSection = true,
+  showBaseTable = true,
 }: MinesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -141,15 +150,6 @@ export function MinesTab({
       setNewDisplayCode(nextDisplayCode("mn", state, city, existingCodes));
     }
   }
-
-  // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
-  useEffect(() => {
-    if (!prefillCoords) return;
-    setAddingRow(true);
-    setNewLat(String(prefillCoords.lat));
-    setNewLng(String(prefillCoords.lng));
-    onPrefillConsumed?.();
-  }, [prefillCoords, onPrefillConsumed]);
 
   function upsertAdded(id: string, patch: Partial<AddedMine>) {
     if (!onAddedMinesChange) return;
@@ -410,6 +410,13 @@ export function MinesTab({
     </div>
   );
 
+  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
+  // form/table/chips/delete: no base table, no count/filter, no empty
+  // state, no CSV toolbar, no import dialog.
+  if (!showBaseTable) {
+    return <div>{showAddedSection && addedSection}</div>;
+  }
+
   if (mines.length === 0) {
     return (
       <div>
@@ -417,7 +424,7 @@ export function MinesTab({
         <p className="text-sm text-muted-foreground" data-testid="mines-tab-empty">
           No mines in this dataset.
         </p>
-        {addedSection}
+        {showAddedSection && addedSection}
         {importDialog}
       </div>
     );
@@ -427,7 +434,7 @@ export function MinesTab({
     <div data-testid="mines-tab">
       {toolbar}
       <MineTable mines={mines} overrides={overrides} onChange={onChange} />
-      {addedSection}
+      {showAddedSection && addedSection}
       {importDialog}
     </div>
   );

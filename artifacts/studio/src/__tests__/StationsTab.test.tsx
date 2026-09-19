@@ -239,38 +239,82 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
   });
 });
 
-// Phase 3.2, Task 4 — Input Map click-to-place prefill.
-describe("StationsTab — Input Map prefill (Phase 3.2, Task 4)", () => {
-  it("opens the add-row form and prefills Lat/Lng when prefillCoords is set", () => {
-    const onPrefillConsumed = vi.fn();
+// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
+// flags let the new Added Entities tab reuse the base tab's own add-row
+// UX without also rendering the base table/toolbar/import dialog, while the
+// base entity tab keeps everything except the added section.
+describe("StationsTab — showAddedSection / showBaseTable (T8)", () => {
+  const addedStationsProps = {
+    addedStations: [],
+    onAddedStationsChange: vi.fn(),
+    onDeleteStation: vi.fn(),
+  };
+
+  it("showBaseTable={false}: renders the added-only region + '+ Add station' affordance, but no base table/toolbar/import trigger", () => {
     render(
       <StationsTab
-        stations={[]} overrides={[]} onChange={vi.fn()}
-        addedStations={[]}
-        onAddedStationsChange={vi.fn()}
-        onDeleteStation={vi.fn()}
-        prefillCoords={{ lat: 40.1234, lng: -75.5678 }}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        stations={stations}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={7}
+        showBaseTable={false}
+        {...addedStationsProps}
+      />,
     );
-    expect(screen.getByTestId("input-new-station-lat")).toHaveValue(40.1234);
-    expect(screen.getByTestId("input-new-station-lng")).toHaveValue(-75.5678);
-    expect(onPrefillConsumed).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("added-stations-section")).toBeInTheDocument();
+    expect(screen.getByTestId("button-add-station-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("stations-tab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("stations-tab-toolbar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-export-stations-csv")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-import-stations")).not.toBeInTheDocument();
+    expect(screen.queryByText("S1")).not.toBeInTheDocument();
   });
 
-  it("does not open the add-row form or call onPrefillConsumed when prefillCoords is null", () => {
-    const onPrefillConsumed = vi.fn();
+  it("showBaseTable={false}: clicking '+ Add station' opens the add-row form", async () => {
     render(
       <StationsTab
-        stations={stations} overrides={[]} onChange={vi.fn()}
-        addedStations={[]}
-        onAddedStationsChange={vi.fn()}
-        onDeleteStation={vi.fn()}
-        prefillCoords={null}
-        onPrefillConsumed={onPrefillConsumed}
-      />
+        stations={stations}
+        overrides={[]}
+        onChange={vi.fn()}
+        showBaseTable={false}
+        {...addedStationsProps}
+      />,
     );
     expect(screen.queryByTestId("add-station-row-form")).not.toBeInTheDocument();
-    expect(onPrefillConsumed).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTestId("button-add-station-row"));
+    expect(screen.getByTestId("add-station-row-form")).toBeInTheDocument();
+  });
+
+  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
+    render(
+      <StationsTab
+        stations={stations}
+        overrides={[]}
+        onChange={vi.fn()}
+        scenarioId={7}
+        showAddedSection={false}
+        {...addedStationsProps}
+      />,
+    );
+    expect(screen.queryByTestId("added-stations-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-station-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("stations-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByText("S1")).toBeInTheDocument();
+  });
+
+  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
+    render(
+      <StationsTab
+        stations={stations}
+        overrides={[]}
+        onChange={vi.fn()}
+        {...addedStationsProps}
+      />,
+    );
+    expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("stations-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("added-stations-section")).toBeInTheDocument();
+    expect(screen.getByText("S1")).toBeInTheDocument();
   });
 });

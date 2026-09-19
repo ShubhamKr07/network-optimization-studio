@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Customer, Product, Scenario } from "@workspace/api-client-react";
 import { CustomerTable, type CustomerOverride } from "@/components/tables/CustomerTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -77,9 +77,6 @@ interface CustomersTabProps {
   onDeleteCustomer?: (id: string) => void;
   /** B2.1's precheck errors for the current scenario — drives the inline "missing N distances" chip on added rows. */
   precheckErrors?: PrecheckErrorLike[];
-  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
-  prefillCoords?: { lat: number; lng: number } | null;
-  onPrefillConsumed?: () => void;
   /** T5 (Bundle 2, Step 2b) — threaded straight through to CustomerTable
    * (see its own comment); the "Added customers" section below is NEVER
    * gated by this — an added region has no textbook demand to protect.
@@ -115,6 +112,19 @@ interface CustomersTabProps {
    * base table is wired; the separate "Added customers" table isn't named
    * in spec §10's JADE table list. */
   enableFilters?: boolean;
+  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
+   * add-row form + added-rows table + precheck chips + delete (the
+   * `addedSection` below). Used by the base entity tab call site
+   * (`showAddedSection={false}`), which keeps only the base table + its
+   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
+  showAddedSection?: boolean;
+  /** T8 — when `false`, hides the base customer table (scalar or per-product),
+   * its count/filter, its empty state, the CSV Upload/Download toolbar, AND
+   * the import dialog — leaving ONLY the add-row form + added-rows table +
+   * precheck chips + delete. Used by the new Added Entities tab
+   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
+   * byte-identical. */
+  showBaseTable?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -135,14 +145,14 @@ export function CustomersTab({
   onAddedCustomersChange,
   onDeleteCustomer,
   precheckErrors = [],
-  prefillCoords,
-  onPrefillConsumed,
   demandEditable = true,
   products = [],
   productOverrides = [],
   onProductOverridesChange,
   hasStateColumn = true,
   enableFilters = false,
+  showAddedSection = true,
+  showBaseTable = true,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   // T11 — the actual switch: per-product mode only renders when the caller
@@ -248,15 +258,6 @@ export function CustomersTab({
       setNewDisplayCode(nextDisplayCode("cs", state, city, existingCodes));
     }
   }
-
-  // Phase 3.2, Task 4 — Input Map click-to-place prefill (see WarehousesTab's own comment on this same pattern).
-  useEffect(() => {
-    if (!prefillCoords) return;
-    setAddingRow(true);
-    setNewLat(String(prefillCoords.lat));
-    setNewLng(String(prefillCoords.lng));
-    onPrefillConsumed?.();
-  }, [prefillCoords, onPrefillConsumed]);
 
   function upsertAddedDemand(id: string, demand: number) {
     onAddedCustomersChange?.(addedCustomers.map(c => (c.id === id ? { ...c, demand } : c)));
@@ -658,6 +659,13 @@ export function CustomersTab({
     </div>
   );
 
+  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
+  // form/table/chips/delete: no base table, no count/filter, no empty
+  // state, no CSV toolbar, no import dialog.
+  if (!showBaseTable) {
+    return <div>{showAddedSection && addedSection}</div>;
+  }
+
   if (customers.length === 0) {
     return (
       <div>
@@ -665,7 +673,7 @@ export function CustomersTab({
         <p className="text-sm text-muted-foreground" data-testid="customers-tab-empty">
           No customers in this dataset.
         </p>
-        {addedSection}
+        {showAddedSection && addedSection}
         {importDialog}
       </div>
     );
@@ -745,7 +753,7 @@ export function CustomersTab({
       ) : (
         <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
       )}
-      {addedSection}
+      {showAddedSection && addedSection}
       {importDialog}
     </div>
   );

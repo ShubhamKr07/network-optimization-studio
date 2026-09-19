@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { WarehouseCandidate, Scenario } from "@workspace/api-client-react";
 import { WarehouseTable, type WarehouseOverride } from "@/components/tables/WarehouseTable";
 import { ImportDialog } from "@/components/ImportDialog";
@@ -81,9 +81,6 @@ interface WarehousesTabProps {
   onDeleteWarehouse?: (id: string) => void;
   /** B2.1's precheck errors for the current scenario — drives the inline "missing N distances" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
-  /** Phase 3.2, Task 4 — set by Workspace.tsx after an Input Map Confirm click. When non-null, opens the add-row form and pre-fills newLat/newLng, then calls onPrefillConsumed so Workspace.tsx clears it (one-shot, not a controlled value). */
-  prefillCoords?: { lat: number; lng: number } | null;
-  onPrefillConsumed?: () => void;
   /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gate on DATA PRESENCE (Workspace.tsx computes this from the resolved dataset), not modelId — drops the State column from the base table and the Added-warehouses table, and drops the state-required check from the add-row form. Defaults true (every other model has real state data and is unaffected). */
   hasStateColumn?: boolean;
   /** B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu on the
@@ -93,6 +90,19 @@ interface WarehousesTabProps {
    * (wired by INT). Threaded straight through to `WarehouseTable`, which
    * owns the actual runtime `>10 rendered rows` visibility rule. */
   enableFilters?: boolean;
+  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
+   * add-row form + added-rows table + precheck chips + delete (the
+   * `addedSection` below). Used by the base entity tab call site
+   * (`showAddedSection={false}`), which keeps only the base table + its
+   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
+  showAddedSection?: boolean;
+  /** T8 — when `false`, hides the base `<Table>`/`WarehouseTable`, its
+   * count/filter, its empty state, the CSV Upload/Download toolbar, AND the
+   * import dialog — leaving ONLY the add-row form + added-rows table +
+   * precheck chips + delete. Used by the new Added Entities tab
+   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
+   * byte-identical. */
+  showBaseTable?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -120,10 +130,10 @@ export function WarehousesTab({
   onAddedWarehousesChange,
   onDeleteWarehouse,
   precheckErrors = [],
-  prefillCoords,
-  onPrefillConsumed,
   hasStateColumn = true,
   enableFilters = false,
+  showAddedSection = true,
+  showBaseTable = true,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
@@ -191,17 +201,6 @@ export function WarehousesTab({
       setNewDisplayCode(nextDisplayCode("wh", state, city, existingCodes));
     }
   }
-
-  // Phase 3.2, Task 4 — Input Map click-to-place prefill. One-shot: opens
-  // the add-row form and pre-fills newLat/newLng, then reports back to
-  // Workspace.tsx so it clears its own pendingPrefill state.
-  useEffect(() => {
-    if (!prefillCoords) return;
-    setAddingRow(true);
-    setNewLat(String(prefillCoords.lat));
-    setNewLng(String(prefillCoords.lng));
-    onPrefillConsumed?.();
-  }, [prefillCoords, onPrefillConsumed]);
 
   function upsertAdded(id: string, patch: Partial<AddedWarehouse>) {
     if (!onAddedWarehousesChange) return;
@@ -508,6 +507,13 @@ export function WarehousesTab({
     </div>
   );
 
+  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
+  // form/table/chips/delete: no base table, no count/filter, no empty
+  // state, no CSV toolbar, no import dialog.
+  if (!showBaseTable) {
+    return <div>{showAddedSection && addedSection}</div>;
+  }
+
   if (candidates.length === 0) {
     return (
       <div>
@@ -515,7 +521,7 @@ export function WarehousesTab({
         <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
           {emptyLabel}
         </p>
-        {addedSection}
+        {showAddedSection && addedSection}
         {importDialog}
       </div>
     );
@@ -532,7 +538,7 @@ export function WarehousesTab({
         hasStateColumn={hasStateColumn}
         enableFilters={enableFilters}
       />
-      {addedSection}
+      {showAddedSection && addedSection}
       {importDialog}
     </div>
   );
