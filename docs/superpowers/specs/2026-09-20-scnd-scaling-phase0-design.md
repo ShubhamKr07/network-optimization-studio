@@ -16,6 +16,10 @@
 | L2 | Truthful solver status/termination metadata ships now. Default quality stays **Proven optimal** (`gap=0`) for the pilot. No student-facing Quick toggle in this spec. |
 | L3 | Sizing is **frequency-aware**: Phase 0 classifies + times scenario regimes (fast vs slow); real regime frequency comes from pilot telemetry, not guessed now. |
 | L4 | **MIP-start-from-cache** is a measured Phase 0 solver experiment. **Single-flight/coalescing is deferred** to the B2 spec (needs the durable queue). |
+| L5 | Ratified pilot-gate SLO: **p95 queue wait < 30 s** during stated peak. |
+| L6 | Tasks 5 & 6 run against the **existing live services** (real Render Linux numbers), with the safeguards in §7.2/§8.2 (off-hours, dedicated test account, cleanup, abort plan). Low real-user risk pre-cohort. |
+| L7 | Benchmark corpus = **both** hand-authored version-controlled fixtures (coverage/reproducibility) **and** a sample of real dev-DB scenarios (realism). |
+| L8 | MIP-start experiment = **full characterization now** across the near-dup families (demand/capacity/force/distance edits), not just a rough spot-check. |
 
 ## 1. Scope
 
@@ -99,9 +103,12 @@ A repeatable script (`scripts/src/harness/solve-benchmark.ts` invoking the real 
 
 ### 4.2 Corpus
 
-Representative scenarios per the parent §4.4, at minimum covering, for JADE: forced-open, free-choice, P changes, demand edits, warehouse force/inactivate, plant-product capability edits, added plants/warehouses/customers, customer exclusion, distance overrides, and known-hard combinations. Include one representative scenario for each other live model (p-median-us, p-median-brazil, transport-coal base LP, chens-cosmetics-cn) as fast-regime baselines.
+Two sources combined (L7):
 
-Each scenario is tagged with a **regime label** (`fast` | `slow`) so the matrix supports L3's frequency-aware sizing once pilot telemetry supplies real frequencies.
+- **Hand-authored fixtures** (version-controlled, deterministic) per the parent §4.4, at minimum covering, for JADE: forced-open, free-choice, P changes, demand edits, warehouse force/inactivate, plant-product capability edits, added plants/warehouses/customers, customer exclusion, distance overrides, and known-hard combinations. Include one representative scenario for each other live model (p-median-us, p-median-brazil, transport-coal base LP, chens-cosmetics-cn) as fast-regime baselines. These are the reproducible backbone.
+- **A sample of real dev-DB scenarios** (realism check) — pulled read-only, hashed/anonymized as needed, to confirm the hand-authored corpus's timing distribution matches real inputs. Not required to be reproducible; used to validate the fixtures aren't unrepresentative.
+
+Each scenario (both sources) is tagged with a **regime label** (`fast` | `slow`) so the matrix supports L3's frequency-aware sizing once pilot telemetry supplies real frequencies.
 
 ### 4.3 Runs and recorded fields
 
@@ -134,7 +141,7 @@ Does seeding CBC with a prior/near-identical solve's open-facility set as a warm
 
 - Use `solve_jade`'s existing model; supply a MIP start via PuLP's warm-start mechanism (`prob.solve(PULP_CBC_CMD(..., warmStart=True))` after setting `varValue` on the integer vars, or the CBC `mipstart` file if PuLP's path proves unreliable — **determine which actually works with the installed CBC and record it**).
 - Seed set 1: the `gap=0` optimal open set of the same scenario (upper bound on benefit).
-- Seed set 2: the optimal open set of a *near-identical* scenario (one demand edit / one capacity edit away) — the realistic near-dup case.
+- Seed set 2: the optimal open set of a *near-identical* scenario — **characterized fully (L8) across each near-dup family**: one demand edit, one capacity edit, one force/inactivate change, and one distance-override edit away. Record per family how much a stale-but-close prior open set still helps (or hurts) time-to-incumbent, since real near-dups vary by which field was tweaked.
 - Compare against the no-warm-start baseline from Task 2: total time, time to first incumbent, objective, correctness of the final answer.
 
 ### 5.3 Guardrail
@@ -173,9 +180,11 @@ On the actual `nos-api` Starter plan (0.5 CPU / 512 MB), what is the real per-so
 
 ### 7.2 Method
 
-- Run the Task 2 harness (subset) against a deployed environment on the candidate plans (Starter, and Standard `1c-2g` for comparison), capturing CPU/RSS from Render metrics.
+- Run the Task 2 harness (subset) against the **existing live services** (L6) on the current Starter plan, and against a temporarily-resized Standard `1c-2g` for comparison, capturing CPU/RSS from Render metrics.
 - Drive concurrent solves (3, then higher) and watch for OOM / CBC thrash / event-loop starvation of the API.
 - Record on Linux (Render), not just local macOS, since the parent's RSS figures were off-Render.
+
+**Live-services safeguards (L6):** run **off-hours** (no real cohort exists yet, so real-user impact is near-zero, but treat it as if it could); use a **dedicated test account**; tag and **clean up** all test scenarios/jobs afterward; be ready to **abort** if API latency for any real request degrades. If a plan resize is used for comparison, restore the original plan after.
 
 ### 7.3 Deliverable
 
@@ -191,17 +200,17 @@ The 50×50 load is an unproven hypothesis and the B2 build is expensive. This ta
 
 ### 8.2 Synthetic load test (current architecture)
 
-Against a deployed environment (correctly sized per Task 5):
+Against the **existing live services** (L6), correctly sized per Task 5, under the same off-hours / test-account / cleanup / abort safeguards as §7.2:
 
 - **Steady:** sustain 2,500 submissions/hour for a bounded window (or a validated accelerated equivalent), warm cache.
 - **Burst:** 50 synchronized submissions, warm and cold cache.
 - Mix: run once frequency-neutral (random over live models) and once all-JADE (the guaranteed case).
 - Capture: enqueue latency, queue wait, end-to-end completion p50/p95, rejection rate (the current 429 at `QUEUE_DEPTH_LIMIT=30`), failures, and **where the bottleneck actually is** (CPU / event loop / spawn throughput / Postgres connections).
 
-### 8.3 Proposed pass criteria (for user approval — SLOs not yet ratified)
+### 8.3 Pass criteria (ratified, L5)
 
 - p95 enqueue latency < 500 ms.
-- p95 queue wait during stated peak < 30 s (or the classroom threshold set by the user).
+- **p95 queue wait during stated peak < 30 s.**
 - Enqueue rejection rate under contracted load < 1%.
 - Execution failure rate (excluding infeasibility) < 1%.
 - No permanently stuck jobs after restart.
@@ -225,9 +234,11 @@ Deliver `docs/superpowers/specs/2026-09-20-pilot-gate-results.md` stating: did t
 
 No infrastructure is created or resized as a committed change by this spec; Task 5/6 may use temporary deployed environments for measurement.
 
-## 10. Open clarifications for the user
+## 10. Clarifications — resolved
 
-1. **Classroom completion SLO** (§8.3): is p95 queue-wait < 30 s the right target, or a different threshold (e.g. 60/90 s)? This gates the pilot-gate pass/fail.
-2. **Load-test environment**: acceptable to run Task 5/6 against a temporary Render environment (short-lived paid instances), or must it be local-only? Real Render Linux numbers are the point of Task 5, so a temporary deployment is recommended.
-3. **Benchmark corpus authoring**: should the corpus be hand-authored scenarios, or seeded from any real scenarios already in the dev DB? Hand-authored gives reproducibility; real ones give realism. Recommendation: hand-authored, version-controlled fixtures.
-4. **MIP-start experiment depth** (§5): stop at "does it work + rough effect", or fully characterize across the near-dup families now? Recommendation: rough effect now (it's an experiment, not the build); full characterization only if it looks promising.
+All four Phase-0 clarifications are decided (see L5–L8 in §0):
+
+1. **Completion SLO** → p95 queue wait < 30 s (§8.3).
+2. **Load-test environment** → existing live services, with §7.2/§8.2 safeguards.
+3. **Benchmark corpus** → both hand-authored fixtures and a real dev-DB sample (§4.2).
+4. **MIP-start depth** → full characterization across near-dup families (§5.2).
