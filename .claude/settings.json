@@ -2,5 +2,29 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "NOS_GLM_DELEGATION": "disabled"
+  },
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-ledger.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-ledger.mjs\""
+          }
+        ]
+      }
+    ]
   }
 }

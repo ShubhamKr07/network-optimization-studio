@@ -28,6 +28,32 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Fetch + validate the permission-review artifact (deterministic; isolated from the model)
+        id: perm
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "present=false" >>"$GITHUB_OUTPUT"
+          if ! git fetch origin "+refs/heads/permissions-capture:refs/remotes/origin/permissions-capture" 2>/dev/null; then
+            echo "no permissions-capture branch yet — skipping the permission-review section"; exit 0
+          fi
+          JSON=$(git ls-tree -r --name-only origin/permissions-capture -- docs/superpowers/metrics/permissions-review | grep '\.json$' | sort | tail -1 || true)
+          [ -n "$JSON" ] || { echo "no artifact on permissions-capture — skipping"; exit 0; }
+          MD="${JSON%.json}.md"
+          mkdir -p docs/superpowers/metrics/permissions-review
+          git show "origin/permissions-capture:$JSON" > "$JSON"
+          git show "origin/permissions-capture:$MD"   > "$MD"
+          GEN=$(jq -r .generatedAt "$JSON")
+          GENS=$(date -u -d "$GEN" +%s 2>/dev/null || date -u +%s)
+          AGE=$(( ( $(date -u +%s) - GENS ) / 86400 ))
+          if [ "$AGE" -gt 10 ]; then
+            echo "permission-review artifact is ${AGE}d old (>10) — rendering it but flagging stale"
+          fi
+          # Overwrite the GITHUB_OUTPUT 'present' with true now that the copy succeeded.
+          { echo "present=true"; echo "json=$JSON"; echo "md=$MD"; } >>"$GITHUB_OUTPUT"
+          echo "Staged $JSON (generated $GEN, ~${AGE}d old) for the report + PR."
+
       - name: Compute week + write metrics report and docs-audit candidates
         run: |
           WEEK=$(date -u +%G-%V)
@@ -44,6 +70,11 @@ jobs:
           claude_args: '--max-turns 60 --allowedTools "Read,Write,Edit,Bash"'
           prompt: |
             You are the weekly harness sweep. Produce ONE combined pull request.
+
+            HARD RULE: do NOT read, edit, or `git add` anything under
+            docs/superpowers/metrics/permissions-review/ or permissions-managed.json — a later
+            deterministic workflow step commits those; they must never enter your context or any commit
+            you make. Use explicit `git add <path>` for every commit (never `git add -A`/`git add .`).
 
             Inputs already generated on the runner working tree:
             - Metrics report: docs/superpowers/metrics/reports/${{ env.WEEK }}.md (FYI — DO NOT modify it).
@@ -86,6 +117,31 @@ jobs:
                merges (--no-squash). The report section is FYI and merges as-is.
 
             8. Report the PR URL.
+
+      - name: Commit the permission-review artifact onto the weekly PR + label (deterministic)
+        if: steps.perm.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BR=$(gh pr list --state open --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("harness-weekly/"))] | sort_by(.number) | reverse | .[0].headRefName')
+          [ -n "$BR" ] || { echo "no harness-weekly PR found; skipping permission-artifact commit"; exit 0; }
+          git fetch origin "$BR"
+          git checkout "$BR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Re-materialize the artifact on this branch, then commit ONLY these two paths.
+          git show "origin/permissions-capture:${{ steps.perm.outputs.json }}" > "${{ steps.perm.outputs.json }}"
+          git show "origin/permissions-capture:${{ steps.perm.outputs.md }}"   > "${{ steps.perm.outputs.md }}"
+          git add -- "${{ steps.perm.outputs.json }}" "${{ steps.perm.outputs.md }}"
+          if ! git diff --cached --quiet; then
+            git commit -m "[permissions] weekly review artifact"
+            git push origin "$BR"
+          fi
+          gh label create permission-review -c FBCA04 -d "weekly permission-review artifact present" --force 2>/dev/null || true
+          PRNUM=$(gh pr list --state open --head "$BR" --json number --jq '.[0].number')
+          [ -n "$PRNUM" ] && gh pr edit "$PRNUM" --add-label permission-review || true
 
       - name: Supersede older harness-weekly PRs
         env:
