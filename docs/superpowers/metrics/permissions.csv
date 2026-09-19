@@ -2,3 +2,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-09-15T11:55:32.165Z,chapter-4-chens,765,24,0,2,Read,90,17,gate: 17 risky grant(s) — human review required
 2026-09-18T10:15:49.557Z,jade-ch9-workspace,0,0,0,0,,0,0,
 2026-09-18T12:05:04.622Z,nonjade-servicestats-coverage,0,0,0,0,,0,0,
+2026-09-19T21:48:52.959Z,workspace-fixups,0,0,0,0,,0,0,
