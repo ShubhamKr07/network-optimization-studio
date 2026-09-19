@@ -224,9 +224,13 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
   // (mirroring addedWarehouseSchema's shape), and Workspace.tsx now wires
   // CustomersTab's added-* props for this model too — supersedes B5.2's
   // "p-median-us only" note above (that was true before this task).
+  // jade-INT (Workspace fixups bundle, item 4) — the "Added ..." sections
+  // relocated off the base Refineries/Customers tabs onto the new dedicated
+  // Added Entities tab (Refineries, then Customers sub-tabs for this model).
   it("renders the Added customers section and its add-row button for two-echelon-gold-au", () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-customers"));
     expect(screen.getByTestId("added-customers-section")).toBeInTheDocument();
     expect(screen.getByTestId("button-add-customer-row")).toBeInTheDocument();
   });
@@ -236,7 +240,8 @@ describe("Workspace — two-echelon-gold-au (A5.3)", () => {
   // since twoEchelonInputsSchema gained a real addedRefineries field.
   it("renders the Added refineries section on the Refineries tab", () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-refineries"));
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    // "refineries" is this model's first (default-active) sub-tab.
     expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
     expect(screen.getByText("Added refineries")).toBeInTheDocument();
     expect(screen.getByTestId("button-add-warehouse-row")).toHaveTextContent("+ Add refinery");

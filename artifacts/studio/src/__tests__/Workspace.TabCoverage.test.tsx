@@ -119,6 +119,11 @@ const OPTIMIZATION_PARAMETERS: TabCoverageEntry = {
   tabTestId: "optimization-parameters-tab",
 };
 const INPUT_MAP: TabCoverageEntry = { sidebarId: "input-map", tabTestId: "input-map-tab" };
+// jade-INT (Workspace fixups bundle, item 4) — every model's
+// `inputEntriesForModel` now appends an "Added Entities" entry (last, before
+// Optimization Parameters); its content root is `AddedEntitiesTab.tsx`'s own
+// `data-testid="added-entities-tab"`.
+const ADDED_ENTITIES: TabCoverageEntry = { sidebarId: "added-entities", tabTestId: "added-entities-tab" };
 const OUTPUT_MAP: TabCoverageEntry = { sidebarId: "output-map", tabTestId: "output-map-tab" };
 
 // The 4 output-grid tabs have no single wrapping div with a stable testid of
@@ -219,6 +224,7 @@ describe("Workspace tab coverage — p-median-us", () => {
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "distances", tabTestId: "distances-tab" },
+        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -312,6 +318,7 @@ describe("Workspace tab coverage — transport-coal", () => {
         { sidebarId: "mines", tabTestId: "mines-tab" },
         { sidebarId: "stations", tabTestId: "stations-tab" },
         { sidebarId: "laneCosts", tabTestId: "lanecosts-tab" },
+        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -406,6 +413,7 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
         { sidebarId: "refineries", tabTestId: "refineries-tab" },
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "distances", tabTestId: "legdistances-tab" },
+        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -518,6 +526,7 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "distances", tabTestId: "jade-distances-tab" },
+        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -537,6 +546,197 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
         // includes all 5 grid entries (like two-echelon-gold-au) — its
         // plant_to_warehouse/warehouse_to_customer legs map 1:1 onto Flows/
         // Customer Assignments respectively.
+      ],
+    );
+  });
+});
+
+// ── p-median-brazil (jade-INT, Workspace fixups bundle item 4) ────────────
+// Deliberately excluded from the original A5.2 sweep (no per-row dataset
+// endpoint at the time — see this file's own header comment), but T5
+// (Bundle 2) later gave it a real GET /dataset endpoint + full grid tabs, so
+// its own Added Entities coverage belongs here now rather than being folded
+// into the p-median-us case above (Codex round-2 review — "both must
+// execute", not just the combined label as evidence).
+describe("Workspace tab coverage — p-median-brazil", () => {
+  const brazilInputs = {
+    p: 7,
+    distanceBands: [500, 1000, 2000, 4000],
+    capacityMode: "uniform",
+    uniformCapacity: 20000000,
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+    gap: 0,
+    timeLimitSec: 120,
+    singleSource: true,
+  };
+
+  const solvedScenario = {
+    id: 30,
+    name: "Base case",
+    modelId: "p-median-brazil",
+    inputs: brazilInputs,
+    result: {
+      status: "optimal" as const,
+      objective: 12345,
+      runTimeSec: 0.5,
+      quality: "Optimal",
+      edges: [{ fromId: "WH-ANP", toId: "REG-SP", flow: 100, distance: 900 }],
+      metrics: { weightedAvgDistance: 900, bandCoverage: [], utilizationByNode: [] },
+      details: {},
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    },
+    stale: false,
+    createdAt: "2026-01-03T00:00:00Z",
+    updatedAt: "2026-01-03T00:00:00Z",
+  };
+
+  const dataset = {
+    warehouses: [{ id: "WH-ANP", city: "Anápolis", state: "ANP", lat: -16.33, lng: -48.95 }],
+    customers: [{ id: "REG-SP", city: "São Paulo", state: "SP", lat: -23.55, lng: -46.63, demand: 5000000 }],
+  };
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseListModels.mockReturnValue({
+      data: [
+        {
+          id: "p-median-brazil",
+          countryBounds: { sw: [-30, -68], ne: [0, -35] },
+          capabilities: {
+            supportsP: true,
+            capacityModes: ["uniform"],
+            demandEditable: false,
+            outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+            supportsFacilityStatus: true,
+          },
+        },
+      ],
+    } as unknown as ReturnType<typeof useListModels>);
+  });
+
+  it("every Inputs entry (incl. Input Map, Added Entities) and every allowed Outputs entry opens its real content, not a placeholder", () => {
+    render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
+
+    runTabCoverage(
+      [
+        INPUT_MAP,
+        { sidebarId: "customers", tabTestId: "customers-tab" },
+        { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
+        { sidebarId: "distances", tabTestId: "distances-tab" },
+        ADDED_ENTITIES,
+        OPTIMIZATION_PARAMETERS,
+      ],
+      [
+        OUTPUT_MAP,
+        OPEN_WAREHOUSES,
+        CUSTOMER_ASSIGNMENTS,
+        COST_SUMMARY,
+        SERVICE_STATS,
+      ],
+    );
+  });
+});
+
+// ── chens-cosmetics-cn (jade-INT, Workspace fixups bundle item 4) ─────────
+// Chapter 4 (Chen's Cosmetics) — reuses p-median-us's "pmedian" Input Map
+// mode and WarehousesTab/CustomersTab (C4.13), so its Added Entities
+// sub-tab set is the same {Warehouses, Customers}. Absent from the original
+// sweep entirely (added after C4.13) — new coverage, not a modification.
+describe("Workspace tab coverage — chens-cosmetics-cn", () => {
+  const chensInputs = {
+    objective: "coverage",
+    p: 3,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    gap: 0,
+    timeLimitSec: 120,
+    capacityMode: "none",
+    distanceBands: [600, 5000],
+    warehouseOverrides: [],
+    customerOverrides: [],
+    addedWarehouses: [],
+    addedCustomers: [],
+    distanceOverrides: [],
+  };
+
+  const solvedScenario = {
+    id: 40,
+    name: "Chen coverage",
+    modelId: "chens-cosmetics-cn",
+    inputs: chensInputs,
+    result: {
+      status: "optimal" as const,
+      objective: 66.6667,
+      runTimeSec: 0.3,
+      quality: "optimal",
+      edges: [{ fromId: "wh-cn-1", toId: "cs-cn-1", flow: 100, distance: 300 }],
+      metrics: { weightedAvgDistance: 300, bandCoverage: [{ band: 600, percent: 66 }] },
+      details: { objective: "coverage", coveragePct: 66.6667, coveredDemand: 100, uncoveredPct: 33.3333 },
+      solverUsed: "CBC",
+      infeasibilityReason: null,
+    },
+    stale: false,
+    createdAt: "2026-01-04T00:00:00Z",
+    updatedAt: "2026-01-04T00:00:00Z",
+  };
+
+  // Deliberately blank `state` — Chen's real dataset shape (a China dataset
+  // with no state field) — so `hasStateColumn` genuinely resolves `false`.
+  const dataset = {
+    warehouses: [{ id: "wh-cn-1", city: "Shenzhen", state: "", lat: 22.54, lng: 114.06 }],
+    customers: [{ id: "cs-cn-1", city: "Guangzhou", state: "", lat: 23.13, lng: 113.26, demand: 500 }],
+  };
+
+  beforeEach(() => {
+    mockUseListScenarios.mockReturnValue({ data: [solvedScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: solvedScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseGetDataset.mockReturnValue({ data: dataset } as unknown as ReturnType<typeof useGetDataset>);
+    mockUseListModels.mockReturnValue({
+      data: [
+        {
+          id: "chens-cosmetics-cn",
+          distanceUnit: "km",
+          countryBounds: { sw: [18.0, 73.0], ne: [54.0, 135.0] },
+          capabilities: {
+            supportsP: true,
+            capacityModes: ["none"],
+            demandEditable: true,
+            supportsFacilityStatus: true,
+            supportsAddedCustomerExclusion: true,
+            supportsReferenceDistances: true,
+            outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"],
+          },
+        },
+      ],
+    } as unknown as ReturnType<typeof useListModels>);
+  });
+
+  it("every Inputs entry (incl. Input Map, Added Entities) and every allowed Outputs entry opens its real content, not a placeholder", () => {
+    render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+
+    runTabCoverage(
+      [
+        INPUT_MAP,
+        { sidebarId: "customers", tabTestId: "customers-tab" },
+        { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
+        { sidebarId: "distances", tabTestId: "distances-tab" },
+        ADDED_ENTITIES,
+        OPTIMIZATION_PARAMETERS,
+      ],
+      [
+        OUTPUT_MAP,
+        OPEN_WAREHOUSES,
+        CUSTOMER_ASSIGNMENTS,
+        COST_SUMMARY,
+        SERVICE_STATS,
       ],
     );
   });

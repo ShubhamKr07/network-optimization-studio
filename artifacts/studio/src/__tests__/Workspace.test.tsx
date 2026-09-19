@@ -589,7 +589,11 @@ describe("Workspace — Distances tab (B5.1)", () => {
 describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
   it("adding a warehouse and saving PATCHes the new entry into inputs.addedWarehouses", () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    // jade-INT (Workspace fixups bundle, item 4) — the add-row form
+    // relocated off the base Warehouses tab onto the Added Entities tab
+    // (Warehouses, then Customers, for this model).
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-warehouses"));
     fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
     // T9 (grid-mirror) — the manual "ID" input is gone; `id` is now a hidden
     // T3 stable uid (`aw-<uuid>`) minted by handleAddRow itself, and
@@ -641,7 +645,10 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
       },
     } as unknown as ReturnType<typeof useGetScenario>);
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    // jade-INT (Workspace fixups bundle, item 4) — added-row delete moved
+    // off the base Warehouses tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-warehouses"));
 
     expect(screen.getByTestId("row-added-warehouse-NEWWH")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-delete-added-warehouse-NEWWH"));
@@ -671,7 +678,10 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
 
   it("adding a customer and saving PATCHes the new entry into inputs.addedCustomers", () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    // jade-INT (Workspace fixups bundle, item 4) — the add-row form
+    // relocated off the base Customers tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-customers"));
     fireEvent.click(screen.getByTestId("button-add-customer-row"));
     fireEvent.change(screen.getByTestId("input-new-customer-city"), { target: { value: "Denver" } });
     fireEvent.change(screen.getByTestId("input-new-customer-state"), { target: { value: "CO" } });
@@ -710,7 +720,10 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
       },
     } as unknown as ReturnType<typeof useGetScenario>);
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-customers"));
+    // jade-INT (Workspace fixups bundle, item 4) — added-row delete moved
+    // off the base Customers tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-customers"));
 
     fireEvent.click(screen.getByTestId("button-delete-added-customer-NEWC"));
     fireEvent.click(screen.getByTestId("button-save"));
@@ -742,7 +755,10 @@ describe("Workspace — add/delete added warehouses & customers (B5.2)", () => {
       data: { ok: false, errors: [{ code: "completeness", message: "NEWWH missing distances to 1 customer: C1" }] },
     } as unknown as ReturnType<typeof usePrecheckScenario>);
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    // jade-INT (Workspace fixups bundle, item 4) — the precheck chip is part
+    // of the added-rows table, relocated onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-warehouses"));
 
     expect(screen.getByTestId("warning-precheck-added-warehouse-NEWWH")).toHaveTextContent("1");
   });
@@ -806,7 +822,10 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
 
   it("adding a mine and saving PATCHes the new entry into inputs.addedMines", () => {
     renderTransportWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+    // jade-INT (Workspace fixups bundle, item 4) — the add-row form
+    // relocated off the base Mines tab onto the Added Entities tab (Mines is
+    // this model's first, default-active, sub-tab).
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
     fireEvent.click(screen.getByTestId("button-add-mine-row"));
     // T11 (Step A, grid-mirror) — the manual "ID" input is gone; `id` is now
     // a hidden T3 stable uid (`am-<uuid>`) minted by handleAddRow itself,
@@ -858,7 +877,9 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       },
     } as unknown as ReturnType<typeof useGetScenario>);
     renderTransportWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+    // jade-INT (Workspace fixups bundle, item 4) — added-row delete moved
+    // off the base Mines tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
 
     expect(screen.getByTestId("row-added-mine-MNEW")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-delete-added-mine-MNEW"));
@@ -881,7 +902,10 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
 
   it("adding a station and saving PATCHes the new entry into inputs.addedStations", () => {
     renderTransportWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-stations"));
+    // jade-INT (Workspace fixups bundle, item 4) — the add-row form
+    // relocated off the base Stations tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-stations"));
     fireEvent.click(screen.getByTestId("button-add-station-row"));
     // T11 (Step A, grid-mirror) — mirrors the mine test's own comment above.
     fireEvent.change(screen.getByTestId("input-new-station-city"), { target: { value: "Newtown" } });
@@ -929,7 +953,10 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       },
     } as unknown as ReturnType<typeof useGetScenario>);
     renderTransportWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-stations"));
+    // jade-INT (Workspace fixups bundle, item 4) — added-row delete moved
+    // off the base Stations tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-stations"));
 
     fireEvent.click(screen.getByTestId("button-delete-added-station-SNEW"));
     fireEvent.click(screen.getByTestId("button-save"));
@@ -961,7 +988,9 @@ describe("Workspace — transport-coal Mines/Stations/Lane costs tabs (Task 30)"
       data: { ok: false, errors: [{ code: "completeness", message: "MNEW missing lane costs to 1 station: C1" }] },
     } as unknown as ReturnType<typeof usePrecheckScenario>);
     renderTransportWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-mines"));
+    // jade-INT (Workspace fixups bundle, item 4) — the precheck chip is part
+    // of the added-rows table, relocated onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
 
     expect(screen.getByTestId("warning-precheck-added-mine-MNEW")).toHaveTextContent("1");
   });

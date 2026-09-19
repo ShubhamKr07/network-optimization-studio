@@ -177,7 +177,10 @@ describe("Workspace — analytics: solve funnel (POSTHOG-5)", () => {
 describe("Workspace — analytics: map entity added (POSTHOG-5)", () => {
   it("tracks 'map entity added' when an added-entity array grows (warehouses)", async () => {
     renderWorkspace();
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
+    // jade-INT (Workspace fixups bundle, item 4) — the add-row form
+    // relocated off the base Warehouses tab onto the Added Entities tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    fireEvent.click(screen.getByTestId("button-added-entities-inner-warehouses"));
     fireEvent.click(screen.getByTestId("button-add-warehouse-row"));
     fireEvent.change(screen.getByTestId("input-new-warehouse-city"), { target: { value: "Denver" } });
     fireEvent.change(screen.getByTestId("input-new-warehouse-state"), { target: { value: "CO" } });

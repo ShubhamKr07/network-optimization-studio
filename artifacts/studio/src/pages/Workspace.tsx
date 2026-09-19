@@ -57,6 +57,7 @@ import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import { JadeAssignmentsTab } from "@/components/workspace/tabs/JadeAssignmentsTab";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import { PlantsTab, type AddedPlant } from "@/components/workspace/tabs/PlantsTab";
+import { AddedEntitiesTab, type AddedEntitiesSubTab } from "@/components/workspace/tabs/AddedEntitiesTab";
 import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
@@ -1170,6 +1171,7 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         // matching stage 1-3's established vocabulary for this model — see
         // laneCostOverrideSchema's own naming comment.
         { id: "laneCosts", label: "Lane costs" },
+        { id: "added-entities", label: "Added Entities" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
     case "two-echelon-gold-au":
@@ -1178,6 +1180,7 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         { id: "refineries", label: "Refineries" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },
+        { id: "added-entities", label: "Added Entities" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
     // jade-T15.5 (Chapter 9 JADE) — Plants/Capability Matrix are this
@@ -1193,6 +1196,7 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         { id: "warehouses", label: "Warehouses" },
         { id: "customers", label: "Customers" },
         { id: "distances", label: "Distances" },
+        { id: "added-entities", label: "Added Entities" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
     case "p-median-brazil":
@@ -1203,6 +1207,7 @@ function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
         { id: "customers", label: "Customers" },
         { id: "warehouses", label: "Warehouses" },
         { id: "distances", label: "Distances" },
+        { id: "added-entities", label: "Added Entities" },
         { id: "optimization-parameters", label: "Optimization Parameters" },
       ];
   }
@@ -1570,6 +1575,30 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const displayedTiming: SolveTiming | undefined =
     resultHistoryState.index >= 0 ? resultHistoryState.items[resultHistoryState.index]?.timing : undefined;
 
+  // jade-INT (Workspace fixups bundle, item 2) — deduped effective-plants
+  // projection for JadeFlowsTab's P->W Plant column, resolved from the SAME
+  // SOLVED snapshot (`displayedInputs`) every other JADE output surface
+  // reads, NEVER `localInputs` (an unsaved draft edit must not change an
+  // already-displayed solve's labels). Base `dataset.plants` wins on id
+  // collision (Map seeded with base first, added only if absent) — a plain
+  // concat (as `effectivePlantsForCapabilityMatrix` above uses, correct for
+  // its own "one row per plant, duplicates are fine" table) would let
+  // `resolvePlantLabel`'s `.find()` lookup return either entry depending on
+  // array order, which is NOT fine for a label lookup. Memoized on
+  // `[dataset, displayedInputs]` so unrelated Workspace renders don't rebuild
+  // the array (keeps JadeFlowsTab's own `pwRows` memo, which depends on a
+  // signature derived from this array, stable).
+  const effectiveFlowsPlants: Plant[] = useMemo(() => {
+    const byId = new Map<string, Plant>();
+    for (const p of dataset?.plants ?? []) byId.set(p.id, p);
+    for (const p of addedPlantsFromInputs(displayedInputs)) {
+      if (!byId.has(p.id)) {
+        byId.set(p.id, { id: p.id, name: p.displayCode ?? p.id, city: p.city, state: p.state, lat: p.lat, lng: p.lng });
+      }
+    }
+    return [...byId.values()];
+  }, [dataset, displayedInputs]);
+
   const isDirty =
     localInputs != null &&
     savedInputsRef.current != null &&
@@ -1881,7 +1910,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // below, extended in the same task).
       (activeTab.entity === "distances" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "two-echelon-jade-us" || modelId === "chens-cosmetics-cn")) ||
       // Task 30 (B6.1 stage 4) — Lane costs grid, transport-coal only.
-      (activeTab.entity === "laneCosts" && modelId === "transport-coal"));
+      (activeTab.entity === "laneCosts" && modelId === "transport-coal") ||
+      // jade-INT (Workspace fixups bundle, item 4) — the Added Entities tab
+      // is universal (every model's `inputEntriesForModel` now lists it) and
+      // is itself just a relocated view of `localInputs`-editing sub-tabs
+      // (each sub-tab is a base *Tab with `showBaseTable={false}`), so no
+      // per-model gate is needed here — the existing dirty-tracking on
+      // `localInputs` already covers whatever the active sub-tab wrote.
+      activeTab.entity === "added-entities");
 
   // R4 — p-median-us's Input Map tab renders its OWN inline Save (in the
   // Layers row, see InputMapTab.tsx's `onSave` prop) instead of the shared
@@ -1939,9 +1975,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     if (entry) openTab("input", entry);
   }, [currentScenario, modelId]);
 
-  // Phase 3.2, Task 4 — Input Map click-to-place. `pendingPrefill` flows one
-  // shot into whichever *Tab's prefillCoords prop, cleared via
-  // onPrefillConsumed. `pendingPrecheckWatches` tracks every entity we owe a
+  // Phase 3.2, Task 4 — `pendingPrecheckWatches` tracks every entity we owe a
   // post-Save precheck toast to, scoped by scenario — a list, not one bare
   // id, since more than one entity can be added before the next Save, and
   // scoped so switching scenarios mid-flow can't cross-contaminate.
@@ -1950,7 +1984,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // toast's "jump to it" action can scroll to the new entity's row —
   // cleared here (the consumer), not by those tabs themselves, via a short
   // timer once set.
-  const [pendingPrefill, setPendingPrefill] = useState<{ lat: number; lng: number } | null>(null);
+  // (Workspace fixups bundle, item 4 cleanup) — the old `pendingPrefill`
+  // state + every base tab's `prefillCoords`/`onPrefillConsumed` prop were
+  // dead code: `setPendingPrefill` was never called anywhere. Input Map v2
+  // places an entity in-place via `CreateEntityDialog`, writing directly to
+  // `localInputs` — it never opens a base tab at all. Removed.
   const [pendingPrecheckWatches, setPendingPrecheckWatches] = useState<{ scenarioId: number; kind: string; id: string }[]>([]);
   const [focusEntityId, setFocusEntityId] = useState<string | null>(null);
   // T8 — entities created/moved via the p-median-us Input Map, watched so
@@ -2689,13 +2727,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onAddedWarehousesChange={next => handleAddedArrayChange("warehouses", "addedWarehouses", addedWarehousesFromInputs(localInputs), next)}
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedWarehouses", id)}
           precheckErrors={precheck?.errors}
-          prefillCoords={pendingPrefill}
-          onPrefillConsumed={() => setPendingPrefill(null)}
           hasStateColumn={hasStateColumn}
           // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
           // true only on the JADE path; every other model sharing this
           // branch (p-median-us/brazil/Chen) keeps the default `false`.
           enableFilters={modelId === "two-echelon-jade-us"}
+          // jade-INT (Workspace fixups bundle, item 4) — the "Added ..."
+          // section relocated to its own dedicated Added Entities tab; this
+          // base tab now shows only the base table + its toolbar.
+          showAddedSection={false}
         />
       );
     }
@@ -2725,9 +2765,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onAddedWarehousesChange={next => handleAddedArrayChange("refineries", "addedRefineries", addedRefineriesFromInputs(localInputs), next)}
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}
           precheckErrors={precheck?.errors}
-          prefillCoords={pendingPrefill}
-          onPrefillConsumed={() => setPendingPrefill(null)}
           hasStateColumn={hasStateColumn}
+          showAddedSection={false}
         />
       );
     }
@@ -2746,8 +2785,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           addedPlants={addedPlantsFromInputs(localInputs)}
           onAddedPlantsChange={next => handleAddedArrayChange("plants", "addedPlants", addedPlantsFromInputs(localInputs), next)}
           onDeletePlant={id => deleteAddedPlantAndOverrides(id)}
-          prefillCoords={pendingPrefill}
-          onPrefillConsumed={() => setPendingPrefill(null)}
+          showAddedSection={false}
         />
       );
     }
@@ -2821,13 +2859,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           }
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
-          prefillCoords={pendingPrefill}
-          onPrefillConsumed={() => setPendingPrefill(null)}
           hasStateColumn={hasStateColumn}
           // jade-INT (#9, spec §10 D2 "JADE-first") — opt-in FilterMenu,
           // true only on the JADE path; every other model sharing this
           // branch keeps the default `false`.
           enableFilters={isJade}
+          showAddedSection={false}
           // T5 (Step 1b/2b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model here defaults true. Never applied to the "Added customers"
@@ -2886,8 +2923,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onAddedMinesChange={next => handleAddedArrayChange("mines", "addedMines", addedMinesFromInputs(localInputs), next)}
           onDeleteMine={id => deleteAddedTransportEntityAndOverrides("addedMines", id)}
           precheckErrors={precheck?.errors}
-          prefillCoords={pendingPrefill}
-          onPrefillConsumed={() => setPendingPrefill(null)}
+          showAddedSection={false}
         />
       );
     }
@@ -2908,10 +2944,251 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onAddedStationsChange={next => handleAddedArrayChange("stations", "addedStations", addedStationsFromInputs(localInputs), next)}
           onDeleteStation={id => deleteAddedTransportEntityAndOverrides("addedStations", id)}
           precheckErrors={precheck?.errors}
-          prefillCoords={pendingPrefill}
-          onPrefillConsumed={() => setPendingPrefill(null)}
+          showAddedSection={false}
         />
       );
+    }
+
+    // jade-INT (Workspace fixups bundle, item 4) — Added Entities tab: one
+    // dedicated sidebar tab per model holding every base entity tab's
+    // "Added ..." section, relocated (not rewritten) via each base tab's new
+    // `showBaseTable={false}` flag (T8). Each sub-tab below renders the SAME
+    // base *Tab component with the SAME props its own base entity-tab call
+    // site above passes — only `showBaseTable`/`showAddedSection` flip. No
+    // per-model switch lives inside `AddedEntitiesTab` itself (T9) — the
+    // per-model sub-tab SET is built here, the one place that already knows
+    // every model's real prop wiring (mirrors this file's own established
+    // "gate at the call site" convention, not inside the shared component).
+    if (activeTab.kind === "input" && activeTab.entity === "added-entities") {
+      if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
+      const isJade = modelId === "two-echelon-jade-us";
+      const subTabs: AddedEntitiesSubTab[] = [];
+
+      if (modelId === "transport-coal") {
+        subTabs.push({
+          id: "mines",
+          label: "Mines",
+          content: (
+            <MinesTab
+              mines={dataset.warehouses}
+              overrides={mineOverridesFromInputs(localInputs)}
+              onChange={next => updateInputsField("mineCapacities", Object.fromEntries(next.filter(o => o.capacity != null).map(o => [o.id, o.capacity])))}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              addedMines={addedMinesFromInputs(localInputs)}
+              onAddedMinesChange={next => handleAddedArrayChange("mines", "addedMines", addedMinesFromInputs(localInputs), next)}
+              onDeleteMine={id => deleteAddedTransportEntityAndOverrides("addedMines", id)}
+              precheckErrors={precheck?.errors}
+              showBaseTable={false}
+            />
+          ),
+        });
+        subTabs.push({
+          id: "stations",
+          label: "Stations",
+          content: (
+            <StationsTab
+              stations={dataset.customers}
+              overrides={stationOverridesFromInputs(localInputs)}
+              onChange={next => updateInputsField("stationDemands", Object.fromEntries(next.filter(o => o.demand != null).map(o => [o.id, o.demand])))}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              addedStations={addedStationsFromInputs(localInputs)}
+              onAddedStationsChange={next => handleAddedArrayChange("stations", "addedStations", addedStationsFromInputs(localInputs), next)}
+              onDeleteStation={id => deleteAddedTransportEntityAndOverrides("addedStations", id)}
+              precheckErrors={precheck?.errors}
+              showBaseTable={false}
+            />
+          ),
+        });
+      } else if (modelId === "two-echelon-gold-au") {
+        // B6.2 — Refineries reuses WarehousesTab (entity="refineries"),
+        // bound to `addedRefineries` (NOT `addedWarehouses`) — same
+        // translation the base Refineries call site above uses.
+        subTabs.push({
+          id: "refineries",
+          label: "Refineries",
+          content: (
+            <WarehousesTab
+              warehouses={dataset.warehouses}
+              overrides={refineryOverridesFromInputs(localInputs)}
+              capacityMode="none"
+              onChange={next => updateInputsField("refineryOverrides", next)}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              entity="refineries"
+              addedWarehouses={addedRefineriesFromInputs(localInputs)}
+              onAddedWarehousesChange={next => handleAddedArrayChange("refineries", "addedRefineries", addedRefineriesFromInputs(localInputs), next)}
+              onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}
+              precheckErrors={precheck?.errors}
+              hasStateColumn={hasStateColumn}
+              showBaseTable={false}
+            />
+          ),
+        });
+        subTabs.push({
+          id: "customers",
+          label: "Customers",
+          content: (
+            <CustomersTab
+              customers={dataset.customers}
+              overrides={customerOverridesFromInputs(localInputs)}
+              onChange={next => {
+                track("override edited", {
+                  scenario_id: currentScenario?.id,
+                  model_id: modelId,
+                  entity: "customers",
+                  field: overrideEditedField(customerOverridesFromInputs(localInputs), next),
+                });
+                updateInputsField("customerOverrides", next);
+              }}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              hasStateColumn={hasStateColumn}
+              demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
+              addedCustomers={addedCustomersFromInputs(localInputs)}
+              onAddedCustomersChange={next => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next)}
+              onDeleteCustomer={id => deleteAddedEntityAndOverrides("addedCustomers", id)}
+              precheckErrors={precheck?.errors}
+              showBaseTable={false}
+            />
+          ),
+        });
+      } else if (isJade) {
+        subTabs.push({
+          id: "plants",
+          label: "Plants",
+          content: (
+            <PlantsTab
+              plants={dataset.plants ?? []}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              addedPlants={addedPlantsFromInputs(localInputs)}
+              onAddedPlantsChange={next => handleAddedArrayChange("plants", "addedPlants", addedPlantsFromInputs(localInputs), next)}
+              onDeletePlant={id => deleteAddedPlantAndOverrides(id)}
+              showBaseTable={false}
+            />
+          ),
+        });
+        subTabs.push({
+          id: "warehouses",
+          label: "Warehouses",
+          content: (
+            <WarehousesTab
+              warehouses={dataset.warehouses}
+              overrides={warehouseOverridesFromInputs(localInputs)}
+              capacityMode={capacityModeFromInputs(localInputs)}
+              onChange={next => {
+                track("override edited", {
+                  scenario_id: currentScenario?.id,
+                  model_id: modelId,
+                  entity: "warehouses",
+                  field: overrideEditedField(warehouseOverridesFromInputs(localInputs), next),
+                });
+                updateInputsField("warehouseOverrides", next);
+              }}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              addedWarehouses={addedWarehousesFromInputs(localInputs)}
+              onAddedWarehousesChange={next => handleAddedArrayChange("warehouses", "addedWarehouses", addedWarehousesFromInputs(localInputs), next)}
+              onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedWarehouses", id)}
+              precheckErrors={precheck?.errors}
+              hasStateColumn={hasStateColumn}
+              enableFilters={true}
+              showBaseTable={false}
+            />
+          ),
+        });
+        subTabs.push({
+          id: "customers",
+          label: "Customers",
+          content: (
+            <CustomersTab
+              customers={dataset.customers}
+              overrides={[]}
+              onChange={() => {}}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              hasStateColumn={hasStateColumn}
+              enableFilters={true}
+              demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
+              products={dataset.products ?? []}
+              productOverrides={jadeCustomerOverridesFromInputs(localInputs)}
+              onProductOverridesChange={next => {
+                track("override edited", { scenario_id: currentScenario?.id, model_id: modelId, entity: "customers", field: "demand" });
+                updateInputsField("customerOverrides", next);
+              }}
+              addedCustomers={jadeAddedCustomersFromInputs(localInputs)}
+              onAddedCustomersChange={next => handleAddedArrayChange("customers", "addedCustomers", jadeAddedCustomersFromInputs(localInputs), next)}
+              onDeleteCustomer={id => deleteAddedEntityAndOverrides("addedCustomers", id)}
+              precheckErrors={precheck?.errors}
+              showBaseTable={false}
+            />
+          ),
+        });
+      } else {
+        // p-median-us / p-median-brazil / chens-cosmetics-cn: Warehouses,
+        // Customers — same WarehouseCandidate/Customer shapes, same
+        // addedWarehouses/addedCustomers field names as their base tabs.
+        subTabs.push({
+          id: "warehouses",
+          label: "Warehouses",
+          content: (
+            <WarehousesTab
+              warehouses={dataset.warehouses}
+              overrides={warehouseOverridesFromInputs(localInputs)}
+              capacityMode={capacityModeFromInputs(localInputs)}
+              onChange={next => {
+                track("override edited", {
+                  scenario_id: currentScenario?.id,
+                  model_id: modelId,
+                  entity: "warehouses",
+                  field: overrideEditedField(warehouseOverridesFromInputs(localInputs), next),
+                });
+                updateInputsField("warehouseOverrides", next);
+              }}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              addedWarehouses={addedWarehousesFromInputs(localInputs)}
+              onAddedWarehousesChange={next => handleAddedArrayChange("warehouses", "addedWarehouses", addedWarehousesFromInputs(localInputs), next)}
+              onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedWarehouses", id)}
+              precheckErrors={precheck?.errors}
+              hasStateColumn={hasStateColumn}
+              showBaseTable={false}
+            />
+          ),
+        });
+        subTabs.push({
+          id: "customers",
+          label: "Customers",
+          content: (
+            <CustomersTab
+              customers={dataset.customers}
+              overrides={customerOverridesFromInputs(localInputs)}
+              onChange={next => {
+                track("override edited", {
+                  scenario_id: currentScenario?.id,
+                  model_id: modelId,
+                  entity: "customers",
+                  field: overrideEditedField(customerOverridesFromInputs(localInputs), next),
+                });
+                updateInputsField("customerOverrides", next);
+              }}
+              scenarioId={currentScenario?.id}
+              onImportApplied={handleImportApplied}
+              hasStateColumn={hasStateColumn}
+              demandEditable={activeModelManifest?.capabilities?.demandEditable ?? true}
+              addedCustomers={addedCustomersFromInputs(localInputs)}
+              onAddedCustomersChange={next => handleAddedArrayChange("customers", "addedCustomers", addedCustomersFromInputs(localInputs), next)}
+              onDeleteCustomer={id => deleteAddedEntityAndOverrides("addedCustomers", id)}
+              precheckErrors={precheck?.errors}
+              showBaseTable={false}
+            />
+          ),
+        });
+      }
+
+      return <AddedEntitiesTab subTabs={subTabs} />;
     }
 
     if (activeTab.kind === "input" && activeTab.entity === "optimization-parameters") {
@@ -3353,6 +3630,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <JadeFlowsTab
             result={result}
             dataset={dataset}
+            effectivePlants={effectiveFlowsPlants}
             bands={distanceBandsFromInputs(localInputs)}
             distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
             scenarioId={currentScenario!.id}
