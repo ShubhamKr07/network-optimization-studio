@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { plantIdCityState } from "@/lib/formatLocation";
 import { computeCumulativeBandCoverage } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
@@ -103,7 +104,7 @@ function buildPlantProductionRows(
       const capacity = cellCapacity(baseCapabilities, plant.id, product.id, enabled);
       rows.push({
         plantId: plant.id,
-        plantLabel: plant.name ?? plant.id,
+        plantLabel: plantIdCityState(plant),
         productId: product.id,
         productLabel: product.name,
         actual,

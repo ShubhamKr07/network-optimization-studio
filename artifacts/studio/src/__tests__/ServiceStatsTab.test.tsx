@@ -224,7 +224,7 @@ describe("ServiceStatsTab", () => {
     it("shows a zero-production row for an enabled cell with no inbound flow (p3/product-3)", () => {
       renderJade();
       const row = screen.getByTestId("row-plant-production-p3-product-3");
-      expect(row).toHaveTextContent("Plant Three");
+      expect(row).toHaveTextContent("p3 — C, CC");
       expect(row).toHaveTextContent("Product 3");
       expect(row).toHaveTextContent("0"); // actual
       expect(row).toHaveTextContent("210,000,000"); // capacity
@@ -290,6 +290,55 @@ describe("ServiceStatsTab", () => {
         />,
       );
       expect(screen.queryByTestId("plant-production-section")).not.toBeInTheDocument();
+    });
+  });
+
+  // workspace-fixups item 2 (spec §2) — Plant Production plant cell shows
+  // "<id> — City, State" (T2's plantIdCityState helper), never `name`, for
+  // both a base plant and a plant sourced from an added plant already
+  // present in the passed `effectivePlants` snapshot.
+  describe("Plant Production plant label — id + City, State (workspace-fixups item 2)", () => {
+    const products = [{ id: "product-1", name: "Product 1" }];
+    const baseCapabilities = [{ plantId: "p1", productId: "product-1", capacity: 210_000_000 }];
+
+    it("renders '<id> — City, State' for a base plant, ignoring its name field", () => {
+      const plants = [{ id: "p1", name: "Plant One", city: "Springfield", state: "IL", lat: 0, lng: 0 }];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [], metrics: {} }}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          effectivePlants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          capabilityOverrides={[]}
+        />,
+      );
+      const row = screen.getByTestId("row-plant-production-p1-product-1");
+      expect(row).toHaveTextContent("p1 — Springfield, IL");
+      expect(row).not.toHaveTextContent("Plant One");
+    });
+
+    it("renders '<id> — City, State' for a plant sourced from an added plant already in effectivePlants", () => {
+      // An added plant carries a scenario-local id (e.g. "aw-" prefixed,
+      // matching this codebase's addedWarehouses/addedPlants id convention)
+      // and no `name` at all — proving the label doesn't depend on `name`
+      // being present.
+      const addedPlant = { id: "aw-plant-1", city: "Reno", state: "NV", lat: 0, lng: 0 };
+      const overrides = [{ plantId: "aw-plant-1", productId: "product-1", capacity: 210_000_000 }];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [], metrics: {} }}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          effectivePlants={[addedPlant]}
+          products={products}
+          baseCapabilities={overrides}
+          capabilityOverrides={[]}
+        />,
+      );
+      const row = screen.getByTestId("row-plant-production-aw-plant-1-product-1");
+      expect(row).toHaveTextContent("aw-plant-1 — Reno, NV");
     });
   });
 
