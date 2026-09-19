@@ -94,20 +94,23 @@ renders `<id> — <City>, <State>`.
   `dataset?.plants`, so the standalone commit is green and unchanged for base plants). The P→W Plant
   column resolves via `plantIdCityState` against `effectivePlants ?? dataset?.plants ?? []`. INT will
   pass the real `dataset.plants ∪ addedPlantsFromInputs(displayedInputs)`.
-  **`pwRows` memo dep (Codex plan-review P1):** `pwRows` is memoized `[result, dataset,
-  effectiveBands.join(",")]` and builds `plantLabel` — so it MUST also depend on `effectivePlants`, else
-  a changed effective-plants set with unchanged result/dataset/bands yields stale plant labels. Add a
-  stable signature to the dep array (e.g. `(effectivePlants ?? dataset?.plants ?? []).map(p=>p.id).join(",")`,
-  or a plant-id→label `Map` memoized on that signature and referenced by the row builder). `wcRows`
-  builds no plant label — leave it unchanged.
+  **`pwRows` memo dep (Codex plan-review round 2 P1):** `pwRows` is memoized `[result, dataset,
+  effectiveBands.join(",")]` and builds `plantLabel` via `plantIdCityState` — so it MUST also depend on
+  the effective plants' **label fields, not just ids**. An id-only signature
+  (`…map(p=>p.id).join(",")`) is INSUFFICIENT: a plant keeping its id while its City/State changes would
+  leave a stale label. Use one of: (a) a signature serializing `id`+`city`+`state` with safe separators
+  (e.g. `…map(p=>`${p.id}|${p.city}|${p.state}`).join(";")`); OR (b) a plant-id→label `Map` memoized on
+  the actual memoized `effectivePlants` reference, with `pwRows` depending on that Map. `wcRows` builds
+  no plant label — leave it unchanged.
 - **Item 5 (both inner tables):** for BOTH `pwDescriptors` and `wcDescriptors`, change the `band`
   descriptor `accessor` to `r => bandRangeLabel(r.distance, effectiveBands, unit)` (import T1's helper);
   add `[effectiveBands.join(","), unit]` to each `useMemo` dep array; add a clear-on-change effect PER
   inner table that resets only that table's `band` filter key when `[effectiveBands.join(","), unit]`
   changes (leave the table's other filters intact). `unit` = the tab's existing `distanceUnit`.
 **Tests:** P→W Plant column shows `<id> — <City>, <State>`; **added-plant via `effectivePlants` prop**
-resolves to id+City,State not raw id; **rerender with SAME `result`+`dataset` but a CHANGED
-`effectivePlants` collection updates the plant label** (proves the `pwRows` dep fix — Codex P1); both
+resolves to id+City,State not raw id; **rerender with SAME `result`+`dataset`+plant-`id` but a CHANGED
+City/State in `effectivePlants` updates the P→W label** (proves the label-field signature, not just
+membership/new-id — Codex round-2 P1); both
 inner-table band filters list ranges; a rerender with changed `bands` changes the options with no
 network call (proves memo deps); selecting a range in each inner table then changing bands clears THAT
 table's `band` key while a non-band filter in the same table survives; the two inner tables' clears are
@@ -135,9 +138,17 @@ range → edit bands → band filter cleared, non-band filter survives.
   destructuring, remove the now-dead prefill open-effect in each, and delete the prefill / null-prefill
   component tests in each base tab's test file. **T8 does NOT touch `Workspace.tsx`** (INT removes the
   call-site props + `pendingPrefill` state — see INT). Neither task edits the other's files.
-**Tests (per tab that has both regions):** `showBaseTable={false}` renders no base table / no toolbar /
-no import trigger / no base filter, but renders the add form; `showAddedSection={false}` renders the
-base table + toolbar but no add form; default renders both (unchanged). Prefill tests deleted (flow dead).
+**Tests (per tab that has both regions) — match the REAL add-form state machine (Codex round-2 P2):**
+the base tabs render a `+ Add …` button while `addingRow` is false and the form only after it's clicked
+(`setAddingRow(true)`) — do NOT assert an open form on initial render (that would contradict
+"byte-identical" and push an unintended UX change).
+1. `showBaseTable={false}`: the added-only region + the `+ Add …` affordance render, while the base
+   table, CSV toolbar, import trigger, and base filter do NOT.
+2. Click `+ Add …` → the add form renders.
+3. `showAddedSection={false}`: neither the add affordance nor the form nor the added-rows table renders,
+   while the base table + toolbar remain.
+4. Default (both `true`): unchanged.
+Prefill tests deleted (flow dead).
 
 ## T9 — AddedEntitiesTab (item 4 part B) · needs T8
 **File:** `AddedEntitiesTab.tsx` (new, + test). Spec §4.
@@ -175,14 +186,30 @@ base table + toolbar but no add form; default renders both (unchanged). Prefill 
 - **Workspace-level added-plant snapshot regression:** displayed snapshot has an added plant, unsaved
   `localInputs` draft differs → Flows plant label resolves from the snapshot; step result history and
   assert lookup + displayed result advance together.
-- **Per-model Added-Entities integration matrix (Codex plan-review P2):** data-driven over all five
-  configs — us/brazil → {Warehouses, Customers}; transport → {Mines, Stations}; gold-au →
-  {Refineries, Customers}; jade → {Plants, Warehouses, Customers}; chens → {Warehouses, Customers}.
-  Assert each model's Added Entities tab renders exactly its inner sub-tab set AND the high-risk
-  model-specific wiring reaches the reused base component: JADE Customers still in per-product demand
-  mode, Gold passes `entity="refineries"`, Chen passes `hasStateColumn={false}`. (A generic T9 callback
-  test can't catch these call-site regressions.)
-- `Workspace.TabCoverage.test.tsx` extended with `added-entities` for every model.
+- **Per-model Added-Entities integration matrix — all SIX model ids (Codex round-2 P2):** data-driven
+  over every route, each executed (US and Brazil may share a fixture builder but BOTH must run — today's
+  `Workspace.TabCoverage.test.tsx` has suites for only us/transport/gold/jade; Brazil is deliberately
+  excluded there and Chen absent, so "extend for every model" needs NEW Brazil + Chen coverage, not just
+  edits):
+  1. `p-median-us` → {Warehouses, Customers}
+  2. `p-median-brazil` → {Warehouses, Customers}
+  3. `transport-coal` → {Mines, Stations}
+  4. `two-echelon-gold-au` → {Refineries, Customers}
+  5. `two-echelon-jade-us` → {Plants, Warehouses, Customers}
+  6. `chens-cosmetics-cn` → {Warehouses, Customers}
+  Assert each renders EXACTLY its inner sub-tab set + the presentation wiring (JADE Customers per-product
+  demand mode, Gold `entity="refineries"`, Chen `hasStateColumn={false}`).
+- **Model-specific data + mutation wiring proof (Codex round-2 P2) — substantiates the "add/edit/delete/
+  precheck byte-identical, just relocated" DoD:** for at least Gold (highest risk — its Refineries
+  sub-tab reuses `WarehousesTab`, so INT must bind the generic `addedWarehouses`/`onAddedWarehousesChange`
+  props to the model's `addedRefineries` array and translate edits/deletes back to `addedRefineries`,
+  NOT `addedWarehouses`), prove: (a) an existing added row RENDERS from the correct model-specific array;
+  (b) editing an added-row field calls the correct callback and updates the correct `localInputs` key;
+  (c) delete removes from the correct key; (d) the model's precheck chip reaches the relocated row.
+  Repeat (a)+(b) for one non-reuse model (e.g. JADE Plants → `addedPlants`) so the pattern isn't
+  Gold-specific.
+- `Workspace.TabCoverage.test.tsx` extended with `added-entities` for every model that has a suite; add
+  Brazil + Chen suites (or fold their `added-entities` coverage into the new matrix above).
 - RTL: base tab shows no inline add section; Added Entities tab shows the correct sub-tabs; placing an
   entity on the Input Map (existing in-place flow) makes the row appear in the Added Entities sub-tab.
 
@@ -325,3 +352,107 @@ task and assert that an unrelated active filter survives the band edit.
 | P2 | T2 helper type vs name-ignored test | **Accepted.** `name?: string` added to the param type (not read). |
 | P2 | Non-dedup effective-plants concat | **Accepted.** INT uses a keyed `Map` projection (base wins), memoized on `[dataset, displayedInputs]`; id-collision regression. |
 | QA | Edit bands via a mount-preserving surface | **Accepted.** Verified SolveDialog hosts `JadeBandEditor` and opens over the active tab without unmounting. QA edits bands via the Run Optimizer modal over an active output tab; asserts an unrelated filter survives + band filter clears. |
+
+---
+
+## Deep re-review comments — Codex (2026-09-19) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All four round-2 comments folded into T6/T8/INT above; see the round-2 resolution
+table at the very end. Retained verbatim for history. Original round-2 status was "changes requested".
+
+### [P1] Include plant label fields in the `pwRows` memo contract
+
+T6 now requires `pwRows` to depend on `effectivePlants`, but its suggested stable signature contains
+only plant IDs:
+
+```ts
+(effectivePlants ?? dataset?.plants ?? []).map(p => p.id).join(",")
+```
+
+That signature is insufficient because the displayed value is produced by `plantIdCityState` and
+therefore depends on `id`, `city`, and `state`. If an added plant retains its ID while City or State
+changes, the signature is unchanged; with the same result, dataset, and bands, `pwRows` can retain the
+old location label.
+
+Require one of these equivalent implementations:
+
+- include every label field in an unambiguous signature (at least `id`, `city`, and `state`, with safe
+  separators/serialization); or
+- memoize the lookup from the actual memoized `effectivePlants` reference and make `pwRows` depend on
+  that lookup/reference.
+
+Strengthen the component regression: rerender with the same `result`, `dataset`, and plant ID, but
+change that plant's City/State in `effectivePlants`; assert that the P→W label updates. Merely changing
+collection membership or introducing a new ID does not prove this contract.
+
+### [P2] Enumerate all six model IDs in Added Entities integration coverage
+
+INT calls its matrix "all five configs" and combines `p-median-us` / `p-median-brazil` into one entry,
+but the application exposes six distinct model routes:
+
+1. `p-median-us`
+2. `p-median-brazil`
+3. `transport-coal`
+4. `two-echelon-gold-au`
+5. `two-echelon-jade-us`
+6. `chens-cosmetics-cn`
+
+The existing `Workspace.TabCoverage.test.tsx` contains suites for only four of them: p-median US,
+Transport, Gold, and JADE. It currently has no Brazil or Chen suite, so "extended with
+`added-entities` for every model" cannot be satisfied by merely modifying the existing cases.
+
+Make the INT matrix explicitly data-driven over all six model IDs (the US and Brazil cases may share a
+fixture builder, but both must execute). Add the Added Entities outer-tab coverage for Brazil and Chen
+as well; do not rely on the combined `us/brazil` label as evidence that both routes were exercised.
+
+### [P2] Prove model-specific Added Entities data and mutation wiring
+
+T9 says the wrapper accepts all base-tab pass-through props, but its proposed test covers only generic
+add/delete callbacks. INT's matrix verifies the inner-tab names and three presentation props (JADE
+product mode, Gold `entity="refineries"`, and Chen `hasStateColumn={false}`), but it does not prove that
+the wrapper reads and writes each model's correct input field or forwards precheck data.
+
+This is particularly risky for Gold: its Refineries sub-tab reuses `WarehousesTab`, but must translate
+`addedRefineries` into the component's generic `addedWarehouses` prop and translate edits/deletes back
+to `addedRefineries`. A test that asserts only `entity="refineries"` can pass while the table is empty
+or updates `addedWarehouses` incorrectly.
+
+Add integration coverage that proves:
+
+- an existing added row renders from the correct model-specific array;
+- an editable added-row field calls the correct callback and updates the correct `localInputs` key;
+- the model's precheck chip reaches the relocated row; and
+- Gold Refineries specifically reads, edits, and deletes through `addedRefineries`, not
+  `addedWarehouses`.
+
+This is required to substantiate the spec's "add / edit / delete / precheck-chip behaviors are
+byte-identical, just relocated" DoD.
+
+### [P2] Correct T8's initial add-form assertion
+
+T8 currently says `showBaseTable={false}` "renders the add form." The existing base tabs do not render
+an open form initially: they render a `+ Add ...` button while `addingRow` is false, and render the form
+only after that button is clicked. Requiring the form on initial render conflicts with the same task's
+"existing render byte-identical" requirement and could encourage an unintended UX change merely to
+make the new test pass.
+
+Rewrite the tests to assert the existing state transition:
+
+1. With `showBaseTable={false}`, the added-only region and `+ Add ...` affordance render, while the base
+   table, toolbar, import trigger, and base filter do not.
+2. Click `+ Add ...`, then assert that the add form renders.
+3. With `showAddedSection={false}`, assert that neither the add affordance nor the add form nor the
+   added-rows table renders, while the base table and toolbar remain.
+
+---
+
+## Review resolution — round 2 (Codex plan review, 2026-09-19)
+
+**Current status: RESOLVED — no open items.**
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | `pwRows` signature must cover label fields, not just id | **Accepted.** T6 signature serializes `id`+`city`+`state` (or a Map on the memoized `effectivePlants` ref); regression changes City/State on the SAME id and asserts the label updates. |
+| P2 | Enumerate all SIX model ids | **Accepted.** Verified TabCoverage has only us/transport/gold/jade suites (Brazil excluded, Chen absent). INT matrix is data-driven over all 6, each executed; new Brazil + Chen coverage added. |
+| P2 | Prove model-specific data + mutation wiring (Gold refineries) | **Accepted.** Verified Gold binds `addedRefineries` into `WarehousesTab`. INT adds render/edit/delete/precheck proof against the correct model array (Gold `addedRefineries`, plus a non-reuse model). |
+| P2 | T8 initial add-form assertion wrong | **Accepted.** Verified base tabs render a `+ Add …` button (form only after click). T8 tests rewritten to the real state transition; no open-form-on-mount assertion. |
