@@ -1,0 +1,176 @@
+# Workspace fixups bundle — Implementation Plan
+
+**Date:** 2026-09-19 · **Base:** `main` (`15144a0`) · **Spec:** `docs/superpowers/specs/2026-09-19-workspace-fixups-bundle-design.md` (approved, 2 review rounds folded).
+**Execution:** agent-team, isolated git worktrees; controller cherry-picks each task onto the branch + re-gates on the merged state. **Frontend-only** — zero backend/solver/dataset/OpenAPI/Python. `e2e_accuracy.py` not run.
+
+## Process (standing lessons baked in)
+- **Base guard** on every agent prompt (JADE-bundle lesson): before implementing, run
+  `git merge-base --is-ancestor <branch-tip> HEAD` and report `BASE_OK`/`BASE_STALE`; stop if stale.
+- **Explicit-pathspec commits** (`git commit -m … -- <paths>`), `git status` before commit, agents never
+  push or touch `main` — controller integrates.
+- **Optional-props pattern** for per-commit-green: leaf tasks add new props/flags as
+  optional-with-safe-default so their standalone commit typechecks; the single Workspace writer (INT)
+  wires the real values at the call sites.
+- **Single-writer files:** `Workspace.tsx` → INT only. Every other file has exactly one owning task.
+- Docs merged to local `main` on creation; QA is a first-class task (standing feedback).
+
+## File → task ownership (no overlaps)
+| File | Task |
+|---|---|
+| `lib/bands.ts` (+ test) | T1 |
+| `lib/formatLocation.ts` (+ test) | T2 |
+| `components/workspace/map/EntityMarkers.tsx`, `index.css`, `__tests__/designTokens.contract.test.ts` | T3 |
+| `components/workspace/tabs/CapabilityMatrixTab.tsx` (+ test) | T4 |
+| `components/workspace/tabs/ServiceStatsTab.tsx` (+ test) | T5 |
+| `components/workspace/tabs/JadeFlowsTab.tsx` (+ test) | T6 |
+| `components/workspace/tabs/JadeAssignmentsTab.tsx` (+ test) | T7 |
+| `components/workspace/tabs/{Warehouses,Customers,Mines,Stations,Plants}Tab.tsx` (+ tests) | T8 |
+| `components/workspace/tabs/AddedEntitiesTab.tsx` (new, + test) | T9 |
+| `pages/Workspace.tsx` (+ `Workspace.*.test.tsx`, `Workspace.TabCoverage.test.tsx`) | INT |
+| `e2e/workspace-fixups.spec.ts` (new) | QA |
+
+## Waves
+- **Wave 1 (parallel, file-disjoint):** T1, T2, T3, T8.
+- **Wave 2 (parallel, after deps):** T4 (needs T2), T5 (needs T2), T6 (needs T1+T2), T7 (needs T1), T9 (needs T8).
+- **Wave 3:** INT (needs T6 + T8 + T9). Sole `Workspace.tsx` writer.
+- **Wave 4:** QA.
+
+---
+
+## T1 — `bandRangeLabel` helper (item 5 foundation) · leaf
+**File:** `artifacts/studio/src/lib/bands.ts` (+ `bands.test.ts`). Spec §5.
+- Add `export function bandRangeLabel(distance: number, bands: number[], unit: string): string`.
+  - Sort a copy first: `const sorted = [...bands].sort((a,b)=>a-b);` — classify AND build the label off
+    `sorted` (parity with `bandLabel`/`assignBandOrOverflow`).
+  - `sorted.length === 0` → `"All distances"`.
+  - Reuse `assignBandOrOverflow(distance, sorted)` for the bucket index; `OVERFLOW_BAND` → `"> <last> <unit>"`.
+  - index 0 → `"≤ <sorted[0]> <unit>"`; index i>0 → `"<sorted[i-1]>–<sorted[i]> <unit>"`.
+  - Number formatting: match the tabs' existing numeric display (integer boundaries; no thousands sep
+    unless `bandLabel`'s neighbors already use one — keep consistent with the cell).
+**Tests:** each band + overflow for `mi` and `km`; **exact-boundary** distances (a distance equal to a
+boundary lands in that boundary's band, matching `assignBandOrOverflow`'s `<=`); **unsorted** input
+(`[500,250,1000]`) yields the same labels as sorted; empty `[]` → `"All distances"`.
+
+## T2 — `plantIdCityState` helper (item 2 foundation) · leaf
+**File:** `artifacts/studio/src/lib/formatLocation.ts` (+ its test). Spec §2.
+- Add `export function plantIdCityState(plant: { id: string; city: string; state: string }): string`
+  → `` `${plant.id} — ${formatCityState(plant.city, plant.state)}` `` (reuse existing `formatCityState`).
+  `name` intentionally not shown.
+**Tests:** id + City, State; a plant with a `name` still returns id + City, State (name ignored);
+empty state → `formatCityState`'s existing behavior.
+
+## T3 — plant factory icon + token (item 1) · leaf
+**Files:** `EntityMarkers.tsx`, `index.css`, `__tests__/designTokens.contract.test.ts` (+ `EntityMarkers` test). Spec §1.
+- `index.css`: add `--map-plant: #2E7D32;` in the same `--map-*` block (line ~361).
+- `EntityMarkers.plantSquareSvg()`: replace the `<rect>` body with a filled factory silhouette
+  (saw-tooth roof + 3 windows), `fill="var(--map-plant)"`, keeping `width/height=20`, `viewBox 0 0 24 24`.
+- `designTokens.contract.test.ts`: add `--map-plant` (`#2E7D32`) to the exhaustive raw-token inventory.
+- `EntityMarkers` test: `plantSquareSvg()` output contains `var(--map-plant)` and the factory path
+  (no bare `<rect …stroke=…/>` square). Marker sizing unchanged (still 20/24 envelope).
+**Note:** single edit — Output-map `createPlantIcon` + legend both consume `plantSquareSvg`, so they
+inherit the factory with no further change (verify by reading, do not edit those call sites).
+
+## T4 — Capability Matrix: plant row + info line + Units (items 2 & 3) · leaf, needs T2
+**File:** `CapabilityMatrixTab.tsx` (+ test). Spec §2, §3.
+- Item 2: the per-plant row header cell uses `plantIdCityState(plant)` (import from T2).
+- Item 3a: info `<p>` (line 127) — remove `max-w-md`, add `md:whitespace-nowrap`. Text unchanged.
+- Item 3b: capacity readout (~line 170) → append `" Units"` (enabled value AND the disabled `0` → `0 Units`).
+**Tests:** plant row shows `<id> — <City>, <State>`; info `<p>` has `md:whitespace-nowrap` and NOT
+`max-w-md`; a capacity readout renders `… Units` (and `0 Units` for a disabled cell).
+**Standalone-green:** import `plantIdCityState` from T2 — if T2 not yet merged in the worktree, the base
+guard + wave ordering guarantees T2 landed first; do not stub.
+
+## T5 — Plant Production plant label (item 2) · leaf, needs T2
+**File:** `ServiceStatsTab.tsx` (+ test). Spec §2.
+- Plant Production row: `plantLabel` (line 106, currently `plant.name ?? plant.id`) → `plantIdCityState(plant)`.
+  Uses the already-passed `effectivePlants` (dataset ∪ addedPlants snapshot) — no new prop.
+**Tests:** a Plant Production row (incl. one sourced from an added plant already in `effectivePlants`)
+renders `<id> — <City>, <State>`.
+
+## T6 — JadeFlowsTab: plant label + effective-plants prop + band ranges (items 2 & 5) · leaf, needs T1+T2
+**File:** `JadeFlowsTab.tsx` (+ test). Spec §2, §5.
+- **Item 2:** add an OPTIONAL prop `effectivePlants?: Plant[]` (default `undefined` → falls back to
+  `dataset?.plants`, so the standalone commit is green and unchanged for base plants). The P→W Plant
+  column resolves via `plantIdCityState` against `effectivePlants ?? dataset?.plants ?? []`. INT will
+  pass the real `dataset.plants ∪ addedPlantsFromInputs(displayedInputs)`.
+- **Item 5 (both inner tables):** for BOTH `pwDescriptors` and `wcDescriptors`, change the `band`
+  descriptor `accessor` to `r => bandRangeLabel(r.distance, effectiveBands, unit)` (import T1's helper);
+  add `[effectiveBands.join(","), unit]` to each `useMemo` dep array; add a clear-on-change effect PER
+  inner table that resets only that table's `band` filter key when `[effectiveBands.join(","), unit]`
+  changes (leave the table's other filters intact). `unit` = the tab's existing `distanceUnit`.
+**Tests:** P→W Plant column shows `<id> — <City>, <State>`; **added-plant via `effectivePlants` prop**
+resolves to id+City,State not raw id; both inner-table band filters list ranges; a rerender with
+changed `bands` changes the options with no network call (proves memo deps); selecting a range in each
+inner table then changing bands clears THAT table's `band` key while a non-band filter in the same table
+survives; the two inner tables' clears are independent.
+
+## T7 — JadeAssignmentsTab: band ranges (item 5) · leaf, needs T1
+**File:** `JadeAssignmentsTab.tsx` (+ test). Spec §5.
+- `filterDescriptors`: `band` accessor → `r => bandRangeLabel(r.distanceMi, effectiveBands, unit)`;
+  add `[effectiveBands.join(","), unit]` to the `useMemo` deps; add the clear-on-change effect for
+  `tableFilters`' `band` key.
+**Tests:** band filter lists ranges; rerender-with-changed-bands updates options (no network); select
+range → edit bands → band filter cleared, non-band filter survives.
+
+## T8 — base tabs: showAddedSection / showBaseTable flags (item 4 part A) · leaf
+**Files:** `WarehousesTab.tsx`, `CustomersTab.tsx`, `MinesTab.tsx`, `StationsTab.tsx`, `PlantsTab.tsx` (+ tests). Spec §4.
+- Each tab: add `showAddedSection?: boolean` (default `true`) and `showBaseTable?: boolean` (default `true`).
+- **`showBaseTable={false}`** must hide: base `<Table>`, base count/filter, base empty state, CSV
+  Upload/Download toolbar, AND the import dialog. Leaves ONLY: add-row form + added-rows table +
+  precheck chips + delete.
+- **`showAddedSection={false}`** hides: add-row form + added-rows table (the `addedSection`). Leaves the
+  base table + count/filter + empty state + toolbar + import dialog.
+- Defaults `true`/`true` → existing render byte-identical; standalone commit green.
+**Tests (per tab that has both regions):** `showBaseTable={false}` renders no base table / no toolbar /
+no import trigger / no base filter, but renders the add form; `showAddedSection={false}` renders the
+base table + toolbar but no add form; default renders both (unchanged).
+
+## T9 — AddedEntitiesTab (item 4 part B) · needs T8
+**File:** `AddedEntitiesTab.tsx` (new, + test). Spec §4.
+- New component: props = model's supported added-entity sub-tab set + all the pass-through props each
+  base tab needs (`addedWarehouses`/`onAddedWarehousesChange`/…, precheck errors, `hasStateColumn`, etc.).
+- Renders a segmented inner-tab control (mirror `JadeFlowsTab`'s `innerTab` state + styling) with one
+  sub-tab per supported type; each sub-tab body = the corresponding base `*Tab` rendered with
+  `showBaseTable={false}`.
+- Sub-tab sets: us/brazil → Warehouses, Customers; transport → Mines, Stations; gold-au → Refineries,
+  Customers; jade → Plants, Warehouses, Customers; chens → Warehouses, Customers. (Component takes the
+  set as a prop; INT supplies it per model — do not hardcode a model switch inside the component.)
+**Tests:** given a 2-sub-tab set, both inner tabs render; switching inner tabs swaps the base tab
+(added-only); no base table/toolbar in any sub-tab; add/delete callbacks fire through.
+
+## INT — Workspace integration (items 2, 4, 5 wiring + cleanup) · sole `Workspace.tsx` writer · needs T6+T8+T9
+**Files:** `pages/Workspace.tsx`, `Workspace.*.test.tsx`, `Workspace.TabCoverage.test.tsx`. Spec §2, §4.
+1. **Item 2 Flows wiring:** pass `effectivePlants={[...(dataset?.plants ?? []), ...addedPlantsFromInputs(displayedInputs)]}`
+   (dedupe by id, base wins) to `<JadeFlowsTab>` — the SOLVED snapshot `displayedInputs`, never `localInputs`.
+2. **Item 4 sidebar:** append `{ id: "added-entities", label: "Added Entities" }` to every model's
+   `inputEntriesForModel(...)` list (after the last entity tab, before Optimization Parameters).
+3. **Item 4 renderTabContent:** new branch `activeTab.entity === "added-entities"` → `<AddedEntitiesTab …>`
+   with the per-model sub-tab set + all base-tab pass-through props.
+4. **Item 4 base call sites:** every base `*Tab` render passes `showAddedSection={false}`.
+5. **Item 4 save gate:** add `added-entities` to the save-eligible allowlist (`Workspace.tsx:1811+`).
+6. **Dead-code cleanup (spec §4):** remove `pendingPrefill` state + `setPendingPrefill` + every
+   `prefillCoords`/`onPrefillConsumed` prop pass; if a base tab's prefill open-effect is now dead, T8 or
+   INT removes it (INT owns the call-site props; note in the commit which side removed the effect).
+**Tests:**
+- **Workspace-level added-plant snapshot regression:** displayed snapshot has an added plant, unsaved
+  `localInputs` draft differs → Flows plant label resolves from the snapshot; step result history and
+  assert lookup + displayed result advance together.
+- `Workspace.TabCoverage.test.tsx` extended with `added-entities` for every model.
+- RTL: base tab shows no inline add section; Added Entities tab shows the correct sub-tabs; placing an
+  entity on the Input Map (existing in-place flow) makes the row appear in the Added Entities sub-tab.
+
+## QA — real browser (qa-sdet) · last
+**File:** `e2e/workspace-fixups.spec.ts` (new). Spec §7. Run twice; report product bugs to controller.
+- Plant markers = factory on Input + Output maps + legend (JADE).
+- A plant-bearing table shows id + City, State.
+- Capability Matrix: single-line info at desktop; readouts end in `Units`.
+- Added Entities tab present for ≥2 models; place an entity on the Input Map → row appears in the
+  correct Added Entities sub-tab → Save persists; base tab has no inline add section; CSV toolbar only
+  on the base tab.
+- Edit a band post-solve → each JADE Distance-Band filter re-ranges live (no `/solve`); filter by a
+  range selects the right rows; editing boundaries while a range is selected clears that band filter.
+
+## Gate (controller, on merged state after each cherry-pick + final)
+`pnpm run typecheck` + `pnpm --filter studio test`. (api-server/pytest unaffected — frontend-only; do
+NOT run `e2e_accuracy.py`.) Then whole-branch review (independent lens) → merge to local `main`.
+Deploy held unless approved (frontend-only → `nos-studio`).
