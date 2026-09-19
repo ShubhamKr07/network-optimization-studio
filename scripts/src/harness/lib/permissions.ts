@@ -450,10 +450,17 @@ export function buildCandidates(input: BuildCandidatesInput): Candidate[] {
 
   for (const rec of promotable) {
     if (matchesProjectAllow(rec.command, projectAllow)) continue; // already covered — not a candidate
-    const sensitive = scanSensitive(rec.command);
-    const exactRule = `Bash(${rec.command.trim()})`;
-    const proposedRule = sensitive ? undefined : suggestRule(rec.command);
-    const level = classifyRule(proposedRule ?? exactRule).level;
+    // Sensitivity is judged on the RULE that would actually be committed, not the raw command:
+    // a command that generalizes to a safe wildcard template (e.g. `git log *`) stays promotable
+    // even if its raw form held an email/token, but any rule whose own text still carries a
+    // secret (the exact-rule path — destructive/unmatched) is withheld. `scanSensitive` catches
+    // high-entropy residue; the `redactCommand(...) !== inner` check catches anything redaction
+    // would mask (Critical 1: no secret text ever reaches the committed artifact via proposedRule).
+    const candidateRule = suggestRule(rec.command);
+    const ruleInner = candidateRule.replace(/^Bash\(/, "").replace(/\)$/, "");
+    const sensitive = scanSensitive(ruleInner) || redactCommand(ruleInner) !== ruleInner;
+    const proposedRule = sensitive ? undefined : candidateRule;
+    const level = classifyRule(candidateRule).level;
     const redactedPreview = sensitive ? "sensitive — review locally" : escapeCell(redactCommand(rec.command));
     const key = accumKey(sensitive, proposedRule, rec.commandDigest);
 
@@ -478,10 +485,13 @@ export function buildCandidates(input: BuildCandidatesInput): Candidate[] {
   for (const d of denials) {
     if (d.tool !== "Bash" || !d.input) continue; // Bash-centric per the loop's scope
     const command = d.input;
-    const sensitive = scanSensitive(command);
-    const exactRule = `Bash(${command.trim()})`;
-    const proposedRule = sensitive ? undefined : suggestRule(command);
-    const level = classifyRule(proposedRule ?? exactRule).level;
+    // Sensitivity judged on the would-be rule, not the raw command (see the grant loop above —
+    // Critical 1: a secret in the rule text is withheld; a safe wildcard template is kept).
+    const candidateRule = suggestRule(command);
+    const ruleInner = candidateRule.replace(/^Bash\(/, "").replace(/\)$/, "");
+    const sensitive = scanSensitive(ruleInner) || redactCommand(ruleInner) !== ruleInner;
+    const proposedRule = sensitive ? undefined : candidateRule;
+    const level = classifyRule(candidateRule).level;
     const redactedPreview = sensitive ? "sensitive — review locally" : escapeCell(redactCommand(command));
     const digest = sha256Hex(command);
     const key = accumKey(sensitive, proposedRule, digest);
