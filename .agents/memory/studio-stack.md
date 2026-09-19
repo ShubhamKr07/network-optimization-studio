@@ -5,9 +5,9 @@ description: Key architectural decisions and environment constraints for the Net
 
 # Solver decision
 
-The solver is a pure TypeScript greedy + 1-opt local search. Python/PuLP was the original plan but Python package installation (uv) was unavailable in this environment. The UI labels it "CBC (PuLP)" for design consistency with the spec.
+The solver is Python (PuLP + CBC), invoked via `artifacts/api-server/src/solver/jobRunner.ts` spawning `solve.py` as a child process. `pulp` is a genuine runtime dependency (pinned `pulp==3.3.2` in `artifacts/api-server/src/solver/requirements.txt`) — not a label-only stand-in for a TypeScript heuristic.
 
-**Why this matters:** If future work tries to add Python, be aware that `uv` is not in PATH. Test with `which uv` first.
+**Why this matters:** `artifacts/api-server/src/solver/tests/e2e_accuracy.py` is sacred (CLAUDE.md hard rule #2) and exercises the real PuLP/CBC solve path — it must pass unmodified after every change.
 
 # Schema: result stored in scenarios table
 
