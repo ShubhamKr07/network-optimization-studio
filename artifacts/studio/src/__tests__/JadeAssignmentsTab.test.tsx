@@ -186,4 +186,90 @@ describe("JadeAssignmentsTab", () => {
       expect(screen.getByTestId("text-jadeassignments-count").textContent).toMatch(/^[12] of 11$/);
     });
   });
+
+  // T7 (Workspace fixups bundle, item 5) — the Distance Band filter's option
+  // values are unit-aware ranges (bandRangeLabel), not opaque "Band N"
+  // labels, and stay live when bands/unit change post-mount.
+  describe("Distance Band range filter (T7)", () => {
+    // 11 rows spanning every bucket of bands=[250,500,750,1000]: two rows
+    // per bucket (boundary-inclusive) plus one overflow row, so the select
+    // filter's distinct-value list exercises all 5 range labels. Products
+    // alternate so a non-band filter (Product) can be exercised alongside it.
+    function variedRowsResult() {
+      return makeResult(
+        Array.from({ length: 11 }, (_, i) => ({
+          customerId: `customer-${i}`,
+          warehouseId: "wh-11",
+          productId: i < 6 ? "product-1" : "product-2",
+          distanceMi: 100 + i * 100, // 100..1100
+        })),
+      );
+    }
+
+    it("lists unit-aware ranges in the Distance Band filter, not 'Band N'/'Overflow'", async () => {
+      const user = userEvent.setup();
+      render(<JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />);
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      const popover = screen.getByTestId("filter-menu-popover");
+      const select = within(popover).getByTestId("select-filter-band");
+
+      expect(within(select).getByTestId("option-filter-band-≤ 250 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-250–500 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-500–750 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-750–1000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-> 1000 mi")).toBeInTheDocument();
+
+      expect(within(select).queryByTestId("option-filter-band-Band 1")).not.toBeInTheDocument();
+      expect(within(select).queryByTestId("option-filter-band-Overflow")).not.toBeInTheDocument();
+    });
+
+    it("rerendering with changed bands updates the filter options live, with no network call", async () => {
+      const user = userEvent.setup();
+      const fetchSpy = vi.spyOn(global, "fetch");
+      const { rerender } = render(
+        <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />,
+      );
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      const popover = screen.getByTestId("filter-menu-popover");
+      expect(within(popover).getByTestId("option-filter-band-≤ 250 mi")).toBeInTheDocument();
+
+      fetchSpy.mockClear();
+      rerender(
+        <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
+      );
+
+      expect(within(popover).getByTestId("option-filter-band-≤ 500 mi")).toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-> 500 mi")).toBeInTheDocument();
+      expect(within(popover).queryByTestId("option-filter-band-≤ 250 mi")).not.toBeInTheDocument();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+
+    it("selecting a band range then editing bands clears only the band filter, leaving a non-band filter active", async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(
+        <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={bands} distanceUnit="mi" scenarioId={1} />,
+      );
+      await user.click(screen.getByTestId("button-filter-menu-trigger"));
+      const popover = screen.getByTestId("filter-menu-popover");
+
+      // Activate a Product filter (non-band) — 6 rows are product-1.
+      await user.click(within(popover).getByTestId("checkbox-filter-product-Product Family 1"));
+      // Activate a band-range filter — "≤ 250 mi" matches 2 of those 6 rows.
+      await user.click(within(popover).getByTestId("checkbox-filter-band-≤ 250 mi"));
+      expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 11");
+
+      // Edit the live distance bands — simulates the band editor changing
+      // boundaries out from under an already-mounted table.
+      rerender(
+        <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
+      );
+
+      // Band filter cleared (its checkbox unchecked, count reflects only the
+      // surviving Product filter: all 6 product-1 rows), Product filter intact.
+      expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("6 of 11");
+      expect(within(popover).getByTestId("checkbox-filter-band-≤ 500 mi")).not.toBeChecked();
+      expect(within(popover).getByTestId("checkbox-filter-product-Product Family 1")).toBeChecked();
+    });
+  });
 });

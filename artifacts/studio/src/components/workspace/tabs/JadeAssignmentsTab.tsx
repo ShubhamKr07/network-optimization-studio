@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Dataset, SolveResult } from "@workspace/api-client-react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
-import { bandLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
+import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { downloadEntityExport } from "@/lib/exportEntity";
 
 // B2 (JADE Ch.9 Workspace Bundle, spec §5/§5a) — Chapter 9 JADE's own
@@ -195,13 +195,31 @@ export function JadeAssignmentsTab({
       { key: "customer", label: "Customer", type: "text", accessor: r => r.customerLabel },
       { key: "warehouse", label: "Warehouse", type: "select", accessor: r => r.warehouseLabel },
       { key: "distance", label: "Distance", type: "number", accessor: r => r.distance },
-      { key: "band", label: "Distance Band", type: "select", accessor: r => r.band },
+      {
+        key: "band",
+        label: "Distance Band",
+        type: "select",
+        accessor: r => bandRangeLabel(r.distance, effectiveBands, distanceUnit),
+      },
     ],
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [effectiveBands.join(","), distanceUnit],
   );
 
   const tableFilters = useTableFilters(rows, filterDescriptors);
-  const { filteredRows, totalCount, filteredCount } = tableFilters;
+  const { filteredRows, totalCount, filteredCount, setFilter } = tableFilters;
+
+  // Workspace fixups bundle (T7, item 5) — when the live distance-band
+  // boundaries or the distance unit change, a previously-selected band range
+  // (e.g. "≤ 250 mi") can no longer match any current option (e.g.
+  // "≤ 300 mi"), which would silently zero out the table with an orphaned
+  // active-filter badge. Clear ONLY the `band` filter key on that change,
+  // leaving every other active column filter intact (spec §5's stale-
+  // selection policy).
+  useEffect(() => {
+    setFilter("band", undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveBands.join(","), distanceUnit]);
 
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
