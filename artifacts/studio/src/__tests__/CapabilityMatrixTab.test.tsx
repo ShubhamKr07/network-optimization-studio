@@ -113,9 +113,26 @@ describe("CapabilityMatrixTab", () => {
     expect(onChange).toHaveBeenCalledWith([{ plantId: "ap-new-1", productId: "product-1", enabled: true }]);
   });
 
-  // JADE — "City, ST" primary label + plant id mono sub-label
-  describe("JADE City, ST label (locationById)", () => {
-    it("shows 'City, ST' with the plant id kept as a sub-label when locationById has an entry", () => {
+  // workspace-fixups item 2 — the per-plant row header cell uses the shared
+  // `plantIdCityState` helper: "<id> — <City>, <State>". `name` is ignored.
+  describe("plant row header (plantIdCityState)", () => {
+    it("shows '<id> — <City>, <State>' for a plant row", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      const row = screen.getByTestId("row-capability-plant-1");
+      expect(row).toHaveTextContent("plant-1 — A, QLD");
+      // `name` ("Plant One") is deliberately not shown.
+      expect(row).not.toHaveTextContent("Plant One");
+    });
+
+    it("is unaffected by the (now filter-only) locationById prop", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -127,23 +144,7 @@ describe("CapabilityMatrixTab", () => {
         />,
       );
       const row = screen.getByTestId("row-capability-plant-1");
-      expect(row).toHaveTextContent("Kalgoorlie, WA");
-      expect(row).toHaveTextContent("plant-1");
-    });
-
-    it("falls back to the existing name/(city, state) rendering when locationById is absent (other-model default, no regression)", () => {
-      render(
-        <CapabilityMatrixTab
-          plants={plants}
-          products={products}
-          baseCapabilities={baseCapabilities}
-          overrides={[]}
-          onChange={vi.fn()}
-        />,
-      );
-      const row = screen.getByTestId("row-capability-plant-1");
-      expect(row).toHaveTextContent("Plant One");
-      expect(row).toHaveTextContent("(A, QLD)");
+      expect(row).toHaveTextContent("plant-1 — A, QLD");
     });
   });
 
@@ -261,6 +262,53 @@ describe("CapabilityMatrixTab", () => {
     expect(screen.getByTestId("text-capability-capacity-label")).toHaveTextContent(
       /capacity per plant-product combination/i,
     );
+  });
+
+  // workspace-fixups item 3a — single line at >=md, wraps (not overflows) below md.
+  it("the info line has md:whitespace-nowrap and NOT max-w-md", () => {
+    render(
+      <CapabilityMatrixTab
+        plants={plants}
+        products={products}
+        baseCapabilities={baseCapabilities}
+        overrides={[]}
+        onChange={vi.fn()}
+      />,
+    );
+    const label = screen.getByTestId("text-capability-capacity-label");
+    expect(label).toHaveClass("md:whitespace-nowrap");
+    expect(label).not.toHaveClass("max-w-md");
+  });
+
+  // workspace-fixups item 3b — capacity readouts are suffixed " Units".
+  describe("capacity readout Units suffix", () => {
+    it("an enabled cell's capacity readout ends in ' Units'", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveTextContent(
+        "210,000,000 Units",
+      );
+    });
+
+    it("a disabled cell's capacity readout shows '0 Units'", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveTextContent("0 Units");
+    });
   });
 
   // B5 (spec §10) — FilterMenu wired with the runtime >10 rendered-plant-row

@@ -5,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { isCellEnabled, cellCapacity, type CapabilityOverride } from "@/lib/jadeCapability";
+import { plantIdCityState } from "@/lib/formatLocation";
 
 // T11 (Chapter 9 JADE) — matches `jadeInputsSchema`'s
 // `plantProductCapability[]` shape exactly (`{plantId, productId, enabled}`,
@@ -36,11 +37,10 @@ interface CapabilityMatrixTabProps {
   overrides: CapabilityOverride[];
   onChange: (next: CapabilityOverride[]) => void;
   /** JADE-only — id -> {city, state}, built by Workspace.tsx's
-   * `jadeLocationMapFromInputs`. When present, the plant row header shows
-   * "City, ST" as the primary label with the plant id as a mono sub-label
-   * (mirrors JadeDistancesTab.tsx), replacing the plain
-   * `{name} ({city}, {state})` format below. Absent (undefined, the
-   * back-compat default) -> unchanged rendering. */
+   * `jadeLocationMapFromInputs`. Used only by `buildFilterDescriptors` below
+   * to widen the filter search text; the row header itself renders
+   * `plantIdCityState(plant)` directly off the `plants` prop (workspace-fixups
+   * item 2/3), which already carries the same city/state values. */
   locationById?: Record<string, { city: string; state: string }>;
 }
 
@@ -124,7 +124,7 @@ export function CapabilityMatrixTab({
   return (
     <div data-testid="capability-matrix-tab">
       <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
-        <p className="text-xs text-muted-foreground max-w-md" data-testid="text-capability-capacity-label">
+        <p className="text-xs text-muted-foreground md:whitespace-nowrap" data-testid="text-capability-capacity-label">
           Capacity shown below each checkbox is the capacity per plant-product
           combination — not the plant's total capacity.
         </p>
@@ -148,22 +148,8 @@ export function CapabilityMatrixTab({
           <TableBody>
             {filteredRows.map(plant => (
               <TableRow key={plant.id} data-testid={`row-capability-${plant.id}`}>
-                <TableCell className="text-xs">
-                  {locationById?.[plant.id] ? (
-                    <div className="flex flex-col">
-                      <span>{locationById[plant.id].city}, {locationById[plant.id].state}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">{plant.id}</span>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="font-mono">{plant.name ?? plant.id}</span>
-                      {plant.city && (
-                        <span className="text-muted-foreground ml-1">
-                          ({plant.city}, {plant.state})
-                        </span>
-                      )}
-                    </>
-                  )}
+                <TableCell className="text-xs" data-testid={`text-capability-plant-${plant.id}`}>
+                  {plantIdCityState(plant)}
                 </TableCell>
                 {products.map(product => {
                   const checked = effectiveEnabled(plant.id, product.id);
@@ -181,7 +167,7 @@ export function CapabilityMatrixTab({
                           className="font-mono text-[10px] text-muted-foreground"
                           data-testid={`text-capability-capacity-${plant.id}-${product.id}`}
                         >
-                          {capacity.toLocaleString()}
+                          {capacity.toLocaleString()} Units
                         </span>
                       </div>
                     </TableCell>
