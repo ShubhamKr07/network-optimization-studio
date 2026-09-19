@@ -61,6 +61,7 @@ describe("design tokens — representation contract", () => {
     expect(value("radius-lg")).toBe("6px");
     expect(value("radius-xl")).toBe("6px");
     expect(value("surface-band")).toBe("#181A15");
+    expect(value("map-plant")).toBe("#2E7D32");                  // approver-pinned plant forest green (workspace-fixups item 1)
   });
   it("no `red` placeholder and no transparent runtime shadow placeholders remain", () => {
     expect(css).not.toMatch(/--chart-[1-5]\s*:\s*red/);
