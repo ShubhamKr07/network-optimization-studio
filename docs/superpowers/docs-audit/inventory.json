@@ -162,6 +162,255 @@
     }
   },
   {
+    "path": ".claude/agents/backend-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 19
+      },
+      {
+        "text": "Coordination",
+        "line": 22
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 27
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/api-server/src/{routes,services,validation,registry}/**",
+        "lib/db/**",
+        "lib/api-spec/**",
+        "scripts/src/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SendMessage"
+      ],
+      "routes": [
+        "POST /scenarios/:id/solve"
+      ],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/jobRunner.ts"
+      ]
+    }
+  },
+  {
+    "path": ".claude/agents/devops-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan relevance",
+        "line": 18
+      },
+      {
+        "text": "Coordination",
+        "line": 21
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 25
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        ".github/workflows/**",
+        "attached_assets/"
+      ],
+      "scripts": [
+        "update",
+        "audit"
+      ],
+      "envVars": [],
+      "symbols": [
+        "Dockerfile",
+        "SendMessage"
+      ],
+      "routes": [],
+      "services": [
+        "nos-api",
+        "nos-studio",
+        "nos-postgres"
+      ],
+      "files": []
+    }
+  },
+  {
+    "path": ".claude/agents/frontend-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 19
+      },
+      {
+        "text": "Coordination",
+        "line": 22
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 27
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/studio/src/**",
+        "lib/",
+        "lib/api-client-react/src/generated/**",
+        "lib/api-zod/src/generated/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "ObjectiveBar",
+        "MapBulkEditToolbar",
+        "ConstraintChips",
+        "SendMessage",
+        "Edge",
+        "Metrics"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
+    "path": ".claude/agents/qa-sdet.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 18
+      },
+      {
+        "text": "Coordination",
+        "line": 21
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 26
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "artifacts/api-server/src/solver/tests/**",
+        "artifacts/studio/e2e/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SendMessage"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/studio/e2e/labs.spec.ts",
+        ".github/workflows/ci.yml"
+      ]
+    }
+  },
+  {
+    "path": ".claude/agents/solver-engineer.md",
+    "origin": "repo",
+    "title": "Your domain",
+    "headings": [
+      {
+        "text": "Your domain",
+        "line": 10
+      },
+      {
+        "text": "Core skills / responsibilities",
+        "line": 13
+      },
+      {
+        "text": "SCN v0.3 plan tasks that land in your domain",
+        "line": 19
+      },
+      {
+        "text": "Sacred",
+        "line": 22
+      },
+      {
+        "text": "Coordination",
+        "line": 25
+      },
+      {
+        "text": "Escalate to the lead",
+        "line": 30
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "solvers/<model>/{manifest.json,dataset/*.json,tests/}",
+        "lib/dataset-schema"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "SendMessage",
+        "Edge",
+        "Metrics"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "artifacts/api-server/src/solver/solve.py",
+        "artifacts/api-server/src/solver/merge_inputs.py",
+        "artifacts/api-server/src/solver/tests/e2e_accuracy.py"
+      ]
+    }
+  },
+  {
     "path": ".claude/glm-delegation-disabled.md",
     "origin": "repo",
     "title": "GLM subagent delegation is disabled for this project",
@@ -212,7 +461,9 @@
       }
     ],
     "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "inboundLinks": [
+      "CLAUDE.md"
+    ],
     "references": {
       "paths": [],
       "scripts": [
@@ -284,18 +535,18 @@
       },
       {
         "text": "Cause taxonomy (finite — use exactly one per failure row)",
-        "line": 15
+        "line": 16
       },
       {
         "text": "Steps",
-        "line": 22
+        "line": 23
       },
       {
         "text": "Notes",
-        "line": 75
+        "line": 92
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-15",
     "inboundLinks": [
       "CLAUDE.md"
     ],
@@ -307,6 +558,74 @@
       "routes": [],
       "services": [],
       "files": []
+    }
+  },
+  {
+    "path": "AGENTS.md",
+    "origin": "repo",
+    "title": "AGENTS.md — Network Optimization Studio agent team",
+    "headings": [
+      {
+        "text": "AGENTS.md — Network Optimization Studio agent team",
+        "line": 1
+      },
+      {
+        "text": "How the team runs",
+        "line": 9
+      },
+      {
+        "text": "Model policy (fixed per role)",
+        "line": 16
+      },
+      {
+        "text": "Coordination protocol (every teammate follows this)",
+        "line": 32
+      },
+      {
+        "text": "File-ownership map",
+        "line": 41
+      },
+      {
+        "text": "When NOT to use the full team",
+        "line": 55
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [
+        "docs/superpowers/plans/",
+        "attached_assets/",
+        "artifacts/api-server/src/{routes,services,validation,registry}/**",
+        "lib/db/**",
+        "lib/api-spec/**",
+        "scripts/src/**",
+        "artifacts/api-server/src/solver/{solve.py,merge_inputs.py}",
+        "solvers/<model>/**",
+        "artifacts/studio/src/**",
+        "lib/api-client-react",
+        "lib/api-zod",
+        "artifacts/api-server/src/solver/tests/**",
+        "artifacts/studio/e2e/**",
+        ".github/workflows/**"
+      ],
+      "scripts": [],
+      "envVars": [],
+      "symbols": [
+        "Agent",
+        "SendMessage",
+        "TaskCreate",
+        "TaskList",
+        "TaskUpdate",
+        "Dockerfile"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        "lib/api-spec/openapi.yaml",
+        "artifacts/api-server/src/solver/{jobRunner,pmedian}.ts",
+        "solvers/<model>/manifest.json"
+      ]
     }
   },
   {
@@ -332,23 +651,34 @@
       },
       {
         "text": "Hard rules",
-        "line": 91
+        "line": 115
+      },
+      {
+        "text": "Branch discipline (standing)",
+        "line": 126
       },
       {
         "text": "v2 implementation progress",
-        "line": 102
+        "line": 138
       },
       {
         "text": "Gotchas",
-        "line": 263
+        "line": 308
       }
     ],
-    "lastChange": "2026-09-12",
+    "lastChange": "2026-09-19",
     "inboundLinks": [
+      ".claude/agents/backend-engineer.md",
+      ".claude/agents/devops-engineer.md",
+      ".claude/agents/frontend-engineer.md",
+      ".claude/agents/qa-sdet.md",
+      ".claude/agents/solver-engineer.md",
       ".claude/glm-delegation-disabled.md",
+      "AGENTS.md",
       "NETWORK_MIGRATION_PLAN.md",
       "docs/ops/smoke.md",
-      "docs/superpowers/gates/doc_drift.md"
+      "docs/superpowers/gates/doc_drift.md",
+      "docs/superpowers/metrics/README.md"
     ],
     "references": {
       "paths": [],
@@ -1831,6 +2161,82 @@
     }
   },
   {
+    "path": "docs/error-plans/README.md",
+    "origin": "repo",
+    "title": "Weekly Sentry error fix plans",
+    "headings": [
+      {
+        "text": "Weekly Sentry error fix plans",
+        "line": 1
+      },
+      {
+        "text": "Required GitHub configuration",
+        "line": 13
+      }
+    ],
+    "lastChange": "2026-09-13",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT",
+        "CLAUDE_CODE_OAUTH_TOKEN"
+      ],
+      "symbols": [
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT",
+        "CLAUDE_CODE_OAUTH_TOKEN"
+      ],
+      "routes": [],
+      "services": [],
+      "files": [
+        ".github/workflows/error-plans.yml",
+        "docs/error-plans/aggregates.json",
+        "docs/error-plans/<date>.md"
+      ]
+    }
+  },
+  {
+    "path": "docs/error-plans/SENTRY-AUDIT.md",
+    "origin": "repo",
+    "title": "Sentry Integration Audit (2026-09-12)",
+    "headings": [
+      {
+        "text": "Sentry Integration Audit (2026-09-12)",
+        "line": 1
+      },
+      {
+        "text": "Confirmed",
+        "line": 5
+      },
+      {
+        "text": "Consequences for later tasks",
+        "line": 16
+      }
+    ],
+    "lastChange": "2026-09-12",
+    "inboundLinks": [],
+    "references": {
+      "paths": [],
+      "scripts": [],
+      "envVars": [
+        "VITE_SENTRY",
+        "SENTRY_DSN"
+      ],
+      "symbols": [
+        "SENTRY_DSN",
+        "VITE_SENTRY"
+      ],
+      "routes": [],
+      "services": [],
+      "files": []
+    }
+  },
+  {
     "path": "docs/ops/e2e-stale-specs.md",
     "origin": "repo",
     "title": "Stale e2e specs (surfaced by the OBS-3 flake audit, 2026-09-11)",
@@ -1879,68 +2285,45 @@
     }
   },
   {
-    "path": "docs/ops/sample-a.md",
+    "path": "docs/ops/permission-review-cron.md",
     "origin": "repo",
-    "title": "Sample A (docs-apply test)",
+    "title": "Weekly permission-review capture (local cron)",
     "headings": [
       {
-        "text": "Sample A (docs-apply test)",
+        "text": "Weekly permission-review capture (local cron)",
         "line": 1
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "docs/ops/sample-b.md",
-    "origin": "repo",
-    "title": "Sample B (docs-apply test)",
-    "headings": [
+      },
       {
-        "text": "Sample B (docs-apply test)",
-        "line": 1
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": [
-        "artifacts/ghost/sample-b-target.ts"
-      ]
-    }
-  },
-  {
-    "path": "docs/ops/sample-c.md",
-    "origin": "repo",
-    "title": "Sample C (docs-apply test)",
-    "headings": [
+        "text": "Manual run / smoke check",
+        "line": 14
+      },
       {
-        "text": "Sample C (docs-apply test)",
-        "line": 1
+        "text": "Dry-run (writes nothing, prints the week + candidate count):",
+        "line": 17
+      },
+      {
+        "text": "Real weekly capture + push to the permissions-capture branch:",
+        "line": 20
+      },
+      {
+        "text": "Schedule it (macOS launchd)",
+        "line": 24
+      },
+      {
+        "text": "Notes / caveats",
+        "line": 63
       }
     ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
+    "lastChange": "2026-09-19",
+    "inboundLinks": [
+      "CLAUDE.md",
+      "docs/superpowers/metrics/README.md"
+    ],
     "references": {
-      "paths": [],
-      "scripts": [
-        "bogus:not-a-real-script"
+      "paths": [
+        "scripts/harness/permissions-capture-weekly.sh"
       ],
+      "scripts": [],
       "envVars": [],
       "symbols": [],
       "routes": [],
@@ -2220,11 +2603,19 @@
         "line": 78
       },
       {
-        "text": "Finding states (docs pipeline)",
+        "text": "`permissions.csv` — one row per retro permission audit (`pnpm harness:permissions`)",
         "line": 93
+      },
+      {
+        "text": "`permissions-review/<YYYY-WW>.{json,md}` + `permissions-managed.json` (weekly review loop)",
+        "line": 113
+      },
+      {
+        "text": "Finding states (docs pipeline)",
+        "line": 125
       }
     ],
-    "lastChange": "2026-09-11",
+    "lastChange": "2026-09-19",
     "inboundLinks": [
       ".claude/skills/harness-retro/SKILL.md"
     ],
@@ -2232,9 +2623,12 @@
       "paths": [],
       "scripts": [
         "harness:record",
+        "harness:permissions",
         "smoke",
         "harness:report",
-        "e2e:gate"
+        "e2e:gate",
+        "harness:permissions:capture",
+        "harness:permissions:apply"
       ],
       "envVars": [],
       "symbols": [],
@@ -2244,77 +2638,10 @@
         "nos-studio"
       ],
       "files": [
-        "docs/superpowers/gates/<cause>.md"
+        "docs/superpowers/gates/<cause>.md",
+        "scripts/src/harness/lib/permissions.ts",
+        "docs/ops/permission-review-cron.md"
       ]
-    }
-  },
-  {
-    "path": "docs/superpowers/prompts/jobs/docs-audit-sunday.md",
-    "origin": "repo",
-    "title": "Cron job: Sunday documentation sweep",
-    "headings": [
-      {
-        "text": "Cron job: Sunday documentation sweep",
-        "line": 1
-      },
-      {
-        "text": "Steps",
-        "line": 7
-      },
-      {
-        "text": "Guardrails",
-        "line": 23
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [
-        "docs/superpowers/specs/**",
-        "docs/superpowers/plans/**"
-      ],
-      "scripts": [
-        "docs:audit"
-      ],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": [
-        "docs/superpowers/docs-audit/inventory.json"
-      ]
-    }
-  },
-  {
-    "path": "docs/superpowers/prompts/jobs/harness-weekly.md",
-    "origin": "repo",
-    "title": "Cron job: weekly harness report",
-    "headings": [
-      {
-        "text": "Cron job: weekly harness report",
-        "line": 1
-      },
-      {
-        "text": "Steps",
-        "line": 7
-      },
-      {
-        "text": "Guardrails",
-        "line": 36
-      }
-    ],
-    "lastChange": "2026-09-12",
-    "inboundLinks": [],
-    "references": {
-      "paths": [
-        "docs/superpowers/metrics/flake.csv"
-      ],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
     }
   },
   {
@@ -2336,43 +2663,44 @@
       },
       {
         "text": "Gate 2 — Dataset integrity",
-        "line": 89
+        "line": 90
       },
       {
         "text": "Gate 3 — Solver hygiene",
-        "line": 115
+        "line": 116
       },
       {
         "text": "Gate 4 — Distance bands",
-        "line": 141
+        "line": 142
       },
       {
         "text": "Gate 5 — Contract & caching",
-        "line": 155
+        "line": 156
       },
       {
         "text": "Gate 6 — Frontend",
-        "line": 170
+        "line": 171
       },
       {
         "text": "Gate 6.5 — Input Map v2 editor (Workspace tabbed surface)",
-        "line": 201
+        "line": 202
       },
       {
         "text": "Gate 7 — Tests",
-        "line": 256
+        "line": 257
       },
       {
         "text": "Gate 8 — Rollout",
-        "line": 289
+        "line": 290
       },
       {
         "text": "Quick reference — the nine silent failures",
-        "line": 306
+        "line": 307
       }
     ],
-    "lastChange": "2026-09-01",
+    "lastChange": "2026-09-15",
     "inboundLinks": [
+      ".claude/agents/backend-engineer.md",
       "CLAUDE.md",
       "chapter-10-two-echelon-gold-refinery-integration.md"
     ],
@@ -2431,116 +2759,22 @@
     }
   },
   {
-    "path": "MEMORY.md",
-    "origin": "memory",
-    "title": "MEMORY.md",
-    "headings": [],
-    "lastChange": "2026-09-04",
+    "path": "solvers/chens-cosmetics-cn/dataset/README.md",
+    "origin": "repo",
+    "title": "Chen's Cosmetics (China) dataset",
+    "headings": [
+      {
+        "text": "Chen's Cosmetics (China) dataset",
+        "line": 1
+      }
+    ],
+    "lastChange": "2026-09-15",
     "inboundLinks": [],
     "references": {
       "paths": [],
       "scripts": [],
       "envVars": [],
       "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_merge_spec_plan_docs_to_main.md",
-    "origin": "memory",
-    "title": "feedback_merge_spec_plan_docs_to_main.md",
-    "headings": [],
-    "lastChange": "2026-09-01",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_no_unilateral_decision_changes.md",
-    "origin": "memory",
-    "title": "feedback_no_unilateral_decision_changes.md",
-    "headings": [],
-    "lastChange": "2026-08-31",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_orchestration_next_phase.md",
-    "origin": "memory",
-    "title": "feedback_orchestration_next_phase.md",
-    "headings": [],
-    "lastChange": "2026-08-22",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_posthog_cli.md",
-    "origin": "memory",
-    "title": "feedback_posthog_cli.md",
-    "headings": [],
-    "lastChange": "2026-07-26",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [],
-      "symbols": [],
-      "routes": [],
-      "services": [],
-      "files": []
-    }
-  },
-  {
-    "path": "feedback_qa_default_in_plans.md",
-    "origin": "memory",
-    "title": "feedback_qa_default_in_plans.md",
-    "headings": [],
-    "lastChange": "2026-09-04",
-    "inboundLinks": [
-      "MEMORY.md"
-    ],
-    "references": {
-      "paths": [],
-      "scripts": [],
-      "envVars": [
-        "API_PROXY_TARGET"
-      ],
-      "symbols": [
-        "API_PROXY_TARGET"
-      ],
       "routes": [],
       "services": [],
       "files": []
