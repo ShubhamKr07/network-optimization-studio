@@ -10,7 +10,18 @@ import {
   type SettingsJson,
 } from "../harness/lib/permissionApply.js";
 import type { Candidate } from "../harness/lib/permissions.js";
+import { sha256Hex } from "../harness/lib/permissions.js";
 import type { ManagedMap } from "../harness/lib/permissionManaged.js";
+import { canonicalJson } from "../harness/permissions-capture.js";
+import {
+  validateArtifact,
+  runRemoteApply,
+  createAuthorizer,
+  isRunningInCI,
+  promoteLocalCandidate,
+  parseArgs,
+  type LocalSidecar,
+} from "../harness/permissions-apply.js";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -602,5 +613,346 @@ describe("applyDecisions", () => {
     });
     expect(result.applied).toEqual([{ id: "aaaaaaaaaaaa", keyword: "allow", rule: "Bash(git status *)" }]);
     expect(result.settings.permissions?.allow).toEqual(["Bash(git status *)"]);
+  });
+});
+
+// --- Task 14: apply CLI (remote-data + local modes) --------------------------
+
+function trackedSettingsFor(permissions: object): SettingsJson {
+  return { permissions } as SettingsJson;
+}
+
+function digestFor(permissions: object): string {
+  return sha256Hex(canonicalJson(permissions));
+}
+
+describe("validateArtifact", () => {
+  const permissions = { allow: ["Bash(git status)"], deny: [], ask: [] };
+  const goodDigest = digestFor(permissions);
+  const NOW14 = new Date("2026-09-08T00:00:00.000Z");
+
+  function goodArtifact(overrides: Partial<Artifact> = {}): Artifact {
+    return {
+      schemaVersion: 1,
+      sourceCommit: "deadbeef",
+      trackedSettingsDigest: goodDigest,
+      window: { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" },
+      generatedAt: "2026-09-07T00:00:00.000Z", // 1 day before NOW14
+      candidates: [],
+      ...overrides,
+    };
+  }
+
+  it("accepts a fresh, matching artifact", () => {
+    const result = validateArtifact(goodArtifact(), {
+      expectedSourceCommit: "deadbeef",
+      trackedSettings: trackedSettingsFor(permissions),
+      now: NOW14,
+      maxAgeDays: 8,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("rejects an unsupported schemaVersion", () => {
+    const result = validateArtifact(goodArtifact({ schemaVersion: 999 }), {
+      expectedSourceCommit: "deadbeef",
+      trackedSettings: trackedSettingsFor(permissions),
+      now: NOW14,
+      maxAgeDays: 8,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/schemaVersion/);
+  });
+
+  it("rejects a sourceCommit mismatch", () => {
+    const result = validateArtifact(goodArtifact({ sourceCommit: "wrongsha" }), {
+      expectedSourceCommit: "deadbeef",
+      trackedSettings: trackedSettingsFor(permissions),
+      now: NOW14,
+      maxAgeDays: 8,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/sourceCommit/);
+  });
+
+  it("rejects a trackedSettingsDigest mismatch (settings drifted since capture)", () => {
+    const result = validateArtifact(goodArtifact(), {
+      expectedSourceCommit: "deadbeef",
+      trackedSettings: trackedSettingsFor({ allow: ["Bash(something-else)"], deny: [], ask: [] }),
+      now: NOW14,
+      maxAgeDays: 8,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/trackedSettingsDigest/);
+  });
+
+  it("rejects a stale artifact past max-age-days", () => {
+    const result = validateArtifact(goodArtifact({ generatedAt: "2026-08-01T00:00:00.000Z" }), {
+      expectedSourceCommit: "deadbeef",
+      trackedSettings: trackedSettingsFor(permissions),
+      now: NOW14,
+      maxAgeDays: 8,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/stale/);
+  });
+
+  it("rejects an artifact from the future (negative age)", () => {
+    const result = validateArtifact(goodArtifact({ generatedAt: "2026-09-20T00:00:00.000Z" }), {
+      expectedSourceCommit: "deadbeef",
+      trackedSettings: trackedSettingsFor(permissions),
+      now: NOW14,
+      maxAgeDays: 8,
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("runRemoteApply", () => {
+  const permissions = { allow: [], deny: [], ask: [] };
+  const NOW14 = new Date("2026-09-08T00:00:00.000Z");
+
+  function baseArtifact(): Artifact {
+    return {
+      schemaVersion: 1,
+      sourceCommit: "deadbeef",
+      trackedSettingsDigest: digestFor(permissions),
+      window: { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" },
+      generatedAt: "2026-09-07T00:00:00.000Z",
+      candidates: [candidate({ id: "aaaaaaaaaaaa", proposedRule: "Bash(git status)", level: "ok" })],
+    };
+  }
+
+  const isOwnerAssoc = createAuthorizer({ allowedAssociations: ["OWNER"] });
+
+  it("applies end to end given a valid artifact + freeze + full decision set", () => {
+    const comments: DecisionComment[] = [
+      comment({ commentId: "c1", association: "OWNER", body: "@claude allow aaaaaaaaaaaa" }),
+      comment({ commentId: "c2", association: "OWNER", body: "@claude apply permission review" }),
+    ];
+    const outcome = runRemoteApply({
+      artifact: baseArtifact(),
+      comments,
+      trackedSettings: trackedSettingsFor(permissions),
+      managed: {},
+      now: NOW14,
+      maxAgeDays: 8,
+      sourceCommit: "deadbeef",
+      sourceBlobMatches: true,
+      isAuthorized: isOwnerAssoc,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.settings?.permissions?.allow).toEqual(["Bash(git status)"]);
+    expect(outcome.applied).toEqual([{ id: "aaaaaaaaaaaa", keyword: "allow", rule: "Bash(git status)" }]);
+  });
+
+  it("refuses when the artifact fails validation (stale), before touching decisions at all", () => {
+    const comments: DecisionComment[] = [
+      comment({ association: "OWNER", body: "@claude allow aaaaaaaaaaaa" }),
+      comment({ association: "OWNER", body: "@claude apply permission review" }),
+    ];
+    const stale = { ...baseArtifact(), generatedAt: "2026-01-01T00:00:00.000Z" };
+    const outcome = runRemoteApply({
+      artifact: stale,
+      comments,
+      trackedSettings: trackedSettingsFor(permissions),
+      managed: {},
+      now: NOW14,
+      maxAgeDays: 8,
+      sourceCommit: "deadbeef",
+      sourceBlobMatches: true,
+      isAuthorized: isOwnerAssoc,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toMatch(/stale/);
+    expect(outcome.settings).toBeUndefined();
+  });
+
+  it("refuses when there is no authorized freeze comment", () => {
+    const comments: DecisionComment[] = [comment({ association: "OWNER", body: "@claude allow aaaaaaaaaaaa" })];
+    const outcome = runRemoteApply({
+      artifact: baseArtifact(),
+      comments,
+      trackedSettings: trackedSettingsFor(permissions),
+      managed: {},
+      now: NOW14,
+      maxAgeDays: 8,
+      sourceCommit: "deadbeef",
+      sourceBlobMatches: true,
+      isAuthorized: isOwnerAssoc,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toMatch(/freeze/);
+  });
+
+  it("refuses when not every candidate is decided or deferred", () => {
+    const art = {
+      ...baseArtifact(),
+      candidates: [
+        candidate({ id: "aaaaaaaaaaaa", proposedRule: "Bash(git status)", level: "ok" }),
+        candidate({ id: "bbbbbbbbbbbb", proposedRule: "Bash(pnpm -v)", level: "ok" }),
+      ],
+    };
+    const comments: DecisionComment[] = [
+      comment({ association: "OWNER", body: "@claude allow aaaaaaaaaaaa" }),
+      comment({ association: "OWNER", body: "@claude apply permission review" }),
+    ];
+    const outcome = runRemoteApply({
+      artifact: art,
+      comments,
+      trackedSettings: trackedSettingsFor(permissions),
+      managed: {},
+      now: NOW14,
+      maxAgeDays: 8,
+      sourceCommit: "deadbeef",
+      sourceBlobMatches: true,
+      isAuthorized: isOwnerAssoc,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toMatch(/decided or deferred/);
+  });
+});
+
+describe("createAuthorizer", () => {
+  it("authorizes by association, case-insensitively", () => {
+    const auth = createAuthorizer({ allowedAssociations: ["owner", "MEMBER"] });
+    expect(auth("anyone", "OWNER")).toBe(true);
+    expect(auth("anyone", "member")).toBe(true);
+    expect(auth("anyone", "NONE")).toBe(false);
+  });
+
+  it("authorizes by explicit author allowlist regardless of association", () => {
+    const auth = createAuthorizer({ allowedAuthors: ["shubham"] });
+    expect(auth("shubham", "NONE")).toBe(true);
+    expect(auth("attacker", "NONE")).toBe(false);
+  });
+});
+
+describe("isRunningInCI", () => {
+  it("is true when CI=true", () => {
+    expect(isRunningInCI({ CI: "true" })).toBe(true);
+  });
+
+  it("is true when GITHUB_ACTIONS=true", () => {
+    expect(isRunningInCI({ GITHUB_ACTIONS: "true" })).toBe(true);
+  });
+
+  it("is false with neither set", () => {
+    expect(isRunningInCI({})).toBe(false);
+  });
+});
+
+describe("promoteLocalCandidate", () => {
+  function sidecar(overrides: Partial<LocalSidecar> = {}): LocalSidecar {
+    return {
+      schemaVersion: 1,
+      week: "2026-W36",
+      localAllowDigest: "digest",
+      commands: { aaaaaaaaaaaa: "curl https://internal.example.com/secret-tool" },
+      ...overrides,
+    };
+  }
+
+  it("promotes a known candidate id into local settings as an exact rule", () => {
+    const result = promoteLocalCandidate({
+      localSettings: { permissions: { allow: [], deny: [], ask: [] } },
+      sidecar: sidecar(),
+      candidateId: "aaaaaaaaaaaa",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.rule).toBe("Bash(curl https://internal.example.com/secret-tool)");
+    expect(result.settings?.permissions?.allow).toEqual([
+      "Bash(curl https://internal.example.com/secret-tool)",
+    ]);
+  });
+
+  it("refuses an unknown candidate id", () => {
+    const result = promoteLocalCandidate({
+      localSettings: { permissions: { allow: [], deny: [], ask: [] } },
+      sidecar: sidecar(),
+      candidateId: "zzzzzzzzzzzz",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("is idempotent against an already-present rule", () => {
+    const already: SettingsJson = {
+      permissions: { allow: ["Bash(curl https://internal.example.com/secret-tool)"], deny: [], ask: [] },
+    };
+    const result = promoteLocalCandidate({ localSettings: already, sidecar: sidecar(), candidateId: "aaaaaaaaaaaa" });
+    expect(result.settings?.permissions?.allow).toEqual([
+      "Bash(curl https://internal.example.com/secret-tool)",
+    ]);
+  });
+
+  it("honors an explicit --rule override instead of the exact sidecar command", () => {
+    const result = promoteLocalCandidate({
+      localSettings: { permissions: { allow: [], deny: [], ask: [] } },
+      sidecar: sidecar(),
+      candidateId: "aaaaaaaaaaaa",
+      rule: "Bash(curl https://internal.example.com/*)",
+    });
+    expect(result.rule).toBe("Bash(curl https://internal.example.com/*)");
+  });
+});
+
+describe("parseArgs", () => {
+  const root = "/repo";
+
+  it("defaults to remote mode with sane defaults when --mode is omitted", () => {
+    const flags = parseArgs([], root);
+    expect(flags.mode).toBe("remote");
+    if (flags.mode === "remote") {
+      expect(flags.maxAgeDays).toBe(8);
+      expect(flags.sourceBlobMatches).toBe(false);
+      expect(flags.authorizedAssociations).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    }
+  });
+
+  it("parses remote-mode flags", () => {
+    const flags = parseArgs(
+      [
+        "--mode",
+        "remote",
+        "--artifact",
+        "/tmp/a.json",
+        "--comments",
+        "/tmp/c.json",
+        "--source-commit",
+        "deadbeef",
+        "--source-blob-matches",
+        "--max-age-days",
+        "3",
+        "--authorized-associations",
+        "OWNER, MEMBER",
+        "--dry-run",
+      ],
+      root,
+    );
+    expect(flags).toMatchObject({
+      mode: "remote",
+      artifactPath: "/tmp/a.json",
+      commentsPath: "/tmp/c.json",
+      sourceCommit: "deadbeef",
+      sourceBlobMatches: true,
+      maxAgeDays: 3,
+      authorizedAssociations: ["OWNER", "MEMBER"],
+      dryRun: true,
+    });
+  });
+
+  it("parses local-mode flags", () => {
+    const flags = parseArgs(
+      ["--mode", "local", "--sidecar", "/tmp/side.json", "--id", "aaaaaaaaaaaa", "--rule", "Bash(ls)"],
+      root,
+    );
+    expect(flags).toEqual({
+      mode: "local",
+      sidecarPath: "/tmp/side.json",
+      settingsLocalPath: "/repo/.claude/settings.local.json",
+      candidateId: "aaaaaaaaaaaa",
+      rule: "Bash(ls)",
+      dryRun: false,
+    });
   });
 });

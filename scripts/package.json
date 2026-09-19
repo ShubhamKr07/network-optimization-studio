@@ -11,6 +11,7 @@
     "harness:record": "tsx ./src/harness/record-task.ts",
     "harness:permissions": "tsx ./src/harness/audit-permissions.ts",
     "harness:permissions:capture": "tsx ./src/harness/permissions-capture.ts",
+    "harness:permissions:apply": "tsx ./src/harness/permissions-apply.ts",
     "smoke": "tsx ./src/deploy/smoke.ts",
     "harness:report": "tsx ./src/harness/report.ts",
     "docs:audit": "tsx ./src/harness/docs-audit.ts",
