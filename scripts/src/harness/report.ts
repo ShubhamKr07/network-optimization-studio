@@ -105,6 +105,19 @@ function buildReport(week: string): string {
   }
   L.push("");
 
+  // Permission review (deterministic — inlines the latest committed weekly artifact; no model
+  // involvement, per the permission-review-loop design's Important 9).
+  L.push("## Permission review", "");
+  const pr = latestPermissionReview();
+  if (!pr) {
+    L.push("- No permission-review artifact yet (run `pnpm harness:permissions:capture`).");
+  } else {
+    L.push(`- Latest artifact: \`${pr.file}\`${pr.generatedAt ? ` (generated ${pr.generatedAt})` : ""}.`);
+    L.push("");
+    L.push(pr.md.trim());
+  }
+  L.push("");
+
   // What changed since last week
   L.push("## What changed since last week", "");
   const prev = previousReport(week);
@@ -117,6 +130,29 @@ function buildReport(week: string): string {
   L.push("");
 
   return L.join("\n");
+}
+
+/** Newest committed permission-review artifact (`.md` + its sibling `.json`'s `generatedAt`), or null. */
+export function latestPermissionReview(
+  dir: string = join(metricsDir(), "permissions-review"),
+): { md: string; generatedAt: string | null; file: string } | null {
+  if (!existsSync(dir)) return null;
+  const mds = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+  if (mds.length === 0) return null;
+  const file = mds[mds.length - 1];
+  const md = readFileSync(join(dir, file), "utf8");
+  let generatedAt: string | null = null;
+  const jsonPath = join(dir, file.replace(/\.md$/, ".json"));
+  if (existsSync(jsonPath)) {
+    try {
+      generatedAt = (JSON.parse(readFileSync(jsonPath, "utf8")).generatedAt as string) ?? null;
+    } catch {
+      generatedAt = null;
+    }
+  }
+  return { md, generatedAt, file };
 }
 
 function previousReport(week: string): string | null {
