@@ -6,6 +6,7 @@ import {
   assignBandOrOverflow,
   computeCumulativeBandCoverage,
   bandLabel,
+  bandRangeLabel,
   OVERFLOW_BAND,
 } from "@/lib/bands";
 
@@ -255,5 +256,47 @@ describe("bandLabel (jade-A1)", () => {
 
   it("returns 'Band 1' for empty bands (matches assignBandOrOverflow's 0 fallback)", () => {
     expect(bandLabel(100, [])).toBe("Band 1");
+  });
+});
+
+// Workspace fixups bundle (T1, item 5) — unit-aware distance-band range
+// labels, built on the same assignBandOrOverflow classification as
+// `bandLabel` above.
+describe("bandRangeLabel (workspace fixups T1)", () => {
+  it("labels each band and the overflow bucket in mi", () => {
+    const bands = [200, 400, 800];
+    expect(bandRangeLabel(150, bands, "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabel(250, bands, "mi")).toBe("200–400 mi");
+    expect(bandRangeLabel(700, bands, "mi")).toBe("400–800 mi");
+    expect(bandRangeLabel(801, bands, "mi")).toBe("> 800 mi");
+  });
+
+  it("labels each band and the overflow bucket in km", () => {
+    const bands = [200, 400, 800];
+    expect(bandRangeLabel(150, bands, "km")).toBe("≤ 200 km");
+    expect(bandRangeLabel(250, bands, "km")).toBe("200–400 km");
+    expect(bandRangeLabel(700, bands, "km")).toBe("400–800 km");
+    expect(bandRangeLabel(801, bands, "km")).toBe("> 800 km");
+  });
+
+  it("treats a distance exactly on a boundary as within that (upper-inclusive) band — matches assignBandOrOverflow's <= semantics", () => {
+    const bands = [200, 400, 800];
+    expect(bandRangeLabel(200, bands, "mi")).toBe("≤ 200 mi");
+    expect(bandRangeLabel(400, bands, "mi")).toBe("200–400 mi");
+    expect(bandRangeLabel(800, bands, "mi")).toBe("400–800 mi");
+  });
+
+  it("sorts unsorted band input before classifying and labeling", () => {
+    const unsorted = [500, 250, 1000];
+    const sorted = [250, 500, 1000];
+    for (const distance of [100, 250, 400, 750, 1000, 1500]) {
+      expect(bandRangeLabel(distance, unsorted, "mi")).toBe(bandRangeLabel(distance, sorted, "mi"));
+    }
+    expect(bandRangeLabel(400, unsorted, "mi")).toBe("250–500 mi");
+  });
+
+  it("returns 'All distances' for empty bands", () => {
+    expect(bandRangeLabel(100, [], "mi")).toBe("All distances");
+    expect(bandRangeLabel(100, [], "km")).toBe("All distances");
   });
 });
