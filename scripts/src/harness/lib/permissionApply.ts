@@ -189,3 +189,231 @@ export function allDecidedOrDeferred(artifact: Artifact, decisions: Decision[]):
   const decided = new Set(decisions.map((d) => d.id));
   return artifact.candidates.every((c) => decided.has(c.id));
 }
+
+// --- Task 13: deterministic apply core (Critical 1/2, Important 2) ---------
+
+export interface PermissionsBlock {
+  allow?: string[];
+  deny?: string[];
+  ask?: string[];
+}
+
+/** The tracked `.claude/settings.json` shape this module reads/writes. Any other top-level key
+ * (e.g. `$schema`, `env`, `hooks`) is preserved verbatim, untouched. */
+export interface SettingsJson {
+  permissions?: PermissionsBlock;
+  [key: string]: unknown;
+}
+
+export interface AppliedRecord {
+  id: string;
+  keyword: Keyword;
+  /** The rule that ended up written to (or removed from) settings — absent only for a skipped `defer`. */
+  rule?: string;
+}
+
+export interface RefusedRecord {
+  id: string;
+  reason: string;
+}
+
+export interface ApplyDecisionsInput {
+  artifact: Artifact;
+  decisions: Decision[];
+  settings: SettingsJson;
+  managed: ManagedMap;
+  /** ISO now, used for managed-map `firstSeen`/`lastSeen`. */
+  now: string;
+  /**
+   * Whether the fetched artifact JSON is provably bound to the blob committed at
+   * `artifact.sourceCommit` (Important 2) — computed by the caller (the apply CLI, which has the
+   * actual fetch/comparison machinery), never by this pure function. When `false`, EVERY decision
+   * is refused and neither `settings` nor `managed` is mutated at all — a candidate id alone is
+   * not authenticity; the whole artifact must be provably untampered before any decision in it is
+   * trusted.
+   */
+  sourceBlobMatches: boolean;
+}
+
+export interface ApplyDecisionsResult {
+  settings: SettingsJson;
+  managed: ManagedMap;
+  applied: AppliedRecord[];
+  refused: RefusedRecord[];
+}
+
+interface NormalizedSettings extends Omit<SettingsJson, "permissions"> {
+  permissions: { allow: string[]; deny: string[]; ask: string[] };
+}
+
+/** Deep-clone just enough of `settings` for a pure, non-mutating apply. */
+function cloneSettings(settings: SettingsJson): NormalizedSettings {
+  const { permissions, ...rest } = settings;
+  return {
+    ...rest,
+    permissions: {
+      allow: [...(permissions?.allow ?? [])],
+      deny: [...(permissions?.deny ?? [])],
+      ask: [...(permissions?.ask ?? [])],
+    },
+  };
+}
+
+function addUnique(list: string[], rule: string): void {
+  if (!list.includes(rule)) list.push(rule);
+}
+
+function removeRule(list: string[], rule: string): void {
+  const idx = list.indexOf(rule);
+  if (idx !== -1) list.splice(idx, 1);
+}
+
+// allow=0, allow-risky=1, allow-destructive=2 — must be >= the effective rule's level rank.
+const ALLOW_KEYWORD_RANK: Record<"allow" | "allow-risky" | "allow-destructive", number> = {
+  allow: 0,
+  "allow-risky": 1,
+  "allow-destructive": 2,
+};
+
+// ok/broad=0, risky=1, destructive=2 — mirrors ALLOW_KEYWORD_RANK so "keyword >= level" is a
+// simple numeric comparison.
+const LEVEL_RANK: Record<GrantLevel, number> = {
+  ok: 0,
+  broad: 0,
+  risky: 1,
+  destructive: 2,
+};
+
+/**
+ * Deterministically apply a frozen, authorized `decisions` set onto `settings`/`managed`. This
+ * function and the CLI that calls it are the ONLY code allowed to produce a new tracked
+ * `.claude/settings.json` / managed map — every enforcement rule below is load-bearing security
+ * logic, not a suggestion:
+ *
+ *  - a `reviewLocalOnly` candidate (sensitive — no `proposedRule` ever left the local machine) can
+ *    NEVER be targeted by ANY decision via this remote path (Critical 1), regardless of keyword;
+ *  - the keyword must be >= the EFFECTIVE rule's re-classified level (`overrideRule ??
+ *    candidate.proposedRule`, always re-run through `classifyRule` — never trust a level computed
+ *    before an edit) — a bare `allow` can never promote a `risky`/`destructive` rule, including via
+ *    an `as Bash(<rule>)` override that reclassifies upward (Critical 2);
+ *  - a destructive-classified effective rule must equal the candidate's captured
+ *    `proposedRule` byte-for-byte — no override at all once either side of the comparison is
+ *    destructive-level (Decision B: destructive is exact-only, never generalized, never
+ *    substituted for a different destructive command under the same reviewed id);
+ *  - the whole artifact must be `sourceBlobMatches` (Important 2) or every decision is refused
+ *    outright, with zero mutation;
+ *  - `allow`/`deny` writes dedupe against the existing list and never reorder/remove an existing
+ *    entry; `revoke` removes the rule from `allow` and from `managed`.
+ *
+ * Pure: returns new `settings`/`managed` objects, writes nothing to disk, never mutates its inputs.
+ */
+export function applyDecisions(input: ApplyDecisionsInput): ApplyDecisionsResult {
+  const applied: AppliedRecord[] = [];
+  const refused: RefusedRecord[] = [];
+
+  if (!input.sourceBlobMatches) {
+    for (const d of input.decisions) {
+      refused.push({
+        id: d.id,
+        reason: "tampered artifact: sourceBlobMatches is false (the artifact is not provably bound to its sourceCommit)",
+      });
+    }
+    return { settings: input.settings, managed: input.managed, applied, refused };
+  }
+
+  const settings = cloneSettings(input.settings);
+  const managed: ManagedMap = { ...input.managed };
+  const candidateById = new Map(input.artifact.candidates.map((c) => [c.id, c]));
+
+  for (const d of input.decisions) {
+    const candidate = candidateById.get(d.id);
+    if (!candidate) {
+      refused.push({ id: d.id, reason: "unknown candidate id (not present in this artifact)" });
+      continue;
+    }
+
+    if (d.keyword === "defer") continue; // decided-to-defer -- no mutation, not applied, not refused
+
+    if (candidate.reviewLocalOnly) {
+      refused.push({
+        id: d.id,
+        reason: "candidate is reviewLocalOnly/sensitive -- not promotable via remote apply",
+      });
+      continue;
+    }
+
+    if (!isLegalPair(candidate.kind, d.keyword)) {
+      refused.push({ id: d.id, reason: `keyword "${d.keyword}" is not legal for a "${candidate.kind}" candidate` });
+      continue;
+    }
+
+    if (d.keyword === "deny") {
+      const rule = d.overrideRule ?? candidate.proposedRule;
+      if (!rule) {
+        refused.push({ id: d.id, reason: "no rule available to deny" });
+        continue;
+      }
+      addUnique(settings.permissions.deny, rule);
+      applied.push({ id: d.id, keyword: d.keyword, rule });
+      continue;
+    }
+
+    if (d.keyword === "revoke") {
+      const rule = d.overrideRule ?? candidate.proposedRule;
+      if (!rule) {
+        refused.push({ id: d.id, reason: "no rule available to revoke" });
+        continue;
+      }
+      removeRule(settings.permissions.allow, rule);
+      delete managed[rule];
+      applied.push({ id: d.id, keyword: d.keyword, rule });
+      continue;
+    }
+
+    // allow / allow-risky / allow-destructive
+    const effectiveRule = d.overrideRule ?? candidate.proposedRule;
+    if (!effectiveRule) {
+      refused.push({ id: d.id, reason: "no rule available to allow" });
+      continue;
+    }
+
+    const candidateLevel = candidate.proposedRule ? classifyRule(candidate.proposedRule).level : undefined;
+    const effectiveLevel = classifyRule(effectiveRule).level;
+
+    // Decision B: once EITHER side of the comparison is destructive-level, the effective rule must
+    // equal the captured command byte-for-byte -- blocks overriding a destructive candidate to
+    // anything else, AND overriding any candidate into an unrelated destructive rule.
+    if ((candidateLevel === "destructive" || effectiveLevel === "destructive") && effectiveRule !== candidate.proposedRule) {
+      refused.push({
+        id: d.id,
+        reason: "destructive rule must match the captured command byte-for-byte; overrides are not permitted",
+      });
+      continue;
+    }
+
+    const requiredRank = LEVEL_RANK[effectiveLevel];
+    const keywordRank = ALLOW_KEYWORD_RANK[d.keyword as "allow" | "allow-risky" | "allow-destructive"];
+    if (keywordRank < requiredRank) {
+      refused.push({
+        id: d.id,
+        reason: `keyword "${d.keyword}" is insufficient for effective level "${effectiveLevel}" (rule "${effectiveRule}")`,
+      });
+      continue;
+    }
+
+    addUnique(settings.permissions.allow, effectiveRule);
+    const existing = managed[effectiveRule];
+    const info: ManagedRuleInfo = {
+      owner: d.actor,
+      rationale: d.rationale ?? existing?.rationale ?? "",
+      firstSeen: existing?.firstSeen ?? input.now,
+      lastSeen: input.now,
+      count: candidate.count,
+    };
+    if (existing?.expiry) info.expiry = existing.expiry;
+    managed[effectiveRule] = info;
+    applied.push({ id: d.id, keyword: d.keyword, rule: effectiveRule });
+  }
+
+  return { settings, managed, applied, refused };
+}
