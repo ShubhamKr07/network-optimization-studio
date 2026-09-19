@@ -67,7 +67,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: '--max-turns 60 --allowedTools "Read,Write,Edit,Bash"'
+          claude_args: '--max-turns 120 --allowedTools "Read,Write,Edit,Bash"'
           prompt: |
             You are the weekly harness sweep. Produce ONE combined pull request.
 
@@ -119,7 +119,11 @@ jobs:
             8. Report the PR URL.
 
       - name: Commit the permission-review artifact onto the weekly PR + label (deterministic)
-        if: steps.perm.outputs.present == 'true'
+        # always() so the permission-review loop is NOT coupled to the docs-audit model step
+        # succeeding — if that step errors/times out after pushing the weekly branch, the artifact
+        # still lands. Guarded on present=='true' + a branch-exists check (skips cleanly if the
+        # model died before creating the branch).
+        if: ${{ always() && steps.perm.outputs.present == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -128,7 +132,10 @@ jobs:
             --jq '[.[] | select(.headRefName | startswith("harness-weekly/"))] | sort_by(.number) | reverse | .[0].headRefName')
           [ -n "$BR" ] || { echo "no harness-weekly PR found; skipping permission-artifact commit"; exit 0; }
           git fetch origin "$BR"
-          git checkout "$BR"
+          # -f: the runner tree may be dirty if the docs-audit model step errored mid-run; we
+          # re-materialize the artifact from origin/permissions-capture immediately below, so
+          # discarding local working-tree state here is safe.
+          git checkout -f "$BR"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # Re-materialize the artifact on this branch, then commit ONLY these two paths.
