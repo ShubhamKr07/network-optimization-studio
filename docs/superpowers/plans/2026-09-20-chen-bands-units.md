@@ -89,7 +89,7 @@ Wave 5:                            T15 QA (real-browser Playwright)
 | T11 read-only surfaces | `NetworkMap`, `MapLegend`, `OutputMapTab`, `CostSummaryTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `ObjectiveBar`, `Landing` recent-solves, validation strings |
 | T12 distance editors | `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` |
 | T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, **`JadeBandEditor`**, `ServiceStatsTab` |
-| T11b export plumbing | `ExportContext` (new) + **all 16 tab files that call `downloadEntityExport`** + `exportEntity.ts` |
+| T11b export plumbing | `ExportContext` (new) + **the 16 export-control tab files** (15 helper-calling files with 24 calls, **plus `JadeFlowsTab`'s two client-CSV controls** — 26 controls total) + `exportEntity.ts` (**T11b is its sole writer**) |
 
 Two rules make the parallelism real (plan-review-2 #1):
 
@@ -1312,6 +1312,19 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
 });
 ```
 
+- [ ] **Step 4d: Provider test strategy (plan-review-6 #2)**
+
+`useExport()` throwing without a provider is what makes a missing Task 14 mount detectable — so every existing test that renders an export-control tab must now supply one. Locked strategy: **a shared helper, not per-file mocks**, so the real context code is exercised everywhere:
+
+```tsx
+// __tests__/helpers/renderWithExportProvider.tsx
+export function renderWithExportProvider(ui: ReactElement, overrides: Partial<ExportApi> = {}) {
+  return render(<ExportProvider value={{ scenarioId: 1, unit: "mi", ...overrides }}>{ui}</ExportProvider>);
+}
+```
+
+Migrate every affected tab test to it. Keep one **integration** test asserting that rendering an export control **without** a provider throws — that is the regression guard for the production mount.
+
 - [ ] **Step 5: Gate + commit**
 
 ```bash
@@ -1417,25 +1430,54 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
 - Modify: `artifacts/studio/src/lib/exportEntity.ts`
 - Modify: **the 15 production tab files holding the 24 `downloadEntityExport` calls** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
 - Modify: **`JadeFlowsTab.tsx` — the two exceptional client-generated CSV controls** (`handleDownloadPw`, `handleDownloadWc`, built on a local `downloadClientCsv`, lines ~136/210/218). It calls `downloadEntityExport` **nowhere**, so a mechanical helper-conversion would silently leave both JADE flow downloads bypassing server-owned conversion, `unit=`, `runId`, the v3 schema and history addressing (plan-review-5 #3).
-- Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx` + the six existing tab tests that already assert export calls
+- Create: `artifacts/studio/src/__tests__/helpers/renderWithExportProvider.tsx`
+- Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx` + **every existing test that renders one of the 16 export-control tabs** — at minimum `AssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab` tests (plan-review-6 #2)
 
-**Why this task exists (plan-review-4 #1).** `downloadEntityExport` takes only `(scenarioId, entity, format)`, and **the export buttons live in the tabs** — **24 direct call sites across 15 production files, plus JADE's two client-generated CSVs** (26 controls total) — not in `Workspace`. T14 owns only `Workspace.tsx`/`exportEntity.ts`, so it cannot reach them. Without this task nothing can supply: the effective unit when `pref === "auto"` (needs the model's canonical unit), the displayed history entry's `runId`, or whether *this* control must be disabled because the selected entry is unaddressable.
+**Why this task exists (plan-review-4 #1).** `downloadEntityExport` takes only `(scenarioId, entity, format)`, and **the export buttons live in the tabs** — **24 direct call sites across 15 production files, plus JADE's two client-generated CSVs** (26 controls total) — not in `Workspace`. T14 owns only `Workspace.tsx` — **`exportEntity.ts` is this task's file** — so T14 cannot reach those controls. Without this task nothing can supply: the effective unit when `pref === "auto"` (needs the model's canonical unit), the displayed history entry's `runId`, or whether *this* control must be disabled because the selected entry is unaddressable.
 
 **Design (locked): a context, not prop-threading.** Prop-threading `{unit, runId, disabledReason}` through 16 components is exactly the per-call-site allowlist this repo keeps regressing on. `Workspace` (T14) populates one `ExportProvider`; every control reads it.
 
 **Interfaces:**
 - Consumes: `useDisplayUnit()` (T10).
-- Produces:
+- Produces — **the single complete contract; Task 14 populates this verbatim** (plan-review-6 #1: an earlier draft declared a non-null `unit`, one `disabledReason` and no `scenarioId` here while Task 14 supplied `null` and two reasons — two incompatible snippets that could not typecheck, and whose `download()` could not call `downloadEntityExport(scenarioId, …)`):
+
   ```ts
-  interface ExportApi {
-    /** Effective display unit, resolved against the active model's canonical unit. */
-    unit: "km" | "mi";
+  export type ExportUnit = "km" | "mi" | null;   // null === manifest unresolved
+
+  /** The ten input entities. Exported so classification lives HERE, once —
+   *  never as 16 component-local checks. */
+  export const INPUT_ENTITIES = [
+    "warehouses", "customers", "mines", "stations", "refineries",
+    "distances", "laneCosts", "legDistances", "plants", "plantCapabilities",
+  ] as const;
+
+  /** The five result entities. INPUT_ENTITIES ∪ RESULT_ENTITIES === ExportEntity. */
+  export const RESULT_ENTITIES = [
+    "assignments", "openWarehouses", "costSummary", "serviceStats", "flows",
+  ] as const;
+
+  export interface ExportApi {
+    /** null when no scenario is selected — download() refuses to fire. */
+    scenarioId: number | null;
+    /** null until the active model's canonical unit resolves — no fallback. */
+    unit: ExportUnit;
     /** The displayed history entry's run id; undefined on the latest entry. */
     runId?: number;
-    /** Non-null => result-export controls disable and surface this label. */
-    disabledReason?: string;
+    /** Set only for an UNADDRESSABLE historical entry (spec 1g). */
+    resultDisabledReason?: string;
+    /** Set for ANY historical entry (spec decision 1k). */
+    inputDisabledReason?: string;
+    /** The one classification point: routes an entity to its family's reason,
+     *  and reports the unresolved-state reason ahead of either. */
+    disabledReasonFor(entity: ExportEntity): string | undefined;
     download(entity: ExportEntity, format: "csv" | "json"): Promise<void>;
   }
+  ```
+
+  `download()` is a **hard guard**: it returns without firing when `scenarioId == null`, `unit == null`, or `disabledReasonFor(entity) != null`. A type-level assertion pins the partition:
+
+  ```ts
+  const _exhaustive: ExportEntity[] = [...INPUT_ENTITIES, ...RESULT_ENTITIES];
   ```
 
 - [ ] **Step 1: Failing tests**
@@ -1453,7 +1495,18 @@ it("JadeFlowsTab's two inner tabs download the combined server flows artifact, n
 ```
 Cover at least one distance output (`assignments`), one input export (`distances`), and one non-distance entity (`warehouses`) across `auto` / forced `km` / forced `mi` / addressable history / unaddressable history.
 
-- [ ] **Step 2: Implement `ExportContext`** — `download()` calls `downloadEntityExport` with `unit` always appended and `runId` appended only when defined.
+- [ ] **Step 2: Implement `ExportContext`** — `download()` calls `downloadEntityExport(scenarioId, entity, format, { unit, runId })` with `unit` always appended and `runId` appended only when defined, after the hard guard above. `disabledReasonFor` is the sole family classifier:
+
+```ts
+disabledReasonFor(entity) {
+  if (scenarioId == null || unit == null) return "Loading…";
+  return (INPUT_ENTITIES as readonly string[]).includes(entity)
+    ? inputDisabledReason
+    : resultDisabledReason;
+}
+```
+
+`useExport()` **throws without a provider** — that is deliberate, so a missing production mount fails loudly rather than silently exporting canonical units (see Step 4d).
 
 - [ ] **Step 3: Extend `downloadEntityExport`** to `(scenarioId, entity, format, opts?: { unit?: "km"|"mi"; runId?: number })`, appending both as query params.
 
@@ -1464,8 +1517,10 @@ Cover at least one distance output (`assignments`), one input export (`distances
 **Delete `downloadClientCsv`, `handleDownloadPw` and `handleDownloadWc`** from `JadeFlowsTab.tsx`. Both inner tabs now download the **combined server `flows` artifact** through `useExport()`. That is the already-correct target: the file's own comment (line ~129) records that the backend serves both legs at once, and the locked v3 JADE flows CSV carries a `leg` column, so the leg-specific client files are redundant *and* they bypass `unit=`/`runId`/v3/versioning. The server contract is **not** expanded with leg-specific artifacts.
 
 ```bash
-# both must return only exportEntity.ts / ExportContext.tsx when done
-grep -rn "downloadEntityExport(" artifacts/studio/src --include="*.tsx"
+# No .tsx component may call the helper directly — only ExportContext.tsx does,
+# and exportEntity.ts is .ts, so this must return NOTHING.
+grep -rn "downloadEntityExport(" artifacts/studio/src --include="*.tsx" | grep -v ExportContext.tsx
+# JADE's client CSV helpers must be gone entirely — NO matches.
 grep -rn "downloadClientCsv\|handleDownloadPw\|handleDownloadWc" artifacts/studio/src
 ```
 Add a guard test asserting **no result CSV is generated client-side** anywhere after this task.
@@ -1480,12 +1535,29 @@ Add a guard test asserting **no result CSV is generated client-side** anywhere a
 //                     ("input exports reflect the current scenario")
 ```
 
+- [ ] **Step 4d: Provider test strategy (plan-review-6 #2)**
+
+`useExport()` throwing without a provider is what makes a missing Task 14 mount detectable — so every existing test that renders an export-control tab must now supply one. Locked strategy: **a shared helper, not per-file mocks**, so the real context code is exercised everywhere:
+
+```tsx
+// __tests__/helpers/renderWithExportProvider.tsx
+export function renderWithExportProvider(ui: ReactElement, overrides: Partial<ExportApi> = {}) {
+  return render(<ExportProvider value={{ scenarioId: 1, unit: "mi", ...overrides }}>{ui}</ExportProvider>);
+}
+```
+
+Migrate every affected tab test to it. Keep one **integration** test asserting that rendering an export control **without** a provider throws — that is the regression guard for the production mount.
+
 - [ ] **Step 5: Gate + commit**
 
 ```bash
-pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab ServiceStatsTab CostSummaryTab OpenWarehousesTab JadeAssignmentsTab
-pnpm run typecheck
-git commit -m "[T11b] route every export control through ExportContext so unit= and runId reach all 25 call sites" -- \
+# The gate must cover every migrated tab test, including JadeFlowsTab (client-CSV
+# removal) and an input exporter such as DistancesTab (spec 1k disabling).
+pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab JadeFlowsTab ServiceStatsTab \
+  CostSummaryTab OpenWarehousesTab JadeAssignmentsTab DistancesTab LegDistancesTab \
+  JadeDistancesTab LaneCostsTab WarehousesTab CustomersTab MinesTab StationsTab PlantsTab
+pnpm --filter studio test && pnpm run typecheck
+git commit -m "[T11b] route all 26 export controls through ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs)" -- \
   artifacts/studio/src/contexts/ExportContext.tsx artifacts/studio/src/lib/exportEntity.ts \
   artifacts/studio/src/components/workspace/tabs artifacts/studio/src/__tests__
 ```
@@ -1691,6 +1763,7 @@ T11b defines the provider; nothing mounts it without this step. `Workspace` wrap
 // Step 6a applies to every other distance path).
 const canonicalUnit = activeModelManifest?.distanceUnit ?? null;   // "km" | "mi" | null
 const exportValue: ExportApi = {
+  scenarioId: currentScenario?.id ?? null,        // null => download() refuses to fire
   unit: canonicalUnit == null ? null : effectiveUnit(pref, canonicalUnit),
   runId: isBrowsingHistory ? displayedEntry?.runId : undefined,
   resultDisabledReason: isBrowsingHistory && displayedEntry?.runId == null
@@ -1702,7 +1775,7 @@ const exportValue: ExportApi = {
 };
 ```
 
-`ExportApi.unit` is therefore `"km" | "mi" | null`; T11b's `download()` refuses to fire while it is `null`.
+This object matches T11b's `ExportApi` **exactly** — `scenarioId`, `unit: ExportUnit`, `runId`, both family reasons; `disabledReasonFor` and `download` come from the provider itself. `download()` refuses to fire while `scenarioId` or `unit` is `null`.
 
 Tests:
 ```ts
@@ -1711,6 +1784,8 @@ it("passes runId only while browsing history, never on the latest entry", () => 
 it("sets resultDisabledReason only for an unaddressable historical entry", () => {});
 it("sets inputDisabledReason for ANY historical entry", () => {});
 it("disables export controls entirely while the manifest is unresolved (no fallback unit)", () => {});
+it("passes scenarioId, and disables everything when no scenario is selected", () => {});
+it("supplies a value matching ExportApi exactly (shape assertion, not a subset)", () => {});
 ```
 
 - [ ] **Step 7: Run-id threading** — `ResultHistoryEntry` gains `runId?: number`; the seed takes `currentScenario.resultRunId`; a new solve attaches the polling job id **independently of `timing`**; **an entry with no `runId` is non-exportable ONLY once it is no longer the latest** (plan-review #4). A legacy *latest* result must still export through the existing latest-result path with `runId` omitted — the spec's Part F rule is narrower than "any null runId is disabled". Lock it as:
@@ -2137,3 +2212,79 @@ After Task 14's commit block, the document jumps directly to `**Files:** create 
 ### Fifth re-review exit criteria
 
 Approval requires all six comments to be folded into the normative spec and plan where applicable—not merely acknowledged here. Reconcile the sibling band-number policy with the approved spec and global constraints; define honest historical input-export behavior; inventory all 26 export controls including JADE's two client CSV handlers; mount and test `ExportProvider` from `Workspace`; align Task 3b's tests with its implementation; restore the Task 15 boundary; run `git diff --check`; and re-review the resulting task graph before implementation begins.
+
+---
+
+## Appendix — sixth approval re-review comments (2026-09-20, `9416bd9`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All three folded — see `plan-review-6 #N` markers.)* The six fifth-review findings are resolved in both the spec and plan, the worktree was clean, and `git diff --check e6723bb..9416bd9` passed. The new export-context contract still has one implementation blocker plus two execution inconsistencies.
+
+### 1. BLOCKER — `ExportApi` and the Task 14 provider value are incompatible
+
+Task 11b declares an `ExportApi` with:
+
+- `unit: "km" | "mi"` (non-null);
+- one `disabledReason?: string`;
+- no `scenarioId`; and
+- `download(entity, format)` with no scenario argument.
+
+Task 14 supplies a different object:
+
+- `unit: "km" | "mi" | null` while the manifest is unresolved;
+- `resultDisabledReason` and `inputDisabledReason`, neither declared by `ExportApi`; and
+- still no source for `scenarioId`.
+
+At the same time, `downloadEntityExport` still requires `(scenarioId, entity, format, opts)`. The proposed context cannot typecheck and its `download()` method cannot call the helper.
+
+Define one complete contract in T11b and make Task 14 use it verbatim. For example:
+
+```ts
+type ExportUnit = "km" | "mi" | null;
+
+interface ExportApi {
+  scenarioId: number | null;
+  unit: ExportUnit;
+  runId?: number;
+  resultDisabledReason?: string;
+  inputDisabledReason?: string;
+  disabledReasonFor(entity: ExportEntity): string | undefined;
+  download(entity: ExportEntity, format: "csv" | "json"): Promise<void>;
+}
+```
+
+An equivalent provider-props design is acceptable, but it must explicitly lock:
+
+- where `scenarioId` comes from and what happens when no scenario is selected;
+- `unit === null` while the manifest is unresolved;
+- `download()` refusing to fire when `scenarioId`/`unit` is unresolved or the entity is disabled;
+- one central entity-family classification, not 16 component-local checks; and
+- the exact ten input entities (`warehouses`, `customers`, `mines`, `stations`, `refineries`, `distances`, `laneCosts`, `legDistances`, `plants`, `plantCapabilities`) versus the five result entities (`assignments`, `openWarehouses`, `costSummary`, `serviceStats`, `flows`).
+
+Tests must assert the complete value shape passed by `Workspace`, the guard behavior, and both entity families. Do not leave the provider value and public interface as two incompatible snippets.
+
+### 2. HIGH — Task 11b does not account for all affected component tests
+
+All 16 export-control components will begin calling `useExport()`, but Task 11b's Files section names only `ExportContext.test.tsx` plus six existing tab tests. Existing component tests render these tabs directly. If `useExport()` requires a provider—as it should to catch a missing production mount—every affected test needs an `ExportProvider` wrapper or a deliberate context mock. If the context silently supplies a no-provider default, the plan must specify that behavior and explain how the Task 14 mount regression remains detectable.
+
+Choose one test strategy and enumerate it:
+
+- add a shared `renderWithExportProvider` test helper and migrate all affected tab tests; or
+- mock `useExport()` consistently in all affected tests while keeping an integration test that throws/fails without the provider.
+
+The T11b gate must execute the complete affected test set, including `JadeFlowsTab` and at least one input exporter such as `DistancesTab`, not only the current seven name filters.
+
+### 3. MEDIUM — T11b retains stale inventory, ownership, guard, and commit text
+
+The detailed task now correctly identifies 24 helper calls in 15 files plus two exceptional JADE controls (26 total), but several older statements still disagree:
+
+- the Wave 4 ownership row says all 16 tab files call `downloadEntityExport`;
+- T11b's rationale still says T14 owns `Workspace.tsx`/**`exportEntity.ts`**, even though T11b is now `exportEntity.ts`'s sole writer;
+- the `[T11b]` commit message still says "25 call sites";
+- the targeted gate omits `JadeFlowsTab` and an input-export component despite their new behavior-specific tests; and
+- the grep comment says both commands return `exportEntity.ts` / `ExportContext.tsx`, although the client-CSV grep must return **no matches** and the `--include="*.tsx"` helper grep cannot return `exportEntity.ts`.
+
+Update every inventory/reference to one consistent statement: **16 export-control tab files, comprising 15 helper-calling files with 24 calls plus `JadeFlowsTab`'s two client CSV controls; 26 controls total**. Make the guard expectations and commit message match that inventory.
+
+### Sixth re-review exit criteria
+
+Approval requires the `ExportApi`/provider contract to be one type-correct, fully sourced design; every affected component test to have a declared provider strategy and be included in the gate; and all stale T11b inventory/ownership/count/guard text to be corrected. Run `git diff --check`, verify the final context contract against the actual `downloadEntityExport` signature and all 16 export-control tabs, then re-review for approval.
