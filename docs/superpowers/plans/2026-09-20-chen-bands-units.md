@@ -68,12 +68,15 @@ Modified files with a **single writer** (never assign two concurrent tasks to th
 ## Wave / dependency map
 
 ```
-Wave 0 (parallel, file-disjoint):  T1 units pkg (+monorepo wiring) · T2 db schema · T3 chen validator+manifest · T4 199M hint
+Wave 0 (parallel, file-disjoint):  T1 units pkg (+monorepo wiring) · T2 db schema · T3 chen validator+manifest
+                                   T3b sibling band schemas -> positive numbers   [after T3: same directory]
+                                   T4 199M hint
 Wave 1 (after W0):                 T1b studio bands.ts re-export · T5 openapi+codegen · T6 jobRunner txn   [T6 needs T2]
 Wave 2 (sequential, hot files):    T7 templates.ts  →  T8 import.ts             [need T1, T5]
 Wave 3:                            T9 routes/scenarios.ts + distanceBands.ts    [needs T5,T6,T7]
 Wave 4 (frontend):                 T10 UnitContext + UnitToggle + AppShell + useDistanceDraft
                                      →  then T11 ∥ T12 ∥ T13 (genuinely file-disjoint, see below)
+                                     →  T11b export plumbing (touches all 16 tab files — runs AFTER T11/T12/T13)
                                    T14 Workspace.tsx INT (sole writer, last)
 Wave 5:                            T15 QA (real-browser Playwright)
 ```
@@ -85,7 +88,8 @@ Wave 5:                            T15 QA (real-browser Playwright)
 | T10 foundation | `UnitContext`, `UnitToggle`, `AppShell` (Landing mount), `formatObjective`, **`useDistanceDraft`** |
 | T11 read-only surfaces | `NetworkMap`, `MapLegend`, `OutputMapTab`, `CostSummaryTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `ObjectiveBar`, `Landing` recent-solves, validation strings |
 | T12 distance editors | `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` |
-| T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, `ServiceStatsTab` |
+| T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, **`JadeBandEditor`**, `ServiceStatsTab` |
+| T11b export plumbing | `ExportContext` (new) + **all 16 tab files that call `downloadEntityExport`** + `exportEntity.ts` |
 
 Two rules make the parallelism real (plan-review-2 #1):
 
@@ -827,6 +831,50 @@ git commit -m "[T3] Chen bands are free and preserved — stop the [high,max] ov
 
 ---
 
+### Task 3b: Relax the sibling band schemas to positive numbers
+
+**Files:**
+- Modify: `artifacts/api-server/src/validation/inputs/pMedian.ts` (line ~90), `transportLp.ts` (~71), `twoEchelon.ts` (~99), `jadeInputs.ts` (~158-163)
+- Modify: the `distanceBands` schema in each affected `solvers/*/manifest.json` that pins `type: integer`
+- Test: `artifacts/api-server/src/validation/inputs/__tests__/*.test.ts` (per model), `artifacts/api-server/src/registry/__tests__/registration.test.ts`
+
+**Why (plan-review-4 #2).** The unit toggle makes band entry lossy-or-illegal otherwise: on a mile-canonical model, typing `500 km` converts to `310.6856 mi`, which today's `z.number().int().positive()` rejects outright. Bands are a **reporting lens** — the integer constraint was never load-bearing, and Chen's new schema (T3) is already `z.number().positive()`. Relaxing makes one rule true app-wide instead of a per-model patchwork.
+
+**Interfaces:**
+- Produces: every model's `distanceBands` accepts **positive numbers**. JADE keeps its **fixed cardinality of 4** and strict ascent; only the integrality drops.
+
+- [ ] **Step 1: Failing tests**
+
+```ts
+// pMedian / transportLp / twoEchelon
+it("accepts a non-integral band produced by a unit conversion", () => {
+  expect(() => schema.parse({ ...base, distanceBands: [310.6856, 621.3712] })).not.toThrow();
+});
+it("still rejects zero, negative, duplicate and non-ascending bands", () => {});
+
+// jadeInputs
+it("accepts four strictly-ascending POSITIVE NUMBERS (integrality dropped)", () => {
+  expect(() => jadeInputsSchema.parse({ ...base, distanceBands: [310.6856, 621.3712, 932.06, 1242.74] })).not.toThrow();
+});
+it("still requires EXACTLY four, strictly ascending", () => {});
+```
+
+- [ ] **Step 2: Run — expect failure** (`pnpm --filter api-server test`): the non-integral cases throw today.
+
+- [ ] **Step 3: Implement** — drop `.int()` in the three array schemas; in `jadeInputs.ts` change the message and predicate from "positive integers" to "positive numbers" while keeping `length === 4` and strict ascent. Update any manifest that declares `"type": "integer"` for band items to `"type": "number", "exclusiveMinimum": 0`.
+
+- [ ] **Step 4: Run — expect pass.** If a manifest-hash fixture pins an edited manifest, update that expected hash in this commit and note it in the body.
+
+- [ ] **Step 5: Commit**
+
+```bash
+pnpm --filter api-server test && pnpm --filter @workspace/dataset-schema test
+git commit -m "[T3b] relax sibling distanceBands schemas to positive numbers (JADE keeps fixed-4 + strict ascent)" -- \
+  artifacts/api-server/src/validation/inputs artifacts/api-server/src/registry solvers
+```
+
+---
+
 ### Task 4: Remove the hardcoded 199M hint (both surfaces)
 
 **Files:**
@@ -1316,7 +1364,9 @@ git commit -m "[T10] UnitContext + UnitToggle + AppShell mount + formatObjective
 - Modify: `artifacts/studio/src/components/NetworkMap.tsx`, `components/workspace/map/MapLegend.tsx`, `components/workspace/tabs/OutputMapTab.tsx`, `components/workspace/tabs/CostSummaryTab.tsx`, `components/workspace/tabs/JadeAssignmentsTab.tsx`, `components/workspace/tabs/JadeFlowsTab.tsx`, `components/ObjectiveBar.tsx`, `pages/Landing.tsx` (recent-solves rows only)
 - Test: the matching `__tests__` files
 
-**Explicitly NOT this task's files:** `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab` (T12 owns both their read and write halves); `ServiceStatsTab`, `OptimizationParametersTab`, `SolveDialog` (T13 owns both halves). **`Studio.tsx` is excluded entirely (dead code).**
+Also owns the two output grids that were missing from this list (plan-review-4 #3): **`components/workspace/tabs/AssignmentsTab.tsx`** (defaults `distanceUnit = "mi"` at line 107, renders `Distance ({distanceUnit})` at 137) and **`components/workspace/tabs/FlowsTab.tsx`** (hardcodes `Distance (mi)` at line 78), plus `AssignmentsTab.test.tsx` and `FlowsTab.test.tsx`. Both must appear in this task's implementation step, grep guard, gate and commit pathspec.
+
+**Explicitly NOT this task's files:** `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab` (T12 owns both their read and write halves); `ServiceStatsTab`, `OptimizationParametersTab`, `SolveDialog`, `JadeBandEditor` (T13 owns both halves). Export **button** wiring in any tab belongs to T11b, not here — T11 changes only distance rendering. **`Studio.tsx` is excluded entirely (dead code).**
 
 - [ ] **Step 1: Failing tests** — spec tests 11b, 12: a delayed-manifest Chen **read** renders a placeholder, never a number or an `mi` label, until the canonical unit is authoritative; non-distance fields (demand, `coverageFloorDemand`, `p`, gap, time, JADE monetary objective) are untouched by the toggle.
 
@@ -1324,9 +1374,88 @@ git commit -m "[T10] UnitContext + UnitToggle + AppShell mount + formatObjective
 
 > **Do not touch `ServiceStatsTab.tsx`** — it is Task 13's file, both halves (plan-review-3 #2). An earlier draft of this plan used it as the example here; that was a cross-owned instruction and is now corrected. `Workspace.tsx`'s five fallbacks belong to Task 14 Step 6a.
 
-- [ ] **Step 3: Add a grep-guard test** asserting no hardcoded `(km)`/`(mi)` label literal remains in the enumerated components.
+- [ ] **Step 3: Add a grep-guard test** asserting no hardcoded `(km)`/`(mi)` label literal and no `?? "mi"` fallback remains in **this task's** enumerated components — `FlowsTab.tsx:78`'s literal `Distance (mi)` and `AssignmentsTab.tsx:107`'s `distanceUnit = "mi"` default are the two that must specifically disappear.
 
-- [ ] **Step 4: Gate + commit.**
+- [ ] **Step 4: Gate + commit**
+
+```bash
+pnpm --filter studio test -- NetworkMap MapLegend OutputMapTab CostSummaryTab JadeAssignmentsTab JadeFlowsTab ObjectiveBar Landing AssignmentsTab FlowsTab
+pnpm run typecheck
+git commit -m "[T11] route every read-path distance and unit label through useDisplayUnit; no mi fallbacks" -- \
+  artifacts/studio/src/components/NetworkMap.tsx \
+  artifacts/studio/src/components/workspace/map/MapLegend.tsx \
+  artifacts/studio/src/components/workspace/tabs/OutputMapTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/CostSummaryTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/JadeAssignmentsTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/JadeFlowsTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/AssignmentsTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/FlowsTab.tsx \
+  artifacts/studio/src/components/ObjectiveBar.tsx artifacts/studio/src/pages/Landing.tsx \
+  artifacts/studio/src/__tests__
+```
+
+---
+
+### Task 11b: Export plumbing — every download control gets `unit` and `runId`
+
+**Files:**
+- Create: `artifacts/studio/src/contexts/ExportContext.tsx`
+- Modify: `artifacts/studio/src/lib/exportEntity.ts`
+- Modify: **all 16 tab files that call `downloadEntityExport`** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+- Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx` + the six existing tab tests that already assert export calls
+
+**Why this task exists (plan-review-4 #1).** `downloadEntityExport` takes only `(scenarioId, entity, format)`, and **the export buttons live in the tabs** — 25 direct call sites across those 16 files — not in `Workspace`. T14 owns only `Workspace.tsx`/`exportEntity.ts`, so it cannot reach them. Without this task nothing can supply: the effective unit when `pref === "auto"` (needs the model's canonical unit), the displayed history entry's `runId`, or whether *this* control must be disabled because the selected entry is unaddressable.
+
+**Design (locked): a context, not prop-threading.** Prop-threading `{unit, runId, disabledReason}` through 16 components is exactly the per-call-site allowlist this repo keeps regressing on. `Workspace` (T14) populates one `ExportProvider`; every control reads it.
+
+**Interfaces:**
+- Consumes: `useDisplayUnit()` (T10).
+- Produces:
+  ```ts
+  interface ExportApi {
+    /** Effective display unit, resolved against the active model's canonical unit. */
+    unit: "km" | "mi";
+    /** The displayed history entry's run id; undefined on the latest entry. */
+    runId?: number;
+    /** Non-null => result-export controls disable and surface this label. */
+    disabledReason?: string;
+    download(entity: ExportEntity, format: "csv" | "json"): Promise<void>;
+  }
+  ```
+
+- [ ] **Step 1: Failing tests**
+
+```ts
+it("appends unit= on EVERY entity, including non-distance ones", () => {});          // spec 14b
+it("auto resolves to the model's canonical unit (km for Chen, mi for the rest)", () => {});
+it("forced km/mi overrides canonical on every entity", () => {});
+it("omits runId on the latest entry", () => {});
+it("sends the displayed entry's runId while browsing addressable history", () => {});
+it("disables + labels result downloads when the selected entry is unaddressable", () => {});
+it("leaves INPUT-entity downloads enabled even on an unaddressable history entry", () => {});
+```
+Cover at least one distance output (`assignments`), one input export (`distances`), and one non-distance entity (`warehouses`) across `auto` / forced `km` / forced `mi` / addressable history / unaddressable history.
+
+- [ ] **Step 2: Implement `ExportContext`** — `download()` calls `downloadEntityExport` with `unit` always appended and `runId` appended only when defined.
+
+- [ ] **Step 3: Extend `downloadEntityExport`** to `(scenarioId, entity, format, opts?: { unit?: "km"|"mi"; runId?: number })`, appending both as query params.
+
+- [ ] **Step 4: Convert all 25 call sites** in the 16 tabs to `useExport().download(entity, format)`. Result-export controls additionally bind `disabled`/label to `disabledReason`.
+
+```bash
+# must return nothing but exportEntity.ts and ExportContext.tsx when done
+grep -rn "downloadEntityExport(" artifacts/studio/src --include="*.tsx"
+```
+
+- [ ] **Step 5: Gate + commit**
+
+```bash
+pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab ServiceStatsTab CostSummaryTab OpenWarehousesTab JadeAssignmentsTab
+pnpm run typecheck
+git commit -m "[T11b] route every export control through ExportContext so unit= and runId reach all 25 call sites" -- \
+  artifacts/studio/src/contexts/ExportContext.tsx artifacts/studio/src/lib/exportEntity.ts \
+  artifacts/studio/src/components/workspace/tabs artifacts/studio/src/__tests__
+```
 
 ---
 
@@ -1336,7 +1465,7 @@ git commit -m "[T10] UnitContext + UnitToggle + AppShell mount + formatObjective
 - Modify: `components/workspace/tabs/DistancesTab.tsx`, `LegDistancesTab.tsx`, `LaneCostsTab.tsx`, `JadeDistancesTab.tsx` — **both halves of each**: the reference/existing-row *display* cells and the edit/add *write* paths
 - Test: the matching `__tests__` files
 
-`useDistanceDraft` is **created in T10** and merely consumed here (plan-review-2 #1). `OptimizationParametersTab` and `SolveDialog` belong to T13.
+`useDistanceDraft` is **created in T10** and merely consumed here (plan-review-2 #1). `OptimizationParametersTab`, `SolveDialog` and `JadeBandEditor` belong to T13. Export **button** wiring belongs to T11b.
 
 - [ ] **Step 1: Failing tests** — spec tests 11, 11b, 11c. Each grammar token explicitly:
 
@@ -1361,15 +1490,31 @@ Toggle: complete → convert text in place; **incomplete → discard** (field re
 
 - [ ] **Step 3: Adopt the hook in this task's FOUR owned editors** — `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` (plan-review-3 #2; an earlier draft said "all six", which reclaimed Task 13's two files). Transport's `laneCostOverrides.cost` values **are** distances and convert. `OptimizationParametersTab` and `SolveDialog` adopt the same hook in **Task 13 Step 3b**.
 
-- [ ] **Step 4: Gate + commit.**
+- [ ] **Step 4: Gate + commit**
+
+```bash
+pnpm --filter studio test -- DistancesTab LegDistancesTab LaneCostsTab JadeDistancesTab
+pnpm run typecheck
+git commit -m "[T12] adopt the display-unit draft contract in the four distance editors (both read and write halves)" -- \
+  artifacts/studio/src/components/workspace/tabs/DistancesTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/LegDistancesTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/LaneCostsTab.tsx \
+  artifacts/studio/src/components/workspace/tabs/JadeDistancesTab.tsx \
+  artifacts/studio/src/__tests__
+```
 
 ---
 
 ### Task 13: Chen band editor + live coverage
 
 **Files — exactly the T13 row of the Wave 4 ownership table:**
-- Modify: `components/workspace/tabs/OptimizationParametersTab.tsx` (band editor + its high/max/avg-cap distance inputs), **`components/workspace/SolveDialog.tsx` (its SEPARATE band editor + avg-cap input)**, `components/workspace/tabs/ServiceStatsTab.tsx` (**both halves** — its distance/unit read paths and the Chen coverage guard)
-- Test: the matching `__tests__` files
+- Modify: `components/workspace/tabs/OptimizationParametersTab.tsx` (band editor + its high/max/avg-cap distance inputs), **`components/workspace/SolveDialog.tsx` (its SEPARATE band editor + avg-cap input)**, **`components/workspace/tabs/JadeBandEditor.tsx`**, `components/workspace/tabs/ServiceStatsTab.tsx` (**both halves** — its distance/unit read paths and the Chen coverage guard)
+- Test: `__tests__/OptimizationParametersTab.test.tsx`, `SolveDialog.test.tsx`, `JadeBandEditor.test.tsx`, `ServiceStatsTab.test.tsx`
+- Create (if the shared editor is extracted): `components/workspace/tabs/BandChipEditor.tsx` + `__tests__/BandChipEditor.test.tsx` — **named here so it is never an unowned file**
+
+**`JadeBandEditor` is a third band write surface (plan-review-4 #4).** Both parents delegate JADE bands to `components/workspace/tabs/JadeBandEditor.tsx`, which defaults `distanceUnit = "mi"` (line 87), holds its **own** `draft` state (line 89), and publishes upward when the 4-tuple is valid rather than on blur/Enter. Editing only the parents cannot deliver the completeness grammar, toggle convert/discard, blur/Enter commit, Esc/scenario-switch discard, or unresolved-unit gating for JADE. It must adopt `useDistanceDraft` like the others.
+
+Its cardinality rules are unchanged — **exactly four, strictly ascending** — but **integrality is dropped by Task 3b**, so a converted value such as `310.6856` is now valid and the editor must accept it. Test the full draft contract under both the canonical and a converted display unit.
 
 This task **consumes** T10's `useDistanceDraft` for its own three files' distance inputs; it does not create it.
 
@@ -1403,7 +1548,20 @@ it.each(["ServiceStatsTab", "OptimizationParametersTab", "SolveDialog"])(
   "%s renders a placeholder and disables editing until the Chen manifest resolves", () => {});
 ```
 
-- [ ] **Step 4: Gate + commit.**
+- [ ] **Step 4: Gate + commit**
+
+```bash
+pnpm --filter studio test -- OptimizationParametersTab SolveDialog JadeBandEditor BandChipEditor ServiceStatsTab
+pnpm run typecheck
+git commit -m "[T13] Chen free-band editor, live cumulative coverage, and the display-unit contract across all three band surfaces" -- \
+  artifacts/studio/src/components/workspace/tabs/OptimizationParametersTab.tsx \
+  artifacts/studio/src/components/workspace/SolveDialog.tsx \
+  artifacts/studio/src/components/workspace/tabs/JadeBandEditor.tsx \
+  artifacts/studio/src/components/workspace/tabs/BandChipEditor.tsx \
+  artifacts/studio/src/components/workspace/tabs/ServiceStatsTab.tsx \
+  artifacts/studio/src/__tests__
+```
+(Drop the `BandChipEditor.tsx` path if the shared editor is not extracted.)
 
 ---
 
@@ -1499,11 +1657,16 @@ const unaddressableHistoricalEntry = isBrowsingHistory && entry.runId == null;
 
 Disable and label the download in **that** state only. Test **both** branches: legacy entry while it is latest → export request fires with **no** `runId`; the same entry after a newer solve → download disabled + labelled. `downloadEntityExport` gains optional `runId` and appends the current display `unit` **universally**.
 
-- [ ] **Step 8: Gate + commit.**
+- [ ] **Step 8: Gate + commit**
 
----
-
-### Task 15: QA — real browser (standing plan rule)
+```bash
+pnpm --filter studio test -- Workspace DirtyNavPrompt
+pnpm run typecheck && pnpm --filter studio test
+git commit -m "[T14] Workspace integration — band lens, history action matrix, dirty-nav prompt, shared payload builder, run-id threading" -- \
+  artifacts/studio/src/pages/Workspace.tsx \
+  artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx \
+  artifacts/studio/src/__tests__
+```
 
 **Files:** create `artifacts/studio/e2e/chen-bands-units.spec.ts`.
 
@@ -1523,7 +1686,12 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
 ```
 Expected: all green; **`e2e_accuracy.py` 99/99 unmodified**; the default Chen scenario still solves to 66.0639%.
 
-- [ ] **Step 4: Commit.**
+- [ ] **Step 4: Commit**
+
+```bash
+git commit -m "[T15] real-browser QA for Chen bands, the unit toggle, history actions and export round-trips" -- \
+  artifacts/studio/e2e/chen-bands-units.spec.ts
+```
 
 ---
 
@@ -1760,3 +1928,70 @@ Place the import-apply assertion in `routes.test.ts` or `importMultiModelRoundTr
 ### Third re-review exit criteria
 
 Approval requires all five comments to be folded into the normative file ownership, detailed task steps, test-file inventories, commit pathspecs, and explicit gates—not merely acknowledged in this appendix. Run `git diff --check`, verify that Tasks 11–13 contain no cross-owned examples or instructions, search `Workspace.tsx` for every distance-unit fallback, and re-review the resulting plan against the approved no-fallback design before implementation starts.
+
+---
+
+## Appendix — fourth approval re-review comments (2026-09-20, `afa2545`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All five are now folded — see the per-item `plan-review-4 #N` markers throughout; #2 was resolved by an explicit decision to relax the schemas, now Task 3b.)* The five third-review findings are correctly folded into the normative tasks, the worktree was clean, and `git diff --check 7775903..afa2545` passed. The broader approval pass found the following two blockers and three execution gaps.
+
+### 1. BLOCKER — export `unit` and `runId` cannot reach the actual download buttons
+
+Task 14 owns only `Workspace.tsx`, `exportEntity.ts`, and `DirtyNavPrompt.tsx`, then says `downloadEntityExport` gains the current display unit and historical `runId`. In the current application, however, **15 component files contain 24 direct calls** to `downloadEntityExport`; those controls invoke the helper themselves rather than delegating through `Workspace`.
+
+The helper currently receives only `scenarioId`, `entity`, and `format`. It cannot derive:
+
+- the effective unit for `pref === "auto"` without the active model's canonical unit;
+- the displayed history entry's `runId`; or
+- whether an unaddressable historical entry must disable and label that particular download control.
+
+Define one executable propagation design and assign every affected file. Acceptable examples are an export context/hook populated by `Workspace`, or explicit `{ unit, runId, disabledReason }` props threaded to each export control. Whichever design is chosen must:
+
+- update all 15 call-site components, not only the distance-bearing subset, because the approved spec requires `unit=` on **every** invocation;
+- pass the displayed entry's `runId` to every result-export control and omit it only on the latest path;
+- disable and label every affected result download when the selected historical entry is unaddressable;
+- include the concrete files in Wave 4 ownership, task inventories, tests, and explicit commit pathspecs; and
+- test at least one distance output, one input export, and one non-distance entity under `auto`, forced `km`/`mi`, addressable history, and unaddressable history.
+
+### 2. BLOCKER — converted band drafts conflict with the unchanged integer schemas
+
+Task 13 requires band editors to commit display values back to canonical values through `useDistanceDraft`. For a canonical-mile model, entering `500 km` converts to `310.6856 mi`. The existing non-Chen validators reject that value because their band schemas remain integer-only:
+
+- `pMedian.ts`: `z.number().int().positive()`;
+- `transportLp.ts`: `z.number().int().positive()`;
+- `twoEchelon.ts`: `z.number().int().positive()`; and
+- `jadeInputs.ts`: exactly four strictly ascending positive integers.
+
+The plan cannot simultaneously promise arbitrary app-wide display-unit editing, exact conversion back to canonical, and unchanged integer band validation. Lock one policy in the normative design and plan: relax the sibling schemas to positive numbers, round canonical bands by an explicit deterministic rule, reject non-integral canonical conversions with clear UX, or restrict band editing to the canonical display unit. Then enumerate every affected validator/manifest/editor and add round-trip plus boundary tests. Do not leave this to implementation judgment.
+
+### 3. HIGH — reachable `AssignmentsTab` and `FlowsTab` are absent from unit ownership
+
+Task 11's supposedly exact read-surface list omits two reachable output grids:
+
+- `AssignmentsTab.tsx` defaults `distanceUnit` to `"mi"` and renders `Distance ({distanceUnit})`.
+- `FlowsTab.tsx` hardcodes `Distance (mi)`.
+
+The approved design requires every distance label, KPI, table cell, map popup, and output grid to use the display-unit contract. Add `AssignmentsTab.tsx`, `FlowsTab.tsx`, and their matching tests to T11's ownership row, file list, implementation step, grep guard, gate, and commit pathspec.
+
+### 4. HIGH — `JadeBandEditor` is an unowned write surface
+
+T13 owns `OptimizationParametersTab` and `SolveDialog`, but both delegate JADE bands to `JadeBandEditor.tsx`, which is absent from every task inventory. That child defaults to `"mi"`, owns its own raw drafts, and publishes a valid array on every keystroke rather than committing on blur/Enter. Editing only the parents cannot implement the approved completeness grammar, toggle conversion/discard, blur/Enter commit, Esc/scenario-switch discard, or unresolved-unit gating for the JADE editor.
+
+Assign `JadeBandEditor.tsx` and `JadeBandEditor.test.tsx` to exactly one Wave 4 task—most naturally T13, alongside both parents. Specify how its fixed-four/integer rules interact with the policy chosen for comment 2, and add the full draft-contract tests under canonical and converted display units.
+
+If T13 extracts the suggested shared `BandChipEditor`, name the new component and test files explicitly in its inventory and commit pathspec; do not leave an optional unnamed file outside the ownership table.
+
+### 5. MEDIUM — the final frontend tasks still lack executable gates and commit pathspecs
+
+Tasks 11, 12, 13, and 14 end with only `Gate + commit`, while Task 15 ends with only `Commit`. No targeted command, commit message, or explicit pathspec is provided. This conflicts with the plan's global one-task/one-commit rule and its branch-discipline requirement that every commit use `git commit ... -- <paths>`.
+
+For Tasks 11–15, add:
+
+- the concrete targeted test command(s) that exercise the task's named tests;
+- the required typecheck or broader suite where appropriate;
+- the exact `[Tn]` commit message; and
+- an explicit pathspec containing every production and test file owned by that task, including the export-call-site files added for comment 1.
+
+### Fourth re-review exit criteria
+
+Approval requires all five comments to be folded into the normative architecture, Wave 4 ownership table, task file lists, detailed steps, tests, gates, and commit pathspecs—not merely acknowledged here. Before re-review, enumerate all `downloadEntityExport(` call sites and prove each receives the effective unit and correct history addressing state; enumerate every editable band surface and reconcile display conversion with the backend integer contracts; run `git diff --check`; then re-review the complete task graph against Parts D–F of the approved design.
