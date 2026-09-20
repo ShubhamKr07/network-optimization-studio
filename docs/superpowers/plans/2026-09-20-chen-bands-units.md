@@ -702,7 +702,7 @@ git commit -m "[T2] add solve_jobs.result + scenarios.result_run_id (nullable, O
 - Modify: `solvers/chens-cosmetics-cn/manifest.json`
 - Test: `artifacts/api-server/src/validation/inputs/__tests__/chens.test.ts`
 - Test: `artifacts/api-server/src/__tests__/routes.test.ts` (create + whole-input PATCH band preservation — Step 5b)
-- Test: `artifacts/api-server/src/__tests__/import.test.ts` (import-apply band preservation — Step 5b)
+- Test: `artifacts/api-server/src/__tests__/importMultiModelRoundTrip.test.ts` (import-**apply** band preservation — Step 5b). **Not `import.test.ts`**: that file imports `parseAndValidateImport` from the service and exercises the parser, not route application, so it cannot prove imported bands reach scenario storage (plan-review-3 #5). Add `import.test.ts` only if this task also changes parser behavior — it does not.
 
 **Interfaces:**
 - Produces: `chensInputsSchema` that **preserves** a supplied `distanceBands`, and a manifest declaring `minItems: 1` with no `maxItems`.
@@ -802,16 +802,19 @@ The overwrite lived in the shared validator, so it must be proven gone on **ever
 ```ts
 it("POST /scenarios (create) preserves a supplied band array", () => {});
 it("PATCH /scenarios/:id (whole-input) preserves a supplied band array", () => {});
-it("POST /scenarios/:id/import/apply preserves a supplied band array", () => {});
+// In importMultiModelRoundTrip.test.ts — a ROUTE-level assertion that the
+// applied bands actually land in scenario storage, not just parse cleanly.
+it("POST /scenarios/:id/import/apply preserves a supplied band array in the stored scenario", () => {});
 it.each(["create", "patch", "import-apply"])("%s derives [high,max] only when distanceBands is omitted", () => {});
 ```
 
-Then run the suite that actually executes them — the validator-only run in Step 5 does **not** cover these (plan-review-2 #3):
+Then run the suites that actually execute them — the validator-only run in Step 5 does **not** cover these (plan-review-2 #3, plan-review-3 #5):
 
 ```bash
+pnpm --filter api-server test -- routes.test.ts importMultiModelRoundTrip.test.ts
 pnpm --filter api-server test
 ```
-Expected: PASS, including the three new route/import cases.
+Expected: PASS, including the create / whole-input-PATCH / import-apply cases.
 
 - [ ] **Step 6: Commit**
 
@@ -1261,7 +1264,7 @@ git commit -m "[T9] export unit=/runId addressing + field-scoped distance-bands 
 **Files:**
 - Create: `artifacts/studio/src/contexts/UnitContext.tsx`, `artifacts/studio/src/components/UnitToggle.tsx`, **`artifacts/studio/src/hooks/useDistanceDraft.ts`**
 - Modify: `artifacts/studio/src/main.tsx` (mount `UnitProvider` at the root), `artifacts/studio/src/components/AppShell.tsx` (mount `UnitToggle` in the Landing header), `artifacts/studio/src/lib/formatObjective.ts` (becomes a wrapper) — note the real filename is `formatObjective.ts`, **not** `objectiveFormat.ts`
-- Test: `artifacts/studio/src/__tests__/UnitContext.test.tsx`, `artifacts/studio/src/__tests__/formatObjective.test.ts`
+- Test: `artifacts/studio/src/__tests__/UnitContext.test.tsx`, `artifacts/studio/src/__tests__/formatObjective.test.ts`, **`artifacts/studio/src/__tests__/useDistanceDraft.test.ts`**
 
 **Interfaces:**
 - Produces `useDisplayUnit(): UnitApi` exactly as the spec's Part D block defines it, delegating all math to `@workspace/units`.
@@ -1281,9 +1284,29 @@ Neither task edits the other's file.
 
 - [ ] **Step 5: Create `useDistanceDraft` here, not in T12 (plan-review-2 #1)**
 
-Both T12 and T13 consume this hook, so it must exist before either starts or they cannot run in parallel. Implement the full draft contract exactly as written in **Task 12 Step 2** (grammar constant, toggle behavior, commit behavior) and ship it with its own unit tests for the grammar and the toggle/commit transitions. T12 and T13 then only *adopt* it.
+Both T12 and T13 consume this hook, so it must exist before either starts or they cannot run in parallel. Implement the full draft contract exactly as written in **Task 12 Step 2** (grammar constant, toggle behavior, commit behavior).
 
-- [ ] **Step 6: Gate + commit.**
+Ship it with `artifacts/studio/src/__tests__/useDistanceDraft.test.ts` (plan-review-3 #4 — previously promised but never named, committed, or gated), covering:
+
+```ts
+it("seeds the draft from the canonical value rendered in the effective display unit", () => {});
+it("commits a display-unit entry back to canonical (500 mi -> 804.672 km)", () => {});
+it("converts a COMPLETE draft in place on a unit toggle", () => {});
+it("DISCARDS an incomplete draft on toggle and reseeds from the stored value in the new unit", () => {});
+it.each(["", "-", ".", "5.", "5e", "5e+", "--5"])("%s is incomplete and never commits", () => {});
+it("is disabled / commits nothing while the canonical unit is unresolved", () => {});
+```
+
+- [ ] **Step 6: Gate + commit**
+
+```bash
+pnpm --filter studio test -- UnitContext formatObjective useDistanceDraft
+git commit -m "[T10] UnitContext + UnitToggle + AppShell mount + formatObjective wrapper + useDistanceDraft" -- \
+  artifacts/studio/src/contexts artifacts/studio/src/components/UnitToggle.tsx \
+  artifacts/studio/src/components/AppShell.tsx artifacts/studio/src/hooks/useDistanceDraft.ts \
+  artifacts/studio/src/lib/formatObjective.ts artifacts/studio/src/main.tsx \
+  artifacts/studio/src/__tests__
+```
 
 ---
 
@@ -1297,7 +1320,9 @@ Both T12 and T13 consume this hook, so it must exist before either starts or the
 
 - [ ] **Step 1: Failing tests** — spec tests 11b, 12: a delayed-manifest Chen **read** renders a placeholder, never a number or an `mi` label, until the canonical unit is authoritative; non-distance fields (demand, `coverageFloorDemand`, `p`, gap, time, JADE monetary objective) are untouched by the toggle.
 
-- [ ] **Step 2: Replace every `"(km)"`/`"(mi)"` literal and every `distanceUnit === …` / `modelId`-based unit branch** with `useDisplayUnit()`'s `format`. Delete the `?? "mi"` fallbacks (e.g. `ServiceStatsTab.tsx:27-31`) — gate on "canonical resolved" instead.
+- [ ] **Step 2: Replace every `"(km)"`/`"(mi)"` literal and every `distanceUnit === …` / `modelId`-based unit branch** with `useDisplayUnit()`'s `format`. Delete any `?? "mi"` fallback **in this task's own files** (e.g. the `CostSummaryTab` / `JadeFlowsTab` unit props) and gate on "canonical resolved" instead.
+
+> **Do not touch `ServiceStatsTab.tsx`** — it is Task 13's file, both halves (plan-review-3 #2). An earlier draft of this plan used it as the example here; that was a cross-owned instruction and is now corrected. `Workspace.tsx`'s five fallbacks belong to Task 14 Step 6a.
 
 - [ ] **Step 3: Add a grep-guard test** asserting no hardcoded `(km)`/`(mi)` label literal remains in the enumerated components.
 
@@ -1334,7 +1359,7 @@ export const isComplete = (text: string) => COMPLETE_NUMBER.test(text);
 
 Toggle: complete → convert text in place; **incomplete → discard** (field reverts to the stored value rendered in the new unit). Commit (blur/Enter): parse, `fromDisplay` from the **current effective unit** → canonical, write, clear. Esc and scenario-switch discard. A draft is therefore always in the unit on screen — `authoredUnit` does not exist.
 
-- [ ] **Step 3: Adopt the hook in all six editors** (transport's `laneCostOverrides.cost` values **are** distances and convert).
+- [ ] **Step 3: Adopt the hook in this task's FOUR owned editors** — `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` (plan-review-3 #2; an earlier draft said "all six", which reclaimed Task 13's two files). Transport's `laneCostOverrides.cost` values **are** distances and convert. `OptimizationParametersTab` and `SolveDialog` adopt the same hook in **Task 13 Step 3b**.
 
 - [ ] **Step 4: Gate + commit.**
 
@@ -1359,6 +1384,24 @@ Both surfaces must: edit the **dedicated active lens** (never an independent `lo
 - [ ] **Step 2: Re-enable the editor for Chen**; implement free-band add/remove and the conditional high-link retarget. No maxDist coupling, no locked chip, no prune logic.
 
 - [ ] **Step 3: Wire Chen into `presentationBands` and delete the deliberate Chen guard** (`ServiceStatsTab.tsx:~191-230`) so Chen computes live like its five siblings, cumulative labels plus an `Overflow` row. Chen's `details.coveragePct` KPIs are untouched.
+
+- [ ] **Step 3b: Operationalize the unit rules in this task's three files (plan-review-3 #3)**
+
+The file list claims both halves of these components; these are the steps that actually deliver them.
+
+- **`ServiceStatsTab` — read half.** Every band boundary, distance and unit label routes through `useDisplayUnit()`'s `toDisplay`/`format`. The `serviceStats` boundary is a **distance** and converts; the `OVERFLOW_BAND = -1` row is a categorical sentinel and **never** converts. Delete the `?? "mi"` fallback at `ServiceStatsTab.tsx:27-31`.
+- **`OptimizationParametersTab` + `SolveDialog` — write half.** Their distance inputs (high-service, max, avg-cap, and the band-chip add field) adopt **T10's `useDistanceDraft`**: seed from canonical → display, commit display → canonical, discard an incomplete draft on toggle. Non-distance inputs in the same forms (`p`, gap, time-limit, `coverageFloorDemand`) must **not** convert.
+- **Unresolved-unit gating, all three files.** No distance value or unit label renders, and no distance editor is enabled, until the canonical unit is authoritative — no fallback anywhere.
+
+Tests:
+```ts
+it("ServiceStatsTab renders boundaries in the display unit; the -1 overflow row is never converted", () => {});
+it("OptimizationParametersTab commits a value typed in mi as canonical km for Chen", () => {});
+it("SolveDialog does the same through the identical hook (one state source, not a parallel copy)", () => {});
+it("p / gap / timeLimitSec / coverageFloorDemand are untouched by the toggle", () => {});
+it.each(["ServiceStatsTab", "OptimizationParametersTab", "SolveDialog"])(
+  "%s renders a placeholder and disables editing until the Chen manifest resolves", () => {});
+```
 
 - [ ] **Step 4: Gate + commit.**
 
@@ -1421,6 +1464,27 @@ Use it in the Save control **and** in `handleSolve`'s save-before-solve branch.
 - [ ] **Step 5: Dirty-nav prompt (decision 1i)** — guard `stepResultBack`/`stepResultForward` **themselves**, not just the buttons. `ordinaryDirty` → Save / Discard / Cancel before the index changes; `lensDirty` alone never prompts. **A failing Save leaves the index AND the draft unchanged** (plan-review #7) — navigation proceeds only after the save resolves successfully, so a rejected input can never cost the user both the edit and their place.
 
 - [ ] **Step 6: `Save as scenario`** → `{ ...entry.inputs, distanceBands: activeBandLens }` (active **draft** lens).
+
+- [ ] **Step 6a: Remove every `?? "mi"` fallback from `Workspace.tsx` (plan-review-3 #1)**
+
+`Workspace.tsx` holds **five** `activeModelManifest?.distanceUnit ?? "mi"` fallbacks — at the reviewed revision lines **2935, 3311, 3326, 3357, 3599**. Task 11 explicitly excludes this file and Task 14 owns it, so without this step the app's single most important file would keep violating the approved no-fallback rule: a Chen (km) value would transiently render, and could be *committed*, as miles.
+
+```bash
+# must return nothing when this step is done
+grep -n 'distanceUnit ?? "mi"' artifacts/studio/src/pages/Workspace.tsx
+```
+
+Required behavior at all five call sites:
+- **Delete the `?? "mi"` fallback outright.** Never substitute another default.
+- Derive one `canonicalUnit: "km" | "mi" | null` from `activeModelManifest`; pass it to a child **only once it is authoritative** (non-null).
+- While it is `null`, **gate both halves**: distance reads render the loading placeholder (no number, no unit label) and distance editors are disabled — matching the rule Tasks 11/12/13 apply in their own files.
+
+Tests (delayed-manifest, Chen):
+```ts
+it("renders no distance value and no unit label until the Chen manifest resolves", () => {});
+it("disables every distance editor until the Chen manifest resolves", () => {});
+it("never labels or commits a Chen km value as mi at any point during manifest load", () => {});
+```
 
 - [ ] **Step 7a: Mount `UnitToggle` in the workspace header** — the counterpart of Task 10's `AppShell` mount (plan-review #3). Task 10 owns the Landing header; this task owns the model-page header because `Workspace.tsx` renders its own and is this task's sole-writer file.
 
@@ -1643,3 +1707,56 @@ Task 14 now states the correct behavior—a failing Save leaves the history inde
 ### Second re-review exit criteria
 
 Approval requires these six comments to be folded into the normative dependency map, file lists, code snippets, commit pathspecs, and explicit tests. Remove the stray empty fenced block beneath the Wave 4 ownership table while editing, then run `git diff --check` and perform another approval review against the approved design.
+
+---
+
+## Appendix — third approval re-review comments (2026-09-20, `7775903`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All five are now folded — see the per-item `plan-review-3 #N` markers throughout.)* The six second-review findings were substantially addressed, the worktree was clean, and `git diff --check 39e76ef..7775903` passed. The following remaining execution and ownership gaps must be folded into the normative tasks before implementation begins.
+
+### 1. BLOCKER — `Workspace` unit fallbacks remain unowned
+
+`Workspace.tsx` currently contains five `activeModelManifest?.distanceUnit ?? "mi"` fallbacks (at the reviewed revision: lines 2935, 3311, 3326, 3357, and 3599). These conflict with the approved design's rule that no distance value or label renders, and no distance write is enabled, until the authoritative model unit resolves.
+
+Task 11 excludes `Workspace.tsx`. Task 14 owns it, but does not explicitly remove these fallbacks or define the unresolved-unit behavior at these call sites. Add a Task 14 requirement to:
+
+- remove every `?? "mi"` fallback from the `Workspace` distance paths;
+- pass the resolved canonical unit to each child only after it is authoritative;
+- gate all affected distance reads and writes while the manifest is unresolved; and
+- add delayed-manifest tests proving that Chen values are never transiently displayed, labelled, or committed as miles before its canonical unit resolves.
+
+### 2. HIGH — the detailed Task 11/12 instructions still contradict the Wave 4 ownership table
+
+The ownership table is now file-disjoint, but stale detailed instructions reclaim other tasks' files:
+
+- Task 11 Step 2 cites `ServiceStatsTab.tsx` as its fallback-removal example, although that file belongs exclusively to Task 13.
+- Task 12 Step 3 says to adopt the hook in "all six editors", although Task 12 owns only `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, and `JadeDistancesTab`. `OptimizationParametersTab` and `SolveDialog` belong to Task 13.
+
+Replace the Task 11 example with one of its owned components. Limit Task 12 explicitly to its four owned editors. State in Task 13 that it adopts `useDistanceDraft` in its two editor surfaces and owns the complete read/write behavior of `ServiceStatsTab`.
+
+### 3. HIGH — Task 13's unit responsibilities are listed but not operationalized
+
+Task 13's file list mentions both halves of `ServiceStatsTab` and the distance inputs in `OptimizationParametersTab` and `SolveDialog`, but its normative steps cover the band editor, high-distance link, and coverage behavior without explicitly implementing those files' display conversion, draft conversion, unresolved-unit gating, or fallback removal.
+
+Add explicit Task 13 implementation steps and tests for:
+
+- display-value and label conversion in `ServiceStatsTab`;
+- display-to-canonical draft conversion in `OptimizationParametersTab` and `SolveDialog` through `useDistanceDraft`;
+- no fallback labels or values before the canonical unit resolves; and
+- delayed-manifest behavior for both of Task 13's editing surfaces and the Service Stats read surface.
+
+### 4. MEDIUM — Task 10 promises hook tests without naming or committing a test file
+
+Task 10 says `useDistanceDraft` ships with its own unit tests, but its `Files` list names only the hook and the `UnitContext`/`formatObjective` tests. No concrete hook-test path is included in the task's commit scope or gate.
+
+Add a concrete test file such as `artifacts/studio/src/__tests__/useDistanceDraft.test.ts` to Task 10's `Files` list and explicit commit pathspec. Its test step must cover canonical-to-display seeding, display-to-canonical commit, unit-toggle draft discard/reseed, invalid partial drafts, and unresolved-unit gating, and the file must be exercised by Task 10's test command.
+
+### 5. MEDIUM — Task 3 assigns import-apply behavior to a misleading test target
+
+Task 3 lists `artifacts/api-server/src/__tests__/import.test.ts` for the import-apply case, but that file exercises the import service/parser rather than route application. The create/PATCH/import-apply contract needs a route-level or round-trip test that proves the imported bands reach scenario storage.
+
+Place the import-apply assertion in `routes.test.ts` or `importMultiModelRoundTrip.test.ts`, then make the `Files` list, commit pathspec, and post-Step-5b gate name that actual test target. Keep `import.test.ts` only if this task also changes and tests parser behavior there.
+
+### Third re-review exit criteria
+
+Approval requires all five comments to be folded into the normative file ownership, detailed task steps, test-file inventories, commit pathspecs, and explicit gates—not merely acknowledged in this appendix. Run `git diff --check`, verify that Tasks 11–13 contain no cross-owned examples or instructions, search `Workspace.tsx` for every distance-unit fallback, and re-review the resulting plan against the approved no-fallback design before implementation starts.
