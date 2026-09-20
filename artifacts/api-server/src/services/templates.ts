@@ -7,6 +7,18 @@ import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT
 import { buildPMedianIdSpaces, buildActivePMedianIds, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildActiveTwoEchelonIds, buildJadeIdSpaces, buildActiveJadeIds, TRANSPORT_DATASET, TWO_ECHELON_DATASET, JADE_DATASET } from "./precheck.js";
 import type { PrecheckDataset, TwoEchelonPrecheckDataset, JadePrecheckDataset } from "./precheck.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
+import {
+  assignBandOrOverflow,
+  bandLabelOrOverflow,
+  computeCumulativeBandCoverage,
+  serviceEdgesFor,
+  toDisplay,
+  roundForFile,
+  objectiveDimension,
+  convertObjective,
+  OVERFLOW_BAND,
+} from "@workspace/units";
+import type { CanonicalUnit } from "@workspace/units";
 
 // D4.1 export. CSV format choice: plain columns with template_version
 // repeated on every row (not a leading comment line) — simpler for D5's
@@ -14,14 +26,30 @@ import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 // handling needed.
 export const TEMPLATE_VERSION = 1;
 
-// C4.9 / D28 — output-entity template version. The three unit-aware OUTPUT
-// exports (assignments, costSummary, serviceStats) bump to 2 (they gained
-// distance_unit / objective_mode columns), at BOTH the JSON wrapper and each
-// row's templateVersion. The input TEMPLATE_VERSION stays 1 (bumping the
-// shared constant would reject every existing v1 input CSV — import.ts checks
-// exact equality). openWarehouses, flows, and the importable distances
-// template all stay v1.
-export const OUTPUT_TEMPLATE_VERSION = 2;
+// Chen-bands-units bundle, Part E — the three importable, distance-bearing
+// input entities (distances, legDistances, laneCosts) get their OWN
+// entity-specific version, independent of the global input TEMPLATE_VERSION
+// (which stays 1 — bumping it would reject every existing v1 input CSV,
+// import.ts checks exact equality). v2 adds a `unit` column so an exported
+// file is self-describing about which display unit its values are in.
+// warehouses/customers/mines/stations/refineries/plants/plantCapabilities
+// are non-distance entities and are NOT affected by this constant.
+export const DISTANCE_TEMPLATE_VERSION = 2;
+
+// Chen-bands-units bundle — OUTPUT_TEMPLATE_VERSION bumps 2 -> 3: every
+// band-bearing output entity (assignments, flows, JADE assignments, JADE
+// flows, serviceStats) now recomputes `band` server-side from the scenario's
+// SAVED distanceBands lens (via the shared @workspace/units helpers) instead
+// of trusting the solver's solve-time `edge.band`, and all five plus
+// costSummary convert their distance-dimension values under the export
+// route's `unit=` param. This is new semantics, not a v2 republish — v2 was
+// already used for the pre-existing distance_unit/objective_mode columns
+// (C4.9/D28). Generic `flows` moves OFF the global TEMPLATE_VERSION (it was
+// v1, never had its own v2) straight onto OUTPUT_TEMPLATE_VERSION (v3) —
+// skipping v2 for this one entity keeps a single output version across every
+// changed entity rather than a per-entity patchwork. openWarehouses is a
+// non-distance entity and stays v1, unaffected by `unit=`.
+export const OUTPUT_TEMPLATE_VERSION = 3;
 
 interface WarehouseOverride { id: string; capacity?: number | null; status: "active" | "forced_open" | "inactive"; }
 interface CustomerOverride { id: string; demand?: number | null; status: "active" | "excluded"; }
@@ -859,6 +887,7 @@ export function buildJadeLegDistanceStubRows(
   targetId: string,
   inputs: JadeStubGeneratorInputs,
   dataset: JadePrecheckDataset = JADE_DATASET,
+  unit: CanonicalUnit = "mi",
 ): DistanceStubRow[] | null {
   const { plantIdSpace, warehouseIdSpace, customerIdSpace } = buildJadeIdSpaces(inputs, dataset);
   const { activePlantIds, activeWarehouseIds, activeCustomerIds } = buildActiveJadeIds(inputs, dataset);
@@ -866,7 +895,8 @@ export function buildJadeLegDistanceStubRows(
   if (plantIdSpace.has(targetId)) {
     // Plant -> every active warehouse.
     return activeWarehouseIds.map(whId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: targetId,
       toId: whId,
       distance: null,
@@ -876,13 +906,15 @@ export function buildJadeLegDistanceStubRows(
     // A warehouse is adjacent to BOTH legs — every plant (plant->warehouse)
     // AND every active customer (warehouse->customer).
     const plantRows = activePlantIds.map(plantId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: plantId,
       toId: targetId,
       distance: null,
     }));
     const customerRows = activeCustomerIds.map(custId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: targetId,
       toId: custId,
       distance: null,
@@ -892,7 +924,8 @@ export function buildJadeLegDistanceStubRows(
   if (customerIdSpace.has(targetId)) {
     // Every active warehouse -> this customer.
     return activeWarehouseIds.map(whId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: whId,
       toId: targetId,
       distance: null,
@@ -930,17 +963,34 @@ export function buildJadeLegDistanceStubRows(
 
 interface DistanceOverride { fromId: string; toId: string; distance: number; }
 
+// Chen-bands-units bundle, Part E — v2: gained `unit`, entity-specific
+// DISTANCE_TEMPLATE_VERSION (was the global TEMPLATE_VERSION). `unit`
+// defaults to "mi" (correct for p-median-us/p-median-brazil/two-echelon-gold-
+// au/two-echelon-jade-us, every current caller of this function) purely so
+// this function's existing 1-arg call sites keep compiling and behaving
+// correctly without a route change — Chen (the one "km" model that also
+// reuses this function per this file's own header comment) will show the
+// wrong unit LABEL on its distances export until routes/scenarios.ts is
+// updated to pass its real manifest-declared canonical unit through (a
+// routing concern out of this task's scope; no distance VALUE is affected,
+// since overrides/stubs are already stored/emitted in canonical units and
+// this bundle's export route wiring — the actual `unit=` conversion — is a
+// separate task). No existing test exercises Chen's distances export via
+// HTTP today, so this is a safe, self-correcting, zero-blast-radius interim
+// gap, not a behavior change for any currently-tested caller.
 export interface DistanceTemplateRow {
   templateVersion: number;
+  unit: CanonicalUnit;
   fromId: string;
   toId: string;
   distance: number;
   overridden: true;
 }
 
-export function applyDistanceOverrides(overrides: DistanceOverride[]): DistanceTemplateRow[] {
+export function applyDistanceOverrides(overrides: DistanceOverride[], unit: CanonicalUnit = "mi"): DistanceTemplateRow[] {
   return overrides.map(o => ({
-    templateVersion: TEMPLATE_VERSION,
+    templateVersion: DISTANCE_TEMPLATE_VERSION,
+    unit,
     fromId: o.fromId,
     toId: o.toId,
     distance: o.distance,
@@ -950,6 +1000,7 @@ export function applyDistanceOverrides(overrides: DistanceOverride[]): DistanceT
 
 export interface DistanceStubRow {
   templateVersion: number;
+  unit: CanonicalUnit;
   fromId: string;
   toId: string;
   distance: null;
@@ -974,13 +1025,15 @@ export function buildDistanceStubRows(
   targetId: string,
   inputs: StubGeneratorInputs,
   dataset?: PrecheckDataset,
+  unit: CanonicalUnit = "mi",
 ): DistanceStubRow[] | null {
   const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(inputs, dataset);
   const { activeWarehouseIds, activeCustomerIds } = buildActivePMedianIds(inputs, dataset);
 
   if (warehouseIdSpace.has(targetId)) {
     return activeCustomerIds.map(custId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: targetId,
       toId: custId,
       distance: null,
@@ -988,7 +1041,8 @@ export function buildDistanceStubRows(
   }
   if (customerIdSpace.has(targetId)) {
     return activeWarehouseIds.map(whId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: whId,
       toId: targetId,
       distance: null,
@@ -998,17 +1052,31 @@ export function buildDistanceStubRows(
 }
 
 // Shared by both applyDistanceOverrides' rows (extra `overridden` field,
-// ignored here) and buildDistanceStubRows' rows (distance: null) — same
-// 4-column shape as import.ts's DISTANCES_COLUMNS, so an exported CSV stays
-// re-importable either way.
+// ignored here) and buildDistanceStubRows' rows (distance: null). Chen-
+// bands-units bundle, Part E — v2 header gains `unit` right after
+// `template_version` (locked column order); every row (including blank
+// stubs) carries the same valid unit+version. Import.ts's DISTANCES_COLUMNS
+// (T8) is the counterpart parser.
 export function distanceRowsToCsv(
-  rows: Array<{ templateVersion: number; fromId: string; toId: string; distance: number | null }>,
+  rows: Array<{ templateVersion: number; unit: CanonicalUnit; fromId: string; toId: string; distance: number | null }>,
 ): string {
-  const header = "template_version,from_id,to_id,distance";
+  const header = "template_version,unit,from_id,to_id,distance";
   const lines = rows.map(r =>
-    [r.templateVersion, r.fromId, r.toId, r.distance ?? ""].join(","),
+    [r.templateVersion, r.unit, r.fromId, r.toId, r.distance ?? ""].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// Chen-bands-units bundle, Part E — JSON row projector for the distances/
+// legDistances input entities: `unit` lives on the JSON envelope only
+// (`{templateVersion, entity, unit, rows}`), never duplicated per row, so
+// the wire JSON row is NOT the same object as the CSV/internal row. Not yet
+// wired into routes/scenarios.ts's `res.json(...)` call sites (a routing
+// concern, out of this task's scope) — provided here, tested directly, and
+// ready for that wiring.
+export function toDistanceJsonRow<T extends { unit: CanonicalUnit }>(row: T): Omit<T, "unit"> {
+  const { unit: _unit, ...rest } = row;
+  return rest;
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,17 +1097,27 @@ export function distanceRowsToCsv(
 
 interface LaneCostOverride { fromId: string; toId: string; cost: number; }
 
+// Chen-bands-units bundle, Part E — v2: gained `unit`, DISTANCE_TEMPLATE_
+// VERSION. `laneCosts` keeps its `cost` column name (chapter vocabulary
+// preserved, per spec) rather than renaming to `distance` — it IS a distance
+// value (transportLp.ts's lane "cost" is literally geographic miles, the
+// objective is distance x flow), it just keeps its domain-specific column
+// name. `unit` defaults to "mi" (transport-coal's own canonical unit, the
+// only model with this entity) so the existing call sites keep compiling
+// unchanged — see DistanceTemplateRow's header comment for the same pattern.
 export interface LaneCostTemplateRow {
   templateVersion: number;
+  unit: CanonicalUnit;
   fromId: string;
   toId: string;
   cost: number;
   overridden: true;
 }
 
-export function applyLaneCostOverrides(overrides: LaneCostOverride[]): LaneCostTemplateRow[] {
+export function applyLaneCostOverrides(overrides: LaneCostOverride[], unit: CanonicalUnit = "mi"): LaneCostTemplateRow[] {
   return overrides.map(o => ({
-    templateVersion: TEMPLATE_VERSION,
+    templateVersion: DISTANCE_TEMPLATE_VERSION,
+    unit,
     fromId: o.fromId,
     toId: o.toId,
     cost: o.cost,
@@ -1049,6 +1127,7 @@ export function applyLaneCostOverrides(overrides: LaneCostOverride[]): LaneCostT
 
 export interface LaneCostStubRow {
   templateVersion: number;
+  unit: CanonicalUnit;
   fromId: string;
   toId: string;
   cost: null;
@@ -1070,12 +1149,14 @@ export function buildLaneCostStubRows(
   targetId: string,
   inputs: TransportStubGeneratorInputs,
   dataset: PrecheckDataset = TRANSPORT_DATASET,
+  unit: CanonicalUnit = "mi",
 ): LaneCostStubRow[] | null {
   const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(inputs, dataset);
 
   if (mineIdSpace.has(targetId)) {
     return [...stationIdSpace].map(stationId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: targetId,
       toId: stationId,
       cost: null,
@@ -1083,7 +1164,8 @@ export function buildLaneCostStubRows(
   }
   if (stationIdSpace.has(targetId)) {
     return [...mineIdSpace].map(mineId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: mineId,
       toId: targetId,
       cost: null,
@@ -1093,16 +1175,16 @@ export function buildLaneCostStubRows(
 }
 
 // Shared by both applyLaneCostOverrides' rows (extra `overridden` field,
-// ignored here) and buildLaneCostStubRows' rows (cost: null) — same 4-column
-// shape as import.ts's LANE_COST_COLUMNS, so an exported CSV stays
-// re-importable either way. Mirrors distanceRowsToCsv exactly, field name
-// aside.
+// ignored here) and buildLaneCostStubRows' rows (cost: null). Chen-bands-
+// units bundle, Part E — v2 header gains `unit` right after
+// `template_version`, mirroring distanceRowsToCsv exactly, field name aside.
+// Import.ts's LANE_COST_COLUMNS is the counterpart parser.
 export function laneCostRowsToCsv(
-  rows: Array<{ templateVersion: number; fromId: string; toId: string; cost: number | null }>,
+  rows: Array<{ templateVersion: number; unit: CanonicalUnit; fromId: string; toId: string; cost: number | null }>,
 ): string {
-  const header = "template_version,from_id,to_id,cost";
+  const header = "template_version,unit,from_id,to_id,cost";
   const lines = rows.map(r =>
-    [r.templateVersion, r.fromId, r.toId, r.cost ?? ""].join(","),
+    [r.templateVersion, r.unit, r.fromId, r.toId, r.cost ?? ""].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
@@ -1144,6 +1226,7 @@ export function buildLegDistanceStubRows(
   targetId: string,
   inputs: TwoEchelonStubGeneratorInputs,
   dataset: TwoEchelonPrecheckDataset = TWO_ECHELON_DATASET,
+  unit: CanonicalUnit = "mi",
 ): DistanceStubRow[] | null {
   const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(inputs, dataset);
   const { activeRefineryIds, activeCustomerIds } = buildActiveTwoEchelonIds(inputs, dataset);
@@ -1151,7 +1234,8 @@ export function buildLegDistanceStubRows(
   if (mineIdSpace.has(targetId)) {
     // Mine -> every active refinery.
     return activeRefineryIds.map(refId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: targetId,
       toId: refId,
       distance: null,
@@ -1161,13 +1245,15 @@ export function buildLegDistanceStubRows(
     // A refinery is adjacent to BOTH legs — every mine (mine->refinery) AND
     // every active customer (refinery->customer), not just one direction.
     const mineRows = [...mineIdSpace].map(mineId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: mineId,
       toId: targetId,
       distance: null,
     }));
     const customerRows = activeCustomerIds.map(custId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: targetId,
       toId: custId,
       distance: null,
@@ -1177,7 +1263,8 @@ export function buildLegDistanceStubRows(
   if (customerIdSpace.has(targetId)) {
     // Every active refinery -> this customer.
     return activeRefineryIds.map(refId => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: DISTANCE_TEMPLATE_VERSION,
+      unit,
       fromId: refId,
       toId: targetId,
       distance: null,
@@ -1199,24 +1286,46 @@ export function buildLegDistanceStubRows(
 // C4.9 / D24 — `distanceMi` renamed to `distance` + a self-describing
 // `distanceUnit` (from the model's manifest — every model passes its own unit;
 // Chen "km", the mile models "mi"). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
+// Chen-bands-units bundle — v3: `band` is now ALWAYS computed (never null),
+// recomputed server-side from the scenario's SAVED distanceBands lens via the
+// shared @workspace/units `assignBandOrOverflow` (a numeric index, `-1` =
+// OVERFLOW_BAND) instead of trusting the solver's solve-time `edge.band`.
+// `distance`/`distanceUnit` now follow the export route's `unit=` param.
 export interface AssignmentTemplateRow {
   templateVersion: number;
   customerId: string;
   warehouseId: string;
   distance: number;
   distanceUnit: string;
-  band: number | null;
+  band: number;
   flow: number;
 }
 
-export function buildAssignmentRows(result: ResultEnvelope, distanceUnit: string): AssignmentTemplateRow[] {
+// `canonicalUnit` is the model's manifest-declared unit (already passed by
+// every existing call site, unchanged position); `requestedUnit` and
+// `savedBands` are NEW — both default so this function's existing 2-arg call
+// sites keep compiling: `requestedUnit` defaults to `canonicalUnit` (no
+// conversion — identity), `savedBands` defaults to `[]` (every row lands in
+// band 0, since `assignBandOrOverflow` returns 0 for an empty bands array —
+// this only matters until routes/scenarios.ts is updated to thread the
+// scenario's real `inputs.distanceBands` through, a routing concern out of
+// this task's scope; no currently-passing test asserts a nonzero band here).
+export function buildAssignmentRows(
+  result: ResultEnvelope,
+  canonicalUnit: CanonicalUnit,
+  requestedUnit: CanonicalUnit = canonicalUnit,
+  savedBands: number[] = [],
+): AssignmentTemplateRow[] {
   return result.edges.map(e => ({
     templateVersion: OUTPUT_TEMPLATE_VERSION,
     customerId: e.toId,
     warehouseId: e.fromId,
-    distance: e.distance,
-    distanceUnit,
-    band: e.band ?? null,
+    // Classify on the CANONICAL distance, then convert, then round — never
+    // classify after rounding/converting (a near-boundary row must not
+    // change bucket because of display rounding).
+    distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
+    distanceUnit: requestedUnit,
+    band: assignBandOrOverflow(e.distance, savedBands),
     flow: e.flow,
   }));
 }
@@ -1224,9 +1333,27 @@ export function buildAssignmentRows(result: ResultEnvelope, distanceUnit: string
 export function assignmentRowsToCsv(rows: AssignmentTemplateRow[]): string {
   const header = "template_version,customer_id,warehouse_id,distance,distance_unit,band,flow";
   const lines = rows.map(r =>
-    [r.templateVersion, r.customerId, r.warehouseId, r.distance, r.distanceUnit, r.band ?? "", r.flow].join(","),
+    [r.templateVersion, r.customerId, r.warehouseId, r.distance, r.distanceUnit, r.band, r.flow].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// Chen-bands-units bundle, Part E — v3 JSON row projector: `templateVersion`
+// and `distanceUnit` are envelope-only in JSON (never duplicated per row) —
+// the exact locked shape is `{customerId, warehouseId, distance, band,
+// flow}`. Not yet wired into routes/scenarios.ts's `res.json(...)` (a
+// routing concern out of this task's scope) — provided here, tested
+// directly, ready for that wiring.
+export interface AssignmentJsonRow {
+  customerId: string;
+  warehouseId: string;
+  distance: number;
+  band: number;
+  flow: number;
+}
+
+export function toAssignmentJsonRow(r: AssignmentTemplateRow): AssignmentJsonRow {
+  return { customerId: r.customerId, warehouseId: r.warehouseId, distance: r.distance, band: r.band, flow: r.flow };
 }
 
 export interface OpenWarehouseTemplateRow {
@@ -1329,15 +1456,36 @@ export interface CostSummaryTemplateRow {
 // Always exactly one row — a scenario has one current result, not a
 // baseline/current pair (the Reports tab, Task 7, is where baseline
 // comparison happens; this entity is a plain export of the current solve).
-export function buildCostSummaryRows(result: ResultEnvelope, distanceUnit: string): CostSummaryTemplateRow[] {
+//
+// Chen-bands-units bundle — the objective now converts via the SHARED
+// `@workspace/units` `objectiveDimension`/`convertObjective` mapping (the
+// ONLY place `modelId` drives unit semantics — no second mapping lives
+// here). `modelId` is a NEW optional param defaulting to `null`: with no
+// modelId, `objectiveDimension` falls through to its `"opaque"` default,
+// which never converts — so this function's existing 2-arg call sites keep
+// compiling AND keep behaving identically (requestedUnit also defaults to
+// canonicalUnit, so no numeric conversion happens either way until
+// routes/scenarios.ts is updated to pass the scenario's real modelId/
+// requested unit through — a routing concern out of this task's scope).
+// `weightedAvgDistance` is always a plain distance (not routed through the
+// objective-dimension mapping) so it always converts under `unit=`.
+export function buildCostSummaryRows(
+  result: ResultEnvelope,
+  canonicalUnit: CanonicalUnit,
+  requestedUnit: CanonicalUnit = canonicalUnit,
+  modelId: string | null = null,
+): CostSummaryTemplateRow[] {
+  // details.objective is Chen's mode string ("coverage" / "min_distance");
+  // absent (undefined) or non-string for every other model → explicit null.
+  const objectiveMode = typeof result.details.objective === "string" ? result.details.objective : null;
+  const dim = objectiveDimension(modelId ?? "", objectiveMode);
   return [{
     templateVersion: OUTPUT_TEMPLATE_VERSION,
-    objective: result.objective,
-    // details.objective is Chen's mode string ("coverage" / "min_distance");
-    // absent (undefined) or non-string for every other model → explicit null.
-    objectiveMode: typeof result.details.objective === "string" ? result.details.objective : null,
-    weightedAvgDistance: result.metrics.weightedAvgDistance ?? null,
-    distanceUnit,
+    objective: result.objective == null ? null : roundForFile(convertObjective(result.objective, dim, canonicalUnit, requestedUnit)),
+    objectiveMode,
+    weightedAvgDistance:
+      result.metrics.weightedAvgDistance == null ? null : roundForFile(toDisplay(result.metrics.weightedAvgDistance, canonicalUnit, requestedUnit)),
+    distanceUnit: requestedUnit,
     runTimeSec: result.runTimeSec,
     quality: result.quality,
     solverUsed: result.solverUsed,
@@ -1352,8 +1500,39 @@ export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
   return [header, ...lines].join("\n") + "\n";
 }
 
+// Chen-bands-units bundle, Part E — v3 JSON row projector: `templateVersion`
+// and `distanceUnit` are envelope-only in JSON — the exact locked shape is
+// `{objective, objectiveMode, weightedAvgDistance, runTimeSec, quality,
+// solverUsed}`. Not yet wired into routes/scenarios.ts (out of scope here).
+export interface CostSummaryJsonRow {
+  objective: number | null;
+  objectiveMode: string | null;
+  weightedAvgDistance: number | null;
+  runTimeSec: number | null;
+  quality: string;
+  solverUsed: string;
+}
+
+export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJsonRow {
+  return {
+    objective: r.objective,
+    objectiveMode: r.objectiveMode,
+    weightedAvgDistance: r.weightedAvgDistance,
+    runTimeSec: r.runTimeSec,
+    quality: r.quality,
+    solverUsed: r.solverUsed,
+  };
+}
+
 // C4.9 / D25 — gained a self-describing `distanceUnit` (band thresholds are in
 // the model's distance unit). Bumped to OUTPUT_TEMPLATE_VERSION (D28).
+//
+// Chen-bands-units bundle — `band` is now the DISTANCE BOUNDARY VALUE itself
+// (converted to the requested unit), not a numeric index — the third and
+// final of the three distinct band representations in this bundle (see
+// buildAssignmentRows' numeric-index comment and buildJadeAssignmentRows'
+// display-label comment). `OVERFLOW_BAND` (-1) is a categorical sentinel and
+// is NEVER unit-converted, in this schema or any other.
 export interface ServiceStatsTemplateRow {
   templateVersion: number;
   band: number;
@@ -1361,19 +1540,36 @@ export interface ServiceStatsTemplateRow {
   percent: number;
 }
 
-// Reads the solver's own metrics.bandCoverage directly (server-computed at
-// solve time) rather than recomputing client-side-style from edges+bands —
-// deliberately simpler than the Reports tab's (Task 7) interactive band
-// display, which DOES recompute client-side from lib/bands.ts because a
-// student can edit bands post-solve without re-solving (E1.1's existing
-// design). This export entity is a point-in-time snapshot of the actual
-// solved result, so reading the stored metrics field is correct here.
-export function buildServiceStatsRows(result: ResultEnvelope, distanceUnit: string): ServiceStatsTemplateRow[] {
-  return (result.metrics.bandCoverage ?? []).map(b => ({
+// Chen-bands-units bundle — switched from reading the solver's solve-time
+// `metrics.bandCoverage` snapshot to recomputing LIVE from the scenario's
+// SAVED distanceBands lens via the shared `@workspace/units` cumulative+
+// overflow helper (`computeCumulativeBandCoverage`), the same helper and the
+// same rows the Reports tab's live band-coverage display already uses —
+// server and frontend now call the identical pure function, so parity is
+// structural rather than maintained by convention. `serviceEdgesFor` applies
+// the two-echelon/JADE outbound-leg filter (a no-op for single-echelon
+// models, whose edges never carry `leg`). `savedBands` is a NEW param
+// defaulting to `[]` so this function's existing 2-arg call sites keep
+// compiling (an empty bands array yields zero coverage rows — this only
+// matters until routes/scenarios.ts is updated to thread the scenario's real
+// `inputs.distanceBands` through, a routing concern out of this task's
+// scope; no currently-passing test asserts specific serviceStats row values).
+export function buildServiceStatsRows(
+  result: ResultEnvelope,
+  canonicalUnit: CanonicalUnit,
+  requestedUnit: CanonicalUnit = canonicalUnit,
+  savedBands: number[] = [],
+): ServiceStatsTemplateRow[] {
+  const edges = serviceEdgesFor(result.edges);
+  const coverage = computeCumulativeBandCoverage(edges, savedBands);
+  return coverage.map(c => ({
     templateVersion: OUTPUT_TEMPLATE_VERSION,
-    band: b.band,
-    distanceUnit,
-    percent: b.percent,
+    // Classify (computeCumulativeBandCoverage already worked in canonical
+    // values) then convert the boundary — never the reverse. The overflow
+    // sentinel is categorical and is never converted.
+    band: c.band === OVERFLOW_BAND ? OVERFLOW_BAND : roundForFile(toDisplay(c.band, canonicalUnit, requestedUnit)),
+    distanceUnit: requestedUnit,
+    percent: c.percent,
   }));
 }
 
@@ -1383,12 +1579,33 @@ export function serviceStatsRowsToCsv(rows: ServiceStatsTemplateRow[]): string {
   return [header, ...lines].join("\n") + "\n";
 }
 
+// Chen-bands-units bundle, Part E — v3 JSON row projector: `templateVersion`
+// and `distanceUnit` are envelope-only in JSON — locked shape `{band,
+// percent}`. Not yet wired into routes/scenarios.ts (out of scope here).
+export interface ServiceStatsJsonRow {
+  band: number;
+  percent: number;
+}
+
+export function toServiceStatsJsonRow(r: ServiceStatsTemplateRow): ServiceStatsJsonRow {
+  return { band: r.band, percent: r.percent };
+}
+
+// Chen-bands-units bundle — v3: `distanceMi` renamed to neutral `distance` +
+// a self-describing `distanceUnit` (this entity gains unit-awareness for the
+// first time — it previously had none at all, hardcoded to miles). `band` is
+// now ALWAYS computed (never null), recomputed from the scenario's SAVED
+// distanceBands lens via the shared `assignBandOrOverflow` (numeric index,
+// `-1` = OVERFLOW_BAND), replacing the solver's solve-time `edge.band ?? null`
+// — the same numeric-index representation generic `assignments` uses (NOT
+// JADE's display-label string — see buildJadeFlowRows).
 export interface FlowTemplateRow {
   templateVersion: number;
   fromId: string;
   toId: string;
-  distanceMi: number;
-  band: number | null;
+  distance: number;
+  distanceUnit: string;
+  band: number;
   flow: number;
 }
 
@@ -1399,25 +1616,59 @@ export interface FlowTemplateRow {
 // `leg` at all, so they all pass this filter unfiltered; two-echelon's
 // mine_to_refinery edges pass too. Mirrors buildOpenWarehouseRows'
 // existing inverse leg-filter exactly (templates.ts, Phase C).
-export function buildFlowRows(result: ResultEnvelope): FlowTemplateRow[] {
+//
+// Chen-bands-units bundle — this entity moves OFF the global TEMPLATE_
+// VERSION straight onto OUTPUT_TEMPLATE_VERSION (v3; it never had a v2 — see
+// this file's OUTPUT_TEMPLATE_VERSION header comment). `canonicalUnit`
+// defaults to "mi": every current caller of the generic (non-JADE) flows
+// path is transport-coal or two-echelon-gold-au, both "mi"-canonical, so
+// this function's existing 1-arg call site keeps compiling and behaves
+// correctly without a route change. `requestedUnit`/`savedBands` default the
+// same way buildAssignmentRows' do (identity conversion, band 0 for every
+// row) until routes/scenarios.ts threads the scenario's real requested unit
+// and `inputs.distanceBands` through — a routing concern out of this task's
+// scope; no currently-passing test asserts a nonzero band or a converted
+// distance here.
+export function buildFlowRows(
+  result: ResultEnvelope,
+  canonicalUnit: CanonicalUnit = "mi",
+  requestedUnit: CanonicalUnit = canonicalUnit,
+  savedBands: number[] = [],
+): FlowTemplateRow[] {
   return result.edges
     .filter(e => e.leg !== "refinery_to_customer")
     .map(e => ({
-      templateVersion: TEMPLATE_VERSION,
+      templateVersion: OUTPUT_TEMPLATE_VERSION,
       fromId: e.fromId,
       toId: e.toId,
-      distanceMi: e.distance,
-      band: e.band ?? null,
+      distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
+      distanceUnit: requestedUnit,
+      band: assignBandOrOverflow(e.distance, savedBands),
       flow: e.flow,
     }));
 }
 
 export function flowRowsToCsv(rows: FlowTemplateRow[]): string {
-  const header = "template_version,from_id,to_id,distance_mi,band,flow";
+  const header = "template_version,from_id,to_id,distance,distance_unit,band,flow";
   const lines = rows.map(r =>
-    [r.templateVersion, r.fromId, r.toId, r.distanceMi, r.band ?? "", r.flow].join(","),
+    [r.templateVersion, r.fromId, r.toId, r.distance, r.distanceUnit, r.band, r.flow].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// Chen-bands-units bundle, Part E — v3 JSON row projector: locked shape
+// `{fromId, toId, distance, band, flow}` (envelope-only templateVersion/
+// distanceUnit). Not yet wired into routes/scenarios.ts (out of scope here).
+export interface FlowJsonRow {
+  fromId: string;
+  toId: string;
+  distance: number;
+  band: number;
+  flow: number;
+}
+
+export function toFlowJsonRow(r: FlowTemplateRow): FlowJsonRow {
+  return { fromId: r.fromId, toId: r.toId, distance: r.distance, band: r.band, flow: r.flow };
 }
 
 // ---------------------------------------------------------------------------
@@ -1441,30 +1692,23 @@ export function flowRowsToCsv(rows: FlowTemplateRow[]): string {
 // (scenarios.ts branches on modelId before choosing which builder to call).
 // ---------------------------------------------------------------------------
 
-// Server-side mirror of the frontend's `bandLabel` (lib/bands.ts, task A1 —
-// a separate isolated worktree not merged into this one). Deliberately NOT
-// imported from the frontend package (this is a backend-only task with zero
-// frontend dependency); the two are documented to share identical semantics
-// and are independently unit-tested: upper-inclusive boundary assignment
-// (distance <= boundary -> that boundary's band), 1-indexed "Band N" labels,
-// "Overflow" for any distance above the highest boundary. `bands` is sorted
-// defensively (the caller normally already has it ascending, since
-// `jadeInputsSchema.distanceBands` requires strictly-ascending values, but a
-// legacy/malformed row is handled the same way solve.py's own
-// `sorted(inp.get('distanceBands', ...))` does).
-export function jadeBandLabel(distance: number, bands: number[]): string {
-  const sorted = [...bands].sort((a, b) => a - b);
-  for (let i = 0; i < sorted.length; i++) {
-    if (distance <= sorted[i]) return `Band ${i + 1}`;
-  }
-  return "Overflow";
-}
+// Chen-bands-units bundle — the local `jadeBandLabel` mirror is gone;
+// `bandLabelOrOverflow` from `@workspace/units` is the shared helper now
+// (identical semantics: upper-inclusive boundary assignment, 1-indexed
+// "Band N" labels, "Overflow" above the highest boundary — no second copy of
+// this logic anywhere in the repo, frontend or backend).
 
 // Matches 5a's on-screen contract exactly: Product / Customer / Assigned
 // Warehouse / Distance / Distance Band -- no Demand, no Flow. One row per
 // (product, customer) from `details.assignments`
 // (`{customerId, warehouseId, productId, flow, distanceMi}` --
 // solve.py:1145-1148), not `result.edges`.
+//
+// Chen-bands-units bundle — v3: `band` is now recomputed from the scenario's
+// SAVED distanceBands lens via the shared `bandLabelOrOverflow` (a
+// DISPLAY-LABEL string, "Band N" / "Overflow" — JADE's existing on-screen
+// contract, deliberately NOT the numeric index generic assignments use — see
+// buildAssignmentRows), replacing the ad hoc local `jadeBandLabel`.
 export interface JadeAssignmentTemplateRow {
   templateVersion: number;
   productId: string;
@@ -1491,10 +1735,16 @@ function isJadeRawDetailAssignment(value: unknown): value is JadeRawDetailAssign
     && typeof v.distanceMi === "number";
 }
 
+// `canonicalUnit` (existing 2nd param, unchanged position) and `bands`
+// (existing 3rd param, unchanged position) keep every current call site
+// compiling; `requestedUnit` is NEW, appended last, defaulting to
+// `canonicalUnit` (identity conversion) until routes/scenarios.ts threads
+// the export route's real requested unit through (out of this task's scope).
 export function buildJadeAssignmentRows(
   result: ResultEnvelope,
-  distanceUnit: string,
+  canonicalUnit: CanonicalUnit,
   bands: number[],
+  requestedUnit: CanonicalUnit = canonicalUnit,
 ): JadeAssignmentTemplateRow[] {
   const raw = result.details.assignments;
   const list = Array.isArray(raw) ? raw : [];
@@ -1503,18 +1753,37 @@ export function buildJadeAssignmentRows(
     productId: a.productId,
     customerId: a.customerId,
     warehouseId: a.warehouseId,
-    distance: a.distanceMi,
-    distanceUnit,
-    band: jadeBandLabel(a.distanceMi, bands),
+    // Classify on the CANONICAL distanceMi, then convert, then round.
+    distance: roundForFile(toDisplay(a.distanceMi, canonicalUnit, requestedUnit)),
+    distanceUnit: requestedUnit,
+    band: bandLabelOrOverflow(a.distanceMi, bands),
   }));
 }
 
+// Chen-bands-units bundle — v3: self-describing header gains `template_
+// version` + `distance_unit` (previously silently dropped the version/unit
+// its own row object already carried).
 export function jadeAssignmentRowsToCsv(rows: JadeAssignmentTemplateRow[]): string {
-  const header = "product,customer,assigned_warehouse,distance,distance_band";
+  const header = "template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band";
   const lines = rows.map(r =>
-    [r.productId, r.customerId, r.warehouseId, r.distance, csvEscape(r.band)].join(","),
+    [r.templateVersion, r.productId, r.customerId, r.warehouseId, r.distance, r.distanceUnit, csvEscape(r.band)].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// Chen-bands-units bundle, Part E — v3 JSON row projector: locked shape
+// `{productId, customerId, warehouseId, distance, band}` (envelope-only
+// templateVersion/distanceUnit). Not yet wired into routes/scenarios.ts.
+export interface JadeAssignmentJsonRow {
+  productId: string;
+  customerId: string;
+  warehouseId: string;
+  distance: number;
+  band: string;
+}
+
+export function toJadeAssignmentJsonRow(r: JadeAssignmentTemplateRow): JadeAssignmentJsonRow {
+  return { productId: r.productId, customerId: r.customerId, warehouseId: r.warehouseId, distance: r.distance, band: r.band };
 }
 
 // Matches 5b/5c's combined on-screen contract: ONE file spanning both legs,
@@ -1523,17 +1792,31 @@ export function jadeAssignmentRowsToCsv(rows: JadeAssignmentTemplateRow[]): stri
 // pair, `flows` summed across products (mirrors the Plant->Warehouse inner
 // tab); outbound (warehouse_to_customer) rows are already one per customer
 // in `result.edges` (single-source), so no aggregation is needed there.
+// Chen-bands-units bundle — gained `distanceUnit` (it had none at all before
+// — see this file's header comment on this section). `leg` stays the closed
+// union (already locked, matches the spec's exact table + the OpenAPI enum).
 export interface JadeFlowTemplateRow {
   templateVersion: number;
   leg: "plant_to_warehouse" | "warehouse_to_customer";
   fromId: string;
   toId: string;
   distance: number;
+  distanceUnit: string;
   band: string;
   flows: number;
 }
 
-export function buildJadeFlowRows(result: ResultEnvelope, bands: number[]): JadeFlowTemplateRow[] {
+// `bands` (existing 2nd param, unchanged position) keeps every current call
+// site compiling; `canonicalUnit`/`requestedUnit` are NEW, appended after.
+// `canonicalUnit` defaults to "mi" (JADE's own canonical unit — the only
+// caller of this function) so the existing 2-arg call site keeps compiling
+// and behaves correctly without a route change.
+export function buildJadeFlowRows(
+  result: ResultEnvelope,
+  bands: number[],
+  canonicalUnit: CanonicalUnit = "mi",
+  requestedUnit: CanonicalUnit = canonicalUnit,
+): JadeFlowTemplateRow[] {
   const inboundByPair = new Map<string, { fromId: string; toId: string; distance: number; flows: number }>();
   for (const e of result.edges) {
     if (e.leg !== "plant_to_warehouse") continue;
@@ -1545,13 +1828,16 @@ export function buildJadeFlowRows(result: ResultEnvelope, bands: number[]): Jade
       inboundByPair.set(key, { fromId: e.fromId, toId: e.toId, distance: e.distance, flows: e.flow });
     }
   }
+  // Classify on the CANONICAL (aggregated) distance, then convert, then
+  // round — never the reverse.
   const inboundRows: JadeFlowTemplateRow[] = [...inboundByPair.values()].map(p => ({
     templateVersion: OUTPUT_TEMPLATE_VERSION,
     leg: "plant_to_warehouse",
     fromId: p.fromId,
     toId: p.toId,
-    distance: p.distance,
-    band: jadeBandLabel(p.distance, bands),
+    distance: roundForFile(toDisplay(p.distance, canonicalUnit, requestedUnit)),
+    distanceUnit: requestedUnit,
+    band: bandLabelOrOverflow(p.distance, bands),
     flows: p.flows,
   }));
   const outboundRows: JadeFlowTemplateRow[] = result.edges
@@ -1561,17 +1847,37 @@ export function buildJadeFlowRows(result: ResultEnvelope, bands: number[]): Jade
       leg: "warehouse_to_customer" as const,
       fromId: e.fromId,
       toId: e.toId,
-      distance: e.distance,
-      band: jadeBandLabel(e.distance, bands),
+      distance: roundForFile(toDisplay(e.distance, canonicalUnit, requestedUnit)),
+      distanceUnit: requestedUnit,
+      band: bandLabelOrOverflow(e.distance, bands),
       flows: e.flow,
     }));
   return [...inboundRows, ...outboundRows];
 }
 
+// Chen-bands-units bundle — v3: self-describing header gains `template_
+// version` + `distance_unit` (previously silently dropped both, despite
+// `JadeFlowTemplateRow` now carrying them).
 export function jadeFlowRowsToCsv(rows: JadeFlowTemplateRow[]): string {
-  const header = "leg,from_id,to_id,distance,distance_band,flows";
+  const header = "template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows";
   const lines = rows.map(r =>
-    [r.leg, r.fromId, r.toId, r.distance, csvEscape(r.band), r.flows].join(","),
+    [r.templateVersion, r.leg, r.fromId, r.toId, r.distance, r.distanceUnit, csvEscape(r.band), r.flows].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
+}
+
+// Chen-bands-units bundle, Part E — v3 JSON row projector: locked shape
+// `{leg, fromId, toId, distance, band, flows}` (envelope-only templateVersion/
+// distanceUnit). Not yet wired into routes/scenarios.ts.
+export interface JadeFlowJsonRow {
+  leg: "plant_to_warehouse" | "warehouse_to_customer";
+  fromId: string;
+  toId: string;
+  distance: number;
+  band: string;
+  flows: number;
+}
+
+export function toJadeFlowJsonRow(r: JadeFlowTemplateRow): JadeFlowJsonRow {
+  return { leg: r.leg, fromId: r.fromId, toId: r.toId, distance: r.distance, band: r.band, flows: r.flows };
 }

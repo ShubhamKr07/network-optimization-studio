@@ -1342,15 +1342,19 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.body.rows.some((r: { id: string }) => r.id === "C1")).toBe(false);
   });
 
-  it("exports a p-median-brazil scenario's distanceOverrides as CSV with the shared 4-column header", async () => {
+  it("exports a p-median-brazil scenario's distanceOverrides as CSV with the shared 5-column v2 header (unit-labeled)", async () => {
     const cookie = await loginAs(OWNER);
     const row = { ...brazilRow, inputs: { ...brazilInputs, distanceOverrides: [{ fromId: "ANP", toId: "SP", distance: 123.4 }] } };
     mockDb.select.mockReturnValue(makeChain([row]));
     const res = await request(app).get("/api/scenarios/10/export?entity=distances&format=csv").set("Cookie", cookie);
     expect(res.status).toBe(200);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,from_id,to_id,distance");
-    expect(lines[1]).toBe(`1,ANP,SP,123.4`);
+    // Chen-bands-units bundle, Part E — v2: DISTANCE_TEMPLATE_VERSION (2),
+    // `unit` column added right after template_version. Route hasn't wired
+    // a real requested unit yet (T9) so applyDistanceOverrides' unit
+    // defaults to "mi".
+    expect(lines[0]).toBe("template_version,unit,from_id,to_id,distance");
+    expect(lines[1]).toBe(`2,mi,ANP,SP,123.4`);
   });
 
   it("stubFor a Brazil warehouse id emits one blank row per active Brazil region (not p-median-us's 200)", async () => {
@@ -1539,14 +1543,14 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.body.rows[0]).toMatchObject({ fromId: "ALN", toId: "C1", distance: 123.4, overridden: true });
   });
 
-  it("distances export CSV has the 4-column header, no overridden column", async () => {
+  it("distances export CSV has the 5-column v2 header (unit-labeled), no overridden column", async () => {
     const cookie = await loginAs(OWNER);
     const row = { ...pmedianRow, inputs: { ...pmedianInputs, distanceOverrides: [{ fromId: "ALN", toId: "C1", distance: 123.4 }] } };
     mockDb.select.mockReturnValue(makeChain([row]));
     const res = await request(app).get("/api/scenarios/1/export?entity=distances&format=csv").set("Cookie", cookie);
     expect(res.status).toBe(200);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("template_version,from_id,to_id,distance");
+    expect(lines[0]).toBe("template_version,unit,from_id,to_id,distance");
     expect(lines.length).toBe(2);
   });
 
@@ -1623,9 +1627,11 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("assignments");
     // C4.9 / D24 — distanceMi renamed to distance + distanceUnit ("mi" for
-    // p-median-us) ; D28 — wrapper AND row templateVersion == OUTPUT_TEMPLATE_VERSION (2).
-    expect(res.body.templateVersion).toBe(2);
-    expect(res.body.rows).toEqual([{ templateVersion: 2, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+    // p-median-us) ; D28 — wrapper AND row templateVersion ==
+    // OUTPUT_TEMPLATE_VERSION. Chen-bands-units bundle bumped this constant
+    // 2 -> 3 (band is now always computed from the saved lens, never null).
+    expect(res.body.templateVersion).toBe(3);
+    expect(res.body.rows).toEqual([{ templateVersion: 3, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
     expect(res.text).not.toContain("distanceMi");
   });
 
@@ -1703,7 +1709,15 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/8/export?entity=flows&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(200);
-    expect(res.body.rows).toEqual([{ templateVersion: 1, fromId: "KY", toId: "CHI", distanceMi: 300, band: null, flow: 500 }]);
+    // Chen-bands-units bundle — flows moves OFF TEMPLATE_VERSION straight
+    // onto OUTPUT_TEMPLATE_VERSION (v1 -> v3, skipping v2 — it never had
+    // one); distanceMi renamed to neutral distance + distanceUnit; band is
+    // now always computed (numeric index, never null) from the scenario's
+    // saved distanceBands lens (empty here -> band 0, per
+    // assignBandOrOverflow's contract for an empty bands array). The JSON
+    // wrapper version must match the row version — both now 3.
+    expect(res.body.templateVersion).toBe(3);
+    expect(res.body.rows).toEqual([{ templateVersion: 3, fromId: "KY", toId: "CHI", distance: 300, distanceUnit: "mi", band: 0, flow: 500 }]);
   });
 
   it("exports openWarehouses for a solved two-echelon scenario (previously p-median-us only)", async () => {
@@ -1728,9 +1742,10 @@ describe("GET /api/scenarios/:id/export", () => {
     expect(res.body.rows).toEqual([{ templateVersion: 1, warehouseId: "daggar-hills", city: "Daggar Hills", totalFlow: 80, utilization: null }]);
   });
 
-  // C4.9 / D28 — output wrapper templateVersion: 2 for the three unit-aware
-  // exports, 1 for openWarehouses (+ distances, an input entity).
-  it("uses OUTPUT_TEMPLATE_VERSION (2) at the JSON wrapper for costSummary/serviceStats, v1 for openWarehouses", async () => {
+  // C4.9 / D28 — output wrapper templateVersion: OUTPUT_TEMPLATE_VERSION for
+  // the unit-aware exports, 1 for openWarehouses (+ distances, an input
+  // entity). Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3.
+  it("uses OUTPUT_TEMPLATE_VERSION (3) at the JSON wrapper for costSummary/serviceStats, v1 for openWarehouses", async () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
@@ -1741,7 +1756,7 @@ describe("GET /api/scenarios/:id/export", () => {
       },
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
-    for (const [entity, expected] of [["costSummary", 2], ["serviceStats", 2], ["openWarehouses", 1]] as const) {
+    for (const [entity, expected] of [["costSummary", 3], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
       mockDb.select.mockReturnValue(makeChain([solvedRow]));
       const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
       expect(res.status).toBe(200);
@@ -1766,13 +1781,13 @@ describe("GET /api/scenarios/:id/export", () => {
     const asg = await request(app).get("/api/scenarios/13/export?entity=assignments&format=csv").set("Cookie", cookie);
     expect(asg.status).toBe(200);
     expect(asg.text.split("\n")[0]).toBe("template_version,customer_id,warehouse_id,distance,distance_unit,band,flow");
-    expect(asg.text).toContain("2,cn-1,wh-15,250.5,km,0,100");
+    expect(asg.text).toContain("3,cn-1,wh-15,250.5,km,0,100");
     expect(asg.text).not.toContain("distance_mi");
 
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
     expect(cost.status).toBe(200);
-    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage", distanceUnit: "km", templateVersion: 2 });
+    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage", distanceUnit: "km", templateVersion: 3 });
   });
 
   // C4.9 / D25 — objectiveMode is serialized as explicit null (not omitted) for
@@ -1872,11 +1887,12 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("assignments");
-    expect(res.body.templateVersion).toBe(2);
+    // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3.
+    expect(res.body.templateVersion).toBe(3);
     expect(res.body.rows).toEqual([
-      { templateVersion: 2, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
-      { templateVersion: 2, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
-      { templateVersion: 2, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "Overflow" },
+      { templateVersion: 3, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
+      { templateVersion: 3, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
+      { templateVersion: 3, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "Overflow" },
     ]);
     // No demand/flow column — product-level, per spec §5a.
     expect(res.body.rows.every((r: Record<string, unknown>) => !("flow" in r) && !("demand" in r))).toBe(true);
@@ -1891,9 +1907,12 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("product,customer,assigned_warehouse,distance,distance_band");
-    expect(lines).toContain("P1,C1,WH1,250,Band 2");
-    expect(lines).toContain("P1,C2,WH1,2000,Overflow");
+    // Chen-bands-units bundle, Part E (sixth-review #3) — JADE serializers
+    // become self-describing: the header now carries template_version +
+    // distance_unit, matching the locked v3 table exactly.
+    expect(lines[0]).toBe("template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band");
+    expect(lines).toContain("3,P1,C1,WH1,250,mi,Band 2");
+    expect(lines).toContain("3,P1,C2,WH1,2000,mi,Overflow");
   });
 
   it("exports JADE flows as JSON — ONE combined file, P->W aggregated across products, W->C one row per customer", async () => {
@@ -1904,12 +1923,14 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("flows");
+    // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3, and
+    // JadeFlowTemplateRow gained distanceUnit (it had none before).
     expect(res.body.rows).toEqual([
       // Inbound: PL1->WH1 aggregated across P1 (100) + P2 (50) = 150.
-      { templateVersion: 2, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 },
+      { templateVersion: 3, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, distanceUnit: "mi", band: "Band 1", flows: 150 },
       // Outbound: one row per customer, no per-product duplication.
-      { templateVersion: 2, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, band: "Band 2", flows: 120 },
-      { templateVersion: 2, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, band: "Overflow", flows: 900 },
+      { templateVersion: 3, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, distanceUnit: "mi", band: "Band 2", flows: 120 },
+      { templateVersion: 3, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, distanceUnit: "mi", band: "Overflow", flows: 900 },
     ]);
   });
 
@@ -1921,9 +1942,11 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     const lines = (res.text as string).trim().split("\n");
-    expect(lines[0]).toBe("leg,from_id,to_id,distance,distance_band,flows");
-    expect(lines).toContain("plant_to_warehouse,PL1,WH1,150,Band 1,150");
-    expect(lines).toContain("warehouse_to_customer,WH1,C2,2000,Overflow,900");
+    // Chen-bands-units bundle, Part E (sixth-review #3) — header gains
+    // template_version + distance_unit, matching the locked v3 table.
+    expect(lines[0]).toBe("template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows");
+    expect(lines).toContain("3,plant_to_warehouse,PL1,WH1,150,mi,Band 1,150");
+    expect(lines).toContain("3,warehouse_to_customer,WH1,C2,2000,mi,Overflow,900");
   });
 
   it("JADE distance_band reflects the CURRENT SAVED scenario.inputs.distanceBands, not solve.py's default", async () => {
@@ -1991,7 +2014,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     // Still the GENERIC edges-derived shape (customerId/warehouseId, a
     // numeric band index) — NOT the JADE product-level shape
     // (product/customer/assigned_warehouse, a string band label).
-    expect(res.body.rows).toEqual([{ templateVersion: 2, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+    expect(res.body.rows).toEqual([{ templateVersion: 3, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
   });
 
   it("a non-JADE model's flows export is unaffected by the JADE branch (byte-identical regression)", async () => {
@@ -2012,7 +2035,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     expect(res.status).toBe(200);
     // Still the GENERIC single-file shape with a numeric band and NO `leg`/
     // `flows` fields — NOT the JADE combined leg/flows shape.
-    expect(res.body.rows).toEqual([{ templateVersion: 1, fromId: "KY", toId: "CHI", distanceMi: 300, band: null, flow: 500 }]);
+    expect(res.body.rows).toEqual([{ templateVersion: 3, fromId: "KY", toId: "CHI", distance: 300, distanceUnit: "mi", band: 0, flow: 500 }]);
   });
 });
 

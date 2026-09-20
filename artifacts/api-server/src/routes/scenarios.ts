@@ -635,10 +635,14 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       return;
     }
     // D28 — assignments/costSummary/serviceStats bump to OUTPUT_TEMPLATE_VERSION
-    // at the JSON wrapper too (== each row's templateVersion); openWarehouses/
-    // flows stay v1.
+    // at the JSON wrapper too (== each row's templateVersion); openWarehouses
+    // stays v1 (non-distance entity, `unit=` ignored, byte-identical).
+    // Chen-bands-units bundle, Part E — generic `flows` moves OFF
+    // TEMPLATE_VERSION onto OUTPUT_TEMPLATE_VERSION too (v1 -> v3, skipping
+    // v2 — it never had one; buildFlowRows already stamps this on each row,
+    // so the wrapper must match or the envelope self-contradicts).
     const wrapperVersion =
-      entity === "assignments" || entity === "costSummary" || entity === "serviceStats"
+      entity === "assignments" || entity === "costSummary" || entity === "serviceStats" || entity === "flows"
         ? OUTPUT_TEMPLATE_VERSION : TEMPLATE_VERSION;
     res.json({ templateVersion: wrapperVersion, entity, rows });
     return;
