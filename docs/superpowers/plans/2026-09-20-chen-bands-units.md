@@ -17,7 +17,7 @@
 Every task's requirements implicitly include these.
 
 - **Hard rule #1 — never edit generated code.** `lib/api-zod/src/generated/**` and `lib/api-client-react/src/generated/**` come from codegen. Change `lib/api-spec/openapi.yaml`, re-run Orval, commit spec + regenerated output **in the same commit**.
-- **Hard rule #2 — `e2e_accuracy.py` is sacred.** `artifacts/api-server/src/solver/tests/e2e_accuracy.py` must pass unmodified (99/99). **No task in this plan touches `solve.py`, any `solvers/*/dataset/*`, or any Python file.** The only `solvers/` edit anywhere is one manifest JSON in Task 3.
+- **Hard rule #2 — `e2e_accuracy.py` is sacred.** `artifacts/api-server/src/solver/tests/e2e_accuracy.py` must pass unmodified (99/99). **No task in this plan touches `solve.py`, any `solvers/*/dataset/*`, or any Python file.** `solvers/` edits are limited to **manifest JSON only**, in exactly two tasks and exactly six files (plan-review-5 #1): Task 3 edits `solvers/chens-cosmetics-cn/manifest.json`; Task 3b edits the band-items type in `solvers/p-median-us/manifest.json`, `solvers/p-median-brazil/manifest.json`, `solvers/transport-coal/manifest.json`, `solvers/two-echelon-gold-au/manifest.json`, `solvers/two-echelon-jade-us/manifest.json`. No other `solvers/` path may appear in any commit pathspec.
 - **Hard rule #3 — NOT NULL protocol.** Not triggered: both new columns are nullable, so plain `drizzle-kit push` is correct.
 - **Hard rule #4 — one task = one commit**, message `[<task-id>] <imperative summary>`. Codegen output ships in the same commit as its spec change.
 - **Hard rule #5 — ownership is security-critical.** Every scenario-scoped query filters by authenticated `user_id`; non-owned or missing → **404, never 403**.
@@ -835,8 +835,10 @@ git commit -m "[T3] Chen bands are free and preserved — stop the [high,max] ov
 
 **Files:**
 - Modify: `artifacts/api-server/src/validation/inputs/pMedian.ts` (line ~90), `transportLp.ts` (~71), `twoEchelon.ts` (~99), `jadeInputs.ts` (~158-163)
-- Modify: the `distanceBands` schema in each affected `solvers/*/manifest.json` that pins `type: integer`
+- Modify (exact paths, no globs): `solvers/p-median-us/manifest.json`, `solvers/p-median-brazil/manifest.json`, `solvers/transport-coal/manifest.json`, `solvers/two-echelon-gold-au/manifest.json`, `solvers/two-echelon-jade-us/manifest.json` — band items `"type": "integer"` → `"type": "number", "exclusiveMinimum": 0`
 - Test: `artifacts/api-server/src/validation/inputs/__tests__/*.test.ts` (per model), `artifacts/api-server/src/registry/__tests__/registration.test.ts`
+
+**Spec status:** this task implements **spec decision 1j**, added to the design doc in `0faa98b`. The spec's Part G previously said JADE's integer rules were unchanged; that line is now amended, so plan and spec agree and the "spec wins" rule resolves cleanly (plan-review-5 #1).
 
 **Why (plan-review-4 #2).** The unit toggle makes band entry lossy-or-illegal otherwise: on a mile-canonical model, typing `500 km` converts to `310.6856 mi`, which today's `z.number().int().positive()` rejects outright. Bands are a **reporting lens** — the integer constraint was never load-bearing, and Chen's new schema (T3) is already `z.number().positive()`. Relaxing makes one rule true app-wide instead of a per-model patchwork.
 
@@ -850,7 +852,16 @@ git commit -m "[T3] Chen bands are free and preserved — stop the [high,max] ov
 it("accepts a non-integral band produced by a unit conversion", () => {
   expect(() => schema.parse({ ...base, distanceBands: [310.6856, 621.3712] })).not.toThrow();
 });
-it("still rejects zero, negative, duplicate and non-ascending bands", () => {});
+it("still rejects zero and negative bands", () => {});
+// These three schemas are bare `z.array(z.number().int().positive()).min(1)` —
+// they do NOT reject duplicate or non-ascending arrays today (pMedian.ts:90,
+// transportLp.ts:71, twoEchelon.ts:99), and this bundle does not add that
+// (plan-review-5 #5). Assert the EXISTING tolerance so a future tightening is
+// a deliberate, visible contract change rather than an accident. The shared
+// classifier sorts internally, so there is no correctness gap.
+it("still ACCEPTS duplicate / non-ascending arrays, exactly as before", () => {
+  expect(() => schema.parse({ ...base, distanceBands: [400, 200, 400] })).not.toThrow();
+});
 
 // jadeInputs
 it("accepts four strictly-ascending POSITIVE NUMBERS (integrality dropped)", () => {
@@ -861,7 +872,7 @@ it("still requires EXACTLY four, strictly ascending", () => {});
 
 - [ ] **Step 2: Run — expect failure** (`pnpm --filter api-server test`): the non-integral cases throw today.
 
-- [ ] **Step 3: Implement** — drop `.int()` in the three array schemas; in `jadeInputs.ts` change the message and predicate from "positive integers" to "positive numbers" while keeping `length === 4` and strict ascent. Update any manifest that declares `"type": "integer"` for band items to `"type": "number", "exclusiveMinimum": 0`.
+- [ ] **Step 3: Implement** — drop `.int()` in the three array schemas **and change nothing else about them** (no new ordering/uniqueness refinement — see Step 1's note); in `jadeInputs.ts` change the message and predicate from "positive integers" to "positive numbers" while keeping `length === 4` and strict ascent. Update the five enumerated manifests' band-items type.
 
 - [ ] **Step 4: Run — expect pass.** If a manifest-hash fixture pins an edited manifest, update that expected hash in this commit and note it in the body.
 
@@ -870,7 +881,10 @@ it("still requires EXACTLY four, strictly ascending", () => {});
 ```bash
 pnpm --filter api-server test && pnpm --filter @workspace/dataset-schema test
 git commit -m "[T3b] relax sibling distanceBands schemas to positive numbers (JADE keeps fixed-4 + strict ascent)" -- \
-  artifacts/api-server/src/validation/inputs artifacts/api-server/src/registry solvers
+  artifacts/api-server/src/validation/inputs artifacts/api-server/src/registry \
+  solvers/p-median-us/manifest.json solvers/p-median-brazil/manifest.json \
+  solvers/transport-coal/manifest.json solvers/two-echelon-gold-au/manifest.json \
+  solvers/two-echelon-jade-us/manifest.json
 ```
 
 ---
@@ -1401,10 +1415,11 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
 **Files:**
 - Create: `artifacts/studio/src/contexts/ExportContext.tsx`
 - Modify: `artifacts/studio/src/lib/exportEntity.ts`
-- Modify: **all 16 tab files that call `downloadEntityExport`** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+- Modify: **the 15 production tab files holding the 24 `downloadEntityExport` calls** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+- Modify: **`JadeFlowsTab.tsx` — the two exceptional client-generated CSV controls** (`handleDownloadPw`, `handleDownloadWc`, built on a local `downloadClientCsv`, lines ~136/210/218). It calls `downloadEntityExport` **nowhere**, so a mechanical helper-conversion would silently leave both JADE flow downloads bypassing server-owned conversion, `unit=`, `runId`, the v3 schema and history addressing (plan-review-5 #3).
 - Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx` + the six existing tab tests that already assert export calls
 
-**Why this task exists (plan-review-4 #1).** `downloadEntityExport` takes only `(scenarioId, entity, format)`, and **the export buttons live in the tabs** — 25 direct call sites across those 16 files — not in `Workspace`. T14 owns only `Workspace.tsx`/`exportEntity.ts`, so it cannot reach them. Without this task nothing can supply: the effective unit when `pref === "auto"` (needs the model's canonical unit), the displayed history entry's `runId`, or whether *this* control must be disabled because the selected entry is unaddressable.
+**Why this task exists (plan-review-4 #1).** `downloadEntityExport` takes only `(scenarioId, entity, format)`, and **the export buttons live in the tabs** — **24 direct call sites across 15 production files, plus JADE's two client-generated CSVs** (26 controls total) — not in `Workspace`. T14 owns only `Workspace.tsx`/`exportEntity.ts`, so it cannot reach them. Without this task nothing can supply: the effective unit when `pref === "auto"` (needs the model's canonical unit), the displayed history entry's `runId`, or whether *this* control must be disabled because the selected entry is unaddressable.
 
 **Design (locked): a context, not prop-threading.** Prop-threading `{unit, runId, disabledReason}` through 16 components is exactly the per-call-site allowlist this repo keeps regressing on. `Workspace` (T14) populates one `ExportProvider`; every control reads it.
 
@@ -1432,7 +1447,9 @@ it("forced km/mi overrides canonical on every entity", () => {});
 it("omits runId on the latest entry", () => {});
 it("sends the displayed entry's runId while browsing addressable history", () => {});
 it("disables + labels result downloads when the selected entry is unaddressable", () => {});
-it("leaves INPUT-entity downloads enabled even on an unaddressable history entry", () => {});
+it("DISABLES every input-entity download while browsing history, addressable or not", () => {});  // spec 1k
+it("re-enables every control once the latest entry is selected again", () => {});
+it("JadeFlowsTab's two inner tabs download the combined server flows artifact, not a client CSV", () => {});
 ```
 Cover at least one distance output (`assignments`), one input export (`distances`), and one non-distance entity (`warehouses`) across `auto` / forced `km` / forced `mi` / addressable history / unaddressable history.
 
@@ -1440,11 +1457,27 @@ Cover at least one distance output (`assignments`), one input export (`distances
 
 - [ ] **Step 3: Extend `downloadEntityExport`** to `(scenarioId, entity, format, opts?: { unit?: "km"|"mi"; runId?: number })`, appending both as query params.
 
-- [ ] **Step 4: Convert all 25 call sites** in the 16 tabs to `useExport().download(entity, format)`. Result-export controls additionally bind `disabled`/label to `disabledReason`.
+- [ ] **Step 4: Convert all 24 helper call sites** in the 15 tabs to `useExport().download(entity, format)`. Result-export controls additionally bind `disabled`/label to `disabledReason`.
+
+- [ ] **Step 4b: Replace JADE's two client-generated CSVs (plan-review-5 #3)**
+
+**Delete `downloadClientCsv`, `handleDownloadPw` and `handleDownloadWc`** from `JadeFlowsTab.tsx`. Both inner tabs now download the **combined server `flows` artifact** through `useExport()`. That is the already-correct target: the file's own comment (line ~129) records that the backend serves both legs at once, and the locked v3 JADE flows CSV carries a `leg` column, so the leg-specific client files are redundant *and* they bypass `unit=`/`runId`/v3/versioning. The server contract is **not** expanded with leg-specific artifacts.
 
 ```bash
-# must return nothing but exportEntity.ts and ExportContext.tsx when done
+# both must return only exportEntity.ts / ExportContext.tsx when done
 grep -rn "downloadEntityExport(" artifacts/studio/src --include="*.tsx"
+grep -rn "downloadClientCsv\|handleDownloadPw\|handleDownloadWc" artifacts/studio/src
+```
+Add a guard test asserting **no result CSV is generated client-side** anywhere after this task.
+
+- [ ] **Step 4c: Input exports are disabled while browsing history (spec decision 1k)**
+
+`solve_jobs.result` stores only the run's **result**; its *inputs* snapshot is client-side and unaddressable (spec Part F). An input-entity download at an older index would therefore emit the scenario's **current** inputs while the screen shows a historical snapshot. So `ExportApi` distinguishes the two families:
+
+```ts
+// result entities  -> runId addressing; disabled only when the entry is unaddressable
+// input  entities  -> DISABLED whenever isBrowsingHistory, with a label
+//                     ("input exports reflect the current scenario")
 ```
 
 - [ ] **Step 5: Gate + commit**
@@ -1567,7 +1600,9 @@ git commit -m "[T13] Chen free-band editor, live cumulative coverage, and the di
 
 ### Task 14: `Workspace.tsx` integration (sole writer, last)
 
-**Files:** modify `artifacts/studio/src/pages/Workspace.tsx`, `artifacts/studio/src/lib/exportEntity.ts`; create `artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx`.
+**Files:** modify `artifacts/studio/src/pages/Workspace.tsx`; create `artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx`.
+
+> `exportEntity.ts` is **not** this task's file — **T11b is its sole writer** (plan-review-5 #4). This task only *populates* the provider T11b defines.
 
 This task owns every cross-cutting behavior: the band-lens state, the history action matrix, the dirty-nav prompt, the shared payload builder, `Save as scenario`, and run-id threading.
 
@@ -1646,6 +1681,38 @@ it("never labels or commits a Chen km value as mi at any point during manifest l
 
 - [ ] **Step 7a: Mount `UnitToggle` in the workspace header** — the counterpart of Task 10's `AppShell` mount (plan-review #3). Task 10 owns the Landing header; this task owns the model-page header because `Workspace.tsx` renders its own and is this task's sole-writer file.
 
+- [ ] **Step 7b: Mount and populate `ExportProvider` (plan-review-5 #4)**
+
+T11b defines the provider; nothing mounts it without this step. `Workspace` wraps its tab area and supplies the state only it has:
+
+```ts
+// `unit` is null until the model manifest resolves — export controls are
+// DISABLED in that state, never given a fallback (the same no-fallback rule
+// Step 6a applies to every other distance path).
+const canonicalUnit = activeModelManifest?.distanceUnit ?? null;   // "km" | "mi" | null
+const exportValue: ExportApi = {
+  unit: canonicalUnit == null ? null : effectiveUnit(pref, canonicalUnit),
+  runId: isBrowsingHistory ? displayedEntry?.runId : undefined,
+  resultDisabledReason: isBrowsingHistory && displayedEntry?.runId == null
+    ? "This solve's result wasn't retained"
+    : undefined,
+  inputDisabledReason: isBrowsingHistory
+    ? "Input exports reflect the current scenario"      // spec decision 1k
+    : undefined,
+};
+```
+
+`ExportApi.unit` is therefore `"km" | "mi" | null`; T11b's `download()` refuses to fire while it is `null`.
+
+Tests:
+```ts
+it("passes the effective unit (auto -> canonical; forced km/mi overrides)", () => {});
+it("passes runId only while browsing history, never on the latest entry", () => {});
+it("sets resultDisabledReason only for an unaddressable historical entry", () => {});
+it("sets inputDisabledReason for ANY historical entry", () => {});
+it("disables export controls entirely while the manifest is unresolved (no fallback unit)", () => {});
+```
+
 - [ ] **Step 7: Run-id threading** — `ResultHistoryEntry` gains `runId?: number`; the seed takes `currentScenario.resultRunId`; a new solve attaches the polling job id **independently of `timing`**; **an entry with no `runId` is non-exportable ONLY once it is no longer the latest** (plan-review #4). A legacy *latest* result must still export through the existing latest-result path with `runId` omitted — the spec's Part F rule is narrower than "any null runId is disabled". Lock it as:
 
 ```ts
@@ -1655,18 +1722,20 @@ it("never labels or commits a Chen km value as mi at any point during manifest l
 const unaddressableHistoricalEntry = isBrowsingHistory && entry.runId == null;
 ```
 
-Disable and label the download in **that** state only. Test **both** branches: legacy entry while it is latest → export request fires with **no** `runId`; the same entry after a newer solve → download disabled + labelled. `downloadEntityExport` gains optional `runId` and appends the current display `unit` **universally**.
+Disable and label the download in **that** state only. Test **both** branches: legacy entry while it is latest → export request fires with **no** `runId`; the same entry after a newer solve → download disabled + labelled. The `downloadEntityExport` signature change itself belongs to **T11b**; this task only feeds the provider.
 
 - [ ] **Step 8: Gate + commit**
 
 ```bash
 pnpm --filter studio test -- Workspace DirtyNavPrompt
 pnpm run typecheck && pnpm --filter studio test
-git commit -m "[T14] Workspace integration — band lens, history action matrix, dirty-nav prompt, shared payload builder, run-id threading" -- \
+git commit -m "[T14] Workspace integration — band lens, history action matrix, dirty-nav prompt, shared payload builder, ExportProvider, run-id threading" -- \
   artifacts/studio/src/pages/Workspace.tsx \
   artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx \
   artifacts/studio/src/__tests__
 ```
+
+### Task 15: QA — real browser (standing plan rule)
 
 **Files:** create `artifacts/studio/e2e/chen-bands-units.spec.ts`.
 
@@ -1995,3 +2064,76 @@ For Tasks 11–15, add:
 ### Fourth re-review exit criteria
 
 Approval requires all five comments to be folded into the normative architecture, Wave 4 ownership table, task file lists, detailed steps, tests, gates, and commit pathspecs—not merely acknowledged here. Before re-review, enumerate all `downloadEntityExport(` call sites and prove each receives the effective unit and correct history addressing state; enumerate every editable band surface and reconcile display conversion with the backend integer contracts; run `git diff --check`; then re-review the complete task graph against Parts D–F of the approved design.
+
+---
+
+## Appendix — fifth approval re-review comments (2026-09-20, `e6723bb`, verbatim; all folded into the spec and tasks above)
+
+**Original decision: NOT APPROVED.** *(All six folded — see `plan-review-5 #N` markers; #1 and #2 required spec amendments, committed as `0faa98b`.)* The fourth-review findings were substantially addressed, the worktree was clean, and `git diff --check afa2545..e6723bb` passed. The revision introduces the following two blockers and four execution/consistency gaps.
+
+### 1. BLOCKER — Task 3b contradicts the normative spec and a global hard rule
+
+Task 3b relaxes every sibling model's `distanceBands` from integers to positive numbers. The plan cannot authorize that change while both of these statements remain normative:
+
+- The approved spec's Part G says JADE's cardinality/**integer** rules are unchanged.
+- This plan's Hard rule #2 says the Chen manifest is the only `solvers/` edit anywhere in the bundle.
+
+The plan also states that the spec wins whenever plan and spec disagree. An implementer following that instruction must reject Task 3b's JADE change, while an implementer following Task 3b must violate the spec and the plan's global constraint.
+
+First amend the normative spec to record the selected positive-number policy for every affected model, including Part G, the write-path contract, required tests, and any resolution text that preserves integer rules. Then update Hard rule #2 and enumerate the exact sibling manifest paths—`p-median-us`, `p-median-brazil`, `transport-coal`, `two-echelon-gold-au`, and `two-echelon-jade-us`—rather than using `solvers/*` or a broad `solvers` commit pathspec.
+
+### 2. BLOCKER — historical input exports cannot match the displayed history entry
+
+Task 11b explicitly leaves input-entity downloads enabled on an unaddressable historical entry and sends the selected `runId` when one exists. But the persisted `solve_jobs` row contains only the run's **result envelope**. The stepper's historical `inputs` snapshot remains client-side and is not addressable by the export route.
+
+Consequently, a user viewing historical inputs can click a `distances`, `legDistances`, or `laneCosts` download and receive the scenario's current saved inputs rather than the inputs displayed on screen. Supplying `runId` cannot repair this because no historical inputs are stored behind that id.
+
+Choose one executable contract and reflect it in the spec, context, controls, and tests:
+
+- disable and label every input-entity export whenever `isBrowsingHistory` is true; or
+- persist/address each run's inputs and make the server export those historical inputs.
+
+Do not keep input downloads silently enabled with current-scenario semantics while the screen displays a historical snapshot.
+
+### 3. HIGH — the export inventory is incorrect and misses JADE's client-generated exports
+
+The repository has **24 direct `downloadEntityExport` calls across 15 tab files**, plus **two client-generated CSV controls** in `JadeFlowsTab.tsx` (`handleDownloadPw` and `handleDownloadWc`). Task 11b instead claims 25 direct calls across 16 files and instructs the implementer only to convert `downloadEntityExport` calls.
+
+Because `JadeFlowsTab` never calls that helper today, the stated mechanical conversion can leave both JADE flow downloads on `downloadClientCsv`, bypassing the locked server-owned conversion, `unit=`, `runId`, v3 schema, and historical-addressing behavior.
+
+Correct the inventory to 15 helper-calling files / 24 helper calls plus the two exceptional JADE controls. Explicitly remove or replace `downloadClientCsv`, `handleDownloadPw`, and `handleDownloadWc`. Also lock the resulting UX: either both inner tabs download the combined server `flows` artifact, or the server contract is deliberately expanded to preserve leg-specific artifacts. Add a guard/test proving no result CSV is generated client-side after this task.
+
+### 4. HIGH — `ExportProvider` is designed but never mounted
+
+Task 11b says `Workspace` populates one `ExportProvider`, but Task 14 has no step that imports, mounts, or populates it. Task 14 also still lists `exportEntity.ts` as one of its files and repeats the instruction that `downloadEntityExport` gains `runId`/`unit`, even though T11b now owns and commits that file.
+
+Add an explicit Task 14 provider-integration step and tests that lock:
+
+```ts
+unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+runId = isBrowsingHistory ? displayedEntry.runId : undefined;
+disabledReason = isBrowsingHistory && displayedEntry.runId == null
+  ? "This solve's result wasn't retained"
+  : undefined;
+```
+
+While `unit` is unresolved, export controls must be disabled rather than receiving a fallback. Define the context type/state for that condition. Remove `exportEntity.ts` from Task 14's Files list and remove the stale helper-change instruction so T11b remains its sole writer.
+
+### 5. MEDIUM — Task 3b's tests assert invariants its implementation does not provide
+
+The p-median, transport, and two-echelon schemas currently require only an array of positive integers; unlike JADE and the new Chen contract, they do **not** reject duplicates or non-ascending band arrays. Task 3b says those cases "still reject", but Step 3 only removes `.int()` and adds no ordering/uniqueness refinement.
+
+Choose explicitly:
+
+- preserve the sibling models' actual existing behavior and test only positivity/non-integral acceptance; or
+- add unique/strict-ascent validation to those schemas and manifests as a deliberate new contract change, with corresponding spec text and compatibility tests.
+
+The failing-test list and implementation steps must describe the same behavior.
+
+### 6. MEDIUM — the Task 15 heading was removed
+
+After Task 14's commit block, the document jumps directly to `**Files:** create artifacts/studio/e2e/chen-bands-units.spec.ts` without a `### Task 15` heading. Restore `### Task 15: QA — real browser (standing plan rule)` so the browser suite, final gate, and `[T15]` commit remain a distinct task rather than appearing to be part of Task 14.
+
+### Fifth re-review exit criteria
+
+Approval requires all six comments to be folded into the normative spec and plan where applicable—not merely acknowledged here. Reconcile the sibling band-number policy with the approved spec and global constraints; define honest historical input-export behavior; inventory all 26 export controls including JADE's two client CSV handlers; mount and test `ExportProvider` from `Workspace`; align Task 3b's tests with its implementation; restore the Task 15 boundary; run `git diff --check`; and re-review the resulting task graph before implementation begins.
