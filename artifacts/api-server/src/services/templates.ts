@@ -964,20 +964,11 @@ export function buildJadeLegDistanceStubRows(
 interface DistanceOverride { fromId: string; toId: string; distance: number; }
 
 // Chen-bands-units bundle, Part E — v2: gained `unit`, entity-specific
-// DISTANCE_TEMPLATE_VERSION (was the global TEMPLATE_VERSION). `unit`
-// defaults to "mi" (correct for p-median-us/p-median-brazil/two-echelon-gold-
-// au/two-echelon-jade-us, every current caller of this function) purely so
-// this function's existing 1-arg call sites keep compiling and behaving
-// correctly without a route change — Chen (the one "km" model that also
-// reuses this function per this file's own header comment) will show the
-// wrong unit LABEL on its distances export until routes/scenarios.ts is
-// updated to pass its real manifest-declared canonical unit through (a
-// routing concern out of this task's scope; no distance VALUE is affected,
-// since overrides/stubs are already stored/emitted in canonical units and
-// this bundle's export route wiring — the actual `unit=` conversion — is a
-// separate task). No existing test exercises Chen's distances export via
-// HTTP today, so this is a safe, self-correcting, zero-blast-radius interim
-// gap, not a behavior change for any currently-tested caller.
+// DISTANCE_TEMPLATE_VERSION (was the global TEMPLATE_VERSION). T9 threads
+// each model's real manifest-declared `canonicalUnit` through from
+// routes/scenarios.ts (was defaulting to "mi" for every caller, silently
+// mislabeling Chen's "km" export — see applyDistanceOverrides below, whose
+// own comment covers the value-conversion half of this fix).
 export interface DistanceTemplateRow {
   templateVersion: number;
   unit: CanonicalUnit;
@@ -987,13 +978,23 @@ export interface DistanceTemplateRow {
   overridden: true;
 }
 
-export function applyDistanceOverrides(overrides: DistanceOverride[], unit: CanonicalUnit = "mi"): DistanceTemplateRow[] {
+// T9 — gained `requestedUnit` (appended last, defaults to `canonicalUnit`:
+// identity conversion, so every existing 1-/2-arg call site keeps compiling
+// and behaving identically). `overrides[].distance` is always stored
+// canonical; this is the ONLY place that numeric value is converted for
+// export — mirrors buildAssignmentRows' "classify/convert/round" ordering,
+// though there is no band classification here, just a straight convert.
+export function applyDistanceOverrides(
+  overrides: DistanceOverride[],
+  canonicalUnit: CanonicalUnit = "mi",
+  requestedUnit: CanonicalUnit = canonicalUnit,
+): DistanceTemplateRow[] {
   return overrides.map(o => ({
     templateVersion: DISTANCE_TEMPLATE_VERSION,
-    unit,
+    unit: requestedUnit,
     fromId: o.fromId,
     toId: o.toId,
-    distance: o.distance,
+    distance: roundForFile(toDisplay(o.distance, canonicalUnit, requestedUnit)),
     overridden: true,
   }));
 }
@@ -1114,13 +1115,21 @@ export interface LaneCostTemplateRow {
   overridden: true;
 }
 
-export function applyLaneCostOverrides(overrides: LaneCostOverride[], unit: CanonicalUnit = "mi"): LaneCostTemplateRow[] {
+// T9 — gained `requestedUnit`, same pattern as applyDistanceOverrides above:
+// `cost` IS a geographic distance value (this file's own header comment on
+// LaneCostTemplateRow), so it converts under `unit=` exactly like `distance`
+// does; only the column name stays chapter-vocabulary `cost`.
+export function applyLaneCostOverrides(
+  overrides: LaneCostOverride[],
+  canonicalUnit: CanonicalUnit = "mi",
+  requestedUnit: CanonicalUnit = canonicalUnit,
+): LaneCostTemplateRow[] {
   return overrides.map(o => ({
     templateVersion: DISTANCE_TEMPLATE_VERSION,
-    unit,
+    unit: requestedUnit,
     fromId: o.fromId,
     toId: o.toId,
-    cost: o.cost,
+    cost: roundForFile(toDisplay(o.cost, canonicalUnit, requestedUnit)),
     overridden: true,
   }));
 }

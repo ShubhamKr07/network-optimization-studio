@@ -48,6 +48,11 @@ vi.mock("drizzle-orm", () => ({
   max: vi.fn((_col: unknown) => ({ max: _col })),
   count: vi.fn(() => ({ count: true })),
   countDistinct: vi.fn((_col: unknown) => ({ countDistinct: _col })),
+  // T9 — routes/distanceBands.ts's atomic jsonb_set update. The value is
+  // never inspected by these mocks (mockDb.update's `.set` chain just
+  // records call args), so a plain tagged-template stand-in is enough to
+  // stop this module-level import from being undefined at call time.
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({
@@ -1630,8 +1635,11 @@ describe("GET /api/scenarios/:id/export", () => {
     // p-median-us) ; D28 — wrapper AND row templateVersion ==
     // OUTPUT_TEMPLATE_VERSION. Chen-bands-units bundle bumped this constant
     // 2 -> 3 (band is now always computed from the saved lens, never null).
+    // T9 — the envelope carries `unit` once; JSON rows never duplicate
+    // templateVersion/distanceUnit (CSV rows still carry both as columns).
     expect(res.body.templateVersion).toBe(3);
-    expect(res.body.rows).toEqual([{ templateVersion: 3, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+    expect(res.body.unit).toBe("mi");
+    expect(res.body.rows).toEqual([{ customerId: "C1", warehouseId: "ALN", distance: 42.1, band: 0, flow: 50 }]);
     expect(res.text).not.toContain("distanceMi");
   });
 
@@ -1715,9 +1723,11 @@ describe("GET /api/scenarios/:id/export", () => {
     // now always computed (numeric index, never null) from the scenario's
     // saved distanceBands lens (empty here -> band 0, per
     // assignBandOrOverflow's contract for an empty bands array). The JSON
-    // wrapper version must match the row version — both now 3.
+    // wrapper version must match the row version — both now 3. T9 — `unit`
+    // lives on the envelope only; JSON rows never duplicate it.
     expect(res.body.templateVersion).toBe(3);
-    expect(res.body.rows).toEqual([{ templateVersion: 3, fromId: "KY", toId: "CHI", distance: 300, distanceUnit: "mi", band: 0, flow: 500 }]);
+    expect(res.body.unit).toBe("mi");
+    expect(res.body.rows).toEqual([{ fromId: "KY", toId: "CHI", distance: 300, band: 0, flow: 500 }]);
   });
 
   it("exports openWarehouses for a solved two-echelon scenario (previously p-median-us only)", async () => {
@@ -1787,7 +1797,13 @@ describe("GET /api/scenarios/:id/export", () => {
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
     const cost = await request(app).get("/api/scenarios/13/export?entity=costSummary&format=json").set("Cookie", cookie);
     expect(cost.status).toBe(200);
-    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage", distanceUnit: "km", templateVersion: 3 });
+    // T9 — `distanceUnit`/`templateVersion` live on the envelope only in
+    // JSON (`unit`/`templateVersion`); the row itself never duplicates them.
+    expect(cost.body.templateVersion).toBe(3);
+    expect(cost.body.unit).toBe("km");
+    expect(cost.body.rows[0]).toMatchObject({ objectiveMode: "coverage" });
+    expect(cost.body.rows[0]).not.toHaveProperty("distanceUnit");
+    expect(cost.body.rows[0]).not.toHaveProperty("templateVersion");
   });
 
   // C4.9 / D25 — objectiveMode is serialized as explicit null (not omitted) for
@@ -1842,6 +1858,217 @@ describe("GET /api/scenarios/:id/export", () => {
   });
 });
 
+// ── T9: unit=/runId export addressing + field-scoped distance-bands PATCH ──
+describe("GET /api/scenarios/:id/export — unit= (T9, spec Part E / decision 5b)", () => {
+  it("rejects an unknown unit with 400 on ANY entity, distance-bearing or not", async () => {
+    const cookie = await loginAs(OWNER);
+    // Validated before any DB lookup (spec decision, test 14b) — no
+    // mockReturnValueOnce queued here, since db.select() is never reached.
+    const res = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json&unit=furlongs").set("Cookie", cookie);
+    expect(res.status).toBe(400);
+  });
+
+  it("a valid unit on a non-distance entity yields byte-identical output to omitting it", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([pmedianRow]));
+    const withUnit = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json&unit=km").set("Cookie", cookie);
+    mockDb.select.mockReturnValueOnce(makeChain([pmedianRow]));
+    const withoutUnit = await request(app).get("/api/scenarios/1/export?entity=warehouses&format=json").set("Cookie", cookie);
+    expect(withUnit.status).toBe(200);
+    expect(withUnit.body).toEqual(withoutUnit.body);
+    // v1 entities never gain a `unit` property at all.
+    expect(withUnit.body).not.toHaveProperty("unit");
+  });
+
+  it("omitted unit defaults to the model's own canonical unit (Chen: km)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.unit).toBe("km");
+  });
+
+  it("unit=mi converts a Chen distanceOverride value from its canonical km", async () => {
+    const cookie = await loginAs(OWNER);
+    const row = { ...chensRow, inputs: { ...chensInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
+    mockDb.select.mockReturnValueOnce(makeChain([row]));
+    const res = await request(app).get("/api/scenarios/13/export?entity=distances&format=json&unit=mi").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.unit).toBe("mi");
+    // 100 km -> mi, rounded to 4dp (@workspace/units' roundForFile).
+    expect(res.body.rows[0].distance).toBe(62.1371);
+  });
+});
+
+describe("GET /api/scenarios/:id/export — runId (T9, spec Part F)", () => {
+  const solvedRow = {
+    ...pmedianRow,
+    result: {
+      status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+      edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+      metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+    },
+    solvedAt: new Date("2026-01-01T00:00:00Z"),
+  };
+  const historicalResult = {
+    status: "optimal", objective: 55, runTimeSec: 0.3, quality: "Proven optimal",
+    edges: [{ fromId: "ATL", toId: "C2", flow: 20, distance: 10 }],
+    metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+  };
+
+  it("exports the addressed run, not the latest", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([{ id: 77, scenarioId: 1, userId: OWNER, result: historicalResult }]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=77").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows[0].warehouseId).toBe("ATL");
+  });
+
+  it("OMITTED runId retains the unchanged latest-export behavior byte-for-byte", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.rows[0].warehouseId).toBe("ALN");
+  });
+
+  it("cross-user runId → 404, never 403 (hard rule #5)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    // The job lookup is scoped by userId too — a run owned by someone else
+    // resolves to no rows, indistinguishable from a non-existent id.
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=999").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("cross-scenario runId → 404 (a run owned by this user but a different scenario)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    // Scoped by scenarioId too — a run belonging to a DIFFERENT scenario of
+    // this same user's resolves to no rows.
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=88").set("Cookie", cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it("stale scenario + explicit runId → 200 (the stale-gate is the latest-path only)", async () => {
+    const cookie = await loginAs(OWNER);
+    const staleRow = { ...solvedRow, inputsUpdatedAt: new Date("2099-01-01"), solvedAt: new Date("2000-01-01") };
+    mockDb.select.mockReturnValueOnce(makeChain([staleRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([{ id: 77, scenarioId: 1, userId: OWNER, result: historicalResult }]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=77").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+  });
+
+  it("a legacy null solve_jobs.result → 422 (full result was never retained)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([{ id: 77, scenarioId: 1, userId: OWNER, result: null }]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=77").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it("a malformed stored envelope → 422, never a throw", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([{ id: 77, scenarioId: 1, userId: OWNER, result: { not: "a valid envelope" } }]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=77").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+  });
+
+  it.each([0, -1, 1.5, "abc"])("runId=%s → 400", async (bad) => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).get(`/api/scenarios/1/export?entity=assignments&format=json&runId=${bad}`).set("Cookie", cookie);
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH /api/scenarios/:scenarioId/distance-bands (T9, spec Part G)", () => {
+  it("changes ONLY distanceBands — every other inputs key is byte-identical, and returns the new bands", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([pmedianRow]));
+    const newBands = [100, 300, 900, 1800];
+    const updatedRow = { ...pmedianRow, inputs: { ...pmedianInputs, distanceBands: newBands } };
+    const chain = makeChain([updatedRow]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: newBands });
+
+    expect(res.status).toBe(200);
+    expect(res.body.inputs.distanceBands).toEqual(newBands);
+    // Every other key that was already on pmedianInputs is untouched — the
+    // atomic jsonb_set never touched them, so the mocked row (constructed by
+    // spreading pmedianInputs verbatim, band array aside) proves it here.
+    for (const key of Object.keys(pmedianInputs)) {
+      if (key === "distanceBands") continue;
+      expect(res.body.inputs[key]).toEqual((pmedianInputs as Record<string, unknown>)[key]);
+    }
+  });
+
+  it("404s for a scenario owned by another user (never 403)", async () => {
+    const cookie = await loginAs("other-user-id");
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: [100, 200] });
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a missing scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([]));
+    const res = await request(app).patch("/api/scenarios/999/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: [100, 200] });
+    expect(res.status).toBe(404);
+  });
+
+  it("400s for a missing body", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie).send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("400s for an invalid body (non-array, non-positive, non-ascending)", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: "not-an-array" });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s for a model-invalid band array (JADE requires exactly 4, strictly ascending)", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const res = await request(app).patch("/api/scenarios/12/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: [100] });
+    expect(res.status).toBe(400);
+  });
+
+  it("does not flip stale (no inputsUpdatedAt bump) even for an already-solved scenario", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const solvedRow = {
+      ...pmedianRow,
+      result: { status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x", edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null },
+      solvedAt,
+      inputsUpdatedAt: solvedAt,
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const newBands = [50, 150, 450, 900];
+    const chain = makeChain([{ ...solvedRow, inputs: { ...pmedianInputs, distanceBands: newBands } }]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: newBands });
+
+    expect(res.status).toBe(200);
+    expect(res.body.stale).toBe(false);
+    const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+});
+
 // ── JADE model-branched assignments/flows export (task A4, spec §5c) ───────
 // two-echelon-jade-us gets model-specific schemas for entity=assignments
 // (product-level, from details.assignments) and entity=flows (ONE combined
@@ -1887,12 +2114,15 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("assignments");
-    // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3.
+    // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3. T9 —
+    // `unit` lives on the envelope only; JSON rows never duplicate
+    // templateVersion/distanceUnit.
     expect(res.body.templateVersion).toBe(3);
+    expect(res.body.unit).toBe("mi");
     expect(res.body.rows).toEqual([
-      { templateVersion: 3, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
-      { templateVersion: 3, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
-      { templateVersion: 3, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "Overflow" },
+      { productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, band: "Band 2" },
+      { productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, band: "Band 2" },
+      { productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, band: "Overflow" },
     ]);
     // No demand/flow column — product-level, per spec §5a.
     expect(res.body.rows.every((r: Record<string, unknown>) => !("flow" in r) && !("demand" in r))).toBe(true);
@@ -1924,13 +2154,17 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     expect(res.status).toBe(200);
     expect(res.body.entity).toBe("flows");
     // Chen-bands-units bundle bumped OUTPUT_TEMPLATE_VERSION 2 -> 3, and
-    // JadeFlowTemplateRow gained distanceUnit (it had none before).
+    // JadeFlowTemplateRow gained distanceUnit (it had none before). T9 —
+    // `unit` lives on the envelope only; JSON rows never duplicate
+    // templateVersion/distanceUnit.
+    expect(res.body.templateVersion).toBe(3);
+    expect(res.body.unit).toBe("mi");
     expect(res.body.rows).toEqual([
       // Inbound: PL1->WH1 aggregated across P1 (100) + P2 (50) = 150.
-      { templateVersion: 3, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, distanceUnit: "mi", band: "Band 1", flows: 150 },
+      { leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 },
       // Outbound: one row per customer, no per-product duplication.
-      { templateVersion: 3, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, distanceUnit: "mi", band: "Band 2", flows: 120 },
-      { templateVersion: 3, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, distanceUnit: "mi", band: "Overflow", flows: 900 },
+      { leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, band: "Band 2", flows: 120 },
+      { leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, band: "Overflow", flows: 900 },
     ]);
   });
 
@@ -2013,8 +2247,10 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     expect(res.status).toBe(200);
     // Still the GENERIC edges-derived shape (customerId/warehouseId, a
     // numeric band index) — NOT the JADE product-level shape
-    // (product/customer/assigned_warehouse, a string band label).
-    expect(res.body.rows).toEqual([{ templateVersion: 3, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 50 }]);
+    // (product/customer/assigned_warehouse, a string band label). T9 —
+    // `unit` lives on the envelope only.
+    expect(res.body.unit).toBe("mi");
+    expect(res.body.rows).toEqual([{ customerId: "C1", warehouseId: "ALN", distance: 42.1, band: 0, flow: 50 }]);
   });
 
   it("a non-JADE model's flows export is unaffected by the JADE branch (byte-identical regression)", async () => {
@@ -2034,8 +2270,10 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
 
     expect(res.status).toBe(200);
     // Still the GENERIC single-file shape with a numeric band and NO `leg`/
-    // `flows` fields — NOT the JADE combined leg/flows shape.
-    expect(res.body.rows).toEqual([{ templateVersion: 3, fromId: "KY", toId: "CHI", distance: 300, distanceUnit: "mi", band: 0, flow: 500 }]);
+    // `flows` fields — NOT the JADE combined leg/flows shape. T9 — `unit`
+    // lives on the envelope only.
+    expect(res.body.unit).toBe("mi");
+    expect(res.body.rows).toEqual([{ fromId: "KY", toId: "CHI", distance: 300, band: 0, flow: 500 }]);
   });
 });
 

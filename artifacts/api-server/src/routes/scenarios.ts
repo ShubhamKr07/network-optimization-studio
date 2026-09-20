@@ -6,11 +6,14 @@ import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/job
 import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
+import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { getManifest } from "../registry/modelRegistry.js";
+import type { CanonicalUnit } from "@workspace/units";
 import {
   TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
+  DISTANCE_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
   applyCustomerOverrides,
@@ -59,6 +62,16 @@ import {
   openWarehouseRowsToCsv,
   costSummaryRowsToCsv,
   serviceStatsRowsToCsv,
+  // T9 — v2/v3 JSON row projectors (spec Part E): the envelope carries
+  // `unit` once; individual JSON rows never duplicate it (CSV rows still
+  // carry it as a column via the *RowsToCsv writers above, unchanged).
+  toDistanceJsonRow,
+  toAssignmentJsonRow,
+  toCostSummaryJsonRow,
+  toServiceStatsJsonRow,
+  toFlowJsonRow,
+  toJadeAssignmentJsonRow,
+  toJadeFlowJsonRow,
 } from "../services/templates.js";
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow, JadeAssignmentTemplateRow, JadeFlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
@@ -139,6 +152,12 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
     updatedAt: row.updatedAt.toISOString(),
     solvedAt: row.solvedAt ? row.solvedAt.toISOString() : null,
     stale: isStale(row),
+    // T9 — real gap found while wiring Part F: the OpenAPI contract has
+    // required Scenario.resultRunId since T5, but this projector never
+    // exposed the column T2 added / T6 writes. Null for a pre-migration row
+    // (or a never-solved one) — the run-id lifecycle's own explicit
+    // "non-exportable, never a wrong export" contract (decision 1g).
+    resultRunId: row.resultRunId ?? null,
   };
 }
 
@@ -536,6 +555,38 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     return;
   }
 
+  // Chen-bands-units bundle, Part E / T9 — validated BEFORE any entity
+  // dispatch, so an unknown value is 400 for EVERY entity, distance-bearing
+  // or not (spec decision, test 14b). `unit` is simply IGNORED (never read)
+  // by the non-distance-entity branches below, which is what makes their
+  // output byte-identical whether or not a valid unit= was supplied.
+  // Omitted -> undefined -> each branch below falls back to that model's own
+  // manifest-declared canonical unit.
+  const unitParam = req.query.unit as string | undefined;
+  if (unitParam !== undefined && unitParam !== "km" && unitParam !== "mi") {
+    res.status(400).json({ error: "unit must be 'km' or 'mi'" });
+    return;
+  }
+  const requestedUnitOverride = unitParam as CanonicalUnit | undefined;
+
+  // Part F — runId addresses a specific solve_jobs row (a persisted run's
+  // FULL result envelope) instead of the scenario's current latest result.
+  // Syntax validated here, before ownership/entity dispatch, so a
+  // syntactically-bad value never depends on DB state; the actual
+  // ownership+scenario-scoped lookup happens inside the OUTPUT_ENTITIES
+  // branch below (runId is only meaningful for a result-derived export —
+  // input entities have no "run" to address).
+  const runIdParam = req.query.runId as string | undefined;
+  let runId: number | undefined;
+  if (runIdParam !== undefined) {
+    const parsedRunId = Number(runIdParam);
+    if (!Number.isFinite(parsedRunId) || !Number.isInteger(parsedRunId) || parsedRunId <= 0) {
+      res.status(400).json({ error: "runId must be a positive integer" });
+      return;
+    }
+    runId = parsedRunId;
+  }
+
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
@@ -554,16 +605,47 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       res.status(422).json({ error: "stubFor is not supported for output entities" });
       return;
     }
-    if (scenario.result == null || isStale(scenario)) {
-      res.status(422).json({ error: "Scenario must be solved and not stale to export output data" });
-      return;
+
+    // Part F — run-addressed export. An explicit runId reads a specific
+    // solve_jobs row's persisted FULL envelope instead of the scenario's
+    // current latest result. The stale-gate applies ONLY to the latest path
+    // below (an explicitly addressed historical run is by definition a
+    // frozen past result, not stale — decision 1e).
+    let result: ResultEnvelope;
+    if (runId !== undefined) {
+      const [job] = await db.select().from(solveJobsTable)
+        .where(and(
+          eq(solveJobsTable.id, runId),
+          eq(solveJobsTable.userId, req.userId!),
+          eq(solveJobsTable.scenarioId, id),
+        ));
+      // Ownership AND scenario scoping both fold into the same 404 — never
+      // 403 (hard rule #5), and a cross-scenario runId (owned by this user
+      // but belonging to a DIFFERENT scenario of theirs) is indistinguishable
+      // from a non-owned one from the caller's point of view.
+      if (!job) { res.status(404).json({ error: "Not found" }); return; }
+      if (job.result == null) {
+        res.status(422).json({ error: "That solve's full result was not retained" });
+        return;
+      }
+      const parsedJob = ResultEnvelopeSchema.safeParse(job.result);
+      if (!parsedJob.success) {
+        res.status(422).json({ error: "Stored result is not a valid result envelope" });
+        return;
+      }
+      result = parsedJob.data;
+    } else {
+      if (scenario.result == null || isStale(scenario)) {
+        res.status(422).json({ error: "Scenario must be solved and not stale to export output data" });
+        return;
+      }
+      const parsed = ResultEnvelopeSchema.safeParse(scenario.result);
+      if (!parsed.success) {
+        res.status(422).json({ error: "Stored result is not a valid result envelope" });
+        return;
+      }
+      result = parsed.data;
     }
-    const parsed = ResultEnvelopeSchema.safeParse(scenario.result);
-    if (!parsed.success) {
-      res.status(422).json({ error: "Stored result is not a valid result envelope" });
-      return;
-    }
-    const result = parsed.data;
 
     posthog?.capture({
       distinctId: req.userId!,
@@ -577,11 +659,23 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // manifest). D29 — the effective facility id→city lookup (base dataset ∪
     // this scenario's added facilities) so a forced-open zero-flow facility
     // exports with its real city.
-    const distanceUnit = manifest.distanceUnit ?? "mi";
+    //
+    // T9 — `unit=` conversion: `canonicalUnit` is this model's own storage
+    // unit (unchanged meaning); `requestedUnit` is what the caller asked for
+    // via `unit=`, defaulting to canonical when omitted (spec decision 5b).
+    const canonicalUnit = manifest.distanceUnit ?? "mi";
+    const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
     const cityById = buildEffectiveFacilityCityLookup(
       scenario.modelId,
       scenario.inputs as { addedWarehouses?: Array<{ id: string; city: string }>; addedRefineries?: Array<{ id: string; city: string }> },
     );
+    // Part A — every band-bearing export recomputes `band` server-side from
+    // the scenario's CURRENT SAVED distanceBands lens, never the solver's
+    // solve-time snapshot. `runId`-addressed exports still use the SAVED
+    // (current) lens, not a lens snapshot from that run (Part F: "the run
+    // supplies the result/edges; the lens is always the scenario's
+    // currently-saved distanceBands").
+    const savedBands = ((scenario.inputs as { distanceBands?: unknown }).distanceBands as number[] | undefined) ?? [];
 
     // JADE Ch.9 workspace bundle, task A4 (spec §5c) — two-echelon-jade-us's
     // `assignments`/`flows` export branches to its own model-specific
@@ -604,8 +698,8 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       const bands = ((scenario.inputs as { distanceBands?: unknown }).distanceBands as number[] | undefined) ?? [200, 400, 800, 1600];
       const jadeRows: JadeAssignmentTemplateRow[] | JadeFlowTemplateRow[] =
         entity === "assignments"
-          ? buildJadeAssignmentRows(result, distanceUnit, bands)
-          : buildJadeFlowRows(result, bands);
+          ? buildJadeAssignmentRows(result, canonicalUnit, bands, requestedUnit)
+          : buildJadeFlowRows(result, bands, canonicalUnit, requestedUnit);
 
       if (format === "csv") {
         const csv = entity === "assignments"
@@ -614,16 +708,22 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.type("text/csv").send(csv);
         return;
       }
-      res.json({ templateVersion: OUTPUT_TEMPLATE_VERSION, entity, rows: jadeRows });
+      // T9 — `unit` lives on the JSON envelope only; the row projector
+      // strips templateVersion/distanceUnit from each row (CSV rows above
+      // keep both as columns, unchanged).
+      const jadeJsonRows = entity === "assignments"
+        ? (jadeRows as JadeAssignmentTemplateRow[]).map(toJadeAssignmentJsonRow)
+        : (jadeRows as JadeFlowTemplateRow[]).map(toJadeFlowJsonRow);
+      res.json({ templateVersion: OUTPUT_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: jadeJsonRows });
       return;
     }
 
     const rows: AssignmentTemplateRow[] | OpenWarehouseTemplateRow[] | CostSummaryTemplateRow[] | ServiceStatsTemplateRow[] | FlowTemplateRow[] =
-      entity === "assignments" ? buildAssignmentRows(result, distanceUnit)
+      entity === "assignments" ? buildAssignmentRows(result, canonicalUnit, requestedUnit, savedBands)
       : entity === "openWarehouses" ? buildOpenWarehouseRows(result, cityById)
-      : entity === "costSummary" ? buildCostSummaryRows(result, distanceUnit)
-      : entity === "serviceStats" ? buildServiceStatsRows(result, distanceUnit)
-      : buildFlowRows(result);
+      : entity === "costSummary" ? buildCostSummaryRows(result, canonicalUnit, requestedUnit, scenario.modelId)
+      : entity === "serviceStats" ? buildServiceStatsRows(result, canonicalUnit, requestedUnit, savedBands)
+      : buildFlowRows(result, canonicalUnit, requestedUnit, savedBands);
 
     if (format === "csv") {
       const csv = entity === "assignments" ? assignmentRowsToCsv(rows as AssignmentTemplateRow[])
@@ -644,7 +744,22 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     const wrapperVersion =
       entity === "assignments" || entity === "costSummary" || entity === "serviceStats" || entity === "flows"
         ? OUTPUT_TEMPLATE_VERSION : TEMPLATE_VERSION;
-    res.json({ templateVersion: wrapperVersion, entity, rows });
+    // T9 — `unit` is added to the envelope ONLY for the four v3 (unit-
+    // bearing) entities; openWarehouses (v1, non-distance) gets no `unit`
+    // property at all (ExportEnvelopeV1 has none), and its rows are left
+    // exactly as buildOpenWarehouseRows returns them (opaque v1 shape, no
+    // JSON projector — nothing to strip).
+    const jsonRows =
+      entity === "assignments" ? (rows as AssignmentTemplateRow[]).map(toAssignmentJsonRow)
+      : entity === "openWarehouses" ? rows
+      : entity === "costSummary" ? (rows as CostSummaryTemplateRow[]).map(toCostSummaryJsonRow)
+      : entity === "serviceStats" ? (rows as ServiceStatsTemplateRow[]).map(toServiceStatsJsonRow)
+      : (rows as FlowTemplateRow[]).map(toFlowJsonRow);
+    const envelope: { templateVersion: number; entity: string | undefined; unit?: CanonicalUnit; rows: unknown } =
+      entity === "openWarehouses"
+        ? { templateVersion: wrapperVersion, entity, rows: jsonRows }
+        : { templateVersion: wrapperVersion, entity, unit: requestedUnit, rows: jsonRows };
+    res.json(envelope);
     return;
   }
 
@@ -711,8 +826,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // fixed baseline to enumerate) from mines/stations below, mirroring
     // p-median-us's distances branch (below) exactly.
     if (entity === "laneCosts") {
+      // T9 — thread this model's real manifest-declared canonical unit
+      // (transport-coal is "mi", so this is a no-op today, but avoids yet
+      // another hardcoded-"mi" default per this file's known bug class).
+      const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
+      const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {
-        const stubRows = buildLaneCostStubRows(stubFor, inputs as Parameters<typeof buildLaneCostStubRows>[1]);
+        const stubRows = buildLaneCostStubRows(stubFor, inputs as Parameters<typeof buildLaneCostStubRows>[1], undefined, requestedUnit);
         if (stubRows === null) {
           res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known mine or station (base dataset or this scenario's added entities)` });
           return;
@@ -726,11 +846,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
           res.type("text/csv").send(laneCostRowsToCsv(stubRows));
           return;
         }
-        res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+        res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: stubRows.map(toDistanceJsonRow) });
         return;
       }
 
-      const laneCostRows = applyLaneCostOverrides(inputs.laneCostOverrides ?? []);
+      const laneCostRows = applyLaneCostOverrides(inputs.laneCostOverrides ?? [], canonicalUnit, requestedUnit);
       posthog?.capture({
         distinctId: req.userId!,
         event: "scenario data exported",
@@ -740,7 +860,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.type("text/csv").send(laneCostRowsToCsv(laneCostRows));
         return;
       }
-      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: laneCostRows });
+      res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: laneCostRows.map(toDistanceJsonRow) });
       return;
     }
 
@@ -785,8 +905,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // on this reuse) — only the stub generator (buildLegDistanceStubRows)
     // is genuinely new for this model.
     if (entity === "legDistances") {
+      // T9 — thread this model's real manifest-declared canonical unit
+      // (two-echelon-gold-au is "mi", so this is a no-op today, but avoids
+      // yet another hardcoded-"mi" default per this file's known bug class).
+      const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
+      const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {
-        const stubRows = buildLegDistanceStubRows(stubFor, inputs);
+        const stubRows = buildLegDistanceStubRows(stubFor, inputs, undefined, requestedUnit);
         if (stubRows === null) {
           res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known mine, refinery, or customer (base dataset or this scenario's added entities)` });
           return;
@@ -800,11 +925,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
           res.type("text/csv").send(distanceRowsToCsv(stubRows));
           return;
         }
-        res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+        res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: stubRows.map(toDistanceJsonRow) });
         return;
       }
 
-      const legDistanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+      const legDistanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? [], canonicalUnit, requestedUnit);
       posthog?.capture({
         distinctId: req.userId!,
         event: "scenario data exported",
@@ -814,7 +939,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.type("text/csv").send(distanceRowsToCsv(legDistanceRows));
         return;
       }
-      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: legDistanceRows });
+      res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: legDistanceRows.map(toDistanceJsonRow) });
       return;
     }
 
@@ -865,8 +990,13 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     // generator, buildJadeLegDistanceStubRows, is genuinely new for this
     // model's plant/warehouse/customer roles).
     if (entity === "legDistances") {
+      // T9 — thread this model's real manifest-declared canonical unit
+      // (two-echelon-jade-us is "mi", so this is a no-op today, but avoids
+      // yet another hardcoded-"mi" default per this file's known bug class).
+      const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
+      const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {
-        const stubRows = buildJadeLegDistanceStubRows(stubFor, inputs);
+        const stubRows = buildJadeLegDistanceStubRows(stubFor, inputs, undefined, requestedUnit);
         if (stubRows === null) {
           res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known plant, warehouse, or customer (base dataset or this scenario's added entities)` });
           return;
@@ -880,11 +1010,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
           res.type("text/csv").send(distanceRowsToCsv(stubRows));
           return;
         }
-        res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+        res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: stubRows.map(toDistanceJsonRow) });
         return;
       }
 
-      const legDistanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+      const legDistanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? [], canonicalUnit, requestedUnit);
       posthog?.capture({
         distinctId: req.userId!,
         event: "scenario data exported",
@@ -894,7 +1024,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.type("text/csv").send(distanceRowsToCsv(legDistanceRows));
         return;
       }
-      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: legDistanceRows });
+      res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: legDistanceRows.map(toDistanceJsonRow) });
       return;
     }
 
@@ -963,8 +1093,15 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
     };
 
     if (entity === "distances") {
+      // T9 — thread this model's real manifest-declared canonical unit.
+      // chens-cosmetics-cn is "km" — this is the exact bug both T7 and T8
+      // surfaced: this branch was calling applyDistanceOverrides with NO
+      // unit argument at all, silently defaulting to "mi" and mislabeling
+      // (and, pre-T9, never converting) a real km-canonical export.
+      const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
+      const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
       if (stubFor) {
-        const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], CHENS_DATASET);
+        const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], CHENS_DATASET, requestedUnit);
         if (stubRows === null) {
           res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known warehouse or customer (base dataset or this scenario's added entities)` });
           return;
@@ -978,11 +1115,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
           res.type("text/csv").send(distanceRowsToCsv(stubRows));
           return;
         }
-        res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+        res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: stubRows.map(toDistanceJsonRow) });
         return;
       }
 
-      const distanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+      const distanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? [], canonicalUnit, requestedUnit);
       posthog?.capture({
         distinctId: req.userId!,
         event: "scenario data exported",
@@ -992,7 +1129,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.type("text/csv").send(distanceRowsToCsv(distanceRows));
         return;
       }
-      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: distanceRows });
+      res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: distanceRows.map(toDistanceJsonRow) });
       return;
     }
 
@@ -1033,8 +1170,14 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   // baseline to enumerate) from warehouses/customers below, so it's handled
   // as its own branch before the shared warehouses/customers code.
   if (entity === "distances") {
+    // T9 — thread this model's real manifest-declared canonical unit
+    // (p-median-us/p-median-brazil are both "mi", so this is a no-op today,
+    // but avoids yet another hardcoded-"mi" default per this file's known
+    // bug class).
+    const canonicalUnit = getManifest(scenario.modelId)?.distanceUnit ?? "mi";
+    const requestedUnit: CanonicalUnit = requestedUnitOverride ?? canonicalUnit;
     if (stubFor) {
-      const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], isBrazil ? BRAZIL_DATASET : undefined);
+      const stubRows = buildDistanceStubRows(stubFor, inputs as Parameters<typeof buildDistanceStubRows>[1], isBrazil ? BRAZIL_DATASET : undefined, requestedUnit);
       if (stubRows === null) {
         res.status(422).json({ error: `stubFor "${stubFor}" does not reference a known warehouse or customer (base dataset or this scenario's added entities)` });
         return;
@@ -1048,11 +1191,11 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.type("text/csv").send(distanceRowsToCsv(stubRows));
         return;
       }
-      res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: stubRows });
+      res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: stubRows.map(toDistanceJsonRow) });
       return;
     }
 
-    const distanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? []);
+    const distanceRows = applyDistanceOverrides(inputs.distanceOverrides ?? [], canonicalUnit, requestedUnit);
     posthog?.capture({
       distinctId: req.userId!,
       event: "scenario data exported",
@@ -1062,7 +1205,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       res.type("text/csv").send(distanceRowsToCsv(distanceRows));
       return;
     }
-    res.json({ templateVersion: TEMPLATE_VERSION, entity, rows: distanceRows });
+    res.json({ templateVersion: DISTANCE_TEMPLATE_VERSION, entity, unit: requestedUnit, rows: distanceRows.map(toDistanceJsonRow) });
     return;
   }
 

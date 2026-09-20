@@ -538,21 +538,14 @@ describe("Chen (chens-cosmetics-cn) — v1 distances export -> re-import round-t
   // Chen-bands-units bundle, T8 — import.ts (this task) now parses the v2
   // header (DISTANCE_TEMPLATE_VERSION=2, `template_version,unit,from_id,
   // to_id,distance`) and converts a file's declared unit to the model's
-  // real canonical unit via `fromDisplay`. That is NOT enough to make this
-  // specific round trip pass, though: `routes/scenarios.ts`'s export
-  // handler still calls `applyDistanceOverrides(inputs.distanceOverrides ??
-  // [])` with NO unit argument for every caller, including Chen's own
-  // export branch (`scenarios.ts` ~line 985) — it defaults to "mi", so
-  // Chen's exported CSV is mislabeled `unit=mi` even though the stored
-  // value is already canonical km. Importing that mislabeled file back
-  // would (correctly, given what the file SAYS) convert a real km value as
-  // if it were miles — producing a wrong, non-zero change, not the "zero
-  // changes" this test asserts. Threading each model's real canonical unit
-  // into `applyDistanceOverrides`'s call sites is `routes/scenarios.ts`
-  // work (T9's Wave, per this file's own earlier note and the task
-  // brief's explicit instruction not to half-implement T9 from within T8)
-  // — re-enable once T9 lands.
-  it.skip("exporting a distanceOverride then re-importing it produces zero changes (Chen id space resolves both roles)", async () => {
+  // real canonical unit via `fromDisplay`. T9 threaded each model's real
+  // manifest-declared canonical unit into `applyDistanceOverrides`'s call
+  // sites in `routes/scenarios.ts` (was defaulting to "mi" for every
+  // caller, silently mislabeling Chen's "km" export as "mi") — Chen's
+  // exported CSV now correctly says `unit=km`, so re-importing it converts
+  // nothing (km -> km is an identity conversion) and this round trip is
+  // genuinely zero-change.
+  it("exporting a distanceOverride then re-importing it produces zero changes (Chen id space resolves both roles)", async () => {
     const cookie = await loginAs(OWNER);
     const rowWithOverride = { ...chensRow, inputs: { ...chensInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
