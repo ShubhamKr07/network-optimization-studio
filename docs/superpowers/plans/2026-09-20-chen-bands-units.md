@@ -76,8 +76,9 @@ Wave 2 (sequential, hot files):    T7 templates.ts  →  T8 import.ts           
 Wave 3:                            T9 routes/scenarios.ts + distanceBands.ts    [needs T5,T6,T7]
 Wave 4 (frontend):                 T10 UnitContext + UnitToggle + AppShell + useDistanceDraft
                                      →  then T11 ∥ T12 ∥ T13 (genuinely file-disjoint, see below)
-                                     →  T11b export plumbing (touches all 16 tab files — runs AFTER T11/T12/T13)
-                                   T14 Workspace.tsx INT (sole writer, last)
+                                     →  T11b export CONTEXT only (no consumers — nothing can throw)
+                                   T14 Workspace.tsx INT (sole writer) — also MOUNTS ExportProvider
+                                   T14b convert all 26 export controls (provider already mounted)
 Wave 5:                            T15 QA (real-browser Playwright)
 ```
 
@@ -89,7 +90,8 @@ Wave 5:                            T15 QA (real-browser Playwright)
 | T11 read-only surfaces | `NetworkMap`, `MapLegend`, `OutputMapTab`, `CostSummaryTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `ObjectiveBar`, `Landing` recent-solves, validation strings |
 | T12 distance editors | `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` |
 | T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, **`JadeBandEditor`**, `ServiceStatsTab` |
-| T11b export plumbing | `ExportContext` (new) + **the 16 export-control tab files** (15 helper-calling files with 24 calls, **plus `JadeFlowsTab`'s two client-CSV controls** — 26 controls total) + `exportEntity.ts` (**T11b is its sole writer**) |
+| T11b export context | `ExportContext` (new), `renderWithExportProvider` (new), `exportEntity.ts` (**sole writer**) — **no tab files** |
+| T14b export controls | **the 16 export-control tab files** (15 helper-calling files with 24 calls, **plus `JadeFlowsTab`'s two client-CSV controls** — 26 controls total) + their tests |
 
 Two rules make the parallelism real (plan-review-2 #1):
 
@@ -1312,19 +1314,6 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
 });
 ```
 
-- [ ] **Step 4d: Provider test strategy (plan-review-6 #2)**
-
-`useExport()` throwing without a provider is what makes a missing Task 14 mount detectable — so every existing test that renders an export-control tab must now supply one. Locked strategy: **a shared helper, not per-file mocks**, so the real context code is exercised everywhere:
-
-```tsx
-// __tests__/helpers/renderWithExportProvider.tsx
-export function renderWithExportProvider(ui: ReactElement, overrides: Partial<ExportApi> = {}) {
-  return render(<ExportProvider value={{ scenarioId: 1, unit: "mi", ...overrides }}>{ui}</ExportProvider>);
-}
-```
-
-Migrate every affected tab test to it. Keep one **integration** test asserting that rendering an export control **without** a provider throws — that is the regression guard for the production mount.
-
 - [ ] **Step 5: Gate + commit**
 
 ```bash
@@ -1423,12 +1412,25 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
 
 ---
 
-### Task 11b: Export plumbing — every download control gets `unit` and `runId`
+### Task 11b: Export context + helper signature (no consumers yet)
+
+> **Ordering rule (plan-review-7 #2).** `useExport()` deliberately **throws without a provider**, and the production provider is not mounted until Task 14. So converting the 26 controls here would commit an app in which 16 production components demand a provider that `Workspace` does not yet render — a broken intermediate state, and one that hides the very missing-mount regression the throw exists to expose. The work is therefore split three ways, and **every commit is independently runnable**:
+>
+> | Task | Does | Why it is safe |
+> |---|---|---|
+> | **T11b** (this task) | creates `ExportContext`, `renderWithExportProvider`, and extends `downloadEntityExport`'s signature | **zero consumers** — nothing calls `useExport()`, so nothing can throw |
+> | **T14** Step 7b | mounts + populates `ExportProvider` in `Workspace` | a provider with no consumers is inert and harmless |
+> | **T14b** (new, after T14) | converts all 26 controls to `useExport()` | the provider already exists above them, so the app is never broken |
+>
+> Test ownership moves with the split: the `auto`/forced-unit **resolution** assertions belong to **T14**, which is the only place holding both the display preference and the model's canonical unit. This task tests the context in isolation with injected state.
 
 **Files:**
 - Create: `artifacts/studio/src/contexts/ExportContext.tsx`
-- Modify: `artifacts/studio/src/lib/exportEntity.ts`
-- Modify: **the 15 production tab files holding the 24 `downloadEntityExport` calls** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+- Create: `artifacts/studio/src/__tests__/helpers/renderWithExportProvider.tsx`
+- Modify: `artifacts/studio/src/lib/exportEntity.ts` (signature only)
+- Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx`
+
+**Task 14b** (below) owns the consumer conversion — **the 15 production tab files holding the 24 `downloadEntityExport` calls** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
 - Modify: **`JadeFlowsTab.tsx` — the two exceptional client-generated CSV controls** (`handleDownloadPw`, `handleDownloadWc`, built on a local `downloadClientCsv`, lines ~136/210/218). It calls `downloadEntityExport` **nowhere**, so a mechanical helper-conversion would silently leave both JADE flow downloads bypassing server-owned conversion, `unit=`, `runId`, the v3 schema and history addressing (plan-review-5 #3).
 - Create: `artifacts/studio/src/__tests__/helpers/renderWithExportProvider.tsx`
 - Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx` + **every existing test that renders one of the 16 export-control tabs** — at minimum `AssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab` tests (plan-review-6 #2)
@@ -1456,7 +1458,9 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
     "assignments", "openWarehouses", "costSummary", "serviceStats", "flows",
   ] as const;
 
-  export interface ExportApi {
+  /** What `ExportProvider` ACCEPTS — pure state, no behavior (plan-review-7 #1:
+   *  a value typed `ExportApi` that omits the two methods cannot typecheck). */
+  export interface ExportProviderValue {
     /** null when no scenario is selected — download() refuses to fire. */
     scenarioId: number | null;
     /** null until the active model's canonical unit resolves — no fallback. */
@@ -1467,6 +1471,11 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
     resultDisabledReason?: string;
     /** Set for ANY historical entry (spec decision 1k). */
     inputDisabledReason?: string;
+  }
+
+  /** What `useExport()` RETURNS — the provider's state plus the behavior the
+   *  provider adds. Consumers import this; nobody constructs it by hand. */
+  export interface ExportApi extends ExportProviderValue {
     /** The one classification point: routes an entity to its family's reason,
      *  and reports the unresolved-state reason ahead of either. */
     disabledReasonFor(entity: ExportEntity): string | undefined;
@@ -1474,18 +1483,34 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
   }
   ```
 
-  `download()` is a **hard guard**: it returns without firing when `scenarioId == null`, `unit == null`, or `disabledReasonFor(entity) != null`. A type-level assertion pins the partition:
+  `ExportProvider`'s prop is `value: ExportProviderValue`. Tests assert the two shapes **separately**: the complete provider-input shape (Task 14) and the complete hook-result shape (this task).
+
+  `download()` is a **hard guard**: it returns without firing when `scenarioId == null`, `unit == null`, or `disabledReasonFor(entity) != null`.
+
+  **Pinning the partition for real (plan-review-7 #5).** `const _x: ExportEntity[] = [...INPUT_ENTITIES, ...RESULT_ENTITIES]` proves only assignability — it passes even if an entity is missing, duplicated, or in both arrays, so it does not make `disabledReasonFor`'s default-to-result branch safe. Use a bidirectional union-equality check plus a runtime disjointness test:
 
   ```ts
-  const _exhaustive: ExportEntity[] = [...INPUT_ENTITIES, ...RESULT_ENTITIES];
+  type Covered = typeof INPUT_ENTITIES[number] | typeof RESULT_ENTITIES[number];
+  type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+  // Fails to compile if ANY ExportEntity is unclassified, or if either array
+  // contains a literal that is not an ExportEntity.
+  const _partitionIsExact: Equal<ExportEntity, Covered> = true;
+  ```
+
+  ```ts
+  it("INPUT_ENTITIES and RESULT_ENTITIES are disjoint and duplicate-free", () => {
+    const all = [...INPUT_ENTITIES, ...RESULT_ENTITIES];
+    expect(new Set(all).size).toBe(all.length);
+  });
   ```
 
 - [ ] **Step 1: Failing tests**
 
 ```ts
 it("appends unit= on EVERY entity, including non-distance ones", () => {});          // spec 14b
-it("auto resolves to the model's canonical unit (km for Chen, mi for the rest)", () => {});
-it("forced km/mi overrides canonical on every entity", () => {});
+// NOTE: `auto` -> canonical and forced-km/mi RESOLUTION are asserted in Task 14,
+// which is the only place holding both the display preference and the model's
+// canonical unit (plan-review-7 #2). Here the unit is injected directly.
 it("omits runId on the latest entry", () => {});
 it("sends the displayed entry's runId while browsing addressable history", () => {});
 it("disables + labels result downloads when the selected entry is unaddressable", () => {});
@@ -1510,7 +1535,21 @@ disabledReasonFor(entity) {
 
 - [ ] **Step 3: Extend `downloadEntityExport`** to `(scenarioId, entity, format, opts?: { unit?: "km"|"mi"; runId?: number })`, appending both as query params.
 
-- [ ] **Step 4: Convert all 24 helper call sites** in the 15 tabs to `useExport().download(entity, format)`. Result-export controls additionally bind `disabled`/label to `disabledReason`.
+#### (Steps 4 – 4d below execute in **Task 14b**, after the provider is mounted.)
+
+- [ ] **Step 4: Convert all 24 helper call sites** in the 15 tabs to `useExport().download(entity, format)`.
+
+**Every one of the 26 controls — input AND result — binds its own entity through the central classifier** (plan-review-7 #3; an earlier draft named a non-existent `disabledReason` field and mentioned only result controls, leaving decision 1k's input controls looking enabled while `download()` silently refused):
+
+```ts
+const disabledReason = disabledReasonFor(entity);
+// disabled={disabledReason != null}
+// and render/associate `disabledReason` as accessible help text, not just a tooltip
+```
+
+The `download()` guard stops the request; it does **not** make an enabled-looking button disabled or tell the user why. Both are required.
+
+Tests must cover **one input entity and one result entity** across all four states — unresolved manifest, latest entry, addressable history, unaddressable history — asserting the **visible/accessible disabled state** as well as the absence of a network call.
 
 - [ ] **Step 4b: Replace JADE's two client-generated CSVs (plan-review-5 #3)**
 
@@ -1548,7 +1587,29 @@ export function renderWithExportProvider(ui: ReactElement, overrides: Partial<Ex
 
 Migrate every affected tab test to it. Keep one **integration** test asserting that rendering an export control **without** a provider throws — that is the regression guard for the production mount.
 
-- [ ] **Step 5: Gate + commit**
+- [ ] **Step 5: Gate + commit — Task 11b commits ONLY the context, helper and signature**
+
+```bash
+pnpm --filter studio test -- ExportContext
+pnpm run typecheck
+git commit -m "[T11b] ExportContext + provider-test helper + downloadEntityExport unit/runId signature (no consumers yet)" -- \
+  artifacts/studio/src/contexts/ExportContext.tsx \
+  artifacts/studio/src/__tests__/helpers/renderWithExportProvider.tsx \
+  artifacts/studio/src/lib/exportEntity.ts \
+  artifacts/studio/src/__tests__/ExportContext.test.tsx
+```
+
+---
+
+### Task 14b: Convert all 26 export controls to the mounted provider
+
+**Runs after Task 14** so `ExportProvider` already wraps the tab area — no intermediate commit ever contains a throwing consumer (plan-review-7 #2).
+
+**Files:** the 15 helper-calling tab files + `JadeFlowsTab.tsx` (its two client CSVs) + every affected tab test, per the inventory and Steps 4–4d above.
+
+- [ ] **Step 1: Execute Steps 4, 4b, 4c and 4d** exactly as written in Task 11b.
+
+- [ ] **Step 2: Gate + commit**
 
 ```bash
 # The gate must cover every migrated tab test, including JadeFlowsTab (client-CSV
@@ -1557,8 +1618,7 @@ pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab JadeFlowsTab 
   CostSummaryTab OpenWarehousesTab JadeAssignmentsTab DistancesTab LegDistancesTab \
   JadeDistancesTab LaneCostsTab WarehousesTab CustomersTab MinesTab StationsTab PlantsTab
 pnpm --filter studio test && pnpm run typecheck
-git commit -m "[T11b] route all 26 export controls through ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs)" -- \
-  artifacts/studio/src/contexts/ExportContext.tsx artifacts/studio/src/lib/exportEntity.ts \
+git commit -m "[T14b] route all 26 export controls through the mounted ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs)" -- \
   artifacts/studio/src/components/workspace/tabs artifacts/studio/src/__tests__
 ```
 
@@ -2288,3 +2348,113 @@ Update every inventory/reference to one consistent statement: **16 export-contro
 ### Sixth re-review exit criteria
 
 Approval requires the `ExportApi`/provider contract to be one type-correct, fully sourced design; every affected component test to have a declared provider strategy and be included in the gate; and all stale T11b inventory/ownership/count/guard text to be corrected. Run `git diff --check`, verify the final context contract against the actual `downloadEntityExport` signature and all 16 export-control tabs, then re-review for approval.
+
+---
+
+## Appendix — seventh approval re-review comments (2026-09-20, `784287b`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All five folded — see `plan-review-7 #N` markers.)* The sixth-review inventory corrections are sound: the repository still has 24 direct `downloadEntityExport` calls across 15 files plus two client-generated JADE flow controls, for 26 controls across 16 tab files. The worktree was clean and `git diff --check HEAD^ HEAD` passed. The folded revision nevertheless leaves two implementation blockers and three execution/contract gaps.
+
+### 1. BLOCKER — the revised `ExportProvider` contract is still not type-correct
+
+Task 11b declares `ExportApi` with both state and behavior:
+
+```ts
+export interface ExportApi {
+  scenarioId: number | null;
+  unit: ExportUnit;
+  runId?: number;
+  resultDisabledReason?: string;
+  inputDisabledReason?: string;
+  disabledReasonFor(entity: ExportEntity): string | undefined;
+  download(entity: ExportEntity, format: "csv" | "json"): Promise<void>;
+}
+```
+
+But both values that the plan passes to `ExportProvider` contain only the state fields:
+
+```tsx
+<ExportProvider value={{ scenarioId: 1, unit: "mi", ...overrides }}>
+```
+
+and:
+
+```ts
+const exportValue: ExportApi = {
+  scenarioId,
+  unit,
+  runId,
+  resultDisabledReason,
+  inputDisabledReason,
+};
+```
+
+Neither object supplies `disabledReasonFor` or `download`, so neither satisfies the declared `ExportApi`. The prose that those methods “come from the provider itself” does not make a value explicitly typed as `ExportApi` type-correct.
+
+Define two explicit interfaces and use each at the correct boundary:
+
+- `ExportProviderValue` (or `ExportState`) contains `scenarioId`, `unit`, `runId`, `resultDisabledReason`, and `inputDisabledReason` and is the type accepted by `ExportProvider`;
+- `ExportApi` is the value returned by `useExport()` after the provider adds `disabledReasonFor` and `download`.
+
+The shared render helper's `overrides` must be `Partial<ExportProviderValue>`, and Task 14's `exportValue` must be typed as `ExportProviderValue`. Tests should separately assert the complete provider-input shape and the complete hook-result shape.
+
+### 2. BLOCKER — T11b creates required consumers before any production provider exists
+
+T11b converts all 26 controls to `useExport()` and deliberately makes `useExport()` throw without a provider. The production `ExportProvider` is not mounted until the later Task 14. Therefore the committed T11b state contains 16 production components that require a provider while `Workspace` still renders them without one.
+
+Wrapping direct component tests—and even temporarily wrapping `Workspace` tests—does not repair the application. It either leaves the production app throwing between commits or hides the exact missing-production-mount regression the throwing hook is intended to expose. It also conflicts with the plan's one-task/one-commit discipline and T11b's full-suite gate.
+
+Make provider mounting and consumer conversion atomic. Acceptable restructurings include:
+
+- move the `Workspace` provider mount into T11b and make T11b the temporary/sole writer for that precise integration; or
+- split T11b into context/helper creation first, then perform the provider mount and all consumer conversions together in the later integration task; or
+- merge the export-plumbing portion of T11b and the provider portion of T14 into one serialized task/commit.
+
+No committed intermediate state may contain a throwing `useExport()` consumer without a production provider ancestor.
+
+The test ownership must move with the chosen task split. In particular, T11b currently asks for `auto`/forced-unit resolution tests even though only T14 has the canonical unit and preference needed to calculate `effectiveUnit`; those assertions cannot honestly be owned by the pre-integration context task.
+
+### 3. HIGH — Step 4 binds the wrong field and does not disable historical input controls
+
+Task 11b Step 4 says:
+
+> Result-export controls additionally bind `disabled`/label to `disabledReason`.
+
+There is no `disabledReason` in the revised interface; the public classifier is `disabledReasonFor(entity)`. More importantly, the instruction mentions only result controls even though decision 1k requires **every input-entity control** to be visibly disabled and labelled whenever history is being browsed. A hard guard inside `download()` prevents the request, but it does not make an enabled-looking button disabled or expose the required reason to the user.
+
+Require every one of the 26 controls—input and result—to evaluate its own entity through the central classifier and bind the returned reason to both UI state and accessible explanation, for example:
+
+```ts
+const disabledReason = disabledReasonFor(entity);
+// disabled={disabledReason != null}; render/associate the reason as help text
+```
+
+Tests must cover an input entity and a result entity in unresolved, latest, addressable-history, and unaddressable-history states, asserting the visible/accessible disabled state as well as the absence of a network call.
+
+### 4. MEDIUM — the frontend provider-test step was accidentally duplicated inside backend Task 9
+
+Task 9 Step 4d instructs the implementer to create `renderWithExportProvider`, migrate frontend tab tests, and use `ExportApi`/`ExportProvider`. Those types do not exist until T11b, Task 9's file list contains only API-server files, and its commit path cannot include the frontend helper or migrated tests. The same provider-test strategy already appears in its proper location under T11b.
+
+Delete Task 9 Step 4d entirely. Keep the provider-test instructions only in the export task that creates the context and owns the affected frontend tests.
+
+### 5. MEDIUM — the claimed exhaustive entity-partition assertion is not exhaustive
+
+This assertion:
+
+```ts
+const _exhaustive: ExportEntity[] = [...INPUT_ENTITIES, ...RESULT_ENTITIES];
+```
+
+proves only that every listed literal is assignable to `ExportEntity`. It does not fail if an `ExportEntity` is omitted, if an entity appears in both arrays, or if one appears twice. It therefore does not “pin the partition” as claimed.
+
+Add a compile-time union-equality assertion proving:
+
+```ts
+ExportEntity === typeof INPUT_ENTITIES[number] | typeof RESULT_ENTITIES[number]
+```
+
+and a runtime test proving the arrays are disjoint and contain no duplicates. This makes the default-to-result branch in `disabledReasonFor` safe against future entity additions.
+
+### Seventh re-review exit criteria
+
+Approval requires all five findings to be folded into the normative tasks rather than acknowledged only here. Separate provider input state from the hook API; make provider mounting and throwing-consumer conversion atomic; bind `disabledReasonFor(entity)` to every input and result control's disabled and accessible-label state; remove the misplaced Task 9 frontend step; and replace the ineffective entity assertion with real compile-time completeness plus runtime uniqueness/disjointness checks. Then run `git diff --check`, validate the task graph one commit at a time, and re-review against spec decisions 1g, 1k, 5b, and Parts E–F.
