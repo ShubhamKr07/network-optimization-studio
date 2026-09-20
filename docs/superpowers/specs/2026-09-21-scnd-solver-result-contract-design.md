@@ -48,10 +48,11 @@ Verified facts driving the contract:
 | `solutionStatus` | allowed `terminationReason` | `objective` / solver incumbent+bound |
 |---|---|---|
 | `optimal` | `optimality_proven` | objective non-null; solverIncumbent non-null; solverBestBound present when available |
-| `feasible` | `gap_limit \| time_limit \| node_limit \| interrupted` | objective + solverIncumbent non-null; bound present when CBC exposes it |
+| `feasible` | `gap_limit` | objective + solverIncumbent non-null; **solverBestBound + achievedGap required** (§20.2.3 — a gap-limit stop is not auditable without them) |
+| `feasible` | `time_limit \| node_limit \| interrupted` | objective + solverIncumbent non-null; bound + achievedGap nullable when CBC evidence exposes none |
 | `infeasible` | `infeasible` | all null |
 | `unbounded` | `unbounded` | all null |
-| `no_solution` | `time_limit \| node_limit \| interrupted` | all null |
+| `no_solution` | `time_limit \| node_limit \| interrupted` | objective null; solverIncumbent null; achievedGap null; **`solverBestBound: number \| null`** (§20.2.3/Q24 — CBC can expose a bound with no incumbent via `Cbc_getBestPossibleObjValue`) |
 | `error` | `solver_error` | all null |
 
 **No `objective === solverIncumbentObjective` invariant** (§18.2 — units/rounding differ per model). `status` equals §2.3 projection; `quality` equals §2.5. Other combinations schema-**rejected**.
@@ -61,26 +62,42 @@ Verified facts driving the contract:
 
 ### 2.6 Three schemas (§16.4/§18.3/Q13/Q19)
 1. **`SolverEnvelopeV2Schema`** — raw `solve.py` stdout + all new cache writes; v2 only; rejects `solutionStatus:null`; enforces §2.4. Raw solver output never accepted as legacy.
-2. **`StoredResultSchema`** — persisted `scenarios.result`/`result_cache` in stored form: accepts **raw unversioned legacy** (no `envelopeVersion`, old flat shape) **and** raw v2.
-3. **`NormalizedSolveResultSchema`** — read/API/UI union: v2 as-is, or normalized-legacy `{envelopeVersion:1, solutionStatus:null, terminationReason:"unknown", legacyUnverified:true, legacyStatus:<raw>}`.
+2. **`StoredResultSchema`** — persisted `scenarios.result`/`result_cache` in stored form. **Known legacy generation = the nested unversioned `_envelope` shape** (`{status,objective,runTimeSec,quality,edges,metrics,details,solverUsed,infeasibilityReason}` with **no** `envelopeVersion`), verified as what `jobRunner` currently writes — **not** a flat shape (§20.2.2/Q23; `_envelope_compat.flatten_envelope` is a test shim, not the DB shape). An older flat generation is supported **only if** P0R.3's stored-row inventory finds it. Accepts legacy-nested **and** raw v2.
+3. **`NormalizedSolveResultSchema`** — read/API/UI union: v2 as-is, or normalized-legacy (see §2.7).
 
-A **normalizer** converts a stored unversioned-legacy row → normalized v1. Historical `status:"optimal"` never promoted to proven.
+A **normalizer** converts a stored legacy row → normalized v1. Historical `status:"optimal"` never promoted to proven.
 
-### 2.7 Legacy representation (Q5/Q19)
-Read-time only, no backfill/re-solve. Raw stored legacy = the existing **unversioned** shape. Normalized v1 view adds `envelopeVersion:1` + `solutionStatus:null` + `terminationReason:"unknown"` + `legacyUnverified:true` + `legacyStatus`. Old **result-cache** rows: treated as **cache miss** (re-solve under v2) rather than normalized, since the solver-code hash changes anyway.
+### 2.7 Legacy representation (Q5/Q19/Q23) — complete normalized-v1 output
+Read-time only, no backfill/re-solve. Normalized v1 from a stored legacy-nested row:
+- `envelopeVersion:1`, `solutionStatus:null`, `terminationReason:"unknown"`, `legacyUnverified:true`;
+- `legacyStatus` = the raw historical `status` (isolated; **not** re-exposed as the truthful `status`);
+- `quality` = a **non-proof** legacy string, e.g. `"Legacy result (unverified)"` — **never** "Proven optimal"/"Optimal" (would recreate the false-proof defect);
+- **preserve payload:** `objective` (as-stored; a legacy no-result `0` sentinel is normalized to `null`), `runTimeSec`, `edges`, `metrics`, `details`, `solverUsed`, `infeasibilityReason` carried through unchanged;
+- new solver-evidence fields (`solverIncumbentObjective`/`solverBestBound`/`achievedGap`) = `null`.
+
+Old **result-cache** rows: **cache miss** (re-solve under v2), not normalized — the composite solver-contract version (§2.10) changes anyway. **Every named read/export/template/history/telemetry boundary (§20.2.2/Q29) gets an explicit accept/normalize/reject decision in P0R.3 — no "define later" placeholder.**
+
+### 2.10 Composite solver-contract / cache version (§20.2.5/Q26)
+Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace with a **composite version** hashing everything that can change result semantics: `solve.py` + the P0R.1 termination wrapper/parser module(s) + relevant model/config code + the CBC/PuLP versions. Add a test proving a **parser/contract-version bump invalidates the cache even when `solve.py` bytes and inputs are unchanged.**
 
 ### 2.8 Lifecycle + cache/publish policy (§14.2/Q6) — branch before cache-write/`markSucceeded`
 `optimal`→succeeded/cache/publish · `feasible`→succeeded/cache **only with full gap-time-version key**/publish-labelled · `infeasible`,`unbounded`→succeeded/cache/publish · `no_solution`→succeeded/**no cache**/publish-no-incumbent · `error`→**failed/no cache/no publish**.
 
 ### 2.9 Per-model public-objective derivation + canonical `achievedGap` (§18.2/§18.7)
 
-| model / mode | public `objective` | equals CBC objective? |
+| model / mode | public `objective` (exact, §20.2.6/Q27) | equals CBC objective? |
 |---|---|---|
-| p-median-us / p-median-brazil / transport-coal / two-echelon-gold-au / jade | `round(value(prob.objective), …)` as today (min weighted distance/cost) | approximately (recompute/rounding differences allowed) |
-| chens **coverage** | `coveragePct = round(covered*100/total, 4)` | **no** — CBC maximizes covered demand; public is a percentage |
+| `p-median-us` | `round(obj_val)` (integer) | approximately (recompute/rounding) |
+| `p-median-brazil` | `round(obj_val)` (integer) | approximately |
+| `transport-coal` | `round(obj_val)` (integer) | approximately |
+| `two-echelon-gold-au` | `round(value(prob.objective) or 0, 2)` | approximately |
+| `two-echelon-jade-us` | `round(value(prob.objective) or 0, 4)` | approximately |
+| chens **coverage** | `round(covered*100/total, 4)` | **no** — CBC maximizes covered demand; public is a percentage |
 | chens **min_distance** | `round(value(prob.objective), 2)` | yes |
 
-Canonical `achievedGap` (one authority, §18.7): computed **in the solver's objective space** as `abs(solverIncumbentObjective - solverBestBound) / (abs(solverIncumbentObjective) + 1e-10)`; null when incumbent or bound absent; handles min/max and negative objectives (absolute numerator), near-zero denominator (epsilon), clamped to `[0, 1]`, serialized to fixed precision. A parsed CBC-reported gap, if available, is retained **only as separate evidence**, never as the `achievedGap` field. Verified against P0R.2 fixture values.
+Each row is the exact current derivation (preserve goldens); no ellipsis. Implement as a named per-model function.
+
+Canonical `achievedGap` (one authority, §18.7/§20.2.4/Q25): computed **in the solver's objective space** as `abs(solverIncumbentObjective - solverBestBound) / (abs(solverIncumbentObjective) + EPS)`, `EPS=1e-10`. Domain **non-negative and unbounded — NOT clamped** (a poor incumbent or objective crossing zero can legitimately exceed 1.0, matching CBC `ratioGap`'s `0..∞`). Null when incumbent or bound absent. Absolute numerator (handles min/max + negative objectives); explicit near-zero-incumbent policy (the `EPS` denominator floor is the documented rule, not silent). **Serialized to 6 decimal places.** A parsed CBC-reported gap, if available, is retained **only as separate evidence**, never as the `achievedGap` field. P0R.2 fixtures must cover minimization, maximization, negative objective, zero/near-zero incumbent, and a gap `> 1.0`.
 
 ## 3. Tasks
 
@@ -88,8 +105,13 @@ Canonical `achievedGap` (one authority, §18.7): computed **in the solver's obje
 PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally before returning; `keepFiles=True` names collide under concurrency. **Primary approved approach (Q8):** a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing unique temp paths + **per-solve unique temp dir + unique problem name**, parsing before deletion. **Fallback:** a controlled direct CBC subprocess preserving PuLP name mapping — permitted **only** after a recorded P0R.1 no-go on the primary + a design-update approval (§18.8). Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})` + authoritative-record note. **Go/no-go acceptance:** concurrent same-name solves don't collide; cleanup on success/parser-error/timeout/kill; path-traversal-safe; no repo artifacts; never classify by wall-clock. **P0R.3 blocked until this passes + post-spike review.**
 
 ### P0R.2 — fixtures (capture APPROVED now) + parser tests (after P0R.1)
-- **Fixture capture (may proceed):** committed sanitized CBC log/`.sol` fixtures with a **coverage table for every retained v2 `(solutionStatus, terminationReason)` pair**: optimal/optimality_proven, feasible/gap_limit, feasible/time_limit, **feasible/node_limit** (+ node-limit-without-incumbent = no_solution/node_limit) if CBC emits both, feasible/interrupted + no_solution/interrupted, infeasible, unbounded, error/solver_error. Any pair CBC cannot produce is **removed from the v2 contract** rather than left untested. `unknown` reserved for normalized legacy only.
-- **Parser unit tests (after P0R.1's interface):** map each fixture → correct pair + metadata; no live solving; authoritative for time/gap/node-limit branches.
+Four **separate** test categories (§20.2.7/Q28), not one CBC-fixture set:
+1. **Attainable CBC terminal-record fixtures** (capture may proceed): committed sanitized CBC log/`.sol` for every retained pair CBC can actually emit — optimal/optimality_proven, feasible/gap_limit, feasible/time_limit, **feasible/node_limit** (+ no_solution/node_limit if CBC emits both), feasible/interrupted, no_solution/{time_limit,node_limit,interrupted} (incl. **bound-without-incumbent**, Q24), infeasible, unbounded. Any pair CBC cannot produce is **removed from the v2 contract**, not left untested. `unknown` reserved for normalized legacy.
+2. **Synthetic malformed/contradictory parser fixtures** — hand-authored bad logs asserting the parser's error handling.
+3. **Wrapper cleanup / concurrency / path-safety tests** — from P0R.1's wrapper.
+4. **Process-level `jobRunner` failure tests** — missing exe, nonzero exit, malformed stdout, parser exception, cleanup failure, outer timeout.
+- **`error/solver_error` boundary (normative, §20.2.7):** `solve.py`-declared load/model errors → a v2 `error/solver_error` **envelope** (cached: no, published: no). Failures *before/outside* CBC (spawn/timeout/nonzero-exit/JSON/schema) → a **failed job with no published scenario result**, per current `jobRunner` behavior. Do **not** fabricate CBC artifacts for non-CBC failures.
+- **Parser unit tests (after P0R.1's interface):** map each attainable fixture → correct pair + metadata; no live solving; authoritative for time/gap/node-limit branches; include the `achievedGap` domain fixtures from §2.9 (min/max/negative/zero/>1.0).
 
 ### P0R.3 — contract + 3 schemas + OpenAPI + frontend + policy branch (CONDITIONAL: after P0R.1 + post-spike review)
 - `solve.py`: `_envelope` gains `envelopeVersion:2`, two-dim status, raw `solverIncumbentObjective`/`solverBestBound`, canonical `achievedGap`; shared `_termination(...)` wraps P0R.1; public `objective` per §2.9 (unchanged); §2.4 asserted.
