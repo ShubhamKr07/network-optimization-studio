@@ -222,7 +222,7 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
     expect(screen.getByTestId("input-max-dist")).toHaveValue(5000);
   });
 
-  it("min-distance mode shows the coverage-floor field (+ infeasible hint) and HIDES avg-service-cap", () => {
+  it("min-distance mode shows the coverage-floor field and HIDES avg-service-cap", () => {
     render(
       <OptimizationParametersTab
         {...chenCoverageProps}
@@ -233,7 +233,6 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
       />,
     );
     expect(screen.getByTestId("input-coverage-floor")).toHaveValue(131645389);
-    expect(screen.getByTestId("coverage-floor-hint")).toHaveTextContent("199M");
     expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
   });
 

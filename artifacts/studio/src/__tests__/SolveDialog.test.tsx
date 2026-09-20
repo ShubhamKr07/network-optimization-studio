@@ -140,10 +140,9 @@ describe("SolveDialog — Chen objective mode toggle", () => {
     expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
   });
 
-  it("shows the coverage-floor field (with the infeasibility hint) in min-distance mode", () => {
+  it("shows the coverage-floor field in min-distance mode", () => {
     renderDialog({ objective: "min_distance", coverageFloorDemand: 131645389, distanceUnit: "km" });
     expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-coverage-floor-hint")).toHaveTextContent("> total demand 199M = infeasible");
     expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
   });
 

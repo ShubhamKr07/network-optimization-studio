@@ -284,9 +284,6 @@ export function OptimizationParametersTab({
                 className="h-8 text-sm mt-1 font-mono"
                 data-testid="input-coverage-floor"
               />
-              <p className="text-[10px] text-muted-foreground mt-1" data-testid="coverage-floor-hint">
-                &gt; total demand 199M = infeasible
-              </p>
             </div>
           )}
         </div>

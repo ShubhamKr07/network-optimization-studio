@@ -261,9 +261,6 @@ export function SolveDialog({
                     className="h-8 text-sm mt-1 font-mono"
                     data-testid="solve-dialog-input-coverage-floor"
                   />
-                  <p className="text-[10px] text-muted-foreground mt-1" data-testid="solve-dialog-coverage-floor-hint">
-                    &gt; total demand 199M = infeasible
-                  </p>
                 </div>
               )}
             </div>
