@@ -2044,11 +2044,18 @@ describe("PATCH /api/scenarios/:scenarioId/distance-bands (T9, spec Part G)", ()
     expect(res.status).toBe(400);
   });
 
-  it("400s for a model-invalid band array (JADE requires exactly 4, strictly ascending)", async () => {
+  // NOTE (post workspace-fixups-2 merge): JADE no longer requires exactly 4
+  // bands — that bundle's [T4] relaxed `.length(4)` to `.min(1)`, so `[100]`
+  // is now VALID and this test's original premise is dead. What survives is
+  // the strict-ascent refine, which is also what stays true after this
+  // bundle's own T3b-JADE drops `.int()` (spec decision 1j — the union of
+  // both relaxations). A non-ascending array is therefore the stable
+  // model-invalid case; a non-integral one would start passing later.
+  it("400s for a model-invalid band array (JADE still requires strict ascent)", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
     const res = await request(app).patch("/api/scenarios/12/distance-bands").set("Cookie", cookie)
-      .send({ distanceBands: [100] });
+      .send({ distanceBands: [400, 200] });
     expect(res.status).toBe(400);
   });
 
