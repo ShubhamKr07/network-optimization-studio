@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** Implementation-ready draft (deep-review findings §11 incorporated into §§0–10). Pending final user sign-off.
+**Status:** **SUPERSEDED — split into focused specs (2026-09-21, see §13).** This document is no longer implemented as a single unit. The §12 approval review proved that "restart-safe queued work" cannot be a minimal slice (it requires the full concurrency protocol = the B2 queue) and that the workload guarantee must stay all-JADE/cold-miss (⇒ horizontal scaling mandatory). Per the 2026-09-21 decisions (Q1=Split, Q2=Restore-full-guarantee, Q3=publication-guard→B2), the scope is redistributed across three specs. §§0–12 are retained as the audit trail (proposed design + two review rounds); §13 is the authoritative split map and finding-rehoming ledger.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -279,3 +279,255 @@ Each §11 finding from the review and how it is now incorporated into §§0–10
 | 11.14 regime/telemetry definitions | Medium | L3/§5.2 descriptive `scenarioFamily`, fast/slow derived post-measurement; §8.4 cache-serving latency; frequency source specified from non-cache-hit buckets + family tag + `solve_jobs` timestamps. |
 | 11.15 corpus handling | Medium | §5.2 field allowlist, sanitized-only commits, source hash + timestamp, drift documentation. |
 | 11.16 execution details | Medium | §9 stable task IDs; §5.1 Python runner + separate load generator; rule #6 keeps experimental code benchmark-only; §3.6/§9 add full gate + direct `e2e_accuracy.py`. |
+
+---
+
+## 12. Final approval review — unresolved findings (2026-09-21)
+
+**Review disposition: REQUEST CHANGES.** The direction is substantially improved, but this revision is not implementation-ready. The two-dimensional solver outcome, parser-first ordering, benchmark provenance, four load profiles, real soak, frontend responsibility, and corrected MIP-start experiment are sound. The findings below must be resolved before approval; recording a finding here does not itself change the product contract or authorize live-service mutations.
+
+### 12.1 Blocker — workload guarantee was narrowed without an explicit product decision
+
+L10 changes the guarantee from the parent design's all-JADE/heaviest-model contract to only the "typical forced-open" regime and §6.2 sizes for 2,000 CBC solves/hour after assuming a 20% exact-cache hit rate. That conflicts with the parent design, which says:
+
+- all-JADE is the guaranteed sizing case (§2.3);
+- guaranteed capacity includes cold cache until single-flight/coalescing exists (§2.2);
+- Phase 0.5 must not size solely from the fast forced-open case (§14);
+- 50 users × 50 submissions/hour remains the design contract unless the product owner explicitly reduces it (§14).
+
+The current four profiles contain a 50-request cold-unique burst, but no sustained **2,500 unique CBC misses/hour for three hours**. Because the 20% hit rate is a hypothesis rather than a guarantee, a contracted-capacity pass must include that sustained cold-miss profile. Restore it, or record an explicit product-owner decision reducing the original requirement and state the resulting unsupported workload.
+
+The proposed 0.6–3.5 s forced-open range is also not yet a locked sizing input: the parent records approximately 13 s from earlier suite timing, and the low end may come from non-default gaps. P0.6 must first measure the exact scenario family at the pilot default `gap=0`. Until then, describe 0.6–3.5 s as a hypothesis, not a guarantee.
+
+### 12.2 Blocker — durable payloads alone do not provide restart-safe execution
+
+P0.5 excludes attempts and leases while promising that startup will re-enqueue queued rows. During a rolling/zero-downtime deploy, the old instance can still hold a queued row in memory while the new instance discovers the same persisted row. The current runner changes a job to `running` with an unconditional update by job ID, so two processes can execute the same solve. If the old process wins the update and is then terminated, the new process can also decline the row and leave it orphaned.
+
+The minimum P0.5 protocol must include:
+
+1. an atomic compare-and-set claim (`queued` → `running`) that returns whether this process won;
+2. claim ownership (`worker_id`/deployment generation) and lease expiry, or an equivalent mechanism that safely distinguishes live work from abandoned work;
+3. a bounded attempt count and explicit exhausted-retry terminal reason;
+4. recovery that cannot race a still-running old deployment;
+5. idempotent, ownership-checked terminal updates;
+6. readiness failure or bounded retry when the recovery query cannot reach Postgres.
+
+If attempts/leases remain deferred, P0.5 must stop claiming that queued work is recoverable/restart-safe and must instead choose a deterministic fail-on-restart policy. That weaker policy would not satisfy L9 as currently written.
+
+### 12.3 Blocker — graceful shutdown is part of restart safety and is missing
+
+The current API's `SIGTERM`/`SIGINT` handlers flush telemetry and immediately call `process.exit(0)`. They do not stop solve admission, close the HTTP listener, stop claiming work, drain active jobs, or terminate/checkpoint the Python/CBC process tree. Render sends `SIGTERM`, waits only the configured `maxShutdownDelaySeconds` (1–300 seconds, default 30), and then sends `SIGKILL`; a payload snapshot does not protect an in-flight child process from that lifecycle.
+
+P0.5 must define and test this shutdown sequence:
+
+1. mark the instance draining and reject new solve admission with an explicit retry response;
+2. stop claiming queued jobs;
+3. close/drain HTTP traffic;
+4. allow active solves to finish within the configured deadline;
+5. on deadline, terminate the **entire Python/CBC process group**, not only the direct Python child;
+6. release/requeue or terminally fail unfinished jobs according to the ownership/lease protocol;
+7. close database, PostHog, and Sentry resources and exit cleanly.
+
+The chosen `maxShutdownDelaySeconds` must be written into the deployment/runbook and reconciled with the maximum solve deadline.
+
+### 12.4 Blocker — recovery does not enforce snapshot/version compatibility
+
+Persisting `dataset_version` and `solver_version` is insufficient unless recovery uses them. A job created by deployment A could otherwise execute its old snapshot under deployment B's solver code or dataset and silently produce a result with different semantics.
+
+Startup recovery must validate the snapshot against the current model schema and define exact handling for:
+
+- solver-version mismatch;
+- dataset-version mismatch;
+- unknown/retired model ID;
+- malformed snapshot;
+- legacy queued rows with null/missing payload or version fields.
+
+Absent an immutable old solver artifact, mismatched work should terminate with a named reason such as `version_mismatch`; it must not silently run with new code/data. Recovery/database errors also cannot be swallowed while the instance becomes ready, because that contradicts the zero-permanently-stuck acceptance criterion.
+
+### 12.5 Blocker — result-contract migration is ambiguous and incomplete
+
+P0.3 adds `solutionStatus` but does not say whether the existing required `status` field remains, is deprecated, or is removed. That decision is mandatory because OpenAPI, `ResultEnvelopeSchema`, the job summary, Studio/Workspace views, many tests, and the sacred unmodified `e2e_accuracy.py` all read `status` today.
+
+The contract must specify all of the following:
+
+- add an `envelopeVersion` (or an equally explicit version discriminator);
+- for new envelopes, retain `status` as a deprecated equality-enforced alias of `solutionStatus`, or define another compatibility mechanism that allows `e2e_accuracy.py` to remain byte-for-byte unchanged;
+- make the existing `objective` nullable when no incumbent exists, rather than leaving a misleading numeric sentinel alongside nullable `incumbentObjective`;
+- define whether `quality` remains, is deprecated, or becomes derived-only;
+- define `infeasibilityReason` compatibility;
+- require new metadata on new-version envelopes while permitting it to be absent only on normalized legacy envelopes;
+- reject contradictory combinations such as `solutionStatus=optimal` with `terminationReason=time_limit` or mismatched `status`/`solutionStatus`;
+- enumerate every consumer that must migrate, including job history summaries, analytics/telemetry, exports/templates, Studio/Workspace, cache validation, API tests, and deployment smoke checks.
+
+Historical `status:"optimal"` cannot truthfully be normalized to proven optimal, because the verified defect is that this old value can represent a gap- or time-limited result. Historical rows therefore need `solutionStatus: unknown`/nullable or an explicit `legacy_unverified` representation. “Best-effort” promotion to `optimal` is not acceptable.
+
+The frontend requirement also mixes dimensions: `time_limit` is a `terminationReason`, not a `solutionStatus`. Rendering requirements should cover combinations such as `feasible + gap_limit`, `feasible + time_limit`, and `no_solution + time_limit`.
+
+Finally, define the job-lifecycle mapping independently of mathematical outcome. A suggested starting point is: proven/gap/time-limited feasible and mathematically infeasible/unbounded are completed solver outcomes, while spawn/parser/solver errors are failed jobs; time-limit-without-incumbent requires an explicit product decision.
+
+### 12.6 Blocker — stale-result publication cannot remain out of scope for the pilot
+
+The current runner unconditionally writes every completed job to `scenarios.result`. If a user edits or resubmits a scenario while an older solve is running, the slower older job can finish last and overwrite the newer result. At 50 submissions/user/hour this is a normal concurrency path, and using distinct scenarios in the load generator avoids rather than validates the failure.
+
+Pull a minimal latest-job/scenario-revision/input-hash publication guard into Phase 0.5. An older job may remain `succeeded` in solve history, but its result must be marked superseded and must not become the scenario's current result. Add the parent design's inverted-completion-order test to the pilot gate.
+
+### 12.7 Blocker — the two-gate decision has no coherent pilot consequence
+
+L11 defines the reliability gate as restart-safe payloads/retries plus API isolation. Section 8.1 then says P0.5 closes only the restart-safety half and leaves retries/leases and API isolation to B2, so the reliability gate still fails. Section 8.5 nevertheless authorizes a limited pilot from a capacity pass plus P0.5.
+
+Define explicitly:
+
+- the minimum reliability criteria that must pass before any pilot;
+- whether both gates must pass for pilot authorization;
+- which unresolved reliability failures merely trigger B2 versus block the pilot;
+- the maximum users, duration, request rate, operator coverage, and rollback conditions of a “limited pilot” while API/solver isolation remains absent.
+
+Do not label two tests “independent gates” if failure of one has no stated effect on the decision.
+
+### 12.8 Blocker — the normative parent document is not tracked
+
+At review time `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` existed only as an untracked file, while this spec treats it as normative. A commit containing only this phase document would leave other checkouts with a broken design reference. Track the parent design in the same branch/approved change set, or replace the dependency with a committed normative source.
+
+### 12.9 High — P0.4's time-limit integration test is non-deterministic
+
+P0.4 says terminal-state tests must not rely on exact wall-clock timing, then proposes tiny time limits on a hard instance. That still depends on machine speed, CBC scheduling, and build version. Committed parser fixtures should remain authoritative for time/gap/node-limit classifications. Integration tests should use deterministic optimal/infeasible cases plus an injectable solver/parser seam or controlled subprocess fixture for time-limited states; CI must not require a live solve to hit a timing race.
+
+### 12.10 High — P0.5 lacks automated failure-path coverage
+
+The live restart test is an operational validation, not a substitute for deterministic unit/integration coverage. Add tests for:
+
+- payload and version fields written atomically with enqueue;
+- oldest-first bounded recovery;
+- duplicate-claim prevention during overlapping startup;
+- malformed/missing legacy snapshots;
+- model/schema and solver/dataset version mismatch;
+- recovery-query failure and readiness behavior;
+- SIGTERM stopping admission and claims;
+- drain success and drain timeout/process-group termination;
+- lease expiry, retry exhaustion, and ownership-checked completion;
+- distinct handling of queued and running rows.
+
+### 12.11 High — production measurement does not define a decision-capable plan matrix
+
+P0.7 names only the current Starter 0.5-CPU instance and says to try concurrency 3 and higher, even though §6.2 estimates that the narrowed workload needs roughly 2–4 offered cores. Increasing CBC concurrency on a 0.5-CPU instance measures contention, not whether tune-in-place can meet the contract.
+
+Before live execution, specify candidate vertical plans with their actual CPU/RAM, concurrency per plan, test order, stabilization period, restore procedure, and pass/fail headroom. Include at least the current baseline and credible 2-core and 4-core comparators if Render currently offers them. Render instances within one service use one common plan; do not imply a mixed-plan fleet.
+
+The sizing calculation must use measured `gap=0` p95 service time and both rates:
+
+- the representative forecast (including measured cache frequency); and
+- the guaranteed sustained cold-miss rate of 2,500 solves/hour unless §12.1 explicitly changes the contract.
+
+### 12.12 High — SLOs are still placeholders or have ambiguous populations
+
+Section 8.4 promises a maximum timeout/no-incumbent rate and an explicit maximum solve deadline but provides neither number. L5 calls the SLOs locked/ratified, so every gate criterion must be numeric before implementation.
+
+Define:
+
+- maximum solve deadline;
+- timeout rate and no-incumbent rate separately;
+- an end-to-end p95 target for the guaranteed JADE forced-open/default-gap class (do not hide it under an undefined “fast-models” bucket);
+- whether mathematically infeasible/unbounded outcomes count as execution failures (they should normally be reported separately);
+- minimum sample/event count required to evaluate each percentile and rate;
+- the headroom rule for a pass, rather than accepting a result exactly at the SLO boundary.
+
+### 12.13 High — live-test safeguards are not an executable runbook
+
+L6's decision to test existing live services is accepted for this spec, but the present safeguards are too vague to authorize a production mutation. Before P0.7/P0.10, add a reviewed runbook containing:
+
+- named operator and separate approval immediately before resize/redeploy/load generation;
+- maintenance window and stakeholder notification;
+- exact service/region/plan identifiers and pre-test configuration snapshot;
+- 50 isolated test users/sessions (not one shared “dedicated account”), credentials handling, and cleanup lifecycle;
+- whether the Python benchmark runs through an ephemeral SSH shell and where the HTTP load generator runs;
+- Render deploy/log/metrics and Postgres connection queries with timestamps aligned to the test window;
+- numeric abort thresholds for p95 latency, HTTP 5xx, CPU, memory, database connections, queue depth, and real-user activity;
+- a cold-identical hash that has never been cached and a warm-hit profile seeded exactly once, without destructive cache clearing;
+- rollback/plan-restore commands, verification, and ownership;
+- tagging and post-test deletion/retention policy for scenarios, jobs, accounts, and metrics.
+
+### 12.14 Medium — benchmark raw and aggregate schemas are conflated
+
+“Per run: p50/p95/min/max” is incorrect: percentiles and extrema are aggregates over a group, not attributes of one run. Define two schemas:
+
+- **raw run row:** scenario/fixture, gap, ordinal, wall time, process CPU, child CPU, build time, CBC time, termination data, memory measurements, objective/feasibility, and provenance;
+- **aggregate row:** grouping dimensions plus N, p50, p95, min, max, variability/confidence interval, and outlier/warm-up policy.
+
+Replace `N≥20–30` with an exact rule. Use at least **N=30** for sizing percentiles or document a statistically defined adaptive stopping rule. N=5 remains harness-development-only.
+
+Define RSS sampling frequency and semantics so short CBC peaks are not missed. Record Python peak, CBC peak, process-tree/cgroup peak, and instance peak separately; do not combine them into one field. For fresh subprocess experiments, `/usr/bin/time -v` can supplement polling; for concurrent live tests, instance/cgroup memory remains the authoritative capacity boundary.
+
+### 12.15 Medium — recovery needs an index and explicit bounds
+
+The parent workload can create roughly 150,000 job rows/month. “Bounded, oldest-first” is not executable without a batch size, maximum startup backlog, pagination/locking behavior, and follow-on scheduling policy. Add an index suited to recovery, for example a partial `(queued_at, id) WHERE status='queued'` index, and inspect the query plan. Define what happens when queued rows exceed the startup batch so the remainder cannot stay stuck indefinitely.
+
+### 12.16 Medium — cost evidence is missing from the pilot decision
+
+The original objective includes keeping compute cost low, but the gate deliverable asks only for worker count/plan. For every passing candidate, report:
+
+- cost per successful CBC miss and per accepted submission;
+- projected cost for the three-hour peak window and 20 class-days/month;
+- baseline/idle cost outside class windows;
+- cost sensitivity to cache-hit rate and free-choice frequency;
+- operational cost/complexity of manual or scheduled vertical changes;
+- the least-cost plan that still preserves the approved headroom.
+
+Render bills compute approximately by running instance time and scaling actions themselves have no separate fee, so the report should distinguish actual provisioned duration from a full-month always-on projection.
+
+### 12.17 Approval checklist
+
+Approval requires a revision that:
+
+- [ ] resolves the all-JADE/heaviest-model workload contract and restores the sustained 2,500 cold-miss/hour test unless the product owner explicitly reduces it;
+- [ ] moves the minimum atomic claim/ownership/lease/retry protocol and graceful shutdown into P0.5, or withdraws the restart-safe claim;
+- [ ] defines version-aware recovery and startup/readiness failure behavior;
+- [ ] publishes a complete versioned result-contract transition, including legacy-unverified semantics and nullable objective-without-incumbent behavior;
+- [ ] adds stale-result publication protection before pilot use;
+- [ ] makes the two gate outcomes and limited-pilot authorization criteria coherent;
+- [ ] replaces timing-dependent CI requirements with deterministic tests and adds P0.5 failure-path coverage;
+- [ ] defines candidate Render plans, numeric SLOs/abort thresholds, a live execution runbook, and cost outputs;
+- [ ] corrects benchmark raw/aggregate schemas, fixes the sample-size rule, and defines recovery indexing/bounds;
+- [ ] ensures every normative referenced design document is tracked.
+
+After these items are incorporated into §§0–10 and the contradictions are removed—not merely marked resolved in a map—the document should receive another approval review.
+
+---
+
+## 13. Split decision + finding-rehoming ledger (2026-09-21)
+
+The 2026-09-21 answers resolved the §12 blockers structurally rather than by inflating this one spec:
+
+- **Q1 = Split.** The correctness contract is genuinely small, verified, and independent; it ships as its own spec now. Reliability/restart-safety cannot be minimal (§12.2/3/4) — the full concurrency protocol lives in B2. Measurement is independent of the queue and gets its own spec feeding B2 sizing.
+- **Q2 = Restore the full parent guarantee** (all-JADE + sustained 2,500 unique cold-miss/hour). Sizing then needs ~9–11 cores ⇒ **horizontal scaling is mandatory** ⇒ B2 must land before any real cohort pilot. Tune-in-place is no longer a candidate for the guarantee.
+- **Q3 = Publication guard** (stale-result CAS) is required, and since there is no near-term pilot on the current single instance, it lands in B2 with the rest of reliability.
+
+### 13.1 Three successor specs
+
+| Spec | Scope | Status |
+|---|---|---|
+| **Correctness contract** — `2026-09-21-scnd-solver-result-contract-design.md` | Two-dimensional `solutionStatus`+`terminationReason`, CBC parser, versioned envelope, `status` alias (rule #2), frontend + read-time legacy compat, consumer migration. Tasks P0R.1–P0R.4. | Implementation-ready draft; ships standalone now. |
+| **Measurement + experiments** — TBD (`2026-09-2x-scnd-scaling-measurement-design.md`) | Benchmark harness + corpus (N≥30, provenance, raw-vs-aggregate schemas, per-process RSS), MIP-start-from-cache experiment (corrected construction), warm/persistent-worker experiment, Render candidate-plan matrix incl. gap=0 forced-open re-measurement. Feeds B2 sizing. | Needs its own brainstorm/spec pass. |
+| **B2 — durable queue, horizontal solver tier, pilot gate** — TBD (`2026-09-2x-scnd-scaling-b2-design.md`) | Full concurrency protocol (atomic CAS claim, ownership/lease, attempts/retry-exhaustion, graceful shutdown + process-group kill, version-aware recovery, readiness-on-recovery-failure), stale-result CAS publication guard, worker split, scheduler, **horizontal scaling** (Q2), single-flight/coalescing, retention/index/bounds, two-gate pilot authorization, four load profiles incl. sustained 2,500 cold-miss/3h, numeric SLOs + headroom, executable live-test runbook, cost outputs. | Needs its own brainstorm/spec pass (now a large, coherent unit). |
+
+### 13.2 §12 finding → destination
+
+| Finding | Destination |
+|---|---|
+| 12.1 workload guarantee | B2 (Q2 restores all-JADE + sustained 2,500 cold-miss); measurement spec re-measures forced-open at gap=0. |
+| 12.2 atomic claim/lease/retry | B2 (full protocol). |
+| 12.3 graceful shutdown + process-group kill | B2. |
+| 12.4 version-aware recovery | B2. |
+| 12.5 result-contract migration | **Correctness spec** (§2 fully incorporates it: envelopeVersion, `status` alias, nullable objective, quality derived, legacy_unverified, contradiction rejection, consumer enumeration, lifecycle mapping). |
+| 12.6 stale-result publication | B2 (Q3 — CAS publication guard). |
+| 12.7 two-gate coherence + limited-pilot criteria | B2. |
+| 12.8 track parent doc | **Done** (parent committed 2026-09-21). |
+| 12.9 deterministic tests, no timing race | **Correctness spec** P0R.2/P0R.4 (committed CBC fixtures authoritative; injectable seam). |
+| 12.10 P0.5 failure-path coverage | B2. |
+| 12.11 candidate-plan matrix | Measurement spec + B2. |
+| 12.12 numeric SLOs + headroom | B2 (gate). |
+| 12.13 executable live-test runbook | B2. |
+| 12.14 raw-vs-aggregate schemas, N≥30 | Measurement spec. |
+| 12.15 recovery index + bounds | B2. |
+| 12.16 cost outputs | B2 (gate). |
+
+Nothing from §12 is dropped; each item is either done or assigned to the correctness / measurement / B2 spec above.
