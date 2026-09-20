@@ -60,33 +60,42 @@ restored to the inline-section assertions).
 ```
 (City, State primary; ID mono/muted below — falls back to the bare id when no location is known.)
 
-**Change — one shared cell + broad application:**
-- Add a shared `<EntityIdCell id={..} location={loc} />` (new `components/tables/EntityIdCell.tsx`)
-  rendering exactly the Open-WHs stacked pattern (`formatCityState` primary + mono id; bare id fallback).
-- Apply it to the **entity-ID column of every table whose row count can exceed 10 AND that does not
-  already have City/State as separate columns.** Verified inventory:
-  - **Exempt — already have City/State columns:** the input base tables (`WarehouseTable`,
-    `CustomerTable`, `MineTable`, `StationTable`) — no change.
-  - **Apply (output/report tables with bare id columns):** `AssignmentsTab` (customer + assigned
-    warehouse), `FlowsTab`, `JadeAssignmentsTab` (customer, warehouse), `JadeFlowsTab` (plant, warehouse,
-    customer), `ServiceStatsTab` (plant/warehouse rows), `LaneCostsTab`, `DistancesTab`/`JadeDistancesTab`
-    (From/To are entity ids), `CapabilityMatrixTab` (plant rows — already `plantIdCityState`, keep/align),
-    `OpenWarehousesTab` (already compliant — the reference).
-  - Each affected table needs a `locationById: Record<id, {city,state}>` — MOST output tabs already
-    receive one (`AssignmentsTab`/`FlowsTab`/`CostSummaryTab`/`DistancesTab`/`JadeDistancesTab`/
-    `OpenWarehousesTab`/`CapabilityMatrixTab` do). Wire it into the ones that don't yet
-    (`JadeAssignmentsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `LaneCostsTab`) from `Workspace.tsx`'s
-    existing per-model location maps (`jadeOutputLocationById`/`chenOutputLocationById`/a warehouse+
-    customer+plant union). Build the union from the SOLVED snapshot (`dataset` ∪ `displayedInputs` added
-    entities), consistent with the other output tabs' snapshot contract.
-- The **>10-row** condition mirrors the existing FilterMenu gate (`totalCount > 10`): below 11 rows the
-  plain id is fine (a table you can eyeball). Apply the stacked cell only when the table's row count > 10.
-  *(Open question for the plan: whether to always show the stacked cell regardless of count for
-  consistency — the request says ">10", so gate on >10.)*
+**Change — one shared cell, canonical-vs-display id split, generic location map:**
+- Add a shared `<EntityIdCell entityId displayId location />` (new `components/tables/EntityIdCell.tsx`),
+  Open-WHs stacked pattern: `formatCityState(location.city, location.state)` primary + `displayId` mono
+  below; bare `displayId` fallback when `location` is missing. **Canonical vs display id (Codex P2):**
+  `entityId` is the canonical id used for the `locationById` LOOKUP; `displayId` is what the user SEES =
+  `displayCode ?? id` (the reference renders `displayCode ?? id`, and a scenario-added entity has an
+  internal `aw-…` canonical id but a user-chosen display code). Never show a raw `aw-…` uid. The same
+  canonical-lookup/display-value split applies to the marker tooltips (item 4).
+- **`>10` is an UPGRADE trigger, not a suppression rule (Codex P2).** Tables that ALREADY render
+  location+id when data is available (`AssignmentsTab`, `FlowsTab`, `OpenWarehousesTab`,
+  `CapabilityMatrixTab`, `ServiceStatsTab`, …) keep their rich cells at EVERY row count — do not regress
+  them. `>10` only governs whether a currently **bare-id** table upgrades to the stacked cell. The
+  threshold uses the **unfiltered physical row count** (not the post-filter count).
+- **Generic per-model location map (Codex P1).** Replace the JADE/Chen-specific maps with one
+  `buildLocationById(modelId, dataset, displayedInputs): Record<canonicalId,{city,state}>` in
+  `Workspace.tsx`, unioning ALL base entities (warehouses/customers/mines/stations/refineries/plants) with
+  the SOLVED-snapshot added entities (`displayedInputs.added*`), keyed by canonical id, **base wins on id
+  collision** (mirrors item-4 / the last bundle's plant projection). Wire it into every consuming table
+  across every model.
+- **Verified inventory (every consuming table):**
+  - **Exempt — already have City/State columns:** input base tables `WarehouseTable` / `CustomerTable` /
+    `MineTable` / `StationTable` — no change.
+  - **Apply / already-rich (keep rich at any count; upgrade bare-id at >10):** `OpenWarehousesTab` (the
+    reference), `AssignmentsTab`, `FlowsTab`, `CostSummaryTab`, `DistancesTab`, `JadeDistancesTab`,
+    `CapabilityMatrixTab` (plant rows, already `plantIdCityState`), `JadeAssignmentsTab`, `JadeFlowsTab`,
+    `ServiceStatsTab`, `LaneCostsTab`, **`LegDistancesTab`** (gold-au From/To, user-defined rows can
+    exceed 10, currently bare ids — Codex P1, added to the inventory).
+  - Tabs not yet receiving a location map (`JadeAssignmentsTab`, `JadeFlowsTab`, `ServiceStatsTab`,
+    `LaneCostsTab`, `LegDistancesTab`, and any non-JADE consumer) get the generic `buildLocationById`
+    output.
 
-**DoD:** every output/report table that can exceed 10 rows shows `City, State` above a mono ID for each
-entity-ID cell (matching Open WHs), except tables that already have City/State columns; a table with ≤10
-rows is unchanged; a lookup miss falls back to the bare id (never blank).
+**DoD:** every listed table shows `City, State` above a mono display-id for each entity-ID cell (matching
+Open WHs) once eligible — already-rich tables stay rich at ALL row counts; a currently bare-id table
+upgrades when its unfiltered row count > 10; `LegDistancesTab` is covered; a lookup miss falls back to the
+bare display id (never blank, never a raw `aw-` uid); at least one previously-unwired **non-JADE** model
+(e.g. p-median `AssignmentsTab` or gold-au `LegDistancesTab`) is exercised in tests.
 
 ---
 
@@ -97,37 +106,51 @@ rows is unchanged; a lookup miss falls back to the bare id (never blank).
 INSIDE the table component (`WarehouseTable.tsx:100-102`, its own `flex justify-end mb-1.5` row) — a
 different row, so Filter and Import/Export are visually misaligned on two lines.
 
-**Change:** render the FilterMenu on the SAME row as the toolbar. Cleanest structure: the base input tab
-owns one header row — `flex items-center justify-between` — with the Import/Export buttons on the left and
-the FilterMenu on the right. Lift the FilterMenu out of the inner table component up to the base tab's
-toolbar row (the base tab already threads `enableFilters`; move the `useTableFilters`/`FilterMenu`
-mount to the toolbar row, keeping the `>10` gate). Apply to every input tab that has both a toolbar and a
-filter: `WarehousesTab`/`CustomerTable`-tab/`MineTable`-tab/`StationTable`-tab (+ refineries reuse). Do
-not change output tabs (their filter placement is separate and not called out).
+**Scope — alignment only, NOT a filter-availability expansion (Codex P1).** Verified: input-tab filters
+are enabled ONLY for JADE (`Workspace.tsx:2734/2866/3570` pass `enableFilters={modelId === "two-echelon-jade-us"}`);
+every non-JADE input tab renders no FilterMenu, so there is no misalignment to fix there. This item is a
+**placement/alignment** change for the tabs where the FilterMenu is ALREADY enabled (JADE's
+Warehouses/Customers/Plants input tabs). It must **not** silently enable FilterMenus for non-JADE models.
+(If enabling filters on other models' input tabs is desired, that is a separate product-scope change
+needing explicit approval — flagged, not assumed.)
 
-**DoD:** in every input entity tab, the Filter control sits on the same horizontal line as the
-Import/Export buttons (toolbar left, Filter right), no orphaned second filter row; the `>10`-row gate and
-all filtering behavior are unchanged.
+**Change:** render the FilterMenu on the SAME row as the toolbar. The base input tab owns one header row —
+`flex items-center justify-between` — Import/Export buttons left, FilterMenu right. Lift the FilterMenu
+out of the inner table component (`WarehouseTable.tsx:100`) up to the base tab's toolbar row, keeping the
+`>10` gate and passing the table's `tableFilters`/descriptors up (or expose them via a small render-prop/
+context so the mount can live in the toolbar row). Applies to the JADE-enabled input tabs.
+
+**DoD:** in every input tab where the FilterMenu is enabled (JADE's), the Filter control sits on the same
+horizontal line as the Import/Export buttons (toolbar left, Filter right), no orphaned second filter row;
+no non-JADE input tab gains a filter; the `>10` gate and all filtering behavior are unchanged.
 
 ---
 
 ## 4. Item 4 — map marker hover: Type + ID + City, State
 
-**Current (verified, `NetworkMap.tsx`):** warehouse markers show `{id} — {city}, {state}` (+ `(mine)`);
-plant markers `{id} — {city}, {state}`; customer markers `{city}, {state} · demand`. Type is mostly
-absent; customer shows no id.
+**TWO renderers, both must change (Codex P1):**
+- **Output map** `NetworkMap.tsx` — warehouse markers show `{id} — {city}, {state}` (+ `(mine)`); plant
+  `{id} — {city}, {state}`; customer `{city}, {state} · demand`. Type mostly absent; customer shows no id.
+- **Input map** `EntityMarkers.tsx` (used by `InputMapTab.tsx`) — verified: plant/warehouse/customer
+  tooltips render ONLY `{displayCode}` (`EntityMarkers.tsx:205/231/249`) — no type, no location. This
+  renderer was omitted from the first draft; it MUST be updated too, which means threading the model/role
+  label AND city/state into `EntityMarkers` (its `MapPlant`/`MapWarehouse`/`MapCustomer` rows carry
+  city/state from the dataset — confirm and use them; a role→type label is passed in from `InputMapTab`).
 
-**Change — every marker tooltip reads `<Type> · <ID> · <City>, <State>`** (approver-confirmed):
+**Change — every marker tooltip (both maps) reads `<Type> · <DisplayId> · <City>, <State>`** (approver-confirmed):
 - **Type label by role:** Warehouse → `Warehouse`; a `kind==="mine"` warehouse-role marker → `Mine`;
   gold-au facility → `Refinery`; JADE plant → `Plant`; transport station (customer-role marker in the
-  transport model) → `Station`; every other customer marker → `Customer`. Derive the type from the marker
-  branch + `kind` + model (pass a small `warehouseRoleLabel`/`customerRoleLabel` in, or compute from
-  `modelId` + `kind`). Keep any existing extra suffix (open-warehouse customer count) after the location.
-- **Customer markers** gain the ID (currently omitted): `Customer · <id> · <City>, <State> · <demand>…`.
-- Format is `·`-separated, matching the existing tooltip style.
+  transport model) → `Station`; every other customer marker → `Customer`. Derive from the marker branch +
+  `kind` + `modelId`.
+- **DisplayId** = `displayCode ?? id` (item-2 canonical/display split — never a raw `aw-…` uid); customer
+  markers gain it (currently omitted).
+- **City, State** via the shared `formatCityState` (so a missing state doesn't produce malformed
+  `City, ` text). Keep existing extras (demand, band, open-warehouse customer-count) after the location.
+- Format `·`-separated, matching the existing tooltip style.
 
-**DoD:** hovering any marker (warehouse/mine/refinery/customer/station/plant) on the Input or Output map
-shows its type, its id, and City, State; existing extras (demand, band, customer-count) are preserved.
+**DoD:** hovering any marker (warehouse/mine/refinery/customer/station/plant) on BOTH the Input and Output
+map shows its type, its display id, and City, State (via `formatCityState`); existing extras preserved;
+tests cover both `NetworkMap` and `EntityMarkers` renderers.
 
 ---
 
@@ -152,13 +175,17 @@ subtitle's "p-median" descriptor is a different field and stays.
 - Overflow → `Band <n+1>: > <last> <unit>`.
 - Empty bands → keep `All distances`.
 - Still sorts a copy first; still `<unit>` = the model's distance unit (`mi`/`km`).
-This keeps the band NUMBER (which the last bundle had dropped) AND the range. The table **cell** stays
-`bandLabel` → "Band N" (unchanged). All three JADE band filters (Flows pw/wc, Assignments) inherit it via
-the shared helper; the live memo-deps + clear-on-change from the last bundle are unchanged.
+This keeps the band NUMBER (which the last bundle had dropped) AND the range. **Only the FilterMenu
+options get the new range-aware label (Codex P2).** The table **cells** are unchanged: a configured-band
+cell stays `bandLabel` → `Band N`, an overflow cell stays `bandLabel` → `Overflow` (bandLabel is NOT
+modified). All three JADE band filters (Flows pw/wc, Assignments) inherit `bandRangeLabel` via the shared
+helper; the live memo-deps + clear-on-change from the last bundle are unchanged. **These band filters are
+JADE-only** — no Chen (or other-model) Distance-Band filter exists, so there is no Chen filter UI to label
+(the km branch of `bandRangeLabel` is exercised by a helper unit test only, not a Chen filter surface).
 
-**DoD:** a Distance-Band filter option reads e.g. `Band 1: 0 mi - 250 mi`, `Band 2: 250 mi - 500 mi`,
-`Band 5: > 1000 mi` (km for chens); band-1 lower bound is 0; overflow shows `> <last>`; cells still say
-"Band N".
+**DoD:** a JADE Distance-Band filter option reads e.g. `Band 1: 0 mi - 250 mi`, `Band 2: 250 mi - 500 mi`,
+`Band 5: > 1000 mi`; band-1 lower bound is 0; overflow shows `> <last> mi`; table cells still show
+`Band N` / `Overflow` unchanged; `bandRangeLabel`'s km formatting is unit-tested (no Chen filter UI added).
 
 ---
 
@@ -179,45 +206,149 @@ before a Save would 422. So relaxing is safe.
 - **Frontend:** drop the `isJade`/`JadeBandEditor` branch in **both** `SolveDialog.tsx` and
   `OptimizationParametersTab.tsx` for `two-echelon-jade-us`, so JADE uses the shared free chip editor
   (add value + Enter, remove via ×, any count ≥1) exactly like Chapter 3. `JadeBandEditor.tsx` becomes
-  unused → delete it (+ its test) and remove the now-unused `onBandValidityChange`/fixed-4 plumbing wired
-  for it (the chip editor has no validity-gate — matches every other model).
+  unused → delete it (+ its test) and remove the now-unused `onBandValidityChange`/fixed-4 plumbing.
+- **Zero-band guard (Codex P1 — shared, fixes p-median too):** the shared chip editor's `removeBand`
+  (`SolveDialog.tsx:174`, `OptimizationParametersTab.tsx:160`) has NO lower bound — it can empty the array
+  to `[]`, which `.min(1)` then 422s on Save. Since every free-chip model is now `.min(1)`, **disable the
+  `×` remove control on the LAST remaining band** in both editors (a `distanceBands.length <= 1` guard), so
+  the count can never reach 0 by construction (mirrors the add-side dedupe guard). This also closes the
+  same latent gap for p-median/transport/gold-au. Backend keeps `.min(1)` and a test asserts an empty
+  array is rejected.
 - **Auto-bands / history:** JADE's existing `computeAutoBands`/history-step band restore keep working
   (they already produce ascending arrays; count is no longer constrained).
 
 **DoD:** JADE's Run Optimizer AND Optimization Parameters tab show the same free chip band editor as
-Chapter 3 (add/remove any number ≥1 of ascending bands); a 3- or 5-band JADE scenario saves and solves
-without a 422; `JadeBandEditor` is deleted; `e2e_accuracy.py` is untouched (no solver change) — but the
-api-server jade schema test must be updated to the `.min(1)` rule.
+Chapter 3 (add/remove ascending bands, count ≥1); the `×` on the last band is disabled so the list can
+never empty (verified in both editors); a 3- or 5-band JADE scenario saves and solves without a 422; an
+empty-array backend request is rejected by `.min(1)`; `JadeBandEditor` is deleted; `e2e_accuracy.py`
+untouched (no solver change); the api-server jade schema test is updated to accept 1/3/5 ascending bands
+and reject empty + descending.
 
 ---
 
 ## 8. Tests
 - **Item 1:** base-tab tests assert the inline add-section (button → form) is present again; a Workspace
   test asserts no `added-entities` sidebar entry for any model; `AddedEntitiesTab` test deleted.
-- **Item 2:** `EntityIdCell` unit (stacked City,State + mono id; bare-id fallback); RTL that an output
-  table with >10 rows shows the stacked cell and a ≤10-row table shows the plain id; one per newly-wired
-  tab (JadeAssignments/JadeFlows/ServiceStats/LaneCosts) resolves location from the snapshot.
-- **Item 3:** RTL that the input Warehouses tab renders the FilterMenu in the same row container as the
-  Import/Export toolbar (single header row), not a separate filter row.
-- **Item 4:** RTL/unit that each marker tooltip string contains its type + id + City, State (warehouse,
-  mine, refinery, customer, station, plant).
+- **Item 2:** `EntityIdCell` unit (stacked City,State + mono **displayId**; `displayCode ?? id`; bare-id
+  fallback on a location miss — never a raw `aw-` uid); RTL that a **bare-id** output table upgrades to the
+  stacked cell when its unfiltered row count > 10 AND a 10-row one does not (10/11 boundary); RTL that an
+  **already-rich** table (e.g. `AssignmentsTab`) keeps its rich cells at **≤10** rows (no regression); a
+  **non-JADE** consumer (p-median `AssignmentsTab` or gold-au `LegDistancesTab`) resolves location from the
+  generic `buildLocationById`; a scenario-added entity (canonical `aw-…` + display code) shows the display
+  code, resolves location by canonical id, and id-collision (added id == base id) resolves to the base.
+- **Item 3:** RTL that a JADE input tab renders the FilterMenu in the same header row as the Import/Export
+  toolbar (single row), not a separate filter row; a non-JADE input tab renders NO FilterMenu (unchanged).
+- **Item 4:** RTL/unit for BOTH renderers — `NetworkMap` (output) AND `EntityMarkers` (input) — each
+  marker tooltip contains `<Type> · <displayId> · <City>, <State>` (warehouse, mine, refinery, customer,
+  station, plant), via `formatCityState` (missing state → no trailing comma).
 - **Item 5:** Landing/chapters test that the AL's Athletics card title has no "P-Median".
-- **Item 6:** `bandRangeLabel` unit — `Band 1: 0 mi - 250 mi`, mid bands, `Band N: > 1000 mi`, km, empty.
-- **Item 7:** api-server jade schema test accepts 1/3/5 ascending bands and rejects descending; RTL that
-  JADE's SolveDialog + Optimization Parameters render the chip editor, not the fixed-4 editor.
+- **Item 6:** `bandRangeLabel` unit — `Band 1: 0 mi - 250 mi`, mid bands, `Band N: > 1000 mi`, **km**
+  (generic formatter), empty; plus a test that `bandLabel` (the CELL) is UNCHANGED (`Band N`/`Overflow`).
+- **Item 7:** api-server jade schema test accepts 1/3/5 ascending bands, rejects **empty** + descending;
+  RTL that JADE's SolveDialog + Optimization Parameters render the chip editor (not the fixed-4 editor) AND
+  that the `×` on the last remaining band is disabled in both.
 - **QA (qa-sdet, real browser):** §9.
 
 ## 9. QA (real browser, local-served merged branch, explicit E2E_BASE_URL)
 - Added Entities tab gone; each input tab has an inline "+ Add" button that adds an entity → Save persists.
-- An output table with >10 rows shows City, State above the mono ID (matches Open WHs).
-- Input Warehouses tab: Filter is on the same line as Import/Export.
-- Hover a warehouse, a customer, and a plant marker → each shows Type · ID · City, State.
+- A >10-row output table shows City, State above the mono display-ID (matches Open WHs).
+- A JADE input tab: Filter is on the same line as Import/Export (and a non-JADE input tab still has no filter).
+- Hover a warehouse, a customer, and a plant marker on BOTH the Input and Output map → each shows
+  Type · ID · City, State.
 - Homepage AL's Athletics card shows no "P-Median".
-- A JADE Distance-Band filter option reads `Band 1: 0 mi - 250 mi` … `Band N: > 1000 mi`.
-- JADE Run Optimizer shows the same free chip band editor as Chapter 3; add a 5th band, Save, solve — no error.
+- A JADE Distance-Band filter option reads `Band 1: 0 mi - 250 mi` … `Band N: > 1000 mi`; table cells still show `Band N`/`Overflow`.
+- JADE Run Optimizer shows the same free chip band editor as Chapter 3; add a 5th band, Save, solve — no
+  error; removing down to one band leaves the last `×` disabled (can't reach zero).
 
 ## 10. Out of scope
 - Any solver / dataset / OpenAPI change (item 7 is a single Zod line; `inputs` stays opaque).
 - Output-table filter placement (item 3 is input tabs only).
 - Changing the table **cell** band label (stays "Band N").
 - Consolidating the two plant projections (carried-over follow-up from the last bundle).
+
+---
+
+## 11. Review comments — Codex (2026-09-20) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All 7 comments folded into §1–§9; see the §12 resolution table. Retained verbatim
+for history. Original round status was "changes requested".
+
+### [P1] Prevent JADE from reaching zero distance bands
+
+The shared chip editors currently allow the user to remove the final band, while the proposed backend
+contract requires `distanceBands.min(1)`. An empty editor would therefore allow Save/Run to reach a 422.
+Define the client behavior explicitly: either disable/hide removal of the last band, or introduce a
+validity gate that disables Save/Run while the list is empty. Cover the final-band removal interaction in
+both `SolveDialog` and `OptimizationParametersTab`, and add a backend assertion that an empty array is
+rejected. The existing 1/3/5-band and descending-order tests do not cover this boundary.
+
+### [P1] Include the separate Input Map marker renderer in Item 4
+
+Updating `NetworkMap.tsx` is insufficient for the stated input-and-output-map DoD. Input maps use the
+separate `EntityMarkers` renderer in `InputMapTab.tsx`, and its tooltips currently show only the display
+code. It also needs model-specific semantic role information to label Mine, Refinery, Station, Plant,
+Warehouse, and Customer correctly. Require implementation and tests for both renderers, thread the
+model/role labels into the input renderer, and use the shared City/State formatter so missing state values
+do not produce malformed text.
+
+### [P1] Complete the all-model table inventory and location-data contract
+
+`LegDistancesTab` is missing from the Item 2 inventory even though its user-defined From/To table can
+exceed ten rows and currently renders bare identifiers. Add it or document a deliberate exclusion that is
+consistent with the "every table" requirement. More broadly, `Workspace` currently supplies comprehensive
+location maps primarily for JADE and Chen; P-Median, transportation, and gold tabs do not all receive an
+equivalent map. Define a generic per-model `locationById` projection covering base entities and
+snapshot/scenario-added entities, list every consuming table, and define the behavior for identifier
+collisions. Tests must exercise at least one previously unwired non-JADE model rather than only the four
+newly named JADE tabs.
+
+### [P1] Preserve the deliberate JADE-only Filter Menu scope
+
+Item 3 says to fix the misalignment in "every other model's input tabs," but the current product decision
+deliberately enables these Filter Menus only for JADE. State that this is a placement/alignment change for
+tabs where the Filter Menu is already enabled; it must not silently enable Filter Menus for non-JADE
+models. If expanding filter availability is now intended, call that out as a separate product-scope change
+requiring explicit approval.
+
+### [P2] Treat `>10` as an upgrade trigger, not a suppression rule
+
+Several tables, including Assignments, Flows, Open Warehouses, Capability Matrix, and Service Stats,
+already render location-plus-identifier cells when location data is available, including at ten or fewer
+rows. Interpreting "≤10 rows: plain ID" literally would regress those tables and make the Open Warehouses
+reference behavior depend on its result count. Define `>10` as the trigger for upgrading currently bare-ID
+tables, while preserving already-rich cells at every row count. Also state that the threshold uses the
+unfiltered physical table row count. Add a ≤10-row preservation test for an already-rich table as well as
+the 10/11 boundary test for a newly upgraded table.
+
+### [P2] Separate canonical lookup ID from the displayed identifier
+
+The reference table displays `displayCode ?? id`, but the proposed `EntityIdCell` accepts only `id`.
+Passing the canonical ID preserves the location lookup but can expose UUID-like internal identifiers;
+passing the display code preserves the UI but breaks an ID-keyed location lookup. Define an interface such
+as `entityId`, `displayId`, and `location`, with the visible value consistently defined as
+`displayCode ?? id`. Apply the same rule to marker tooltips and add a test using a scenario-added entity.
+
+### [P2] Resolve the distance-band label and unit contradictions
+
+The design says table cells continue to use `bandLabel` and also says cells remain "Band N," but the
+current overflow value from `bandLabel` is `Overflow`. State explicitly that configured-band cells remain
+`Band N`, overflow cells remain `Overflow`, and only Filter Menu options receive range-aware labels. The
+DoD also mentions Chen kilometre Filter Menu labels even though the Distance Band filters described here
+are JADE-only. Keep a unit test for the generic kilometre formatter if useful, but remove the Chen UI claim
+unless adding a Chen Distance Band filter is intentionally brought into scope.
+
+---
+
+## 12. Review resolution (Codex, 2026-09-20)
+
+**Current status: RESOLVED — no open items.** All folded into §1–§9.
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | JADE can reach zero bands (chip editor empties → `.min(1)` 422) | **Accepted.** §7 disables the `×` on the last remaining band in BOTH editors (`length<=1` guard) — closes it for p-median/transport/gold-au too; backend `.min(1)` + empty-rejection test. |
+| P1 | Item 4 omitted the Input-Map `EntityMarkers` renderer | **Accepted.** Verified `EntityMarkers` tooltips show only `displayCode`. §4 now covers BOTH `NetworkMap` (output) and `EntityMarkers` (input), threading role label + city/state, `formatCityState`; tests for both. |
+| P1 | Incomplete table inventory + no generic location map | **Accepted.** §2 adds `LegDistancesTab`, a generic `buildLocationById(modelId, dataset, displayedInputs)` (base ∪ added, base wins on collision), the full consumer list, and a non-JADE test. |
+| P1 | Item 3 must not silently enable non-JADE filters | **Accepted.** Verified filters are `enableFilters={modelId==="two-echelon-jade-us"}`. §3 is alignment-only where the filter is already enabled (JADE); expanding availability is flagged as separate approval. |
+| P2 | `>10` should upgrade, not suppress | **Accepted.** §2: already-rich tables keep rich cells at ALL counts; `>10` (unfiltered physical count) only upgrades bare-id tables; ≤10 no-regression test added. |
+| P2 | Canonical id vs displayed id | **Accepted.** §2 `EntityIdCell{entityId, displayId=displayCode??id, location}`; lookup by canonical, show display; same for marker tooltips; added-entity + collision tests. |
+| P2 | Band label/unit contradictions | **Accepted.** §6: only FilterMenu options get ranges; cells stay `Band N`/`Overflow` (bandLabel untouched); no Chen filter UI (JADE-only) — km kept as a formatter unit test. |
