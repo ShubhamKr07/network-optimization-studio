@@ -1,7 +1,7 @@
 # Chapter 4 (Chen's Cosmetics) — Distance Bands, Service-Distance Params, and App-Wide Unit Handling
 
 **Date:** 2026-09-19
-**Status:** Design approved — seven review rounds resolved (see the seven Resolutions sections + verbatim appendices). Ready for implementation plan.
+**Status:** Design approved — eight review rounds resolved (see the eight Resolutions sections + verbatim appendices). Ready for implementation plan.
 **Scope:** Multi-layer. Frontend (large), backend TS input/export/import contract, **a new pure shared package `lib/units`**, **two additive nullable DB columns (`solve_jobs.result`, `scenarios.result_run_id`)**, a **field-scoped `distanceBands` PATCH endpoint**, manifest, OpenAPI + codegen. **No `solve.py` math OR reporting change. No dataset change. `e2e_accuracy.py` untouched (hard rule #2).** The result-envelope *shape* is unchanged; stored `inputs` distances and solver I/O stay in each model's canonical unit. Both new columns are **nullable** (jsonb and int) → plain `drizzle-kit push`; hard rule #3's two-step NOT-NULL protocol does not apply.
 
 ## Background
@@ -30,7 +30,7 @@ Chapter 4 `chens-cosmetics-cn` is a China warehouse→customer **service-level**
 | 1b | Band timing | **Live.** Editing bands instantly recolors the current + historical stepped results and recomputes Service Stats from `edges` + the live lens, no re-solve. **Exports apply `assignBandOrOverflow` to each authoritative builder row's own canonical distance** using the **saved** lens — *not* a generic re-derivation from `edges` (seventh-review #3; `edges` remains the source only where it genuinely is, i.e. live Service Stats coverage and the generic builders). A lens-only Save is non-staling and field-scoped (decision 1f). **Supersedes the solve-snapshot invariant for bands only.** |
 | 1e | Historical export | **Solve history is persisted and run-addressed** (fourth-review #1). `solve_jobs` already stores one row per run; it gains a nullable `result` jsonb holding that run's full envelope. `GET /scenarios/:id/export` gains an optional `runId` (a `solve_jobs.id`, ownership- and scenario-scoped); omitted → latest persisted `scenario.result` (today's behavior). The client sends the displayed history entry's run id, so a historical export matches the displayed tab. The stale-gate applies to the **latest** path only — an explicitly addressed historical run is by definition a frozen past result, not stale. The stepper's *inputs* snapshot stays client-side; export needs only the run's **result** + the scenario's saved bands. |
 | 1f | Band-lens Save | **Server field-scoped `distanceBands` PATCH** (fourth-review #6, contract in **Part G**). A bands-only edit writes **only** that field via an **atomic `jsonb_set`** — never a select-merge-write of the whole `inputs` blob (fifth-review #3: a read-modify-write would still race). Client side it is driven by an **independent saved-lens ref + lens-dirty flag** that history navigation never touches — `isBandsOnlyChange(savedInputsRef, localInputs)` cannot carry this, since history nav replaces both. Ordinary inputs are **read-only while a historical entry is selected** (decision 1h), so the both-dirty case can only arise on the latest entry, where `localInputs` is already the latest — the merge is then simply `{ ...localInputs, distanceBands: activeBandLens }` with the active lens winning. Non-staling. |
-| 1h | History is read-only | **Viewing an older result disables ordinary input editing and Save** (seventh-review #1). Only the **band lens** stays editable there — it is a display lens by definition (decision 1b), persisted by the field-scoped route (1f), and never part of the solved snapshot. This removes the stale-input clobber **by construction**: `stepResultBack/Forward` replace *both* `localInputs` and `savedInputsRef` with the historical entry (`Workspace.tsx:1511-1527`), so any whole-inputs Save from that state would restore every historical non-band value over the latest. The rule is simple and exception-free: **history is for looking; the lens is the one thing you can tune while looking.** Known cost, accepted: today's implicit "step back, then Save to restore those inputs" behavior goes away; restoring old inputs would need its own explicit action, which is **not** in scope here. |
+| 1h | History is read-only | **Viewing an older result disables ordinary input editing, and makes the whole-input PATCH unreachable** (seventh-review #1). What is disabled is the **whole-input save path**, not the Save control itself (eighth-review #1 — "Save disabled" and "a lens Save from history fires the field-scoped PATCH" cannot both be literally true of one control). Only the **band lens** stays editable there — a display lens by definition (1b), persisted by the field-scoped route (1f), never part of the solved snapshot. This removes the stale-input clobber **by construction**: `stepResultBack/Forward` replace *both* `localInputs` and `savedInputsRef` with the historical entry (`Workspace.tsx:1511-1527`). See the **history action matrix** in Part A for the exact per-state control contract. Known cost, accepted: today's implicit "step back, then Save to restore those inputs" behavior goes away; restoring old inputs is served by `Save as scenario`, not by Save. |
 | 1g | Run-id lifecycle | **`scenarios.result_run_id`** (nullable int, fifth-review #1) records which `solve_jobs.id` produced the row's current `scenario.result`, written by `jobRunner` at the same moment it writes the result — deterministic, not a latest-succeeded-job heuristic (`/solve-history` returns the newest job of **any** status and cannot serve this). Exposed as `Scenario.resultRunId`; the stepper's seed entry takes its `runId` from it. A newly completed solve attaches `runId` from the polling job id **independently of timing** (timing is absent on reload). Pre-migration rows are `null` → that entry is explicitly **non-exportable** once historical (download disabled + labelled), never a wrong export. |
 | 1c | Band ↔ maxDist | **Free bands + overflow bucket** (top-pin dropped — deep-review #2 proved "no overflow" false: a live/historical lens can sit below an already-solved edge). Bands are free (positive, unique, strictly ascending, ≥1); **no coupling to `maxDistKm`**. Any edge beyond the last band routes through the **existing JADE overflow bucket** (`assignBandOrOverflow` / `OVERFLOW_BAND` `band:-1`) on map, Service Stats, and export. One boundary is **conditionally linked to `highServiceDistKm`** (retargets while present; removable; once removed, high edits don't touch bands). |
 | 1d | Coverage semantics | **Cumulative + overflow** (reverses the round-2 "exclusive" draft — deep-review #3: the only overflow-aware helper `computeCumulativeBandCoverage` is cumulative, and the other 5 models' live Service Stats are cumulative; exclusive would need a new helper + make Chen inconsistent). Reuse `computeCumulativeBandCoverage` (already appends an `OVERFLOW_BAND` row); wire Chen into `presentationBands` like its siblings; remove the Chen live-recompute guard. Map coloring stays per-edge `assignBandOrOverflow`. Computed from `edges` + live bands, not `metrics.bandCoverage`. |
@@ -77,9 +77,23 @@ Parity fixtures cover single- and two-echelon data, zero flow, boundary equality
 
 **Band-lens state + field-scoped Save (blockers #1/#6/#10, decisions 1b/1f).** A **dedicated band-lens state**, seeded from the active scenario's bands and edited by the band editor, drives all displayed-result coloring/coverage (current, unsaved-draft, historical-stepped). **History stepping does NOT overwrite the lens** (result-history nav replaces `localInputs`/`savedInputsRef`, `Workspace.tsx:1454-1469`). Persisting a lens edit uses the **server field-scoped `distanceBands` PATCH** (decision 1f) — the client never sends a whole-`inputs` blob for a bands-only edit, so a bands edit while browsing a `p=3` history entry **cannot** overwrite the latest `p=5` (deep-review #1, confirmed against `handleSaveInputs` `Workspace.tsx:1703+`, which PATCHes the entire `localInputs`), and the React-Query-cache staleness window (fourth-review #6) is closed by construction rather than narrowed. **The lens has its own saved reference and dirty flag (fifth-review #3)** — `isBandsOnlyChange(savedInputsRef, localInputs)` cannot drive this, because history navigation replaces *both* of those. The field-scoped save sends the **lens state directly**, not a diff of `localInputs`.
 
-**History is read-only for ordinary inputs (decision 1h, seventh-review #1).** `stepResultBack`/`stepResultForward` replace **both** `localInputs` **and** `savedInputsRef` with the selected historical entry (`Workspace.tsx:1511-1527`). Any whole-inputs Save built by spreading `localInputs` from that state therefore restores every *other* historical non-band value over the latest scenario — the sixth-round `{ ...localInputs, distanceBands: activeBandLens }` merge protected the **band** but left that stale-**inputs** clobber intact. Resolved structurally rather than by a smarter payload: **while a historical entry is selected, ordinary input editors and Save are disabled**; only the band lens remains editable, and it persists through the field-scoped route (Part G), which writes nothing but `distanceBands`.
+**History is read-only for ordinary inputs (decision 1h, seventh-review #1).** `stepResultBack`/`stepResultForward` replace **both** `localInputs` **and** `savedInputsRef` with the selected historical entry (`Workspace.tsx:1511-1527`). Any whole-inputs Save built by spreading `localInputs` from that state therefore restores every *other* historical non-band value over the latest scenario — the sixth-round `{ ...localInputs, distanceBands: activeBandLens }` merge protected the **band** but left that stale-**inputs** clobber intact. Resolved structurally rather than by a smarter payload: **while a historical entry is selected, ordinary input editors are disabled and the whole-input PATCH is unreachable**; only the band lens remains editable, persisted through the field-scoped route (Part G), which writes nothing but `distanceBands`.
 
-**Both-dirty payload (sixth-review #2).** Because of 1h, "lens dirty + ordinary inputs dirty" can only occur on the **latest** entry, where `localInputs` *is* the latest. There the whole-inputs payload is built as **`{ ...localInputs, distanceBands: activeBandLens }`** immediately before validation and PATCH, so the active lens still wins over whatever band array sits in `localInputs`. This supersedes the solve-snapshot read **for bands only**; the underlying result is untouched. Tested: on the latest entry, both-dirty Save takes the whole-inputs route and persists the ordinary edit **and** the active lens; while viewing history, ordinary editors and Save are disabled, the lens editor is not, and a lens Save there sends a body containing **only** `distanceBands` and leaves every latest non-band value untouched; stepping history never changes the active lens.
+**History action matrix (eighth-review #1/#3) — locked, per control and per state.** "Disabled" applies to the *whole-input save path*, not to the Save button as an object; the button stays reachable precisely when the field-scoped route is the thing it will fire.
+
+| State | Save control | Route it fires | Run Optimizer | Save as scenario |
+|---|---|---|---|---|
+| historical entry, nothing dirty | **disabled** | — | **disabled** | enabled |
+| historical entry, **lens dirty only** | **enabled**, labelled **"Save bands"** | **field-scoped** `PATCH /scenarios/:id/distance-bands` **only** | **disabled** | enabled |
+| historical entry, ordinary inputs "dirty" | not reachable — ordinary editors are disabled there, so this state cannot be entered | whole-input PATCH is **unreachable** regardless of `localInputs`/`savedInputsRef` | **disabled** | enabled |
+| latest entry, lens dirty only | enabled | **field-scoped** PATCH | enabled | enabled |
+| latest entry, ordinary dirty (± lens dirty) | enabled | **whole-input** PATCH with `activeBandLens` merged last | enabled | enabled |
+
+- **`Run Optimizer` is disabled while an older entry is selected** (eighth-review #3). `POST /scenarios/:id/solve` carries **no body** and solves the latest *persisted* inputs (`Workspace.tsx:2351-2360`), not the historical inputs on screen — so running from history is already misleading. Worse, `handleSolve`'s save-before-solve branch fires a **whole-input PATCH whenever `isDirty`**, which would reinstate the very clobber 1h removes if lens-dirtiness fed that flag. Two defenses, both required: (i) the control is disabled at an older index, and (ii) **`handleSolve` itself rejects a historical position** even if invoked programmatically, so neither its save-before-solve nor its direct-solve branch can run there. Returning to the latest entry re-enables it. Users wanting to rerun a snapshot use `Save as scenario`.
+- **`Save as scenario` uses the active *draft* lens** (eighth-review #3). It currently clones `entry.inputs` verbatim (`Workspace.tsx:2513-2517`), which now carries that entry's **stale** bands while the user is looking at the live lens. Locked: build the payload as **`{ ...entry.inputs, distanceBands: activeBandLens }`**. Draft rather than saved lens, because the action's contract is "clone what I am looking at" — the on-screen lens is what the user sees, and the clone is a brand-new scenario where persisting it is harmless.
+- **Lens dirtiness must NOT feed the generic `isDirty`** used by the save-before-solve branch; it is tracked by its own flag (decision 1f), so a lens edit can never trigger a whole-input PATCH from any entry point.
+
+**Both-dirty payload (sixth-review #2).** Because of 1h, "lens dirty + ordinary inputs dirty" can only occur on the **latest** entry, where `localInputs` *is* the latest. There the whole-inputs payload is built as **`{ ...localInputs, distanceBands: activeBandLens }`** immediately before validation and PATCH, so the active lens still wins over whatever band array sits in `localInputs`. This supersedes the solve-snapshot read **for bands only**; the underlying result is untouched. Tested: on the latest entry, both-dirty Save takes the whole-inputs route and persists the ordinary edit **and** the active lens; while viewing history, ordinary editors are disabled and the whole-input path is unreachable, while the lens editor stays editable and Save (as **"Save bands"**) fires the field-scoped route with a body containing **only** `distanceBands`, leaving every latest non-band value untouched; stepping history never changes the active lens. Full per-state contract in the history action matrix above.
 
 ## Part B — High-service vs avg-cap defaults
 
@@ -166,9 +180,9 @@ interface UnitApi {
 - Rename hardcoded unit-specific columns to neutral + a `unit` column: `flows` `distance_mi`/`distanceMi` → `distance` (+ `unit`) (`templates.ts:1386-1418`); `costSummary` `weightedAvgDistance` carries `unit`; the objective value converts via the **shared `lib/units` objective mapping** (decision 6 / Part D table) — distance/demand-distance/flow-distance/truckload-distance convert, jade monetary + Chen coverage-% do not. The API server calls the **same pure function** Studio does; there is no second mapping.
 - `serviceStats` band boundaries + `distance_unit` follow the `unit=` param; rows are **cumulative + overflow** (decision 1d), computed by the shared helper — the same rows the tab shows.
 - `assignments` and `flows` **recompute `band` by applying `assignBandOrOverflow` to each builder row's own distance**, using the saved lens — **each entity/model keeps its existing authoritative row source** (generic → serving edges; **JADE assignments → `details.assignments`** product-level; gold → its builder; flows → theirs). This replaces today's solver-emitted `e.band ?? null`. *(Corrects sixth-review #4: the earlier "recompute from `edges`" phrasing here contradicted Part A's per-model rule — Part A is normative, this line now matches it.)* Rendering is schema-specific per the band-representation lock; `OVERFLOW_BAND` is never unit-converted in any schema. Scope follows the per-manifest band-bearing entity matrix in Part A, not a uniform entity set.
-- Version output schemas per the **v3 matrix above** (`OUTPUT_TEMPLATE_VERSION: 2 → 3`; generic `flows` moves onto that constant from `TEMPLATE_VERSION`); OpenAPI `ExportEnvelope`/entity-row shapes + regen; fixtures per entity, per format, under both units.
+- Version output schemas per the **v3 matrix below** (`OUTPUT_TEMPLATE_VERSION: 2 → 3`; generic `flows` moves onto that constant from `TEMPLATE_VERSION`); OpenAPI `ExportEnvelope`/entity-row shapes + regen; fixtures per entity, per format, under both units.
 
-**Specialized JADE output serializers must become self-describing (sixth-review #3).** Today the JADE serializers **drop** the version/unit their row objects carry: `jadeAssignmentRowsToCsv` emits only `product,customer,assigned_warehouse,distance,distance_band` (`templates.ts:1512-1517`) despite `JadeAssignmentTemplateRow` holding `templateVersion` + `distanceUnit`, and `jadeFlowRowsToCsv` emits only `leg,from_id,to_id,distance,distance_band,flows` (`templates.ts:1526-1576`) while `JadeFlowTemplateRow` has **no `distanceUnit` field at all**. A version constant that exists only on an intermediate TS object the serializer discards does not satisfy decision 5b. Locked v2 contracts:
+**Specialized JADE output serializers must become self-describing (sixth-review #3).** Today the JADE serializers **drop** the version/unit their row objects carry: `jadeAssignmentRowsToCsv` emits only `product,customer,assigned_warehouse,distance,distance_band` (`templates.ts:1512-1517`) despite `JadeAssignmentTemplateRow` holding `templateVersion` + `distanceUnit`, and `jadeFlowRowsToCsv` emits only `leg,from_id,to_id,distance,distance_band,flows` (`templates.ts:1526-1576`) while `JadeFlowTemplateRow` has **no `distanceUnit` field at all**. A version constant that exists only on an intermediate TS object the serializer discards does not satisfy decision 5b. Locked **v3** contracts (see the version matrix and exact-contract table below):
 
 **Version matrix — the bump is to v3, not v2 (seventh-review #2).** `OUTPUT_TEMPLATE_VERSION` is **already `2`** in production, and its own comment records that assignments/costSummary/serviceStats are already v2 while "openWarehouses, **flows**, and the importable distances template all stay v1" (`templates.ts:17-24`). Publishing the new band/unit semantics *as v2* would be no bump at all. Locked: **`OUTPUT_TEMPLATE_VERSION: 2 → 3`**, and **generic `flows` moves off `TEMPLATE_VERSION` onto that constant**, going v1 → v3 (it never had a v2 — skipping the number is unambiguous and keeps one output version across all changed entities rather than a per-entity patchwork).
 
@@ -192,11 +206,18 @@ Importable entities keep their separate `DISTANCE_TEMPLATE_VERSION = 2` (unchang
 | generic `flows` | `template_version,from_id,to_id,distance,distance_unit,band,flow` (`distance_mi` removed) | `{templateVersion:3, entity:"flows", unit, rows:[…]}` | `{fromId: string, toId: string, distance: number, band: number, flow: number}` |
 | **JADE `assignments`** | `template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band` | `{templateVersion:3, entity:"assignments", unit, rows:[…]}` | `{productId: string, customerId: string, warehouseId: string, distance: number, band: string}` |
 | **JADE `flows`** | `template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows` | `{templateVersion:3, entity:"flows", unit, rows:[…]}` | `{leg: string, fromId: string, toId: string, distance: number, band: string, flows: number}` |
-| `serviceStats` | `template_version,band,distance_unit,percent` | `{templateVersion:3, entity:"serviceStats", unit, rows:[…]}` | `{band: number, percent: number}` |
+| `serviceStats` | `template_version,band,distance_unit,percent` | `{templateVersion:3, entity:"serviceStats", unit, rows:[…]}` | `{band: number, percent: number}` — `band` is the **distance boundary in the requested unit** (e.g. `200`), or `-1` for overflow |
+| `costSummary` | `template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used` | `{templateVersion:3, entity:"costSummary", unit, rows:[…]}` | `{objective: number \| null, objectiveMode: string \| null, weightedAvgDistance: number \| null, runTimeSec: number \| null, quality: string, solverUsed: string}` |
 
-- **Band representation:** generic + `serviceStats` use the **numeric index with `-1` = overflow**; JADE uses its **display-label string** (`"Band N"` / `"Overflow"`). Never null in either.
-- `unit` on the envelope is the **requested** unit (`km`/`mi`), identical to the `distance_unit` column value in the CSV form of the same export.
-- These shapes are mirrored in `openapi.yaml`'s `ExportEnvelope`/entity-row schemas + regen, and pinned by fixtures for **CSV and JSON**, at **`unit=km` and `unit=mi`**, for all five artifacts.
+- **Band representation — three distinct meanings, never conflated (eighth-review #2):**
+  1. **generic `assignments`/`flows`** → zero-based **numeric band index**, `-1` = overflow.
+  2. **JADE `assignments`/`flows`** → **display-label string**, `"Band N"` / `"Overflow"`.
+  3. **`serviceStats`** → the **distance boundary itself, converted to the requested unit**, `-1` = overflow. `computeCumulativeBandCoverage` emits one row per actual boundary value (`sorted.map((band) => …)`, `bands.ts:129-141`) — it is *not* an index, which is also why Part E requires these boundaries to follow `unit=` (an index would not convert).
+  Never null in any of the three. The `-1` overflow sentinel is **categorical in all three** and is never unit-converted.
+- **Classify before rounding.** Band assignment and coverage bucketing are computed from **canonical** distances and canonical boundaries, *before* the 4-decimal output serialization, so a near-boundary row can never change bucket because of display rounding.
+- `unit` on the envelope is the **requested** unit (`km`/`mi`), identical to the `distance_unit` column value in the CSV form of the same export. JSON rows omit `templateVersion` and `distanceUnit` under the envelope-only rule — including `costSummary`, whose builder row carries both today.
+- **JADE flow `leg` is a closed enum**: `"plant_to_warehouse" | "warehouse_to_customer"`, not unconstrained `string` (eighth-review #4) — in the row type, the OpenAPI schema, and the fixtures.
+- These shapes are mirrored in `openapi.yaml`'s `ExportEnvelope`/entity-row schemas + regen, and pinned by fixtures for **CSV and JSON**, at **`unit=km` and `unit=mi`**, for all **six** artifacts (the five band/distance ones plus `costSummary`). `costSummary` fixtures cover **Chen coverage (percent, no convert)**, **Chen min-distance (demand-distance, converts)**, **JADE monetary (no convert)**, and one plain converting distance objective.
 
 - **`JadeFlowTemplateRow` gains `distanceUnit`** (it has none today). Column-carried version+unit is chosen over a wrapper envelope for CSV because the generic assignment CSV already carries `template_version` + `distance_unit` as columns — one convention across every exported CSV, rather than two.
 - `distance_band` keeps JADE's display-label string; generic `band` keeps the numeric index + `-1`.
@@ -268,6 +289,9 @@ A lens-only save must be atomic at the **database**, not merely field-scoped at 
 | Round-6 both-dirty merge | `{ ...localInputs, distanceBands: activeBandLens }` from any history position | **ordinary inputs read-only while viewing history** (decision 1h); the merge applies only on the latest entry (seventh-review #1) |
 | Round-6 "v2" output contracts | new band/unit semantics published as v2 | **v3** — `OUTPUT_TEMPLATE_VERSION: 2 → 3`, generic `flows` v1 → v3; explicit per-entity matrix (seventh-review #2) |
 | Round-6 JSON shape `rows:[…]` | ellipsis | exact camelCase row schemas; version/unit **envelope-only** in JSON, per-row columns in CSV (seventh-review #4) |
+| Round-7 "Save disabled in history" | one control both disabled and required to fire the lens PATCH | **whole-input path** disabled; Save enabled as **"Save bands"** when lens-dirty — full action matrix (eighth-review #1) |
+| Round-7 `serviceStats.band` | numeric band **index** | the **distance boundary in the requested unit** (`-1` overflow) — three distinct band representations (eighth-review #2) |
+| Round-7 history scope | ordinary editors + Save only | also **Run Optimizer disabled** (+ `handleSolve` guard) and **Save as scenario** merges the active draft lens (eighth-review #3) |
 | Round-4 "export matches the tab in every history position" | universal claim | two-branch contract: addressable via `scenarios.result_run_id`, else explicitly non-exportable (fifth-review #1, decision 1g) |
 
 ## Non-goals
@@ -297,16 +321,25 @@ A lens-only save must be atomic at the **database**, not merely field-scoped at 
 1. Chen band editor renders; add/remove bands works end-to-end; removal blocked at the last remaining boundary (≥1).
 2. Default bands `[600,1200,2400,5000]`; 600 present (=high).
 3. highService change retargets the linked band; others unchanged; no duplicate; re-sorted. High-band removed → later high edit leaves bands untouched.
-4. Overflow: a stored edge exceeding the last band lands in the overflow bucket across map + Service Stats + each model's band-bearing exports, not folded into the last band — including after lowering the live lens below an already-solved edge. **Cross-cutting invariant:** `OVERFLOW_BAND` is a **categorical sentinel**, never a distance, and is **never unit-converted** in any schema. **Rendering is schema-specific** (sixth-review #1): the literal `-1` assertion applies **only to generic numeric band schemas**; **JADE assignment/flow CSV+JSON assert the string `"Overflow"`**. A single value can't be both, so the two assertions are scoped, never combined.
-4a. Boundary fixtures for **both** representations: a distance exactly equal to a boundary (classified into that band, not the next), and a distance above the last boundary (overflow) — asserted once as the shared numeric classification from `assignBandOrOverflow`, and once per schema's rendering (`-1` generic, `"Overflow"` JADE), so classification and rendering cannot be conflated again.
+4. Overflow: a stored edge exceeding the last band lands in the overflow bucket across map + Service Stats + each model's band-bearing exports, not folded into the last band — including after lowering the live lens below an already-solved edge. **Cross-cutting invariant:** `OVERFLOW_BAND = -1` is a **categorical sentinel**, never a distance, and is **never unit-converted** in any schema. **Rendering is schema-specific** (sixth-review #1, eighth-review #2) — three scoped assertions, never combined: generic `assignments`/`flows` assert the numeric **index** (`-1` overflow); JADE assignment/flow CSV+JSON assert the string **`"Overflow"`**; `serviceStats` asserts the **distance boundary in the requested unit** (`-1` overflow).
+4a. Boundary fixtures for **all three** representations: a distance exactly equal to a boundary (classified into that band, not the next), and a distance above the last boundary (overflow) — asserted once as the shared canonical classification from `assignBandOrOverflow`, then once per schema's rendering (index / `"Overflow"` / converted boundary), so classification and rendering cannot be conflated again. **Classification runs on canonical values before 4-decimal serialization**: a row sitting within rounding distance of a boundary keeps its canonical bucket under both `unit=km` and `unit=mi`.
+4e. **`serviceStats` boundaries convert (eighth-review #2):** a fixture whose canonical boundary visibly differs between `unit=km` and `unit=mi` (e.g. `200` vs `124.2742`), while the overflow row stays exactly `-1` in both.
 4b. Band recompute, **per-model supported entities only** (fifth-review #2 — `flows` is absent from Chen/p-median manifests, `assignments` absent from transport-coal): Chen/p-median-us/p-median-brazil → `assignments` band populated (Chen's was blank); transport-coal → `flows` band; gold + JADE → both. Every model's band reflects the **saved lens**, not the solve-time value; schema versions bumped. No test requests an entity a model's `outputGrids` doesn't declare.
 4c. Row sources preserved (fifth-review #5): JADE assignment rows still come from `details.assignments` (product-level) with its **display-label** band string; generic rows keep numeric index + `-1`; both produced by the same shared `assignBandOrOverflow`. Per-model export fixtures.
-4d. **Self-describing v3 artifacts (sixth-review #3, seventh-review #2/#4):** every band-bearing CSV *and* JSON carries `template_version` + `distance_unit`/`unit` **in the emitted artifact**, not merely on an intermediate row object — asserted against the locked v3 header/JSON-row table for generic assignments/flows, **JADE assignments/flows**, and `serviceStats`, at `unit=km` and `unit=mi`. JADE flows specifically gains `distanceUnit` (absent today). JSON rows carry **neither** `templateVersion` nor `distanceUnit` (envelope-only); CSV rows carry both as columns. `band` is non-null in every v3 schema.
+4d. **Self-describing v3 artifacts (sixth-review #3, seventh-review #2/#4, eighth-review #4):** every band-bearing CSV *and* JSON carries `template_version` + `distance_unit`/`unit` **in the emitted artifact**, not merely on an intermediate row object — asserted against the locked v3 header/JSON-row table for generic assignments/flows, **JADE assignments/flows**, and `serviceStats`, at `unit=km` and `unit=mi`. JADE flows specifically gains `distanceUnit` (absent today). JSON rows carry **neither** `templateVersion` nor `distanceUnit` (envelope-only) — including `costSummary`, whose builder row carries both today; CSV rows carry both as columns. `band` is non-null in every v3 schema. **JADE flow `leg` is asserted as the closed enum** `"plant_to_warehouse" | "warehouse_to_customer"`.
 5. Add-band rejects `≤0` and duplicates; strictly-ascending preserved.
 6. API preserves supplied valid bands (no overwrite); derives `[high,max]` only when omitted; rejects unordered/non-unique/empty and `maxDistKm ≤ highServiceDistKm` at the boundary; manifest `minItems:1` tests updated.
 7. Live coverage: editing the band-lens recolors current + historical stepped results and updates `ServiceStatsTab` without re-solve (**cumulative + overflow**, `≤band` labels + `Overflow` row); stepping history does not change the active lens. Field-scoped Save, tested in **both orders** (step history → edit → Save, **and** edit → step history → Save): all latest non-band values preserved, scenario non-stale, PATCH body contains **only** `distanceBands`. Both-dirty (lens + ordinary inputs) takes the whole-inputs path. Export via `unit=` reflects saved bands.
 7d. **Part G endpoint** — `PATCH /scenarios/:id/distance-bands`: only `distanceBands` changes (every other `inputs` key byte-identical after a concurrent write to one of them, proving the `jsonb_set` atomicity); 404 non-owned/missing; 400 invalid or missing body and model-invalid array; `stale` unchanged; returned Scenario reflects new bands.
-7e. **History read-only + both-dirty merge (sixth-review #2, seventh-review #1)** — seed a scenario whose latest inputs differ from an older entry in **at least two** non-band values. (a) While a historical entry is selected: ordinary input editors and Save are **disabled**; the band-lens editor is not; a lens Save there sends a body containing **only** `distanceBands` and leaves **both** differing latest non-band values untouched. (b) On the latest entry, lens + one ordinary edit → Save takes the **whole-inputs** route and persists the ordinary edit **and** the active lens, with the other latest non-band value preserved and staleness following the ordinary-input change.
+7e. **History action matrix (sixth-review #2, seventh-review #1, eighth-review #1/#3)** — seed a scenario whose latest inputs differ from an older entry in **at least two** non-band values. Assert the **control's enabled state AND which mutation hook/route fires**, not only the request body:
+   (a) historical + nothing dirty → Save **disabled**, Run Optimizer **disabled**, Save-as-scenario enabled.
+   (b) historical + lens dirty → Save **enabled** and labelled **"Save bands"**, fires the **field-scoped** `PATCH /scenarios/:id/distance-bands` and **never** the whole-input PATCH; both differing latest non-band values untouched; ordinary editors still disabled.
+   (c) historical + programmatic `handleSolve()` → **rejected** (defense-in-depth); no PATCH and no `POST /solve` fires.
+   (d) step forward to latest → Run Optimizer **re-enabled**.
+   (e) latest + lens dirty only → **field-scoped** PATCH.
+   (f) latest + one ordinary edit (± lens dirty) → **whole-input** PATCH with `activeBandLens` merged last; ordinary edit and active lens both persisted, the other latest non-band value preserved, staleness follows the ordinary-input change.
+   (g) a lens edit alone never sets the generic `isDirty` that drives save-before-solve.
+7g. **Save as scenario uses the active draft lens (eighth-review #3)** — step to an older entry, change the live lens without saving, then Save as scenario: the created scenario's `inputs` are `{ ...entry.inputs, distanceBands: activeBandLens }` — the on-screen lens, never the entry's stale band array; every other value comes from the entry.
 7f. **Run-id integrity (sixth-review #5)** — successful solve and cache-hit each commit job + scenario in one transaction; a forced mid-transaction failure writes **neither**; deleting a solved scenario still 204→404 with the FK in place; a solve completing after its scenario was deleted is a 0-row no-op; `ON DELETE SET NULL` leaves `resultRunId` null (entry becomes non-exportable, never dangling).
 7b. **Coverage parity fixtures** — the shared `lib/units` helper produces identical rows frontend and backend for: single-echelon, two-echelon (outbound-leg filter only), zero flow, an edge exactly equal to a boundary, overflow present, overflow absent (row omitted), under both `km` and `mi`.
 7c. **Run-addressed export (Part F)** — step to an older result → export → file matches the displayed tab, not the latest; cross-user `runId` → 404; cross-scenario `runId` → 404; stale scenario + explicit `runId` → 200; legacy `result = null` job row → 422; omitted `runId` → unchanged latest-result behavior.
@@ -320,7 +353,7 @@ A lens-only save must be atomic at the **database**, not merely field-scoped at 
 13. Objective contract — the **shared `lib/units` mapping**, exercised from **both** runtimes (studio + api-server call the same pure function; a backend-only second mapping would fail this test): all six models under both display units — p-median-us/brazil demand-distance (convert), transport-coal flow-distance (convert), two-echelon-gold truckload-distance (convert), jade monetary (no convert), Chen coverage % (no convert) / min-distance demand-distance (convert).
 14. Export/import: server `unit=` round-trip within tolerance (export display @4dp → import → canonical, abs ≤ 0.001 / rel ≤ 1e-5, repeated cycles); **different-but-known** unit (mi file → km model) accepted+converted; **mixed** units/versions rejected (`format`); **unknown** unit rejected (`format`); old v1 unitless imports as canonical; global `TEMPLATE_VERSION` unchanged; blank-stub carries unit+version; `laneCosts` v2 keeps its `cost` column; `unit=` omitted → canonical (default).
 14b. **`unit=` is universal** — the client appends it on every entity; an invalid value → **400 for any entity** (distance-bearing or not); a valid value on a non-distance entity (`warehouses`/`customers`/`mines`/`stations`/`refineries`/`plants`/`plantCapabilities`/`openWarehouses`) yields **byte-identical** output to omitting it.
-15. Output exports (`assignments`/`costSummary`/`serviceStats`/`flows`) convert under `unit=`: `flows` neutral `distance`+`unit` (no `distance_mi`), `costSummary` objective converts per the six-model contract (+ `weightedAvgDistance` unit), `serviceStats` cumulative+overflow rows under the requested unit. **Versions match the v3 matrix exactly** — every changed entity emits `3` in its CSV rows, JSON envelope, and OpenAPI example; `openWarehouses` still emits `1`; the importable entities still emit `DISTANCE_TEMPLATE_VERSION = 2`; the global input `TEMPLATE_VERSION` is still `1`.
+15. Output exports (`assignments`/`costSummary`/`serviceStats`/`flows`) convert under `unit=`: `flows` neutral `distance`+`unit` (no `distance_mi`), `costSummary` objective converts per the six-model contract (+ `weightedAvgDistance` unit), `serviceStats` cumulative+overflow rows under the requested unit. **Versions match the v3 matrix exactly** — every changed entity emits `3` in its CSV rows, JSON envelope, and OpenAPI example; `openWarehouses` still emits `1`; the importable entities still emit `DISTANCE_TEMPLATE_VERSION = 2`; the global input `TEMPLATE_VERSION` is still `1`. **`costSummary`'s v3 CSV header and JSON row are pinned** (eighth-review #4), with fixtures for Chen coverage (percent, no convert), Chen min-distance (converts), JADE monetary (no convert), and one plain converting distance objective.
 16. Solver/accuracy unaffected: `e2e_accuracy.py` 99/99 unmodified; solver pytest green; default Chen scenario still 66.0639%.
 
 ## Verification gate
@@ -382,6 +415,14 @@ A lens-only save must be atomic at the **database**, not merely field-scoped at 
 2. **v2 bump was not a bump** (BLOCKER) — `OUTPUT_TEMPLATE_VERSION` already ships as **2**, and generic `flows` sits on `TEMPLATE_VERSION = 1` (`templates.ts:17-24`), so the round-6 table labelled already-shipped contracts v2 while demanding a bump. Locked an explicit **old→new matrix**: `OUTPUT_TEMPLATE_VERSION: 2 → 3` for assignments/flows/costSummary/serviceStats/JADE artifacts, with generic `flows` moving onto that constant (v1 → v3, skipping 2); `openWarehouses` unchanged at 1; importable entities keep `DISTANCE_TEMPLATE_VERSION = 2`; input `TEMPLATE_VERSION` stays 1. CSV rows, JSON envelopes, OpenAPI examples, and fixtures all read 3. **Part E version matrix**, test 15.
 3. **Decision 1b still said exports derive from `edges`** (HIGH) — my leftover, the same defect the fifth and sixth reviews removed elsewhere. Replaced with the normative per-model rule (apply `assignBandOrOverflow` to each authoritative builder row's own canonical distance, saved lens); `edges` is retained only where it genuinely is the source — live Service Stats coverage and the generic builders. **Decision 1b.**
 4. **JSON row schemas were ellipses** (MEDIUM) — replaced with **exact camelCase row shapes** for generic assignments, generic flows, JADE assignments, JADE flows, and `serviceStats`, plus an explicit placement rule: **CSV carries `template_version` + `distance_unit` as per-row columns; JSON carries `templateVersion` + `unit` on the envelope only, never repeated on rows** (matching the already-locked input-file rule). That makes the JSON row types distinct from the builder row objects. `band` is **non-null** in every v3 schema; numeric `-1` for generic/`serviceStats`, display-label string for JADE. Mirrored in OpenAPI + fixtures for CSV and JSON at both units. **Part E**, test 4d.
+
+---
+
+## Eighth Approval-Review Resolutions (eighth-review #1–#4)
+1. **Save both disabled and required** (BLOCKER) — correct: one control cannot be disabled *and* fire the field-scoped PATCH. Separated the **whole-input save path** (disabled in history) from the **Save control** (enabled there precisely when the lens is dirty, labelled **"Save bands"**), and locked a full **history action matrix** covering Save / Run Optimizer / Save-as-scenario across every history+dirty state. Tests now assert the control's enabled state and **which hook/route fires**, not just the body. **Decision 1h + Part A matrix**, test 7e.
+2. **`serviceStats.band` is a boundary, not an index** (BLOCKER) — verified: `computeCumulativeBandCoverage` emits one row per **actual boundary value** via `sorted.map((band) => …)` (`bands.ts:129-141`), with `-1` only for overflow — which is also why Part E rightly requires those boundaries to follow `unit=`. Locked **three distinct representations** (generic index / JADE label / serviceStats converted boundary), each asserted in its own scoped test, plus a fixture whose boundary visibly differs between `km` and `mi` while overflow stays `-1`. Added the rule that **classification runs on canonical values before 4-decimal serialization**, so rounding can never move a near-boundary row. **Part E**, tests 4/4a/4e/4d/15.
+3. **Run Optimizer + Save as scenario in history** (HIGH) — both real. `POST /solve` is bodyless and solves *persisted* inputs (`Workspace.tsx:2351-2360`) while `handleSolve`'s save-before-solve branch whole-input PATCHes on `isDirty` — which would reinstate the clobber 1h removes. Locked: **Run Optimizer disabled at an older index**, plus a **`handleSolve` guard** rejecting a historical position even when called programmatically, and **lens dirtiness never feeds the generic `isDirty`**. `Save as scenario` (which clones `entry.inputs` verbatim today, `Workspace.tsx:2513-2517`) now builds **`{ ...entry.inputs, distanceBands: activeBandLens }`** — the **active draft** lens, because the action means "clone what I'm looking at". **Part A matrix**, tests 7e(c)(d)(g), 7g.
+4. **v3 inventory gaps** (MEDIUM) — added **`costSummary`** to the exact-v3 table (CSV header + envelope + exact camelCase row with nullability for `objective`/`objectiveMode`/`weightedAvgDistance`/`runTimeSec`), stated that its JSON row drops `templateVersion`/`distanceUnit` under the envelope-only rule, constrained **JADE flow `leg`** to the closed enum `"plant_to_warehouse" | "warehouse_to_customer"`, and fixed the stale wording ("Locked v2 contracts" → v3; "matrix above" → "below"). Fixtures extended to all six artifacts and to the four objective cases. **Part E**, tests 4d/15.
 
 ---
 
@@ -1238,4 +1279,123 @@ the revised locked decisions and required tests, the current Workspace history n
 `OUTPUT_TEMPLATE_VERSION` and output serializers, the Scenario export route, and solve-job/scenario
 persistence behavior. The worktree was clean before these review comments were added. Ran
 `git diff --check 08a7a5c..19dba0b`; it passed. No implementation code or tests were changed or run during
+this document review.
+
+---
+
+## Appendix — Eighth approval-review comments (2026-09-20, verbatim; all resolved above)
+
+**Review verdict:** Not approved yet. The seventh-round revision resolves the previous stale-input merge,
+output-version, top-level row-source, and primary JSON-row findings in direction, but the new history
+read-only contract is internally impossible as written and the v3 Service Stats contract assigns the wrong
+meaning to `band`. One additional history-action gap and one v3 schema-completeness gap remain.
+
+### 1. BLOCKER — historical Save is both disabled and required
+
+Decision 1h and Part A say that while a historical entry is selected, ordinary input editors **and Save**
+are disabled. The same clauses and required tests 7/7e say that the lens remains editable and that a lens
+Save from that historical position invokes `PATCH /scenarios/:id/distance-bands`. With a single shared Save
+control today, both statements cannot be implemented literally: a disabled Save cannot initiate the
+required field-scoped save.
+
+Correction: distinguish the **whole-input save path** from the Save control itself and lock the control
+matrix. For example:
+
+- historical + no lens change → Save disabled;
+- historical + `lensDirty` → Save enabled, labelled `Save bands` if useful, and invokes **only** the
+  field-scoped distance-bands PATCH;
+- historical → the whole-input PATCH is unreachable regardless of `localInputs`/`savedInputsRef` state;
+- latest + lens-only dirty → field-scoped PATCH;
+- latest + ordinary dirty (with or without lens dirty) → whole-input PATCH, with `activeBandLens` merged
+  last.
+
+Alternatively add a separate historical `Save bands` action. Update decision 1h, Part A, and tests 7/7e so
+they no longer call the same action both disabled and successful. Tests must assert the actual control's
+enabled state and which mutation hook/route fires, not only the resulting request body.
+
+### 2. BLOCKER — Service Stats `band` is a distance boundary, not a band index
+
+The new exact-v3 section says that "generic + `serviceStats` use the numeric index with `-1` = overflow."
+That is true for generic assignment/flow rows, but false for Service Stats. The existing
+`computeCumulativeBandCoverage` returns one row for each actual boundary value—for example
+`{band: 200, percent: ...}`, `{band: 400, percent: ...}`—and only uses `-1` for overflow
+(`artifacts/studio/src/lib/bands.ts:125-142`). Part E also correctly requires Service Stats boundaries to
+follow `unit=`, which would make no sense for an index.
+
+Correction: lock three distinct representations:
+
+- generic assignment/flow `band`: zero-based numeric index, or `-1` overflow;
+- JADE assignment/flow `band`: `"Band N"` or `"Overflow"`;
+- Service Stats `band`: the **distance boundary converted to the requested unit**, or `-1` overflow.
+
+Update the v3 table, OpenAPI descriptions/examples, and tests 4/4a/4d/15. Add a Service Stats fixture whose
+canonical boundary visibly changes under `unit=km` versus `unit=mi`, while overflow remains exactly `-1`.
+Classification must occur from canonical distances/boundaries before output rounding so a near-boundary
+row cannot change buckets because of four-decimal serialization.
+
+### 3. HIGH — the historical action matrix omits Run Optimizer and Save as scenario
+
+The new rule says "history is for looking," but it covers only ordinary editors and Save. The existing
+`Run Optimizer` control remains enabled while viewing history. `POST /scenarios/:id/solve` has no input body
+and solves the latest persisted database inputs (`Workspace.tsx:2351-2360`), not the historical inputs on
+screen. The current save-before-solve branch also performs a whole-input PATCH whenever `isDirty`; if the
+new independent lens dirtiness participates in that flag, running from history could reintroduce the exact
+historical-blob clobber decision 1h is intended to eliminate.
+
+The existing `Save as scenario` action deliberately creates a scenario from the selected history entry's
+`entry.inputs` (`Workspace.tsx:2500-2525`). Because the live lens is now independent of history entries,
+that payload can carry stale bands even though the user sees the active lens.
+
+Correction: define every history-position action explicitly. Recommended:
+
+- disable `Run Optimizer` while an older entry is selected and direct the user to the existing
+  `Save as scenario` action when they want to rerun that snapshot; returning to the latest entry re-enables
+  Run;
+- make `handleSolve` defense-in-depth reject a historical position even if invoked programmatically, so
+  neither its save-before-solve nor direct-solve branch can run there; and
+- lock whether `Save as scenario` uses the active **saved** or active **draft** lens, then explicitly build
+  `{ ...entry.inputs, distanceBands: chosenLens }` so it never silently clones the entry's stale band array.
+
+Add UI and handler-level tests for historical Run, returning to latest, lens-dirty historical Run, and Save
+as scenario after changing the live lens.
+
+### 4. MEDIUM — the v3 schema inventory and wording remain incomplete
+
+The output version matrix moves `costSummary` from v2 to v3, and the placement rule says JSON version/unit
+are envelope-only, but the "Exact v3 contracts" table omits `costSummary`. Its exact projected JSON row is
+therefore unstated, including nullability for `objective`, `objectiveMode`, `weightedAvgDistance`, and
+`runTimeSec`. Test 15 checks its version and conversion but does not pin the new CSV/JSON projection.
+
+Correction:
+
+- add `costSummary` to the exact v3 table with its CSV header, JSON envelope, and exact camelCase row;
+- state that the JSON row omits `templateVersion`/`distanceUnit` under the envelope-only rule;
+- add CSV and JSON fixtures covering Chen coverage, Chen min-distance, JADE monetary, and one converting
+  distance objective; and
+- constrain JADE flow JSON `leg` to `"plant_to_warehouse" | "warehouse_to_customer"`, not unconstrained
+  `string`.
+
+Also change the stale sentence immediately before the version matrix from "Locked v2 contracts" to v3,
+and change "v3 matrix above" to "below" (or move the matrix above its reference). These are small edits,
+but the approved normative section should not simultaneously call the same output contract v2 and v3.
+
+### Validated as sound in this review
+
+- Historical ordinary-input editing is now prohibited, eliminating the whole-input stale-snapshot merge
+  when the control contract is made executable.
+- The output old→new matrix correctly bumps existing v2 outputs to v3 and deliberately moves generic flows
+  from v1 to v3 while leaving `openWarehouses` and input-template constants unchanged.
+- Decision 1b and Part E now consistently preserve per-model authoritative row sources.
+- Generic and JADE assignment/flow v3 JSON rows have explicit envelope-versus-row placement and non-null
+  band contracts.
+- The atomic field-scoped PATCH, run-addressed export/FK transaction, unit draft behavior, shared
+  conversion/objective authority, and per-manifest export scope remain coherent.
+
+### Eighth approval-review verification performed
+
+Reviewed the authoritative `chen-bands-units` branch at commit `59f8cdd` against all seventh-review
+findings, the revised history state/action contract, current Workspace Save/Run/Save-as handlers, the
+shared band helpers, v3 output matrix and exact schemas, current output serializers, and required tests.
+The worktree was clean before these review comments were added. Ran
+`git diff --check 19dba0b..59f8cdd`; it passed. No implementation code or tests were changed or run during
 this document review.
