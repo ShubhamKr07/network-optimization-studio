@@ -27,7 +27,9 @@ export interface EntityIdCellProps {
 
 export function EntityIdCell({ displayId, location }: EntityIdCellProps) {
   if (!location) {
-    return <>{displayId}</>;
+    // Bare-id fallback stays mono (matches the reference's mono id sub-label
+    // and the pre-bundle bare cells' `font-mono` — review Minor-3).
+    return <span className="font-mono">{displayId}</span>;
   }
   return (
     <div className="flex flex-col">
