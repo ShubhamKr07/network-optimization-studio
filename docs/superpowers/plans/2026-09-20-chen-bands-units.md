@@ -18,7 +18,7 @@ An in-flight **"workspace fixups 2"** bundle (planned on `main`, docs-only so fa
 
 **Pass 1 — NOW (zero frontend overlap):** T1, T2, T3, T3b, T5, T6, T7, T8, T9. All `lib/units`, `lib/db`, `artifacts/api-server`, `lib/api-spec`, and five `solvers/*/manifest.json` files. Fixups-2 touches none of them.
 
-**Pass 2 — DEFERRED until fixups-2 lands:** T1b, T4, T10, T11, T11b, T12, T13, T14, T14b, T15. Rebase onto the settled tree, **re-verify every line reference** (`SolveDialog.tsx:165-175`, `ServiceStatsTab.tsx:27-31`, `Workspace.tsx:2935/3311/3326/3357/3599`, `JadeBandEditor.tsx:87/89`, `JadeFlowsTab.tsx:136/210/218`) before dispatching, and reconcile the duplicated JADE-band decision.
+**Pass 2 — DEFERRED until fixups-2 lands:** T1b, T4, T10, T11, T11b, T12, T13, T14, T14b, T15, **plus the JADE half of T3b** (`jadeInputs.ts` `.int()` drop + `solvers/two-echelon-jade-us/manifest.json`). Rebase onto the settled tree, **re-verify every line reference** (`SolveDialog.tsx:165-175`, `ServiceStatsTab.tsx:27-31`, `Workspace.tsx:2935/3311/3326/3357/3599`, `JadeBandEditor.tsx:87/89`, `JadeFlowsTab.tsx:136/210/218`) before dispatching, and reconcile the duplicated JADE-band decision.
 
 > **T4 moved to Pass 2** despite being a Wave-0 task: it edits `OptimizationParametersTab.tsx` and `SolveDialog.tsx`, which fixups-2's INT task also owns.
 
@@ -852,8 +852,11 @@ git commit -m "[T3] Chen bands are free and preserved — stop the [high,max] ov
 ### Task 3b: Relax the sibling band schemas to positive numbers
 
 **Files:**
-- Modify: `artifacts/api-server/src/validation/inputs/pMedian.ts` (line ~90), `transportLp.ts` (~71), `twoEchelon.ts` (~99), `jadeInputs.ts` (~158-163)
-- Modify (exact paths, no globs): `solvers/p-median-us/manifest.json`, `solvers/p-median-brazil/manifest.json`, `solvers/transport-coal/manifest.json`, `solvers/two-echelon-gold-au/manifest.json`, `solvers/two-echelon-jade-us/manifest.json` — band items `"type": "integer"` → `"type": "number", "exclusiveMinimum": 0`
+- Modify: `artifacts/api-server/src/validation/inputs/pMedian.ts` (line ~90), `transportLp.ts` (~71), `twoEchelon.ts` (~99)
+- **`jadeInputs.ts` is DEFERRED to Pass 2** (see below)
+- Modify (exact paths, no globs): `solvers/p-median-us/manifest.json`, `solvers/p-median-brazil/manifest.json`, `solvers/transport-coal/manifest.json`, `solvers/two-echelon-gold-au/manifest.json` — band items `"type": "integer"` → `"type": "number", "exclusiveMinimum": 0`. **`solvers/two-echelon-jade-us/manifest.json` is deferred with the JADE validator.**
+
+> **JADE split out (amended 2026-09-20).** The concurrent **workspace-fixups-2** bundle's `[T4]` (`e6ca4ef`, already on `workspace-fixups-2-2026-09-20`) edits the very same `jadeInputs.ts` lines — it relaxed `.length(4)` → `.min(1)` while keeping `.int()`. Editing those lines here would produce a guaranteed merge conflict on identical hunks. So Pass 1 relaxes only the three non-JADE validators; **Pass 2 drops JADE's `.int()` on top of their landed change**, yielding the agreed union `z.array(z.number().positive()).min(1)` + strict ascent (spec decision 1j, amended). Pass 2 must verify their `.min(1)` is present before editing, and must NOT restore `.length(4)`.
 - Test: `artifacts/api-server/src/validation/inputs/__tests__/*.test.ts` (per model), `artifacts/api-server/src/registry/__tests__/registration.test.ts`
 
 **Spec status:** this task implements **spec decision 1j**, added to the design doc in `0faa98b`. The spec's Part G previously said JADE's integer rules were unchanged; that line is now amended, so plan and spec agree and the "spec wins" rule resolves cleanly (plan-review-5 #1).
@@ -882,15 +885,15 @@ it("still ACCEPTS duplicate / non-ascending arrays, exactly as before", () => {
 });
 
 // jadeInputs
-it("accepts four strictly-ascending POSITIVE NUMBERS (integrality dropped)", () => {
-  expect(() => jadeInputsSchema.parse({ ...base, distanceBands: [310.6856, 621.3712, 932.06, 1242.74] })).not.toThrow();
-});
-it("still requires EXACTLY four, strictly ascending", () => {});
+// DEFERRED TO PASS 2 (fixups-2 owns these lines right now):
+// it("accepts one-or-more strictly-ascending POSITIVE NUMBERS", ...)
+// it("still requires strict ascent; still rejects zero/negative", ...)
+// NOTE: do NOT assert "exactly four" — fixups-2 deliberately removed that.
 ```
 
 - [ ] **Step 2: Run — expect failure** (`pnpm --filter api-server test`): the non-integral cases throw today.
 
-- [ ] **Step 3: Implement** — drop `.int()` in the three array schemas **and change nothing else about them** (no new ordering/uniqueness refinement — see Step 1's note); in `jadeInputs.ts` change the message and predicate from "positive integers" to "positive numbers" while keeping `length === 4` and strict ascent. Update the five enumerated manifests' band-items type.
+- [ ] **Step 3: Implement** — drop `.int()` in the three array schemas **and change nothing else about them** (no new ordering/uniqueness refinement — see Step 1's note); **do not touch `jadeInputs.ts`** (Pass 2, on top of fixups-2's landed `.min(1)`). Update the four enumerated non-JADE manifests' band-items type.
 
 - [ ] **Step 4: Run — expect pass.** If a manifest-hash fixture pins an edited manifest, update that expected hash in this commit and note it in the body.
 
@@ -901,8 +904,7 @@ pnpm --filter api-server test && pnpm --filter @workspace/dataset-schema test
 git commit -m "[T3b] relax sibling distanceBands schemas to positive numbers (JADE keeps fixed-4 + strict ascent)" -- \
   artifacts/api-server/src/validation/inputs artifacts/api-server/src/registry \
   solvers/p-median-us/manifest.json solvers/p-median-brazil/manifest.json \
-  solvers/transport-coal/manifest.json solvers/two-echelon-gold-au/manifest.json \
-  solvers/two-echelon-jade-us/manifest.json
+  solvers/transport-coal/manifest.json solvers/two-echelon-gold-au/manifest.json
 ```
 
 ---
