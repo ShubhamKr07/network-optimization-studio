@@ -65,20 +65,32 @@ restored to the inline-section assertions).
   Open-WHs stacked pattern: `formatCityState(location.city, location.state)` primary + `displayId` mono
   below; bare `displayId` fallback when `location` is missing. **Canonical vs display id (Codex P2):**
   `entityId` is the canonical id used for the `locationById` LOOKUP; `displayId` is what the user SEES =
-  `displayCode ?? id` (the reference renders `displayCode ?? id`, and a scenario-added entity has an
-  internal `aw-…` canonical id but a user-chosen display code). Never show a raw `aw-…` uid. The same
-  canonical-lookup/display-value split applies to the marker tooltips (item 4).
+  `displayCode ?? id` (the reference renders `displayCode ?? id`). **Fallback contract (Codex round-2 P2 —
+  the "never a raw uid" absolute was impossible):** `displayCode` is intentionally OPTIONAL in the
+  persisted schemas, so a valid legacy added-row can lack one; the contract is therefore **"prefer
+  `displayCode`, fall back to the canonical `id` when absent."** A scenario-added row that HAS a display
+  code never shows its `aw-…` uid; a legacy row with no display code honestly shows its id (the only
+  available label) rather than blanking. Tests cover the missing-`displayCode` case, not only the
+  has-code case. The same canonical-lookup/display-value split applies to the marker tooltips (item 4).
 - **`>10` is an UPGRADE trigger, not a suppression rule (Codex P2).** Tables that ALREADY render
   location+id when data is available (`AssignmentsTab`, `FlowsTab`, `OpenWarehousesTab`,
   `CapabilityMatrixTab`, `ServiceStatsTab`, …) keep their rich cells at EVERY row count — do not regress
   them. `>10` only governs whether a currently **bare-id** table upgrades to the stacked cell. The
   threshold uses the **unfiltered physical row count** (not the post-filter count).
-- **Generic per-model location map (Codex P1).** Replace the JADE/Chen-specific maps with one
-  `buildLocationById(modelId, dataset, displayedInputs): Record<canonicalId,{city,state}>` in
-  `Workspace.tsx`, unioning ALL base entities (warehouses/customers/mines/stations/refineries/plants) with
-  the SOLVED-snapshot added entities (`displayedInputs.added*`), keyed by canonical id, **base wins on id
-  collision** (mirrors item-4 / the last bundle's plant projection). Wire it into every consuming table
-  across every model.
+- **Generic map with TWO snapshots — input-live vs output-solved (Codex round-2 P1).** Add ONE pure
+  helper `buildLocationById(modelId, dataset, inputs): Record<canonicalId,{city,state}>` (unions ALL base
+  entities warehouses/customers/mines/stations/refineries/plants with `inputs.added*`, keyed by canonical
+  id, **base wins on id collision**). Derive TWO maps in `Workspace.tsx`:
+  - `outputLocationById = buildLocationById(modelId, dataset, displayedInputs)` — for OUTPUT/report tables
+    (`OpenWarehousesTab`, `AssignmentsTab`, `FlowsTab`, `JadeAssignmentsTab`, `JadeFlowsTab`,
+    `ServiceStatsTab`, `CostSummaryTab`) — the solved snapshot, matching the rows they already render.
+  - `inputLocationById = buildLocationById(modelId, dataset, localInputs)` — for INPUT tables
+    (`DistancesTab`, `JadeDistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `CapabilityMatrixTab`) — the
+    EDITABLE draft, so an entity added/moved in the current unsaved draft shows its correct location
+    immediately (a `displayedInputs`-only map would leave it stale/missing until the next solve).
+  Each table stays on the SAME snapshot it already uses for its rows + display-code lookup. Regression
+  test: an unsaved input edit updates an input grid's location WITHOUT relabelling a previously-solved
+  output/history entry.
 - **Verified inventory (every consuming table):**
   - **Exempt — already have City/State columns:** input base tables `WarehouseTable` / `CustomerTable` /
     `MineTable` / `StationTable` — no change.
@@ -88,14 +100,20 @@ restored to the inline-section assertions).
     `ServiceStatsTab`, `LaneCostsTab`, **`LegDistancesTab`** (gold-au From/To, user-defined rows can
     exceed 10, currently bare ids — Codex P1, added to the inventory).
   - Tabs not yet receiving a location map (`JadeAssignmentsTab`, `JadeFlowsTab`, `ServiceStatsTab`,
-    `LaneCostsTab`, `LegDistancesTab`, and any non-JADE consumer) get the generic `buildLocationById`
-    output.
+    `LaneCostsTab`, `LegDistancesTab`, and any non-JADE consumer) get the appropriate map above.
+  - **Explicitly EXCLUDED — transient modal/preview tables (Codex round-2 P2):** `ImportDialog`'s "Changes"
+    preview table (raw CSV rows mid-validation, an `ID` column, no City/State, can exceed 10 rows) is NOT
+    in scope — its rows are un-persisted parse output with no scenario-entity identity to key a location
+    lookup on. Item 2 covers **persistent workspace input/output grids only**; transient preview tables
+    are out of scope. This makes the inventory literally complete.
 
-**DoD:** every listed table shows `City, State` above a mono display-id for each entity-ID cell (matching
-Open WHs) once eligible — already-rich tables stay rich at ALL row counts; a currently bare-id table
-upgrades when its unfiltered row count > 10; `LegDistancesTab` is covered; a lookup miss falls back to the
-bare display id (never blank, never a raw `aw-` uid); at least one previously-unwired **non-JADE** model
-(e.g. p-median `AssignmentsTab` or gold-au `LegDistancesTab`) is exercised in tests.
+**DoD:** every listed persistent grid shows `City, State` above a mono display-id for each entity-ID cell
+(matching Open WHs) once eligible — already-rich tables stay rich at ALL row counts; a currently bare-id
+table upgrades when its unfiltered row count > 10; input tables read `inputLocationById` (live), output
+tables read `outputLocationById` (solved snapshot); `LegDistancesTab` is covered; a lookup miss falls back
+to the display id (or the canonical id if no display code); the `ImportDialog` preview table is unchanged;
+at least one previously-unwired **non-JADE** model (e.g. p-median `AssignmentsTab` or gold-au
+`LegDistancesTab`) is exercised in tests.
 
 ---
 
@@ -128,29 +146,42 @@ no non-JADE input tab gains a filter; the `>10` gate and all filtering behavior 
 
 ## 4. Item 4 — map marker hover: Type + ID + City, State
 
-**TWO renderers, both must change (Codex P1):**
+**THREE marker sites, all must change (Codex round-1 + round-2 P1):**
 - **Output map** `NetworkMap.tsx` — warehouse markers show `{id} — {city}, {state}` (+ `(mine)`); plant
   `{id} — {city}, {state}`; customer `{city}, {state} · demand`. Type mostly absent; customer shows no id.
 - **Input map** `EntityMarkers.tsx` (used by `InputMapTab.tsx`) — verified: plant/warehouse/customer
-  tooltips render ONLY `{displayCode}` (`EntityMarkers.tsx:205/231/249`) — no type, no location. This
-  renderer was omitted from the first draft; it MUST be updated too, which means threading the model/role
-  label AND city/state into `EntityMarkers` (its `MapPlant`/`MapWarehouse`/`MapCustomer` rows carry
-  city/state from the dataset — confirm and use them; a role→type label is passed in from `InputMapTab`).
+  tooltips render ONLY `{displayCode}` (`EntityMarkers.tsx:205/231/249`) — no type, no location. Thread the
+  role label + city/state in (its `MapPlant`/`MapWarehouse`/`MapCustomer` rows carry city/state; a
+  role→type label comes from `InputMapTab`).
+- **Fixed gold-mine marker (Codex round-2 P1)** — verified: `InputMapTab.tsx` renders the gold-au fixed
+  mine as a bare `<Marker>` OUTSIDE `EntityMarkers` (lines ~197-204), tooltip `<displayCode> (mine, fixed)`.
+  It must get the same contract: `Mine · <displayId> · <City>, <State>`, keeping the useful `(fixed)`
+  qualifier as an extra suffix.
+- **Output-map display-code plumbing (Codex round-2 P1):** verified — `OutputMapTab`'s `effectiveDataset`
+  projection (`OutputMapTab.tsx:252`) maps added warehouses/customers to `{id, city, state, lat, lng}`,
+  **DROPPING `displayCode`**, so `NetworkMap` can't show a human display id for an added output marker.
+  `displayCode` MUST survive the `Workspace → OutputMapTab → NetworkMap` path (extend the projected row
+  type + the `EffectiveAddedWarehouse`/`EffectiveAddedCustomer` shapes to carry `displayCode`), or pass an
+  explicit canonical-id→display-id resolver into `NetworkMap`. Tests must include an added warehouse, an
+  added customer, and an added plant output marker (base-marker tests can't prove the uid stays hidden).
 
 **Change — every marker tooltip (both maps) reads `<Type> · <DisplayId> · <City>, <State>`** (approver-confirmed):
 - **Type label by role:** Warehouse → `Warehouse`; a `kind==="mine"` warehouse-role marker → `Mine`;
   gold-au facility → `Refinery`; JADE plant → `Plant`; transport station (customer-role marker in the
   transport model) → `Station`; every other customer marker → `Customer`. Derive from the marker branch +
   `kind` + `modelId`.
-- **DisplayId** = `displayCode ?? id` (item-2 canonical/display split — never a raw `aw-…` uid); customer
-  markers gain it (currently omitted).
+- **DisplayId** = `displayCode ?? id` (item-2 fallback contract: prefer display code, fall back to
+  canonical id when absent); customer markers gain it (currently omitted).
 - **City, State** via the shared `formatCityState` (so a missing state doesn't produce malformed
-  `City, ` text). Keep existing extras (demand, band, open-warehouse customer-count) after the location.
+  `City, ` text). Keep existing extras (demand, band, open-warehouse customer-count, `(fixed)`) after the
+  location.
 - Format `·`-separated, matching the existing tooltip style.
 
-**DoD:** hovering any marker (warehouse/mine/refinery/customer/station/plant) on BOTH the Input and Output
-map shows its type, its display id, and City, State (via `formatCityState`); existing extras preserved;
-tests cover both `NetworkMap` and `EntityMarkers` renderers.
+**DoD:** hovering ANY marker (warehouse/mine/refinery/customer/station/plant — including the gold-au fixed
+mine) on BOTH the Input and Output map shows its type, its display id, and City, State (via
+`formatCityState`); an added output marker with a display code shows that code (not its `aw-` uid);
+existing extras preserved; tests cover ALL THREE sites (`NetworkMap`, `EntityMarkers`, the InputMapTab
+fixed-mine `<Marker>`) plus added output markers.
 
 ---
 
@@ -235,12 +266,17 @@ and reject empty + descending.
   **already-rich** table (e.g. `AssignmentsTab`) keeps its rich cells at **≤10** rows (no regression); a
   **non-JADE** consumer (p-median `AssignmentsTab` or gold-au `LegDistancesTab`) resolves location from the
   generic `buildLocationById`; a scenario-added entity (canonical `aw-…` + display code) shows the display
-  code, resolves location by canonical id, and id-collision (added id == base id) resolves to the base.
+  code, resolves location by canonical id, and id-collision (added id == base id) resolves to the base; an
+  added row WITHOUT a display code shows its canonical id (missing-`displayCode` fallback); an **unsaved
+  input edit** updates an INPUT grid's location while a previously-solved OUTPUT/history entry is NOT
+  relabelled (input-live vs output-solved snapshot split); the `ImportDialog` preview table is unchanged.
 - **Item 3:** RTL that a JADE input tab renders the FilterMenu in the same header row as the Import/Export
   toolbar (single row), not a separate filter row; a non-JADE input tab renders NO FilterMenu (unchanged).
-- **Item 4:** RTL/unit for BOTH renderers — `NetworkMap` (output) AND `EntityMarkers` (input) — each
-  marker tooltip contains `<Type> · <displayId> · <City>, <State>` (warehouse, mine, refinery, customer,
-  station, plant), via `formatCityState` (missing state → no trailing comma).
+- **Item 4:** RTL/unit for ALL THREE marker sites — `NetworkMap` (output), `EntityMarkers` (input), and
+  the InputMapTab fixed-mine `<Marker>` — each tooltip contains `<Type> · <displayId> · <City>, <State>`
+  (warehouse, mine, refinery, customer, station, plant), via `formatCityState` (missing state → no
+  trailing comma); the fixed mine keeps `(fixed)`; an ADDED output marker (warehouse/customer/plant) with
+  a display code shows that code, not its `aw-` uid (proves the OutputMapTab→NetworkMap displayCode path).
 - **Item 5:** Landing/chapters test that the AL's Athletics card title has no "P-Median".
 - **Item 6:** `bandRangeLabel` unit — `Band 1: 0 mi - 250 mi`, mid bands, `Band N: > 1000 mi`, **km**
   (generic formatter), empty; plus a test that `bandLabel` (the CELL) is UNCHANGED (`Band N`/`Overflow`).
@@ -352,3 +388,70 @@ unless adding a Chen Distance Band filter is intentionally brought into scope.
 | P2 | `>10` should upgrade, not suppress | **Accepted.** §2: already-rich tables keep rich cells at ALL counts; `>10` (unfiltered physical count) only upgrades bare-id tables; ≤10 no-regression test added. |
 | P2 | Canonical id vs displayed id | **Accepted.** §2 `EntityIdCell{entityId, displayId=displayCode??id, location}`; lookup by canonical, show display; same for marker tooltips; added-entity + collision tests. |
 | P2 | Band label/unit contradictions | **Accepted.** §6: only FilterMenu options get ranges; cells stay `Band N`/`Overflow` (bandLabel untouched); no Chen filter UI (JADE-only) — km kept as a formatter unit test. |
+
+---
+
+## 13. Re-review comments — Codex (2026-09-20) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All 5 round-2 comments folded into §2/§4/§8; see §14. Retained for history. Original
+round-2 status was "changes requested".
+
+### [P1] Use separate live-input and solved-output location projections
+
+Section 2 defines one map from `displayedInputs` and wires it into every table. Output reports must use
+`displayedInputs`, but input tables such as Distances, Lane Costs, Jade Distances, and Leg Distances must
+use the editable `localInputs`; otherwise an entity added or moved in the current draft shows a stale or
+missing location until another solve. Define a pure helper accepting an arbitrary input snapshot, then
+derive at least `inputLocationById = buildLocationById(modelId, dataset, localInputs)` and
+`outputLocationById = buildLocationById(modelId, dataset, displayedInputs)`. Keep each table on the same
+snapshot it already uses for its rows and display-code lookup. Add a regression test proving that an
+unsaved input edit updates an input grid without relabelling a previously solved output/history entry.
+
+### [P1] Cover the fixed gold-mine marker in Item 4
+
+The two named renderers are not the complete input-marker inventory. The gold model's fixed mine is a
+third marker site rendered directly in `InputMapTab.tsx`, outside `EntityMarkers`; its current tooltip is
+`<displayCode> (mine, fixed)`. It would therefore fail the "every icon" DoD even after both named
+renderers change. Add this fixed marker to Item 4 and assert the same
+`Mine · <displayId> · <City>, <State>` contract while preserving the useful `fixed` qualifier as an extra.
+
+### [P1] Preserve display codes through the output-map projection
+
+`OutputMapTab`'s effective added-warehouse/customer types omit `displayCode`, and its effective-dataset
+projection currently retains only canonical id and coordinates. `NetworkMap` therefore cannot implement
+the required human-readable display ID for added output markers from its current props. Require
+`displayCode` to survive the `Workspace → OutputMapTab → NetworkMap` path, or pass an explicit
+canonical-id-to-display-id resolver. Include added warehouse, customer, and plant output-marker tests;
+base-marker tests alone cannot prove that opaque scenario-local ids remain hidden when a display code is
+available.
+
+### [P2] Resolve the impossible "never raw uid" fallback contract
+
+The spec defines `displayId = displayCode ?? id` while also requiring that a raw `aw-…` uid is never
+shown. Persisted schemas intentionally keep `displayCode` optional, so a valid legacy row can lack one;
+in that case the canonical id is the only available fallback. Either change the contract to "prefer
+`displayCode`, fall back to canonical id when absent," or define a deterministic backfill/synthetic-label
+strategy for legacy rows. Tests must cover the selected missing-display-code behavior rather than only a
+row that already has a display code.
+
+### [P2] Include or explicitly exclude the Import Preview Changes table
+
+The "verified inventory" is not literally every table. `ImportDialog` has a Changes table that can exceed
+ten rows, contains an `ID` column, and has no dedicated City/State columns. Either include it and define how
+preview rows resolve locations, or narrow Item 2's scope explicitly to persistent workspace input/output
+tables and identify transient modal/preview tables as out of scope. Leaving it implicit makes both the
+"Everywhere" requirement and the claimed complete inventory unverifiable.
+
+---
+
+## 14. Review resolution — round 2 (Codex, 2026-09-20)
+
+**Current status: RESOLVED — no open items.**
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | Separate live-input vs solved-output location maps | **Accepted.** §2: one pure `buildLocationById(modelId, dataset, inputs)` → `inputLocationById`(localInputs, for Distances/JadeDistances/LegDistances/LaneCosts/CapabilityMatrix) + `outputLocationById`(displayedInputs, for output reports); regression that an unsaved input edit doesn't relabel a solved output/history entry. |
+| P1 | Fixed gold-mine marker omitted from Item 4 | **Accepted.** Verified it's a bare `<Marker>` in `InputMapTab` outside `EntityMarkers`. §4 now has THREE marker sites; the fixed mine gets `Mine · <displayId> · <City>, <State>` + keeps `(fixed)`. |
+| P1 | Display codes dropped in the output-map projection | **Accepted.** Verified `OutputMapTab.tsx:252` drops `displayCode`. §4 requires it to survive Workspace→OutputMapTab→NetworkMap; added-warehouse/customer/plant output-marker tests. |
+| P2 | Impossible "never a raw uid" fallback | **Accepted.** §2 contract changed to "prefer `displayCode`, fall back to canonical id when absent" (legacy rows lack the optional code); missing-`displayCode` test. |
+| P2 | Import Preview Changes table unaddressed | **Accepted.** §2 explicitly EXCLUDES transient modal/preview tables (`ImportDialog` Changes) — Item 2 = persistent workspace grids only; inventory now literally complete. |
