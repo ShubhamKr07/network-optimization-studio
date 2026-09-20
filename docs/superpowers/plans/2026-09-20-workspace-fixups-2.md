@@ -7,8 +7,7 @@
 - **Controller pre-creates each task's worktree** (`git worktree add --lock <path> -b <task>-work <base-sha>`) and dispatches the agent WITHOUT `isolation`, pinned to that exact path. Each agent's FIRST Bash command is `cd <path>` + a `git rev-parse --abbrev-ref HEAD` sanity check (must equal `<task>-work`, else STOP). Never touch the controller's `jade-ch9` dir.
 - **Wave worktrees are cut from the INTEGRATED head of the prior wave, NOT the plan base (Codex plan-review P1).** The dependency graph (T9←T5, T10/T11←T3) means a Wave-2 worktree cut from `577086e` would LACK its Wave-1 prerequisites. So: run Wave 1 → controller cherry-picks all Wave-1 commits onto the bundle branch + gates → THEN provision Wave-2 worktrees from that post-Wave-1 tip → run Wave 2 → cherry-pick + gate → THEN provision INT's worktree from the post-Wave-2 tip → THEN QA's from the post-INT tip. Never pre-create all worktrees up front from the original base. (This is exactly the sequencing the last bundle used successfully.)
 - **Explicit-pathspec commits** (`git commit -m … -- <paths>`), `git status` before commit. Agents never push or edit `main`.
-- **Optional-props pattern** for per-commit-green: leaf tasks add new props optional-with-safe-default so their standalone commit typechecks; INT (sole `Workspace.tsx` writer) wires the real values.
-- **Transient typecheck-red between coupled tasks is acceptable** where a leaf removes something INT must re-wire (e.g. item 1/7) — leaf gates on studio tests + "no NEW typecheck errors beyond the known set"; INT closes them; final consolidated gate is fully green.
+- **Optional-props pattern for per-commit-green: EVERY integrated commit passes the zero-error controller gate (Codex plan-review-2 P2).** Leaf tasks add new props optional-with-safe-default, and defer any interface/branch deletion until its last caller is gone, so no task is ever intentionally typecheck-red. INT (sole `Workspace.tsx` writer) wires the real values. There is NO "transient-red / known-error-set" allowance — if a genuinely atomic caller/callee migration is ever needed, merge it as ONE integration unit rather than weakening the gate.
 - Docs merged to local `main` on creation; QA is a first-class task.
 
 ## File → task ownership (no overlaps)
@@ -88,16 +87,16 @@
 
 ## T8 — item 1 base-tab cleanup + item 3 filter-in-toolbar (input tabs) · leaf
 **Files:** `components/workspace/tabs/{Warehouses,Customers,Mines,Stations,Plants}Tab.tsx` + `components/tables/{Warehouse,Customer,Mine,Station}Table.tsx` (+ tests). Spec §1, §3.
-- **Item 1 — do NOT delete `showBaseTable`/`showAddedSection` here (Codex plan-review P1).** Before INT lands, `Workspace.tsx` STILL passes `showBaseTable={false}`/`showAddedSection={false}` at the Added-Entities call sites; deleting those props from the base-tab interfaces now would make T8's own `typecheck` gate RED (the pattern is "defer interface deletion until its final caller is removed"). So T8 leaves both props in place (optional, `showAddedSection` default `true` → the inline add-section renders by default = the "button within the tab", item 1). INT removes the `={false}` call-site overrides; the now-dead `showBaseTable` prop is removed in a **final controller cleanup commit AFTER INT** (a trivial base-tab edit once no caller passes it) — listed as a post-INT step, not T8's. T8's item-1 work is thus: confirm the inline add-section renders by default (no interface deletion).
+- **Item 1 — collapse the branches + rewrite the tests here; DELAY only the prop-declaration deletion (Codex plan-review-1 P1 + plan-review-2 P1).** T8 owns the base tabs AND their 5 test files, so T8 does the BEHAVIORAL cleanup now: collapse the `!showBaseTable` early-return + the `showAddedSection`-gate render branches so each base tab ALWAYS renders its base table + inline add-section (the permanent post-revert shape, spec §1), and rewrite the 5 base-tab tests' `showBaseTable={false}`/`showAddedSection={false}` cases into permanent inline-add assertions. **KEEP the two props as optional-but-now-unused declarations** (do not delete the declarations yet — `Workspace.tsx` still passes `={false}` until INT, and an optional unused prop stays typecheck-green; a deleted prop would 422 the compile). The dead declarations are removed in the POST-INT step once INT has dropped every caller. Net: T8's commit is fully green (studio tests + typecheck), the branches are gone, the tests assert the inline behavior, and only the vestigial optional prop lines remain for INT/POST-INT to sweep.
 - **Item 3 filter relocation:** move the FilterMenu from inside the inner table (`WarehouseTable.tsx:100` `flex justify-end mb-1.5` row) up to the base tab's toolbar row, so Import/Export + Filter share ONE `flex items-center justify-between` header row (toolbar left, Filter right). Lift the `useTableFilters`/`FilterMenu` mount (or expose via a render-prop/context) keeping the `>10` gate. **JADE-enabled tabs only** — do NOT enable filters for non-JADE (the `enableFilters` prop already gates this; unchanged).
 **Tests:** base tab renders its inline `+ Add …` section by default (item 1); a JADE-enabled input tab renders the FilterMenu in the same header row as the toolbar (single row), not a separate row; a non-JADE input tab renders NO FilterMenu (unchanged).
 **Gate:** typecheck + studio test green.
 
-## T9 — map-tab plumbing: fixed-mine marker + output displayCode (item 4) · needs T5
+## T9 — map-tab plumbing: fixed-mine marker + output display-id forwarding (item 4) · needs T5
 **Files:** `components/workspace/tabs/InputMapTab.tsx` + `components/workspace/tabs/OutputMapTab.tsx` (+ tests). Spec §4.
-- **InputMapTab:** the fixed gold-mine bare `<Marker>` (~lines 197-204) tooltip → `Mine · <displayId> · <City>, <State>` + keep `(fixed)`. Thread the role-type label + `modelId` (+ `displayIdById` if needed) into `EntityMarkers` (T5's new props).
-- **OutputMapTab:** extend `EffectiveAddedWarehouse`/`EffectiveAddedCustomer` + the `effectiveDataset` projection (`:249-252`) to CARRY `displayCode`; build a `displayIdById` (canonical→`displayCode ?? id`) from the effective added arrays + base, and pass it to `<NetworkMap displayIdById={…}>` (T5's new prop). (INT supplies the added arrays WITH `displayCode` from Workspace.)
-**Tests:** the fixed-mine tooltip shows `Mine · <displayId> · City, State (fixed)`; an added output warehouse/customer/plant marker shows its display code (not `aw-` uid) via the threaded `displayIdById`.
+- **InputMapTab:** the fixed gold-mine bare `<Marker>` (~lines 197-204) tooltip → `Mine · <displayId> · <City>, <State>` + keep `(fixed)`. Thread the role-type label + `modelId` (+ the `displayIdById` prop) into `EntityMarkers` (T5's new props). Forward whatever `displayIdById` INT hands this tab.
+- **OutputMapTab — FORWARD ONLY, single path (Codex plan-review-2 P1):** `OutputMapTab` does NOT build `displayIdById` itself (added PLANTS aren't in its effective added-warehouse/customer arrays — they arrive via the separate `plants` prop, so a self-built map would miss them and show a plant's `aw-` uid). Instead `OutputMapTab` takes a `displayIdById?: Record<string,string>` prop and FORWARDS it to `<NetworkMap displayIdById={…}>`. **INT builds the ONE map from `outputIdentityById` (which already covers warehouses + customers + plants) and passes it down.** No `effectiveDataset`/`displayCode` change is needed for the id (city/state already survive the projection; the human display id now comes from `displayIdById`).
+**Tests:** the fixed-mine tooltip shows `Mine · <displayId> · City, State (fixed)`; an added output warehouse, customer, AND **plant** marker each show their display code (not `aw-` uid) via the single `displayIdById` path (end-to-end through OutputMapTab→NetworkMap).
 **Gate:** studio test green; typecheck green (optional props from T5 must exist — Wave-2 ordering guarantees T5 landed).
 
 ## T10 — output report tables use EntityIdCell + identity (item 2) · needs T3
@@ -117,16 +116,18 @@
 **Files:** `pages/Workspace.tsx` (+ `Workspace.*.test.tsx`), DELETE `components/workspace/tabs/AddedEntitiesTab.tsx` + `__tests__/Workspace.AddedEntities.test.tsx`. Spec §1, §2, §4, §7.
 1. **Item 1 revert — complete enumeration (Codex plan-review P2):** remove the `added-entities` entry from every `inputEntriesForModel`; remove the `renderTabContent` `added-entities` branch; remove the dead `activeTab.entity === "added-entities"` **Save-placement/allowlist** condition; remove every base-tab `showAddedSection={false}`/`showBaseTable={false}` call-site override (base tabs default to the inline add-section); DELETE both `components/workspace/tabs/AddedEntitiesTab.tsx` AND `__tests__/AddedEntitiesTab.test.tsx` AND `__tests__/Workspace.AddedEntities.test.tsx`; update/remove the `Workspace.TabCoverage` matrix references to `added-entities`; restore base-tab call sites to the pre-last-bundle inline shape. **Finish with `rg "added-entities|AddedEntitiesTab" artifacts/studio/src` → expected: zero live references** (report the output).
 2. **Item 2 wiring:** build `outputIdentityById = buildEntityIdentityById(modelId, dataset, displayedInputs)` and `inputIdentityById = buildEntityIdentityById(modelId, dataset, localInputs)` (T3 helper). Pass `outputIdentityById` to the T10 output tables and `inputIdentityById` to the T11 input tables. (CostSummary compare resolves per-scenario internally — pass `scenarios`/`dataset` as it already does; no single-map prop for compare.)
-3. **Item 4 wiring:** pass `modelId` + `displayIdById` (canonical→display) into `NetworkMap` (via OutputMapTab) and `EntityMarkers`/fixed-mine (via InputMapTab); ensure the added arrays passed to `OutputMapTab` now CARRY `displayCode` (T9 extended the types).
+3. **Item 4 wiring — build the ONE display-id map (Codex plan-review-2 P1):** derive `displayIdById` (canonical→display) from `outputIdentityById` (`Object.fromEntries(entries.map([id,v]) => [id, v.displayId])`) — it covers warehouses, customers, AND plants in one map. Pass `modelId` + that single `displayIdById` into `NetworkMap` (via `OutputMapTab`, which only forwards it) and into `EntityMarkers`/the fixed-mine `<Marker>` (via `InputMapTab`). No `effectiveDataset`/`displayCode` extension is required.
 4. **Item 7 wiring:** remove the JADE band-validity gating on Save/Run in `Workspace.tsx` (the fixed-4 `onBandValidityChange` gate is gone — JADE now saves like every free-band model); stop passing the fixed-4 validity plumbing.
 **Tests (Workspace):** no `added-entities` sidebar entry for any model; each base tab shows its inline add-section; the identity maps reach the tables (input-live vs output-solved: an unsaved input edit updates an input grid WITHOUT relabelling a solved output/history entry); an added output marker shows its display code; JADE Save works with a 3/5-band scenario (no validity block).
 **Gate:** FULL — `pnpm run typecheck` 0 errors, `pnpm --filter studio test` green (documented CPU-contention flakes acceptable only if they pass isolated).
 
 ## POST-INT cleanup (controller, tiny) · after INT, before QA
-Once INT has removed every `showBaseTable`/`showAddedSection={false}` caller, remove the now-dead
-`showBaseTable` prop from the 5 base-tab interfaces + destructuring (a trivial base-tab edit — deferred from
-T8 per the "delete an interface only after its last caller is gone" rule). Optionally drop `showAddedSection`
-too if no caller remains. Controller does this directly on the bundle branch, then re-runs `pnpm run typecheck`.
+T8 already collapsed the render branches + rewrote the tests; the base tabs no longer READ
+`showBaseTable`/`showAddedSection` anywhere. So this step is purely deleting the now-vestigial optional prop
+DECLARATIONS + destructuring from the 5 base-tab interfaces (no branch or test change remains — those were
+T8's). Once INT has removed every `showBaseTable={false}`/`showAddedSection={false}` caller, delete the two
+optional prop lines. Controller does this directly on the bundle branch, then re-runs BOTH
+`pnpm run typecheck` AND `pnpm --filter studio test` (green).
 
 ## QA — real browser (qa-sdet) · last
 **File:** `artifacts/studio/e2e/workspace-fixups-2.spec.ts` (new). Spec §9. Serve the merged branch locally (api-server `DATABASE_URL=… PORT=3001`, studio `API_PROXY_TARGET=http://localhost:3001`), explicit `E2E_BASE_URL=http://127.0.0.1:<port>`, run TWICE green. Report product bugs to controller.
@@ -139,7 +140,7 @@ too if no caller remains. Controller does this directly on the bundle branch, th
 - JADE Run Optimizer shows the Ch3 chip editor; add a 5th band, Save, solve — no error; removing to one band leaves the last `×` disabled.
 
 ## Gate (controller, on merged state after each cherry-pick + final)
-`pnpm run typecheck` (0) + `pnpm --filter studio test` + `pnpm --filter api-server test` (T4). No `e2e_accuracy.py` (no solver/dataset change). Whole-branch review (independent fable lens) → merge to local `main`. Deploy held unless approved (frontend + one Zod line → `nos-studio` only; `nos-api` needs a redeploy for the jade schema change — surface at deploy time).
+`pnpm run typecheck` (0) + `pnpm --filter studio test` + `pnpm --filter api-server test` (T4) — every integrated commit passes zero-error typecheck (no transient-red allowance). No `e2e_accuracy.py` (no solver/dataset change). Whole-branch review (independent fable lens) → merge to local `main`. **Deploy impact (Codex plan-review-2 P2): BOTH services** — `nos-studio` (all frontend items) AND `nos-api` (T4's runtime `jadeInputs` validation change). Deploy held unless approved; when approved, redeploy both.
 
 ---
 
@@ -218,3 +219,65 @@ test cleanup incompletely and can leave both an obsolete unit test and dead Work
 | P2 | Direct `buildEntityIdentityById` unit matrix | **Accepted.** T3 adds a direct helper test matrix (every base+added family, `displayCode ?? id`, missing state, base-wins-collision) failing independently of rendering. |
 | P2 | Update the JADE refine message | **Accepted.** T4 changes the message to "one or more strictly-ascending positive integers" and asserts it in the descending-input test. |
 | P2 | Enumerate every Added Entities cleanup target | **Accepted.** INT lists both test files, the dead Save-placement condition, the tab-coverage matrix refs, and finishes with `rg "added-entities|AddedEntitiesTab"` = zero live references. |
+
+---
+
+## Re-review comments — Codex (2026-09-20) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All 4 round-2 comments folded into Process/T8/T9/INT/POST-INT/Gate; see the round-2
+resolution table below. Retained for history. Original round-2 status was "changes requested".
+
+### [P1] Complete the post-INT base-tab cleanup and run the affected tests
+
+The POST-INT step says to remove `showBaseTable` (and optionally `showAddedSection`) only from the five
+base-tab interfaces and destructuring. Those variables are also used by conditional render branches in
+each tab, so deleting only the prop declarations leaves either compile errors or obsolete branches. The
+existing `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, and `PlantsTab` tests also explicitly
+exercise `showBaseTable={false}` and `showAddedSection={false}`. The cleanup must remove/collapse the
+associated render branches and rewrite/remove those obsolete test cases in favor of permanent inline-add
+assertions, as required by spec section 1. Assign the five test files to this cleanup in the ownership map
+and run `pnpm --filter studio test` as well as `pnpm run typecheck`; typecheck alone does not prove the
+behavioral cleanup.
+
+### [P1] Define one output-map display-ID path that includes added plants
+
+T9 says `OutputMapTab` builds `displayIdById` from the effective added warehouse/customer arrays plus base
+data, while INT says it passes `displayIdById` through `OutputMapTab`. These are conflicting ownership/data-
+flow descriptions. More importantly, added plants are not in either effective added array: they arrive via
+the separate `plants` prop, with the current projection storing `displayCode ?? id` in `Plant.name`. A
+literal T9 implementation can therefore pass the warehouse/customer tests but still show an added plant's
+canonical uid, contrary to the listed added-plant test and spec section 4. Choose one explicit contract.
+The preferred approach is for INT to derive the canonical-id-to-display-id projection from
+`outputIdentityById`, pass it to `OutputMapTab`, and have `OutputMapTab` forward it to `NetworkMap`; this
+single path covers warehouses, customers, and plants. If T9 owns construction instead, it must explicitly
+include the `plants` prop (`name ?? id`) and document precedence/collision behavior. Make the added-plant
+test exercise the chosen end-to-end path.
+
+### [P2] Make the per-cherry-pick typecheck policy internally consistent
+
+Process currently permits transient typecheck-red leaf commits with a "known set" of errors, but the
+controller Gate requires `pnpm run typecheck` with zero errors after every cherry-pick. The revised T7/T8
+sequencing was specifically changed to keep leaf commits green, and no remaining task defines a concrete
+expected-error set. Remove the transient-red allowance and require every integrated commit to pass the
+zero-error controller gate. If a genuinely atomic caller/callee migration is later found, merge it as one
+integration unit rather than weakening the gate with an unspecified exception.
+
+### [P2] Correct the deployment impact statement
+
+The final Gate says the change is `nos-studio` only and then immediately says `nos-api` needs a redeploy.
+T4 changes runtime API validation, so the deployment note must state that both `nos-studio` and `nos-api`
+are affected when deployment is approved. Deployment may remain held pending approval, but the service
+scope must not be contradictory.
+
+---
+
+## Review resolution — round 2 (Codex plan review, 2026-09-20)
+
+**Current status: RESOLVED — no open items.**
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | Post-INT cleanup must collapse branches + rewrite tests, not just delete decls | **Accepted.** T8 (owns base tabs + their 5 tests) now collapses the `showBaseTable`/`showAddedSection` render branches AND rewrites the 5 tests to permanent inline-add assertions, keeping only vestigial optional prop decls; POST-INT deletes just the decls + runs studio test AND typecheck. |
+| P1 | One output-map display-id path incl. added plants | **Accepted.** Single path: INT builds `displayIdById` from `outputIdentityById` (covers warehouses+customers+**plants**); `OutputMapTab` only FORWARDS it to `NetworkMap`; no `effectiveDataset`/`displayCode` change. Added-plant marker tested end-to-end. |
+| P2 | Transient-red vs zero-error gate inconsistency | **Accepted.** Removed the transient-red allowance — every integrated commit passes the zero-error gate (no task is intentionally red after the round-1 folds); atomic caller/callee migrations merge as one unit if ever needed. |
+| P2 | Contradictory deploy scope | **Accepted.** Gate now states BOTH `nos-studio` (frontend) AND `nos-api` (T4 runtime validation) are affected; deploy held, redeploy both when approved. |
