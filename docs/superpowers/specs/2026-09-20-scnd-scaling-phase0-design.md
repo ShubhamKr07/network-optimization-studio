@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §16 findings resolved (Q10–Q16 answered 2026-09-21, see §17).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14 first split-map review; §15 Q4–Q9 resolutions; §16 post-resolution review; §17 Q10–Q16 decisions + destinations. The correctness successor (`2026-09-21-scnd-solver-result-contract-design.md`) is **approved to execute P0R.1 + P0R.2 only**; P0R.3/P0R.4 need a post-spike design update + review. Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §18 findings resolved (Q17–Q21 answered 2026-09-21, see §19).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18 successive reviews; §15/§17 prior resolutions; §19 records Q17–Q21 + destinations. The correctness successor is approved to execute **P0R.1 + P0R.2 fixture capture only**; P0R.2 parser tests depend on P0R.1; P0R.3/P0R.4 need a post-spike design update + review. Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -498,14 +498,14 @@ After these items are incorporated into §§0–10 and the contradictions are re
 The 2026-09-21 answers resolved the §12 blockers structurally rather than by inflating this one spec:
 
 - **Q1 = Split.** The correctness contract is genuinely small, verified, and independent; it ships as its own spec now. Reliability/restart-safety cannot be minimal (§12.2/3/4) — the full concurrency protocol lives in B2. Measurement is independent of the queue and gets its own spec feeding B2 sizing.
-- **Q2 = Restore the full parent guarantee** (all-JADE + sustained 2,500 unique cold-miss/hour). Sizing needs ~9–11 cores, which rules out Starter/Standard — but **not** vertical scaling per se (Render has ~16/32-CPU plans). Per §14.6/Q7, **compute topology is decided by measurement, not by core count**: the measurement spec compares high-core vertical vs one dedicated worker vs a horizontal fleet on SLO/headroom/restart/billing/idle-cost/complexity, then selects. Worker **isolation + B2 reliability remain mandatory regardless**, and B2 must land before any real cohort pilot. (Corrects the earlier "horizontal mandatory" wording.)
+- **Q2 = Restore the full parent guarantee** (all-JADE + sustained 2,500 unique cold-miss/hour). At the parent's initial numbers this is ~9 offered cores (13 s/solve) to ~11.8 (17 s/solve), i.e. ~12.9–16.9 cores at a 70% target. Per §18.5, **Render's web/worker plan ceiling is 12 CPU** (`12c-96g`; the 16/32-CPU tiers are Postgres, not compute) — so a single vertical instance **cannot be presumed** to meet the guaranteed load with headroom. Per §14.6/§16.5/Q7, **compute topology is decided by measurement, not by core count**: the measurement spec compares high-core vertical (≤12 CPU, a comparator only — not an assumed pass) vs one dedicated worker vs a horizontal fleet, using **current official plan IDs**, on SLO/headroom/restart/billing/idle-cost/complexity, then selects. Worker **isolation + B2 reliability remain mandatory regardless**; B2 must land before any real cohort pilot.
 - **Q3 = Publication guard** (stale-result CAS) is required, and since there is no near-term pilot on the current single instance, it lands in B2 with the rest of reliability.
 
 ### 13.1 Three successor specs
 
 | Spec | Scope | Status |
 |---|---|---|
-| **Correctness contract** — `2026-09-21-scnd-solver-result-contract-design.md` | Two-dimensional `solutionStatus`+`terminationReason`, CBC parser, versioned v1/v2 envelope, truthful expanded `status` projection, invariant matrix, lifecycle+cache/publish policy branch, frontend + read-time legacy compat, consumer migration, Q4 sacred-test correction. Tasks P0R.1–P0R.4. | Implementation-ready draft; **P0R.1 is a go/no-go spike gating P0R.3**. Ships standalone. |
+| **Correctness contract** — `2026-09-21-scnd-solver-result-contract-design.md` | Two-dimensional `solutionStatus`+`terminationReason`, CBC evidence parser, three schemas (raw-v2 / stored / normalized) + normalizer, per-model objective + canonical `achievedGap`, lifecycle+cache/publish branch, frontend, consumer migration, DEC-2026-09-21-01 sacred-test correction, `e2e_journey.py` repair. Tasks P0R.1–P0R.4. | **Approved to execute P0R.1 + P0R.2 fixture capture only. P0R.3/P0R.4 require a post-spike design update + approval review.** |
 | **Measurement + experiments** — TBD (`2026-09-2x-scnd-scaling-measurement-design.md`) | Benchmark harness + corpus (N≥30, provenance, raw-vs-aggregate schemas, per-process RSS), MIP-start-from-cache experiment (corrected construction), warm/persistent-worker experiment, Render candidate-plan matrix incl. gap=0 forced-open re-measurement, **and the Q7 compute-topology comparison (high-core vertical vs dedicated worker vs horizontal fleet)**. Feeds B2 sizing. | Needs its own brainstorm/spec pass. |
 | **B2 — durable isolated solver tier + pilot gate** — TBD (`2026-09-2x-scnd-scaling-b2-design.md`) | Full concurrency protocol (atomic CAS claim, ownership/lease, attempts/retry-exhaustion, graceful shutdown + process-group kill, version-aware recovery, readiness-on-recovery-failure), stale-result CAS publication guard, worker split, scheduler, **the measurement-selected compute topology** (high-core vertical / dedicated worker / horizontal fleet — Q7/§16.5, not pre-decided), single-flight/coalescing, retention/index/bounds, two-gate pilot authorization, four load profiles incl. sustained 2,500 cold-miss/3h, numeric SLOs + headroom, executable live-test runbook, cost outputs. **Worker isolation + reliability protocol mandatory regardless of topology.** | Needs its own brainstorm/spec pass. |
 
@@ -839,3 +839,184 @@ Once these items are closed, this file can be approved as the authoritative audi
 | **Q16** exact contract closure | Exact `quality` strings per pair, closed termination-reason enum, `achievedGap` formula, corrected 3-value `status`, `_envelope_compat.py` migration, named `legacyStatus`. | Correctness spec §2.2/§2.4/§2.5/§3 P0R.3. |
 
 Also applied from §16: 16.2 evidence-driven asserts (§3 P0R.4), 16.3 objective tolerance (§2.4), 16.4 three schemas (§2.6), 16.5 topology-neutral B2 (§13.1), 16.6 status downgrade (correctness header), 16.7 exact values + `_envelope_compat.py` (§2/§3). §16.7 factual corrections verified in-repo: `SolveResult.status` enum = `[optimal, infeasible, error]` (3 values); `_envelope_compat.py` `flatten_envelope` discards `terminationReason` and must be migrated. This ledger's §16 findings are now resolved; the correctness successor governs implementation (P0R.1/P0R.2 approved).
+
+---
+
+## 18. Validation of §17 for approval — unresolved findings and questions (2026-09-21)
+
+**Review disposition: REQUEST CHANGES.** The program split remains sound, the contracted 2,500 cold-miss/hour three-hour workload is retained, the B2 successor is now topology-neutral, and P0R.3/P0R.4 are correctly gated behind the CBC spike. However, §17 overstates resolution of Q10–Q16. The ledger is not yet approvable as the authoritative record.
+
+Current implementation authority is narrower than §17 states:
+
+| Scope | Approval |
+|---|---|
+| P0R.1 — CBC evidence spike | **Approved to begin.** |
+| P0R.2 — fixture collection | **Approved.** Fixtures may be captured independently; executable parser tests depend on P0R.1's parser/interface. |
+| P0R.3 — contract implementation | **Not approved.** |
+| P0R.4 — protected-test change + integration gate | **Not approved.** |
+| Measurement and B2 successors | **Not approved / still TBD.** |
+
+### 18.1 CRITICAL — DEC-2026-09-21-01 is not independently auditable
+
+Section 17 and the correctness successor assert that `DEC-2026-09-21-01` is explicit product-owner approval for changing sacred `e2e_accuracy.py`. The only repository evidence found is the same agent-coauthored commit that introduced the decision text. A decision asserting its own authorization is not independent proof of the human approval required by `CLAUDE.md` rule #2.
+
+Before P0R.4, provide one of:
+
+- a link/reference to an issue, PR comment, transcript, or other durable product-owner approval artifact; or
+- a new direct product-owner confirmation that identifies `DEC-2026-09-21-01`, the narrow evidence-driven status-assertion change, and the zero-golden-objective-change constraint.
+
+Until then, Q10 and `DEC-2026-09-21-01` remain **proposed**, not confirmed. This does not block P0R.1 or fixture capture, but it blocks P0R.4.
+
+### 18.2 CRITICAL — Q12's objective invariant is invalid for Chen coverage
+
+The correctness successor defines public `objective` as the existing app-canonical value, defines `incumbentObjective` as CBC's raw incumbent, and requires them to match within a global absolute/relative tolerance. This is not merely a rounding issue across all models: for Chen coverage the two values have different units.
+
+Verified current behavior:
+
+- `solve_chens` makes CBC maximize **covered demand** (`solve.py:1242–1244`);
+- the golden covered demand is `131645389` (`test_chens.py:55`);
+- the public objective is transformed to **coverage percentage**, `66.0639` (`solve.py:1278–1287`, `test_chens.py:56–57`).
+
+No numeric tolerance can make raw covered demand equal a percentage. The proposed invariant would reject every valid Chen coverage envelope.
+
+Required correction before P0R.3:
+
+- keep public `objective` as the existing model-specific presentation value so goldens remain unchanged;
+- use explicitly named raw solver-evidence fields such as `solverIncumbentObjective` and `solverBestBound`, or define a complete per-model/per-objective-mode transformation table;
+- do not impose a generic raw-to-public equality/tolerance invariant across unlike units;
+- define each model/mode's public-objective derivation and rounding exactly, rather than “computed/rounded exactly as today”;
+- compute solver gap from values in the solver's own objective space.
+
+### 18.3 HIGH — the stored-legacy schema and normalization call sites are not executable
+
+Existing historical envelopes are **unversioned**: the current `_envelope` does not emit `envelopeVersion`. Calling them “v1” does not make `envelopeVersion:1` present in stored JSON.
+
+The successor must distinguish:
+
+1. **raw unversioned legacy storage** — the shape already present in `scenarios.result` and possibly historical cache rows;
+2. **normalized v1 API/read view** — adds `envelopeVersion:1`, `solutionStatus:null`, `terminationReason:"unknown"`, `legacyUnverified:true`, and `legacyStatus`;
+3. **raw/new v2 solver and storage shape**.
+
+It must also name every normalization boundary. Today `toApiScenario()` returns `row.result` unchanged (`routes/scenarios.ts:131–153`). Require the normalizer on scenario list/get responses and any other API response that exposes stored results. For exports/templates, define whether normalized legacy data is accepted or rejected. For historical result-cache rows, explicitly choose normalization or intentional cache miss; do not leave cache behavior implicit.
+
+### 18.4 HIGH — §13.1 still contradicts Q15 and the document header
+
+The current header and correctness successor approve only P0R.1 plus fixture capture. Section 13.1 still calls the correctness successor an **“Implementation-ready draft”** and says it **“Ships standalone.”** That is the exact overstatement §16.6 required removing.
+
+Replace the §13.1 status cell with the current authority:
+
+> Approved to execute P0R.1 and contract-independent fixture capture only. P0R.3/P0R.4 require a post-spike design update and approval review.
+
+Until the split map itself is corrected, §17 cannot claim that Q15/§16.6 fully landed.
+
+### 18.5 HIGH — Render service-plan capacity premise is outdated
+
+Section 13 says Render has approximately 16/32-CPU service plans. Current official Render documentation (verified 2026-09-21) lists web-service plans up to **12 CPU**; larger 16/32-CPU entries belong to other products such as Render Postgres. Legacy plan names remain valid, but the candidate-plan ceiling used by this design is wrong.
+
+Authoritative references:
+
+- [Render compute plans](https://render.com/docs/compute-plans)
+- [Render scaling](https://render.com/docs/scaling)
+
+Capacity implication using the parent design's initial numbers:
+
+- at 13 seconds/solve and 2,500 cold misses/hour, offered load is about `9.03` cores and requires about `12.9` cores at a 70% utilization target;
+- at 17 seconds/solve, offered load is about `11.81` cores and requires about `16.9` cores at 70%;
+- therefore one 12-CPU web/worker instance cannot be presumed to meet the guaranteed load with the approved headroom.
+
+The topology-neutral comparison remains correct, but the measurement successor must use currently available service/worker plan IDs and treat single-instance vertical scaling as a comparator—not as an assumed passing option. Horizontal instances still use one common plan per service and are billed per running instance/time.
+
+### 18.6 HIGH — P0R.2 approval scope and fixture coverage are inconsistent
+
+The successor header approves “contract-independent P0R.2 fixture capture,” but P0R.2 itself says parser unit tests may proceed. Executable parser tests cannot precede P0R.1's parser interface and authoritative-record decision.
+
+Additionally, P0R.2 claims authority for node-limit classification but lists no node-limit fixture. Its fixture set also does not cover the allowed `interrupted` or `solver_error` branches. Before approving the complete P0R.2 task:
+
+- separate **fixture capture** (may proceed now) from **parser unit-test implementation** (after P0R.1);
+- create a coverage table for every allowed v2 `(solutionStatus, terminationReason)` pair;
+- add node-limit-with-incumbent and node-limit-without-incumbent evidence if CBC can emit both;
+- cover interrupted-with/without-incumbent and solver-error behavior, or explicitly remove unsupported pairs from the v2 contract;
+- reserve `unknown` for normalized legacy data only.
+
+### 18.7 HIGH — `achievedGap` still has two competing authorities
+
+The successor provides a formula and then says to prefer CBC's own reported gap when reliably parsed. That produces two potentially different values under one API field and does not satisfy Q16's “exact formula” claim.
+
+Choose one canonical `achievedGap` definition. Recommended:
+
+- retain parsed CBC-reported gap separately as raw solver evidence if available;
+- calculate public `achievedGap` from raw incumbent/bound in the solver-objective space using one documented formula;
+- define minimization/maximization handling, negative objectives, the near-zero denominator rule, clamping, and serialized precision;
+- verify the calculation against fixture values rather than silently switching sources.
+
+### 18.8 MEDIUM — Q8 is reopened inside the supposedly resolved successor
+
+Q8 selects a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper plus a per-solve temp directory. P0R.1 still says to prove either that wrapper **or** direct CBC invocation. A spike may discover that the selected approach is infeasible, but switching approaches should produce a recorded design update rather than silently reopening a locked decision.
+
+State the wrapper/temp-dir approach as the primary approved spike. Treat direct CBC invocation as a fallback requiring a documented P0R.1 no-go result and approval update.
+
+### 18.9 MEDIUM — consumer and verification gates remain incomplete
+
+The migration list does not explicitly assign the normalizer to `toApiScenario()` or enumerate the Python solver tests whose status assertions may change. P0R.4 also mentions the normal repository gate plus `e2e_accuracy.py`, but repository policy requires both standalone scripts after solver changes (`AGENTS.md:38`). `CLAUDE.md` simultaneously records that `e2e_journey.py` is currently non-runnable because it uses removed authentication.
+
+Before P0R.3/P0R.4 approval:
+
+- enumerate scenario list/get, exports/templates, result-cache reads, solve history, telemetry, smoke checks, and every direct Python consumer;
+- run/update all pytest-discovered solver tests affected by truthful status changes;
+- either repair `e2e_journey.py` or record an explicit, scoped gate exception with replacement coverage;
+- keep direct `e2e_accuracy.py` mandatory under the separately validated sacred-test authorization.
+
+### 18.10 Validated decisions retained
+
+The review confirms these parts and they should remain unchanged:
+
+- the correctness/measurement/B2 split is the right program structure;
+- the full 2,500 unique cold-miss/hour, three-hour contract remains the capacity case;
+- topology is selected after measurement; worker isolation and B2 reliability remain mandatory regardless;
+- P0R.1 is a genuine go/no-go gate for P0R.3;
+- requested gap does not determine achieved status;
+- raw solver validation must remain separate from legacy-read normalization;
+- error envelopes are never cached or published as successful scenario results;
+- measurement and B2 require their own complete specs and approval reviews.
+
+### 18.11 Decisions/questions required (Q17–Q21)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q17 — sacred-test approval evidence** | What independent artifact proves that the product owner authorized `DEC-2026-09-21-01`? | Link the durable approval artifact or obtain a new direct confirmation. Until then, mark the decision proposed and keep P0R.4 blocked. |
+| **Q18 — raw vs public objective semantics** | Must raw CBC objective metadata be comparable to the public model-specific objective? | No. Preserve the public objective; use explicitly named raw solver-objective fields and compute gap entirely in solver-objective space. Add a per-model/mode public-objective derivation table. |
+| **Q19 — unversioned legacy normalization** | How are existing unversioned stored rows represented, normalized, and exposed at each read boundary? | Define a raw unversioned legacy schema, a normalized v1 view, and explicit call sites including `toApiScenario`; choose cache miss or normalization for old cache rows. |
+| **Q20 — P0R.2 and verification scope** | Is all of P0R.2 approved before P0R.1, and how are missing termination pairs plus the broken `e2e_journey.py` gate handled? | Approve fixture capture only; implement tests after P0R.1; cover every retained pair; repair `e2e_journey.py` or approve a documented replacement gate. |
+| **Q21 — Render plan ceiling** | Which current Render web/worker plans form the vertical/dedicated/horizontal measurement matrix? | Use current official plan IDs and the 12-CPU single-instance ceiling; retain vertical as a comparator but require measured SLO/headroom before selecting it. |
+
+### 18.12 Approval checklist
+
+- [ ] Q17 provides auditable human authorization or reverts `DEC-2026-09-21-01` to proposed.
+- [ ] The objective contract supports Chen coverage's different raw/public units.
+- [ ] Public-objective derivation and rounding are exact per model/objective mode.
+- [ ] Stored unversioned legacy, normalized v1, and raw v2 shapes are distinct and wired to named read boundaries.
+- [ ] §13.1 no longer says the full correctness successor is implementation-ready.
+- [ ] Render plan claims and capacity arithmetic use current service/worker limits.
+- [ ] P0R.2 approval is limited to fixture capture until P0R.1 supplies the parser/interface.
+- [ ] Fixtures cover every retained v2 status/reason pair, including node-limit behavior.
+- [ ] `achievedGap` has one canonical definition and separate raw evidence where necessary.
+- [ ] Q8's fallback path requires a recorded spike/design decision.
+- [ ] Consumer migration names `toApiScenario` and all result-read/export/test boundaries.
+- [ ] The `e2e_journey.py` policy conflict is repaired or explicitly waived with replacement coverage.
+- [ ] A new approval review occurs before P0R.3/P0R.4.
+
+After these items are resolved, this file can be approved as the authoritative audit/split ledger. That approval still would not approve the measurement or B2 implementation specs.
+
+---
+
+## 19. §18 resolution — Q17–Q21 decisions (2026-09-21)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q17** DEC auditability | **Cite this session's approvals verbatim** — DEC-2026-09-21-01's durable artifact = the product owner's explicit in-session Q4 + Q10 selections (2026-09-21), recorded verbatim in the correctness spec header. | Correctness spec header, §4. |
+| **Q18** objective semantics | Public `objective` = model/mode-specific presentation value (unchanged, goldens preserved); raw CBC evidence in `solverIncumbentObjective`/`solverBestBound`; **no** raw↔public equality; per-model derivation table; gap computed in solver space. | Correctness spec §2.2/§2.4/§2.9. |
+| **Q19** unversioned legacy | Three shapes: raw **unversioned** stored / normalized v1 read view / raw v2; normalizer wired at named boundaries incl. `toApiScenario()`; old cache rows = **cache miss**, not normalized. | Correctness spec §2.6/§2.7/§3 P0R.3. |
+| **Q20** P0R.2 + verification | Approve **fixture capture only** now; parser tests after P0R.1; coverage table for every retained pair (node-limit/interrupted/solver-error or remove); **repair `e2e_journey.py`** (decision this session) + run both standalone scripts. | Correctness spec §3 P0R.2/P0R.4. |
+| **Q21** Render plan ceiling | **12-CPU** web/worker ceiling + current plan IDs; single-instance vertical is a measured comparator, not an assumed pass. | §13 corrected; measurement spec. |
+
+Also applied from §18: 18.2 Chen-coverage objective units (§2.9, verified — coverage % vs covered demand), 18.3 unversioned-legacy schemas + `toApiScenario` normalizer, 18.4 §13.1 status corrected, 18.5 12-CPU ceiling + capacity arithmetic, 18.6 P0R.2 split + pair coverage, 18.7 single canonical `achievedGap`, 18.8 P0R.1 wrapper primary / direct-CBC fallback, 18.9 consumer enumeration + `e2e_journey.py` repair (decided) + both standalone scripts. §18 findings resolved; the correctness successor governs implementation (P0R.1 + P0R.2 fixture capture approved).
