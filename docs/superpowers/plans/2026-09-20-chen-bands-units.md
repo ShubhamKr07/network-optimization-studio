@@ -39,7 +39,12 @@ Every task's requirements implicitly include these.
 - **Hard rule #5 — ownership is security-critical.** Every scenario-scoped query filters by authenticated `user_id`; non-owned or missing → **404, never 403**.
 - **Hard rule #6 — solver changes enter as data, not branches.** Not triggered — no solver change here.
 - **Hard rule #8 — trust the repo.** If the plan's quoted code no longer matches the file, make the smallest correct fix and note the deviation in the commit body.
-- **Branch discipline.** All work lands on the existing `chen-bands-units` branch (worktree `/private/tmp/chen-bands-units`). Never commit to `main`. In a shared worktree **always commit with an explicit pathspec**: `git commit -m "..." -- <paths>`, never bare.
+- **Branch discipline.** All work lands on the existing `chen-bands-units` branch (worktree `/private/tmp/chen-bands-units`). Never commit to `main`. **Commit rule (corrected 2026-09-20 after incident I1 — the earlier "always use a pathspec" rule was wrong and caused a cross-agent sweep).** `git commit -m "..." -- <paths>` commits the **working-tree content** of those paths and **bypasses the index entirely** — so `git add -p` staging is silently discarded, and any concurrent agent's edits sitting in the same file are swept into your commit. Correct procedure:
+> 1. `git add` / `git add -p` exactly what you want,
+> 2. verify with `git diff --cached`,
+> 3. `git commit -m "..."` with **NO pathspec**, so it uses the index alone.
+>
+> A pathspec is only safe when you are the sole writer of every named path AND the file has no concurrent edits. **Never run `git reset`/`rebase`/`stash`/`checkout <branch>` in a shared worktree** — incident I2: an agent ran `git reset HEAD~1` to undo its own commit, but another agent's commit had landed on top, so it destroyed the wrong one.
 - **Base guard (standing agent-team rule).** Before starting, every agent runs `git merge-base --is-ancestor <branch-tip> HEAD && echo BASE_OK`. If it fails, stop and report — do not rebase silently.
 - **Conversion constant:** `1 mi = 1.609344 km`, exactly, defined once in `@workspace/units`.
 - **`OVERFLOW_BAND = -1` is a categorical sentinel** — never a distance, never unit-converted, in any schema or runtime.

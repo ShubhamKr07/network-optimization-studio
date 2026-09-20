@@ -62,11 +62,15 @@ Status key: ✅ landed & gate-verified · 🔄 in flight · ⬜ queued · ⛔ bl
 
 | id | Incident | Impact | Resolution |
 |---|---|---|---|
-| **I1** | **Cross-file sweep.** T2's per-file pathspec commit captured T3's in-flight edits to the same `routes.test.ts`. A pathspec limits *which files* commit, not *whose changes* within them. | Content correct and tested; attribution wrong (T3's Chen band tests live in T2's commit). | Accepted — rewriting shared history would be more dangerous than the cosmetic mis-attribution. Both agents disclosed it. |
-| **I2** | **Destructive `git reset HEAD~1`** by an agent in the shared worktree. | Discarded controller commit `5199c20` (spec 1j amendment). | Detected via reflog; working tree matched the lost commit byte-for-byte; re-committed as `37ac980`. |
+| **I1** | **Cross-file sweep — root cause now known.** `git commit -m "..." -- <paths>` commits the **working-tree** content of those paths and **bypasses the index**. T2 correctly staged only its hunk with `git add -p` and verified via `git diff --cached`, then passed a pathspec — which discarded that staging and swept all 7 of T3's in-flight `routes.test.ts` hunks. | Content correct and tested; attribution wrong (T3's Chen band tests live in T2's commit `08d3388`). | Accepted — rewriting shared history with agents mid-flight is riskier than the cosmetic mis-attribution. **The plan's own "always use an explicit pathspec" rule was the cause and has been corrected.** |
+| **I2** | **Destructive `git reset HEAD~1`.** T2 ran it to undo its own over-broad commit from I1 — but a controller commit had landed on top in the interim, so `HEAD~1` destroyed *that* instead. T2's own commit survived, leaked hunks and all. | Discarded controller commit `5199c20` (spec 1j amendment). | Detected via reflog; working tree matched the lost commit byte-for-byte; re-committed as `37ac980`. |
 | **I3** | 2 transient api-server failures on a chained 4-suite run. | None. | Clean on isolated re-run (1015/1015). Matches this repo's documented `cors`/`resultEnvelope` CPU-contention flake class. Names not captured before the clean pass — called environmental on that basis, not a root-cause. |
 
-**Process change after I1+I2:** parallel dispatch into a shared worktree is **discontinued**. Explicit pathspecs are necessary but not sufficient — they do not protect same-file concurrent edits and do not prevent resets. T5 onward run **sequentially**, and every agent prompt now forbids `reset`/`rebase`/`stash`/`checkout <branch>` and bare commits.
+**Process change after I1+I2 (corrected):** parallel dispatch into a shared worktree is **discontinued**; T5 onward run **sequentially**. The commit rule is now the opposite of what the plan originally said:
+
+> Stage with `git add`/`git add -p` → verify with `git diff --cached` → `git commit` with **NO pathspec** (index-only). A pathspec re-reads the working tree and sweeps concurrent edits.
+
+Every agent prompt also forbids `reset` / `rebase` / `stash` / `checkout <branch>`.
 
 ## Deviations from the plan (accepted, hard rule #8)
 
