@@ -535,19 +535,23 @@ describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on ever
 });
 
 describe("Chen (chens-cosmetics-cn) — v1 distances export -> re-import round-trips unchanged", () => {
-  // Chen-bands-units bundle, T7 — blocked on T8 (services/import.ts, a
-  // separate sole-writer task not yet started; see
-  // docs/superpowers/plans/2026-09-20-chen-bands-units.md Task 8). T7
-  // (this task) changed `distances`' export contract to v2
-  // (DISTANCE_TEMPLATE_VERSION=2, `template_version,unit,from_id,to_id,
-  // distance` header) — import.ts's DISTANCES_COLUMNS still only recognizes
-  // the old v1 4-column header, so a genuine export->import round trip of a
-  // v2 file cannot pass until T8 lands (and, for Chen specifically, until
-  // T9 also threads Chen's real "km" canonical unit into
-  // applyDistanceOverrides — routes.ts still calls it with no unit arg,
-  // defaulting to "mi", so today's export would even carry the WRONG unit
-  // label for this model). This is a plan-anticipated sequencing gap, not a
-  // T7 regression — re-enable once T8 (+ T9's Chen unit wiring) land.
+  // Chen-bands-units bundle, T8 — import.ts (this task) now parses the v2
+  // header (DISTANCE_TEMPLATE_VERSION=2, `template_version,unit,from_id,
+  // to_id,distance`) and converts a file's declared unit to the model's
+  // real canonical unit via `fromDisplay`. That is NOT enough to make this
+  // specific round trip pass, though: `routes/scenarios.ts`'s export
+  // handler still calls `applyDistanceOverrides(inputs.distanceOverrides ??
+  // [])` with NO unit argument for every caller, including Chen's own
+  // export branch (`scenarios.ts` ~line 985) — it defaults to "mi", so
+  // Chen's exported CSV is mislabeled `unit=mi` even though the stored
+  // value is already canonical km. Importing that mislabeled file back
+  // would (correctly, given what the file SAYS) convert a real km value as
+  // if it were miles — producing a wrong, non-zero change, not the "zero
+  // changes" this test asserts. Threading each model's real canonical unit
+  // into `applyDistanceOverrides`'s call sites is `routes/scenarios.ts`
+  // work (T9's Wave, per this file's own earlier note and the task
+  // brief's explicit instruction not to half-implement T9 from within T8)
+  // — re-enable once T9 lands.
   it.skip("exporting a distanceOverride then re-importing it produces zero changes (Chen id space resolves both roles)", async () => {
     const cookie = await loginAs(OWNER);
     const rowWithOverride = { ...chensRow, inputs: { ...chensInputs, distanceOverrides: [{ fromId: "wh-15", toId: "cs-1", distance: 100 }] } };
@@ -625,11 +629,13 @@ describe("JADE (two-echelon-jade-us) — a sibling model's entity is rejected (4
 });
 
 describe("JADE (two-echelon-jade-us) — legDistances export/import round-trips both legs", () => {
-  // Chen-bands-units bundle, T7 — blocked on T8 (services/import.ts, see the
-  // Chen distances describe block's header comment above for the full
-  // reasoning: legDistances reuses the same v2 DISTANCES_COLUMNS header,
-  // which import.ts cannot parse until T8 lands). Not a T7 regression.
-  it.skip("a plant->warehouse override round-trips through export then import (preview, no DB write)", async () => {
+  // Chen-bands-units bundle, T8 — unlike Chen's own distances round trip
+  // (see that describe block's header comment above), JADE's canonical
+  // distanceUnit IS "mi" (its manifest), matching applyDistanceOverrides'
+  // unwired default of "mi" exactly — so this model's export label is
+  // already correct today, with no T9 dependency, and this test can be
+  // re-enabled by T8 alone.
+  it("a plant->warehouse override round-trips through export then import (preview, no DB write)", async () => {
     const cookie = await loginAs(OWNER);
     const rowWithOverride = { ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 123.4 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));
@@ -649,8 +655,9 @@ describe("JADE (two-echelon-jade-us) — legDistances export/import round-trips 
     }]);
   });
 
-  // Chen-bands-units bundle, T7 — blocked on T8, same reasoning as above.
-  it.skip("a warehouse->customer override round-trips through export then import", async () => {
+  // Chen-bands-units bundle, T8 — same reasoning as above (JADE's canonical
+  // unit already matches applyDistanceOverrides' default).
+  it("a warehouse->customer override round-trips through export then import", async () => {
     const cookie = await loginAs(OWNER);
     const rowWithOverride = { ...jadeRow, inputs: { ...jadeInputs, distanceOverrides: [{ leg: "warehouse_to_customer", fromId: "wh-1", toId: "customer-1", distance: 42.1 }] } };
     mockDb.select.mockReturnValueOnce(makeChain([rowWithOverride]));

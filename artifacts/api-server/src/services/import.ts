@@ -1,10 +1,18 @@
 import Papa from "papaparse";
 import { randomUUID } from "node:crypto";
-import { TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides, applyChensWarehouseOverrides, applyChensCustomerOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides, applyChensWarehouseOverrides, applyChensCustomerOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 import { BRAZIL_TOTAL_DEMAND } from "../data/brazilDataset.js";
 import { JADE_PRODUCTS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
 import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "./precheck.js";
+// T8 (Chen-bands-units bundle, Part E) — `fromDisplay` converts an imported
+// v2 file's value (in whatever unit the file declares) to the model's
+// canonical unit; `getManifest` (already used the same way by precheck.ts —
+// no new import pattern here) is how this file learns each model's
+// canonical unit without a hardcoded per-model table.
+import { fromDisplay } from "@workspace/units";
+import type { CanonicalUnit } from "@workspace/units";
+import { getManifest } from "../registry/modelRegistry.js";
 
 export type ImportErrorClass = "format" | "syntax" | "logic";
 
@@ -90,12 +98,25 @@ type SingleIdEntity = Exclude<ImportEntity, "distances" | "laneCosts" | "legDist
 // (parseDistancesRows/parseLaneCostRows/parseLegDistanceRows/
 // parsePlantCapabilityRows), not this file's generic per-row loop.
 const DISTANCES_COLUMNS = ["template_version", "from_id", "to_id", "distance"];
+// T8 — v2 header for the same entity: gains a `unit` column right after
+// `template_version` (Part E, locked column order). A file matching this
+// header is interpreted as v2 (unit-labeled); a file matching
+// DISTANCES_COLUMNS above is interpreted as v1 (unitless, canonical) —
+// both are accepted, never one superseding the other (backward compat).
+const DISTANCES_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "distance"];
+// The only two units this app knows about (`@workspace/units`'s
+// `CanonicalUnit`). A v2 file's `unit` column must be one of these, on
+// every row, uniformly — see checkUniformUnitAndVersion below.
+const KNOWN_UNITS = new Set<string>(["km", "mi"]);
 // Task 30 (B6.1 stage 4) — transport-coal's composite-keyed entity, the
 // laneCostOverrides analogue of p-median-us's distanceOverrides. Named
 // "cost" (not "distance"), matching stage 1-3's own established vocabulary
 // decision for this model (transportLp.ts's laneCostOverrideSchema) even
 // though the underlying values are the same kind of quantity.
 const LANE_COST_COLUMNS = ["template_version", "from_id", "to_id", "cost"];
+// T8 — v2 header for laneCosts, same shape/reasoning as DISTANCES_COLUMNS_V2
+// above (keeps the "cost" value-column name, per-entity vocabulary).
+const LANE_COST_COLUMNS_V2 = ["template_version", "unit", "from_id", "to_id", "cost"];
 // B6.2 stage 4 — two-echelon-gold-au's composite-keyed entity. Same 4-column
 // shape as DISTANCES_COLUMNS (this model's own vocabulary is "distance",
 // not "cost" — B6.2 stage 1's naming decision) — reuses DISTANCES_COLUMNS
@@ -375,28 +396,64 @@ export function parseAndValidateImport(
   }
 
   const rows = parsed.data;
-  const expectedColumns =
-    entity === "distances" ? DISTANCES_COLUMNS
-    : entity === "laneCosts" ? LANE_COST_COLUMNS
-    // B6.2 stage 4 — legDistances reuses DISTANCES_COLUMNS' identical header
-    // (this model's own vocabulary is "distance", not "cost"). jade-T7 —
-    // two-echelon-jade-us reuses the SAME entity string + header too (see
-    // this file's header comment on DISTANCES_COLUMNS).
-    : entity === "legDistances" ? DISTANCES_COLUMNS
-    // jade-T7 — plantCapabilities' own 4-column shape (plant_id/product_id/
-    // enabled, not from_id/to_id/distance).
-    : entity === "plantCapabilities" ? PLANT_CAPABILITY_COLUMNS
-    : COLUMNS[entity];
   const header = rows[0]?.map(h => h.trim()) ?? [];
-  const headerMatches = header.length === expectedColumns.length && expectedColumns.every((c, i) => header[i] === c);
-  if (!headerMatches) {
-    errors.push({
-      errorClass: "format",
-      line: 1,
-      message: `Expected columns "${expectedColumns.join(",")}", got "${header.join(",")}". Rows must be keyed by id, not city — city names are not unique.`,
-    });
-    return { errors, changes, warnings };
+
+  // T8 (Part E) — distances/laneCosts/legDistances now accept EITHER the v1
+  // (unitless, canonical-implied) header or the v2 (unit-labeled) header —
+  // v1 is never rejected/superseded, only v2 is newly recognized alongside
+  // it. `hasUnitColumn` selects which shape the composite-key parse*
+  // functions below treat this file as. Every other entity keeps the
+  // single-shape check unchanged.
+  const isDistanceLikeEntity = entity === "distances" || entity === "laneCosts" || entity === "legDistances";
+  let hasUnitColumn = false;
+  if (isDistanceLikeEntity) {
+    // B6.2 stage 4 / jade-T7 — legDistances reuses distances'/laneCosts'
+    // identical v1+v2 headers (see DISTANCES_COLUMNS's own header comment);
+    // laneCosts alone uses the `cost`-named columns.
+    const v1Columns = entity === "laneCosts" ? LANE_COST_COLUMNS : DISTANCES_COLUMNS;
+    const v2Columns = entity === "laneCosts" ? LANE_COST_COLUMNS_V2 : DISTANCES_COLUMNS_V2;
+    const matchesV1 = header.length === v1Columns.length && v1Columns.every((c, i) => header[i] === c);
+    const matchesV2 = header.length === v2Columns.length && v2Columns.every((c, i) => header[i] === c);
+    if (!matchesV1 && !matchesV2) {
+      errors.push({
+        errorClass: "format",
+        line: 1,
+        message: `Expected columns "${v1Columns.join(",")}" or "${v2Columns.join(",")}", got "${header.join(",")}". Rows must be keyed by id, not city — city names are not unique.`,
+      });
+      return { errors, changes, warnings };
+    }
+    hasUnitColumn = matchesV2;
+  } else {
+    const expectedColumns =
+      // jade-T7 — plantCapabilities' own 4-column shape (plant_id/
+      // product_id/enabled, not from_id/to_id/distance).
+      entity === "plantCapabilities" ? PLANT_CAPABILITY_COLUMNS
+      // `isDistanceLikeEntity` (a plain boolean, not a type guard) already
+      // excluded distances/laneCosts/legDistances above, so `entity` here is
+      // really a SingleIdEntity — TS just can't see that through the
+      // boolean flag the way the original single-ternary-chain narrowing
+      // could.
+      : COLUMNS[entity as SingleIdEntity];
+    const headerMatches = header.length === expectedColumns.length && expectedColumns.every((c, i) => header[i] === c);
+    if (!headerMatches) {
+      errors.push({
+        errorClass: "format",
+        line: 1,
+        message: `Expected columns "${expectedColumns.join(",")}", got "${header.join(",")}". Rows must be keyed by id, not city — city names are not unique.`,
+      });
+      return { errors, changes, warnings };
+    }
   }
+
+  // T8 — this scenario's model's canonical distance unit (Part E: "storage
+  // is always canonical"). Looked up from the model registry (the same
+  // source `routes/scenarios.ts`'s export handler already reads
+  // `manifest.distanceUnit` from — precheck.ts's CHENS_DATASET already
+  // imports `getManifest` the same way) rather than a hardcoded per-model
+  // table, so a future model's manifest is the single source of truth.
+  // Defaults to "mi" matching every existing caller's implicit assumption
+  // (and modelRegistry's own `?? "mi"` default at the public boundary).
+  const canonicalUnit: CanonicalUnit = (getManifest(modelId)?.distanceUnit as CanonicalUnit | undefined) ?? "mi";
 
   // distances is composite-keyed (from_id,to_id) and has no baseline
   // "current override list" to diff unknown-ness against (a scenario's
@@ -418,7 +475,7 @@ export function parseAndValidateImport(
     // p-median-us's, same disambiguation p-median-brazil already needs.
     const distancesDataset = modelId === "p-median-brazil" ? BRAZIL_DATASET : modelId === "chens-cosmetics-cn" ? CHENS_DATASET : undefined;
     const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(currentOverrides, distancesDataset);
-    const distanceResult = parseDistancesRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], warehouseIdSpace, customerIdSpace);
+    const distanceResult = parseDistancesRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], warehouseIdSpace, customerIdSpace, hasUnitColumn, canonicalUnit);
     return { errors: distanceResult.errors, changes: distanceResult.changes, warnings: [] };
   }
 
@@ -429,7 +486,7 @@ export function parseAndValidateImport(
   // ones), the same rule precheckTransportInputs enforces at solve time.
   if (entity === "laneCosts") {
     const { mineIdSpace, stationIdSpace } = buildTransportIdSpaces(currentOverrides);
-    const laneCostResult = parseLaneCostRows(rows.slice(1), currentOverrides.laneCostOverrides ?? [], mineIdSpace, stationIdSpace);
+    const laneCostResult = parseLaneCostRows(rows.slice(1), currentOverrides.laneCostOverrides ?? [], mineIdSpace, stationIdSpace, hasUnitColumn, canonicalUnit);
     return { errors: laneCostResult.errors, changes: laneCostResult.changes, warnings: [] };
   }
 
@@ -451,11 +508,11 @@ export function parseAndValidateImport(
     // exact same function is reused unchanged.
     if (modelId === "two-echelon-jade-us") {
       const { plantIdSpace, warehouseIdSpace, customerIdSpace } = buildJadeIdSpaces(currentOverrides);
-      const jadeLegDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], plantIdSpace, warehouseIdSpace, customerIdSpace);
+      const jadeLegDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], plantIdSpace, warehouseIdSpace, customerIdSpace, hasUnitColumn, canonicalUnit);
       return { errors: jadeLegDistanceResult.errors, changes: jadeLegDistanceResult.changes, warnings: [] };
     }
     const { mineIdSpace, refineryIdSpace, customerIdSpace } = buildTwoEchelonIdSpaces(currentOverrides);
-    const legDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], mineIdSpace, refineryIdSpace, customerIdSpace);
+    const legDistanceResult = parseLegDistanceRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], mineIdSpace, refineryIdSpace, customerIdSpace, hasUnitColumn, canonicalUnit);
     return { errors: legDistanceResult.errors, changes: legDistanceResult.changes, warnings: [] };
   }
 
@@ -485,6 +542,12 @@ export function parseAndValidateImport(
   // p-median-brazil (same schema, different base dataset — B6.3/B2-T1);
   // modelId disambiguates which baseline to validate against, same role
   // modelId already plays for "customers" vs two-echelon-gold-au below.
+  // T8 — every distances/laneCosts/legDistances/plantCapabilities branch
+  // above already returned, so `entity` here is genuinely a SingleIdEntity;
+  // re-derive `expectedColumns` (the header-check block's own copy went out
+  // of scope once that check moved into its own `else` branch) for the
+  // per-row column-count check further down.
+  const expectedColumns = COLUMNS[entity as SingleIdEntity];
   const baseline =
     entity === "warehouses" ? (
         modelId === "p-median-brazil"
@@ -886,36 +949,96 @@ export function parseAndValidateImport(
   return { errors, changes, warnings };
 }
 
+// T8 (Part E) — a v2 file must carry ONE consistent `unit` + `template_version`
+// across every row: "every row (incl. blank stubs) carries the same valid
+// unit+version; mixed-version/mixed-unit rows -> format-class rejection."
+// This is a whole-file check (a single format error), not a per-row one —
+// otherwise a genuinely mixed file would produce N duplicate per-row logic
+// errors instead of one clear diagnosis. Shared by all three composite-key
+// v2 parsers below. Rows with too few columns are skipped here (the
+// caller's own per-row column-count check reports those individually);
+// this only scans well-formed rows for unit/version agreement.
+function checkUniformUnitAndVersion(
+  dataRows: string[][],
+  versionColIdx: number,
+  unitColIdx: number,
+): { error: ImportError | null; unit: CanonicalUnit | null } {
+  const units = new Set<string>();
+  const versions = new Set<string>();
+  for (const cols of dataRows) {
+    if (cols.length <= unitColIdx || cols.length <= versionColIdx) continue;
+    units.add(cols[unitColIdx].trim());
+    versions.add(cols[versionColIdx].trim());
+  }
+  for (const u of units) {
+    if (!KNOWN_UNITS.has(u)) {
+      return { error: { errorClass: "format", line: null, message: `Unknown unit "${u}" — expected "km" or "mi".` }, unit: null };
+    }
+  }
+  if (units.size > 1) {
+    return { error: { errorClass: "format", line: null, message: `File mixes multiple units (${[...units].sort().join(", ")}) — every row must use the same unit.` }, unit: null };
+  }
+  if (versions.size > 1) {
+    return { error: { errorClass: "format", line: null, message: `File mixes multiple template_version values (${[...versions].sort().join(", ")}) — every row must use the same version.` }, unit: null };
+  }
+  // Empty dataRows (header-only file) or every row too short to have a unit
+  // cell: no disagreement to report, and the per-row loop below won't run
+  // anyway (or will independently report each row's own column-count
+  // problem) — the caller's `?? canonicalUnit` fallback handles the null.
+  const [onlyUnit] = units;
+  return { error: null, unit: (onlyUnit as CanonicalUnit | undefined) ?? null };
+}
+
 // B4.1 — composite-key (from_id,to_id) parsing branch for the distances
 // entity, deliberately separate from the generic single-id loop above (see
 // this file's header comment). `dataRows` excludes the header row (already
 // consumed/validated by the caller). No cross-field warning: the
 // capacity-vs-demand warning above is warehouses-only and has no distances
 // analogue.
+// T8 — gained `hasUnitColumn`/`canonicalUnit`: when the caller detected a v2
+// header, each row's `unit` cell (already validated uniform+known by
+// checkUniformUnitAndVersion) converts its value to canonical via
+// `fromDisplay`; a v1 file has no unit column at all and its value is
+// interpreted as already canonical (Part E's locked import rule),
+// unchanged from this function's pre-T8 behavior.
 function parseDistancesRows(
   dataRows: string[][],
   currentDistanceOverrides: DistanceOverride[],
   warehouseIdSpace: Set<string>,
   customerIdSpace: Set<string>,
+  hasUnitColumn: boolean,
+  canonicalUnit: CanonicalUnit,
 ): { errors: ImportError[]; changes: ImportRowChange[] } {
   const errors: ImportError[] = [];
   const changes: ImportRowChange[] = [];
   const currentByPairKey = new Map<string, number>(currentDistanceOverrides.map(o => [`${o.fromId}|${o.toId}`, o.distance]));
   const seenPairs = new Set<string>();
+  const expectedColumnCount = hasUnitColumn ? DISTANCES_COLUMNS_V2.length : DISTANCES_COLUMNS.length;
+  const expectedVersion = hasUnitColumn ? DISTANCE_TEMPLATE_VERSION : TEMPLATE_VERSION;
+
+  let fileUnit: CanonicalUnit = canonicalUnit;
+  if (hasUnitColumn) {
+    const uniformity = checkUniformUnitAndVersion(dataRows, 0, 1);
+    if (uniformity.error) return { errors: [uniformity.error], changes: [] };
+    fileUnit = uniformity.unit ?? canonicalUnit;
+  }
 
   for (let i = 0; i < dataRows.length; i++) {
     const line = i + 2; // 1-indexed, +1 for header row
     const cols = dataRows[i];
 
-    if (cols.length !== DISTANCES_COLUMNS.length) {
-      errors.push({ errorClass: "syntax", line, message: `Expected ${DISTANCES_COLUMNS.length} columns, got ${cols.length}` });
+    if (cols.length !== expectedColumnCount) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${expectedColumnCount} columns, got ${cols.length}` });
       continue;
     }
 
-    const [tvStr, fromId, toId, distanceStr] = cols;
+    const tvStr = cols[0];
+    const fromId = hasUnitColumn ? cols[2] : cols[1];
+    const toId = hasUnitColumn ? cols[3] : cols[2];
+    const distanceStr = hasUnitColumn ? cols[4] : cols[3];
 
-    if (Number(tvStr) !== TEMPLATE_VERSION) {
-      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+    if (Number(tvStr) !== expectedVersion) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${expectedVersion}` });
       continue;
     }
 
@@ -941,11 +1064,15 @@ function parseDistancesRows(
     }
     seenPairs.add(pairKey);
 
-    const parsedDistance = Number(distanceStr);
-    if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) {
+    const parsedDistanceRaw = Number(distanceStr);
+    if (!Number.isFinite(parsedDistanceRaw) || parsedDistanceRaw <= 0) {
       errors.push({ errorClass: "logic", line, message: `distance must be a positive number, got "${distanceStr}"` });
       continue;
     }
+    // T8 — v1 has no unit column at all; its value IS the canonical value
+    // (Part E's locked rule). v2 converts the file's declared unit to
+    // canonical; `fromDisplay` is the identity when they already match.
+    const parsedDistance = hasUnitColumn ? fromDisplay(parsedDistanceRaw, fileUnit, canonicalUnit) : parsedDistanceRaw;
 
     // Unlike every other entity, distances has no meaningful "baseline of
     // existing rows" to diff against by default — a scenario's
@@ -976,30 +1103,46 @@ function parseDistancesRows(
 // the same way: from_id must resolve as a mine, to_id must resolve as a
 // station — mirrors merge_inputs.py's build_merged_transport_dataset (a
 // backwards pair is rejected even if the id is valid in the other role).
+// T8 — gained `hasUnitColumn`/`canonicalUnit`, same treatment as
+// parseDistancesRows above.
 function parseLaneCostRows(
   dataRows: string[][],
   currentLaneCostOverrides: LaneCostOverride[],
   mineIdSpace: Set<string>,
   stationIdSpace: Set<string>,
+  hasUnitColumn: boolean,
+  canonicalUnit: CanonicalUnit,
 ): { errors: ImportError[]; changes: ImportRowChange[] } {
   const errors: ImportError[] = [];
   const changes: ImportRowChange[] = [];
   const currentByPairKey = new Map<string, number>(currentLaneCostOverrides.map(o => [`${o.fromId}|${o.toId}`, o.cost]));
   const seenPairs = new Set<string>();
+  const expectedColumnCount = hasUnitColumn ? LANE_COST_COLUMNS_V2.length : LANE_COST_COLUMNS.length;
+  const expectedVersion = hasUnitColumn ? DISTANCE_TEMPLATE_VERSION : TEMPLATE_VERSION;
+
+  let fileUnit: CanonicalUnit = canonicalUnit;
+  if (hasUnitColumn) {
+    const uniformity = checkUniformUnitAndVersion(dataRows, 0, 1);
+    if (uniformity.error) return { errors: [uniformity.error], changes: [] };
+    fileUnit = uniformity.unit ?? canonicalUnit;
+  }
 
   for (let i = 0; i < dataRows.length; i++) {
     const line = i + 2; // 1-indexed, +1 for header row
     const cols = dataRows[i];
 
-    if (cols.length !== LANE_COST_COLUMNS.length) {
-      errors.push({ errorClass: "syntax", line, message: `Expected ${LANE_COST_COLUMNS.length} columns, got ${cols.length}` });
+    if (cols.length !== expectedColumnCount) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${expectedColumnCount} columns, got ${cols.length}` });
       continue;
     }
 
-    const [tvStr, fromId, toId, costStr] = cols;
+    const tvStr = cols[0];
+    const fromId = hasUnitColumn ? cols[2] : cols[1];
+    const toId = hasUnitColumn ? cols[3] : cols[2];
+    const costStr = hasUnitColumn ? cols[4] : cols[3];
 
-    if (Number(tvStr) !== TEMPLATE_VERSION) {
-      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+    if (Number(tvStr) !== expectedVersion) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${expectedVersion}` });
       continue;
     }
 
@@ -1019,11 +1162,12 @@ function parseLaneCostRows(
     }
     seenPairs.add(pairKey);
 
-    const parsedCost = Number(costStr);
-    if (!Number.isFinite(parsedCost) || parsedCost <= 0) {
+    const parsedCostRaw = Number(costStr);
+    if (!Number.isFinite(parsedCostRaw) || parsedCostRaw <= 0) {
       errors.push({ errorClass: "logic", line, message: `cost must be a positive number, got "${costStr}"` });
       continue;
     }
+    const parsedCost = hasUnitColumn ? fromDisplay(parsedCostRaw, fileUnit, canonicalUnit) : parsedCostRaw;
 
     const beforeValue = currentByPairKey.get(pairKey) ?? null;
     if (beforeValue !== parsedCost) {
@@ -1049,31 +1193,47 @@ function parseLaneCostRows(
 // side belongs to (mirrors merge_inputs.py's build_merged_two_echelon_
 // dataset exactly, never a string-prefix convention). `dataRows` excludes
 // the header row (already consumed/validated by the caller).
+// T8 — gained `hasUnitColumn`/`canonicalUnit`, same treatment as
+// parseDistancesRows above.
 function parseLegDistanceRows(
   dataRows: string[][],
   currentDistanceOverrides: { fromId: string; toId: string; distance: number }[],
   mineIdSpace: Set<string>,
   refineryIdSpace: Set<string>,
   customerIdSpace: Set<string>,
+  hasUnitColumn: boolean,
+  canonicalUnit: CanonicalUnit,
 ): { errors: ImportError[]; changes: ImportRowChange[] } {
   const errors: ImportError[] = [];
   const changes: ImportRowChange[] = [];
   const currentByPairKey = new Map<string, number>(currentDistanceOverrides.map(o => [`${o.fromId}|${o.toId}`, o.distance]));
   const seenPairs = new Set<string>();
+  const expectedColumnCount = hasUnitColumn ? DISTANCES_COLUMNS_V2.length : DISTANCES_COLUMNS.length;
+  const expectedVersion = hasUnitColumn ? DISTANCE_TEMPLATE_VERSION : TEMPLATE_VERSION;
+
+  let fileUnit: CanonicalUnit = canonicalUnit;
+  if (hasUnitColumn) {
+    const uniformity = checkUniformUnitAndVersion(dataRows, 0, 1);
+    if (uniformity.error) return { errors: [uniformity.error], changes: [] };
+    fileUnit = uniformity.unit ?? canonicalUnit;
+  }
 
   for (let i = 0; i < dataRows.length; i++) {
     const line = i + 2; // 1-indexed, +1 for header row
     const cols = dataRows[i];
 
-    if (cols.length !== DISTANCES_COLUMNS.length) {
-      errors.push({ errorClass: "syntax", line, message: `Expected ${DISTANCES_COLUMNS.length} columns, got ${cols.length}` });
+    if (cols.length !== expectedColumnCount) {
+      errors.push({ errorClass: "syntax", line, message: `Expected ${expectedColumnCount} columns, got ${cols.length}` });
       continue;
     }
 
-    const [tvStr, fromId, toId, distanceStr] = cols;
+    const tvStr = cols[0];
+    const fromId = hasUnitColumn ? cols[2] : cols[1];
+    const toId = hasUnitColumn ? cols[3] : cols[2];
+    const distanceStr = hasUnitColumn ? cols[4] : cols[3];
 
-    if (Number(tvStr) !== TEMPLATE_VERSION) {
-      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${TEMPLATE_VERSION}` });
+    if (Number(tvStr) !== expectedVersion) {
+      errors.push({ errorClass: "logic", line, message: `template_version "${tvStr}" does not match expected ${expectedVersion}` });
       continue;
     }
 
@@ -1095,11 +1255,12 @@ function parseLegDistanceRows(
     }
     seenPairs.add(pairKey);
 
-    const parsedDistance = Number(distanceStr);
-    if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) {
+    const parsedDistanceRaw = Number(distanceStr);
+    if (!Number.isFinite(parsedDistanceRaw) || parsedDistanceRaw <= 0) {
       errors.push({ errorClass: "logic", line, message: `distance must be a positive number, got "${distanceStr}"` });
       continue;
     }
+    const parsedDistance = hasUnitColumn ? fromDisplay(parsedDistanceRaw, fileUnit, canonicalUnit) : parsedDistanceRaw;
 
     const beforeValue = currentByPairKey.get(pairKey) ?? null;
     if (beforeValue !== parsedDistance) {
