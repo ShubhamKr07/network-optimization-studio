@@ -12,7 +12,8 @@
    table already has City/State columns. Reference: the Warehouse cell in Chapter 9's **Open Warehouses**
    tab (stacked: `City, State` on top, ID mono below). **Everywhere** (all such tables, all models).
 3. In the **input Warehouses tab**, move the **Filter** onto the **same line** as the Import/Export
-   buttons; fix the same misalignment in every other model's input tabs.
+   buttons; fix the same misalignment in **every other JADE input tab where the Filter Menu is enabled**
+   (alignment only — this does NOT add filters to non-JADE models; see §3).
 4. **Map marker hover** must show **type + ID + City, State** for every icon.
 5. **Remove "P-Median"** from the "AL's Athletics" block on the homepage.
 6. **Distance-Band filter label format** → **`Band N: X mi - Y mi`** (Band 1 starts at 0; overflow reads
@@ -77,20 +78,37 @@ restored to the inline-section assertions).
   `CapabilityMatrixTab`, `ServiceStatsTab`, …) keep their rich cells at EVERY row count — do not regress
   them. `>10` only governs whether a currently **bare-id** table upgrades to the stacked cell. The
   threshold uses the **unfiltered physical row count** (not the post-filter count).
-- **Generic map with TWO snapshots — input-live vs output-solved (Codex round-2 P1).** Add ONE pure
-  helper `buildLocationById(modelId, dataset, inputs): Record<canonicalId,{city,state}>` (unions ALL base
-  entities warehouses/customers/mines/stations/refineries/plants with `inputs.added*`, keyed by canonical
-  id, **base wins on id collision**). Derive TWO maps in `Workspace.tsx`:
-  - `outputLocationById = buildLocationById(modelId, dataset, displayedInputs)` — for OUTPUT/report tables
-    (`OpenWarehousesTab`, `AssignmentsTab`, `FlowsTab`, `JadeAssignmentsTab`, `JadeFlowsTab`,
-    `ServiceStatsTab`, `CostSummaryTab`) — the solved snapshot, matching the rows they already render.
-  - `inputLocationById = buildLocationById(modelId, dataset, localInputs)` — for INPUT tables
+- **One snapshot-matched IDENTITY projection carrying BOTH location AND display id (Codex round-3 P1).**
+  `EntityIdCell` needs `displayId`, but several output consumers have no source for a scenario-added
+  entity's display code today (verified: `FlowsTab` gets only `{result, scenarioId, locationById}`;
+  `JadeFlowsTab` has no `displayedInputs`/display-id map; shared `AssignmentsTab.displayCodeById` merges
+  added **facilities** only, NOT added customers). A location-only map would make them fall back to the
+  canonical id even when a display code exists — violating "prefer `displayCode`." So the helper returns
+  **`Record<canonicalId, {city, state, displayId}>`**: `buildEntityIdentityById(modelId, dataset, inputs)`
+  unions ALL base entities (warehouses/customers/mines/stations/refineries/plants) with `inputs.added*`,
+  keyed by canonical id, **base wins on id collision**; `displayId = <added row's displayCode> ?? id`.
+  Derive TWO maps in `Workspace.tsx`, each fed to the tables that already use that snapshot for their rows:
+  - `outputIdentityById = buildEntityIdentityById(modelId, dataset, displayedInputs)` — OUTPUT/report
+    tables (`OpenWarehousesTab`, `AssignmentsTab` incl. added CUSTOMERS, `FlowsTab`, `JadeAssignmentsTab`,
+    `JadeFlowsTab`, `ServiceStatsTab`) — the solved snapshot.
+  - `inputIdentityById = buildEntityIdentityById(modelId, dataset, localInputs)` — INPUT tables
     (`DistancesTab`, `JadeDistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `CapabilityMatrixTab`) — the
-    EDITABLE draft, so an entity added/moved in the current unsaved draft shows its correct location
-    immediately (a `displayedInputs`-only map would leave it stale/missing until the next solve).
-  Each table stays on the SAME snapshot it already uses for its rows + display-code lookup. Regression
-  test: an unsaved input edit updates an input grid's location WITHOUT relabelling a previously-solved
-  output/history entry.
+    EDITABLE draft, so an entity added/moved in the current unsaved draft shows correct location + code
+    immediately (a `displayedInputs`-only map would be stale/missing until the next solve).
+  Wire it into EVERY listed consumer (extend the props of `FlowsTab`/`JadeFlowsTab`/`AssignmentsTab` etc.
+  that only had `locationById` today to carry the `displayId` too). Regression test: an unsaved input edit
+  updates an input grid WITHOUT relabelling a previously-solved output/history entry; and an added
+  customer/facility renders its display code (not the canonical id) in shared Flows, JADE Flows, AND shared
+  Assignments — not just the map + one generic cell unit.
+- **CostSummary compare mode is a per-scenario exception (Codex round-3 P1).** `CostSummaryTab` compare
+  renders multiple `compareScenarios`, each with its OWN `result` + `inputs`; it already resolves added
+  facilities per-column off `s.inputs` (never `localInputs`). Cloned scenarios commonly share an
+  added-entity canonical id yet move it to different locations/codes — so looking every column up through
+  the single active `outputIdentityById` would show the WRONG City/State/code in another column. **Exclude
+  CostSummary compare from the single-map contract:** each compare column resolves location + display id
+  from ITS OWN `s.inputs` (a per-scenario identity map, keyed by scenario id, or the existing per-column
+  `s.inputs` path extended to location). Regression: compare two scenarios that share an added-facility id
+  but store different locations/display codes → each column shows its own.
 - **Verified inventory (every consuming table):**
   - **Exempt — already have City/State columns:** input base tables `WarehouseTable` / `CustomerTable` /
     `MineTable` / `StationTable` — no change.
@@ -109,9 +127,11 @@ restored to the inline-section assertions).
 
 **DoD:** every listed persistent grid shows `City, State` above a mono display-id for each entity-ID cell
 (matching Open WHs) once eligible — already-rich tables stay rich at ALL row counts; a currently bare-id
-table upgrades when its unfiltered row count > 10; input tables read `inputLocationById` (live), output
-tables read `outputLocationById` (solved snapshot); `LegDistancesTab` is covered; a lookup miss falls back
-to the display id (or the canonical id if no display code); the `ImportDialog` preview table is unchanged;
+table upgrades when its unfiltered row count > 10; input tables read `inputIdentityById` (live), output
+tables read `outputIdentityById` (solved snapshot), and CostSummary compare columns resolve per-column
+from their OWN scenario's inputs (not the single active map); every consumer can render `displayId` (added
+customers/facilities show their display code); `LegDistancesTab` is covered; a lookup miss falls back to
+the display id (or the canonical id if no display code); the `ImportDialog` preview table is unchanged;
 at least one previously-unwired **non-JADE** model (e.g. p-median `AssignmentsTab` or gold-au
 `LegDistancesTab`) is exercised in tests.
 
@@ -261,15 +281,19 @@ and reject empty + descending.
 - **Item 1:** base-tab tests assert the inline add-section (button → form) is present again; a Workspace
   test asserts no `added-entities` sidebar entry for any model; `AddedEntitiesTab` test deleted.
 - **Item 2:** `EntityIdCell` unit (stacked City,State + mono **displayId**; `displayCode ?? id`; bare-id
-  fallback on a location miss — never a raw `aw-` uid); RTL that a **bare-id** output table upgrades to the
-  stacked cell when its unfiltered row count > 10 AND a 10-row one does not (10/11 boundary); RTL that an
-  **already-rich** table (e.g. `AssignmentsTab`) keeps its rich cells at **≤10** rows (no regression); a
-  **non-JADE** consumer (p-median `AssignmentsTab` or gold-au `LegDistancesTab`) resolves location from the
-  generic `buildLocationById`; a scenario-added entity (canonical `aw-…` + display code) shows the display
-  code, resolves location by canonical id, and id-collision (added id == base id) resolves to the base; an
-  added row WITHOUT a display code shows its canonical id (missing-`displayCode` fallback); an **unsaved
-  input edit** updates an INPUT grid's location while a previously-solved OUTPUT/history entry is NOT
-  relabelled (input-live vs output-solved snapshot split); the `ImportDialog` preview table is unchanged.
+  fallback on a location miss — **never a raw uid WHEN a display code exists** (Codex round-3 P2); a legacy
+  row with NO display code shows its canonical id — the two are separate tested cases, not a contradiction);
+  RTL that a **bare-id** output table upgrades to the stacked cell when its unfiltered row count > 10 AND a
+  10-row one does not (10/11 boundary); RTL that an **already-rich** table (e.g. `AssignmentsTab`) keeps its
+  rich cells at **≤10** rows (no regression); a **non-JADE** consumer (p-median `AssignmentsTab` or gold-au
+  `LegDistancesTab`) resolves identity from the generic `buildEntityIdentityById`; an added
+  **customer/facility** renders its display code (not the canonical id) in **shared Flows, JADE Flows, AND
+  shared Assignments** (Codex round-3 P1 — the display-id path, not just the map + cell unit); id-collision
+  (added id == base id) resolves to the base; an added row WITHOUT a display code shows its canonical id
+  (missing-`displayCode` fallback); an **unsaved input edit** updates an INPUT grid while a previously-solved
+  OUTPUT/history entry is NOT relabelled (input-live vs output-solved split); **CostSummary compare** of two
+  scenarios sharing an added-facility id but storing different locations/codes shows EACH column's own
+  (Codex round-3 P1); the `ImportDialog` preview table is unchanged.
 - **Item 3:** RTL that a JADE input tab renders the FilterMenu in the same header row as the Import/Export
   toolbar (single row), not a separate filter row; a non-JADE input tab renders NO FilterMenu (unchanged).
 - **Item 4:** RTL/unit for ALL THREE marker sites — `NetworkMap` (output), `EntityMarkers` (input), and
@@ -455,3 +479,60 @@ tables and identify transient modal/preview tables as out of scope. Leaving it i
 | P1 | Display codes dropped in the output-map projection | **Accepted.** Verified `OutputMapTab.tsx:252` drops `displayCode`. §4 requires it to survive Workspace→OutputMapTab→NetworkMap; added-warehouse/customer/plant output-marker tests. |
 | P2 | Impossible "never a raw uid" fallback | **Accepted.** §2 contract changed to "prefer `displayCode`, fall back to canonical id when absent" (legacy rows lack the optional code); missing-`displayCode` test. |
 | P2 | Import Preview Changes table unaddressed | **Accepted.** §2 explicitly EXCLUDES transient modal/preview tables (`ImportDialog` Changes) — Item 2 = persistent workspace grids only; inventory now literally complete. |
+
+---
+
+## 15. Re-review comments — round 3 (Codex, 2026-09-20) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All 4 round-3 comments folded into §2/§0/§8; see §16. Retained for history. Original
+round-3 status was "changes requested".
+
+### [P1] Define a solved-snapshot display-identity projection for every output consumer
+
+`EntityIdCell` requires a `displayId`, but `buildLocationById` returns only `{city,state}`. Several listed
+output consumers have no source for a scenario-added entity's display code: `FlowsTab` receives only
+`result`, `scenarioId`, and `locationById`; `JadeFlowsTab` has no solved `displayedInputs` or display-id
+map; and shared `AssignmentsTab` resolves display codes only for added facilities, not added customers.
+Those tables would therefore render a canonical id even when a display code exists, violating the
+"prefer `displayCode`" contract. Define a snapshot-matched `displayIdById` projection (live for input
+tables, solved for output tables), or enrich the shared projection to return `{city,state,displayId}`.
+Wire it into every listed consumer and test an added customer/facility in shared Flows, JADE Flows, and
+shared Assignments—not just the map and one generic cell unit.
+
+### [P1] Keep Cost Summary comparison lookups scenario-local
+
+The proposed `outputLocationById` comes from the single currently displayed scenario, but
+`CostSummaryTab` comparison mode renders multiple `compareScenarios`, each with its own `result` and
+`inputs`. Cloned scenarios commonly retain the same added-entity canonical id and can then move that
+entity to different locations. Looking up every comparison column through the active scenario's map would
+silently display the wrong City/State and display code in another column. Either exclude Cost Summary
+comparison rows from the single `outputLocationById` contract and continue resolving each column from
+`s.inputs`, or provide a projection keyed by scenario id. Add a regression comparing two scenarios that
+share an added-facility id but store different locations/display codes.
+
+### [P2] Correct the top-level JADE-only filter scope
+
+Scope item 3 still says to fix the same misalignment in "every other model's input tabs," directly
+contradicting §3's deliberate rule that no non-JADE tab gains a Filter Menu. Change the scope summary to
+say "every other JADE input tab where the Filter Menu is enabled" so an implementation plan cannot
+reasonably expand the feature to other models.
+
+### [P2] Correct the stale raw-uid assertion in the test list
+
+Section 2 correctly permits the canonical id when an optional `displayCode` is absent, but §8 still says
+the bare-id fallback is "never a raw `aw-` uid." Replace that with "never a raw uid when a display code
+exists" and retain the separate missing-display-code test. Otherwise the acceptance criteria require two
+mutually exclusive outcomes for the same valid legacy row.
+
+---
+
+## 16. Review resolution — round 3 (Codex, 2026-09-20)
+
+**Current status: RESOLVED — no open items.**
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | Output consumers lack a display-id source | **Accepted.** Verified `FlowsTab` has only `locationById`, `AssignmentsTab.displayCodeById` covers facilities-not-customers, `JadeFlowsTab` has no map. §2 helper now returns `{city,state,displayId}` (`buildEntityIdentityById`), snapshot-matched, wired into every consumer; tests for added customer/facility in shared Flows, JADE Flows, shared Assignments. |
+| P1 | CostSummary compare must be scenario-local | **Accepted.** Verified compare renders multiple `compareScenarios` off per-column `s.inputs`. §2 excludes CostSummary compare from the single map — each column resolves from its own scenario; regression on two scenarios sharing an added-facility id at different locations/codes. |
+| P2 | Top-level item-3 scope contradicted §3 | **Accepted.** §0 item 3 reworded to "every other JADE input tab where the Filter Menu is enabled (does NOT add filters to non-JADE)." |
+| P2 | §8 stale "never a raw uid" assertion | **Accepted.** §8 now says "never a raw uid WHEN a display code exists," with the missing-display-code (shows canonical id) as a separate tested case. |
