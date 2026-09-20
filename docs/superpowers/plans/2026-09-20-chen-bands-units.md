@@ -12,6 +12,22 @@
 
 **How to use this plan with the spec.** Novel or subtle logic is written out in full here (the units package, the `markSucceeded` transaction, the Part G endpoint, the draft grammar, the payload builder). For the **exact wire shapes** — the v3 CSV headers, JSON envelopes and camelCase JSON rows, the version matrix, the six-model objective table, the history action matrix — this plan points at the spec's tables rather than re-typing them, because a re-typed copy is a second source of truth that can drift. Open the named spec section and copy from it verbatim.
 
+## EXECUTION SCOPE — backend-only first pass (2026-09-20)
+
+An in-flight **"workspace fixups 2"** bundle (planned on `main`, docs-only so far, pre-provisioned worktrees) claims `pages/Workspace.tsx`, `tabs/ServiceStatsTab.tsx`, `lib/bands.ts`, and — per its own commits — `SolveDialog` / `OptimizationParametersTab` component tests, plus a **duplicate "relax JADE bands to free"** decision. To honour "must not conflict with other work", this bundle executes in two passes:
+
+**Pass 1 — NOW (zero frontend overlap):** T1, T2, T3, T3b, T5, T6, T7, T8, T9. All `lib/units`, `lib/db`, `artifacts/api-server`, `lib/api-spec`, and five `solvers/*/manifest.json` files. Fixups-2 touches none of them.
+
+**Pass 2 — DEFERRED until fixups-2 lands:** T1b, T4, T10, T11, T11b, T12, T13, T14, T14b, T15. Rebase onto the settled tree, **re-verify every line reference** (`SolveDialog.tsx:165-175`, `ServiceStatsTab.tsx:27-31`, `Workspace.tsx:2935/3311/3326/3357/3599`, `JadeBandEditor.tsx:87/89`, `JadeFlowsTab.tsx:136/210/218`) before dispatching, and reconcile the duplicated JADE-band decision.
+
+> **T4 moved to Pass 2** despite being a Wave-0 task: it edits `OptimizationParametersTab.tsx` and `SolveDialog.tsx`, which fixups-2's INT task also owns.
+
+**Worktree:** `/private/tmp/chen-impl`, branch `chen-bands-units-impl`, rebased onto `main` (0 behind). Baseline verified green: typecheck clean, api-server 989/989, studio 1768/1768, solver pytest 176/176.
+
+**Every DB-touching command needs** `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev"` inline.
+
+---
+
 ## Global Constraints
 
 Every task's requirements implicitly include these.
