@@ -7,16 +7,23 @@
  *   2. A plant-bearing table shows plant id + City, State.
  *   3. Capability Matrix info line is single-line at desktop width; capacity
  *      readouts end in "Units".
- *   4. The "Added Entities" tab exists for >=2 models; placing an entity on
- *      the Input Map (in-place CreateEntityDialog) makes the row appear in
- *      the correct Added Entities sub-tab, Save persists it, the base tab
- *      shows no inline add section, and the CSV toolbar renders only on the
- *      base tab.
- *   5. Distance-Band filters show live, unit-aware ranges (not "Band N");
- *      editing bands via the Run Optimizer (SolveDialog) modal — which hosts
- *      JadeBandEditor over the active tab WITHOUT unmounting it — re-ranges
- *      the filter options live (zero /solve calls), clears the stale band
- *      selection, and leaves an unrelated non-band filter untouched.
+ *   4. [Updated post workspace-fixups-2, item 1 — the "Added Entities" tab
+ *      was REMOVED; adding an entity now happens inline inside each base
+ *      entity tab again.] Placing an entity on the Input Map (in-place
+ *      CreateEntityDialog) makes the row appear inline on the base tab's
+ *      own "Added <entity>" section, Save persists it, and the CSV toolbar
+ *      lives on that SAME base tab (there is no longer a separate tab to
+ *      keep it off of).
+ *   5. [Updated post workspace-fixups-2, item 6/7 — `bandRangeLabel` now
+ *      reads "Band N: X mi - Y mi"/"Band N: > X mi" (was "≤ X mi"/"X–Y mi");
+ *      JADE's fixed-4-slot `JadeBandEditor` was DELETED — JADE now uses the
+ *      SAME free add/remove chip editor as every other model.] Distance-Band
+ *      filters show live, unit-aware ranges (not the bare "Band N" cell
+ *      label); editing bands via the Run Optimizer (SolveDialog) modal —
+ *      which hosts the chip editor over the active tab WITHOUT unmounting
+ *      it — re-ranges the filter options live (zero /solve calls), clears
+ *      the stale band selection, and leaves an unrelated non-band filter
+ *      untouched.
  *
  * Target: E2E_BASE_URL env var + a local dev proxy (vite's
  * API_PROXY_TARGET) — see CLAUDE.md's "Local dev DB"/"To run e2e locally"
@@ -119,18 +126,20 @@ function plantFactoryLegendSwatch(page: Page, legendTestId: string): Locator {
 }
 
 // Mirrors `lib/bands.ts`'s `bandRangeLabel` exactly (sort-first, same
-// `<=`-boundary/overflow semantics) — reimplemented locally rather than
-// imported because Playwright's e2e runner does not share the app's Vite
-// path-alias/module resolution. Same "recompute expected values from the
-// real solved response, don't just assume the label" pattern
-// jade-ch9-workspace-bundle.spec.ts already uses for its overflow-count math.
+// `<=`-boundary/overflow semantics, workspace-fixups-2 item 6's
+// "Band N: X unit - Y unit" / "Band N: > X unit" format — was "≤ X mi"/
+// "X–Y mi" before that bundle) — reimplemented locally rather than imported
+// because Playwright's e2e runner does not share the app's Vite path-alias/
+// module resolution. Same "recompute expected values from the real solved
+// response, don't just assume the label" pattern jade-ch9-workspace-bundle.
+// spec.ts already uses for its overflow-count math.
 function bandRangeLabelLocal(distance: number, bands: number[], unit: string): string {
   const sorted = [...bands].sort((a, b) => a - b);
   if (sorted.length === 0) return "All distances";
   const idx = sorted.findIndex(b => distance <= b);
-  if (idx === -1) return `> ${sorted[sorted.length - 1]} ${unit}`;
-  if (idx === 0) return `≤ ${sorted[0]} ${unit}`;
-  return `${sorted[idx - 1]}–${sorted[idx]} ${unit}`;
+  if (idx === -1) return `Band ${sorted.length + 1}: > ${sorted[sorted.length - 1]} ${unit}`;
+  if (idx === 0) return `Band 1: 0 ${unit} - ${sorted[0]} ${unit}`;
+  return `Band ${idx + 1}: ${sorted[idx - 1]} ${unit} - ${sorted[idx]} ${unit}`;
 }
 
 /** Parses a `bandRangeLabel` string back into inclusive numeric bounds, for
@@ -140,11 +149,9 @@ function bandRangeLabelLocal(distance: number, bands: number[], unit: string): s
  * distance — this is a smoke-level cross-check, not a re-proof of the
  * boundary math itself (that's `bands.test.ts`'s job). */
 function parseBandRangeBounds(label: string): { min: number; max: number } {
-  const overflow = label.match(/^> ([\d.]+) /);
+  const overflow = label.match(/^Band \d+: > ([\d.]+) /);
   if (overflow) return { min: Number(overflow[1]), max: Infinity };
-  const atMost = label.match(/^≤ ([\d.]+) /);
-  if (atMost) return { min: 0, max: Number(atMost[1]) };
-  const range = label.match(/^([\d.]+)–([\d.]+) /);
+  const range = label.match(/^Band \d+: ([\d.]+) \S+ - ([\d.]+) /);
   if (range) return { min: Number(range[1]), max: Number(range[2]) };
   throw new Error(`Unrecognized band range label: ${label}`);
 }
@@ -220,15 +227,22 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
     const solveCalls = makeSolveCallTracker(page);
 
     try {
-      // ── Item 4 sanity (part of the ">=2 models" QA requirement — the
-      // full add/persist flow is proven on p-median-us below; here we only
-      // confirm the sidebar tab + its per-model sub-tab set exist). ───────
-      await expect(page.getByTestId("sidebar-input-added-entities")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("sidebar-input-added-entities").click();
-      await expect(page.getByTestId("added-entities-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-added-entities-inner-plants")).toBeVisible();
-      await expect(page.getByTestId("button-added-entities-inner-warehouses")).toBeVisible();
-      await expect(page.getByTestId("button-added-entities-inner-customers")).toBeVisible();
+      // ── Item 4 sanity [updated post workspace-fixups-2, item 1 — the
+      // "Added Entities" tab is gone; the inline "+ Add" affordance now
+      // lives on each base entity tab again] (part of the ">=2 models" QA
+      // requirement — the full add/persist flow is proven on p-median-us
+      // below; here we only confirm the entry points exist for JADE
+      // specifically, since it has a plant echelon no other model has). ──
+      await expect(page.getByTestId("sidebar-input-added-entities")).toHaveCount(0);
+      await page.getByTestId("sidebar-input-plants").click();
+      await expect(page.getByTestId("plants-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-add-plant-row")).toBeVisible();
+      await page.getByTestId("sidebar-input-warehouses").click();
+      await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-add-warehouse-row")).toBeVisible();
+      await page.getByTestId("sidebar-input-customers").click();
+      await expect(page.getByTestId("customers-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      await expect(page.getByTestId("button-add-customer-row")).toBeVisible();
 
       // ── Item 1 — Input Map: factory markers + legend swatch ────────────
       await page.getByTestId("sidebar-input-input-map").click();
@@ -244,8 +258,17 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // Item 2 — plant id + City, State (plant-1 is Ashland, KY in the JADE
-      // dataset).
-      await expect(page.getByTestId("text-capability-plant-plant-1")).toHaveText(/^plant-1 — .+, [A-Z]{2}$/);
+      // dataset). [Updated post workspace-fixups-2, item 2 (T11): the row
+      // header now renders via the shared stacked `EntityIdCell` — City,
+      // State on top, mono display-id below — REPLACING the old single-line
+      // "plant-1 — Ashland, KY" dash format; check the two stacked spans
+      // directly rather than the cell's flattened text (which concatenates
+      // them with no separator).]
+      const plantCell = page.getByTestId("text-capability-plant-plant-1");
+      const plantCellSpans = plantCell.locator("span");
+      await expect(plantCellSpans).toHaveCount(2);
+      await expect(plantCellSpans.nth(0)).toHaveText(/^.+, [A-Z]{2}$/);
+      await expect(plantCellSpans.nth(1)).toHaveText("plant-1");
       // Item 3a — single-line at desktop width: real computed CSS, not just
       // the presence of a class name, and confirmed with no `max-w-md`
       // constraint clipping it.
@@ -283,13 +306,16 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
       await filterTrigger.click();
       await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
 
-      // Ranges, not "Band N" — the table CELL still reads "Band N" (item 5's
-      // explicit "cells unchanged" scope), only the FILTER options change.
+      // Ranges, not bare "Band N" — the table CELL still reads "Band N"
+      // (item 5's explicit "cells unchanged" scope), only the FILTER
+      // options change. [Updated post workspace-fixups-2, item 6: the
+      // range format now READS "Band N: X mi - Y mi" / "Band N: > X mi"
+      // (was "≤ X mi" / "X–Y mi" / "> X mi") — every option intentionally
+      // DOES start "Band \d+:" now, the opposite of the old assertion.]
       const originalBandOptions = await distinctFilterOptionLabels(page, "band");
       expect(originalBandOptions.length).toBeGreaterThan(0);
       for (const label of originalBandOptions) {
-        expect(label).toMatch(/(^≤ |–| mi$|^> )/);
-        expect(label).not.toMatch(/^Band \d/);
+        expect(label).toMatch(/^Band \d+: (\d+(\.\d+)? \S+ - \d+(\.\d+)? \S+|> \d+(\.\d+)? \S+)$/);
       }
 
       // Select a non-band filter (Product) first, capture its solo count —
@@ -310,8 +336,10 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
 
       const solveCallsBeforeEdit = solveCalls.count();
 
-      // Edit bands via the Run Optimizer (SolveDialog) modal — hosts
-      // JadeBandEditor over the active tab WITHOUT unmounting it. Do NOT
+      // Edit bands via the Run Optimizer (SolveDialog) modal — hosts the
+      // SAME shared free add/remove chip band editor every other model uses
+      // (workspace-fixups-2, item 7 deleted the old fixed-4-slot
+      // `JadeBandEditor`) over the active tab WITHOUT unmounting it. Do NOT
       // navigate to the Optimization Parameters tab for this (that DOES
       // unmount the report and would produce a false "cleared").
       await page.getByTestId("button-run-optimizer").click();
@@ -320,13 +348,26 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
       // while the dialog is open (a real navigation/unmount would have torn
       // it — and its filter state — down).
       await expect(page.getByTestId("jade-assignments-tab")).toBeVisible();
+      // The obsolete fixed-4-slot editor is gone entirely.
+      await expect(page.locator('[data-testid^="jade-band-slot-"]')).toHaveCount(0);
 
+      // Replace the ground-truth bands [200,400,800,1600] with
+      // [150,450,900,1800] via the chip editor: add all 4 new bands first
+      // (the "remove the last band" guard only blocks emptying to zero, so
+      // adding-before-removing keeps every intermediate count > 1), then
+      // remove the 4 old ones.
       const newBands = [150, 450, 900, 1800];
-      await page.getByTestId("jade-band-slot-0").fill(String(newBands[0]));
-      await page.getByTestId("jade-band-slot-1").fill(String(newBands[1]));
-      await page.getByTestId("jade-band-slot-2").fill(String(newBands[2]));
-      await page.getByTestId("jade-band-slot-3").fill(String(newBands[3]));
-      await expect(page.getByTestId("jade-band-error")).toHaveCount(0);
+      for (const b of newBands) {
+        await page.getByTestId("solve-dialog-button-bands-plus").click();
+        await page.getByTestId("solve-dialog-input-new-band").fill(String(b));
+        await page.getByTestId("solve-dialog-button-add-band-confirm").click();
+        await expect(page.getByTestId(`solve-dialog-band-${b}`)).toBeVisible();
+      }
+      for (const b of [200, 400, 800, 1600]) {
+        await page.getByTestId(`solve-dialog-button-remove-band-${b}`).click();
+      }
+      await expect(page.locator('[data-testid^="solve-dialog-band-"]')).toHaveCount(4);
+      await expect(page.getByTestId("solve-dialog-error")).toHaveCount(0);
 
       // Close WITHOUT clicking Solve — proves the band edit itself never
       // fires a solve call, and the dialog can be dismissed mid-edit.
@@ -346,7 +387,7 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
       // the exact same list).
       expect([...newBandOptions].sort()).not.toEqual([...originalBandOptions].sort());
       for (const label of newBandOptions) {
-        expect(label).toMatch(/(^≤ |–| mi$|^> )/);
+        expect(label).toMatch(/^Band \d+: (\d+(\.\d+)? \S+ - \d+(\.\d+)? \S+|> \d+(\.\d+)? \S+)$/);
       }
       // The specific stale selection is gone from the new option set.
       expect(newBandOptions).not.toContain(bandLabelBefore);
@@ -396,11 +437,15 @@ test.describe("Workspace fixups — JADE (plant icon, plant labels, Capability M
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// Item 4 — p-median-us: full add-on-map -> Added Entities -> Save flow
+// Item 4 — p-median-us: full add-on-map -> inline Save flow
+// [Updated post workspace-fixups-2, item 1 — the "Added Entities" tab
+// (and its per-model sub-tabs) was REMOVED; the added row now appears
+// inline on the base Warehouses tab's own "Added warehouses" section, the
+// SAME tab that already owns the CSV toolbar (one tab per entity again).]
 // ══════════════════════════════════════════════════════════════════════
 
-test.describe("Workspace fixups — p-median-us (Added Entities tab: full add/persist/relocation flow)", () => {
-  test("placing a warehouse on the Input Map surfaces it in Added Entities -> Warehouses; Save persists it; base tab has no inline add section; CSV toolbar is base-tab-only", async ({ page }) => {
+test.describe("Workspace fixups — p-median-us (inline add-on-map -> Save flow)", () => {
+  test("placing a warehouse on the Input Map surfaces it inline on the base Warehouses tab; Save persists it; the add-section and CSV toolbar share that one tab", async ({ page }) => {
     test.setTimeout(120_000);
     await registerAndGoHome(page, "wfx-pmedian");
     const id = await createPMedianScenario(page);
@@ -418,27 +463,28 @@ test.describe("Workspace fixups — p-median-us (Added Entities tab: full add/pe
       await page.getByTestId("create-entity-submit").click();
       await expect(page.getByTestId("create-entity-dialog")).not.toBeVisible();
 
-      // ── Item 4 — the new row appears in the Added Entities tab's
-      // Warehouses sub-tab (unsaved localInputs draft, same source the base
-      // tab's own added section used to read). ───────────────────────────
-      await expect(page.getByTestId("sidebar-input-added-entities")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("sidebar-input-added-entities").click();
-      await expect(page.getByTestId("added-entities-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("button-added-entities-inner-warehouses")).toHaveAttribute("aria-pressed", "true");
-      await expect(page.getByTestId("button-added-entities-inner-customers")).toBeVisible();
+      // ── Item 4 [updated] — the new row appears INLINE on the base
+      // Warehouses tab's own "Added warehouses" section (unsaved
+      // localInputs draft) — there is no more separate Added Entities
+      // tab/sidebar entry to navigate through. ───────────────────────────
+      await expect(page.getByTestId("sidebar-input-added-entities")).toHaveCount(0);
+      await page.getByTestId("sidebar-input-warehouses").click();
+      await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-      const addedBody = page.getByTestId("added-entities-body-warehouses");
-      await expect(addedBody).toBeVisible();
-      const addedRow = addedBody.locator('[data-testid^="row-added-warehouse-"]');
+      const addedSection = page.getByTestId("added-warehouses-section");
+      await expect(addedSection).toBeVisible();
+      const addedRow = addedSection.locator('[data-testid^="row-added-warehouse-"]');
       await expect(addedRow).toHaveCount(1, { timeout: HEADER_TIMEOUT });
       await expect(addedRow).toContainText(displayCode);
 
-      // The Added Entities tab shows only the add form + added table — NO
-      // base table, NO CSV toolbar, NO import dialog, NO base filter/count.
-      await expect(addedBody.getByTestId("warehouses-tab-toolbar")).toHaveCount(0);
-      await expect(addedBody.getByTestId("button-export-warehouses-csv")).toHaveCount(0);
-      await expect(addedBody.getByTestId("button-import-warehouses")).toHaveCount(0);
-      await expect(addedBody.getByTestId("button-add-warehouse-row")).toBeVisible();
+      // The inline add-section now shares the SAME tab as the base table
+      // AND its CSV toolbar (workspace-fixups-2 item 1's "one tab per
+      // entity again" DoD — was mutually exclusive with the old Added
+      // Entities tab, which had none of these).
+      await expect(page.getByTestId("warehouses-tab-toolbar")).toBeVisible();
+      await expect(page.getByTestId("button-export-warehouses-csv")).toBeVisible();
+      await expect(page.getByTestId("button-import-warehouses")).toBeVisible();
+      await expect(page.getByTestId("button-add-warehouse-row")).toBeVisible();
 
       // ── Save persists it. ───────────────────────────────────────────────
       // `button-save`'s `disabled` also covers the mutation's `isPending`
@@ -460,11 +506,11 @@ test.describe("Workspace fixups — p-median-us (Added Entities tab: full add/pe
       // artifact.
       await page.reload();
       await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await page.getByTestId("sidebar-input-added-entities").click();
-      await expect(page.getByTestId("added-entities-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const reloadedBody = page.getByTestId("added-entities-body-warehouses");
-      await expect(reloadedBody.locator('[data-testid^="row-added-warehouse-"]')).toHaveCount(1, { timeout: HEADER_TIMEOUT });
-      await expect(reloadedBody).toContainText(displayCode);
+      await page.getByTestId("sidebar-input-warehouses").click();
+      await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
+      const reloadedSection = page.getByTestId("added-warehouses-section");
+      await expect(reloadedSection.locator('[data-testid^="row-added-warehouse-"]')).toHaveCount(1, { timeout: HEADER_TIMEOUT });
+      await expect(reloadedSection).toContainText(displayCode);
 
       // Redundant structural confirmation via the raw API, now safely after
       // a full reload (so there is no risk of racing the mutation's own
@@ -474,16 +520,6 @@ test.describe("Workspace fixups — p-median-us (Added Entities tab: full add/pe
       const addedWarehouses = persistedJson.inputs.addedWarehouses as Array<{ id: string; displayCode?: string }>;
       expect(addedWarehouses).toHaveLength(1);
       expect(addedWarehouses[0].displayCode).toBe(displayCode);
-
-      // ── The base Warehouses tab shows NO inline add section, but DOES
-      // keep its own CSV toolbar (single-owner: base tab only). ──────────
-      await page.getByTestId("sidebar-input-warehouses").click();
-      await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("added-warehouses-section")).toHaveCount(0);
-      await expect(page.getByTestId("button-add-warehouse-row")).toHaveCount(0);
-      await expect(page.getByTestId("warehouses-tab-toolbar")).toBeVisible();
-      await expect(page.getByTestId("button-export-warehouses-csv")).toBeVisible();
-      await expect(page.getByTestId("button-import-warehouses")).toBeVisible();
     } finally {
       await page.request.delete(`/api/scenarios/${id}`);
     }

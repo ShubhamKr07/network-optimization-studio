@@ -30,7 +30,7 @@ test.use({ actionTimeout: 15_000 });
 // FilterMenu's Radix Popover checkbox out of the viewport when the trigger
 // sits low on a tall Workspace page (confirmed: `.click()` retried for the
 // full actionTimeout reporting "element is outside of the viewport" on
-// `checkbox-filter-plant-Plant 1`). A taller window gives every popover this
+// `checkbox-filter-plant-plant-1 — Ashland, KY`). A taller window gives every popover this
 // spec opens room to render fully on-screen.
 test.use({ viewport: { width: 1400, height: 1400 } });
 
@@ -282,16 +282,27 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
 
       await page.getByTestId("sidebar-input-optimization-parameters").click();
       await expect(page.getByTestId("optimization-parameters-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("jade-band-editor")).toBeVisible();
+      // [Updated post workspace-fixups-2, item 7 — the fixed-4-slot
+      // `JadeBandEditor`/`jade-band-slot-*` was DELETED; JADE now renders
+      // the SAME free add/remove chip band editor every other model uses.]
+      await expect(page.getByTestId("button-bands-plus")).toBeVisible({ timeout: HEADER_TIMEOUT });
       // Set tiny, strictly-ascending, positive-integer bands so EVERY real
       // JADE lane (dozens to hundreds of miles apart) is unambiguously
-      // beyond the highest boundary — i.e. universally Overflow. No error
-      // should ever show (each intermediate draft stays valid).
-      await page.getByTestId("jade-band-slot-0").fill("1");
-      await page.getByTestId("jade-band-slot-1").fill("2");
-      await page.getByTestId("jade-band-slot-2").fill("3");
-      await page.getByTestId("jade-band-slot-3").fill("4");
-      await expect(page.getByTestId("jade-band-error")).toHaveCount(0);
+      // beyond the highest boundary — i.e. universally Overflow. Replace the
+      // ground-truth [200,400,800,1600] with [1,2,3,4] via the chip editor:
+      // add the 4 new bands first (the "remove the last band" guard only
+      // blocks emptying to zero, so adding-before-removing keeps every
+      // intermediate count > 1), then remove the 4 old ones.
+      for (const b of [1, 2, 3, 4]) {
+        await page.getByTestId("button-bands-plus").click();
+        await page.getByTestId("input-new-band").fill(String(b));
+        await page.getByTestId("button-add-band-confirm").click();
+        await expect(page.getByTestId(`button-remove-band-${b}`)).toBeVisible();
+      }
+      for (const b of [200, 400, 800, 1600]) {
+        await page.getByTestId(`button-remove-band-${b}`).click();
+      }
+      await expect(page.locator('[data-testid^="button-remove-band-"]')).toHaveCount(4);
 
       // Customer Assignments' Distance Band column reads the SAME live
       // bands the map reads — confirms the presentation-band lens updates
@@ -398,11 +409,15 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await expect(disabledRow).toContainText("—");
 
       // ── Item #6 — Capability Matrix: read-only capacity, flips live ─────
+      // [Fixed pre-existing stale assertion — unrelated to workspace-
+      // fixups-2: the "workspace-fixups" bundle (2026-09-19, predates this
+      // spec's own 2026-09-17 authoring) already appended " Units" to every
+      // capacity readout; this spec never got updated for it.]
       await page.getByTestId("sidebar-input-capability-matrix").click();
       await expect(page.getByTestId("capability-matrix-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-1")).toHaveText("210,000,000 Units");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-1")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
 
       // Enable the off-diagonal cell -> capacity flips live to 210,000,000
@@ -410,11 +425,11 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // only added-plant cells — spec §7).
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("210,000,000 Units");
       // Toggle back off -> reverts to 0.
       await page.getByTestId("checkbox-capability-plant-1-product-2").click();
       await expect(page.getByTestId("checkbox-capability-plant-1-product-2")).not.toBeChecked();
-      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0");
+      await expect(page.getByTestId("text-capability-capacity-plant-1-product-2")).toHaveText("0 Units");
 
       // ── Item #7 — no warehouse-capacity leak / no 10,000,000 ────────────
       await page.getByTestId("sidebar-input-warehouses").click();
@@ -448,7 +463,12 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       await plantProdFilterTrigger.click();
       await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
       await expect(page.getByTestId("text-filter-count")).toHaveText("16 of 16");
-      await page.getByTestId("checkbox-filter-plant-Plant 1").click();
+      // [Fixed pre-existing stale assertion — unrelated to workspace-
+      // fixups-2: the Plant filter's option VALUE was already `plantIdCityState(plant)`
+      // ("plant-1 — Ashland, KY", from the earlier "workspace-fixups" bundle,
+      // 2026-09-19) rather than the plant's bare `name` ("Plant 1") this spec
+      // (authored 2026-09-17) assumed; this spec never got updated for it.]
+      await page.getByTestId("checkbox-filter-plant-plant-1 — Ashland, KY").click();
       await expect(page.getByTestId("text-filter-count")).toHaveText("4 of 16");
       await expect(page.locator('[data-testid^="row-plant-production-"]')).toHaveCount(4);
       await page.getByTestId("button-clear-all-filters").click();
@@ -460,7 +480,14 @@ test.describe("JADE Ch.9 Workspace Bundle — QA", () => {
       // Warehouses input" ask).
       await page.getByTestId("sidebar-input-warehouses").click();
       await expect(page.getByTestId("warehouses-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
-      const whFilterTrigger = page.getByTestId("warehouse-table-filter-bar").getByTestId("button-filter-menu-trigger");
+      // [Fixed pre-existing stale assertion — unrelated to workspace-
+      // fixups-2's own changes to this file, but the FilterMenu's mount
+      // point moved as part of THIS bundle's item 3: it used to live inside
+      // `WarehouseTable.tsx`'s own `warehouse-table-filter-bar` row (a
+      // separate row from the CSV toolbar); it's now lifted onto the base
+      // tab's `warehouses-tab-toolbar` row instead, sharing the same line
+      // as Import/Export (see workspace-fixups-2 spec §3).]
+      const whFilterTrigger = page.getByTestId("warehouses-tab-toolbar").getByTestId("button-filter-menu-trigger");
       await expect(whFilterTrigger).toBeVisible();
       await whFilterTrigger.click();
       await expect(page.getByTestId("filter-menu-popover")).toBeVisible();
