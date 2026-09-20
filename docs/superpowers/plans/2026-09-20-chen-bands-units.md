@@ -49,6 +49,7 @@ New files, and what each owns:
 | `lib/units/src/bands.ts` | `OVERFLOW_BAND`, `assignBandOrOverflow`, `bandLabelOrOverflow`, `computeCumulativeBandCoverage`, `serviceEdgesFor`. Ported verbatim-in-behavior from `artifacts/studio/src/lib/bands.ts`. |
 | `lib/units/src/index.ts` | Public surface re-export. |
 | `artifacts/studio/src/contexts/UnitContext.tsx` | `UnitProvider` + `useDisplayUnit()`; localStorage persistence; wraps `@workspace/units`. |
+| `lib/units` wiring | `@workspace/units` dep in both consumer `package.json`s + a root `tsconfig.json` project reference (plan-review #1). |
 | `artifacts/studio/src/components/UnitToggle.tsx` | The `auto/km/mi` header control. |
 | `artifacts/studio/src/hooks/useDistanceDraft.ts` | The draft contract (grammar, toggle behavior, commit) as one reusable hook. |
 | `artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx` | Save / Discard / Cancel dialog for decision 1i. |
@@ -67,14 +68,24 @@ Modified files with a **single writer** (never assign two concurrent tasks to th
 ## Wave / dependency map
 
 ```
-Wave 0 (parallel, file-disjoint):  T1 units pkg · T2 db schema · T3 chen validator+manifest · T4 199M hint
-Wave 1 (after W0):                 T5 openapi+codegen · T6 jobRunner txn        [T6 needs T2]
+Wave 0 (parallel, file-disjoint):  T1 units pkg (+monorepo wiring) · T2 db schema · T3 chen validator+manifest · T4 199M hint
+Wave 1 (after W0):                 T1b studio bands.ts re-export · T5 openapi+codegen · T6 jobRunner txn   [T6 needs T2]
 Wave 2 (sequential, hot files):    T7 templates.ts  →  T8 import.ts             [need T1, T5]
 Wave 3:                            T9 routes/scenarios.ts + distanceBands.ts    [needs T5,T6,T7]
-Wave 4 (frontend):                 T10 UnitContext → T11 read paths → T12 write paths
-                                   T13 Chen band editor + live coverage         [parallel with T11/T12]
+Wave 4 (frontend):                 T10 UnitContext+AppShell  →  then T11 ∥ T12 ∥ T13 (file-disjoint, see below)
                                    T14 Workspace.tsx INT (sole writer, last)
 Wave 5:                            T15 QA (real-browser Playwright)
+```
+
+**Wave 4 file ownership (plan-review #3 — T11/T12/T13 previously collided).** Split so the three run genuinely in parallel, each the sole writer of its set:
+
+| Task | Owns |
+|---|---|
+| T11 read paths | `NetworkMap`, `MapLegend`, `OutputMapTab`, `CostSummaryTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `ObjectiveBar`, Landing recent-solves, validation strings |
+| T12 write paths | `useDistanceDraft` (new), `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` |
+| T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, `ServiceStatsTab` — including applying T12's draft hook to *its own three* files |
+
+```
 ```
 
 ---
@@ -161,7 +172,28 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({ test: { environment: "node" } });
 ```
 
-`pnpm-workspace.yaml` already globs `lib/*` — **no workspace config change needed**.
+`pnpm-workspace.yaml` already globs `lib/*`, so no glob change is needed — but the package still has to be **wired in** (plan-review #1); creating the directory alone is not enough under this repo's pnpm + TS-project-references setup.
+
+Add the dependency to **both** consumers:
+
+```jsonc
+// artifacts/studio/package.json  AND  artifacts/api-server/package.json — dependencies
+"@workspace/units": "workspace:*",
+```
+
+Add the project reference to the root `tsconfig.json` (it currently lists `lib/db`, `lib/api-client-react`, `lib/api-zod`, `lib/dataset-schema` — without this entry `pnpm -w run typecheck:libs` never checks the new package):
+
+```jsonc
+    { "path": "./lib/units" },
+```
+
+Then:
+
+```bash
+pnpm install     # regenerates pnpm-lock.yaml — it MUST be committed with this task
+```
+
+A missing lockfile update breaks CI and the Docker build with `ERR_PNPM_OUTDATED_LOCKFILE` (this repo has hit that exact failure before).
 
 - [ ] **Step 2: Write the failing conversion test**
 
@@ -478,7 +510,84 @@ Expected: all `@workspace/units` tests pass; workspace typecheck clean.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add lib/units && git commit -m "[T1] add @workspace/units — pure cross-runtime unit, objective and band contract" -- lib/units
+pnpm -w run typecheck:libs     # proves the new project reference is actually wired
+git commit -m "[T1] add @workspace/units — pure cross-runtime unit, objective and band contract (+monorepo wiring)" -- \
+  lib/units tsconfig.json pnpm-lock.yaml \
+  artifacts/studio/package.json artifacts/api-server/package.json
+```
+
+---
+
+### Task 1b: Studio re-exports the shared band classifier (no second implementation)
+
+**Files:**
+- Modify: `artifacts/studio/src/lib/bands.ts` (**sole writer**)
+- Test: `artifacts/studio/src/__tests__/bands.test.ts` + new `artifacts/studio/src/__tests__/bandsSingleSource.test.ts`
+
+**Why this task exists (plan-review #2):** `artifacts/studio/src/lib/bands.ts` currently owns its *own* `OVERFLOW_BAND`, `assignBandOrOverflow`, `bandLabel` and `computeCumulativeBandCoverage`, and is imported by **ten** call sites — `NetworkMap`, `MapLegend`, `OutputMapTab`, `ServiceStatsTab`, `JadeAssignmentsTab`, `JadeFlowsTab` and their tests. Without this task the frontend keeps a parallel copy of the exact logic the API server now shares, and map colours, grid labels and export files can silently drift — the failure mode `@workspace/units` exists to make impossible.
+
+**Interfaces:**
+- Consumes: `@workspace/units` (T1).
+- Produces: `artifacts/studio/src/lib/bands.ts` as a **thin re-export**, so every existing consumer import keeps working unchanged.
+
+- [ ] **Step 1: Write the single-source guard test**
+
+`bandsSingleSource.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import * as studioBands from "@/lib/bands";
+import * as sharedUnits from "@workspace/units";
+
+describe("the frontend has no second band implementation", () => {
+  it.each(["OVERFLOW_BAND", "assignBandOrOverflow", "computeCumulativeBandCoverage"] as const)(
+    "%s is the SAME binding as @workspace/units", name => {
+      expect((studioBands as never)[name]).toBe((sharedUnits as never)[name]);
+    });
+
+  it("bandLabel is the shared classifier under the frontend's existing name", () => {
+    expect(studioBands.bandLabel(9999, [200, 400])).toBe(sharedUnits.bandLabelOrOverflow(9999, [200, 400]));
+  });
+});
+```
+
+`toBe` (reference identity), not `toEqual` — a copied function with identical behavior must still fail this test.
+
+- [ ] **Step 2: Run — expect failure** (`pnpm --filter studio test -- bandsSingleSource`): the two modules currently export distinct function objects.
+
+- [ ] **Step 3: Convert `bands.ts` to a re-export**
+
+```ts
+// Plan-review #2 — the band classifier now lives in @workspace/units so the
+// map, the grids and the API server's export builders cannot drift apart.
+// This module stays as the frontend's import surface (ten call sites depend on
+// it) but owns no logic.
+export {
+  OVERFLOW_BAND,
+  assignBandOrOverflow,
+  computeCumulativeBandCoverage,
+  serviceEdgesFor,
+  type BandEdge,
+  type BandCoverageEntry,
+} from "@workspace/units";
+
+// The frontend's established name for the shared label helper.
+export { bandLabelOrOverflow as bandLabel } from "@workspace/units";
+```
+
+**Keep locally** only genuinely frontend-specific helpers that `@workspace/units` deliberately does not own — `DEFAULT_DISTANCE_BANDS`, `computeAutoBands`, `assignBand`, and the legacy **exclusive** `computeBandCoverage` (still used by the older display path). Do not delete them in this task.
+
+- [ ] **Step 4: Run the full studio suite**
+
+```bash
+pnpm --filter studio test
+```
+Expected: PASS, including the ten pre-existing consumers and `bands.test.ts`, with **no call-site edits** — the re-export keeps every import path identical.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "[T1b] studio/lib/bands re-exports the shared @workspace/units classifier (single source)" -- artifacts/studio/src/lib/bands.ts artifacts/studio/src/__tests__
 ```
 
 ---
@@ -507,7 +616,12 @@ In `lib/db/src/schema/solve_jobs.ts`, beside the existing `resultSummary`:
 
 - [ ] **Step 2: Add `scenarios.result_run_id`**
 
-In `lib/db/src/schema/scenarios.ts` (import `solveJobsTable`; if that creates an import cycle, declare the FK with Drizzle's callback form instead of a direct reference):
+In `lib/db/src/schema/scenarios.ts`. **This IS a circular module import** (plan-review #8): `solve_jobs.ts` already imports `scenariosTable` from `./scenarios.js`, so importing `solveJobsTable` back closes the cycle. Drizzle's documented fix is not "use the callback form" — the callback form is already required — it is to **annotate the callback's return type** so TypeScript can break the inference cycle:
+
+```ts
+import { integer, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { solveJobsTable } from "./solve_jobs.js";
+```
 
 ```ts
   // Decision 1g — which solve_jobs row produced this row's current `result`.
@@ -516,7 +630,10 @@ In `lib/db/src/schema/scenarios.ts` (import `solveJobsTable`; if that creates an
   // child solve_jobs FIRST (routes/scenarios.ts) — a restrictive FK would
   // deadlock that order — and a null pointer is exactly the already-specified
   // "legacy, non-exportable" state.
-  resultRunId: integer("result_run_id").references(() => solveJobsTable.id, { onDelete: "set null" }),
+  // The explicit `: AnyPgColumn` return annotation is REQUIRED — without it
+  // TypeScript cannot resolve the scenarios <-> solve_jobs import cycle and
+  // fails with an implicit-any / circular-inference error.
+  resultRunId: integer("result_run_id").references((): AnyPgColumn => solveJobsTable.id, { onDelete: "set null" }),
 ```
 
 - [ ] **Step 3: Write the schema-shape test**
@@ -550,11 +667,20 @@ DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" psql -c "\d scenari
 ```
 Expected: the column exists and the FK prints `ON DELETE SET NULL`.
 
-- [ ] **Step 5: Gate + commit**
+- [ ] **Step 5: Prove the cycle is resolved and the delete order still works**
+
+```bash
+pnpm run typecheck                                  # fails loudly if the AnyPgColumn annotation is missing
+pnpm --filter api-server test -- routes.test.ts     # scenario-delete integration path
+```
+
+Add an integration test asserting **deleting a solved scenario still returns 204, then 404 on refetch** with the new FK in place (plan-review #7) — the existing handler deletes the child `solve_jobs` rows first, and `ON DELETE SET NULL` must let that order stand rather than blocking it.
+
+- [ ] **Step 6: Gate + commit**
 
 ```bash
 pnpm run typecheck && pnpm --filter api-server test
-git commit -m "[T2] add solve_jobs.result + scenarios.result_run_id (nullable, ON DELETE SET NULL)" -- lib/db artifacts/api-server/src/__tests__/schemaColumns.test.ts
+git commit -m "[T2] add solve_jobs.result + scenarios.result_run_id (nullable, ON DELETE SET NULL)" -- lib/db artifacts/api-server/src/__tests__
 ```
 
 ---
@@ -656,6 +782,17 @@ Add the solver-parameter invariant (independent of bands):
 pnpm --filter api-server test && pnpm --filter @workspace/dataset-schema test
 ```
 Expected: PASS. If a manifest-hash fixture asserts the old file, update that expected hash in the same commit and say so in the body.
+
+- [ ] **Step 5b: Cover all three write paths (plan-review #7)**
+
+The overwrite lived in the shared validator, so it must be proven gone on **every** route that validates Chen inputs — not just `parse()` in isolation:
+
+```ts
+it("POST /scenarios (create) preserves a supplied band array", () => {});
+it("PATCH /scenarios/:id (whole-input) preserves a supplied band array", () => {});
+it("POST /scenarios/:id/import/apply preserves a supplied band array", () => {});
+it.each(["create", "patch", "import-apply"])("%s derives [high,max] only when distanceBands is omitted", () => {});
+```
 
 - [ ] **Step 6: Commit**
 
@@ -796,14 +933,22 @@ Add `400` (invalid `unit`/`runId`) and keep the existing `404`/`422` on that ope
         '404': { description: Not found (also returned for a scenario owned by another user) }
 ```
 
-- [ ] **Step 4: v3 output entity rows**
+- [ ] **Step 4: Export envelope variants — v1 / v2 / v3, NOT a global v3 (plan-review #6)**
 
-Add/replace the `ExportEnvelope` + row schemas to match the spec table **exactly** — envelope carries `templateVersion` (const `3` for changed outputs) + `unit`; rows carry neither. `JadeFlowRow.leg` is `enum: [plant_to_warehouse, warehouse_to_customer]`. `band` is non-nullable on every band-bearing row; `costSummary` has no band.
+One endpoint returns **three different versioned families**, so a single v3 unit-bearing `ExportEnvelope` would misdescribe most of the export surface. Model it as entity/version-specific schemas composed with `oneOf`:
+
+| Family | Entities | Envelope |
+|---|---|---|
+| **v1, unitless** | `warehouses`, `customers`, `mines`, `stations`, `refineries`, `plants`, `plantCapabilities`, `openWarehouses` | `templateVersion` const `1`; **no `unit` property at all** — do not invent one; output is byte-identical with or without `unit=` |
+| **v2, unit-bearing input** | `distances`, `legDistances`, `laneCosts` | `templateVersion` const `2` + `unit`; rows per the spec's input contract (`laneCosts` keeps its `cost` column) |
+| **v3, unit-bearing output** | `assignments`, `flows`, `costSummary`, `serviceStats` (+ the JADE assignment/flow variants) | `templateVersion` const `3` + `unit`; the six exact row shapes from the spec's Part E table |
+
+Rules: envelope carries `templateVersion` + `unit`; **rows carry neither**. `JadeFlowRow.leg` is `enum: [plant_to_warehouse, warehouse_to_customer]`. `band` is non-nullable on every band-bearing row; `costSummary` has none. Every generated schema **example** must assert `1`, `2`, or `3` per the version matrix — never v3 globally. The entity-specific **CSV** contracts stay documented separately from the JSON envelopes.
 
 - [ ] **Step 5: Regenerate and gate**
 
 ```bash
-pnpm --filter @workspace/api-spec run generate   # or the repo's documented orval command
+pnpm --filter @workspace/api-spec codegen   # the real script name; it also runs typecheck:libs
 pnpm run typecheck
 ```
 Expected: generated files change; typecheck clean. **Never hand-edit generated output.**
@@ -955,6 +1100,22 @@ JSON rows are **not** the builder rows — project away `templateVersion`/`dista
 
 CSV **and** JSON, at `unit=km` **and** `unit=mi`, for all six artifacts; plus boundary-equality, overflow-present, overflow-absent, zero-flow, and the `serviceStats` fixture whose boundary visibly differs between units while overflow stays `-1`. `costSummary` fixtures cover Chen coverage / Chen min-distance / JADE monetary / one converting distance objective.
 
+- [ ] **Step 7b: Objective mapping exercised through the API-SERVER runtime (plan-review #7)**
+
+Test 13 must fail if anyone reintroduces a backend-local mapping, so assert it from **this package**, not only from the pure package and the frontend wrapper:
+
+```ts
+it.each([
+  ["p-median-us", null], ["p-median-brazil", null], ["transport-coal", null],
+  ["two-echelon-gold-au", null], ["two-echelon-jade-us", null],
+  ["chens-cosmetics-cn", "coverage"], ["chens-cosmetics-cn", "min_distance"],
+])("costSummary objective for %s/%s converts per the shared contract under km AND mi", () => {
+  // build the costSummary rows at unit=km and unit=mi and assert the numeric
+  // result equals convertObjective(...) from @workspace/units — never a
+  // locally-recomputed expectation.
+});
+```
+
 - [ ] **Step 8: Gate + commit**
 
 ```bash
@@ -1013,6 +1174,7 @@ it("a valid unit on a non-distance entity yields byte-identical output to omitti
 it("omitted unit = canonical (default)", () => {});
 // runId
 it("exports the addressed run, not the latest", () => {});
+it("OMITTED runId retains the unchanged latest-export behavior byte-for-byte", () => {});
 it("cross-user runId → 404", () => {});
 it("cross-scenario runId → 404", () => {});
 it("stale scenario + explicit runId → 200 (stale-gate is latest-path only)", () => {});
@@ -1024,6 +1186,7 @@ it("PATCH distance-bands changes ONLY distanceBands (other keys byte-identical a
 it("404 for non-owned and missing", () => {});
 it("400 for invalid/missing body and a model-invalid array", () => {});
 it("does not flip `stale`", () => {});
+it("returns a Scenario whose inputs.distanceBands are the NEW bands", () => {});
 ```
 
 - [ ] **Step 2: Implement `unit=`** — validate first, before any entity dispatch, so an unknown value is 400 everywhere. Thread the requested unit into T7's builders; ignore it for the non-distance entity list.
@@ -1070,19 +1233,24 @@ git commit -m "[T9] export unit=/runId addressing + field-scoped distance-bands 
 
 **Files:**
 - Create: `artifacts/studio/src/contexts/UnitContext.tsx`, `artifacts/studio/src/components/UnitToggle.tsx`
-- Modify: `artifacts/studio/src/main.tsx` (mount `UnitProvider` at the root), `artifacts/studio/src/lib/objectiveFormat.ts` (becomes a wrapper)
-- Test: `artifacts/studio/src/__tests__/UnitContext.test.tsx`, `objectiveFormat.test.ts`
+- Modify: `artifacts/studio/src/main.tsx` (mount `UnitProvider` at the root), `artifacts/studio/src/components/AppShell.tsx` (mount `UnitToggle` in the Landing header), `artifacts/studio/src/lib/formatObjective.ts` (becomes a wrapper) — note the real filename is `formatObjective.ts`, **not** `objectiveFormat.ts`
+- Test: `artifacts/studio/src/__tests__/UnitContext.test.tsx`, `artifacts/studio/src/__tests__/formatObjective.test.ts`
 
 **Interfaces:**
 - Produces `useDisplayUnit(): UnitApi` exactly as the spec's Part D block defines it, delegating all math to `@workspace/units`.
 
-- [ ] **Step 1: Failing tests** — spec tests 9, 10, 13: `auto` is a no-op; `km`/`mi` convert at the exact factor; `toDisplay∘fromDisplay` round-trips; the pref persists across a remount (localStorage); `objectiveFormat` produces the right suffix for all six models under both units and **holds no mapping of its own** (assert it calls through by mocking `@workspace/units`).
+- [ ] **Step 1: Failing tests** — spec tests 9, 10, 13: `auto` is a no-op; `km`/`mi` convert at the exact factor; `toDisplay∘fromDisplay` round-trips; the pref persists across a remount (localStorage); `formatObjective` produces the right suffix for all six models under both units and **holds no mapping of its own** (assert it calls through by mocking `@workspace/units`).
 
 - [ ] **Step 2: Implement `UnitContext`** — `pref` state seeded from `localStorage`, default `"auto"`; `setPref` writes through; the five methods delegate to `@workspace/units`; **never** infer a unit from `modelId` here.
 
-- [ ] **Step 3: Implement `UnitToggle`** — compact `auto/km/mi` segmented control; render it in the app header (model screens + Landing).
+- [ ] **Step 3: Implement `UnitToggle`** — compact `auto/km/mi` segmented control.
 
-- [ ] **Step 4: Rewrite `objectiveFormat.ts` as a wrapper** — it may add locale formatting and the suffix string only; the `(modelId, mode) → dimension` mapping and the numeric conversion both come from `@workspace/units`.
+**Mount ownership is split (plan-review #3)**, because the two headers live in different files and `Workspace.tsx` is reserved for Task 14:
+- **This task** mounts it in `AppShell.tsx` (the Landing / non-workspace header).
+- **Task 14 Step 7a** mounts it in the workspace header inside `Workspace.tsx`.
+Neither task edits the other's file.
+
+- [ ] **Step 4: Rewrite `formatObjective.ts` as a wrapper** — it may add locale formatting and the suffix string only; the `(modelId, mode) → dimension` mapping and the numeric conversion both come from `@workspace/units`.
 
 - [ ] **Step 5: Gate + commit.**
 
@@ -1135,7 +1303,11 @@ Toggle: complete → convert text in place; **incomplete → discard** (field re
 
 ### Task 13: Chen band editor + live coverage
 
-**Files:** modify `OptimizationParametersTab.tsx` (band editor), `ServiceStatsTab.tsx` (remove the Chen guard).
+**Files:** modify `OptimizationParametersTab.tsx` (band editor), **`SolveDialog.tsx` (its SEPARATE band editor)**, `ServiceStatsTab.tsx` (remove the Chen guard).
+
+**Why `SolveDialog` is in this task (plan-review #5):** it has its own `addBand`/`removeBand` (`SolveDialog.tsx:165-175`), and its `removeBand` is a bare `filter` with **no minimum guard** — re-enabling Chen's editor without touching it would let a user delete the last boundary, violating the locked `minItems: 1` rule, and would leave two band editors free to drift. Prefer **extracting one shared `<BandChipEditor>`** used by both surfaces; including both files in this one serialized task is the acceptable fallback.
+
+Both surfaces must: edit the **dedicated active lens** (never an independent `localInputs.distanceBands` copy), reject non-positive and duplicate additions, **block removal of the last boundary**, apply T12's display-unit draft/commit behavior, and be covered by parallel component tests driven from **one** state source.
 
 > **Ownership note:** `defaultInputsForModel` lives in `Workspace.tsx`, which is **Task 14's** sole-writer file. The default band array `[600,1200,2400,5000]` is therefore changed in **Task 14 Step 2a**, not here. This task owns the editor component and `ServiceStatsTab` only, and its default-bands test asserts against the editor's rendered chips given seeded inputs.
 
@@ -1184,11 +1356,22 @@ Use it in the Save control **and** in `handleSolve`'s save-before-solve branch.
 
 - [ ] **Step 4: History action matrix** — implement the spec's table exactly. Ordinary editors disabled at an older index; the whole-input PATCH unreachable there; Save enabled and labelled **"Save bands"** when the lens is dirty, firing only the field-scoped route; `Run Optimizer` disabled at an older index **and** `handleSolve` itself rejecting a historical position.
 
-- [ ] **Step 5: Dirty-nav prompt (decision 1i)** — guard `stepResultBack`/`stepResultForward` **themselves**, not just the buttons. `ordinaryDirty` → Save / Discard / Cancel before the index changes; `lensDirty` alone never prompts.
+- [ ] **Step 5: Dirty-nav prompt (decision 1i)** — guard `stepResultBack`/`stepResultForward` **themselves**, not just the buttons. `ordinaryDirty` → Save / Discard / Cancel before the index changes; `lensDirty` alone never prompts. **A failing Save leaves the index AND the draft unchanged** (plan-review #7) — navigation proceeds only after the save resolves successfully, so a rejected input can never cost the user both the edit and their place.
 
 - [ ] **Step 6: `Save as scenario`** → `{ ...entry.inputs, distanceBands: activeBandLens }` (active **draft** lens).
 
-- [ ] **Step 7: Run-id threading** — `ResultHistoryEntry` gains `runId?: number`; the seed takes `currentScenario.resultRunId`; a new solve attaches the polling job id **independently of `timing`**; an entry with no `runId` renders its download disabled and labelled. `downloadEntityExport` gains optional `runId` and appends the current display `unit` **universally**.
+- [ ] **Step 7a: Mount `UnitToggle` in the workspace header** — the counterpart of Task 10's `AppShell` mount (plan-review #3). Task 10 owns the Landing header; this task owns the model-page header because `Workspace.tsx` renders its own and is this task's sole-writer file.
+
+- [ ] **Step 7: Run-id threading** — `ResultHistoryEntry` gains `runId?: number`; the seed takes `currentScenario.resultRunId`; a new solve attaches the polling job id **independently of `timing`**; **an entry with no `runId` is non-exportable ONLY once it is no longer the latest** (plan-review #4). A legacy *latest* result must still export through the existing latest-result path with `runId` omitted — the spec's Part F rule is narrower than "any null runId is disabled". Lock it as:
+
+```ts
+// Non-exportable only when we are BROWSING HISTORY and this entry has no
+// addressable run. A legacy latest result stays exportable via the
+// latest-result path (runId omitted) exactly as before this bundle.
+const unaddressableHistoricalEntry = isBrowsingHistory && entry.runId == null;
+```
+
+Disable and label the download in **that** state only. Test **both** branches: legacy entry while it is latest → export request fires with **no** `runId`; the same entry after a newer solve → download disabled + labelled. `downloadEntityExport` gains optional `runId` and appends the current display `unit` **universally**.
 
 - [ ] **Step 8: Gate + commit.**
 
@@ -1200,7 +1383,7 @@ Use it in the Save control **and** in `handleSolve`'s save-before-solve branch.
 
 Dispatch to `qa-sdet`. Run against real local dev servers (api-server + studio with `API_PROXY_TARGET`), **excluding `labs.spec.ts`** (known pre-D0 debt).
 
-- [ ] **Step 1: Cover, for real** — Chen band add/remove + live recolor + overflow; the high-link retarget; lens Save while browsing history leaving other inputs untouched; the dirty-nav prompt's three outcomes; Run Optimizer disabled in history; `Save as scenario` carrying the on-screen lens; the unit toggle converting inputs *and* outputs with persistence across reload; the `5.`-toggle draft-discard; a historical export matching the displayed tab; `unit=km` vs `unit=mi` export files differing.
+- [ ] **Step 1: Cover, for real** — Chen band add/remove + live recolor + overflow; the high-link retarget; lens Save while browsing history leaving other inputs untouched; the dirty-nav prompt's three outcomes; Run Optimizer disabled in history; `Save as scenario` carrying the on-screen lens; the unit toggle converting inputs *and* outputs with persistence across reload; the `5.`-toggle draft-discard; a historical export matching the displayed tab; and — stronger than "two files differ" (plan-review #7) — a full **input** round trip (export `distances` at `unit=mi` → edit a value → re-import → the stored canonical value matches within `abs ≤ 0.001 / rel ≤ 1e-5`) plus **output** downloads at both `unit=km` and `unit=mi` whose distance columns differ by exactly the conversion factor while the overflow sentinel stays `-1`.
 
 - [ ] **Step 2: Run twice green.** Report product bugs back rather than fixing them inside the QA task.
 
@@ -1229,3 +1412,99 @@ Run `/harness-retro chen-bands-units` — a branch is not finished until it has.
 - Gold's generic `buildAssignmentRows` maps **all** edges with no leg filter, so its assignments export includes `mine_to_refinery` rows. Pre-existing defect; this bundle changes only the `band` value, never a row source.
 - Restoring an older entry's inputs (the behavior decision 1h removes) would need its own explicit action. `Save as scenario` covers the real use case.
 - JSON import remains out of scope — import stays CSV-only.
+
+---
+
+## Appendix — approval re-review comments (2026-09-20, `2f69f76`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All eight are now folded into the normative tasks — see the per-item `plan-review #N` markers throughout.)* The plan is directionally strong, but the following blockers and high-severity contract gaps must be folded into the normative tasks before implementation begins.
+
+### 1. BLOCKER — `@workspace/units` is not wired into the monorepo
+
+Task 1 creates and commits only `lib/units`. That is insufficient under this repository's pnpm and TypeScript-project setup. Task 1 must also:
+
+- add `"@workspace/units": "workspace:*"` to both `artifacts/studio/package.json` and `artifacts/api-server/package.json`;
+- add `./lib/units` to the root `tsconfig.json` project references so `pnpm run typecheck:libs` actually checks it;
+- run `pnpm install` and commit the resulting `pnpm-lock.yaml`; and
+- include those files in Task 1's explicit commit pathspec.
+
+Without this wiring, consumer imports may fail under pnpm's strict workspace resolution and the advertised root typecheck does not validate the new library.
+
+### 2. BLOCKER — the frontend would retain a second band implementation
+
+The approved spec requires Studio to re-export the shared band classifier so frontend and backend cannot drift. The plan never assigns a task to modify `artifacts/studio/src/lib/bands.ts`, which currently owns separate definitions of `OVERFLOW_BAND`, `assignBandOrOverflow`, `bandLabel`, and `computeCumulativeBandCoverage` and is still imported by `NetworkMap` and `ServiceStatsTab`.
+
+Add an explicit file owner and step that imports/re-exports the locked functions from `@workspace/units` (aliasing `bandLabelOrOverflow` to the existing frontend name if desired). Retain locally only genuinely frontend-specific helpers such as the legacy exclusive coverage function. Add a guard test proving map, Service Stats, and API export resolve the shared implementation rather than duplicate copies.
+
+### 3. BLOCKER — Wave 4 has conflicting writers and incomplete toggle placement
+
+The dependency map declares Task 13 parallel with Tasks 11/12, but the tasks overlap:
+
+- Tasks 11 and 13 both modify `ServiceStatsTab.tsx`;
+- Tasks 12 and 13 both modify `OptimizationParametersTab.tsx`; and
+- Tasks 12 and 13 also need coordinated ownership of `SolveDialog.tsx` once Chen's band editor is restored.
+
+This contradicts the plan's single-writer rule. Serialize these tasks or split their file ownership into genuinely disjoint commits.
+
+Task 10 also says to render `UnitToggle` in the app header on model screens and Landing, but its file list includes neither header owner. Landing is wrapped by `AppShell.tsx`, while workspace-enabled model pages render their own header in `Workspace.tsx`, which is reserved for Task 14. Assign the Landing mount to `AppShell.tsx` in Task 10 and the model-page mount explicitly to Task 14 (or define another conflict-free ownership split).
+
+### 4. HIGH — legacy latest-result export is incorrectly disabled
+
+Task 14 currently says that any history entry without a `runId` renders its download disabled. The approved Part F contract is narrower: a null-`runId` entry is non-exportable only **once it is no longer the latest**. A legacy latest result must remain exportable through the existing latest-result path with `runId` omitted.
+
+Lock the UI rule as:
+
+```ts
+const unaddressableHistoricalEntry = isBrowsingHistory && entry.runId == null;
+```
+
+Disable and label the download only in that state. Add both branches to the client test: legacy latest → export request without `runId`; the same entry after a newer solve → disabled and labelled.
+
+### 5. HIGH — the Chen rules do not cover `SolveDialog`'s band editor
+
+Task 13 owns only `OptimizationParametersTab.tsx` and `ServiceStatsTab.tsx`, while `SolveDialog.tsx` has a separate band editor and separate add/remove implementation. Its current `removeBand` permits deleting the last boundary. Simply re-enabling that editor for Chen would violate the locked `minItems: 1` UI rule and leave the two surfaces free to drift.
+
+Either extract one shared band-editor component or include `SolveDialog.tsx` in the same serialized task. Both surfaces must:
+
+- edit the dedicated active lens rather than an independent `localInputs.distanceBands` copy;
+- reject non-positive and duplicate additions;
+- block removal of the last boundary;
+- apply the same display-unit draft/commit behavior; and
+- be covered by parallel component tests against one state source.
+
+### 6. HIGH — the OpenAPI export-envelope version variants are underspecified
+
+Task 5 describes replacing `ExportEnvelope` with exact v3 output shapes, but the same endpoint also returns v1 non-distance entities and v2 importable distance entities. A single `templateVersion: 3`/unit-bearing envelope would misdescribe most of the export surface.
+
+Specify the OpenAPI representation explicitly, preferably as entity/version-specific schemas composed through `oneOf`:
+
+- v1 non-distance envelopes, with no invented unit and byte-identical output;
+- v2 `distances`/`legDistances`/`laneCosts` envelopes with `unit` on the envelope and exact rows; and
+- the six exact v3 output variants from the spec.
+
+Preserve the entity-specific CSV contracts separately. Generated schemas/examples must assert `1`, `2`, or `3` according to the locked version matrix rather than applying v3 globally.
+
+### 7. MEDIUM — required verification cases are missing or only implied
+
+Add explicit test steps for:
+
+- Chen create, whole-input PATCH, and import-apply preserving a supplied band array and deriving `[high,max]` only when omitted;
+- deleting a solved scenario still returning 204→404 with the circular FK in place, including `ON DELETE SET NULL` behavior;
+- omitted `runId` retaining the unchanged latest-export behavior;
+- the full six-model objective mapping under both units through the API-server runtime, not only the pure package/frontend wrapper;
+- the field-scoped route returning a Scenario containing the new bands;
+- the dirty-navigation Save failure leaving the index and draft unchanged;
+- both band-editor surfaces enforcing the same minimum/add/remove rules; and
+- real-browser input export→import round trips as well as output downloads at `unit=km` and `unit=mi`.
+
+The final Playwright step currently proves only that two export files differ; that is weaker than the spec's input-and-output round-trip gate.
+
+### 8. MEDIUM — executable references and the circular-FK instruction need correction
+
+- The existing Studio files are `artifacts/studio/src/lib/formatObjective.ts` and `artifacts/studio/src/__tests__/formatObjective.test.ts`, not `objectiveFormat.ts` / `objectiveFormat.test.ts`.
+- `@workspace/api-spec` exposes the script `codegen`, not `generate`; use `pnpm --filter @workspace/api-spec codegen`.
+- Task 2 says to use Drizzle's callback form if the new back-reference creates an import cycle, but its shown `.references(() => solveJobsTable.id)` is already callback form. Specify the actual circular-schema solution, including an explicit `AnyPgColumn` callback return type where TypeScript inference requires it, then prove it with `pnpm run typecheck`, `drizzle-kit push`, FK introspection, and the scenario-deletion integration test.
+
+### Re-review exit criteria
+
+Approval requires all eight comments to be folded into the task file lists, dependency map, commands, and acceptance tests—not merely acknowledged in this appendix. Re-run `git diff --check` after the rewrite and re-review the resulting task graph against the approved design before implementation starts.
