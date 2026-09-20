@@ -17,6 +17,7 @@ const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
+  transaction: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
@@ -78,6 +79,10 @@ describe("jobRunner honors SOLVE_WORKER_CONCURRENCY=1", () => {
       .mockReturnValueOnce(makeChain([{ id: 1 }]))
       .mockReturnValueOnce(makeChain([{ id: 2 }]));
     mockDb.update.mockReturnValue(makeChain([{}]));
+    // Part F (T6): markSucceeded now wraps its two updates in db.transaction().
+    // Run the callback against mockDb itself so tx.update(...) routes through
+    // the same mock as every other db.update(...) call in this test.
+    mockDb.transaction.mockImplementation(async (cb: (tx: typeof mockDb) => Promise<void>) => cb(mockDb));
 
     // P1.2: runJob() now does a result_cache lookup (db.select) before
     // spawning the solver — default to a cache miss (empty result set) so
