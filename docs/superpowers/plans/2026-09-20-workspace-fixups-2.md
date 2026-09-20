@@ -5,7 +5,7 @@
 
 ## Process (standing lessons baked in)
 - **Controller pre-creates each task's worktree** (`git worktree add --lock <path> -b <task>-work <base-sha>`) and dispatches the agent WITHOUT `isolation`, pinned to that exact path. Each agent's FIRST Bash command is `cd <path>` + a `git rev-parse --abbrev-ref HEAD` sanity check (must equal `<task>-work`, else STOP). Never touch the controller's `jade-ch9` dir.
-- **Wave worktrees are cut from the INTEGRATED head of the prior wave, NOT the plan base (Codex plan-review P1).** The dependency graph (T9←T5, T10/T11←T3) means a Wave-2 worktree cut from `577086e` would LACK its Wave-1 prerequisites. So: run Wave 1 → controller cherry-picks all Wave-1 commits onto the bundle branch + gates → THEN provision Wave-2 worktrees from that post-Wave-1 tip → run Wave 2 → cherry-pick + gate → THEN provision INT's worktree from the post-Wave-2 tip → THEN QA's from the post-INT tip. Never pre-create all worktrees up front from the original base. (This is exactly the sequencing the last bundle used successfully.)
+- **Wave worktrees are cut from the INTEGRATED head of the prior wave, NOT the plan base (Codex plan-review P1).** The dependency graph (T9←T5, T10/T11←T3, INT←Wave2, CLEANUP←INT, QA←CLEANUP) means a worktree cut from `577086e` would LACK its prerequisites. Full sequence: run Wave 1 → cherry-pick all Wave-1 commits onto the bundle branch + gate → provision Wave-2 worktrees from that post-Wave-1 tip → run Wave 2 → cherry-pick + gate → provision INT from the post-Wave-2 tip → run + cherry-pick + gate INT → **provision CLEANUP from the gated post-INT tip → run + cherry-pick + gate CLEANUP → provision QA from the gated post-CLEANUP tip** (Codex plan-review-4 P1 — QA must include CLEANUP's permanent base-tab changes). Never pre-create all worktrees up front from the original base.
 - **Explicit-pathspec commits** (`git commit -m … -- <paths>`), `git status` before commit. Agents never push or edit `main`.
 - **Optional-props pattern for per-commit-green: EVERY integrated commit passes the zero-error controller gate (Codex plan-review-2 P2).** Leaf tasks add new props optional-with-safe-default, and defer any interface/branch deletion until its last caller is gone, so no task is ever intentionally typecheck-red. INT (sole `Workspace.tsx` writer) wires the real values. There is NO "transient-red / known-error-set" allowance — if a genuinely atomic caller/callee migration is ever needed, merge it as ONE integration unit rather than weakening the gate.
 - Docs merged to local `main` on creation; QA is a first-class task.
@@ -22,7 +22,7 @@
 | `components/workspace/tabs/InputMapTab.tsx` + `components/workspace/tabs/OutputMapTab.tsx` (+ tests) | T9 |
 | output report tables `AssignmentsTab`/`FlowsTab`/`JadeAssignmentsTab`/`JadeFlowsTab`/`ServiceStatsTab`/`OpenWarehousesTab` (+ tests) | T10 |
 | input/distance/cost tables `DistancesTab`/`JadeDistancesTab`/`LegDistancesTab`/`LaneCostsTab`/`CapabilityMatrixTab`/`CostSummaryTab` (+ tests) | T11 |
-| `pages/Workspace.tsx` (+ `Workspace.*.test.tsx` incl. `Workspace.Integration.test.tsx`) + `SolveDialog.tsx` + `OptimizationParametersTab.tsx` + DELETE `JadeBandEditor.tsx` + DELETE `AddedEntitiesTab.tsx`+test — **item 1 + 2 + 4-wiring + 7-frontend, atomic** | INT |
+| `pages/Workspace.tsx` (+ `Workspace.*.test.tsx` incl. `Workspace.Integration.test.tsx`) + `SolveDialog.tsx` (+ `SolveDialog.test.tsx`) + `OptimizationParametersTab.tsx` (+ `OptimizationParametersTab.test.tsx`) + DELETE `JadeBandEditor.tsx` + DELETE `AddedEntitiesTab.tsx`+test — **item 1 + 2 + 4-wiring + 7-frontend, atomic** | INT |
 | base tabs `{Warehouses,Customers,Mines,Stations,Plants}Tab.tsx` + their 5 test files — **branch-collapse + test-rewrite + prop-delete** | CLEANUP (after INT) |
 | `e2e/workspace-fixups-2.spec.ts` (new) | QA |
 
@@ -72,13 +72,13 @@
 ## T5 — map marker tooltips: Type · DisplayId · City, State (item 4, both renderers) · leaf
 **Files:** `components/NetworkMap.tsx` (output) + `components/workspace/map/EntityMarkers.tsx` (input) (+ tests). Spec §4.
 - Define the tooltip string builder once (a small shared helper or duplicated identically): `<Type> · <displayId> · <formatCityState(city,state)>` + existing extras (demand/band/customer-count/`(fixed)`) appended.
-- **Type by role:** Warehouse→`Warehouse`; `kind==="mine"`→`Mine`; gold-au facility→`Refinery`; JADE plant→`Plant`; transport station→`Station`; other customer→`Customer`. Derive from marker branch + `kind` + `modelId` (pass `modelId` into `EntityMarkers` if not already there).
+- **Type by role:** Warehouse→`Warehouse`; `kind==="mine"`→`Mine`; gold-au facility→`Refinery`; JADE plant→`Plant`; transport station→`Station`; other customer→`Customer`. A gold-au refinery is a facility-role WAREHOUSE row and a transport station is a customer-role row, so distinguishing them from plain Warehouse/Customer **requires `modelId`**. **`NetworkMap` has NO `modelId` prop today (Codex plan-review-4 P1) — T5 adds an OPTIONAL `modelId?: string` prop (safe default → today's generic labels).** `EntityMarkers` likewise takes `modelId` (T5). Derive the type from marker branch + `kind` + `modelId`.
 - **DisplayId — different sources for the two renderers, to honor input-live vs output-solved (Codex plan-review-3 P2):**
   - `NetworkMap` (OUTPUT map) — add an OPTIONAL `displayIdById?: Record<string,string>` prop (default `{}`): `displayId = displayIdById[id] ?? id`. Customer markers gain the id. (INT feeds this from the SOLVED `outputIdentityById`.)
   - `EntityMarkers` (INPUT map) — **NO output identity-map prop.** Its `MapWarehouse`/`MapCustomer`/`MapPlant` rows already carry `displayCode` — format `displayCode ?? id` DIRECTLY from the live row. This keeps the input map labelled from the live draft, never a stale solved snapshot.
 - **City/State:** via `formatCityState` (import shared). `NetworkMap` warehouse/plant rows carry city/state; customer rows too (read the real props). `EntityMarkers` rows carry city/state.
 - Optional props default to today's behavior so the standalone commit is unchanged for callers until INT wires `displayIdById`/`modelId`.
-**Tests:** each renderer's tooltip contains `<Type> · <displayId> · City, State` for warehouse/mine/refinery/customer/station/plant; `formatCityState` handles a missing state (no trailing comma).
+**Tests:** each renderer's tooltip contains `<Type> · <displayId> · City, State` for warehouse/mine/refinery/customer/station/plant; **direct output-map (`NetworkMap`) tests that gold-au facility → `Refinery` and a transport customer-role marker → `Station` given `modelId`** (Codex plan-review-4 P1); `formatCityState` handles a missing state (no trailing comma).
 **Gate:** typecheck + studio test green.
 
 *(Item 7 frontend — the JADE chip-editor swap + last-band guard + `JadeBandEditor` deletion — is folded into INT (Codex plan-review-3 P1), because removing the fixed editor breaks `Workspace.Integration.test.tsx`'s `jade-band-slot-*`/`jade-band-error`/invalid-draft-blocking assertions in the SAME unit that INT rewrites the Workspace validity gate. There is no standalone T7.)*
@@ -93,7 +93,7 @@
 ## T9 — map-tab plumbing: fixed-mine marker + output display-id forwarding (item 4) · needs T5
 **Files:** `components/workspace/tabs/InputMapTab.tsx` + `components/workspace/tabs/OutputMapTab.tsx` (+ tests). Spec §4.
 - **InputMapTab (input-live, NO output identity map — Codex plan-review-3 P2):** the fixed gold-mine bare `<Marker>` (~lines 197-204) tooltip → `Mine · <displayId> · <City>, <State>` + keep `(fixed)`, where `displayId = <the live mine row's displayCode> ?? id` (formatted DIRECTLY from the live row, not from any solved map). Thread only the role-type label + `modelId` into `EntityMarkers` (T5). **Do NOT pass `displayIdById` into the input path** — `EntityMarkers`/the fixed mine self-format from their own live `displayCode ?? id`, so an unsaved input rename/add is never labelled from a stale solved snapshot.
-- **OutputMapTab — FORWARD ONLY, single path (Codex plan-review-2 P1):** `OutputMapTab` does NOT build `displayIdById` itself (added PLANTS aren't in its effective added-warehouse/customer arrays — they arrive via the separate `plants` prop, so a self-built map would miss them and show a plant's `aw-` uid). Instead `OutputMapTab` takes a `displayIdById?: Record<string,string>` prop and FORWARDS it to `<NetworkMap displayIdById={…}>`. **INT builds the ONE map from `outputIdentityById` (which already covers warehouses + customers + plants) and passes it down.** No `effectiveDataset`/`displayCode` change is needed for the id (city/state already survive the projection; the human display id now comes from `displayIdById`).
+- **OutputMapTab — FORWARD ONLY, single path (Codex plan-review-2 P1):** `OutputMapTab` does NOT build `displayIdById` itself (added PLANTS aren't in its effective added-warehouse/customer arrays — they arrive via the separate `plants` prop, so a self-built map would miss them and show a plant's `aw-` uid). Instead `OutputMapTab` takes a `displayIdById?: Record<string,string>` prop and FORWARDS it to `<NetworkMap displayIdById={…}>`. **`OutputMapTab` also FORWARDS its existing `modelId` to `<NetworkMap modelId={…}>`** (Codex plan-review-4 P1 — so output markers can label Refinery/Station). **INT builds the ONE `displayIdById` from `outputIdentityById` (covers warehouses + customers + plants) and passes it down.** No `effectiveDataset`/`displayCode` change is needed for the id (city/state already survive; the display id comes from `displayIdById`).
 **Tests:** the fixed-mine tooltip shows `Mine · <displayId> · City, State (fixed)`; an added output warehouse, customer, AND **plant** marker each show their display code (not `aw-` uid) via the single `displayIdById` path (end-to-end through OutputMapTab→NetworkMap).
 **Gate:** studio test green; typecheck green (optional props from T5 must exist — Wave-2 ordering guarantees T5 landed).
 
@@ -111,11 +111,11 @@
 **Gate:** typecheck + studio test green.
 
 ## INT — Workspace integration (sole `Workspace.tsx` writer) + item-7 editor swap, atomic · needs T3/T5/T8/T9/T10/T11
-**Files:** `pages/Workspace.tsx` (+ `Workspace.*.test.tsx` incl. `Workspace.Integration.test.tsx`), `components/workspace/SolveDialog.tsx`, `components/workspace/tabs/OptimizationParametersTab.tsx`, DELETE `components/workspace/tabs/JadeBandEditor.tsx` (+ test), DELETE `components/workspace/tabs/AddedEntitiesTab.tsx` + `__tests__/AddedEntitiesTab.test.tsx` + `__tests__/Workspace.AddedEntities.test.tsx`. Spec §1, §2, §4, §7.
+**Files:** `pages/Workspace.tsx` (+ `Workspace.*.test.tsx` incl. `Workspace.Integration.test.tsx`), `components/workspace/SolveDialog.tsx` (+ `SolveDialog.test.tsx`), `components/workspace/tabs/OptimizationParametersTab.tsx` (+ `OptimizationParametersTab.test.tsx`), DELETE `components/workspace/tabs/JadeBandEditor.tsx` (+ test), DELETE `components/workspace/tabs/AddedEntitiesTab.tsx` + `__tests__/AddedEntitiesTab.test.tsx` + `__tests__/Workspace.AddedEntities.test.tsx`. Spec §1, §2, §4, §7.
 1. **Item 1 revert — complete enumeration (Codex plan-review P2):** remove the `added-entities` entry from every `inputEntriesForModel`; remove the `renderTabContent` `added-entities` branch; remove the dead `activeTab.entity === "added-entities"` **Save-placement/allowlist** condition; remove every base-tab `showAddedSection={false}`/`showBaseTable={false}` **call-site override** (leaving the base tabs' own branches for CLEANUP to collapse); DELETE `AddedEntitiesTab.tsx` + `AddedEntitiesTab.test.tsx` + `Workspace.AddedEntities.test.tsx`; update/remove the `Workspace.TabCoverage` matrix references to `added-entities`. **Finish with `rg "added-entities|AddedEntitiesTab" artifacts/studio/src` → expected: zero live references** (report the output). *(The base tabs still render inline by default once no caller passes `={false}`; their vestigial branches/props are collapsed in CLEANUP.)*
 2. **Item 2 wiring:** build `outputIdentityById = buildEntityIdentityById(modelId, dataset, displayedInputs)` and `inputIdentityById = buildEntityIdentityById(modelId, dataset, localInputs)` (T3 helper). Pass `outputIdentityById` to the T10 output tables and `inputIdentityById` to the T11 input tables. (CostSummary compare resolves per-scenario internally — pass `scenarios`/`dataset` as it already does; no single-map prop for compare.)
 3. **Item 4 wiring — ONE display-id map, OUTPUT PATH ONLY (Codex plan-review-2 P1 + plan-review-3 P2):** derive `displayIdById` (canonical→display) from `outputIdentityById` (covers warehouses+customers+plants). Pass `modelId` + that single `displayIdById` into `NetworkMap` **via `OutputMapTab` (output map) ONLY**. **Do NOT pass `displayIdById` into `InputMapTab`/`EntityMarkers`** — the input map self-formats from live rows (T5/T9), preserving input-live vs output-solved. Pass `modelId` into `InputMapTab`/`EntityMarkers` for the role label.
-4. **Item 7 editor swap (ATOMIC — Codex plan-review-3 P1):** remove the `isJade`/`JadeBandEditor` branch in `SolveDialog` + `OptimizationParametersTab` → JADE renders the shared chip editor; add the **last-band `×` disabled at `length<=1`** guard in the shared chip editor; DELETE `JadeBandEditor.tsx`+test; remove the JADE band-validity gating on Save/Run in `Workspace.tsx` and the `onBandValidityChange`/fixed-4 plumbing; **rewrite `Workspace.Integration.test.tsx`'s obsolete `jade-band-slot-*`/`jade-band-error`/invalid-draft-blocking cases** to the chip-editor behavior — all in this one commit so the studio-test gate stays green.
+4. **Item 7 editor swap (ATOMIC — Codex plan-review-3 P1 + plan-review-4 P1):** remove the `isJade`/`JadeBandEditor` branch in `SolveDialog` + `OptimizationParametersTab` → JADE renders the shared chip editor; add the **last-band `×` disabled at `length<=1`** guard in the shared chip editor; DELETE `JadeBandEditor.tsx`+test; remove the JADE band-validity gating on Save/Run in `Workspace.tsx` and the `onBandValidityChange`/fixed-4 plumbing; **rewrite the obsolete JADE cases in ALL THREE affected test files** — `Workspace.Integration.test.tsx` AND `SolveDialog.test.tsx` AND `OptimizationParametersTab.test.tsx` (they currently assert JADE renders `JadeBandEditor` + `jade-band-slot-*`/`jade-band-error`/fixed-4) — to the shared chip-editor contract (a JADE scenario renders the chip editor, a 5th band adds, the last band's `×` is disabled at length 1), all in this one commit so the studio-test gate stays green.
 **Tests (Workspace):** no `added-entities` sidebar entry for any model; each base tab shows its inline add-section; identity maps reach the tables; **input-live vs output-solved: an unsaved input display-code edit updates the Input Map WITHOUT relabelling the Output Map / a solved output grid** (Codex plan-review-3 P2); an added output warehouse/customer/plant marker shows its display code; JADE renders the chip editor + Save works with a 3/5-band scenario (no validity block); last band `×` disabled at length 1.
 **Gate:** FULL — `pnpm run typecheck` 0 errors, `pnpm --filter studio test` green (documented CPU-contention flakes acceptable only if they pass isolated).
 
@@ -342,3 +342,51 @@ code edit updates the Input Map without relabelling the Output Map.
 | P1 | T7 editor swap breaks `Workspace.Integration.test.tsx` in its own unit | **Accepted.** T7 dissolved — the item-7 editor swap (SolveDialog/OptParams/delete JadeBandEditor + last-band guard) is folded into **INT**, atomic with the Workspace validity-gate removal AND the `Workspace.Integration.test.tsx` rewrite. |
 | P1 | T4 must fix the route-level wrong-count assertion | **Accepted.** T4 now owns `routes.test.ts`'s JADE band cases — replaces the obsolete 3-entry→422 assertion with free-band acceptance; keeps non-positive/non-ascending rejection. |
 | P2 | Don't pass solved output identity into the live input map | **Accepted.** `displayIdById` (from solved `outputIdentityById`) goes ONLY to `OutputMapTab`→`NetworkMap`; `EntityMarkers` + the fixed mine self-format from their live rows' `displayCode ?? id`; INT passes no identity map to the input path; regression: unsaved input display-code edit updates the Input Map, not the Output Map. |
+
+---
+
+## Re-review comments — round 4 (Codex, 2026-09-20) — SUPERSEDED / RESOLVED (history)
+
+**Status: RESOLVED.** All 3 round-4 comments folded into Process/T5/T9/INT; see the round-4 resolution
+table below. Retained for history. Original round-4 status was "changes requested".
+
+### [P1] INT must own and rewrite the component-level editor tests
+
+INT now atomically updates `SolveDialog.tsx`, `OptimizationParametersTab.tsx`, `Workspace.tsx`, and the
+Workspace integration tests, but it does not explicitly own or update `SolveDialog.test.tsx` and
+`OptimizationParametersTab.test.tsx`. Both component suites still assert that JADE renders
+`JadeBandEditor`, exercise `jade-band-slot-*`/`jade-band-error`, and test the fixed-four behavior that INT
+deletes. Therefore INT's required full studio-test gate will fail even after the Workspace integration
+tests are rewritten. Add both component test files to INT's ownership/files list and explicitly replace
+their obsolete JADE cases with the shared chip-editor contract, including adding a fifth band and disabling
+the final remove control at one band.
+
+### [P1] Provision QA only after CLEANUP has been integrated and gated
+
+The Waves section correctly places CLEANUP between INT and QA, but the standing worktree-provisioning rule
+still says to provision QA from the post-INT tip. That would omit CLEANUP's permanent base-tab branch/test/
+prop changes from the browser-validation worktree. Update the operational sequence explicitly: provision
+CLEANUP from the gated post-INT integrated head; cherry-pick and gate CLEANUP; then provision QA from the
+gated post-CLEANUP head. This keeps the execution rule aligned with Waves 4 and 5.
+
+### [P1] Thread `modelId` into `NetworkMap` for output role labels
+
+Output marker types cannot all be inferred from the current `NetworkMap` rows: a gold-au refinery is a
+facility-role warehouse row, and a transport station is a customer-role row. Distinguishing them from
+`Warehouse` and `Customer` requires the active `modelId`. T5 currently calls for role labels derived from
+`modelId` but only explicitly mentions passing it into `EntityMarkers`; `NetworkMap` has no `modelId` prop,
+and `OutputMapTab` does not forward its existing one. Specify that T5 adds an optional `modelId` prop to
+`NetworkMap` with a safe default, and that T9 passes `OutputMapTab.modelId` to it. Add direct output-map
+tests proving gold-au facility → `Refinery` and transport customer-role marker → `Station`.
+
+---
+
+## Review resolution — round 4 (Codex plan review, 2026-09-20)
+
+**Current status: RESOLVED — no open items.**
+
+| # | Comment | Disposition |
+|---|---------|-------------|
+| P1 | INT must own + rewrite the component editor tests | **Accepted.** INT's files/ownership now include `SolveDialog.test.tsx` AND `OptimizationParametersTab.test.tsx`; their obsolete JADE `JadeBandEditor`/`jade-band-slot-*`/fixed-4 cases are rewritten to the chip-editor contract (5th-band add, last-band `×` disabled) in the same atomic commit. |
+| P1 | Provision QA only after CLEANUP is integrated + gated | **Accepted.** Process sequence updated: provision CLEANUP from the gated post-INT tip → cherry-pick + gate CLEANUP → provision QA from the gated post-CLEANUP tip (QA now includes CLEANUP's base-tab changes). |
+| P1 | Thread `modelId` into `NetworkMap` for output role labels | **Accepted.** T5 adds an optional `modelId?` prop to `NetworkMap` (safe default); T9's `OutputMapTab` forwards its `modelId` to it; INT already passes `modelId` to `OutputMapTab`. Direct output-map tests: gold-au facility → `Refinery`, transport customer-role → `Station`. |
