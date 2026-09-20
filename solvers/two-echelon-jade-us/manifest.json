@@ -22,8 +22,7 @@
       "distanceBands": {
         "type": "array",
         "items": { "type": "number", "exclusiveMinimum": 0 },
-        "minItems": 4,
-        "maxItems": 4,
+        "minItems": 1,
         "default": [200, 400, 800, 1600]
       },
       "gap": { "type": "number", "minimum": 0 },
