@@ -1,102 +1,123 @@
 # SCND Solver Result Contract — Spec
 
 **Date:** 2026-09-21
-**Status:** Implementation-ready draft. Pending user sign-off.
-**Program context:** Carved out of the SCND scaling program (`2026-09-20-scnd-scaling-phase0-design.md`) per the 2026-09-21 split decision (Q1=Split). This is the near-term, standalone deliverable: fix the verified result-status defect with a truthful, versioned contract. It has **no** dependency on the deferred reliability/queue/measurement work and can ship on its own.
+**Status:** Implementation-ready draft; **P0R.1 is a go/no-go spike that gates P0R.3.** Pending user sign-off. Incorporates the §14 split-map review (2026-09-20 program doc) and its Q4–Q9 decisions.
+**Program context:** Carved out of the SCND scaling program (`2026-09-20-scnd-scaling-phase0-design.md`, §13 ledger) per Q1=Split. Near-term, standalone deliverable: fix the verified result-status defect with a truthful, versioned contract. No dependency on the deferred reliability/queue/measurement work.
 
-**Goal:** Replace the hardcoded `status:"optimal"` envelope with a truthful two-dimensional outcome contract (`solutionStatus` + `terminationReason`), migrate every consumer, and keep the sacred `e2e_accuracy.py` byte-for-byte passing.
+**Goal:** Replace the hardcoded `status:"optimal"` envelope with a truthful two-dimensional outcome contract (`solutionStatus` + `terminationReason`), enforce cross-field invariants, migrate every consumer, and correct the sacred `e2e_accuracy.py` under the approved rule-#2 override (Q4) without changing any golden objective value.
 
-**Out of scope (other specs):** durable queue / restart-safety / worker split / scheduler / horizontal scaling / single-flight / retention / stale-result publication guard (→ B2 spec); benchmark harness, MIP-start, warm-worker, Render baseline (→ measurement spec); student-facing Quick mode (→ later, once measurement justifies gap values).
+**Out of scope (other specs):** durable queue / restart-safety / worker split / scheduler / horizontal scaling / single-flight / retention / stale-result CAS publication guard (→ B2 spec); benchmark harness, MIP-start, warm-worker, Render plan matrix + topology comparison (→ measurement spec); student-facing Quick mode (→ later).
 
 ---
 
-## 1. Problem (verified)
+## 1. Problem (verified 2026-09-21)
 
-`solve.py` returns `_envelope("optimal", status_str, …)` on every non-infeasible path (`solve_jade` ~line 1186): the envelope `status` is hardcoded `"optimal"` and the real CBC status (`LpStatus[prob.status]`) is only carried in `quality`. A gap-stopped or time-limited incumbent is reported as proven-optimal — a teaching-integrity defect. All solve functions share `_envelope`.
+`solve.py` returns `_envelope("optimal", status_str, …)` on every non-infeasible path (`solve_jade` ~line 1186): envelope `status` is hardcoded `"optimal"`, real CBC status (`LpStatus[prob.status]`) only in `quality`. A gap-stopped or time-limited incumbent is reported as proven-optimal — a teaching-integrity defect. All solve functions share `_envelope`.
 
 Requested tolerance does **not** determine achieved status. PuLP 3.3.2's `COIN_CMD.get_status()` can map a `Stopped … objective` header to `LpStatusOptimal` while the separate solution status is integer-feasible. So `LpStatus`, requested gap, and wall-clock inference are all insufficient — classification must read CBC's actual terminal records.
 
-`e2e_accuracy.py` reads `status` and asserts `status == "optimal"` (lines 116/152/167) / `== "infeasible"` (146), and only ever runs at the default `gap=0` (genuinely proven-optimal). Any contract change must keep `status:"optimal"` emitted for proven-optimal solves so this sacred test stays unmodified (hard rule #2).
+**The sacred test is not gap-0-only (corrected, §14.1).** `e2e_accuracy.py` runs several protected cases at `gap=0.05` that assert `status=="optimal"`: Brazil BASE `gap=0.05` (line 340) with P=5/7/10 asserting optimal (388); single-source `gap=0.05` (368–369, 427); cross-model Brazil `gap=0.05` (604); TR-3 single-source 5% (246). A CBC probe of Brazil P=5/cap=20M (obj 27022899653.80, bound 26971509401.152) confirms these are **gap-limited feasible incumbents, not proven optimal.** The earlier "e2e only runs gap=0 → byte-identical alias" premise was wrong.
 
-## 2. Target contract (§12.3/12.5 of the parent)
+## 2. Target contract
 
 ### 2.1 Two dimensions
 
 - `solutionStatus`: `optimal | feasible | infeasible | unbounded | no_solution | error`
 - `terminationReason`: `optimality_proven | gap_limit | time_limit | node_limit | infeasible | unbounded | interrupted | solver_error | unknown`
 
-### 2.2 Retained/changed fields
+### 2.2 Fields
 
-- `envelopeVersion`: new integer discriminator (`1` = legacy shape, `2` = this contract).
-- `status`: **retained as a deprecated alias**, defined equal to a fixed projection of `solutionStatus` (`optimal→"optimal"`, `infeasible→"infeasible"`, `feasible→"optimal"?` — **no**: see §2.3). Kept so `e2e_accuracy.py` and any un-migrated reader still work.
-- `objective`: made **nullable** — `null` when no incumbent exists (infeasible/unbounded/no_solution/error). No misleading `0` sentinel alongside a nullable `incumbentObjective`.
-- `quality`: **derived-only/deprecated** — retained as a computed mirror of `solutionStatus` for one transition version, not an independent field.
-- `infeasibilityReason`: retained; its population unchanged for `infeasible`.
-- New metadata, **nullable when unavailable** (never `0`): `requestedGap`, `achievedGap`, `bestBound`, `incumbentObjective`, `configuredTimeLimitSec`. (`runTimeSec` already exists.)
+- `envelopeVersion`: integer discriminator (`1` = legacy shape, `2` = this contract).
+- `status`: **retained, truthful, expanded** (Q9). Deprecated but kept for un-migrated readers; its value now equals a fixed projection of `solutionStatus` (§2.3) — no longer collapses everything to `"optimal"`. Expanding its value set is an **explicit versioned breaking change**; all internal readers migrate atomically.
+- `objective`: **nullable** — `null` when no incumbent (infeasible/unbounded/no_solution/error). No `0` sentinel.
+- `quality`: **derived-only/deprecated** — a deterministic function of (`solutionStatus`, `terminationReason`, `achievedGap`), not an independent field.
+- `infeasibilityReason`: retained; populated for `infeasible`.
+- Nullable-when-unavailable metadata (never `0`): `requestedGap`, `achievedGap`, `bestBound`, `incumbentObjective`, `configuredTimeLimitSec`. (`runTimeSec` exists.)
 
-### 2.3 The `status` alias mapping (rule #2 constraint)
+### 2.3 `status` projection (Q9 — truthful, not lenient)
 
-`e2e_accuracy.py` runs only at `gap=0` and asserts `optimal`/`infeasible`. Define the alias so those exact cases are byte-identical:
+`optimal→"optimal"`, `feasible→"feasible"`, `infeasible→"infeasible"`, `no_solution→"no_solution"`, `unbounded→"unbounded"`, `error→"error"`. This **expands** the old two-value (`optimal`/`infeasible`) set — a breaking change handled by migrating all internal readers in P0R.3 and correcting `e2e_accuracy.py` per Q4. The compatibility guarantee is **not** "byte-identical output" (adding fields changes the JSON); it is: **golden objective values unchanged, and the protected suite's mathematical invariants preserved** (§3, P0R.4).
 
-- `solutionStatus=optimal` → `status="optimal"` (e2e proven cases: unchanged).
-- `solutionStatus=infeasible` → `status="infeasible"` (unchanged).
-- `feasible | no_solution | unbounded | error` → `status` takes a **new** value equal to `solutionStatus` (these never occur in `e2e_accuracy.py`, so it stays byte-identical; other readers get a truthful value instead of a false `"optimal"`).
+### 2.4 Allowed-pair + metadata invariant matrix (§14.4) — enforced identically in Python, Zod, and API validation
 
-This is the crux that lets the fix ship without touching the sacred test: proven-optimal at gap 0 still says `"optimal"`; the *only* behavioral change is that gap/time-limited and no-incumbent cases (which e2e never exercises) stop lying.
+| `solutionStatus` | allowed `terminationReason` | incumbent/objective | achievedGap / bestBound |
+|---|---|---|---|
+| `optimal` | `optimality_proven` | non-null, `objective===incumbentObjective` | achievedGap 0 (or null); bestBound=objective when available |
+| `feasible` | `gap_limit \| time_limit \| node_limit \| interrupted` | non-null, `objective===incumbentObjective` | achievedGap+bestBound present when CBC exposes them, else null |
+| `infeasible` | `infeasible` | both null | null |
+| `unbounded` | `unbounded` | both null | null |
+| `no_solution` | `time_limit \| node_limit \| interrupted` (no incumbent) | both null | null |
+| `error` | `solver_error` (or an explicitly-approved infra reason) | both null | null |
 
-### 2.4 Contradiction rejection
+Also: `objective===incumbentObjective` whenever an incumbent exists; both null otherwise; `status` equals the §2.3 projection; `quality` derived deterministically. Any other combination is **rejected** by the schema (e.g. `optimal`+`time_limit`, non-null incumbent with `infeasible`, `envelopeVersion:2` missing a status dimension, `envelopeVersion:1` claiming `optimality_proven`).
 
-The Zod schema (and a Python assertion in `_envelope`) reject contradictory combinations: `solutionStatus=optimal` with `terminationReason∈{time_limit,gap_limit,node_limit}`; a non-null `incumbentObjective` with `solutionStatus∈{infeasible,unbounded,no_solution}`; `status` disagreeing with its defined `solutionStatus` projection.
+### 2.5 Legacy representation (Q5 — one exact shape)
 
-### 2.5 Job-lifecycle mapping (independent of math outcome)
+Normalized legacy view (read-time only, no backfill/re-solve): `envelopeVersion:1`, `solutionStatus:null`, `terminationReason:"unknown"`, `legacyUnverified:true`, raw legacy `status` preserved separately for display/debug. A historical `status:"optimal"` is **never** promoted to proven — its proof state is unknowable (it may have been a gap/time-limited result). The v2 `solutionStatus` enum stays clean (no `legacy_unverified` member).
 
-- Completed **solver outcomes** (job `succeeded`): `optimal`, `feasible` (gap/time-limited with incumbent), `infeasible`, `unbounded`.
-- Failed **jobs**: spawn/parser/solver errors (`error`).
-- `no_solution` (time/node limit **without** incumbent): job `succeeded` with `solutionStatus=no_solution` (a valid solver outcome, not a job failure) — the result simply has a null objective. (This is the one the parent flagged for an explicit call; recorded here as the decision.)
+### 2.6 Job-lifecycle + cache/publish policy (§14.2, Q6) — a branch **before** cache-write/`markSucceeded`
 
-## 3. Tasks (ordered to break the circular dependency, §12/11.10)
+Today `jobRunner.ts` caches + `markSucceeded` unconditionally once Zod passes; a valid `error` envelope would be cached and published as succeeded. P0R.3 adds:
 
-### P0R.1 — CBC termination-parser spike
+| `solutionStatus` | job lifecycle | cache | publish to scenario |
+|---|---|---|---|
+| `optimal` | succeeded | yes | yes |
+| `feasible` | succeeded | yes, **only with the full gap/time/version cache key** | yes, labelled non-proven |
+| `infeasible` | succeeded (math outcome) | yes | yes |
+| `unbounded` | succeeded (math outcome) | yes | yes |
+| `no_solution` | succeeded (math outcome) | **no** (caching could block a later retry from ever solving) | yes, as no-incumbent (never numeric zero) |
+| `error` | **failed** | **no** | **no** |
 
-- Against **pinned** PuLP 3.3.2 / bundled CBC: generate a unique CBC log + solution path per solve, parse a bounded set of known terminal records, clean the files up.
-- Deliver `parse_cbc_termination(log_path, sol_path) -> (solutionStatus, terminationReason, {achievedGap, bestBound, incumbentObjective})` + a note naming exactly which CBC records are authoritative.
-- **Never** classify a time-limit stop by comparing wall time to `timeLimitSec`.
-- Files: `artifacts/api-server/src/solver/cbc_termination.py` (new, imported by `solve.py`); spike note in the commit body / a short `docs/` note.
+Tests cover job status, result summary, telemetry, cache write/no-write, and scenario publication for every row. (The stale-result *older-overwrites-newer* CAS guard remains B2 — this branch only stops mislabelled/error envelopes from being cached/published.)
 
-### P0R.2 — parser unit tests (deterministic, §12.9)
+## 3. Tasks
 
-- Commit **sanitized CBC log/solution fixtures** for: optimal-proven, gap-limited-with-incumbent, time-limited-with-incumbent, time-limited-without-incumbent (`no_solution`), infeasible, unbounded.
-- Tests map each fixture → correct `(solutionStatus, terminationReason)` + metadata. **No live solving** — deterministic across machines/CBC builds. This fixture set is authoritative for time/gap/node-limit classification (CI never races a live timeout).
-- Files: `artifacts/api-server/src/solver/tests/fixtures/cbc/*`, `tests/test_cbc_termination.py` (new).
+### P0R.1 — CBC termination-evidence spike (**go/no-go; gates P0R.3**, §14.5/Q8)
 
-### P0R.3 — contract implementation + OpenAPI + frontend + compatibility
+In pinned PuLP 3.3.2, `COIN_CMD.solve_CBC()` creates the `.sol` filename internally, reads it, deletes its temp files, then returns — the caller **cannot** parse the normal solution file afterward, and `keepFiles=True` names derive from repeated problem names (not concurrency-safe). Prove **one** integration:
 
-- `solve.py`: `_envelope` gains `envelopeVersion`, two-dim status, nullable metadata; a shared `_termination(prob, log_path, sol_path, requested_gap, time_limit, run_time)` wraps P0R.1; every solve function's terminal return routed through it; `objective` emitted `null` when no incumbent.
-- `lib/api-spec/openapi.yaml`: `SolveResult` gains the new fields (nullable per §2.2), `status` documented deprecated; **regenerate `lib/api-zod` + `lib/api-client-react` in the same commit** (rule #1).
-- `resultEnvelope.ts` (Zod): match, incl. §2.4 contradiction rejection.
-- **Frontend (required, §12.5 — dimensions kept distinct):** render outcome by `(solutionStatus, terminationReason)` combinations — at least `feasible+gap_limit`, `feasible+time_limit`, `no_solution+time_limit` — not the current catch-all **Error**. `quality.ts` wording derives from `terminationReason`/`achievedGap`, not requested gap.
-- **Compatibility:** historical `scenarios.result` rows lack the new fields and their `status:"optimal"` may actually be a gap/time-limited result. **Read-time normalization** maps a legacy (`envelopeVersion` absent/1) row to `solutionStatus` best-effort **without** promoting to proven — a legacy `"optimal"` becomes `solutionStatus: unknown` (or an explicit `legacy_unverified` marker), never `optimal`. **No backfill / no re-solve** (result cache misses on the solver-hash change anyway).
-- **Consumer migration (enumerate + update, §12.5):** OpenAPI `SolveResult`, `ResultEnvelopeSchema`, `solve_jobs` result summary, Studio + Workspace output views, `quality.ts`, analytics/telemetry (`solve-completed`), exports/templates, result-cache validation, API tests, deployment smoke checks.
+- a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing the unique temp paths, parsing **before** deletion; **plus a per-solve unique temp directory + unique problem name** (Q8 recommendation); or
+- a controlled direct CBC subprocess invocation preserving PuLP's variable/constraint-name mapping.
 
-### P0R.4 — integration tests + gate
+Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap,bestBound,incumbentObjective})` + a note naming the authoritative CBC records. **Acceptance (go/no-go):** concurrent solves with the same model/problem name don't collide; cleanup on success/parser-error/timeout/process-kill; path-traversal-safe; **no artifacts written into the repo**. Never classify a time-limit stop by wall-clock. **P0R.3 does not begin until this passes.**
 
-- `test_result_contract.py`: deterministic optimal + infeasible cases from real solves; time/gap/node-limit states exercised via an **injectable solver/parser seam or committed subprocess fixture** (§12.9), **not** a wall-clock race.
+- Files: `artifacts/api-server/src/solver/cbc_termination.py` (+ wrapper), spike note.
+
+### P0R.2 — parser unit tests (deterministic, §14.9/12.9)
+
+Committed sanitized CBC log/solution **fixtures** for: optimal-proven, gap-limited-with-incumbent, time-limited-with-incumbent, time-limited-without-incumbent (`no_solution`), infeasible, unbounded. Tests map each → correct `(solutionStatus, terminationReason)` + metadata. **No live solving** — authoritative for time/gap/node-limit classification; CI never races a live timeout.
+
+- Files: `tests/fixtures/cbc/*`, `tests/test_cbc_termination.py`.
+
+### P0R.3 — contract + OpenAPI + frontend + compatibility + policy branch
+
+- `solve.py`: `_envelope` gains `envelopeVersion`, two-dim status, nullable metadata; shared `_termination(...)` wraps P0R.1; every solve function routed through it; `objective` null when no incumbent; §2.4 invariants asserted.
+- `jobRunner.ts`: the §2.6 policy branch **before** cache-write/`markSucceeded`.
+- `openapi.yaml`: `SolveResult` as a v1/v2 discriminated union (§2.2/2.5), `status` documented deprecated/expanded; **regenerate `lib/api-zod` + `lib/api-client-react` same commit** (rule #1).
+- `resultEnvelope.ts` (Zod): match, incl. §2.4 rejection + §2.5 legacy shape.
+- **Frontend:** render by `(solutionStatus, terminationReason)` — at least `feasible+gap_limit`, `feasible+time_limit`, `no_solution+time_limit`; "No incumbent" for null objective (no `?? 0`); `quality.ts` derives from `terminationReason`/`achievedGap`.
+- **Consumer migration (atomic, §14.2/12.5/Q9):** OpenAPI, `ResultEnvelopeSchema`, `solve_jobs` result summary, Studio + Workspace views, `quality.ts`, telemetry (`solve-completed`), exports/templates, result-cache validation, API tests, smoke checks.
+
+### P0R.4 — integration tests + Q4 sacred-test correction + gate
+
+- `test_result_contract.py`: deterministic optimal + infeasible from real solves; time/gap/node-limit via an **injectable seam or committed subprocess fixture**, not a wall-clock race.
 - Frontend tests for every newly visible outcome + the normalized-legacy path.
-- `resultEnvelope.test.ts`: schema accepts v2 for all models; rejects §2.4 contradictions.
-- **Acceptance:** full repo verification gate green **and** `e2e_accuracy.py` run directly at **87/87 unmodified**; a gap-stopped JADE solve reports `feasible` + `gap_limit`; a legacy result renders as `unknown`, never `optimal`.
+- `resultEnvelope.test.ts`: accepts v2 for all models; rejects §2.4 contradictions; accepts the v1 legacy shape.
+- **`e2e_accuracy.py` correction (approved rule-#2 override, Q4):** every protected assertion on a `gap>0` run that currently requires `status=="optimal"` is corrected to the truthful `feasible` + `terminationReason=gap_limit`, asserting the incumbent is feasible and the existing **objective / monotonicity / A-vs-B invariants are preserved**. `gap==0` runs keep strict `optimal`. **No golden objective value changes.** This is the sole sanctioned edit to the sacred test; document the override in the commit body.
+- **Acceptance:** full repo verification gate green; `e2e_accuracy.py` passes with the Q4-corrected assertions and unchanged objectives; a gap-stopped JADE/Brazil solve reports `feasible`+`gap_limit`; a legacy row renders `legacyUnverified`, never `optimal`.
 
 ## 4. Hard-rule guardrails
 
-- **#2:** `e2e_accuracy.py` unmodified; §2.3 alias guarantees byte-identical proven/infeasible output at gap 0.
-- **#1:** OpenAPI edits + regen in one commit; generated code never hand-edited.
+- **#2:** `e2e_accuracy.py` corrected **only** as the Q4 override permits — assertion semantics for approximate cases, **zero golden-objective changes**; gap-0 proofs stay strict. Human approval recorded (Q4, 2026-09-21).
+- **#1:** OpenAPI + regen in one commit; generated code never hand-edited.
 - **#4:** one task = one commit, `[P0R.N] <summary>`.
-- No solver **math** changes (no golden objective moves); this is purely reporting/metadata.
+- No solver **math** changes (reporting/metadata only).
 
 ## 5. Task/deliverable summary
 
-| ID | Task | Kind |
-|---|---|---|
-| P0R.1 | CBC termination parser (pinned CBC/PuLP) | Code |
-| P0R.2 | Parser unit tests on committed CBC-log fixtures | Tests |
-| P0R.3 | Two-dim contract + OpenAPI/regen + Zod + frontend + read-time compat + consumer migration | Code + contract |
-| P0R.4 | Integration tests (injectable seam, no timing race) + full gate + direct `e2e_accuracy.py` | Tests |
+| ID | Task | Kind | Gate |
+|---|---|---|---|
+| P0R.1 | CBC termination-evidence spike (concurrency-safe capture/cleanup) | Code (spike) | **go/no-go; blocks P0R.3** |
+| P0R.2 | Parser unit tests on committed CBC-log fixtures | Tests | — |
+| P0R.3 | v2 contract + OpenAPI/regen + Zod + frontend + policy branch + consumer migration | Code + contract | after P0R.1 |
+| P0R.4 | Integration tests + Q4 sacred-test correction + full gate | Tests | after P0R.3 |

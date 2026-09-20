@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — split into focused specs (2026-09-21, see §13).** This document is no longer implemented as a single unit. The §12 approval review proved that "restart-safe queued work" cannot be a minimal slice (it requires the full concurrency protocol = the B2 queue) and that the workload guarantee must stay all-JADE/cold-miss (⇒ horizontal scaling mandatory). Per the 2026-09-21 decisions (Q1=Split, Q2=Restore-full-guarantee, Q3=publication-guard→B2), the scope is redistributed across three specs. §§0–12 are retained as the audit trail (proposed design + two review rounds); §13 is the authoritative split map and finding-rehoming ledger.
+**Status:** **SUPERSEDED — audit/split ledger; §14 findings resolved (Q4–Q9 answered 2026-09-21, see §15).** This document is not implemented as a single unit. §§0–12 are the audit trail (proposed design + two review rounds); §13 is the authoritative split map; §14 is the split-map review; §15 records the Q4–Q9 decisions and where each landed. The implementable successor is `2026-09-21-scnd-solver-result-contract-design.md`; measurement and B2 remain TBD (own passes).
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -498,15 +498,15 @@ After these items are incorporated into §§0–10 and the contradictions are re
 The 2026-09-21 answers resolved the §12 blockers structurally rather than by inflating this one spec:
 
 - **Q1 = Split.** The correctness contract is genuinely small, verified, and independent; it ships as its own spec now. Reliability/restart-safety cannot be minimal (§12.2/3/4) — the full concurrency protocol lives in B2. Measurement is independent of the queue and gets its own spec feeding B2 sizing.
-- **Q2 = Restore the full parent guarantee** (all-JADE + sustained 2,500 unique cold-miss/hour). Sizing then needs ~9–11 cores ⇒ **horizontal scaling is mandatory** ⇒ B2 must land before any real cohort pilot. Tune-in-place is no longer a candidate for the guarantee.
+- **Q2 = Restore the full parent guarantee** (all-JADE + sustained 2,500 unique cold-miss/hour). Sizing needs ~9–11 cores, which rules out Starter/Standard — but **not** vertical scaling per se (Render has ~16/32-CPU plans). Per §14.6/Q7, **compute topology is decided by measurement, not by core count**: the measurement spec compares high-core vertical vs one dedicated worker vs a horizontal fleet on SLO/headroom/restart/billing/idle-cost/complexity, then selects. Worker **isolation + B2 reliability remain mandatory regardless**, and B2 must land before any real cohort pilot. (Corrects the earlier "horizontal mandatory" wording.)
 - **Q3 = Publication guard** (stale-result CAS) is required, and since there is no near-term pilot on the current single instance, it lands in B2 with the rest of reliability.
 
 ### 13.1 Three successor specs
 
 | Spec | Scope | Status |
 |---|---|---|
-| **Correctness contract** — `2026-09-21-scnd-solver-result-contract-design.md` | Two-dimensional `solutionStatus`+`terminationReason`, CBC parser, versioned envelope, `status` alias (rule #2), frontend + read-time legacy compat, consumer migration. Tasks P0R.1–P0R.4. | Implementation-ready draft; ships standalone now. |
-| **Measurement + experiments** — TBD (`2026-09-2x-scnd-scaling-measurement-design.md`) | Benchmark harness + corpus (N≥30, provenance, raw-vs-aggregate schemas, per-process RSS), MIP-start-from-cache experiment (corrected construction), warm/persistent-worker experiment, Render candidate-plan matrix incl. gap=0 forced-open re-measurement. Feeds B2 sizing. | Needs its own brainstorm/spec pass. |
+| **Correctness contract** — `2026-09-21-scnd-solver-result-contract-design.md` | Two-dimensional `solutionStatus`+`terminationReason`, CBC parser, versioned v1/v2 envelope, truthful expanded `status` projection, invariant matrix, lifecycle+cache/publish policy branch, frontend + read-time legacy compat, consumer migration, Q4 sacred-test correction. Tasks P0R.1–P0R.4. | Implementation-ready draft; **P0R.1 is a go/no-go spike gating P0R.3**. Ships standalone. |
+| **Measurement + experiments** — TBD (`2026-09-2x-scnd-scaling-measurement-design.md`) | Benchmark harness + corpus (N≥30, provenance, raw-vs-aggregate schemas, per-process RSS), MIP-start-from-cache experiment (corrected construction), warm/persistent-worker experiment, Render candidate-plan matrix incl. gap=0 forced-open re-measurement, **and the Q7 compute-topology comparison (high-core vertical vs dedicated worker vs horizontal fleet)**. Feeds B2 sizing. | Needs its own brainstorm/spec pass. |
 | **B2 — durable queue, horizontal solver tier, pilot gate** — TBD (`2026-09-2x-scnd-scaling-b2-design.md`) | Full concurrency protocol (atomic CAS claim, ownership/lease, attempts/retry-exhaustion, graceful shutdown + process-group kill, version-aware recovery, readiness-on-recovery-failure), stale-result CAS publication guard, worker split, scheduler, **horizontal scaling** (Q2), single-flight/coalescing, retention/index/bounds, two-gate pilot authorization, four load profiles incl. sustained 2,500 cold-miss/3h, numeric SLOs + headroom, executable live-test runbook, cost outputs. | Needs its own brainstorm/spec pass (now a large, coherent unit). |
 
 ### 13.2 §12 finding → destination
@@ -531,3 +531,161 @@ The 2026-09-21 answers resolved the §12 blockers structurally rather than by in
 | 12.16 cost outputs | B2 (gate). |
 
 Nothing from §12 is dropped; each item is either done or assigned to the correctness / measurement / B2 spec above.
+
+---
+
+## 14. Split-map approval review — unresolved findings and questions (2026-09-21)
+
+**Review disposition: REQUEST CHANGES.** The split into correctness, measurement, and B2 is the right program structure, and the full all-JADE / sustained 2,500-cold-miss guarantee has been restored. However, §13 is not yet accurate enough to approve as the authoritative split ledger. In particular, the correctness successor is not implementation-ready, and the statement that the workload makes horizontal scaling mandatory is not established by the evidence cited.
+
+### 14.1 Critical — the correctness successor's protected-test gate is impossible as written
+
+The correctness successor says `e2e_accuracy.py` only runs at `gap=0`, and therefore every protected `status=="optimal"` assertion represents proven optimality. The repository contradicts that premise:
+
+- the Brazil base payload uses `gap=0.05` (`e2e_accuracy.py` ~lines 336–342);
+- Brazil P=5/P=7/P=10 then assert `status == "optimal"` (~lines 385–388);
+- Brazil single-source at 5% also asserts `"optimal"` (~lines 366–427);
+- the cross-model Brazil case uses `gap=0.05` (~lines 602–605);
+- transportation also includes a 5%-gap single-source case.
+
+A direct probe of the exact Brazil P=5 / cap=20M protected payload, using the pinned local PuLP/CBC and capturing the CBC terminal log, produced:
+
+```text
+Result - Optimal solution found (within gap tolerance)
+Objective value: 27022899653.80000305
+Lower bound:     26971509401.152
+```
+
+That is a feasible incumbent terminated by the gap limit, not proof of optimality. The proposed truthful contract must emit `solutionStatus=feasible` + `terminationReason=gap_limit`, and §2.3 of the correctness successor maps the deprecated `status` alias to `"feasible"`. The protected suite would then fail its `"optimal"` assertion. Conversely, retaining `status="optimal"` would preserve the test but continue the exact lie this change is meant to remove.
+
+Therefore §13.1 must not call the correctness spec implementation-ready or say it “ships standalone now” until Q4 is answered. The correctness acceptance criterion cannot simultaneously require truthful alias values and an unmodified protected suite whose approximate cases assert `"optimal"`.
+
+### 14.2 Critical — job-lifecycle mapping is declared but not assigned executable work
+
+The successor decides that solver-error envelopes produce failed jobs, while `optimal`, `feasible`, `infeasible`, `unbounded`, and `no_solution` are completed solver outcomes. The current `jobRunner.ts` does something else: once an envelope passes Zod validation, it writes it to the result cache and calls `markSucceeded` unconditionally. A future valid `solutionStatus=error` envelope would therefore be cached, published, and recorded as a succeeded job.
+
+P0R.3 must explicitly require and test a status-policy branch **before** cache write/publication:
+
+| `solutionStatus` | Job lifecycle | Cache | Publish to scenario |
+|---|---|---|---|
+| `optimal` | succeeded | yes | yes |
+| `feasible` | succeeded | explicit policy required (key already includes gap/time inputs) | yes, labelled non-proven |
+| `infeasible` | succeeded mathematical outcome | explicit policy required | yes |
+| `unbounded` | succeeded mathematical outcome | explicit policy required | yes |
+| `no_solution` | succeeded per current product decision | **explicit policy required**; caching may prevent a later retry from ever solving | yes, as no-incumbent outcome, never as numeric zero |
+| `error` | failed | no | no |
+
+Tests must cover job status, result summary, telemetry, cache write/no-write, and scenario publication for every row. Until this work is named, §13.2's claim that the correctness successor fully incorporates the lifecycle finding is false.
+
+### 14.3 High — the legacy-result representation is still an unresolved choice
+
+The v2 `solutionStatus` enum is `optimal | feasible | infeasible | unbounded | no_solution | error`, but the compatibility text says a historical row becomes `solutionStatus: unknown` **or** receives an explicit `legacy_unverified` marker. Neither representation is part of the declared enum, and “or” leaves implementation discretion on a contract boundary.
+
+Choose one exact discriminated shape. Recommended:
+
+- v2 solver output: `envelopeVersion: 2`; `solutionStatus`, `terminationReason`, alias `status`, and all v2 metadata present (nullable where semantically unavailable);
+- normalized legacy view: `envelopeVersion: 1`; `solutionStatus: null`; `terminationReason: unknown`; `legacyUnverified: true`; preserve the raw legacy status separately if it is useful for display/debugging;
+- reject partial mixtures such as `envelopeVersion: 2` with missing status dimensions or `envelopeVersion: 1` that claims `optimality_proven`.
+
+OpenAPI and Zod need the same discriminated union. Historical `status:"optimal"` must never be promoted to proven optimal.
+
+### 14.4 High — cross-field invariants are incomplete
+
+The successor lists only a subset of invalid combinations. Publish an authoritative allowed-pair matrix and enforce it identically in Python, hand-written Zod, and generated/API validation:
+
+- `optimal` ↔ `optimality_proven` only;
+- `feasible` ↔ `gap_limit | time_limit | node_limit | interrupted`, with a non-null incumbent;
+- `infeasible` ↔ `infeasible`;
+- `unbounded` ↔ `unbounded`;
+- `no_solution` ↔ an allowed non-proof termination without an incumbent;
+- `error` ↔ `solver_error` (and any other explicitly approved infrastructure reason).
+
+Also require:
+
+- `objective === incumbentObjective` whenever an incumbent exists;
+- both fields null when no incumbent exists;
+- a non-null objective/incumbent for `optimal` and `feasible`;
+- exact rules for when `achievedGap` and `bestBound` are required or nullable;
+- `status` equal to the declared projection of `solutionStatus`;
+- a deterministic `quality` derivation from `solutionStatus`, `terminationReason`, and `achievedGap`.
+
+The UI must display “No incumbent” for a null objective; it must not continue the current `objective ?? 0` presentation and show a fabricated zero.
+
+### 14.5 High — the proposed CBC solution-file path is not available after the current solve call
+
+P0R.1 says to generate and parse unique CBC log and solution paths. In pinned PuLP 3.3.2, `COIN_CMD.solve_CBC()` creates the `.sol` filename internally, reads it, assigns values/status to the model, deletes its temporary files, and only then returns to `prob.solve()`. The caller therefore cannot parse the normal solution file after the current call completes.
+
+`keepFiles=True` alone is not concurrency-safe because the retained names derive from repeated PuLP problem names. P0R.1 must choose and prove one integration:
+
+1. a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper that exposes the unique temp paths and parses before deletion;
+2. a unique per-solve working directory plus unique problem name and guaranteed cleanup; or
+3. a controlled direct CBC subprocess invocation that preserves PuLP's variable/constraint-name mapping.
+
+Acceptance must cover concurrent solves with the same model/problem name, cleanup on success/parser error/timeout/process kill, path traversal resistance, and no artifacts written into the repository. P0R.1 is a go/no-go spike: P0R.3 must not begin until it proves the terminal evidence can be captured safely.
+
+### 14.6 High — 9–11 required cores do not by themselves make horizontal scaling mandatory
+
+Section 13.1 infers `~9–11 cores ⇒ horizontal scaling is mandatory`. Render has higher-core vertical plans (the current Render guidance lists approximately 16- and 32-CPU service plans), so the arithmetic only proves that Starter/Standard-class plans are insufficient. It does not eliminate a vertically scaled API or dedicated worker.
+
+Horizontal workers may still be the correct architecture because they provide API/solver isolation, failure containment, independent draining, scheduled capacity, and a path to single-flight. If horizontal scaling is a product/architecture decision, record it as such. If the decision is meant to be evidence-based and cost-minimizing, the measurement successor must compare:
+
+- high-core vertical tune-in-place;
+- one vertically sized dedicated worker service;
+- a horizontal fleet with one or a measured small number of CBC processes per instance.
+
+Compare end-to-end SLOs, safe CPU/RSS headroom, restart behavior, scale-window billing, idle cost, and operational complexity. The full guarantee still requires B2 reliability before a real cohort, regardless of which compute topology wins.
+
+### 14.7 Medium — “byte-identical” compatibility is inaccurate
+
+Adding `envelopeVersion`, new status fields, nullable metadata, and potentially nullable `objective` changes the serialized JSON bytes. The intended guarantee is narrower: the protected test remains unmodified and its applicable assertions continue to pass. Replace “byte-identical output” wording with that precise statement—after Q4 resolves which assertions are legitimately applicable.
+
+### 14.8 Medium — the split is approved directionally, not for implementation
+
+The following parts of §13 are validated:
+
+- splitting correctness, measurement, and B2 is the right program structure;
+- the full all-JADE, sustained 2,500 unique-cold-miss/hour contract is restored;
+- queue claims/leases, graceful shutdown, version-aware recovery, stale publication, recovery indexing, live runbook, SLOs, and cost evidence are rehomed rather than dropped;
+- the normative parent design is now tracked;
+- no real cohort pilot should run before the B2 reliability and capacity gates pass.
+
+However, the measurement and B2 specs are still TBD, and the correctness successor has the blockers above. This document may be approved later as a **superseded audit/split ledger**, not as an implementation spec. No successor other than a corrected correctness spec can receive implementation approval from this file alone.
+
+### 14.9 Decisions/questions required
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q4 — protected accuracy suite** | May `e2e_accuracy.py` receive a one-time, explicitly approved correction so 5%-gap cases assert truthful `feasible/gap_limit` semantics and preserve the mathematical A/B invariants, or must it remain byte-for-byte unchanged? | **Approve the narrow test correction.** Keep gap-0 proven assertions strict; for approximate cases assert feasible incumbent, termination reason, feasibility, and the existing objective/monotonicity invariants. Do not map a gap-limited incumbent back to `status="optimal"`. |
+| **Q5 — legacy representation** | For historical rows whose proof state is unknowable, use `solutionStatus:null + legacyUnverified:true`, or add `legacy_unverified` to the status enum? | **Use nullable status plus an explicit legacy flag** in the normalized v1 view; keep the mathematical v2 status enum clean. |
+| **Q6 — cache/publication policy** | Which non-error outcomes are cached, especially `feasible`, `no_solution`, and `infeasible`? | Cache deterministic mathematical outcomes (`optimal`, usually `infeasible`/`unbounded`); cache `feasible` only with the full gap/time/version key; do **not** cache `error`; default to not caching `no_solution` until retry semantics are specified. |
+| **Q7 — compute topology** | Is horizontal scaling mandated as an architecture decision for isolation/reliability, or must measurement compare it with high-core vertical alternatives before selection? | **Compare topologies, then select**, while keeping worker isolation/reliability mandatory. Cost minimization requires a measured vertical comparator. |
+| **Q8 — CBC evidence integration** | Which mechanism owns unique CBC log/solution files under concurrency: custom PuLP wrapper, unique work directory, or direct CBC invocation? | **Custom wrapper plus per-solve temp directory**, proven by P0R.1, so PuLP mapping/assignment behavior remains centralized and cleanup is controllable. |
+| **Q9 — deprecated `status` compatibility** | Is expanding the old `status` enum to `feasible/no_solution/unbounded` an accepted breaking change for unknown external readers? | Treat it as an explicit versioned API change; migrate all internal readers atomically and document that the retained field preserves name/selected values, not universal backward compatibility. |
+
+### 14.10 Approval checklist for the split ledger
+
+- [ ] Q4–Q9 are answered and recorded as locked decisions in the appropriate successor specs.
+- [ ] The correctness successor fixes its false `gap=0` premise and reconciles truthfulness with the protected test policy.
+- [ ] P0R.3 explicitly implements job lifecycle, cache, telemetry, summary, and publication policy by solution outcome.
+- [ ] The v1/v2 envelope is one exact discriminated contract, with a complete allowed-pair/metadata invariant matrix.
+- [ ] P0R.1 proves a concurrency-safe CBC evidence capture/cleanup mechanism before contract implementation begins.
+- [ ] §13 removes the unsupported implication that core count alone mandates horizontal scaling, or records horizontal scaling as an explicit product/architecture decision.
+- [ ] §13.1 downgrades the correctness successor from “implementation-ready” until the preceding blockers are resolved.
+- [ ] Measurement and B2 remain explicitly unapproved until their own complete specs receive approval reviews.
+
+After these changes, this file can be approved as the historical audit trail and authoritative rehoming ledger for the three-spec program.
+
+---
+
+## 15. §14 resolution — Q4–Q9 decisions (2026-09-21)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q4** protected suite | **Approved rule-#2 override:** correct `e2e_accuracy.py` so `gap>0` cases assert truthful `feasible`+`gap_limit` (+ preserve objective/monotonicity/feasibility invariants); `gap=0` stays strict `optimal`; **zero golden-objective changes**. | Correctness spec §3 P0R.4, §4. |
+| **Q5** legacy shape | `envelopeVersion:1` + `solutionStatus:null` + `terminationReason:unknown` + `legacyUnverified:true`; raw legacy `status` preserved separately; v2 enum stays clean. | Correctness spec §2.5. |
+| **Q6** cache/publish | Cache `optimal`/`infeasible`/`unbounded`; cache `feasible` only with full gap/time/version key; **never** cache `error`; **do not** cache `no_solution`. | Correctness spec §2.6. |
+| **Q7** topology | **Measure then select** (high-core vertical vs dedicated worker vs horizontal fleet); worker isolation + B2 reliability mandatory regardless. Core count alone does **not** mandate horizontal (§14.6). | §13 corrected; measurement spec + B2. |
+| **Q8** CBC evidence | Custom `PULP_CBC_CMD` wrapper + per-solve temp dir, proven by a **go/no-go spike** before contract impl. | Correctness spec §3 P0R.1. |
+| **Q9** `status` expansion | Truthful expanded projection = explicit **versioned breaking change**; internal readers migrate atomically; retained field preserves name, not universal back-compat. | Correctness spec §2.2/2.3/P0R.3. |
+
+Also applied from §14: 14.2 lifecycle/cache/publish branch (correctness §2.6), 14.4 invariant matrix (§2.4), 14.5 CBC-file capture (§3 P0R.1), 14.7 "byte-identical" wording corrected to "golden objectives unchanged + invariants preserved" (§2.3). §14.8 stands: this file is the audit/split ledger; only the corrected correctness spec is eligible for implementation approval; measurement and B2 remain unapproved until their own specs are reviewed.
