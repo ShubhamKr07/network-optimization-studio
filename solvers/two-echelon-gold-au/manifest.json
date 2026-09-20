@@ -35,7 +35,7 @@
       },
       "distanceBands": {
         "type": "array",
-        "items": { "type": "integer", "exclusiveMinimum": 0 },
+        "items": { "type": "number", "exclusiveMinimum": 0 },
         "minItems": 1,
         "default": [500, 1000, 1500, 2000, 2600]
       },

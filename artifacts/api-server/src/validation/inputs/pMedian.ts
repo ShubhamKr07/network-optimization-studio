@@ -87,7 +87,7 @@ export const pMedianInputsSchema = z.object({
   uniformCapacity: z.number().positive().nullable().optional(),
   warehouseOverrides: z.array(warehouseOverrideSchema).default([]),
   customerOverrides: z.array(customerOverrideSchema).default([]),
-  distanceBands: z.array(z.number().int().positive()).min(1),
+  distanceBands: z.array(z.number().positive()).min(1),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1),
   // p-median-brazil only (solve_capacitated_pmedian reads this; plain
