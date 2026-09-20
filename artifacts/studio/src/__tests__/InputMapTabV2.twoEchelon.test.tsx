@@ -14,6 +14,22 @@ vi.mock("@workspace/api-client-react", () => ({
   useListModels: () => ({ data: [] }),
 }));
 
+// T9 (workspace-fixups-2, item 4) — same "capture every <Tooltip> child"
+// convention NetworkMap.test.tsx/OutputMapTab.test.tsx already establish
+// (react-leaflet's non-permanent Tooltip never attaches its children to the
+// jsdom document until hovered in a real browser).
+const tooltipChildren: React.ReactNode[] = [];
+vi.mock("react-leaflet", async () => {
+  const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
+  return {
+    ...actual,
+    Tooltip: (props: { children?: React.ReactNode }) => {
+      if (props.children) tooltipChildren.push(props.children);
+      return null;
+    },
+  };
+});
+
 // T7 (Bundle 2) — two-echelon-gold-au's full-v2 Input Map editor. Same
 // composition/real-jsdom convention InputMapTabV2.test.tsx/
 // InputMapTabV2.transport.test.tsx already establish for "pmedian"/
@@ -177,6 +193,32 @@ describe("InputMapTab — twoEchelon mode: fixed mine has zero edit affordances 
     const { container } = renderTwoEchelon({ mine: null, customers: [] });
     const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
     expect(markers).toHaveLength(1); // refinery only
+  });
+
+  // T9 (workspace-fixups-2, item 4) — the fixed mine's tooltip now matches
+  // EntityMarkers' own `<Type> · <DisplayId> · City, State` convention
+  // (plus the `(fixed)` qualifier this marker has always carried).
+  // `displayId` is formatted DIRECTLY off the live mine row passed as a
+  // prop (`mine.displayCode ?? mine.id`) — input-live, never a solved-
+  // snapshot identity map.
+  it("the fixed mine's tooltip reads 'Mine · <displayId> · City, State (fixed)'", () => {
+    tooltipChildren.length = 0;
+    renderTwoEchelon();
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Kalgoorlie"))).toBe("Mine · kalgoorlie · Kalgoorlie, WA (fixed)");
+  });
+
+  it("the fixed mine's tooltip falls back to the mine's own id when it has no displayCode", () => {
+    tooltipChildren.length = 0;
+    renderTwoEchelon({ mine: baseMine({ id: "mine-raw-id", displayCode: undefined }) });
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Kalgoorlie"))).toBe("Mine · mine-raw-id · Kalgoorlie, WA (fixed)");
   });
 });
 

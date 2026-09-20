@@ -11,6 +11,27 @@ vi.mock("@/lib/copyMapToClipboard", () => ({
   isClipboardImageWriteSupported: vi.fn(),
 }));
 
+// T9 (workspace-fixups-2, item 4) — same "capture every <Tooltip> child"
+// convention NetworkMap.test.tsx itself already establishes (react-leaflet's
+// non-permanent Tooltip never attaches its children to the jsdom document
+// until hovered in a real browser, so reading it off `container.textContent`
+// doesn't work — spying on the Tooltip component verifies the SAME emitted
+// content without depending on Leaflet DOM hover behavior under jsdom). Real
+// MapContainer is still used underneath (only Tooltip is swapped), matching
+// every other test in this file's "no react-leaflet mocking" convention as
+// closely as this one addition allows.
+const tooltipChildren: React.ReactNode[] = [];
+vi.mock("react-leaflet", async () => {
+  const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
+  return {
+    ...actual,
+    Tooltip: (props: { children?: React.ReactNode }) => {
+      if (props.children) tooltipChildren.push(props.children);
+      return null;
+    },
+  };
+});
+
 // B2.1-T2 — distanceUnit is sourced from GET /api/models (via
 // useListModels), same convention ServiceStatsTab.test.tsx already uses.
 // "two-echelon-fake-km" is a fictional entry (no real model uses "km" yet)
@@ -597,5 +618,82 @@ describe("OutputMapTab — Plants layer toggle (jade-B1 #2)", () => {
     expect(plantMarker).toBeUndefined();
     // Warehouse marker (a <polygon>) still renders — only the plant layer toggled.
     expect(warehouseMarkerCount(container)).toBe(1);
+  });
+});
+
+// ── T9 (workspace-fixups-2, item 4) — forward-only: OutputMapTab has no
+// opinion on where displayIdById/modelId come from (INT wires them from the
+// solved-snapshot outputIdentityById), it just passes them straight through
+// to NetworkMap's own already-tested resolution logic. These tests prove the
+// FORWARDING wire, not NetworkMap's own label/lookup behavior (already
+// covered by NetworkMap.test.tsx).
+describe("OutputMapTab — forwards displayIdById/modelId to NetworkMap (T9)", () => {
+  it("an added output warehouse/customer/plant marker shows its forwarded display code, not the raw uid", () => {
+    tooltipChildren.length = 0;
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={result}
+        bands={[250, 500, 750]}
+        addedWarehouses={[{ id: "aw-uuid-1", city: "New Town", state: "NT", lat: 39, lng: -89 }]}
+        addedCustomers={[{ id: "ac-uuid-1", city: "New Burg", state: "NB", lat: 39.5, lng: -89.5, demand: 50 }]}
+        plants={[{ id: "pl-uuid-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 }]}
+        displayIdById={{
+          "aw-uuid-1": "WH-NT-NEW-01",
+          "ac-uuid-1": "CS-NB-NEW-01",
+          "pl-uuid-1": "PL-IL-SPR-01",
+        }}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("New Town"))).toContain("WH-NT-NEW-01");
+    expect(texts.some((t) => t.includes("aw-uuid-1"))).toBe(false);
+    expect(texts.find((t) => t.includes("New Burg"))).toContain("CS-NB-NEW-01");
+    expect(texts.some((t) => t.includes("ac-uuid-1"))).toBe(false);
+    expect(texts.find((t) => t.includes("Springfield"))).toContain("PL-IL-SPR-01");
+    expect(texts.some((t) => t.includes("pl-uuid-1"))).toBe(false);
+  });
+
+  it("falls back to the raw id when displayIdById has no entry (default {})", () => {
+    tooltipChildren.length = 0;
+    render(
+      <OutputMapTab
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={result}
+        bands={[250, 500, 750]}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+  });
+
+  it("forwards modelId so a two-echelon-gold-au facility marker labels 'Refinery'", () => {
+    tooltipChildren.length = 0;
+    const goldDataset = {
+      warehouses: [{ id: "cunnamulla", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68, kind: "facility" as const }],
+      customers: [],
+    };
+    render(
+      <OutputMapTab
+        dataset={goldDataset}
+        warehouseStatuses={[]}
+        result={null}
+        bands={[250, 500, 750]}
+        modelId="two-echelon-gold-au"
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · cunnamulla · Cunnamulla, QLD");
   });
 });
