@@ -24,7 +24,7 @@ export const CHAPTERS: Chapter[] = [
     path: "/chapter-3",
     modelId: "p-median-us",
     chapter: "Chapter 3",
-    title: "AL's Athletics — P-Median",
+    title: "AL's Athletics",
     description: "Facility-location: choose which warehouses to open to minimize weighted distance to customers.",
     workspace: true,
     labHeaderTitle: "AL's Athletics · Model Lab",
