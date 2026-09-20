@@ -1034,3 +1034,69 @@ describe("JadeDistancesTab — focus/filter-reset handling preserved (B7)", () =
     expect(screen.getByTestId("jadedistances-page-indicator")).toHaveTextContent("Page 3 of 3");
   });
 });
+
+// T11 (workspace-fixups-2, item 2) — `identityById` compatibility resolver.
+// This table is ALREADY rich (JADE always passes `locationById`), so there
+// is no `>10` upgrade gate here — `identityById`, when present, simply takes
+// precedence over the existing `locationById`/`displayCodeById` sources.
+describe("JadeDistancesTab — T11 identityById compatibility resolver (item 2)", () => {
+  it("no-regression: with identityById UNSET, the existing locationById-driven rendering is byte-unchanged", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        locationById={{ "plant-1": { city: "Detroit", state: "MI" }, "wh-1": { city: "Phoenix", state: "AZ" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1");
+    expect(row).toHaveTextContent("Detroit, MI");
+    expect(row).toHaveTextContent("Phoenix, AZ");
+    expect(row).toHaveTextContent("plant-1");
+    expect(row).toHaveTextContent("wh-1");
+  });
+
+  it("identityById takes precedence over locationById/displayCodeById when both are present", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        locationById={{ "plant-1": { city: "Detroit", state: "MI" } }}
+        displayCodeById={{ "plant-1": "OLD-CODE" }}
+        identityById={{ "plant-1": { city: "Scranton", state: "PA", displayId: "PL-NEW" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1");
+    expect(row).toHaveTextContent("Scranton, PA");
+    expect(row).toHaveTextContent("PL-NEW");
+    expect(row).not.toHaveTextContent("Detroit");
+    expect(row).not.toHaveTextContent("OLD-CODE");
+  });
+
+  it("falls back to locationById/displayCodeById for an id absent from identityById (lookup miss)", () => {
+    renderWithQueryClient(
+      <JadeDistancesTab
+        distanceOverrides={overrides}
+        savedDistanceOverrides={overrides}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        locationById={{ "wh-1": { city: "Phoenix", state: "AZ" } }}
+        identityById={{ "plant-1": { city: "Scranton", state: "PA", displayId: "PL-NEW" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1");
+    // plant-1 resolved from identityById; wh-1 has no identityById entry so
+    // falls back to locationById, not blank.
+    expect(row).toHaveTextContent("Scranton, PA");
+    expect(row).toHaveTextContent("Phoenix, AZ");
+  });
+});

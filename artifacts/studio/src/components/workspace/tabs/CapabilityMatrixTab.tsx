@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { isCellEnabled, cellCapacity, type CapabilityOverride } from "@/lib/jadeCapability";
-import { plantIdCityState } from "@/lib/formatLocation";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
 
 // T11 (Chapter 9 JADE) — matches `jadeInputsSchema`'s
 // `plantProductCapability[]` shape exactly (`{plantId, productId, enabled}`,
@@ -37,11 +37,24 @@ interface CapabilityMatrixTabProps {
   overrides: CapabilityOverride[];
   onChange: (next: CapabilityOverride[]) => void;
   /** JADE-only — id -> {city, state}, built by Workspace.tsx's
-   * `jadeLocationMapFromInputs`. Used only by `buildFilterDescriptors` below
-   * to widen the filter search text; the row header itself renders
-   * `plantIdCityState(plant)` directly off the `plants` prop (workspace-fixups
-   * item 2/3), which already carries the same city/state values. */
+   * `jadeLocationMapFromInputs`. Used by `buildFilterDescriptors` below to
+   * widen the filter search text, and (T11, compatibility resolver) as a
+   * fallback location source for the row header when `identityById` is
+   * unset. */
   locationById?: Record<string, { city: string; state: string }>;
+  /** T11 (workspace-fixups-2, item 2 — "CapabilityMatrix aligns to
+   * EntityIdCell") — canonical id -> {city, state, displayId} (base dataset
+   * ∪ scenario-local addedPlants), built by Workspace.tsx's
+   * `buildEntityIdentityById(modelId, dataset, localInputs)` (the LIVE
+   * draft — this is an INPUT tab). The per-plant row header now renders via
+   * the shared `EntityIdCell` (stacked City/State + mono display-id,
+   * matching Open WHs) instead of the old single-line `plantIdCityState`
+   * format. COMPATIBILITY RESOLVER: prefer this map's entry, else fall back
+   * to `locationById`/the `plants` prop's own city/state (and the raw
+   * canonical id for displayId — `plant.name` is still never shown, matching
+   * the pre-existing contract) — unset is the SAME underlying data as
+   * before, just rendered in the new stacked shape. */
+  identityById?: Record<string, { city: string; state: string; displayId: string }>;
 }
 
 // B5 — a plant row (not a product column) is this table's filterable unit
@@ -94,8 +107,27 @@ export function CapabilityMatrixTab({
   overrides,
   onChange,
   locationById,
+  identityById,
 }: CapabilityMatrixTabProps) {
   const filterDescriptors = useMemo(() => buildFilterDescriptors(locationById), [locationById]);
+
+  // T11 (workspace-fixups-2, item 2) — compatibility resolver for the row
+  // header: prefer `identityById`, else the `plant` row's own city/state
+  // (always present — `Plant.city`/`Plant.state` are non-optional; this was
+  // the ONLY source the pre-existing `plantIdCityState` header ever used —
+  // `locationById` was, and stays, filter-only, per the existing "is
+  // unaffected by locationById" contract this header has always had).
+  // displayId: prefer `identityById`'s displayCode, else the canonical
+  // `plant.id` (never `plant.name` — matches the pre-existing
+  // `plantIdCityState` contract that `name` is never shown).
+  function resolvedPlantLocation(plant: Plant): { city: string; state: string } {
+    const entry = identityById?.[plant.id];
+    if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
+    return { city: plant.city, state: plant.state };
+  }
+  function resolvedPlantDisplayId(plant: Plant): string {
+    return identityById?.[plant.id]?.displayId ?? plant.id;
+  }
   const tableFilters = useTableFilters(plants, filterDescriptors);
   const { filteredRows, totalCount, filteredCount } = tableFilters;
 
@@ -149,7 +181,11 @@ export function CapabilityMatrixTab({
             {filteredRows.map(plant => (
               <TableRow key={plant.id} data-testid={`row-capability-${plant.id}`}>
                 <TableCell className="text-xs" data-testid={`text-capability-plant-${plant.id}`}>
-                  {plantIdCityState(plant)}
+                  <EntityIdCell
+                    entityId={plant.id}
+                    displayId={resolvedPlantDisplayId(plant)}
+                    location={resolvedPlantLocation(plant)}
+                  />
                 </TableCell>
                 {products.map(product => {
                   const checked = effectiveEnabled(plant.id, product.id);

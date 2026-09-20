@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
 
 export interface LaneCostOverride {
   fromId: string;
@@ -39,6 +40,14 @@ interface LaneCostsTabProps {
   focusEntityId?: string | null;
   /** Followup — scenario-local added entities' `id -> displayCode` map (Workspace.tsx builds this from addedMines/addedStations). From/To cells look up through this for DISPLAY ONLY — the underlying stored fromId/toId (the uuid) stays the join key everywhere else. Base dataset ids have no entry here and fall back to showing the raw id, unchanged. */
   displayCodeById?: Record<string, string>;
+  /** T11 (workspace-fixups-2, item 2) — canonical id -> {city, state,
+   * displayId} (base dataset ∪ scenario-local added entities), built by
+   * Workspace.tsx's `buildEntityIdentityById(modelId, dataset, localInputs)`
+   * (the LIVE draft — this is an INPUT tab). This table was previously
+   * BARE-ID ONLY — upgrades to the stacked City/State + mono display-id cell
+   * (matching Open WHs) once the unfiltered row count exceeds 10 AND this
+   * map is present; unset (every pre-INT caller) is byte-unchanged. */
+  identityById?: Record<string, { city: string; state: string; displayId: string }>;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -62,6 +71,7 @@ export function LaneCostsTab({
   onImportApplied,
   focusEntityId,
   displayCodeById,
+  identityById,
 }: LaneCostsTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -100,6 +110,22 @@ export function LaneCostsTab({
       o.fromId.toLowerCase().includes(fromFilter.toLowerCase()) &&
       o.toId.toLowerCase().includes(toFilter.toLowerCase()),
   );
+
+  // T11 (workspace-fixups-2, item 2) — compatibility resolver: prefer
+  // `identityById`, else no location at all (this table had no prior
+  // location source — the entire display was bare `displayCodeById?.[id] ??
+  // id`). The `>10` UPGRADE rule gates on the UNFILTERED row count
+  // (`laneCostOverrides.length`, not `visibleRows.length`).
+  function resolvedLocation(id: string): { city: string; state: string } | undefined {
+    if (identityById && laneCostOverrides.length > 10) {
+      const entry = identityById[id];
+      if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
+    }
+    return undefined;
+  }
+  function resolvedDisplayId(id: string): string {
+    return identityById?.[id]?.displayId ?? displayCodeById?.[id] ?? id;
+  }
 
   function isChanged(o: LaneCostOverride): boolean {
     const saved = savedByKey.get(pairKey(o.fromId, o.toId));
@@ -288,9 +314,9 @@ export function LaneCostsTab({
                     data-testid={`row-lanecost-${o.fromId}-${o.toId}`}
                     className={changed ? "bg-amber-50" : undefined}
                   >
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="text-xs">
                       <div className="flex items-center gap-1">
-                        {displayCodeById?.[o.fromId] ?? o.fromId}
+                        <EntityIdCell entityId={o.fromId} displayId={resolvedDisplayId(o.fromId)} location={resolvedLocation(o.fromId)} />
                         {fromUnknown && (
                           <span
                             title="Unknown mine ID — not found in this scenario's mines"
@@ -301,9 +327,9 @@ export function LaneCostsTab({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="text-xs">
                       <div className="flex items-center gap-1">
-                        {displayCodeById?.[o.toId] ?? o.toId}
+                        <EntityIdCell entityId={o.toId} displayId={resolvedDisplayId(o.toId)} location={resolvedLocation(o.toId)} />
                         {toUnknown && (
                           <span
                             title="Unknown station ID — not found in this scenario's stations"

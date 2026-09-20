@@ -113,10 +113,13 @@ describe("CapabilityMatrixTab", () => {
     expect(onChange).toHaveBeenCalledWith([{ plantId: "ap-new-1", productId: "product-1", enabled: true }]);
   });
 
-  // workspace-fixups item 2 — the per-plant row header cell uses the shared
-  // `plantIdCityState` helper: "<id> — <City>, <State>". `name` is ignored.
-  describe("plant row header (plantIdCityState)", () => {
-    it("shows '<id> — <City>, <State>' for a plant row", () => {
+  // workspace-fixups-2 item 2 ("CapabilityMatrix aligns to EntityIdCell") —
+  // the per-plant row header cell now renders via the shared EntityIdCell:
+  // stacked "City, State" primary label + mono canonical id sub-label
+  // (matching Open WHs), instead of the old single-line "<id> — <City>,
+  // <State>" plantIdCityState format. `name` is still never shown.
+  describe("plant row header (EntityIdCell)", () => {
+    it("shows the stacked 'City, State' + mono id for a plant row", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -127,12 +130,13 @@ describe("CapabilityMatrixTab", () => {
         />,
       );
       const row = screen.getByTestId("row-capability-plant-1");
-      expect(row).toHaveTextContent("plant-1 — A, QLD");
+      expect(row).toHaveTextContent("A, QLD");
+      expect(row).toHaveTextContent("plant-1");
       // `name` ("Plant One") is deliberately not shown.
       expect(row).not.toHaveTextContent("Plant One");
     });
 
-    it("is unaffected by the (now filter-only) locationById prop", () => {
+    it("is unaffected by the (filter-only) locationById prop — the header's location source has always been the plant row's own city/state, not locationById", () => {
       render(
         <CapabilityMatrixTab
           plants={plants}
@@ -144,7 +148,47 @@ describe("CapabilityMatrixTab", () => {
         />,
       );
       const row = screen.getByTestId("row-capability-plant-1");
-      expect(row).toHaveTextContent("plant-1 — A, QLD");
+      expect(row).toHaveTextContent("A, QLD");
+      expect(row).not.toHaveTextContent("Kalgoorlie");
+    });
+
+    // T11 — the new identityById-driven upgrade: an added plant's
+    // scenario-local display code renders instead of its raw uid, and its
+    // own city/state (never the plants prop's fallback) is shown.
+    it("shows an added plant's identityById-resolved displayCode + location, not its raw uid", () => {
+      const plantsWithAdded = [...plants, { id: "ap-new-1", name: undefined, city: "C", state: "QLD", lat: 3, lng: 3 }];
+      render(
+        <CapabilityMatrixTab
+          plants={plantsWithAdded}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+          identityById={{
+            "ap-new-1": { city: "Toowoomba", state: "QLD", displayId: "PL-QLD-TOOWOOMBA-01" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("row-capability-ap-new-1");
+      expect(row).toHaveTextContent("Toowoomba, QLD");
+      expect(row).toHaveTextContent("PL-QLD-TOOWOOMBA-01");
+      expect(row).not.toHaveTextContent("ap-new-1");
+    });
+
+    it("falls back to the plant's own city/state and canonical id when identityById has no entry for it (no regression)", () => {
+      render(
+        <CapabilityMatrixTab
+          plants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          overrides={[]}
+          onChange={vi.fn()}
+          identityById={{}}
+        />,
+      );
+      const row = screen.getByTestId("row-capability-plant-1");
+      expect(row).toHaveTextContent("A, QLD");
+      expect(row).toHaveTextContent("plant-1");
     });
   });
 
