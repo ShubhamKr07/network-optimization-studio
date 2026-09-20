@@ -78,18 +78,6 @@ interface PlantsTabProps {
    * update (spec §6's plant delete/copy reconciliation — T12's job to wire,
    * this tab only fires the intent). */
   onDeletePlant?: (id: string) => void;
-  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
-   * add-row form + added-rows table + delete (the `addedSection` below).
-   * Used by the base entity tab call site (`showAddedSection={false}`),
-   * which keeps only the base table + its toolbar. Defaults `true` — every
-   * pre-T8 caller is byte-identical. */
-  showAddedSection?: boolean;
-  /** T8 — when `false`, hides the base plants table, its count/filter, its
-   * empty state, the CSV Upload/Download toolbar, AND the import dialog —
-   * leaving ONLY the add-row form + added-rows table + delete. Used by the
-   * new Added Entities tab (`showBaseTable={false}`). Defaults `true` —
-   * every pre-T8 caller is byte-identical. */
-  showBaseTable?: boolean;
 }
 
 // T11 — Chapter 9 JADE's Plants input tab. Same shape as WarehousesTab/
@@ -107,8 +95,6 @@ export function PlantsTab({
   addedPlants = [],
   onAddedPlantsChange,
   onDeletePlant,
-  showAddedSection = true,
-  showBaseTable = true,
 }: PlantsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -384,13 +370,6 @@ export function PlantsTab({
     </div>
   );
 
-  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
-  // form/table/delete: no base table, no count/filter, no empty state, no
-  // CSV toolbar, no import dialog.
-  if (!showBaseTable) {
-    return <div>{showAddedSection && addedSection}</div>;
-  }
-
   if (plants.length === 0) {
     return (
       <div>
@@ -398,7 +377,7 @@ export function PlantsTab({
         <p className="text-sm text-muted-foreground" data-testid="plants-tab-empty">
           No plants in this dataset.
         </p>
-        {showAddedSection && addedSection}
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -431,7 +410,7 @@ export function PlantsTab({
           </TableBody>
         </Table>
       </div>
-      {showAddedSection && addedSection}
+      {addedSection}
       {importDialog}
     </div>
   );

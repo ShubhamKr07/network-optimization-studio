@@ -93,19 +93,6 @@ interface WarehousesTabProps {
    * (wired by INT). Threaded straight through to `WarehouseTable`, which
    * owns the actual runtime `>10 rendered rows` visibility rule. */
   enableFilters?: boolean;
-  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
-   * add-row form + added-rows table + precheck chips + delete (the
-   * `addedSection` below). Used by the base entity tab call site
-   * (`showAddedSection={false}`), which keeps only the base table + its
-   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
-  showAddedSection?: boolean;
-  /** T8 — when `false`, hides the base `<Table>`/`WarehouseTable`, its
-   * count/filter, its empty state, the CSV Upload/Download toolbar, AND the
-   * import dialog — leaving ONLY the add-row form + added-rows table +
-   * precheck chips + delete. Used by the new Added Entities tab
-   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
-   * byte-identical. */
-  showBaseTable?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -135,8 +122,6 @@ export function WarehousesTab({
   precheckErrors = [],
   hasStateColumn = true,
   enableFilters = false,
-  showAddedSection = true,
-  showBaseTable = true,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
@@ -547,13 +532,6 @@ export function WarehousesTab({
     </div>
   );
 
-  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
-  // form/table/chips/delete: no base table, no count/filter, no empty
-  // state, no CSV toolbar, no import dialog.
-  if (!showBaseTable) {
-    return <div>{showAddedSection && addedSection}</div>;
-  }
-
   if (candidates.length === 0) {
     return (
       <div>
@@ -561,7 +539,7 @@ export function WarehousesTab({
         <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
           {emptyLabel}
         </p>
-        {showAddedSection && addedSection}
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -577,7 +555,7 @@ export function WarehousesTab({
         onChange={onChange}
         hasStateColumn={hasStateColumn}
       />
-      {showAddedSection && addedSection}
+      {addedSection}
       {importDialog}
     </div>
   );

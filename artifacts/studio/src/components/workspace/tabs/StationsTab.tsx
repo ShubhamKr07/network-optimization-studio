@@ -51,19 +51,6 @@ interface StationsTabProps {
   onDeleteStation?: (id: string) => void;
   /** B6.1 stage 3's precheck errors for the current scenario — drives the inline "N mines lack a lane cost" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
-  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
-   * add-row form + added-rows table + precheck chips + delete (the
-   * `addedSection` below). Used by the base entity tab call site
-   * (`showAddedSection={false}`), which keeps only the base table + its
-   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
-  showAddedSection?: boolean;
-  /** T8 — when `false`, hides the base `StationTable`, its count/filter,
-   * its empty state, the CSV Upload/Download toolbar, AND the import
-   * dialog — leaving ONLY the add-row form + added-rows table + precheck
-   * chips + delete. Used by the new Added Entities tab
-   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
-   * byte-identical. */
-  showBaseTable?: boolean;
 }
 
 // A5.1 — transport-coal's Stations input tab. Mirrors MinesTab (same file
@@ -87,8 +74,6 @@ export function StationsTab({
   onAddedStationsChange,
   onDeleteStation,
   precheckErrors = [],
-  showAddedSection = true,
-  showBaseTable = true,
 }: StationsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -388,13 +373,6 @@ export function StationsTab({
     </div>
   );
 
-  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
-  // form/table/chips/delete: no base table, no count/filter, no empty
-  // state, no CSV toolbar, no import dialog.
-  if (!showBaseTable) {
-    return <div>{showAddedSection && addedSection}</div>;
-  }
-
   if (stations.length === 0) {
     return (
       <div>
@@ -402,7 +380,7 @@ export function StationsTab({
         <p className="text-sm text-muted-foreground" data-testid="stations-tab-empty">
           No stations in this dataset.
         </p>
-        {showAddedSection && addedSection}
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -412,7 +390,7 @@ export function StationsTab({
     <div data-testid="stations-tab">
       {toolbar}
       <StationTable stations={stations} overrides={overrides} onChange={onChange} />
-      {showAddedSection && addedSection}
+      {addedSection}
       {importDialog}
     </div>
   );

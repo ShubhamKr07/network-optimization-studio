@@ -112,19 +112,6 @@ interface CustomersTabProps {
    * base table is wired; the separate "Added customers" table isn't named
    * in spec §10's JADE table list. */
   enableFilters?: boolean;
-  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
-   * add-row form + added-rows table + precheck chips + delete (the
-   * `addedSection` below). Used by the base entity tab call site
-   * (`showAddedSection={false}`), which keeps only the base table + its
-   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
-  showAddedSection?: boolean;
-  /** T8 — when `false`, hides the base customer table (scalar or per-product),
-   * its count/filter, its empty state, the CSV Upload/Download toolbar, AND
-   * the import dialog — leaving ONLY the add-row form + added-rows table +
-   * precheck chips + delete. Used by the new Added Entities tab
-   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
-   * byte-identical. */
-  showBaseTable?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -151,8 +138,6 @@ export function CustomersTab({
   onProductOverridesChange,
   hasStateColumn = true,
   enableFilters = false,
-  showAddedSection = true,
-  showBaseTable = true,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   // T11 — the actual switch: per-product mode only renders when the caller
@@ -659,13 +644,6 @@ export function CustomersTab({
     </div>
   );
 
-  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
-  // form/table/chips/delete: no base table, no count/filter, no empty
-  // state, no CSV toolbar, no import dialog.
-  if (!showBaseTable) {
-    return <div>{showAddedSection && addedSection}</div>;
-  }
-
   if (customers.length === 0) {
     return (
       <div>
@@ -673,7 +651,7 @@ export function CustomersTab({
         <p className="text-sm text-muted-foreground" data-testid="customers-tab-empty">
           No customers in this dataset.
         </p>
-        {showAddedSection && addedSection}
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -753,7 +731,7 @@ export function CustomersTab({
       ) : (
         <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
       )}
-      {showAddedSection && addedSection}
+      {addedSection}
       {importDialog}
     </div>
   );

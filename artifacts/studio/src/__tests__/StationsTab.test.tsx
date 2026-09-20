@@ -239,82 +239,49 @@ describe("StationsTab — add/delete added stations (Task 30)", () => {
   });
 });
 
-// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
-// flags let the new Added Entities tab reuse the base tab's own add-row
-// UX without also rendering the base table/toolbar/import dialog, while the
-// base entity tab keeps everything except the added section.
-describe("StationsTab — showAddedSection / showBaseTable (T8)", () => {
+// CLEANUP (Workspace fixups 2, item 1) — the Added Entities tab (and its
+// the per-model add/base render flags are permanently gone; this tab always
+// renders its base table + toolbar TOGETHER WITH its inline "+ Add …"
+// add-section in the same tab (the permanent post-revert shape, spec §1).
+describe("StationsTab — base table + inline add-section always render together (item 1)", () => {
   const addedStationsProps = {
     addedStations: [],
     onAddedStationsChange: vi.fn(),
     onDeleteStation: vi.fn(),
   };
 
-  it("showBaseTable={false}: renders the added-only region + '+ Add station' affordance, but no base table/toolbar/import trigger", () => {
+  it("renders the base table + toolbar AND the inline added section together, with no flag", () => {
     render(
       <StationsTab
         stations={stations}
         overrides={[]}
         onChange={vi.fn()}
         scenarioId={7}
-        showBaseTable={false}
         {...addedStationsProps}
       />,
     );
+    expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("stations-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-stations-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-import-stations")).toBeInTheDocument();
+    expect(screen.getByText("S1")).toBeInTheDocument();
     expect(screen.getByTestId("added-stations-section")).toBeInTheDocument();
     expect(screen.getByTestId("button-add-station-row")).toBeInTheDocument();
-    expect(screen.queryByTestId("stations-tab")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("stations-tab-toolbar")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-export-stations-csv")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-import-stations")).not.toBeInTheDocument();
-    expect(screen.queryByText("S1")).not.toBeInTheDocument();
   });
 
-  it("showBaseTable={false}: clicking '+ Add station' opens the add-row form", async () => {
+  it("clicking '+ Add station' opens the add-row form alongside the still-visible base table", async () => {
     render(
       <StationsTab
         stations={stations}
         overrides={[]}
         onChange={vi.fn()}
-        showBaseTable={false}
         {...addedStationsProps}
       />,
     );
     expect(screen.queryByTestId("add-station-row-form")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-station-row"));
     expect(screen.getByTestId("add-station-row-form")).toBeInTheDocument();
-  });
-
-  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
-    render(
-      <StationsTab
-        stations={stations}
-        overrides={[]}
-        onChange={vi.fn()}
-        scenarioId={7}
-        showAddedSection={false}
-        {...addedStationsProps}
-      />,
-    );
-    expect(screen.queryByTestId("added-stations-section")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-add-station-row")).not.toBeInTheDocument();
     expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("stations-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByText("S1")).toBeInTheDocument();
-  });
-
-  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
-    render(
-      <StationsTab
-        stations={stations}
-        overrides={[]}
-        onChange={vi.fn()}
-        {...addedStationsProps}
-      />,
-    );
-    expect(screen.getByTestId("stations-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("stations-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("added-stations-section")).toBeInTheDocument();
     expect(screen.getByText("S1")).toBeInTheDocument();
   });
 });
