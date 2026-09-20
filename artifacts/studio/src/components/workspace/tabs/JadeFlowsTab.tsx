@@ -6,6 +6,8 @@ import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 
 // B3 (JADE Ch.9 Workspace Bundle, spec §5b) — Chapter 9 JADE's Flows tab.
 // JADE has TWO distinct facility->facility legs (plant_to_warehouse inbound,
@@ -83,6 +85,18 @@ interface JadeFlowsTabProps {
    * round-trip (spec §5c/OQ-2), so this is currently unused inside the
    * component. */
   scenarioId?: number;
+  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
+   * projection (`buildEntityIdentityById`, T3). Both inner tables already
+   * resolve a single-line "City, ST" label per cell via `warehouseLabel`/
+   * `customerLabel`/`resolvePlantLabel` below (never showing the id/
+   * displayCode alongside it) — when `identityById` has an entry for a
+   * cell's id AND that inner table's OWN unfiltered row count exceeds 10
+   * (the item-2 `>10` upgrade rule, applied independently per inner table),
+   * the cell upgrades to the shared stacked `EntityIdCell`. Below the
+   * threshold, or when `identityById`/the entry is absent, the cell keeps
+   * its pre-existing single-line string — `identityById` unset is
+   * byte-unchanged from before this task at any row count. */
+  identityById?: Record<string, EntityIdentity>;
 }
 
 function displayLabel(row: { name?: string; city?: string; state?: string } | undefined, id: string): string {
@@ -137,6 +151,30 @@ function warehouseToCustomerEdges(edges: Edge[]): { warehouseId: string; custome
     .map(e => ({ warehouseId: e.fromId, customerId: e.toId, distance: e.distance, flow: e.flow }));
 }
 
+// workspace-fixups-2, T10 (item 2) — the `>10` upgrade, applied
+// independently per inner table (the caller passes each table's own
+// unfiltered row count as `upgrade`). When true AND `identityById` has an
+// entry for this id, render the shared stacked cell; otherwise render the
+// pre-existing single-line string UNCHANGED (the no-regression fallback).
+function renderJadeEntityCell(
+  id: string,
+  fallbackLabel: string,
+  identityById: Record<string, EntityIdentity> | undefined,
+  upgrade: boolean,
+) {
+  const identity = upgrade ? identityById?.[id] : undefined;
+  if (identity) {
+    return (
+      <EntityIdCell
+        entityId={id}
+        displayId={identity.displayId}
+        location={identity.city ? { city: identity.city, state: identity.state } : undefined}
+      />
+    );
+  }
+  return fallbackLabel;
+}
+
 // Minimal client-side CSV writer — deliberately local, not a shared
 // dependency. This is a client-side-only export of the ON-SCREEN columns for
 // one leg, distinct from the server-backed combined `entity=flows` export
@@ -164,6 +202,7 @@ export function JadeFlowsTab({
   bands = [],
   distanceUnit = "mi",
   effectivePlants,
+  identityById,
 }: JadeFlowsTabProps) {
   const [innerTab, setInnerTab] = useState<InnerTab>("plant-warehouse");
 
@@ -389,8 +428,12 @@ export function JadeFlowsTab({
             <TableBody>
               {pwFilters.filteredRows.map(r => (
                 <TableRow key={r.key} data-testid={`jade-flow-pw-row-${r.plantId}-${r.warehouseId}`}>
-                  <TableCell data-testid={`cell-jade-flow-pw-plant-${r.key}`}>{r.plantLabel}</TableCell>
-                  <TableCell data-testid={`cell-jade-flow-pw-warehouse-${r.key}`}>{r.warehouseLabel}</TableCell>
+                  <TableCell data-testid={`cell-jade-flow-pw-plant-${r.key}`}>
+                    {renderJadeEntityCell(r.plantId, r.plantLabel, identityById, pwRows.length > 10)}
+                  </TableCell>
+                  <TableCell data-testid={`cell-jade-flow-pw-warehouse-${r.key}`}>
+                    {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, pwRows.length > 10)}
+                  </TableCell>
                   <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-pw-distance-${r.key}`}>
                     {r.distance.toFixed(1)} {distanceUnit}
                   </TableCell>
@@ -425,8 +468,12 @@ export function JadeFlowsTab({
             <TableBody>
               {wcFilters.filteredRows.map(r => (
                 <TableRow key={r.key} data-testid={`jade-flow-wc-row-${r.warehouseId}-${r.customerId}`}>
-                  <TableCell data-testid={`cell-jade-flow-wc-warehouse-${r.key}`}>{r.warehouseLabel}</TableCell>
-                  <TableCell data-testid={`cell-jade-flow-wc-customer-${r.key}`}>{r.customerLabel}</TableCell>
+                  <TableCell data-testid={`cell-jade-flow-wc-warehouse-${r.key}`}>
+                    {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, wcRows.length > 10)}
+                  </TableCell>
+                  <TableCell data-testid={`cell-jade-flow-wc-customer-${r.key}`}>
+                    {renderJadeEntityCell(r.customerId, r.customerLabel, identityById, wcRows.length > 10)}
+                  </TableCell>
                   <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-wc-distance-${r.key}`}>
                     {r.distance.toFixed(1)} {distanceUnit}
                   </TableCell>

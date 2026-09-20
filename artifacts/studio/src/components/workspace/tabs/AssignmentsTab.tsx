@@ -1,6 +1,8 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatCityState } from "@/lib/formatLocation";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 
 // B2.2-T6 — same snapshot shape as OpenWarehousesTab.tsx's
 // OpenWarehousesDisplayedInputs (kept as a separate local declaration per
@@ -26,6 +28,17 @@ interface AssignmentsTabProps {
    * JadeDistancesTab.tsx). Absent for every other model (undefined) ->
    * unchanged id-only rendering. */
   locationById?: Record<string, { city: string; state: string }>;
+  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
+   * projection (`buildEntityIdentityById`, T3), covering BOTH base dataset
+   * rows AND scenario-added rows (customers included — unlike `codeById`
+   * below, which only merges added warehouses/refineries) keyed by canonical
+   * id. Takes PRECEDENCE over `locationById`/`codeById` when an entry exists
+   * (the compatibility resolver — see `resolveCell`). Optional/`undefined`
+   * for every pre-existing call site until INT wires it, so this component's
+   * output is byte-unchanged for any caller that never passes it. Already a
+   * "rich" table (shows both id and location whenever `locationById` has an
+   * entry, at any row count) — no `>10` gate applied. */
+  identityById?: Record<string, EntityIdentity>;
   /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit).
    * Optional/defaults to "mi" so existing callers stay unchanged; Chen passes "km". */
   distanceUnit?: string;
@@ -101,10 +114,35 @@ function idCell(id: string, displayLabel: string, locationById: Record<string, {
   );
 }
 
+// workspace-fixups-2, T10 (item 2) — compatibility resolver: prefer the new
+// `identityById` entry (covers added CUSTOMERS too, unlike the pre-existing
+// `idCell`/`codeById` path above, which never resolved a customer's display
+// code at all — only `fromId` warehouses/refineries did); else delegate to
+// the pre-existing, UNTOUCHED `idCell` function so `identityById` unset
+// renders byte-identical output to before this task.
+function resolveCell(
+  id: string,
+  fallbackDisplayLabel: string,
+  locationById: Record<string, { city: string; state: string }> | undefined,
+  identityById: Record<string, EntityIdentity> | undefined,
+) {
+  const identity = identityById?.[id];
+  if (identity) {
+    return (
+      <EntityIdCell
+        entityId={id}
+        displayId={identity.displayId}
+        location={identity.city ? { city: identity.city, state: identity.state } : undefined}
+      />
+    );
+  }
+  return idCell(id, fallbackDisplayLabel, locationById);
+}
+
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
-export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, distanceUnit = "mi" }: AssignmentsTabProps) {
+export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, identityById, distanceUnit = "mi" }: AssignmentsTabProps) {
   if (!result) {
     return (
       <div className="p-4 text-sm text-muted-foreground" data-testid="assignments-empty">
@@ -141,8 +179,8 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
           <tbody>
             {rows.map(r => (
               <tr key={r.customerId} data-testid={`assignment-row-${r.customerId}`} className="border-b">
-                <td className="p-2">{idCell(r.customerId, r.customerId, locationById)}</td>
-                <td className="p-2">{idCell(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById)}</td>
+                <td className="p-2">{resolveCell(r.customerId, r.customerId, locationById, identityById)}</td>
+                <td className="p-2">{resolveCell(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById, identityById)}</td>
                 <td className="p-2 text-right font-mono">{r.distance.toFixed(1)}</td>
                 <td className="p-2 text-right font-mono">{r.flow.toLocaleString()}</td>
               </tr>

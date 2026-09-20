@@ -9,6 +9,8 @@ import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jade
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 
 interface ServiceStatsTabProps {
   result: SolveResult | null;
@@ -54,6 +56,18 @@ interface ServiceStatsTabProps {
   // min-distance concept, not a distance-band recompute) — this prop is
   // no longer gated on `supportsPlantProductCapability` internally.
   presentationBands?: number[];
+
+  // workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
+  // projection (`buildEntityIdentityById`, T3). The Plant Production plant
+  // cell already resolves a single-line "<id> — City, State" label via
+  // `plantIdCityState` below (never a separate mono id sub-label) — when
+  // `identityById` has an entry for a row's plant id AND the section's
+  // UNFILTERED row count exceeds 10 (the item-2 `>10` upgrade rule), that
+  // cell upgrades to the shared stacked `EntityIdCell`. Below the threshold,
+  // or when `identityById`/the entry is absent, the cell keeps its
+  // pre-existing single-line string — `identityById` unset is byte-unchanged
+  // from before this task at any row count.
+  identityById?: Record<string, EntityIdentity>;
 }
 
 interface PlantProductionRow {
@@ -117,6 +131,31 @@ function buildPlantProductionRows(
   return rows;
 }
 
+// workspace-fixups-2, T10 (item 2) — the `>10` upgrade: when `upgrade` is
+// true (unfiltered Plant Production row count > 10) AND `identityById` has
+// an entry for this plant id, render the shared stacked cell (adds the mono
+// displayId sub-label this section never showed before, separate from the
+// existing "<id> — City, State" single-line string); otherwise render the
+// pre-existing label UNCHANGED (the no-regression fallback).
+function renderPlantCell(
+  plantId: string,
+  fallbackLabel: string,
+  identityById: Record<string, EntityIdentity> | undefined,
+  upgrade: boolean,
+) {
+  const identity = upgrade ? identityById?.[plantId] : undefined;
+  if (identity) {
+    return (
+      <EntityIdCell
+        entityId={plantId}
+        displayId={identity.displayId}
+        location={identity.city ? { city: identity.city, state: identity.state } : undefined}
+      />
+    );
+  }
+  return fallbackLabel;
+}
+
 const PLANT_PRODUCTION_FILTER_DESCRIPTORS: ColumnFilterDescriptor<PlantProductionRow>[] = [
   { key: "plant", label: "Plant", type: "select", accessor: (r) => r.plantLabel },
   { key: "product", label: "Product", type: "select", accessor: (r) => r.productLabel },
@@ -155,6 +194,7 @@ export function ServiceStatsTab({
   baseCapabilities,
   capabilityOverrides = [],
   presentationBands,
+  identityById,
 }: ServiceStatsTabProps) {
   // R9 — distanceUnit is sourced from the model manifest (G1.1) via
   // GET /api/models, defaulting to "mi" both when the manifest field is
@@ -338,7 +378,9 @@ export function ServiceStatsTab({
                     key={`${row.plantId}|${row.productId}`}
                     data-testid={`row-plant-production-${row.plantId}-${row.productId}`}
                   >
-                    <TableCell className="text-xs">{row.plantLabel}</TableCell>
+                    <TableCell className="text-xs">
+                      {renderPlantCell(row.plantId, row.plantLabel, identityById, plantProductionRows.length > 10)}
+                    </TableCell>
                     <TableCell className="text-xs">{row.productLabel}</TableCell>
                     <TableCell className="text-xs font-mono">{row.actual.toLocaleString()}</TableCell>
                     <TableCell className="text-xs font-mono">{row.capacity.toLocaleString()}</TableCell>

@@ -272,4 +272,101 @@ describe("JadeAssignmentsTab", () => {
       expect(within(popover).getByTestId("checkbox-filter-product-Product Family 1")).toBeChecked();
     });
   });
+
+  // workspace-fixups-2, T10 (item 2) — identityById + the `>10` upgrade rule.
+  describe("identityById + >10 upgrade rule (workspace-fixups-2, T10, item 2)", () => {
+    function manyRowsWithKnownWarehouse(count: number) {
+      return makeResult(
+        Array.from({ length: count }, (_, i) => ({
+          customerId: `customer-${i}`,
+          warehouseId: "wh-11",
+          productId: "product-1",
+          distanceMi: 100 + i,
+        })),
+      );
+    }
+    const identityById = {
+      "wh-11": { city: "Chicago", state: "IL", displayId: "WH-CHI-01" },
+    };
+
+    it("at exactly 10 unfiltered rows (the boundary), keeps the pre-existing single-line label — no mono displayId sub-label yet", () => {
+      render(
+        <JadeAssignmentsTab
+          result={manyRowsWithKnownWarehouse(10)}
+          dataset={dataset}
+          bands={bands}
+          scenarioId={1}
+          identityById={identityById}
+        />,
+      );
+      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      // Pre-existing format uses " - " (cityStateLabel), never a comma.
+      expect(row).toHaveTextContent("Chicago - IL");
+      expect(row).not.toHaveTextContent("WH-CHI-01");
+    });
+
+    it("at 11 unfiltered rows (crossing the boundary), upgrades the warehouse cell to the stacked EntityIdCell with the mono displayId", () => {
+      render(
+        <JadeAssignmentsTab
+          result={manyRowsWithKnownWarehouse(11)}
+          dataset={dataset}
+          bands={bands}
+          scenarioId={1}
+          identityById={identityById}
+        />,
+      );
+      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      // Upgraded format uses formatCityState (a comma), plus the mono id.
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(row).toHaveTextContent("WH-CHI-01");
+    });
+
+    it("shows an added CUSTOMER's AND an added FACILITY's display code via identityById once the row count exceeds 10", () => {
+      const rows = Array.from({ length: 11 }, (_, i) => ({
+        customerId: i === 0 ? "ac-9" : `customer-${i}`,
+        warehouseId: i === 0 ? "aw-9" : "wh-11",
+        productId: "product-1",
+        distanceMi: 100 + i,
+      }));
+      render(
+        <JadeAssignmentsTab
+          result={makeResult(rows)}
+          dataset={dataset}
+          bands={bands}
+          scenarioId={1}
+          identityById={{
+            "ac-9": { city: "Boise", state: "ID", displayId: "C-ID-BOISE-01" },
+            "aw-9": { city: "Denver", state: "CO", displayId: "WH-CO-DENVER-01" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("row-jadeassignment-product-1|ac-9");
+      expect(row).toHaveTextContent("C-ID-BOISE-01");
+      expect(row).not.toHaveTextContent("ac-9");
+      expect(row).toHaveTextContent("WH-CO-DENVER-01");
+      expect(row).not.toHaveTextContent("aw-9");
+    });
+
+    it("falls back to the pre-existing single-line label on a lookup miss (identityById has no entry), even above the 10-row threshold", () => {
+      render(
+        <JadeAssignmentsTab
+          result={manyRowsWithKnownWarehouse(11)}
+          dataset={dataset}
+          bands={bands}
+          scenarioId={1}
+          identityById={{ "some-other-id": { city: "X", state: "Y", displayId: "Z" } }}
+        />,
+      );
+      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      expect(row).toHaveTextContent("Chicago - IL");
+    });
+
+    it("with identityById unset, output is byte-unchanged from before this task at any row count (no-regression)", () => {
+      render(
+        <JadeAssignmentsTab result={manyRowsWithKnownWarehouse(11)} dataset={dataset} bands={bands} scenarioId={1} />,
+      );
+      const row = screen.getByTestId("row-jadeassignment-product-1|customer-0");
+      expect(row).toHaveTextContent("Chicago - IL");
+    });
+  });
 });
