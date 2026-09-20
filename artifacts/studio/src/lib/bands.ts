@@ -112,19 +112,23 @@ export function bandLabel(distance: number, bands: number[]): string {
   return index === OVERFLOW_BAND ? "Overflow" : `Band ${index + 1}`;
 }
 
-// Workspace fixups bundle (T1, item 5) — a unit-aware distance-band RANGE
-// label ("≤ 500 mi", "500–1000 mi", "> 1000 mi"), for use as a filterable
-// value in a table's band column instead of the opaque `bandLabel`
-// "Band N"/"Overflow" index. Built on the same assignBandOrOverflow
-// classification (sorted boundaries, <= semantics, OVERFLOW_BAND sentinel)
-// so a distance's range label always matches its bandLabel/map-color bucket.
+// Workspace fixups bundle 2 (T1, item 6) — a unit-aware distance-band RANGE
+// label ("Band 1: 0 mi - 250 mi", "Band 2: 250 mi - 500 mi",
+// "Band 5: > 1000 mi"), for use as a filterable value in a table's band
+// column instead of the opaque `bandLabel` "Band N"/"Overflow" index. Built
+// on the same assignBandOrOverflow classification (sorted boundaries, <=
+// semantics, OVERFLOW_BAND sentinel) so a distance's range label always
+// matches its bandLabel/map-color bucket. Keeps the band NUMBER (present in
+// `bandLabel`) alongside the range, unlike the prior bundle's plain
+// "≤ 250 mi" / "250–500 mi" format. Only FilterMenu options use this — table
+// CELLS stay on the unmodified `bandLabel` ("Band N" / "Overflow").
 export function bandRangeLabel(distance: number, bands: number[], unit: string): string {
   const sorted = [...bands].sort((a, b) => a - b);
   if (sorted.length === 0) return "All distances";
   const index = assignBandOrOverflow(distance, sorted);
-  if (index === OVERFLOW_BAND) return `> ${sorted[sorted.length - 1]} ${unit}`;
-  if (index === 0) return `≤ ${sorted[0]} ${unit}`;
-  return `${sorted[index - 1]}–${sorted[index]} ${unit}`;
+  if (index === OVERFLOW_BAND) return `Band ${sorted.length + 1}: > ${sorted[sorted.length - 1]} ${unit}`;
+  if (index === 0) return `Band 1: 0 ${unit} - ${sorted[0]} ${unit}`;
+  return `Band ${index + 1}: ${sorted[index - 1]} ${unit} - ${sorted[index]} ${unit}`;
 }
 
 // Cumulative rollup (each boundary counts all flow at or under it, not just

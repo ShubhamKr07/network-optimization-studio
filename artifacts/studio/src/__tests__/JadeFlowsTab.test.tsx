@@ -388,9 +388,15 @@ describe("JadeFlowsTab", () => {
     }
     // Both helpers above, with bands=[250,500,750,1000], produce the same 5
     // distinct range labels in first-seen order for either leg.
-    const expectedRangeLabels = ["≤ 250 mi", "250–500 mi", "500–750 mi", "750–1000 mi", "> 1000 mi"];
+    const expectedRangeLabels = [
+      "Band 1: 0 mi - 250 mi",
+      "Band 2: 250 mi - 500 mi",
+      "Band 3: 500 mi - 750 mi",
+      "Band 4: 750 mi - 1000 mi",
+      "Band 5: > 1000 mi",
+    ];
 
-    it("both inner tables' Distance Band filter dropdown lists unit-aware ranges, not 'Band N'", async () => {
+    it("both inner tables' Distance Band filter dropdown lists unit-aware, band-numbered ranges", async () => {
       const user = userEvent.setup();
       const spreadResult = makeResult([...bandSpreadPwEdges(11), ...bandSpreadWcEdges(11)]);
       render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
@@ -401,7 +407,6 @@ describe("JadeFlowsTab", () => {
         .getAllByTestId(/^option-filter-band-/)
         .map(el => el.textContent);
       expect(labels).toEqual(expectedRangeLabels);
-      expect(labels.some(l => l?.startsWith("Band"))).toBe(false);
       await user.keyboard("{Escape}");
 
       await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
@@ -434,7 +439,7 @@ describe("JadeFlowsTab", () => {
       const labels = within(popover)
         .getAllByTestId(/^option-filter-band-/)
         .map(el => el.textContent);
-      expect(labels).toEqual(["≤ 1000 mi", "> 1000 mi"]);
+      expect(labels).toEqual(["Band 1: 0 mi - 1000 mi", "Band 2: > 1000 mi"]);
     });
 
     it("selecting a range in EACH inner table, then changing bands, clears only that table's own band filter — non-band filters survive and the two clears are independent", async () => {

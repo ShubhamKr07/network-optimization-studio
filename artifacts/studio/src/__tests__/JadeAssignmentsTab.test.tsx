@@ -213,11 +213,11 @@ describe("JadeAssignmentsTab", () => {
       const popover = screen.getByTestId("filter-menu-popover");
       const select = within(popover).getByTestId("select-filter-band");
 
-      expect(within(select).getByTestId("option-filter-band-≤ 250 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-250–500 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-500–750 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-750–1000 mi")).toBeInTheDocument();
-      expect(within(select).getByTestId("option-filter-band-> 1000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 2: 250 mi - 500 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 3: 500 mi - 750 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 4: 750 mi - 1000 mi")).toBeInTheDocument();
+      expect(within(select).getByTestId("option-filter-band-Band 5: > 1000 mi")).toBeInTheDocument();
 
       expect(within(select).queryByTestId("option-filter-band-Band 1")).not.toBeInTheDocument();
       expect(within(select).queryByTestId("option-filter-band-Overflow")).not.toBeInTheDocument();
@@ -231,16 +231,16 @@ describe("JadeAssignmentsTab", () => {
       );
       await user.click(screen.getByTestId("button-filter-menu-trigger"));
       const popover = screen.getByTestId("filter-menu-popover");
-      expect(within(popover).getByTestId("option-filter-band-≤ 250 mi")).toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).toBeInTheDocument();
 
       fetchSpy.mockClear();
       rerender(
         <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
       );
 
-      expect(within(popover).getByTestId("option-filter-band-≤ 500 mi")).toBeInTheDocument();
-      expect(within(popover).getByTestId("option-filter-band-> 500 mi")).toBeInTheDocument();
-      expect(within(popover).queryByTestId("option-filter-band-≤ 250 mi")).not.toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-Band 1: 0 mi - 500 mi")).toBeInTheDocument();
+      expect(within(popover).getByTestId("option-filter-band-Band 2: > 500 mi")).toBeInTheDocument();
+      expect(within(popover).queryByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).not.toBeInTheDocument();
       expect(fetchSpy).not.toHaveBeenCalled();
       fetchSpy.mockRestore();
     });
@@ -255,8 +255,8 @@ describe("JadeAssignmentsTab", () => {
 
       // Activate a Product filter (non-band) — 6 rows are product-1.
       await user.click(within(popover).getByTestId("checkbox-filter-product-Product Family 1"));
-      // Activate a band-range filter — "≤ 250 mi" matches 2 of those 6 rows.
-      await user.click(within(popover).getByTestId("checkbox-filter-band-≤ 250 mi"));
+      // Activate a band-range filter — "Band 1: 0 mi - 250 mi" matches 2 of those 6 rows.
+      await user.click(within(popover).getByTestId("checkbox-filter-band-Band 1: 0 mi - 250 mi"));
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 11");
 
       // Edit the live distance bands — simulates the band editor changing
@@ -268,7 +268,7 @@ describe("JadeAssignmentsTab", () => {
       // Band filter cleared (its checkbox unchecked, count reflects only the
       // surviving Product filter: all 6 product-1 rows), Product filter intact.
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("6 of 11");
-      expect(within(popover).getByTestId("checkbox-filter-band-≤ 500 mi")).not.toBeChecked();
+      expect(within(popover).getByTestId("checkbox-filter-band-Band 1: 0 mi - 500 mi")).not.toBeChecked();
       expect(within(popover).getByTestId("checkbox-filter-product-Product Family 1")).toBeChecked();
     });
   });
