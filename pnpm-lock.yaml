@@ -115,6 +115,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/units':
+        specifier: workspace:*
+        version: link:../../lib/units
       argon2:
         specifier: ^0.41.1
         version: 0.41.1
@@ -519,6 +522,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/units':
+        specifier: workspace:*
+        version: link:../../lib/units
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -663,6 +669,15 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.6(@types/node@25.6.2)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.8.4)
+
+  lib/units:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
       vitest:
         specifier: ^3.2.4
         version: 3.2.6(@types/node@25.6.2)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.8.4)
