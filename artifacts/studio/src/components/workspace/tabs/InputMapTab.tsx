@@ -8,6 +8,7 @@ import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EntityMarkers, type EntityMarkersToggles } from "@/components/workspace/map/EntityMarkers";
+import { formatCityState } from "@/lib/formatLocation";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { MapDetailsCard } from "@/components/workspace/map/MapDetailsCard";
 import { MapActionMenu } from "@/components/workspace/map/MapActionMenu";
@@ -887,6 +888,7 @@ function PMedianInputMap({
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
             draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
+            modelId={modelId}
           />
         </MapContainer>
         {/* Wave-1 follow-up — real scenario customer population (base +
@@ -1356,6 +1358,7 @@ function TransportInputMap({
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
             draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
+            modelId="transport-coal"
           />
         </MapContainer>
         {/* R1/R2 — green station bubbles + quintile sizing come for free from
@@ -1855,7 +1858,16 @@ function TwoEchelonInputMap({
           {mine && toggles.warehouses && (
             <Marker position={[mine.lat, mine.lng]} zIndexOffset={900} data-testid="mine-marker-fixed">
               <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                <span className="font-semibold text-xs">{mine.displayCode} (mine, fixed)</span>
+                {/* T9 (workspace-fixups-2, item 4) — matches EntityMarkers'
+                    own `<Type> · <displayId> · <City>, <State>` tooltip
+                    convention, plus the `(fixed)` qualifier this marker has
+                    always carried. `displayId` is formatted DIRECTLY off
+                    this live mine row (`mine.displayCode ?? mine.id`) —
+                    never from a solved-snapshot identity map (this tab is
+                    input-live, not output-snapshot). */}
+                <span className="font-semibold text-xs">
+                  Mine · {mine.displayCode || mine.id} · {formatCityState(mine.city, mine.state)} (fixed)
+                </span>
               </Tooltip>
             </Marker>
           )}
@@ -1867,6 +1879,7 @@ function TwoEchelonInputMap({
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
             draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
+            modelId="two-echelon-gold-au"
           />
         </MapContainer>
         {/* R1/R2/R3 — green customer bubbles + quintile sizing + the status
@@ -2422,6 +2435,7 @@ function JadeInputMap({
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
             draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
+            modelId="two-echelon-jade-us"
           />
         </MapContainer>
         <MapLegend

@@ -296,64 +296,51 @@ describe("OptimizationParametersTab — Chen coverage model (C4.12)", () => {
   });
 });
 
-// jade B8 — OptimizationParametersTab renders JadeBandEditor (fixed-4-slot,
-// fully validated) only for modelId==="two-echelon-jade-us"; every other
-// model (including modelId undefined) keeps the existing chip editor
-// unchanged.
-describe("OptimizationParametersTab — JADE band editor wiring (B8)", () => {
-  it("renders the chip editor (not JadeBandEditor) when modelId is undefined", () => {
-    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
-    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
-    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
-  });
-
-  it("renders the chip editor (not JadeBandEditor) for a non-JADE modelId", () => {
-    render(<OptimizationParametersTab {...baseProps} modelId="p-median-us" onChange={vi.fn()} />);
-    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
-    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
-  });
-
-  it("renders JadeBandEditor (not the chip editor) for modelId two-echelon-jade-us", () => {
+// jade-INT (workspace-fixups-2, item 7) — OptimizationParametersTab used to
+// render a separate fixed-4-slot JadeBandEditor for modelId===
+// "two-echelon-jade-us"; that editor is deleted and JADE now renders the
+// SAME shared free add/remove chip editor as every other model (its schema
+// was relaxed to `.min(1)`, matching p-median/transport/gold-au).
+describe("OptimizationParametersTab — JADE uses the shared chip editor (item 7)", () => {
+  it("renders the shared chip editor (not JadeBandEditor) for modelId two-echelon-jade-us", () => {
     render(<OptimizationParametersTab {...baseProps} modelId="two-echelon-jade-us" onChange={vi.fn()} />);
-    expect(screen.getByTestId("jade-band-editor")).toBeInTheDocument();
-    expect(screen.queryByTestId("button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("button-remove-band-200")).toBeInTheDocument();
   });
 
-  it("JadeBandEditor edits flow through the tab's generic onChange('distanceBands', ...)", () => {
+  it("adding a 5th band for JADE calls the tab's generic onChange('distanceBands', ...) sorted", () => {
     const onChange = vi.fn();
     render(<OptimizationParametersTab {...baseProps} modelId="two-echelon-jade-us" onChange={onChange} />);
-    fireEvent.change(screen.getByTestId("jade-band-slot-1"), { target: { value: "500" } });
-    expect(onChange).toHaveBeenCalledWith("distanceBands", [200, 500, 800, 1600]);
+    fireEvent.click(screen.getByTestId("button-bands-plus"));
+    fireEvent.change(screen.getByTestId("input-new-band"), { target: { value: "3000" } });
+    fireEvent.click(screen.getByTestId("button-add-band-confirm"));
+    expect(onChange).toHaveBeenCalledWith("distanceBands", [200, 400, 800, 1600, 3000]);
   });
 
-  it("an invalid JADE band edit does not call the tab's onChange, and fires onDistanceBandsValidityChange(false)", () => {
-    const onChange = vi.fn();
-    const onDistanceBandsValidityChange = vi.fn();
-    render(
-      <OptimizationParametersTab
-        {...baseProps}
-        modelId="two-echelon-jade-us"
-        onChange={onChange}
-        onDistanceBandsValidityChange={onDistanceBandsValidityChange}
-      />,
-    );
-    onChange.mockClear();
-    fireEvent.change(screen.getByTestId("jade-band-slot-0"), { target: { value: "0" } });
-    expect(onChange).not.toHaveBeenCalled();
-    expect(onDistanceBandsValidityChange).toHaveBeenLastCalledWith(false);
-    expect(screen.getByTestId("jade-band-error")).toBeInTheDocument();
+  it("disables the last remaining band's × control for JADE (zero-band guard, item 7)", () => {
+    render(<OptimizationParametersTab {...baseProps} modelId="two-echelon-jade-us" distanceBands={[500]} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-remove-band-500")).toBeDisabled();
   });
 
-  it("a valid JADE band edit fires onDistanceBandsValidityChange(true)", () => {
-    const onDistanceBandsValidityChange = vi.fn();
-    render(
-      <OptimizationParametersTab
-        {...baseProps}
-        modelId="two-echelon-jade-us"
-        onChange={vi.fn()}
-        onDistanceBandsValidityChange={onDistanceBandsValidityChange}
-      />,
-    );
-    expect(onDistanceBandsValidityChange).toHaveBeenLastCalledWith(true);
+  it("does not disable a remove control for JADE when more than one band remains", () => {
+    render(<OptimizationParametersTab {...baseProps} modelId="two-echelon-jade-us" distanceBands={[200, 500]} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-remove-band-200")).toBeEnabled();
+    expect(screen.getByTestId("button-remove-band-500")).toBeEnabled();
+  });
+});
+
+// item 7 (Codex plan-review P1) — the zero-band guard is SHARED, not
+// JADE-specific: every free-chip model's schema is now `.min(1)`, so the
+// last remaining band's × control must be disabled for any model.
+describe("OptimizationParametersTab — zero-band guard (item 7, any model)", () => {
+  it("disables the last remaining band's × control regardless of modelId", () => {
+    render(<OptimizationParametersTab {...baseProps} distanceBands={[500]} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-remove-band-500")).toBeDisabled();
+  });
+
+  it("does not disable a remove control when more than one band remains", () => {
+    render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
+    expect(screen.getByTestId("button-remove-band-200")).toBeEnabled();
   });
 });

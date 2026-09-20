@@ -259,31 +259,42 @@ describe("bandLabel (jade-A1)", () => {
   });
 });
 
-// Workspace fixups bundle (T1, item 5) — unit-aware distance-band range
-// labels, built on the same assignBandOrOverflow classification as
-// `bandLabel` above.
+// Workspace fixups bundle 2 (T1, item 6) — unit-aware distance-band range
+// labels with the band NUMBER prefixed ("Band N: X <unit> - Y <unit>"),
+// built on the same assignBandOrOverflow classification as `bandLabel`
+// above. Only FilterMenu options use this format; table cells stay on
+// `bandLabel` (see the dedicated "bandLabel unchanged" describe below).
 describe("bandRangeLabel (workspace fixups T1)", () => {
-  it("labels each band and the overflow bucket in mi", () => {
-    const bands = [200, 400, 800];
-    expect(bandRangeLabel(150, bands, "mi")).toBe("≤ 200 mi");
-    expect(bandRangeLabel(250, bands, "mi")).toBe("200–400 mi");
-    expect(bandRangeLabel(700, bands, "mi")).toBe("400–800 mi");
-    expect(bandRangeLabel(801, bands, "mi")).toBe("> 800 mi");
+  it("labels band 1 starting at 0", () => {
+    const bands = [250, 500, 750, 1000];
+    expect(bandRangeLabel(150, bands, "mi")).toBe("Band 1: 0 mi - 250 mi");
+    expect(bandRangeLabel(250, bands, "mi")).toBe("Band 1: 0 mi - 250 mi");
   });
 
-  it("labels each band and the overflow bucket in km", () => {
+  it("labels a middle band with the previous and current boundary", () => {
+    const bands = [250, 500, 750, 1000];
+    expect(bandRangeLabel(400, bands, "mi")).toBe("Band 2: 250 mi - 500 mi");
+    expect(bandRangeLabel(700, bands, "mi")).toBe("Band 3: 500 mi - 750 mi");
+    expect(bandRangeLabel(900, bands, "mi")).toBe("Band 4: 750 mi - 1000 mi");
+  });
+
+  it("labels overflow with the next band number and '> <last>'", () => {
+    const bands = [250, 500, 750, 1000];
+    expect(bandRangeLabel(1200, bands, "mi")).toBe("Band 5: > 1000 mi");
+  });
+
+  it("is unit-aware (km)", () => {
     const bands = [200, 400, 800];
-    expect(bandRangeLabel(150, bands, "km")).toBe("≤ 200 km");
-    expect(bandRangeLabel(250, bands, "km")).toBe("200–400 km");
-    expect(bandRangeLabel(700, bands, "km")).toBe("400–800 km");
-    expect(bandRangeLabel(801, bands, "km")).toBe("> 800 km");
+    expect(bandRangeLabel(150, bands, "km")).toBe("Band 1: 0 km - 200 km");
+    expect(bandRangeLabel(300, bands, "km")).toBe("Band 2: 200 km - 400 km");
+    expect(bandRangeLabel(801, bands, "km")).toBe("Band 4: > 800 km");
   });
 
   it("treats a distance exactly on a boundary as within that (upper-inclusive) band — matches assignBandOrOverflow's <= semantics", () => {
     const bands = [200, 400, 800];
-    expect(bandRangeLabel(200, bands, "mi")).toBe("≤ 200 mi");
-    expect(bandRangeLabel(400, bands, "mi")).toBe("200–400 mi");
-    expect(bandRangeLabel(800, bands, "mi")).toBe("400–800 mi");
+    expect(bandRangeLabel(200, bands, "mi")).toBe("Band 1: 0 mi - 200 mi");
+    expect(bandRangeLabel(400, bands, "mi")).toBe("Band 2: 200 mi - 400 mi");
+    expect(bandRangeLabel(800, bands, "mi")).toBe("Band 3: 400 mi - 800 mi");
   });
 
   it("sorts unsorted band input before classifying and labeling", () => {
@@ -292,11 +303,26 @@ describe("bandRangeLabel (workspace fixups T1)", () => {
     for (const distance of [100, 250, 400, 750, 1000, 1500]) {
       expect(bandRangeLabel(distance, unsorted, "mi")).toBe(bandRangeLabel(distance, sorted, "mi"));
     }
-    expect(bandRangeLabel(400, unsorted, "mi")).toBe("250–500 mi");
+    expect(bandRangeLabel(400, unsorted, "mi")).toBe("Band 2: 250 mi - 500 mi");
   });
 
   it("returns 'All distances' for empty bands", () => {
     expect(bandRangeLabel(100, [], "mi")).toBe("All distances");
     expect(bandRangeLabel(100, [], "km")).toBe("All distances");
+  });
+});
+
+// Workspace fixups bundle 2 (T1) — bandRangeLabel's format change must not
+// touch bandLabel: table cells stay the plain "Band N" / "Overflow" index,
+// only the FilterMenu's bandRangeLabel gains the range text.
+describe("bandLabel unchanged by the bandRangeLabel format change (workspace fixups T1)", () => {
+  it("still returns plain 'Band N' for an in-range distance", () => {
+    expect(bandLabel(150, [200, 400, 800])).toBe("Band 1");
+    expect(bandLabel(250, [200, 400, 800])).toBe("Band 2");
+    expect(bandLabel(700, [200, 400, 800])).toBe("Band 3");
+  });
+
+  it("still returns plain 'Overflow' for an out-of-range distance", () => {
+    expect(bandLabel(801, [200, 400, 800])).toBe("Overflow");
   });
 });

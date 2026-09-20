@@ -119,11 +119,6 @@ const OPTIMIZATION_PARAMETERS: TabCoverageEntry = {
   tabTestId: "optimization-parameters-tab",
 };
 const INPUT_MAP: TabCoverageEntry = { sidebarId: "input-map", tabTestId: "input-map-tab" };
-// jade-INT (Workspace fixups bundle, item 4) — every model's
-// `inputEntriesForModel` now appends an "Added Entities" entry (last, before
-// Optimization Parameters); its content root is `AddedEntitiesTab.tsx`'s own
-// `data-testid="added-entities-tab"`.
-const ADDED_ENTITIES: TabCoverageEntry = { sidebarId: "added-entities", tabTestId: "added-entities-tab" };
 const OUTPUT_MAP: TabCoverageEntry = { sidebarId: "output-map", tabTestId: "output-map-tab" };
 
 // The 4 output-grid tabs have no single wrapping div with a stable testid of
@@ -224,7 +219,6 @@ describe("Workspace tab coverage — p-median-us", () => {
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "distances", tabTestId: "distances-tab" },
-        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -318,7 +312,6 @@ describe("Workspace tab coverage — transport-coal", () => {
         { sidebarId: "mines", tabTestId: "mines-tab" },
         { sidebarId: "stations", tabTestId: "stations-tab" },
         { sidebarId: "laneCosts", tabTestId: "lanecosts-tab" },
-        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -413,7 +406,6 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
         { sidebarId: "refineries", tabTestId: "refineries-tab" },
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "distances", tabTestId: "legdistances-tab" },
-        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -526,7 +518,6 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "distances", tabTestId: "jade-distances-tab" },
-        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -555,9 +546,9 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
 // Deliberately excluded from the original A5.2 sweep (no per-row dataset
 // endpoint at the time — see this file's own header comment), but T5
 // (Bundle 2) later gave it a real GET /dataset endpoint + full grid tabs, so
-// its own Added Entities coverage belongs here now rather than being folded
-// into the p-median-us case above (Codex round-2 review — "both must
-// execute", not just the combined label as evidence).
+// its own coverage belongs here now rather than being folded into the
+// p-median-us case above (Codex round-2 review — "both must execute", not
+// just the combined label as evidence).
 describe("Workspace tab coverage — p-median-brazil", () => {
   const brazilInputs = {
     p: 7,
@@ -621,7 +612,7 @@ describe("Workspace tab coverage — p-median-brazil", () => {
     } as unknown as ReturnType<typeof useListModels>);
   });
 
-  it("every Inputs entry (incl. Input Map, Added Entities) and every allowed Outputs entry opens its real content, not a placeholder", () => {
+  it("every Inputs entry (incl. Input Map) and every allowed Outputs entry opens its real content, not a placeholder", () => {
     render(<Workspace modelId="p-median-brazil" userEmail="student@example.com" />);
 
     runTabCoverage(
@@ -630,7 +621,6 @@ describe("Workspace tab coverage — p-median-brazil", () => {
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "distances", tabTestId: "distances-tab" },
-        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [
@@ -646,8 +636,7 @@ describe("Workspace tab coverage — p-median-brazil", () => {
 
 // ── chens-cosmetics-cn (jade-INT, Workspace fixups bundle item 4) ─────────
 // Chapter 4 (Chen's Cosmetics) — reuses p-median-us's "pmedian" Input Map
-// mode and WarehousesTab/CustomersTab (C4.13), so its Added Entities
-// sub-tab set is the same {Warehouses, Customers}. Absent from the original
+// mode and WarehousesTab/CustomersTab (C4.13). Absent from the original
 // sweep entirely (added after C4.13) — new coverage, not a modification.
 describe("Workspace tab coverage — chens-cosmetics-cn", () => {
   const chensInputs = {
@@ -719,7 +708,7 @@ describe("Workspace tab coverage — chens-cosmetics-cn", () => {
     } as unknown as ReturnType<typeof useListModels>);
   });
 
-  it("every Inputs entry (incl. Input Map, Added Entities) and every allowed Outputs entry opens its real content, not a placeholder", () => {
+  it("every Inputs entry (incl. Input Map) and every allowed Outputs entry opens its real content, not a placeholder", () => {
     render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
 
     runTabCoverage(
@@ -728,7 +717,6 @@ describe("Workspace tab coverage — chens-cosmetics-cn", () => {
         { sidebarId: "customers", tabTestId: "customers-tab" },
         { sidebarId: "warehouses", tabTestId: "warehouses-tab" },
         { sidebarId: "distances", tabTestId: "distances-tab" },
-        ADDED_ENTITIES,
         OPTIMIZATION_PARAMETERS,
       ],
       [

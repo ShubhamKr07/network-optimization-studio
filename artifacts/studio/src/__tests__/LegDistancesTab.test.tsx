@@ -446,3 +446,75 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
   });
 });
+
+// T11 (workspace-fixups-2, item 2/Codex P1) — `identityById` compatibility
+// resolver + the `>10` UPGRADE rule. This table previously had NO location
+// source at all (bare `displayCodeById?.[id] ?? id`), unlike DistancesTab's
+// Chen path or JadeDistancesTab's always-rich path.
+describe("LegDistancesTab — T11 identityById upgrade (item 2)", () => {
+  function buildRows(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      fromId: `kalgoorlie`,
+      toId: `refinery-${i + 1}`,
+      distance: 100 + i,
+    }));
+  }
+
+  it("no-regression: with identityById UNSET, an 11-row table (past the >10 threshold) stays bare-id, byte-unchanged", () => {
+    const rows = buildRows(11);
+    render(
+      <LegDistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        mineIds={mineIds}
+        refineryIds={rows.map(r => r.toId)}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("row-legdistance-kalgoorlie-refinery-1");
+    expect(row).toHaveTextContent("kalgoorlie");
+    expect(row).toHaveTextContent("refinery-1");
+  });
+
+  it("upgrades to the stacked City/State + mono display-id cell once the unfiltered row count exceeds 10 AND identityById is provided", () => {
+    const rows = buildRows(11);
+    render(
+      <LegDistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        mineIds={mineIds}
+        refineryIds={rows.map(r => r.toId)}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        identityById={{
+          kalgoorlie: { city: "Kalgoorlie", state: "WA", displayId: "MINE-1" },
+          "refinery-1": { city: "Toowoomba", state: "QLD", displayId: "RF-A" },
+        }}
+      />,
+    );
+    const row = screen.getByTestId("row-legdistance-kalgoorlie-refinery-1");
+    expect(row).toHaveTextContent("Kalgoorlie, WA");
+    expect(row).toHaveTextContent("MINE-1");
+    expect(row).toHaveTextContent("Toowoomba, QLD");
+    expect(row).toHaveTextContent("RF-A");
+  });
+
+  it("does NOT upgrade at 10 rows or fewer, even with identityById present", () => {
+    const rows = buildRows(10);
+    render(
+      <LegDistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        mineIds={mineIds}
+        refineryIds={rows.map(r => r.toId)}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        identityById={{ kalgoorlie: { city: "Kalgoorlie", state: "WA", displayId: "MINE-1" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-legdistance-kalgoorlie-refinery-1");
+    expect(row).not.toHaveTextContent("Kalgoorlie, WA");
+    expect(row).toHaveTextContent("MINE-1");
+  });
+});

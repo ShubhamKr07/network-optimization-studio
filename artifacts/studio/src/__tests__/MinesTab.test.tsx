@@ -240,82 +240,49 @@ describe("MinesTab — add/delete added mines (Task 30)", () => {
   });
 });
 
-// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
-// flags let the new Added Entities tab reuse the base tab's own add-row
-// UX without also rendering the base table/toolbar/import dialog, while the
-// base entity tab keeps everything except the added section.
-describe("MinesTab — showAddedSection / showBaseTable (T8)", () => {
+// CLEANUP (Workspace fixups 2, item 1) — the Added Entities tab (and its
+// the per-model add/base render flags are permanently gone; this tab always
+// renders its base table + toolbar TOGETHER WITH its inline "+ Add …"
+// add-section in the same tab (the permanent post-revert shape, spec §1).
+describe("MinesTab — base table + inline add-section always render together (item 1)", () => {
   const addedMinesProps = {
     addedMines: [],
     onAddedMinesChange: vi.fn(),
     onDeleteMine: vi.fn(),
   };
 
-  it("showBaseTable={false}: renders the added-only region + '+ Add mine' affordance, but no base table/toolbar/import trigger", () => {
+  it("renders the base table + toolbar AND the inline added section together, with no flag", () => {
     render(
       <MinesTab
         mines={mines}
         overrides={[]}
         onChange={vi.fn()}
         scenarioId={7}
-        showBaseTable={false}
         {...addedMinesProps}
       />,
     );
+    expect(screen.getByTestId("mines-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("mines-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-mines-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-import-mines")).toBeInTheDocument();
+    expect(screen.getByText("M1")).toBeInTheDocument();
     expect(screen.getByTestId("added-mines-section")).toBeInTheDocument();
     expect(screen.getByTestId("button-add-mine-row")).toBeInTheDocument();
-    expect(screen.queryByTestId("mines-tab")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("mines-tab-toolbar")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-export-mines-csv")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-import-mines")).not.toBeInTheDocument();
-    expect(screen.queryByText("M1")).not.toBeInTheDocument();
   });
 
-  it("showBaseTable={false}: clicking '+ Add mine' opens the add-row form", async () => {
+  it("clicking '+ Add mine' opens the add-row form alongside the still-visible base table", async () => {
     render(
       <MinesTab
         mines={mines}
         overrides={[]}
         onChange={vi.fn()}
-        showBaseTable={false}
         {...addedMinesProps}
       />,
     );
     expect(screen.queryByTestId("add-mine-row-form")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-mine-row"));
     expect(screen.getByTestId("add-mine-row-form")).toBeInTheDocument();
-  });
-
-  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
-    render(
-      <MinesTab
-        mines={mines}
-        overrides={[]}
-        onChange={vi.fn()}
-        scenarioId={7}
-        showAddedSection={false}
-        {...addedMinesProps}
-      />,
-    );
-    expect(screen.queryByTestId("added-mines-section")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-add-mine-row")).not.toBeInTheDocument();
     expect(screen.getByTestId("mines-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("mines-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByText("M1")).toBeInTheDocument();
-  });
-
-  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
-    render(
-      <MinesTab
-        mines={mines}
-        overrides={[]}
-        onChange={vi.fn()}
-        {...addedMinesProps}
-      />,
-    );
-    expect(screen.getByTestId("mines-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("mines-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("added-mines-section")).toBeInTheDocument();
     expect(screen.getByText("M1")).toBeInTheDocument();
   });
 });

@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatCityState } from "@/lib/formatLocation";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor, type FilterValue } from "@/lib/useTableFilters";
 
@@ -112,6 +113,15 @@ interface JadeDistancesTabProps {
    * warehouse_to_customer leg's toId (plants have no status concept at
    * all — jadeInputs.ts's own header comment). */
   excludedCustomerIds?: string[];
+  /** T11 (workspace-fixups-2, item 2) — canonical id -> {city, state,
+   * displayId}, built by Workspace.tsx's `buildEntityIdentityById(modelId,
+   * dataset, localInputs)` (the LIVE draft — this is an INPUT tab). This
+   * table is already-rich (JADE always passes `locationById`), so the
+   * compatibility resolver is unconditional (no `>10` gate needed): prefer
+   * `identityById`, else the existing `locationById`/`displayCodeById`
+   * sources, else the canonical id — leaving this prop unset is
+   * byte-unchanged. */
+  identityById?: Record<string, { city: string; state: string; displayId: string }>;
 }
 
 const LEG_LABEL: Record<JadeLeg, string> = {
@@ -192,6 +202,7 @@ export function JadeDistancesTab({
   referenceCapable,
   inactiveWarehouseIds,
   excludedCustomerIds,
+  identityById,
 }: JadeDistancesTabProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -240,10 +251,26 @@ export function JadeDistancesTab({
   );
 
   const displayValue = (id: string) => displayCodeById?.[id] ?? id;
+
+  // T11 (workspace-fixups-2, item 2) — compatibility resolver: prefer
+  // `identityById`, else the existing `locationById`/`displayCodeById`
+  // sources, else the canonical id. This table is already-rich (JADE always
+  // passes `locationById`), so no `>10` gate is needed here (unlike
+  // DistancesTab's p-median-us/brazil path, which previously had no
+  // location source at all).
+  function resolvedLocation(id: string): { city: string; state: string } | undefined {
+    const entry = identityById?.[id];
+    if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
+    return locationById?.[id];
+  }
+  function resolvedDisplayId(id: string): string {
+    return identityById?.[id]?.displayId ?? displayCodeById?.[id] ?? id;
+  }
+
   // "City, ST" primary label for From/To (base dataset ∪ added entities).
   // undefined when the id has no known location — caller falls back to the id.
   const locationLabel = (id: string) => {
-    const loc = locationById?.[id];
+    const loc = resolvedLocation(id);
     return loc ? formatCityState(loc.city, loc.state) : undefined;
   };
   // Combined text a From/To filter matches against: the "City, ST" label AND
@@ -648,38 +675,36 @@ export function JadeDistancesTab({
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                          <span>{locationLabel(r.fromId) ?? displayValue(r.fromId)}</span>
-                          {fromUnknown && (
-                            <span
-                              title="Unknown ID for this leg's From role"
-                              data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}
-                            >
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            </span>
-                          )}
-                        </div>
-                        {locationLabel(r.fromId) && (
-                          <span className="font-mono text-[10px] text-muted-foreground">{displayValue(r.fromId)}</span>
+                      <div className="flex items-center gap-1">
+                        <EntityIdCell
+                          entityId={r.fromId}
+                          displayId={resolvedDisplayId(r.fromId)}
+                          location={resolvedLocation(r.fromId)}
+                        />
+                        {fromUnknown && (
+                          <span
+                            title="Unknown ID for this leg's From role"
+                            data-testid={`warning-unknown-from-${r.leg}-${r.fromId}-${r.toId}`}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          </span>
                         )}
                       </div>
                     </TableCell>
                     <TableCell className="text-xs">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1">
-                          <span>{locationLabel(r.toId) ?? displayValue(r.toId)}</span>
-                          {toUnknown && (
-                            <span
-                              title="Unknown ID for this leg's To role"
-                              data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}
-                            >
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            </span>
-                          )}
-                        </div>
-                        {locationLabel(r.toId) && (
-                          <span className="font-mono text-[10px] text-muted-foreground">{displayValue(r.toId)}</span>
+                      <div className="flex items-center gap-1">
+                        <EntityIdCell
+                          entityId={r.toId}
+                          displayId={resolvedDisplayId(r.toId)}
+                          location={resolvedLocation(r.toId)}
+                        />
+                        {toUnknown && (
+                          <span
+                            title="Unknown ID for this leg's To role"
+                            data-testid={`warning-unknown-to-${r.leg}-${r.fromId}-${r.toId}`}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          </span>
                         )}
                       </div>
                     </TableCell>

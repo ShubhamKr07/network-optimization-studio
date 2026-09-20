@@ -374,22 +374,72 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       expect(cities).toHaveTextContent("wh-14");
     });
 
-    it("shows 'City, ST' with the id kept as a sub-label when locationById is passed (JADE-only)", () => {
+    // T11 (workspace-fixups-2, item 2, "CostSummary compare is per-scenario"
+    // — Codex round-3 P1, CRITICAL). `locationById`'s mere PRESENCE still
+    // selects the identity-chip layout (JADE-only, per Workspace.tsx's own
+    // gate) but its VALUES are no longer read — a real bug the old
+    // single-active-map design had: two compare columns can share an
+    // added-facility canonical id while storing DIFFERENT locations/display
+    // codes, and looking every column up through one shared map would show
+    // one column's data in another column's cell.
+    it("resolves the identity-chip layout's values from each column's OWN dataset/inputs, not from locationById's own values", () => {
       render(
         <CostSummaryTab
           result={j1.result}
           scenarioId={50}
           modelId="two-echelon-jade-us"
           scenarios={[j1, j2]}
-          locationById={{ "wh-11": { city: "Allentown", state: "PA" }, "wh-14": { city: "Denver", state: "CO" } }}
+          // Deliberately WRONG values — if the component still read this
+          // map's contents, the assertions below would see these instead.
+          locationById={{ "wh-11": { city: "WRONG-FROM-PROP", state: "XX" }, "wh-14": { city: "ALSO-WRONG", state: "XX" } }}
         />,
       );
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
       const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
-      expect(cities).toHaveTextContent("Allentown, PA");
+      // No dataset mocked for two-echelon-jade-us and j1's `inputs` carries
+      // no `addedWarehouses` for wh-11/wh-14 — the per-scenario identity has
+      // no entry for either, so both fall back to their raw ids, proving the
+      // WRONG values from the `locationById` prop were never used.
+      expect(cities).not.toHaveTextContent("WRONG-FROM-PROP");
+      expect(cities).not.toHaveTextContent("ALSO-WRONG");
       expect(cities).toHaveTextContent("wh-11");
-      expect(cities).toHaveTextContent("Denver, CO");
       expect(cities).toHaveTextContent("wh-14");
+    });
+
+    // The literal T11 DoD test: two compare columns sharing an
+    // added-facility CANONICAL id, each storing a DIFFERENT location/display
+    // code on that id (e.g. cloned scenarios later edited independently) —
+    // each column must show its OWN city/state/displayId, never the other
+    // column's.
+    it("two compare columns sharing an added-facility id show EACH column's own city/state/displayId", () => {
+      const jadeA = scenario({
+        id: 70, name: "JADE Added A", modelId: "two-echelon-jade-us",
+        inputs: { addedWarehouses: [{ id: "aw-shared", city: "Allentown", state: "PA", displayCode: "WH-A", status: "active" }] },
+        result: { ...result, metrics: { weightedAvgDistance: 500, openFacilityIds: ["aw-shared"] }, edges: [] },
+      });
+      const jadeB = scenario({
+        id: 71, name: "JADE Added B", modelId: "two-echelon-jade-us",
+        inputs: { addedWarehouses: [{ id: "aw-shared", city: "Denver", state: "CO", displayCode: "WH-B", status: "active" }] },
+        result: { ...result, metrics: { weightedAvgDistance: 520, openFacilityIds: ["aw-shared"] }, edges: [] },
+      });
+      render(
+        <CostSummaryTab
+          result={jadeA.result}
+          scenarioId={70}
+          modelId="two-echelon-jade-us"
+          scenarios={[jadeA, jadeB]}
+          locationById={{}}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-71").querySelector("input")!);
+      const colA = screen.getByTestId("cost-summary-compare-open-facilities-cities-70");
+      const colB = screen.getByTestId("cost-summary-compare-open-facilities-cities-71");
+      expect(colA).toHaveTextContent("Allentown, PA");
+      expect(colA).toHaveTextContent("WH-A");
+      expect(colA).not.toHaveTextContent("Denver");
+      expect(colB).toHaveTextContent("Denver, CO");
+      expect(colB).toHaveTextContent("WH-B");
+      expect(colB).not.toHaveTextContent("Allentown");
     });
 
     it("falls back to the pre-existing city-resolution rendering when locationById is absent (other-model default, no regression)", () => {

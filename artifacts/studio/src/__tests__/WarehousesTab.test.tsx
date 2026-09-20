@@ -87,8 +87,10 @@ describe("WarehousesTab", () => {
     expect(screen.queryAllByRole("spinbutton").length).toBe(0);
   });
 
-  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu, threaded
-  // through to the underlying WarehouseTable.
+  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu. T8
+  // (Workspace fixups 2, item 3) moved the actual `useTableFilters`/
+  // FilterMenu mount from WarehouseTable.tsx up into this tab's own toolbar
+  // row (see WarehouseTable.test.tsx's own note pointing here).
   describe("enableFilters (B6)", () => {
     const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
       id: `WH${i}`,
@@ -111,6 +113,48 @@ describe("WarehousesTab", () => {
     it("enableFilters=true with >10 rows: FilterMenu is shown", () => {
       render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
       expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    });
+
+    it("filtering by ID (text) narrows the rendered base-table rows", async () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
+      await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      await userEvent.type(screen.getByTestId("input-filter-id"), "WH1");
+      // "WH1" matches WH1, WH10, WH11 (substring match).
+      expect(screen.getByText("City1")).toBeInTheDocument();
+      expect(screen.getByText("City10")).toBeInTheDocument();
+      expect(screen.getByText("City11")).toBeInTheDocument();
+      expect(screen.queryByText("City2")).not.toBeInTheDocument();
+    });
+  });
+
+  // T8 (Workspace fixups 2, item 3) — the FilterMenu must sit on the SAME
+  // header row as the Import/Export toolbar (no orphaned second filter row
+  // above the table). Applies only to JADE-enabled tabs (enableFilters);
+  // non-JADE tabs render no FilterMenu at all — unchanged.
+  describe("FilterMenu placement (T8, item 3)", () => {
+    const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
+      id: `WH${i}`,
+      city: `City${i}`,
+      state: "IL",
+      lat: 41 + i * 0.01,
+      lng: -87 - i * 0.01,
+    }));
+
+    it("JADE-enabled tab: the FilterMenu trigger is inside the SAME toolbar row as the Import/Export buttons", () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
+      const toolbar = screen.getByTestId("warehouses-tab-toolbar");
+      // Import/Export buttons live in the toolbar...
+      expect(toolbar).toContainElement(screen.getByTestId("button-export-warehouses-csv"));
+      expect(toolbar).toContainElement(screen.getByTestId("button-import-warehouses"));
+      // ...and so does the FilterMenu trigger — one row, not a separate one.
+      expect(toolbar).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
+    });
+
+    it("non-JADE tab (enableFilters omitted): no FilterMenu anywhere, even with >10 rows", () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+      // The toolbar still renders (Import/Export unaffected).
+      expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
     });
   });
 });
@@ -643,18 +687,18 @@ describe("WarehousesTab — entity=refineries reuse (A5.3)", () => {
   });
 });
 
-// T8 (Workspace fixups bundle, item 4) — showAddedSection / showBaseTable
-// flags let the new Added Entities tab reuse the base tab's own add-row
-// UX without also rendering the base table/toolbar/import dialog, while the
-// base entity tab keeps everything except the added section.
-describe("WarehousesTab — showAddedSection / showBaseTable (T8)", () => {
+// CLEANUP (Workspace fixups 2, item 1) — the Added Entities tab (and its
+// the per-model add/base render flags are permanently gone; this tab always
+// renders its base table + toolbar TOGETHER WITH its inline "+ Add …"
+// add-section in the same tab (the permanent post-revert shape, spec §1).
+describe("WarehousesTab — base table + inline add-section always render together (item 1)", () => {
   const addedWarehousesProps = {
     addedWarehouses: [],
     onAddedWarehousesChange: vi.fn(),
     onDeleteWarehouse: vi.fn(),
   };
 
-  it("showBaseTable={false}: renders the added-only region + '+ Add warehouse' affordance, but no base table/toolbar/import trigger/filter", () => {
+  it("renders the base table + toolbar AND the inline added section together, with no flag", () => {
     render(
       <WarehousesTab
         warehouses={warehouses}
@@ -662,67 +706,32 @@ describe("WarehousesTab — showAddedSection / showBaseTable (T8)", () => {
         capacityMode="none"
         onChange={vi.fn()}
         scenarioId={7}
-        showBaseTable={false}
         {...addedWarehousesProps}
       />,
     );
+    expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
+    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("button-export-warehouses-csv")).toBeInTheDocument();
+    expect(screen.getByTestId("button-import-warehouses")).toBeInTheDocument();
+    expect(screen.getByText("CHI")).toBeInTheDocument();
     expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
     expect(screen.getByTestId("button-add-warehouse-row")).toBeInTheDocument();
-    expect(screen.queryByTestId("warehouses-tab")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("warehouses-tab-toolbar")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-export-warehouses-csv")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-import-warehouses")).not.toBeInTheDocument();
-    expect(screen.queryByText("CHI")).not.toBeInTheDocument();
   });
 
-  it("showBaseTable={false}: clicking '+ Add warehouse' opens the add-row form", async () => {
+  it("clicking '+ Add warehouse' opens the add-row form alongside the still-visible base table", async () => {
     render(
       <WarehousesTab
         warehouses={warehouses}
         overrides={[]}
         capacityMode="none"
         onChange={vi.fn()}
-        showBaseTable={false}
         {...addedWarehousesProps}
       />,
     );
     expect(screen.queryByTestId("add-warehouse-row-form")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("button-add-warehouse-row"));
     expect(screen.getByTestId("add-warehouse-row-form")).toBeInTheDocument();
-  });
-
-  it("showAddedSection={false}: no add affordance/form/added table, but the base table + toolbar remain", () => {
-    render(
-      <WarehousesTab
-        warehouses={warehouses}
-        overrides={[]}
-        capacityMode="none"
-        onChange={vi.fn()}
-        scenarioId={7}
-        showAddedSection={false}
-        {...addedWarehousesProps}
-      />,
-    );
-    expect(screen.queryByTestId("added-warehouses-section")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("button-add-warehouse-row")).not.toBeInTheDocument();
     expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByText("CHI")).toBeInTheDocument();
-  });
-
-  it("defaults (both true): render is unchanged — base table, toolbar, and added section all present", () => {
-    render(
-      <WarehousesTab
-        warehouses={warehouses}
-        overrides={[]}
-        capacityMode="none"
-        onChange={vi.fn()}
-        {...addedWarehousesProps}
-      />,
-    );
-    expect(screen.getByTestId("warehouses-tab")).toBeInTheDocument();
-    expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
-    expect(screen.getByTestId("added-warehouses-section")).toBeInTheDocument();
     expect(screen.getByText("CHI")).toBeInTheDocument();
   });
 });

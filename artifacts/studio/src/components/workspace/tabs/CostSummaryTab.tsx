@@ -3,6 +3,7 @@ import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-cli
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatChenObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
+import { buildEntityIdentityById } from "@/lib/entityIdentity";
 
 interface CostSummaryTabProps {
   result: SolveResult | null;
@@ -29,11 +30,23 @@ interface CostSummaryTabProps {
   // toggle list is disabled (not hidden) with a hint whenever this is true.
   isBrowsingHistory?: boolean;
   /** JADE-only — id -> {city, state}, built by Workspace.tsx's
-   * `jadeLocationMapFromInputs`. When present, the compare mode's
-   * "Open facilities" row shows each facility as "City, ST" with the raw id
-   * as a mono sub-label (mirrors JadeDistancesTab.tsx), instead of the
-   * existing comma-joined `facilityCityLabel` string. Absent (undefined,
-   * back-compat default) -> unchanged rendering for every other model. */
+   * `jadeLocationMapFromInputs`. When present (truthy, even `{}`), the
+   * compare mode's "Open facilities" row switches into the per-id chip
+   * layout with a mono id sub-label (mirrors JadeDistancesTab.tsx), instead
+   * of the plain comma-joined `facilityCityLabel` string every other model
+   * uses. Absent (undefined, back-compat default) -> unchanged rendering.
+   *
+   * T11 (workspace-fixups-2, item 2, "CostSummary compare is per-scenario" —
+   * Codex round-3 P1, CRITICAL): this prop's VALUES are no longer read for
+   * lookups — only its truthy/falsy PRESENCE still selects the rendering
+   * layout (the gate itself still lives in Workspace.tsx, per that call
+   * site's own "the gate lives HERE, never inside the shared components"
+   * comment). Each compare COLUMN instead resolves its own city/state/
+   * displayId from ITS OWN `s.inputs` via `buildEntityIdentityById` below —
+   * two compare columns can share an added-facility canonical id (e.g.
+   * cloned scenarios) while storing DIFFERENT locations/display codes on
+   * that id, and the single active-scenario map this prop used to carry
+   * would show one column's data in another column's cell. */
   locationById?: Record<string, { city: string; state: string }>;
 }
 
@@ -362,26 +375,36 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             {supportsFacilityStatus && (
               <tr>
                 <td className="p-2 text-muted-foreground">Open facilities</td>
-                {compareScenarios.map(s => (
-                  <td key={s.id} className="p-2" data-testid={`cost-summary-compare-open-facilities-cities-${s.id}`}>
-                    {locationById ? (
-                      <div className="flex flex-wrap gap-x-3 gap-y-1">
-                        {[...openFacilityIds(s.result!)].sort().map(id => {
-                          const loc = locationById[id];
-                          return (
-                            <span key={id} className="flex flex-col">
-                              <span>{loc ? `${loc.city}, ${loc.state}` : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs))}</span>
-                              <span className="font-mono text-[10px] text-muted-foreground">{id}</span>
-                            </span>
-                          );
-                        })}
-                        {openFacilityIds(s.result!).size === 0 && "—"}
-                      </div>
-                    ) : (
-                      openFacilityCityList(s.result!, s.inputs, baseFacilities)
-                    )}
-                  </td>
-                ))}
+                {compareScenarios.map(s => {
+                  // T11 (critical fix) — PER-SCENARIO identity, resolved from
+                  // THIS column's own `s.inputs`, never a single map shared
+                  // across every column. `locationById`'s mere presence still
+                  // selects which of the two layouts to render (Workspace.tsx's
+                  // existing JADE-only gate) — its VALUES are ignored.
+                  const identity = locationById ? buildEntityIdentityById(modelId, dataset, s.inputs) : null;
+                  return (
+                    <td key={s.id} className="p-2" data-testid={`cost-summary-compare-open-facilities-cities-${s.id}`}>
+                      {identity ? (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {[...openFacilityIds(s.result!)].sort().map(id => {
+                            const entry = identity[id];
+                            const loc = entry && (entry.city || entry.state) ? { city: entry.city, state: entry.state } : undefined;
+                            const displayId = entry?.displayId ?? id;
+                            return (
+                              <span key={id} className="flex flex-col" data-testid={`cost-summary-compare-open-facility-${s.id}-${id}`}>
+                                <span>{loc ? `${loc.city}, ${loc.state}` : facilityCityLabel(id, baseFacilities, extractAddedFacilities(s.inputs))}</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">{displayId}</span>
+                              </span>
+                            );
+                          })}
+                          {openFacilityIds(s.result!).size === 0 && "—"}
+                        </div>
+                      ) : (
+                        openFacilityCityList(s.result!, s.inputs, baseFacilities)
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             )}
             <tr>

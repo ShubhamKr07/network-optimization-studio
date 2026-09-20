@@ -80,6 +80,240 @@ describe("NetworkMap customer/station hover tooltip", () => {
   });
 });
 
+// ── T5 (workspace-fixups-2, item 4) — `<Type> · <DisplayId> · City, State` ──
+describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 4)", () => {
+  it("a plain warehouse (no kind, no modelId) shows 'Warehouse · <id> · City, State'", () => {
+    tooltipChildren.length = 0;
+    render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+  });
+
+  it("a plain customer (no modelId) shows 'Customer · <id> · City, State'", () => {
+    tooltipChildren.length = 0;
+    render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Sampleburg"))).toContain("Customer · C1 · Sampleburg, SB");
+  });
+
+  it("a warehouse tagged kind:'mine' shows 'Mine · <id> · City, State' regardless of modelId", () => {
+    tooltipChildren.length = 0;
+    const mineDataset = {
+      warehouses: [{ id: "M1", city: "Kalgoorlie", state: "WA", lat: -30.75, lng: 121.47, kind: "mine" as const }],
+      customers: [],
+    };
+    render(
+      <NetworkMap
+        dataset={mineDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        modelId="two-echelon-gold-au"
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Kalgoorlie"))).toContain("Mine · M1 · Kalgoorlie, WA");
+  });
+
+  it("a two-echelon-gold-au facility (kind:'facility', not the mine) shows 'Refinery · <id> · City, State' given modelId", () => {
+    tooltipChildren.length = 0;
+    const goldDataset = {
+      warehouses: [{ id: "cunnamulla", city: "Cunnamulla", state: "QLD", lat: -28.07, lng: 145.68, kind: "facility" as const }],
+      customers: [],
+    };
+    render(
+      <NetworkMap
+        dataset={goldDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        modelId="two-echelon-gold-au"
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Cunnamulla"))).toContain("Refinery · cunnamulla · Cunnamulla, QLD");
+  });
+
+  it("a transport-coal warehouse-role marker shows 'Mine · <id> · City, State' (matching the model's own vocabulary — its Warehouses tab is titled 'Mines'), and its customer-role marker still shows 'Station · <id> · City, State', given modelId", () => {
+    tooltipChildren.length = 0;
+    const transportDataset = {
+      warehouses: [{ id: "KY", city: "Pikeville", state: "KY", lat: 37.54, lng: -82.75 }],
+      customers: [{ id: "S1", city: "Pittsburgh", state: "PA", lat: 40.44, lng: -79.99, demand: 800 }],
+    };
+    render(
+      <NetworkMap
+        dataset={transportDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        modelId="transport-coal"
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Pikeville"))).toContain("Mine · KY · Pikeville, KY");
+    expect(texts.find((t) => t.includes("Pittsburgh"))).toContain("Station · S1 · Pittsburgh, PA");
+  });
+
+  it("a plant marker shows 'Plant · <id> · City, State'", () => {
+    tooltipChildren.length = 0;
+    const plantOnlyDataset = { warehouses: [], customers: [] };
+    render(
+      <NetworkMap
+        dataset={plantOnlyDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        plants={[{ id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 }]}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Springfield"))).toContain("Plant · plant-1 · Springfield, IL");
+  });
+
+  it("displayIdById resolves a marker's DisplayId (e.g. an added entity's display code, not its canonical uid)", () => {
+    tooltipChildren.length = 0;
+    const addedDataset = {
+      warehouses: [{ id: "aw-uuid-1", city: "Testville", state: "TS", lat: 40, lng: -90 }],
+      customers: [{ id: "ac-uuid-1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 }],
+    };
+    render(
+      <NetworkMap
+        dataset={addedDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        displayIdById={{ "aw-uuid-1": "WH-TS-TES-01", "ac-uuid-1": "CS-SB-SAM-01" }}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · WH-TS-TES-01 · Testville, TS");
+    expect(texts.find((t) => t.includes("Sampleburg"))).toContain("Customer · CS-SB-SAM-01 · Sampleburg, SB");
+    expect(texts.join("")).not.toContain("aw-uuid-1");
+    expect(texts.join("")).not.toContain("ac-uuid-1");
+  });
+
+  it("falls back to the canonical id when displayIdById has no entry for it (default {})", () => {
+    tooltipChildren.length = 0;
+    render(
+      <NetworkMap
+        dataset={dataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Testville"))).toContain("Warehouse · W1 · Testville, TS");
+  });
+
+  it("formats a missing state without a trailing comma (formatCityState) for both warehouse and customer markers", () => {
+    tooltipChildren.length = 0;
+    const noStateDataset = {
+      warehouses: [{ id: "W1", city: "Chengdu", state: "", lat: 30.67, lng: 104.07 }],
+      customers: [{ id: "C1", city: "Changchun", state: "", lat: 43.87, lng: 125.35, demand: 100 }],
+    };
+    render(
+      <NetworkMap
+        dataset={noStateDataset}
+        warehouseStatuses={[]}
+        result={null}
+        showRoutes={false}
+        bands={[]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+      />,
+    );
+    const texts = tooltipChildren.map((child) => {
+      const { container } = render(<>{child}</>);
+      return container.textContent ?? "";
+    });
+    expect(texts.find((t) => t.includes("Chengdu"))).toContain("Warehouse · W1 · Chengdu");
+    expect(texts.find((t) => t.includes("Chengdu"))).not.toContain("Chengdu,");
+    expect(texts.find((t) => t.includes("Changchun"))).toContain("Customer · C1 · Changchun");
+    expect(texts.find((t) => t.includes("Changchun"))).not.toContain("Changchun,");
+  });
+});
+
 describe("NetworkMap multi-select", () => {
   it("calls onToggleWarehouseMultiSelect on shift-click without triggering the single-select filter", () => {
     const onToggleWarehouseMultiSelect = vi.fn();
@@ -228,9 +462,11 @@ describe("NetworkMap warehouse icon shape by kind", () => {
     // never in openWarehouseIds, so it never rendered one at all).
     expect(tooltipChildren.length).toBe(tooltipCountBefore + 1);
     const { container: tooltipContainer } = render(<>{tooltipChildren[tooltipChildren.length - 1]}</>);
-    expect(tooltipContainer.textContent).toContain("M1");
-    expect(tooltipContainer.textContent).toContain("Kalgoorlie, WA");
-    expect(tooltipContainer.textContent).toContain("(mine)");
+    // T5 (workspace-fixups-2, item 4) — `<Type> · <displayId> · City, State`.
+    // The old bare "(mine)" suffix is retired: the "Mine" type label now
+    // carries that information, so it's asserted via the Type prefix
+    // instead, not a trailing "(mine)".
+    expect(tooltipContainer.textContent).toContain("Mine · M1 · Kalgoorlie, WA");
   });
 
   it("does NOT show a 'Mine (fixed)' legend entry for models with no mine", () => {

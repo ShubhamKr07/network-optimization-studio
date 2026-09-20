@@ -78,9 +78,23 @@ describe("SolveDialog — R5 distance-band editor", () => {
   });
 
   it("disables the add/remove band controls while busy (saving/solving)", () => {
-    renderDialog({ distanceBands: [200], phase: "solving" });
+    renderDialog({ distanceBands: [200, 400], phase: "solving" });
     expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeDisabled();
     expect(screen.getByTestId("solve-dialog-button-remove-band-200")).toBeDisabled();
+  });
+
+  // item 7 (Codex plan-review P1) — the zero-band guard is shared across
+  // every free-chip model (schema is `.min(1)`), not JADE-specific: disable
+  // the LAST remaining band's × control so the array can never reach [].
+  it("disables the remove control on the last remaining band (zero-band guard, item 7)", () => {
+    renderDialog({ distanceBands: [500] });
+    expect(screen.getByTestId("solve-dialog-button-remove-band-500")).toBeDisabled();
+  });
+
+  it("does not disable a remove control when more than one band remains", () => {
+    renderDialog({ distanceBands: [200, 500] });
+    expect(screen.getByTestId("solve-dialog-button-remove-band-200")).toBeEnabled();
+    expect(screen.getByTestId("solve-dialog-button-remove-band-500")).toBeEnabled();
   });
 });
 
@@ -183,63 +197,36 @@ describe("SolveDialog — Chen objective mode toggle", () => {
   });
 });
 
-// jade B9 — SolveDialog renders JadeBandEditor (fixed-4-slot, fully
-// validated) only for modelId==="two-echelon-jade-us"; every other modelId
-// (including undefined) keeps the existing chip editor unchanged. Mirrors
-// OptimizationParametersTab's (B8) own modelId-gated wiring test exactly.
-describe("SolveDialog — JADE band editor wiring (B9)", () => {
-  it("renders the chip editor (not JadeBandEditor) when modelId is undefined", () => {
-    renderDialog({ distanceBands: [200, 400, 800] });
-    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
-    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
-  });
-
-  it("renders the chip editor (not JadeBandEditor) for a non-JADE modelId", () => {
-    renderDialog({ modelId: "p-median-us", distanceBands: [200, 400, 800] });
-    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
-    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
-  });
-
-  it("renders JadeBandEditor (not the chip editor) for modelId two-echelon-jade-us", () => {
+// jade-INT (workspace-fixups-2, item 7) — SolveDialog used to render a
+// separate fixed-4-slot JadeBandEditor for modelId==="two-echelon-jade-us";
+// that editor is deleted and JADE now renders the SAME shared free chip
+// editor as every other model (its schema was relaxed to `.min(1)`,
+// matching p-median/transport/gold-au).
+describe("SolveDialog — JADE uses the shared chip editor (item 7)", () => {
+  it("renders the shared chip editor (not JadeBandEditor) for modelId two-echelon-jade-us", () => {
     renderDialog({ modelId: "two-echelon-jade-us", distanceBands: [200, 500, 800, 1600] });
-    expect(screen.getByTestId("jade-band-editor")).toBeInTheDocument();
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-band-200")).toBeInTheDocument();
   });
 
-  it("JadeBandEditor edits flow through the dialog's generic onChange('distanceBands', ...)", () => {
+  it("adding a 5th band for JADE calls the dialog's generic onChange('distanceBands', ...) sorted", () => {
     const { onChange } = renderDialog({
       modelId: "two-echelon-jade-us",
       distanceBands: [200, 500, 800, 1600],
     });
-    fireEvent.change(screen.getByTestId("jade-band-slot-1"), { target: { value: "600" } });
-    expect(onChange).toHaveBeenCalledWith("distanceBands", [200, 600, 800, 1600]);
+    fireEvent.click(screen.getByTestId("solve-dialog-button-bands-plus"));
+    fireEvent.change(screen.getByTestId("solve-dialog-input-new-band"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("solve-dialog-button-add-band-confirm"));
+    expect(onChange).toHaveBeenCalledWith("distanceBands", [200, 500, 800, 1600, 2000]);
   });
 
-  it("an invalid JADE band edit does not call onChange, and surfaces onDistanceBandsValidityChange(false)", () => {
-    const onDistanceBandsValidityChange = vi.fn();
-    const { onChange } = renderDialog({
-      modelId: "two-echelon-jade-us",
-      distanceBands: [200, 500, 800, 1600],
-      onDistanceBandsValidityChange,
-    });
-    onChange.mockClear();
-    fireEvent.change(screen.getByTestId("jade-band-slot-0"), { target: { value: "0" } });
-    expect(onChange).not.toHaveBeenCalled();
-    expect(onDistanceBandsValidityChange).toHaveBeenLastCalledWith(false);
-    expect(screen.getByTestId("jade-band-error")).toBeInTheDocument();
+  it("disables the last remaining band's × control for JADE (zero-band guard, item 7)", () => {
+    renderDialog({ modelId: "two-echelon-jade-us", distanceBands: [500] });
+    expect(screen.getByTestId("solve-dialog-button-remove-band-500")).toBeDisabled();
   });
 
-  it("a valid JADE band set surfaces onDistanceBandsValidityChange(true)", () => {
-    const onDistanceBandsValidityChange = vi.fn();
-    renderDialog({
-      modelId: "two-echelon-jade-us",
-      distanceBands: [200, 500, 800, 1600],
-      onDistanceBandsValidityChange,
-    });
-    expect(onDistanceBandsValidityChange).toHaveBeenLastCalledWith(true);
-  });
-
-  it("hides JadeBandEditor entirely when showBandEditor=false, even for JADE", () => {
+  it("hides the chip editor entirely when showBandEditor=false, even for JADE", () => {
     renderDialog({
       modelId: "two-echelon-jade-us",
       distanceBands: [200, 500, 800, 1600],

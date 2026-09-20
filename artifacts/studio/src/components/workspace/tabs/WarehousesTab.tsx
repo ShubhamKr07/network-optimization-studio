@@ -14,6 +14,9 @@ import {
 } from "@/lib/precheckDisplay";
 import { lookupCity } from "@/lib/gazetteer";
 import { newUid, nextDisplayCode } from "@/lib/entityId";
+import { FilterMenu } from "@/components/tables/FilterMenu";
+import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { warehouseStatusPresentation } from "@/components/workspace/map/statusPresentation";
 
 // B5.2 — matches `addedWarehouseSchema` in
 // artifacts/api-server/src/validation/inputs/pMedian.ts exactly (server-side
@@ -90,19 +93,6 @@ interface WarehousesTabProps {
    * (wired by INT). Threaded straight through to `WarehouseTable`, which
    * owns the actual runtime `>10 rendered rows` visibility rule. */
   enableFilters?: boolean;
-  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
-   * add-row form + added-rows table + precheck chips + delete (the
-   * `addedSection` below). Used by the base entity tab call site
-   * (`showAddedSection={false}`), which keeps only the base table + its
-   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
-  showAddedSection?: boolean;
-  /** T8 — when `false`, hides the base `<Table>`/`WarehouseTable`, its
-   * count/filter, its empty state, the CSV Upload/Download toolbar, AND the
-   * import dialog — leaving ONLY the add-row form + added-rows table +
-   * precheck chips + delete. Used by the new Added Entities tab
-   * (`showBaseTable={false}`). Defaults `true` — every pre-T8 caller is
-   * byte-identical. */
-  showBaseTable?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -132,8 +122,6 @@ export function WarehousesTab({
   precheckErrors = [],
   hasStateColumn = true,
   enableFilters = false,
-  showAddedSection = true,
-  showBaseTable = true,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const candidates = warehouses.filter(w => w.kind !== "mine");
@@ -261,6 +249,38 @@ export function WarehousesTab({
     resetAddForm();
   }
 
+  // T8 (Workspace fixups 2, item 3) — filtering for the base table lifted up
+  // from WarehouseTable.tsx into this tab, mirroring CustomersTab.tsx's own
+  // (already-correct) split: this tab owns `useTableFilters`/descriptors and
+  // mounts the FilterMenu on its own toolbar row (Import/Export left, Filter
+  // right) instead of WarehouseTable rendering an orphaned filter row above
+  // itself. `status` is derived the same way WarehouseTable's row body
+  // already looks it up (`getOverride(id)?.status ?? "active"`). Called
+  // unconditionally (Rules of Hooks); with no FilterMenu ever mounted when
+  // `enableFilters` is false, `filterState` can never become non-empty, so
+  // `filteredRows` stays byte-identical to `candidates` — every non-JADE
+  // caller sees zero behavior change.
+  const warehouseFilterDescriptors: ColumnFilterDescriptor<WarehouseCandidate & { status: WarehouseOverride["status"] }>[] = [
+    { key: "id", label: "ID", type: "text", accessor: w => w.id },
+    { key: "city", label: "City", type: "text", accessor: w => w.city },
+  ];
+  if (hasStateColumn) {
+    warehouseFilterDescriptors.push({ key: "state", label: "State", type: "select", accessor: w => (w.state ? w.state : undefined) });
+  }
+  warehouseFilterDescriptors.push({
+    key: "status",
+    label: "Status",
+    type: "select",
+    accessor: w => warehouseStatusPresentation[w.status].label,
+  });
+  const filterableCandidates = candidates.map(w => ({
+    ...w,
+    status: overrides.find(o => o.id === w.id)?.status ?? "active" as WarehouseOverride["status"],
+  }));
+  const warehouseTableFilters = useTableFilters(filterableCandidates, warehouseFilterDescriptors);
+  const displayedCandidates = enableFilters ? warehouseTableFilters.filteredRows : filterableCandidates;
+  const showWarehouseFilterMenu = enableFilters && candidates.length > 10;
+
   const toolbar = (
     <div className="flex items-center gap-1.5 mb-2" data-testid={`${entity}-tab-toolbar`}>
       <Button
@@ -293,6 +313,11 @@ export function WarehousesTab({
       >
         <Upload className="w-3.5 h-3.5 mr-1" /> Upload
       </Button>
+      {showWarehouseFilterMenu && (
+        <div className="ml-auto">
+          <FilterMenu descriptors={warehouseFilterDescriptors} tableFilters={warehouseTableFilters} />
+        </div>
+      )}
     </div>
   );
 
@@ -507,13 +532,6 @@ export function WarehousesTab({
     </div>
   );
 
-  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
-  // form/table/chips/delete: no base table, no count/filter, no empty
-  // state, no CSV toolbar, no import dialog.
-  if (!showBaseTable) {
-    return <div>{showAddedSection && addedSection}</div>;
-  }
-
   if (candidates.length === 0) {
     return (
       <div>
@@ -521,7 +539,7 @@ export function WarehousesTab({
         <p className="text-sm text-muted-foreground" data-testid={`${entity}-tab-empty`}>
           {emptyLabel}
         </p>
-        {showAddedSection && addedSection}
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -531,14 +549,13 @@ export function WarehousesTab({
     <div data-testid={`${entity}-tab`}>
       {toolbar}
       <WarehouseTable
-        warehouses={candidates}
+        warehouses={displayedCandidates}
         overrides={overrides}
         capacityMode={capacityMode}
         onChange={onChange}
         hasStateColumn={hasStateColumn}
-        enableFilters={enableFilters}
       />
-      {showAddedSection && addedSection}
+      {addedSection}
       {importDialog}
     </div>
   );

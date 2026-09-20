@@ -234,10 +234,9 @@ describe("Workspace — two-echelon-jade-us effective-row projection (Gate 6.5)"
 describe("Workspace — two-echelon-jade-us Save reconciliation (Gate 6.5)", () => {
   it("adopts the server response's inputs after Save, so a newly-added plant's backend-estimated distance persists and the scenario is not re-flagged dirty", async () => {
     renderWorkspace();
-    // jade-INT (Workspace fixups bundle, item 4) — the add-row form relocated
-    // off the base Plants tab onto the Added Entities tab (Plants is this
-    // model's first, default-active, sub-tab).
-    fireEvent.click(screen.getByTestId("sidebar-input-added-entities"));
+    // jade-INT (workspace-fixups-2, item 1 revert) — the add-row form is
+    // back inline on the base Plants tab.
+    fireEvent.click(screen.getByTestId("sidebar-input-plants"));
     fireEvent.click(screen.getByTestId("button-add-plant-row"));
     fireEvent.change(screen.getByTestId("input-new-plant-city"), { target: { value: "Dallas" } });
     fireEvent.change(screen.getByTestId("input-new-plant-state"), { target: { value: "TX" } });

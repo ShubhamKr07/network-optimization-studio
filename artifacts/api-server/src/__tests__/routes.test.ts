@@ -1139,16 +1139,23 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
     expect(setArg).toHaveProperty("inputsUpdatedAt");
   });
 
-  // Moved here from the frontend task per the task brief — the JADE fixed-4
-  // band editor (a separate, frontend-only worktree) enforces the full
-  // invariant client-side, but the schema itself (unchanged by this task)
-  // must still reject a hand-crafted API body that bypasses the UI.
-  it("a hand-crafted invalid distanceBands (wrong count) still 422s on JADE (schema unchanged)", async () => {
+  // JADE's distanceBands was relaxed from exactly-4 to a free `.min(1)`
+  // band count (matching pMedian/transportLp/twoEchelon), keeping only the
+  // strictly-ascending-positive-integers refine. Route-level acceptance for
+  // 1/3/5-band counts, all bypassing the UI via a hand-crafted API body.
+  it.each([
+    ["1 band", [200]],
+    ["3 bands", [200, 400, 800]],
+    ["5 bands", [200, 400, 800, 1600, 3200]],
+  ])("accepts a %s distanceBands PATCH on JADE (free-band rule)", async (_label, distanceBands) => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValueOnce(makeChain([jadeRow]));
+    const newInputs = { ...jadeInputs, distanceBands };
+    const chain = makeChain([{ ...jadeRow, inputs: newInputs }]);
+    mockDb.update.mockReturnValueOnce(chain);
     const res = await request(app).patch("/api/scenarios/12").set("Cookie", cookie)
-      .send({ inputs: { ...jadeInputs, distanceBands: [200, 400, 800] } });
-    expect(res.status).toBe(422);
+      .send({ inputs: newInputs });
+    expect(res.status).toBe(200);
   });
 
   it("a hand-crafted invalid distanceBands (non-positive) still 422s on JADE", async () => {

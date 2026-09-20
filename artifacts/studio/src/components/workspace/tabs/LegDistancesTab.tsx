@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
 
 export interface LegDistanceOverride {
   fromId: string;
@@ -46,6 +47,16 @@ interface LegDistancesTabProps {
   focusEntityId?: string | null;
   /** Followup — scenario-local added entities' `id -> displayCode` map (Workspace.tsx builds this from addedRefineries/addedCustomers — no addedMines, the mine is fixed). From/To cells look up through this for DISPLAY ONLY — the underlying stored fromId/toId (the uuid) stays the join key everywhere else (existence checks, leg resolution, edits, removal). Base dataset ids have no entry here and fall back to showing the raw id, unchanged. */
   displayCodeById?: Record<string, string>;
+  /** T11 (workspace-fixups-2, item 2/Codex P1) — canonical id -> {city,
+   * state, displayId} (base dataset ∪ scenario-local added entities), built
+   * by Workspace.tsx's `buildEntityIdentityById(modelId, dataset,
+   * localInputs)` (the LIVE draft — this is an INPUT tab). This table was
+   * previously BARE-ID ONLY (no location source at all) — user-defined rows
+   * can exceed 10, so it upgrades to the stacked City/State + mono
+   * display-id cell (matching Open WHs) once the unfiltered row count
+   * exceeds 10 AND this map is present; unset (every pre-INT caller) is
+   * byte-unchanged. */
+  identityById?: Record<string, { city: string; state: string; displayId: string }>;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -73,6 +84,7 @@ export function LegDistancesTab({
   onImportApplied,
   focusEntityId,
   displayCodeById,
+  identityById,
 }: LegDistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
@@ -116,6 +128,23 @@ export function LegDistancesTab({
     if (mineIdSet.has(fromId) && refineryIdSet.has(toId)) return "mine_to_refinery";
     if (refineryIdSet.has(fromId) && customerIdSet.has(toId)) return "refinery_to_customer";
     return "unknown";
+  }
+
+  // T11 (workspace-fixups-2, item 2) — compatibility resolver: prefer
+  // `identityById`, else no location at all (this table had no prior
+  // location source — the entire display was bare `displayCodeById?.[id] ??
+  // id`). The `>10` UPGRADE rule gates on the UNFILTERED row count
+  // (`distanceOverrides.length`, not `visibleRows.length`) — a small table
+  // stays bare-id even once `identityById` is wired.
+  function resolvedLocation(id: string): { city: string; state: string } | undefined {
+    if (identityById && distanceOverrides.length > 10) {
+      const entry = identityById[id];
+      if (entry && (entry.city || entry.state)) return { city: entry.city, state: entry.state };
+    }
+    return undefined;
+  }
+  function resolvedDisplayId(id: string): string {
+    return identityById?.[id]?.displayId ?? displayCodeById?.[id] ?? id;
   }
 
   const LEG_LABEL: Record<Leg, string> = {
@@ -333,8 +362,12 @@ export function LegDistancesTab({
                         {LEG_LABEL[leg]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{displayCodeById?.[o.fromId] ?? o.fromId}</TableCell>
-                    <TableCell className="font-mono text-xs">{displayCodeById?.[o.toId] ?? o.toId}</TableCell>
+                    <TableCell className="text-xs">
+                      <EntityIdCell entityId={o.fromId} displayId={resolvedDisplayId(o.fromId)} location={resolvedLocation(o.fromId)} />
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <EntityIdCell entityId={o.toId} displayId={resolvedDisplayId(o.toId)} location={resolvedLocation(o.toId)} />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Input

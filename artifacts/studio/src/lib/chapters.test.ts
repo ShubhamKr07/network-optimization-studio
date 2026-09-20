@@ -78,3 +78,21 @@ describe("chapters — chens-cosmetics-cn (Chapter 4) registration", () => {
     expect(matches).toHaveLength(1);
   });
 });
+
+// Workspace fixups 2 / T2 — AL's Athletics Landing title no longer carries
+// "P-Median" (the header bar's labHeaderTitle/labHeaderSubtitle intentionally
+// keep it — this only scopes the Landing-facing chapter title).
+describe("chapters — AL's Athletics (p-median-us) Landing title", () => {
+  it("title does not mention P-Median", () => {
+    const chapter = chapterForModelId("p-median-us");
+    expect(chapter).toBeDefined();
+    expect(chapter?.title).toBe("AL's Athletics");
+    expect(chapter?.title).not.toMatch(/P-Median/i);
+  });
+
+  it("labHeaderTitle/labHeaderSubtitle are left untouched", () => {
+    const chapter = chapterForModelId("p-median-us");
+    expect(chapter?.labHeaderTitle).toBe("AL's Athletics · Model Lab");
+    expect(chapter?.labHeaderSubtitle).toMatch(/p-median/i);
+  });
+});

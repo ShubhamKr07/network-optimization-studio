@@ -5,8 +5,11 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 // Workspace bundle's integration keystone (spec §2/§3/§5/§6/§9/§10):
 //   1. #1 live band recolor (multi-model) + history-entry sync on a
 //      bands-only save.
-//   2. #1 JADE band-validity guard on every save/solve entry point (Save,
-//      save-before-solve, the Solve dialog's Run button).
+//   2. (workspace-fixups-2, item 7) JADE renders the SAME shared free chip
+//      band editor as every other model, with no Workspace-level
+//      validity-gating on Save/Run (the fixed-4 `JadeBandEditor` +
+//      band-validity guard are both deleted; the chip editor's own
+//      last-band ×-disabled guard is what now prevents an empty array).
 //   3. #8 terminal solve timing retained at job-success and attached to the
 //      NEWLY-APPENDED history entry once the refetch lands (not the older
 //      displayed entry) — the real job-success-then-refetch-append order.
@@ -20,9 +23,9 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 // already uses for OutputMapTab) — this file only needs to prove WHICH
 // values reach those components' props, not their own internal rendering
 // (already covered by their own component tests). OptimizationParametersTab/
-// SolveDialog/JadeBandEditor are left REAL (simple presentational
-// components, no external hooks) so the band-validity tests exercise real
-// behavior, not a mocked stand-in.
+// SolveDialog are left REAL (simple presentational components, no external
+// hooks) so the shared chip-editor tests exercise real behavior, not a
+// mocked stand-in.
 
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
 
@@ -286,11 +289,14 @@ describe("Workspace — #1 live band recolor (two-echelon-jade-us, multi-model r
     } as unknown as ReturnType<typeof useListModels>);
   });
 
-  it("editing a valid draft band recolors the JADE Output Map immediately, with zero network calls", () => {
+  it("editing a valid draft band (shared chip editor, item 7) recolors the JADE Output Map immediately, with zero network calls", () => {
     render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.change(screen.getByTestId("jade-band-slot-3"), { target: { value: "1500" } });
+    fireEvent.click(screen.getByTestId("button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("button-bands-plus"));
+    fireEvent.change(screen.getByTestId("input-new-band"), { target: { value: "1500" } });
+    fireEvent.click(screen.getByTestId("button-add-band-confirm"));
 
     outputMapTabSpy.mockClear();
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
@@ -449,7 +455,15 @@ describe("Workspace — #9 enableFilters (JADE-only opt-in)", () => {
 });
 
 // ── #1 JADE band-validity guard on every save/solve entry point ────────────
-describe("Workspace — #1 JADE fixed-4 band-editor validity guard (spec §2 R6-1/R-plan-2)", () => {
+// jade-INT (workspace-fixups-2, item 7) — JADE's fixed-4-slot
+// `JadeBandEditor` (+ its Workspace-level Save/Solve validity gate) is
+// deleted; JADE now renders the SAME shared free chip editor as every other
+// model (its backend schema was relaxed to `.min(1)`, matching
+// p-median/transport/gold-au) with NO validity gating on Save/Run — the
+// shared chip editor's own last-band `×`-disabled guard (item 7) is the only
+// thing preventing an empty array, by construction, not a Workspace-level
+// block.
+describe("Workspace — JADE uses the shared chip band editor, no validity gate (item 7)", () => {
   const jadeInputs = {
     p: 2,
     distanceBands: [200, 400, 800, 1600],
@@ -506,62 +520,61 @@ describe("Workspace — #1 JADE fixed-4 band-editor validity guard (spec §2 R6-
     } as unknown as ReturnType<typeof useListModels>);
   });
 
-  it("an invalid JADE band draft disables the Save button, even though the scenario is otherwise dirty", () => {
+  it("Optimization Parameters renders the shared chip editor for JADE, not the fixed-4 editor", () => {
     render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
-
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
 
-    // Make a valid, unrelated edit so `isDirty` is true (Save would
-    // otherwise be enabled) — isolates the NEW jadeBandsValid guard from the
-    // pre-existing `!isDirty` guard.
-    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "1.5" } });
-    expect(screen.getByTestId("button-save")).toBeEnabled();
-
-    // Now type an invalid (zero) value into the fixed-4 band editor — never
-    // published upward (localInputs.distanceBands stays valid), but the
-    // validity signal must still gate Save.
-    fireEvent.change(screen.getByTestId("jade-band-slot-0"), { target: { value: "0" } });
-
-    expect(screen.getByTestId("jade-band-error")).toBeInTheDocument();
-    expect(screen.getByTestId("button-save")).toBeDisabled();
+    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("button-remove-band-200")).toBeInTheDocument();
   });
 
-  it("an invalid JADE band draft in the Solve dialog blocks Run — neither the save-before-solve PATCH nor the solve is ever fired", () => {
+  it("adding a 5th band and saving succeeds with no error — no validity gating blocks it", () => {
     render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
-
-    // Make the scenario dirty via a valid edit on a DIFFERENT tab, then
-    // switch away so only the Solve dialog's own JadeBandEditor instance is
-    // mounted when it opens (Optimization Parameters' own editor shares the
-    // same component/testids and would otherwise double-mount).
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.change(screen.getByTestId("input-gap"), { target: { value: "1.5" } });
-    fireEvent.click(screen.getByTestId("sidebar-input-warehouses"));
 
-    fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    fireEvent.change(screen.getByTestId("jade-band-slot-0"), { target: { value: "0" } });
-    expect(screen.getByTestId("jade-band-error")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-bands-plus"));
+    fireEvent.change(screen.getByTestId("input-new-band"), { target: { value: "3000" } });
+    fireEvent.click(screen.getByTestId("button-add-band-confirm"));
 
-    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
-
-    // Guarded — the save-before-solve branch (isDirty was true) AND the
-    // plain solve enqueue are both blocked by the SAME top-of-handleSolve
-    // guard.
-    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
-    expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
-    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent(/invalid distance bands/i);
-  });
-
-  it("a VALID JADE band edit does not block Save or Solve", () => {
-    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
-
-    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
-    fireEvent.change(screen.getByTestId("jade-band-slot-3"), { target: { value: "1500" } });
-
-    expect(screen.queryByTestId("jade-band-error")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-remove-band-3000")).toBeInTheDocument();
     expect(screen.getByTestId("button-save")).toBeEnabled();
 
     fireEvent.click(screen.getByTestId("button-save"));
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+    const [args] = mockUpdateScenario.mutate.mock.calls[0];
+    expect((args.data.inputs as { distanceBands: number[] }).distanceBands).toEqual([200, 400, 800, 1600, 3000]);
+  });
+
+  it("removing down to one band disables that last band's × control (Optimization Parameters)", () => {
+    const oneBandScenario = { ...unsolvedScenario, inputs: { ...jadeInputs, distanceBands: [500] } };
+    mockUseGetScenario.mockReturnValue({ data: oneBandScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [oneBandScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+
+    expect(screen.getByTestId("button-remove-band-500")).toBeDisabled();
+  });
+
+  it("the Solve dialog's chip editor also disables the last band's × control at length 1", () => {
+    const oneBandScenario = { ...unsolvedScenario, inputs: { ...jadeInputs, distanceBands: [500] } };
+    mockUseGetScenario.mockReturnValue({ data: oneBandScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [oneBandScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+
+    expect(screen.queryByTestId("jade-band-editor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-remove-band-500")).toBeDisabled();
+  });
+
+  it("a valid JADE band edit via the Solve dialog does not block Run — the solve is enqueued", () => {
+    render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("solve-dialog-error")).not.toBeInTheDocument();
   });
 });
 

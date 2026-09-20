@@ -6,6 +6,8 @@ import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 
 // B2 (JADE Ch.9 Workspace Bundle, spec §5/§5a) — Chapter 9 JADE's own
 // product-level Customer Assignments table. Deliberately a SEPARATE
@@ -71,6 +73,18 @@ interface JadeAssignmentsTabProps {
   /** The saved-inputs snapshot that produced `result` — added-entity id ->
    * city/state/displayCode lookups. */
   displayedInputs?: JadeAssignmentsDisplayedInputs | null;
+  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
+   * projection (`buildEntityIdentityById`, T3). This table already resolves
+   * a single-line "City - ST" label for every cell via `customerLabel`/
+   * `warehouseLabel` below (never showing the id/displayCode alongside it) —
+   * when `identityById` has an entry for a cell's id AND the table's
+   * UNFILTERED row count exceeds 10 (the item-2 `>10` upgrade rule), that
+   * cell upgrades to the shared stacked `EntityIdCell` (City,State + mono
+   * displayId). Below the threshold, or when `identityById`/the entry is
+   * absent, the cell keeps its pre-existing single-line string — so
+   * `identityById` unset is byte-unchanged from before this task at any row
+   * count (the no-regression contract). */
+  identityById?: Record<string, EntityIdentity>;
 }
 
 function productLabel(productId: string, dataset: Dataset | null | undefined): string {
@@ -118,6 +132,30 @@ interface JadeAssignmentRow {
   warehouseLabel: string;
   distance: number;
   band: string;
+}
+
+// workspace-fixups-2, T10 (item 2) — the `>10` upgrade: when `upgrade` is
+// true (unfiltered row count > 10) AND `identityById` has an entry for this
+// id, render the shared stacked cell (adds the mono displayId sub-label this
+// table never showed before); otherwise render the pre-existing single-line
+// string UNCHANGED (the no-regression fallback).
+function renderJadeEntityCell(
+  id: string,
+  fallbackLabel: string,
+  identityById: Record<string, EntityIdentity> | undefined,
+  upgrade: boolean,
+) {
+  const identity = upgrade ? identityById?.[id] : undefined;
+  if (identity) {
+    return (
+      <EntityIdCell
+        entityId={id}
+        displayId={identity.displayId}
+        location={identity.city ? { city: identity.city, state: identity.state } : undefined}
+      />
+    );
+  }
+  return fallbackLabel;
 }
 
 const PAGE_SIZE = 50;
@@ -169,6 +207,7 @@ export function JadeAssignmentsTab({
   distanceUnit = "mi",
   scenarioId,
   displayedInputs = null,
+  identityById,
 }: JadeAssignmentsTabProps) {
   const [page, setPage] = useState(1);
 
@@ -274,8 +313,12 @@ export function JadeAssignmentsTab({
             {pagedRows.map(r => (
               <TableRow key={r.key} data-testid={`row-jadeassignment-${r.key}`}>
                 <TableCell data-testid={`cell-jadeassignment-product-${r.key}`}>{r.productLabel}</TableCell>
-                <TableCell data-testid={`cell-jadeassignment-customer-${r.key}`}>{r.customerLabel}</TableCell>
-                <TableCell data-testid={`cell-jadeassignment-warehouse-${r.key}`}>{r.warehouseLabel}</TableCell>
+                <TableCell data-testid={`cell-jadeassignment-customer-${r.key}`}>
+                  {renderJadeEntityCell(r.customerId, r.customerLabel, identityById, rows.length > 10)}
+                </TableCell>
+                <TableCell data-testid={`cell-jadeassignment-warehouse-${r.key}`}>
+                  {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, rows.length > 10)}
+                </TableCell>
                 <TableCell className="text-right font-mono" data-testid={`cell-jadeassignment-distance-${r.key}`}>
                   {r.distance.toFixed(1)} {distanceUnit}
                 </TableCell>

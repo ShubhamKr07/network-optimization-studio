@@ -430,3 +430,71 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
     await waitFor(() => expect(onImportApplied).toHaveBeenCalledWith(updatedScenario));
   });
 });
+
+// T11 (workspace-fixups-2, item 2/Codex P1) — `identityById` compatibility
+// resolver + the `>10` UPGRADE rule. This table previously had NO location
+// source at all (bare `displayCodeById?.[id] ?? id`).
+describe("LaneCostsTab — T11 identityById upgrade (item 2)", () => {
+  function buildRows(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      fromId: `MN01`,
+      toId: `ST${String(i + 1).padStart(3, "0")}`,
+      cost: 100 + i,
+    }));
+  }
+
+  it("no-regression: with identityById UNSET, an 11-row table (past the >10 threshold) stays bare-id, byte-unchanged", () => {
+    const rows = buildRows(11);
+    render(
+      <LaneCostsTab
+        laneCostOverrides={rows}
+        savedLaneCostOverrides={rows}
+        mineIds={["MN01"]}
+        stationIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("row-lanecost-MN01-ST001");
+    expect(row).toHaveTextContent("MN01");
+    expect(row).toHaveTextContent("ST001");
+  });
+
+  it("upgrades to the stacked City/State + mono display-id cell once the unfiltered row count exceeds 10 AND identityById is provided", () => {
+    const rows = buildRows(11);
+    render(
+      <LaneCostsTab
+        laneCostOverrides={rows}
+        savedLaneCostOverrides={rows}
+        mineIds={["MN01"]}
+        stationIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+        identityById={{
+          MN01: { city: "Beckley", state: "WV", displayId: "MINE-A" },
+          ST001: { city: "Norfolk", state: "VA", displayId: "STN-A" },
+        }}
+      />,
+    );
+    const row = screen.getByTestId("row-lanecost-MN01-ST001");
+    expect(row).toHaveTextContent("Beckley, WV");
+    expect(row).toHaveTextContent("MINE-A");
+    expect(row).toHaveTextContent("Norfolk, VA");
+    expect(row).toHaveTextContent("STN-A");
+  });
+
+  it("does NOT upgrade at 10 rows or fewer, even with identityById present", () => {
+    const rows = buildRows(10);
+    render(
+      <LaneCostsTab
+        laneCostOverrides={rows}
+        savedLaneCostOverrides={rows}
+        mineIds={["MN01"]}
+        stationIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+        identityById={{ MN01: { city: "Beckley", state: "WV", displayId: "MINE-A" } }}
+      />,
+    );
+    const row = screen.getByTestId("row-lanecost-MN01-ST001");
+    expect(row).not.toHaveTextContent("Beckley, WV");
+    expect(row).toHaveTextContent("MINE-A");
+  });
+});

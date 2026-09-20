@@ -4,6 +4,8 @@ import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatCityState } from "@/lib/formatLocation";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 
 // B2.2-T6 — a read-only SNAPSHOT of the fields this tab needs from
 // Scenario.inputs, passed by Workspace.tsx (T9 wires the real call site;
@@ -44,6 +46,16 @@ interface OpenWarehousesTabProps {
    * the id/displayCode as a mono sub-label (mirrors JadeDistancesTab.tsx).
    * Absent for every other model (undefined) -> unchanged id-only rendering. */
   locationById?: Record<string, { city: string; state: string }>;
+  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
+   * projection (`buildEntityIdentityById`, T3), covering BOTH base dataset
+   * rows AND scenario-added rows keyed by canonical id. When an entry exists
+   * for a given warehouse id, it takes PRECEDENCE over `locationById`/the
+   * `addedWarehouses`/`addedRefineries` derived `codeById` below (the
+   * compatibility resolver — see `resolveWarehouseIdentity`). Optional/
+   * `undefined` for every pre-existing call site until INT wires it, so this
+   * component's output is byte-unchanged for any caller that never passes
+   * it. */
+  identityById?: Record<string, EntityIdentity>;
   /** B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu. Defaults
    * `false`: every existing caller (every non-JADE model) is completely
    * unaffected — the underlying `useTableFilters` hook is still called
@@ -106,7 +118,31 @@ function displayCodeById(displayedInputs: OpenWarehousesDisplayedInputs | null |
   return map;
 }
 
-export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById, enableFilters = false }: OpenWarehousesTabProps) {
+// workspace-fixups-2, T10 (item 2) — compatibility resolver: prefer the new
+// `identityById` entry, else fall back to the EXISTING `codeById`/
+// `locationById` sources unchanged (so `identityById` unset produces
+// byte-identical output to before this task — the no-regression contract).
+// `OpenWarehousesTab` is the item-2 REFERENCE table — already renders the
+// stacked City,State + mono displayId cell at every row count, so no `>10`
+// gate is applied here (matches the spec's "already-rich, keep rich at
+// every count" bucket).
+function resolveWarehouseIdentity(
+  id: string,
+  codeById: Record<string, string>,
+  locationById: Record<string, { city: string; state: string }> | undefined,
+  identityById: Record<string, EntityIdentity> | undefined,
+): { displayId: string; location?: { city: string; state: string } } {
+  const identity = identityById?.[id];
+  if (identity) {
+    return {
+      displayId: identity.displayId,
+      location: identity.city ? { city: identity.city, state: identity.state } : undefined,
+    };
+  }
+  return { displayId: codeById[id] ?? id, location: locationById?.[id] };
+}
+
+export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById, identityById, enableFilters = false }: OpenWarehousesTabProps) {
   // B6 (spec §10) — `rows`/the filter hook must be computed BEFORE the
   // early-return below (rules of hooks: no conditional hook calls). `!result`
   // degrades to an empty rows array here; the early return still fires
@@ -130,9 +166,8 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
         label: "Warehouse",
         type: "text",
         accessor: r => {
-          const loc = locationById?.[r.warehouseId];
-          const code = codeById[r.warehouseId] ?? r.warehouseId;
-          return loc ? `${formatCityState(loc.city, loc.state)} ${code}` : code;
+          const { displayId, location } = resolveWarehouseIdentity(r.warehouseId, codeById, locationById, identityById);
+          return location ? `${formatCityState(location.city, location.state)} ${displayId}` : displayId;
         },
       },
       {
@@ -152,7 +187,7 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
     }
     return descriptors;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationById, codeById, showDemandServed, showUtilization]);
+  }, [locationById, codeById, identityById, showDemandServed, showUtilization]);
   const tableFilters = useTableFilters(rows, filterDescriptors);
   const displayRows = enableFilters ? tableFilters.filteredRows : rows;
 
@@ -189,18 +224,11 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
           </thead>
           <tbody>
             {displayRows.map(r => {
-              const loc = locationById?.[r.warehouseId];
+              const { displayId, location } = resolveWarehouseIdentity(r.warehouseId, codeById, locationById, identityById);
               return (
               <tr key={r.warehouseId} data-testid={`open-warehouse-row-${r.warehouseId}`} className="border-b">
                 <td className="p-2">
-                  {loc ? (
-                    <div className="flex flex-col">
-                      <span>{formatCityState(loc.city, loc.state)}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">{codeById[r.warehouseId] ?? r.warehouseId}</span>
-                    </div>
-                  ) : (
-                    codeById[r.warehouseId] ?? r.warehouseId
-                  )}
+                  <EntityIdCell entityId={r.warehouseId} displayId={displayId} location={location} />
                 </td>
                 <td className="p-2 text-right font-mono">{r.totalFlow.toLocaleString()}</td>
                 {showUtilization && (

@@ -55,18 +55,6 @@ interface MinesTabProps {
   onDeleteMine?: (id: string) => void;
   /** B6.1 stage 3's precheck errors for the current scenario — drives the inline "missing N lane costs" chip on added rows. Undefined/omitted degrades to "no warnings shown", never a crash. */
   precheckErrors?: PrecheckErrorLike[];
-  /** T8 (Workspace fixups bundle, item 4) — when `false`, hides the
-   * add-row form + added-rows table + precheck chips + delete (the
-   * `addedSection` below). Used by the base entity tab call site
-   * (`showAddedSection={false}`), which keeps only the base table + its
-   * toolbar. Defaults `true` — every pre-T8 caller is byte-identical. */
-  showAddedSection?: boolean;
-  /** T8 — when `false`, hides the base `MineTable`, its count/filter, its
-   * empty state, the CSV Upload/Download toolbar, AND the import dialog —
-   * leaving ONLY the add-row form + added-rows table + precheck chips +
-   * delete. Used by the new Added Entities tab (`showBaseTable={false}`).
-   * Defaults `true` — every pre-T8 caller is byte-identical. */
-  showBaseTable?: boolean;
 }
 
 // A5.1 — transport-coal's Mines input tab. Same shape as WarehousesTab/
@@ -93,8 +81,6 @@ export function MinesTab({
   onAddedMinesChange,
   onDeleteMine,
   precheckErrors = [],
-  showAddedSection = true,
-  showBaseTable = true,
 }: MinesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -410,13 +396,6 @@ export function MinesTab({
     </div>
   );
 
-  // T8 (item 4) — the new Added Entities tab renders ONLY the added-row
-  // form/table/chips/delete: no base table, no count/filter, no empty
-  // state, no CSV toolbar, no import dialog.
-  if (!showBaseTable) {
-    return <div>{showAddedSection && addedSection}</div>;
-  }
-
   if (mines.length === 0) {
     return (
       <div>
@@ -424,7 +403,7 @@ export function MinesTab({
         <p className="text-sm text-muted-foreground" data-testid="mines-tab-empty">
           No mines in this dataset.
         </p>
-        {showAddedSection && addedSection}
+        {addedSection}
         {importDialog}
       </div>
     );
@@ -434,7 +413,7 @@ export function MinesTab({
     <div data-testid="mines-tab">
       {toolbar}
       <MineTable mines={mines} overrides={overrides} onChange={onChange} />
-      {showAddedSection && addedSection}
+      {addedSection}
       {importDialog}
     </div>
   );

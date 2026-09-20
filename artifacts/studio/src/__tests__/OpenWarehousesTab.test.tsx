@@ -197,6 +197,61 @@ describe("OpenWarehousesTab", () => {
     });
   });
 
+  // workspace-fixups-2, T10 (item 2) — identityById compat resolver. This
+  // table is the item-2 REFERENCE (already stacked, unconditional on row
+  // count) — `EntityIdCell` alignment only, no `>10` gate.
+  describe("identityById (workspace-fixups-2, T10, item 2)", () => {
+    it("prefers identityById over locationById/codeById", () => {
+      render(
+        <OpenWarehousesTab
+          result={result}
+          scenarioId={1}
+          locationById={{ ALN: { city: "Old City", state: "OS" } }}
+          displayedInputs={{ addedWarehouses: [{ id: "ALN", displayCode: "OLD-CODE" }] }}
+          identityById={{ ALN: { city: "Allentown", state: "PA", displayId: "WH-ALN-NEW" } }}
+        />,
+      );
+      const row = screen.getByTestId("open-warehouse-row-ALN");
+      expect(row).toHaveTextContent("Allentown, PA");
+      expect(row).toHaveTextContent("WH-ALN-NEW");
+    });
+
+    it("shows an added FACILITY's display code (not the canonical uid) via identityById", () => {
+      const withAdded = {
+        ...result,
+        edges: [{ fromId: "aw-new1", toId: "C9", flow: 500, distance: 3 }],
+      };
+      render(
+        <OpenWarehousesTab
+          result={withAdded}
+          scenarioId={1}
+          identityById={{ "aw-new1": { city: "Denver", state: "CO", displayId: "WH-CO-DENVER-02" } }}
+        />,
+      );
+      const row = screen.getByTestId("open-warehouse-row-aw-new1");
+      expect(row).toHaveTextContent("WH-CO-DENVER-02");
+      expect(row).not.toHaveTextContent("aw-new1");
+    });
+
+    it("falls back to displayId, then the canonical id, on a lookup miss", () => {
+      render(
+        <OpenWarehousesTab
+          result={result}
+          scenarioId={1}
+          identityById={{ "some-other-id": { city: "X", state: "Y", displayId: "Z" } }}
+        />,
+      );
+      expect(screen.getByTestId("open-warehouse-row-ALN")).toHaveTextContent("ALN");
+    });
+
+    it("with identityById unset, output is byte-unchanged from before this task (no-regression)", () => {
+      render(<OpenWarehousesTab result={result} scenarioId={1} />);
+      const row = screen.getByTestId("open-warehouse-row-ALN");
+      expect(row).toHaveTextContent("ALN");
+      expect(row).not.toHaveTextContent("Allentown");
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // The component has no `localInputs` prop at all — `displayedInputs` is

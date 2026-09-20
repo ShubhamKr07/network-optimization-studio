@@ -342,6 +342,92 @@ describe("ServiceStatsTab", () => {
     });
   });
 
+  // workspace-fixups-2, T10 (item 2) — identityById + the `>10` upgrade rule
+  // for the Plant Production plant cell.
+  describe("Plant Production identityById + >10 upgrade rule (workspace-fixups-2, T10, item 2)", () => {
+    const products = [{ id: "product-1", name: "Product 1" }];
+    const baseCapabilities = [{ plantId: "p1", productId: "product-1", capacity: 210_000_000 }];
+    const identityById = { p1: { city: "Reno", state: "NV", displayId: "PLANT-NV-RENO-01" } };
+
+    it("at exactly 1 (<=10) unfiltered row, keeps the pre-existing '<id> — City, State' label — identityById does not upgrade it", () => {
+      const plants = [{ id: "p1", name: "Plant One", city: "Springfield", state: "IL", lat: 0, lng: 0 }];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [], metrics: {} }}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          effectivePlants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          capabilityOverrides={[]}
+          identityById={identityById}
+        />,
+      );
+      const row = screen.getByTestId("row-plant-production-p1-product-1");
+      expect(row).toHaveTextContent("p1 — Springfield, IL");
+      expect(row).not.toHaveTextContent("PLANT-NV-RENO-01");
+    });
+
+    it("at 16 (>10) unfiltered rows, upgrades the plant cell with an identityById entry to the stacked EntityIdCell", () => {
+      const plants = [
+        { id: "p1", name: "Plant One", city: "Springfield", state: "IL", lat: 0, lng: 0 },
+        { id: "p2", name: "Plant Two", city: "B", state: "BB", lat: 0, lng: 0 },
+        { id: "p3", name: "Plant Three", city: "C", state: "CC", lat: 0, lng: 0 },
+        { id: "p4", name: "Plant Four", city: "D", state: "DD", lat: 0, lng: 0 },
+      ];
+      const fourProducts = [
+        { id: "product-1", name: "Product 1" },
+        { id: "product-2", name: "Product 2" },
+        { id: "product-3", name: "Product 3" },
+        { id: "product-4", name: "Product 4" },
+      ];
+      const sixteenCellCapabilities = plants.flatMap((plant, pi) =>
+        fourProducts.map((product, ki) => ({
+          plantId: plant.id,
+          productId: product.id,
+          capacity: pi === ki ? 210_000_000 : 0,
+        })),
+      );
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [], metrics: {} }}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          effectivePlants={plants}
+          products={fourProducts}
+          baseCapabilities={sixteenCellCapabilities}
+          capabilityOverrides={[]}
+          identityById={identityById}
+        />,
+      );
+      expect(screen.getAllByTestId(/^row-plant-production-/)).toHaveLength(16);
+      const row = screen.getByTestId("row-plant-production-p1-product-1");
+      expect(row).toHaveTextContent("Reno, NV");
+      expect(row).toHaveTextContent("PLANT-NV-RENO-01");
+      // A row for a plant with NO identityById entry (p2) still falls back
+      // to the pre-existing string label unaffected.
+      const otherRow = screen.getByTestId("row-plant-production-p2-product-2");
+      expect(otherRow).toHaveTextContent("p2 — B, BB");
+    });
+
+    it("with identityById unset, output is byte-unchanged from before this task at any row count (no-regression)", () => {
+      const plants = [{ id: "p1", name: "Plant One", city: "Springfield", state: "IL", lat: 0, lng: 0 }];
+      render(
+        <ServiceStatsTab
+          result={{ ...result, edges: [], metrics: {} }}
+          scenarioId={1}
+          modelId="two-echelon-jade-us"
+          effectivePlants={plants}
+          products={products}
+          baseCapabilities={baseCapabilities}
+          capabilityOverrides={[]}
+        />,
+      );
+      const row = screen.getByTestId("row-plant-production-p1-product-1");
+      expect(row).toHaveTextContent("p1 — Springfield, IL");
+    });
+  });
+
   // B4 (spec §2 R2-3/§6) — JADE two-leg band-coverage recompute: cumulative,
   // over warehouse_to_customer edges ONLY, from the live `presentationBands`
   // instead of the frozen result.metrics.bandCoverage.

@@ -1,5 +1,7 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
+import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import type { EntityIdentity } from "@/lib/entityIdentity";
 
 interface FlowsTabProps {
   result: SolveResult | null;
@@ -10,11 +12,24 @@ interface FlowsTabProps {
    * as a mono sub-label (mirrors JadeDistancesTab.tsx). Absent for every
    * other model (undefined) -> unchanged id-only rendering. */
   locationById?: Record<string, { city: string; state: string }>;
+  /** workspace-fixups-2, T10 (item 2) — the snapshot-matched identity
+   * projection (`buildEntityIdentityById`, T3), covering BOTH base dataset
+   * rows AND scenario-added rows (any entity family, e.g. added customers,
+   * which `locationById` may or may not cover depending on the caller) keyed
+   * by canonical id. Takes PRECEDENCE over `locationById` when an entry
+   * exists (the compatibility resolver — see `resolveCell`). Optional/
+   * `undefined` for every pre-existing call site until INT wires it, so this
+   * component's output is byte-unchanged for any caller that never passes
+   * it. Already a "rich" table (shows both id and location whenever
+   * `locationById` has an entry, at any row count) — no `>10` gate applied. */
+  identityById?: Record<string, EntityIdentity>;
 }
 
 // JADE-only "City, ST" primary + id mono sub-label, mirroring
 // JadeDistancesTab.tsx's From/To cell. Falls back to the raw id (unchanged)
-// when `locationById` is absent or has no entry for this id.
+// when `locationById` is absent or has no entry for this id. Left UNTOUCHED
+// by workspace-fixups-2/T10 — `resolveCell` below delegates here as the
+// no-regression fallback when `identityById` has no entry.
 function idCell(id: string, locationById: Record<string, { city: string; state: string }> | undefined) {
   const loc = locationById?.[id];
   if (!loc) return id;
@@ -24,6 +39,29 @@ function idCell(id: string, locationById: Record<string, { city: string; state: 
       <span className="font-mono text-[10px] text-muted-foreground">{id}</span>
     </div>
   );
+}
+
+// workspace-fixups-2, T10 (item 2) — compatibility resolver: prefer the new
+// `identityById` entry (which also supplies a real `displayId` for an added
+// entity, unlike the raw id `idCell` always shows); else delegate to the
+// pre-existing, UNTOUCHED `idCell` function so `identityById` unset renders
+// byte-identical output to before this task.
+function resolveCell(
+  id: string,
+  locationById: Record<string, { city: string; state: string }> | undefined,
+  identityById: Record<string, EntityIdentity> | undefined,
+) {
+  const identity = identityById?.[id];
+  if (identity) {
+    return (
+      <EntityIdCell
+        entityId={id}
+        displayId={identity.displayId}
+        location={identity.city ? { city: identity.city, state: identity.state } : undefined}
+      />
+    );
+  }
+  return idCell(id, locationById);
 }
 
 // C6.1 — the transport-coal/two-echelon equivalent of Customer Assignments.
@@ -43,7 +81,7 @@ function flowRows(result: SolveResult) {
   return result.edges.filter(e => !(e.leg != null && FACILITY_TO_DEMAND_LEGS.has(e.leg)));
 }
 
-export function FlowsTab({ result, scenarioId, locationById }: FlowsTabProps) {
+export function FlowsTab({ result, scenarioId, locationById, identityById }: FlowsTabProps) {
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="flows-empty">No solved result yet.</div>;
   }
@@ -89,8 +127,8 @@ export function FlowsTab({ result, scenarioId, locationById }: FlowsTabProps) {
               const rowKey = e.productId != null ? `${e.fromId}-${e.toId}-${e.productId}` : `${e.fromId}-${e.toId}`;
               return (
                 <tr key={rowKey} data-testid={`flow-row-${rowKey}`} className="border-b">
-                  <td className="p-2">{idCell(e.fromId, locationById)}</td>
-                  <td className="p-2">{idCell(e.toId, locationById)}</td>
+                  <td className="p-2">{resolveCell(e.fromId, locationById, identityById)}</td>
+                  <td className="p-2">{resolveCell(e.toId, locationById, identityById)}</td>
                   {hasProduct && <td className="p-2">{e.productId ?? "—"}</td>}
                   <td className="p-2 text-right font-mono">{e.distance.toFixed(1)}</td>
                   <td className="p-2 text-right font-mono">{e.flow.toLocaleString()}</td>

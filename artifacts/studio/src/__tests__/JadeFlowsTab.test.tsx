@@ -388,9 +388,15 @@ describe("JadeFlowsTab", () => {
     }
     // Both helpers above, with bands=[250,500,750,1000], produce the same 5
     // distinct range labels in first-seen order for either leg.
-    const expectedRangeLabels = ["≤ 250 mi", "250–500 mi", "500–750 mi", "750–1000 mi", "> 1000 mi"];
+    const expectedRangeLabels = [
+      "Band 1: 0 mi - 250 mi",
+      "Band 2: 250 mi - 500 mi",
+      "Band 3: 500 mi - 750 mi",
+      "Band 4: 750 mi - 1000 mi",
+      "Band 5: > 1000 mi",
+    ];
 
-    it("both inner tables' Distance Band filter dropdown lists unit-aware ranges, not 'Band N'", async () => {
+    it("both inner tables' Distance Band filter dropdown lists unit-aware, band-numbered ranges", async () => {
       const user = userEvent.setup();
       const spreadResult = makeResult([...bandSpreadPwEdges(11), ...bandSpreadWcEdges(11)]);
       render(<JadeFlowsTab result={spreadResult} bands={spreadBands} distanceUnit="mi" />);
@@ -401,7 +407,6 @@ describe("JadeFlowsTab", () => {
         .getAllByTestId(/^option-filter-band-/)
         .map(el => el.textContent);
       expect(labels).toEqual(expectedRangeLabels);
-      expect(labels.some(l => l?.startsWith("Band"))).toBe(false);
       await user.keyboard("{Escape}");
 
       await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
@@ -434,7 +439,7 @@ describe("JadeFlowsTab", () => {
       const labels = within(popover)
         .getAllByTestId(/^option-filter-band-/)
         .map(el => el.textContent);
-      expect(labels).toEqual(["≤ 1000 mi", "> 1000 mi"]);
+      expect(labels).toEqual(["Band 1: 0 mi - 1000 mi", "Band 2: > 1000 mi"]);
     });
 
     it("selecting a range in EACH inner table, then changing bands, clears only that table's own band filter — non-band filters survive and the two clears are independent", async () => {
@@ -481,6 +486,146 @@ describe("JadeFlowsTab", () => {
       popover = screen.getByTestId("filter-menu-popover");
       expect(within(popover).queryByTestId("button-clear-filter-band")).not.toBeInTheDocument();
       expect(within(popover).getByTestId("button-clear-filter-flow")).toBeInTheDocument();
+    });
+  });
+
+  // workspace-fixups-2, T10 (item 2) — identityById + the `>10` upgrade
+  // rule, applied INDEPENDENTLY per inner table.
+  describe("identityById + >10 upgrade rule (workspace-fixups-2, T10, item 2)", () => {
+    // aggregatePlantToWarehouse groups by (fromId,toId) — so a helper meant
+    // to control the AGGREGATED row count (`pwRows.length`) needs DISTINCT
+    // (plant,warehouse) pairs, not distinct productId on the same pair (that
+    // would collapse to a single row regardless of `count`). Row index 0 is
+    // always the fixed (plant-1, wh-11) pair `identityById` resolves; the
+    // rest are distinct filler pairs purely to inflate the row count.
+    function manyPwEdgesKnownPlantWarehouse(count: number) {
+      return Array.from({ length: count }, (_, i) => ({
+        fromId: i === 0 ? "plant-1" : `plant-x-${i}`,
+        toId: i === 0 ? "wh-11" : `wh-x-${i}`,
+        flow: 10 + i,
+        distance: 100 + i,
+        leg: "plant_to_warehouse" as const,
+        productId: "product-1",
+      }));
+    }
+    function manyWcEdgesKnownWarehouse(count: number) {
+      return Array.from({ length: count }, (_, i) => ({
+        fromId: "wh-11",
+        toId: `customer-${i}`,
+        flow: 10 + i,
+        distance: 100 + i,
+        leg: "warehouse_to_customer" as const,
+      }));
+    }
+    const identityById = {
+      "plant-1": { city: "Bethlehem", state: "PA", displayId: "PLANT-1-CODE" },
+      "wh-11": { city: "Chicago", state: "IL", displayId: "WH-CHI-01" },
+    };
+
+    it("Plant -> Warehouse: at exactly 10 unfiltered rows, keeps the pre-existing single-line label (no mono displayId yet)", () => {
+      render(
+        <JadeFlowsTab
+          result={makeResult(manyPwEdgesKnownPlantWarehouse(10))}
+          dataset={dataset}
+          bands={bands}
+          identityById={identityById}
+        />,
+      );
+      // 10 distinct products on the same (plant,warehouse) pair aggregate into ONE row.
+      const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
+      expect(row).toHaveTextContent("Bethlehem, PA");
+      expect(row).not.toHaveTextContent("PLANT-1-CODE");
+    });
+
+    it("Plant -> Warehouse: at 11 unfiltered rows (crossing the boundary), upgrades to the stacked EntityIdCell with the mono displayId", () => {
+      render(
+        <JadeFlowsTab
+          result={makeResult(manyPwEdgesKnownPlantWarehouse(11))}
+          dataset={dataset}
+          bands={bands}
+          identityById={identityById}
+        />,
+      );
+      const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
+      expect(row).toHaveTextContent("Bethlehem, PA");
+      expect(row).toHaveTextContent("PLANT-1-CODE");
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(row).toHaveTextContent("WH-CHI-01");
+    });
+
+    it("Warehouse -> Customer: independently gated on its OWN row count — stays below its own threshold even while Plant -> Warehouse is above 10", async () => {
+      const user = userEvent.setup();
+      const result = makeResult([...manyPwEdgesKnownPlantWarehouse(11), ...manyWcEdgesKnownWarehouse(3)]);
+      render(<JadeFlowsTab result={result} dataset={dataset} bands={bands} identityById={identityById} />);
+      await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+      const row = screen.getByTestId("jade-flow-wc-row-wh-11-customer-0");
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(row).not.toHaveTextContent("WH-CHI-01");
+    });
+
+    it("Warehouse -> Customer: upgrades once ITS OWN row count exceeds 10, independent of Plant -> Warehouse's count", async () => {
+      const user = userEvent.setup();
+      const result = makeResult(manyWcEdgesKnownWarehouse(11));
+      render(<JadeFlowsTab result={result} dataset={dataset} bands={bands} identityById={identityById} />);
+      await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+      const row = screen.getByTestId("jade-flow-wc-row-wh-11-customer-0");
+      expect(row).toHaveTextContent("Chicago, IL");
+      expect(row).toHaveTextContent("WH-CHI-01");
+    });
+
+    it("shows an added CUSTOMER's AND an added FACILITY's display code via identityById once EACH leg's own row count exceeds 10", async () => {
+      const user = userEvent.setup();
+      // Plant -> Warehouse: 11 distinct-pair rows, one from an added facility (aw-plant-9).
+      const pwEdges = [
+        { fromId: "aw-plant-9", toId: "wh-11", flow: 50, distance: 42.1, leg: "plant_to_warehouse" as const },
+        ...manyPwEdgesKnownPlantWarehouse(10),
+      ];
+      // Warehouse -> Customer: 11 rows, one to an added customer (ac-9).
+      const wcEdges = [
+        { fromId: "wh-11", toId: "ac-9", flow: 50, distance: 5, leg: "warehouse_to_customer" as const },
+        ...manyWcEdgesKnownWarehouse(10),
+      ];
+      const result = makeResult([...pwEdges, ...wcEdges]);
+      render(
+        <JadeFlowsTab
+          result={result}
+          dataset={dataset}
+          bands={bands}
+          identityById={{
+            "aw-plant-9": { city: "Denver", state: "CO", displayId: "PLANT-CO-DENVER-01" },
+            "ac-9": { city: "Boise", state: "ID", displayId: "C-ID-BOISE-01" },
+          }}
+        />,
+      );
+      const pwRow = screen.getByTestId("jade-flow-pw-row-aw-plant-9-wh-11");
+      expect(pwRow).toHaveTextContent("PLANT-CO-DENVER-01");
+      expect(pwRow).not.toHaveTextContent("aw-plant-9");
+
+      await user.click(screen.getByTestId("button-jade-flows-inner-warehouse-customer"));
+      const wcRow = screen.getByTestId("jade-flow-wc-row-wh-11-ac-9");
+      expect(wcRow).toHaveTextContent("C-ID-BOISE-01");
+      expect(wcRow).not.toHaveTextContent("ac-9");
+    });
+
+    it("falls back to the pre-existing single-line label on a lookup miss, even above the 10-row threshold", () => {
+      render(
+        <JadeFlowsTab
+          result={makeResult(manyPwEdgesKnownPlantWarehouse(11))}
+          dataset={dataset}
+          bands={bands}
+          identityById={{ "some-other-id": { city: "X", state: "Y", displayId: "Z" } }}
+        />,
+      );
+      const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
+      expect(row).toHaveTextContent("Bethlehem, PA");
+      expect(row).not.toHaveTextContent("some-other-id");
+    });
+
+    it("with identityById unset, output is byte-unchanged from before this task at any row count (no-regression)", () => {
+      render(<JadeFlowsTab result={makeResult(manyPwEdgesKnownPlantWarehouse(11))} dataset={dataset} bands={bands} />);
+      const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
+      expect(row).toHaveTextContent("Bethlehem, PA");
+      expect(row).not.toHaveTextContent("PLANT-1-CODE");
     });
   });
 });

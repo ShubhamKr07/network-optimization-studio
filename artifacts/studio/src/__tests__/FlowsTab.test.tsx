@@ -108,4 +108,60 @@ describe("FlowsTab", () => {
       expect(row).not.toHaveTextContent(",");
     });
   });
+
+  // workspace-fixups-2, T10 (item 2) — identityById compat resolver
+  describe("identityById (workspace-fixups-2, T10, item 2)", () => {
+    it("prefers identityById over locationById for both From and To cells", () => {
+      render(
+        <FlowsTab
+          result={jadeResult}
+          scenarioId={1}
+          locationById={{ "plant-1": { city: "Old", state: "XX" } }}
+          identityById={{
+            "plant-1": { city: "Bethlehem", state: "PA", displayId: "PLANT-1-CODE" },
+            "wh-11": { city: "Allentown", state: "PA", displayId: "WH-11-CODE" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("flow-row-plant-1-wh-11-product-1");
+      expect(row).toHaveTextContent("Bethlehem, PA");
+      expect(row).toHaveTextContent("PLANT-1-CODE");
+      expect(row).toHaveTextContent("Allentown, PA");
+      expect(row).toHaveTextContent("WH-11-CODE");
+    });
+
+    // DoD: at least one previously-unwired NON-JADE model exercised — this
+    // suite's transportResult (transport-coal, no `leg`, never passed
+    // locationById by any existing caller) is exactly that case.
+    it("shows an added FACILITY's display code via identityById for a non-JADE (transport-coal) result", () => {
+      render(
+        <FlowsTab
+          result={transportResult}
+          scenarioId={1}
+          identityById={{ KY: { city: "Central City", state: "KY", displayId: "MINE-KY-01" } }}
+        />,
+      );
+      const row = screen.getByTestId("flow-row-KY-CHI");
+      expect(row).toHaveTextContent("MINE-KY-01");
+      expect(row).toHaveTextContent("Central City, KY");
+    });
+
+    it("falls back to displayId, then the canonical id, on a lookup miss", () => {
+      render(
+        <FlowsTab
+          result={transportResult}
+          scenarioId={1}
+          identityById={{ "some-other-id": { city: "X", state: "Y", displayId: "Z" } }}
+        />,
+      );
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("KY");
+    });
+
+    it("with identityById unset, output is byte-unchanged from before this task (no-regression)", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} />);
+      const row = screen.getByTestId("flow-row-KY-CHI");
+      expect(row).toHaveTextContent("KY");
+      expect(row).not.toHaveTextContent(",");
+    });
+  });
 });

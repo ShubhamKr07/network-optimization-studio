@@ -3,6 +3,27 @@ import { Marker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import { warehouseStatusPresentation, type WhStatus } from "./statusPresentation";
 import { demandTone, makeQuintileRadius, type DemandTone, type MapWarehouse, type MapCustomer, type MapPlant, type MapEntity } from "./types";
+import { formatCityState } from "@/lib/formatLocation";
+
+// T5 (workspace-fixups-2, item 4) — marker-type label by role. A "wh"-kind
+// (triangle) row is Warehouse-shaped for every model except transport-coal
+// (mines — the model's own vocabulary: its Warehouses input tab is literally
+// titled "Mines") and two-echelon-gold-au (refineries); a "cs"-kind (bubble)
+// row is Customer-shaped for every model except transport-coal (stations).
+// This distinction genuinely requires `modelId` — EntityMarkers' own
+// MapWarehouse/MapCustomer rows carry no per-model discriminator (unlike
+// NetworkMap's dataset.warehouses, which has a `kind` field for the
+// mine/facility split).
+export function warehouseTypeLabel(modelId: string | undefined): string {
+  if (modelId === "transport-coal") return "Mine";
+  if (modelId === "two-echelon-gold-au") return "Refinery";
+  return "Warehouse";
+}
+
+export function customerTypeLabel(modelId: string | undefined): string {
+  if (modelId === "transport-coal") return "Station";
+  return "Customer";
+}
 
 export interface EntityMarkersToggles {
   warehouses: boolean;
@@ -58,9 +79,14 @@ export interface EntityMarkersProps {
   onRightClick: (entity: MapEntity, e: L.LeafletMouseEvent) => void;
   onDragEnd: (entity: MapEntity, latlng: { lat: number; lng: number }) => void;
   draggableIds: Set<string>;
-  /** Unused since R1's fast-follow (types.ts's demandTone is green for every
-   * model now) — kept only so existing/future call sites that still pass a
-   * modelId don't need to be touched. */
+  /** No longer used by `demandTone` (types.ts's demandTone is green for
+   * every model now, since R1's fast-follow) — but T5 (workspace-fixups-2,
+   * item 4) revives this for the marker Tooltip's `<Type>` label
+   * (warehouseTypeLabel/customerTypeLabel above), since a "wh"/"cs" rendering
+   * role alone can't distinguish e.g. a transport-coal mine/station from a
+   * plain warehouse/customer. Optional, default `"p-median-us"` so every
+   * existing caller/test literal that omits it keeps rendering "Warehouse"/
+   * "Customer" exactly as before. */
   modelId?: string;
 }
 
@@ -202,7 +228,9 @@ export function EntityMarkers({
               zIndexOffset={1000}
             >
               <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                <span className="font-semibold text-xs">{pl.displayCode}</span>
+                <span className="font-semibold text-xs">
+                  Plant · {pl.displayCode || pl.id} · {formatCityState(pl.city, pl.state)}
+                </span>
               </Tooltip>
             </Marker>
           );
@@ -228,7 +256,9 @@ export function EntityMarkers({
               zIndexOffset={1000}
             >
               <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                <span className="font-semibold text-xs">{wh.displayCode}</span>
+                <span className="font-semibold text-xs">
+                  {warehouseTypeLabel(modelId)} · {wh.displayCode || wh.id} · {formatCityState(wh.city, wh.state)}
+                </span>
               </Tooltip>
             </Marker>
           );
@@ -246,7 +276,9 @@ export function EntityMarkers({
               eventHandlers={bindEventHandlers(entity)}
             >
               <Tooltip direction="top" offset={[0, -6]} opacity={1}>
-                <span className="font-semibold text-xs">{cs.displayCode}</span>
+                <span className="font-semibold text-xs">
+                  {customerTypeLabel(modelId)} · {cs.displayCode || cs.id} · {formatCityState(cs.city, cs.state)}
+                </span>
               </Tooltip>
             </Marker>
           );

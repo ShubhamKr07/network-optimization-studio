@@ -1187,3 +1187,98 @@ describe("DistancesTab — Chen city-only label (locationById, state: \"\")", ()
     expect(row).not.toHaveTextContent("Guangzhou");
   });
 });
+
+// T11 (workspace-fixups-2, item 2) — the `identityById` compatibility
+// resolver + the `>10` UPGRADE rule for a table that previously had NO
+// location source at all (p-median-us/brazil's own DistancesTab path, unlike
+// Chen's already-rich `locationById` path exercised above).
+describe("DistancesTab — T11 identityById upgrade (item 2)", () => {
+  function buildRows(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      fromId: `WH${String(i + 1).padStart(2, "0")}`,
+      toId: `C${String(i + 1).padStart(3, "0")}`,
+      distance: 100 + i,
+    }));
+  }
+
+  it("no-regression: with identityById UNSET, an 11-row table (past the >10 threshold) stays bare-id, byte-unchanged", () => {
+    const rows = buildRows(11);
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        warehouseIds={rows.map(r => r.fromId)}
+        customerIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).toHaveTextContent("WH01");
+    expect(row).toHaveTextContent("C001");
+  });
+
+  it("does NOT upgrade at exactly 10 rows (boundary) even with identityById present", () => {
+    const rows = buildRows(10);
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        warehouseIds={rows.map(r => r.fromId)}
+        customerIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+        identityById={{
+          WH01: { city: "Newtown", state: "PA", displayId: "WH-A" },
+          C001: { city: "Fairfax", state: "VA", displayId: "C-A" },
+        }}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).not.toHaveTextContent("Newtown");
+    expect(row).toHaveTextContent("WH-A");
+  });
+
+  it("upgrades to the stacked City/State + mono display-id cell once the unfiltered row count exceeds 10 AND identityById is provided, reflecting a LIVE (unsaved) add/move", () => {
+    const rows = buildRows(11);
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        warehouseIds={rows.map(r => r.fromId)}
+        customerIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+        // Simulates Workspace.tsx's `inputIdentityById` — the LIVE draft, so
+        // an entity just added/moved shows its current location immediately.
+        identityById={{
+          WH01: { city: "Newtown", state: "PA", displayId: "WH-A" },
+          C001: { city: "Fairfax", state: "VA", displayId: "C-A" },
+        }}
+      />,
+    );
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).toHaveTextContent("Newtown, PA");
+    expect(row).toHaveTextContent("WH-A");
+    expect(row).toHaveTextContent("Fairfax, VA");
+    expect(row).toHaveTextContent("C-A");
+    // The raw ids are no longer shown once a display code is known.
+    expect(row).not.toHaveTextContent("WH01");
+    expect(row).not.toHaveTextContent("C001");
+  });
+
+  it("a lookup miss (id not in identityById) falls back to the existing displayCodeById/canonical-id source, not blank", () => {
+    const rows = buildRows(11);
+    renderWithQueryClient(
+      <DistancesTab
+        distanceOverrides={rows}
+        savedDistanceOverrides={rows}
+        warehouseIds={rows.map(r => r.fromId)}
+        customerIds={rows.map(r => r.toId)}
+        onChange={vi.fn()}
+        identityById={{ WH01: { city: "Newtown", state: "PA", displayId: "WH-A" } }}
+      />,
+    );
+    // C001 has no identityById entry — falls back to the bare id (no crash,
+    // no blank cell).
+    const row = screen.getByTestId("row-distance-WH01-C001");
+    expect(row).toHaveTextContent("C001");
+  });
+});

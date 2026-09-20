@@ -112,6 +112,13 @@ interface OutputMapTabProps {
   // no caller has wired it yet, or the displayed entry has no matching
   // timing — INT's job, per spec §9).
   timing?: SolveTiming;
+  // T9 (workspace-fixups-2, item 4) — canonical id -> human display id,
+  // forwarded verbatim to NetworkMap's own `displayIdById` prop (T5). This
+  // tab has no opinion on where the map comes from — INT is responsible
+  // for supplying it from the solved-snapshot `outputIdentityById` (which
+  // already covers plants). Optional, default `{}` so every existing call
+  // site that hasn't wired it yet renders unchanged raw-id tooltips.
+  displayIdById?: Record<string, string>;
 }
 
 // A3.1 — Output Map tab: re-homes NetworkMap with independent layer toggles
@@ -128,7 +135,7 @@ interface OutputMapTabProps {
 export function OutputMapTab({
   dataset, warehouseStatuses, result, bands, countryBounds,
   addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false, modelId,
-  plants = [], timing,
+  plants = [], timing, displayIdById = {},
 }: OutputMapTabProps) {
   const [showWarehouses, setShowWarehouses] = useState(true);
   const [showCustomers, setShowCustomers] = useState(true);
@@ -412,6 +419,8 @@ export function OutputMapTab({
           visibleLegs={visibleLegs}
           plants={plants}
           showPlantMarkers={showPlants}
+          modelId={modelId}
+          displayIdById={displayIdById}
         />
       </div>
     </div>

@@ -178,6 +178,81 @@ describe("AssignmentsTab", () => {
     });
   });
 
+  // workspace-fixups-2, T10 (item 2) — identityById compat resolver
+  describe("identityById (workspace-fixups-2, T10, item 2)", () => {
+    it("prefers identityById over locationById/codeById for both customer and warehouse cells", () => {
+      render(
+        <AssignmentsTab
+          result={result}
+          scenarioId={1}
+          locationById={{ C1: { city: "Old City", state: "OS" } }}
+          displayedInputs={{ addedWarehouses: [{ id: "ALN", displayCode: "OLD-CODE" }] }}
+          identityById={{
+            C1: { city: "Springfield", state: "IL", displayId: "CUST-C1" },
+            ALN: { city: "Allentown", state: "PA", displayId: "WH-ALN-NEW" },
+          }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-C1");
+      expect(row).toHaveTextContent("Springfield, IL");
+      expect(row).toHaveTextContent("CUST-C1");
+      expect(row).toHaveTextContent("Allentown, PA");
+      expect(row).toHaveTextContent("WH-ALN-NEW");
+    });
+
+    it("shows an added CUSTOMER's display code (not the canonical uid) via identityById", () => {
+      const withAddedCustomer = {
+        ...result,
+        edges: [{ fromId: "ALN", toId: "ac-9", flow: 500, distance: 3 }],
+      };
+      render(
+        <AssignmentsTab
+          result={withAddedCustomer}
+          scenarioId={1}
+          identityById={{ "ac-9": { city: "Boise", state: "ID", displayId: "C-ID-BOISE-01" } }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-ac-9");
+      expect(row).toHaveTextContent("C-ID-BOISE-01");
+      expect(row).not.toHaveTextContent("ac-9");
+    });
+
+    it("shows an added FACILITY's display code (not the canonical uid) via identityById", () => {
+      const withAddedFacility = {
+        ...result,
+        edges: [{ fromId: "aw-9", toId: "C1", flow: 500, distance: 3 }],
+      };
+      render(
+        <AssignmentsTab
+          result={withAddedFacility}
+          scenarioId={1}
+          identityById={{ "aw-9": { city: "Denver", state: "CO", displayId: "WH-CO-DENVER-01" } }}
+        />,
+      );
+      const row = screen.getByTestId("assignment-row-C1");
+      expect(row).toHaveTextContent("WH-CO-DENVER-01");
+      expect(row).not.toHaveTextContent("aw-9");
+    });
+
+    it("falls back to displayId, then the canonical id, on a lookup miss (identityById has no entry for the id)", () => {
+      render(
+        <AssignmentsTab
+          result={result}
+          scenarioId={1}
+          identityById={{ "some-other-id": { city: "X", state: "Y", displayId: "Z" } }}
+        />,
+      );
+      expect(screen.getByTestId("assignment-row-C1")).toHaveTextContent("ALN");
+    });
+
+    it("with identityById unset, output is byte-unchanged from before this task (no-regression)", () => {
+      render(<AssignmentsTab result={result} scenarioId={1} />);
+      const row = screen.getByTestId("assignment-row-C1");
+      expect(row).toHaveTextContent("ALN");
+      expect(row).not.toHaveTextContent("Springfield");
+    });
+  });
+
   // B2.2-T6 — snapshot invariant
   it("does not reflect an unsaved localInputs-style edit that was never passed via displayedInputs", () => {
     // Same rationale as OpenWarehousesTab's equivalent test: this component
