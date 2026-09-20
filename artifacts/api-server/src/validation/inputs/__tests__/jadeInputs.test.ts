@@ -88,9 +88,18 @@ describe("jadeInputsSchema — distanceBands (one or more strictly-ascending pos
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0].message).toBe(
-        "distanceBands must be one or more strictly-ascending positive integers",
+        "distanceBands must be one or more strictly-ascending positive numbers",
       );
     }
+  });
+
+  // T3b-JADE: dropped .int() so a km->mi unit conversion (e.g. 500 km ->
+  // 310.6856 mi) doesn't get silently rejected — bands are a reporting lens,
+  // integrality was never load-bearing. Union with fixups-2's .min(1)
+  // cardinality relaxation (spec decision 1j, amended).
+  it("accepts a non-integral band produced by a unit conversion", () => {
+    const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [310.6856, 621.3712] });
+    expect(result.success).toBe(true);
   });
 
   it("rejects non-strictly-ascending bands (a repeated value)", () => {
@@ -100,6 +109,11 @@ describe("jadeInputsSchema — distanceBands (one or more strictly-ascending pos
 
   it("rejects a non-positive band", () => {
     const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [0, 400, 800, 1600] });
+    expect(result.success).toBe(false);
+  });
+
+  it("still rejects a negative band even though .int() is gone", () => {
+    const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [-5, 400, 800, 1600] });
     expect(result.success).toBe(false);
   });
 
