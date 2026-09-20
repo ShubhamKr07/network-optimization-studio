@@ -1382,7 +1382,7 @@ git commit -m "[T10] UnitContext + UnitToggle + AppShell mount + formatObjective
 
 Also owns the two output grids that were missing from this list (plan-review-4 #3): **`components/workspace/tabs/AssignmentsTab.tsx`** (defaults `distanceUnit = "mi"` at line 107, renders `Distance ({distanceUnit})` at 137) and **`components/workspace/tabs/FlowsTab.tsx`** (hardcodes `Distance (mi)` at line 78), plus `AssignmentsTab.test.tsx` and `FlowsTab.test.tsx`. Both must appear in this task's implementation step, grep guard, gate and commit pathspec.
 
-**Explicitly NOT this task's files:** `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab` (T12 owns both their read and write halves); `ServiceStatsTab`, `OptimizationParametersTab`, `SolveDialog`, `JadeBandEditor` (T13 owns both halves). Export **button** wiring in any tab belongs to T11b, not here — T11 changes only distance rendering. **`Studio.tsx` is excluded entirely (dead code).**
+**Explicitly NOT this task's files:** `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab` (T12 owns both their read and write halves); `ServiceStatsTab`, `OptimizationParametersTab`, `SolveDialog`, `JadeBandEditor` (T13 owns both halves). Export **button** wiring in any tab belongs to **T14b**, not here — T11 changes only distance rendering. **`Studio.tsx` is excluded entirely (dead code).**
 
 - [ ] **Step 1: Failing tests** — spec tests 11b, 12: a delayed-manifest Chen **read** renders a placeholder, never a number or an `mi` label, until the canonical unit is authoritative; non-distance fields (demand, `coverageFloorDemand`, `p`, gap, time, JADE monetary objective) are untouched by the toggle.
 
@@ -1430,17 +1430,14 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
 - Modify: `artifacts/studio/src/lib/exportEntity.ts` (signature only)
 - Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx`
 
-**Task 14b** (below) owns the consumer conversion — **the 15 production tab files holding the 24 `downloadEntityExport` calls** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
-- Modify: **`JadeFlowsTab.tsx` — the two exceptional client-generated CSV controls** (`handleDownloadPw`, `handleDownloadWc`, built on a local `downloadClientCsv`, lines ~136/210/218). It calls `downloadEntityExport` **nowhere**, so a mechanical helper-conversion would silently leave both JADE flow downloads bypassing server-owned conversion, `unit=`, `runId`, the v3 schema and history addressing (plan-review-5 #3).
-- Create: `artifacts/studio/src/__tests__/helpers/renderWithExportProvider.tsx`
-- Test: `artifacts/studio/src/__tests__/ExportContext.test.tsx` + **every existing test that renders one of the 16 export-control tabs** — at minimum `AssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab` tests (plan-review-6 #2)
+**This Files block is complete — T11b touches no tab file.** The 16 export-control tabs and their tests belong to **Task 14b** (plan-review-8 #4).
 
 **Why this task exists (plan-review-4 #1).** `downloadEntityExport` takes only `(scenarioId, entity, format)`, and **the export buttons live in the tabs** — **24 direct call sites across 15 production files, plus JADE's two client-generated CSVs** (26 controls total) — not in `Workspace`. T14 owns only `Workspace.tsx` — **`exportEntity.ts` is this task's file** — so T14 cannot reach those controls. Without this task nothing can supply: the effective unit when `pref === "auto"` (needs the model's canonical unit), the displayed history entry's `runId`, or whether *this* control must be disabled because the selected entry is unaddressable.
 
 **Design (locked): a context, not prop-threading.** Prop-threading `{unit, runId, disabledReason}` through 16 components is exactly the per-call-site allowlist this repo keeps regressing on. `Workspace` (T14) populates one `ExportProvider`; every control reads it.
 
 **Interfaces:**
-- Consumes: `useDisplayUnit()` (T10).
+- Consumes: nothing. The context receives an already-resolved `ExportProviderValue`; **Task 14 is the layer that consumes `useDisplayUnit()`** and resolves `auto` (plan-review-8 #3).
 - Produces — **the single complete contract; Task 14 populates this verbatim** (plan-review-6 #1: an earlier draft declared a non-null `unit`, one `disabledReason` and no `scenarioId` here while Task 14 supplied `null` and two reasons — two incompatible snippets that could not typecheck, and whose `download()` could not call `downloadEntityExport(scenarioId, …)`):
 
   ```ts
@@ -1504,21 +1501,31 @@ git commit -m "[T11] route every read-path distance and unit label through useDi
   });
   ```
 
-- [ ] **Step 1: Failing tests**
+- [ ] **Step 1: Failing tests — context-only (plan-review-8 #2)**
+
+This task changes **no** consumer, so it must not assert consumer behavior. Every production-control assertion (disabled state, accessible label, request fired, the legacy-latest→history transition, `JadeFlowsTab`'s two server downloads) belongs to **Task 14b**; provider-input derivation belongs to **Task 14**. Here the state is injected and only the context is exercised.
 
 ```ts
 it("appends unit= on EVERY entity, including non-distance ones", () => {});          // spec 14b
 // NOTE: `auto` -> canonical and forced-km/mi RESOLUTION are asserted in Task 14,
 // which is the only place holding both the display preference and the model's
 // canonical unit (plan-review-7 #2). Here the unit is injected directly.
-it("omits runId on the latest entry", () => {});
-it("sends the displayed entry's runId while browsing addressable history", () => {});
-it("disables + labels result downloads when the selected entry is unaddressable", () => {});
-it("DISABLES every input-entity download while browsing history, addressable or not", () => {});  // spec 1k
-it("re-enables every control once the latest entry is selected again", () => {});
-it("JadeFlowsTab's two inner tabs download the combined server flows artifact, not a client CSV", () => {});
+it("forwards runId to the helper when injected, and omits it when undefined", () => {});
+it("disabledReasonFor routes a RESULT entity to resultDisabledReason", () => {});
+it("disabledReasonFor routes an INPUT entity to inputDisabledReason", () => {});     // spec 1k
+it("disabledReasonFor reports the unresolved reason ahead of either family", () => {});
+it("download() refuses to fire when scenarioId is null", () => {});
+it("download() refuses to fire when unit is null", () => {});
+it("download() refuses to fire when the entity is disabled", () => {});
+it("useExport() throws without a provider", () => {});
+it("the hook result is a complete ExportApi (state + disabledReasonFor + download)", () => {});
 ```
-Cover at least one distance output (`assignments`), one input export (`distances`), and one non-distance entity (`warehouses`) across `auto` / forced `km` / forced `mi` / addressable history / unaddressable history.
+**Unit-state boundaries (plan-review-8 #3).** `ExportProviderValue.unit` is already resolved and admits only `"km" | "mi" | null` — **`"auto"` is not a legal value here**. So:
+- **T11b (this task):** injected resolved `"km"`, injected resolved `"mi"`, injected unresolved `null`.
+- **T14:** `auto → canonical` and forced `km`/`mi` **resolution**.
+- **T14b:** that the resolved value actually reaches real controls.
+
+Cover at least one distance output (`assignments`), one input export (`distances`) and one non-distance entity (`warehouses`) across those three injected unit states.
 
 - [ ] **Step 2: Implement `ExportContext`** — `download()` calls `downloadEntityExport(scenarioId, entity, format, { unit, runId })` with `unit` always appended and `runId` appended only when defined, after the hard guard above. `disabledReasonFor` is the sole family classifier:
 
@@ -1580,8 +1587,12 @@ Add a guard test asserting **no result CSV is generated client-side** anywhere a
 
 ```tsx
 // __tests__/helpers/renderWithExportProvider.tsx
-export function renderWithExportProvider(ui: ReactElement, overrides: Partial<ExportApi> = {}) {
-  return render(<ExportProvider value={{ scenarioId: 1, unit: "mi", ...overrides }}>{ui}</ExportProvider>);
+export function renderWithExportProvider(
+  ui: ReactElement,
+  overrides: Partial<ExportProviderValue> = {},   // NOT Partial<ExportApi> — the
+) {                                               // provider accepts state only
+  const value: ExportProviderValue = { scenarioId: 1, unit: "mi", ...overrides };
+  return render(<ExportProvider value={value}>{ui}</ExportProvider>);
 }
 ```
 
@@ -1601,36 +1612,13 @@ git commit -m "[T11b] ExportContext + provider-test helper + downloadEntityExpor
 
 ---
 
-### Task 14b: Convert all 26 export controls to the mounted provider
-
-**Runs after Task 14** so `ExportProvider` already wraps the tab area — no intermediate commit ever contains a throwing consumer (plan-review-7 #2).
-
-**Files:** the 15 helper-calling tab files + `JadeFlowsTab.tsx` (its two client CSVs) + every affected tab test, per the inventory and Steps 4–4d above.
-
-- [ ] **Step 1: Execute Steps 4, 4b, 4c and 4d** exactly as written in Task 11b.
-
-- [ ] **Step 2: Gate + commit**
-
-```bash
-# The gate must cover every migrated tab test, including JadeFlowsTab (client-CSV
-# removal) and an input exporter such as DistancesTab (spec 1k disabling).
-pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab JadeFlowsTab ServiceStatsTab \
-  CostSummaryTab OpenWarehousesTab JadeAssignmentsTab DistancesTab LegDistancesTab \
-  JadeDistancesTab LaneCostsTab WarehousesTab CustomersTab MinesTab StationsTab PlantsTab
-pnpm --filter studio test && pnpm run typecheck
-git commit -m "[T14b] route all 26 export controls through the mounted ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs)" -- \
-  artifacts/studio/src/components/workspace/tabs artifacts/studio/src/__tests__
-```
-
----
-
 ### Task 12: Write-path draft contract
 
 **Files — exactly the T12 row of the Wave 4 ownership table:**
 - Modify: `components/workspace/tabs/DistancesTab.tsx`, `LegDistancesTab.tsx`, `LaneCostsTab.tsx`, `JadeDistancesTab.tsx` — **both halves of each**: the reference/existing-row *display* cells and the edit/add *write* paths
 - Test: the matching `__tests__` files
 
-`useDistanceDraft` is **created in T10** and merely consumed here (plan-review-2 #1). `OptimizationParametersTab`, `SolveDialog` and `JadeBandEditor` belong to T13. Export **button** wiring belongs to T11b.
+`useDistanceDraft` is **created in T10** and merely consumed here (plan-review-2 #1). `OptimizationParametersTab`, `SolveDialog` and `JadeBandEditor` belong to T13. Export **button** wiring belongs to **T14b**.
 
 - [ ] **Step 1: Failing tests** — spec tests 11, 11b, 11c. Each grammar token explicitly:
 
@@ -1749,7 +1737,9 @@ it("dirty-nav prompt: a REJECTED Save leaves everything exactly as it was", asyn
   expect(screen.getByTestId("save-error")).toBeVisible();// the save error is still reported
 });
 
-it("legacy LATEST result stays exportable; the same entry goes non-exportable once it is history", async () => {
+// NOTE: moved to Task 14b (plan-review-8 #2) — at the T14 commit the controls
+// still call downloadEntityExport directly and do not consume the context.
+it.todo("legacy LATEST result stays exportable; the same entry goes non-exportable once it is history", async () => {
   // resultRunId === null while it IS the latest:
   expect(downloadControl()).toBeEnabled();
   expect(lastExportRequest().searchParams.has("runId")).toBe(false);
@@ -1822,8 +1812,9 @@ T11b defines the provider; nothing mounts it without this step. `Workspace` wrap
 // DISABLED in that state, never given a fallback (the same no-fallback rule
 // Step 6a applies to every other distance path).
 const canonicalUnit = activeModelManifest?.distanceUnit ?? null;   // "km" | "mi" | null
-const exportValue: ExportApi = {
-  scenarioId: currentScenario?.id ?? null,        // null => download() refuses to fire
+const exportValue: ExportProviderValue = {       // state only — the provider
+  scenarioId: currentScenario?.id ?? null,        // adds disabledReasonFor/download
+                                                  // null => download() refuses to fire
   unit: canonicalUnit == null ? null : effectiveUnit(pref, canonicalUnit),
   runId: isBrowsingHistory ? displayedEntry?.runId : undefined,
   resultDisabledReason: isBrowsingHistory && displayedEntry?.runId == null
@@ -1835,7 +1826,7 @@ const exportValue: ExportApi = {
 };
 ```
 
-This object matches T11b's `ExportApi` **exactly** — `scenarioId`, `unit: ExportUnit`, `runId`, both family reasons; `disabledReasonFor` and `download` come from the provider itself. `download()` refuses to fire while `scenarioId` or `unit` is `null`.
+This object is a complete **`ExportProviderValue`** — `scenarioId`, `unit: ExportUnit`, `runId`, both family reasons — and deliberately **not** an `ExportApi`: `disabledReasonFor` and `download` are added by the provider, so typing this state object as `ExportApi` would not compile (plan-review-8 #1). Tests assert the complete `ExportProviderValue` **input** here, and the complete `ExportApi` **hook result** in Task 11b.
 
 Tests:
 ```ts
@@ -1845,7 +1836,7 @@ it("sets resultDisabledReason only for an unaddressable historical entry", () =>
 it("sets inputDisabledReason for ANY historical entry", () => {});
 it("disables export controls entirely while the manifest is unresolved (no fallback unit)", () => {});
 it("passes scenarioId, and disables everything when no scenario is selected", () => {});
-it("supplies a value matching ExportApi exactly (shape assertion, not a subset)", () => {});
+it("supplies a complete ExportProviderValue (shape assertion, not a subset)", () => {});
 ```
 
 - [ ] **Step 7: Run-id threading** — `ResultHistoryEntry` gains `runId?: number`; the seed takes `currentScenario.resultRunId`; a new solve attaches the polling job id **independently of `timing`**; **an entry with no `runId` is non-exportable ONLY once it is no longer the latest** (plan-review #4). A legacy *latest* result must still export through the existing latest-result path with `runId` omitted — the spec's Part F rule is narrower than "any null runId is disabled". Lock it as:
@@ -1869,6 +1860,43 @@ git commit -m "[T14] Workspace integration — band lens, history action matrix,
   artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx \
   artifacts/studio/src/__tests__
 ```
+
+### Task 14b: Convert all 26 export controls to the mounted provider
+
+**Runs after Task 14** so `ExportProvider` already wraps the tab area — no intermediate commit ever contains a throwing consumer (plan-review-7 #2).
+
+**Files (self-contained; creates none of T11b's files):**
+- Modify: the **15 helper-calling tab files** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+- Modify: **`JadeFlowsTab.tsx`** — its two client-generated CSV controls (`handleDownloadPw`, `handleDownloadWc`, on a local `downloadClientCsv`, lines ~136/210/218). It calls `downloadEntityExport` **nowhere**, so a mechanical helper-conversion would leave both JADE downloads bypassing server conversion, `unit=`, `runId`, v3 and history addressing (plan-review-5 #3).
+- Test: **every existing test rendering one of those 16 tabs**, migrated to `renderWithExportProvider` (created by T11b) — `AssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+
+- [ ] **Step 1: Execute Steps 4, 4b, 4c and 4d** exactly as written in Task 11b.
+
+- [ ] **Step 1b: All production-control assertions live here (plan-review-8 #2)** — they cannot pass earlier, because no control consumes the context until this task:
+
+```ts
+it("a result control issues a request on the latest entry and is disabled once historical+unaddressable", () => {});
+it("every INPUT control is visibly disabled and accessibly labelled while browsing history", () => {});   // spec 1k
+it("all controls re-enable once the latest entry is selected again", () => {});
+it("JadeFlowsTab's two inner tabs download the combined server flows artifact, not a client CSV", () => {});
+it("a disabled control fires no network call", () => {});
+it("the resolved provider unit reaches the request as unit=", () => {});
+```
+
+- [ ] **Step 2: Gate + commit**
+
+```bash
+# The gate must cover every migrated tab test, including JadeFlowsTab (client-CSV
+# removal) and an input exporter such as DistancesTab (spec 1k disabling).
+pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab JadeFlowsTab ServiceStatsTab \
+  CostSummaryTab OpenWarehousesTab JadeAssignmentsTab DistancesTab LegDistancesTab \
+  JadeDistancesTab LaneCostsTab WarehousesTab CustomersTab MinesTab StationsTab PlantsTab
+pnpm --filter studio test && pnpm run typecheck
+git commit -m "[T14b] route all 26 export controls through the mounted ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs)" -- \
+  artifacts/studio/src/components/workspace/tabs artifacts/studio/src/__tests__
+```
+
+---
 
 ### Task 15: QA — real browser (standing plan rule)
 
@@ -2458,3 +2486,108 @@ and a runtime test proving the arrays are disjoint and contain no duplicates. Th
 ### Seventh re-review exit criteria
 
 Approval requires all five findings to be folded into the normative tasks rather than acknowledged only here. Separate provider input state from the hook API; make provider mounting and throwing-consumer conversion atomic; bind `disabledReasonFor(entity)` to every input and result control's disabled and accessible-label state; remove the misplaced Task 9 frontend step; and replace the ineffective entity assertion with real compile-time completeness plus runtime uniqueness/disjointness checks. Then run `git diff --check`, validate the task graph one commit at a time, and re-review against spec decisions 1g, 1k, 5b, and Parts E–F.
+
+---
+
+## Appendix — eighth approval re-review comments (2026-09-20, `4185103`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All five folded — see `plan-review-8 #N` markers.)* The seventh-review revision fixes the entity-partition assertion, universal disabled-state binding, the Task 9 leak, and the high-level three-stage sequencing. The worktree was clean and `git diff --check HEAD^ HEAD` passed. However, the normative task text still contains two implementation blockers plus three ownership/order inconsistencies.
+
+### 1. BLOCKER — `ExportProviderValue` was declared but not used at its two construction sites
+
+Task 11b correctly separates provider input state from the API returned by the hook:
+
+```ts
+interface ExportProviderValue { /* state fields */ }
+interface ExportApi extends ExportProviderValue {
+  disabledReasonFor(...): string | undefined;
+  download(...): Promise<void>;
+}
+```
+
+But the shared helper still declares `overrides: Partial<ExportApi>` and passes an object containing only `scenarioId`, `unit`, and optional overrides to `ExportProvider`. Task 14 likewise still declares:
+
+```ts
+const exportValue: ExportApi = {
+  scenarioId,
+  unit,
+  runId,
+  resultDisabledReason,
+  inputDisabledReason,
+};
+```
+
+That object still omits `disabledReasonFor` and `download`, so the plan remains non-type-checking despite introducing the correct state type.
+
+Apply the split everywhere:
+
+```tsx
+export function renderWithExportProvider(
+  ui: ReactElement,
+  overrides: Partial<ExportProviderValue> = {},
+) {
+  const value: ExportProviderValue = { scenarioId: 1, unit: "mi", ...overrides };
+  return render(<ExportProvider value={value}>{ui}</ExportProvider>);
+}
+```
+
+and in Task 14:
+
+```ts
+const exportValue: ExportProviderValue = { /* state only */ };
+```
+
+Update the accompanying prose/tests to assert the complete `ExportProviderValue` input separately from the complete `ExportApi` returned by `useExport()`. Do not say a state-only value “matches `ExportApi` exactly.”
+
+### 2. BLOCKER — tests still execute before the components they specify exist
+
+The new split says:
+
+- T11b creates the context/signature with **zero consumers**;
+- T14 mounts an inert provider;
+- T14b converts all 26 controls.
+
+But T11b's Step 1 still demands UI/component behavior: disabled and labelled result controls, disabled input controls, re-enabled controls, and `JadeFlowsTab` replacing its client CSV. None of those consumers is changed until T14b, and T11b's file list/gate contains only `ExportContext.test.tsx`. Those assertions cannot be implemented or pass in T11b.
+
+Task 14 has the same sequencing error. Its explicit legacy-result test expects a real download control to issue a request when latest and become disabled once historical. At the T14 commit, the controls still call `downloadEntityExport` directly and do not consume the newly mounted context; that behavior exists only after T14b.
+
+Move tests with their implementation:
+
+- **T11b:** context-only tests of injected state, `disabledReasonFor`, download hard guards, query option forwarding, and the provider/hook shape split;
+- **T14:** provider-input derivation tests (`effectiveUnit`, `scenarioId`, `runId`, and both family reasons), using a small context probe if necessary, but no production-control assertions;
+- **T14b:** every production-button disabled/accessible-label assertion, request assertion, legacy-latest-to-history transition, and the two `JadeFlowsTab` server-download assertions.
+
+Alternatively combine T14 and T14b into one atomic task, but do not require a task to test behavior implemented only by a later task.
+
+### 3. HIGH — T11b's matrix still requires an impossible `auto` value
+
+The note above T11b's tests correctly says `auto`/forced-unit **resolution** belongs to T14 because only `Workspace` holds the preference and canonical unit. The following coverage sentence nevertheless still requires T11b cases “across `auto` / forced `km` / forced `mi`.”
+
+`ExportProviderValue.unit` is already resolved and accepts only `"km" | "mi" | null`; `"auto"` is not a legal value. Make the boundaries explicit:
+
+- T11b tests injected resolved `km`, resolved `mi`, and unresolved `null`;
+- T14 tests `auto → canonical` and forced `km`/`mi` resolution;
+- T14b tests that the resolved provider value reaches actual controls.
+
+Also remove T11b's stale `Consumes: useDisplayUnit()` statement: the context consumes injected `ExportProviderValue`; Task 14 is the layer that consumes the display-unit preference.
+
+### 4. MEDIUM — ownership references and the T11b file inventory remain stale
+
+T11 and T12 still say export-button wiring belongs to T11b, although the revised ownership table assigns it to T14b. Update every such reference to T14b.
+
+The T11b Files section also mixes the two task scopes: after listing T11b's four files, it adds T14b's production files as `Modify` bullets and repeats creation of `renderWithExportProvider` and testing of `ExportContext`. That makes it ambiguous which task owns and commits those paths.
+
+Give each task a self-contained Files block:
+
+- T11b: `ExportContext.tsx`, `exportEntity.ts`, the shared render helper, and `ExportContext.test.tsx` only;
+- T14b: the exact 16 tab files plus every affected tab/Workspace test, with no repeated creation of T11b files.
+
+### 5. MEDIUM — Task 14b is physically placed before Tasks 12, 13, and 14
+
+Task 14b explicitly says it runs after T14, and the wave diagram agrees, but its full task section appears immediately after T11b and before Tasks 12, 13, and 14. A top-to-bottom executor encounters it before its provider dependency and before several of its tab files receive their T12/T13 edits.
+
+Move the complete Task 14b section after Task 14. This makes document order match dependency order and ensures T14b edits the final T11/T12/T13 versions of the shared tab files.
+
+### Eighth re-review exit criteria
+
+Approval requires all five comments to be folded into the normative plan, not merely recorded here. Use `ExportProviderValue` at every provider-input construction site; allocate context, provider-derivation, and production-control tests to T11b, T14, and T14b respectively; remove `auto` and `useDisplayUnit()` from the context-only task; give T11b and T14b unambiguous file ownership; and place T14b after T14 in both the dependency map and document order. Then run `git diff --check` and validate that each task's declared files, tests, gate, and commit can succeed at that exact point in the sequence.
