@@ -49,7 +49,7 @@ The gap is therefore not knowledge of the rule. Nothing *stops* a shared-worktre
 
 - No daemon, no lock service, no serialization of agent execution. The guard observes; the dispatch tooling prevents.
 - No change to how tasks are reviewed, cherry-picked, or gated.
-- No automated `git branch -D`. Ever.
+- No automated branch deletion outside the proven, registry-scoped reaper path defined in §7.2.1 (D8).
 - No removal of any worktree that fails proof.
 
 ## 3. Decisions
@@ -65,6 +65,7 @@ These were settled during the brainstorm and are normative for the implementatio
 | D5 | Automated removal requires proof (§7). Anything failing proof is reported, never removed. |
 | D6 | The implementation is a `PreToolUse` Bash/Write/Edit hook backed by a run registry, with a git `pre-commit` backstop. Git-native hooks alone were rejected: git has no `pre-reset` or `pre-checkout` hook, so it is structurally blind to the operation that caused I2. |
 | D7 | Scope includes the 54-worktree backlog triage, gate-run process hygiene, pnpm-store serialization, and the `CLAUDE.md` corrections. |
+| D8 | Automated branch deletion uses `git branch -D` gated on a passing `git merge-base --is-ancestor <branch> main` proof, because `git branch -d` validates against the current worktree's HEAD and therefore refuses every reap while `main` is unchecked-out. Outside that proven, registry-scoped path, `-D` stays forbidden. See §7.2.1. |
 
 ## 4. Verified platform contracts
 
@@ -192,12 +193,28 @@ pnpm harness:worktree add --task T3 --agent frontend-engineer --paths <globs>
 `pnpm harness:worktree reap --task T3`, run by the controller immediately after its cherry-pick and re-gate. Removal proceeds only if all five proofs pass:
 
 1. `git -C <worktree> status --porcelain` is empty;
-2. `git cherry -v main <branch>` emits no `+` lines — every commit on the branch has an equivalent in `main` (`-` lines are equivalents and are expected; any `+` line is unmerged work and fails the proof);
+2. `git merge-base --is-ancestor <branch> main` exits 0 — the branch tip is contained in `main`. `git cherry -v main <branch>` is also recorded (any `+` line is unmerged work and fails the proof), but the exit-code check is the gate, because it is unambiguous and cheap;
 3. the path resolves (realpath) inside an allowed root and is not `primaryCheckout`;
 4. no live process has that path as its cwd;
 5. no other `sessionId` wrote to that worktree in the guard ledger within the last 10 minutes.
 
-On success: `git worktree remove <path>` then `git branch -d <branch>`. Never `rm -rf`. Never `git branch -D` — a branch that refuses `-d` is reported and left for a human, matching the existing branch-discipline rule. Any proof failure prints the failing check and removes nothing.
+On success: `git worktree remove <path>`, then branch deletion per D8 below. Never `rm -rf`. Any proof failure prints the failing check and removes nothing.
+
+### 7.2.1 Branch deletion — why `-d` alone cannot be the rule (D8)
+
+Found by dogfooding this design's own reaper on the worktree that produced this spec: `git branch -d` validates merged-ness against **the current worktree's HEAD**, not against `main`. With the branch fully contained in `main` and proof 2 passing, `-d` still refused:
+
+```
+error: the branch 'worktree-collision-prevention' is not fully merged
+```
+
+because the primary checkout's HEAD was an unrelated branch. Since `main` is normally not checked out in any worktree in this repo, a `-d`-only rule would fail on *every* reap — a permanently deadlocked cleanup path that guarantees the 54-worktree backlog recurs.
+
+**D8 — resolution.** The reaper deletes with `git branch -D <branch>`, permitted **only** when proof 2 (`git merge-base --is-ancestor <branch> main`) has passed in the same invocation and the branch is registry-scoped. `--is-ancestor` is a strictly stronger containment check than `-d` performs, so this is not a weakening of the safety rule — it replaces a HEAD-relative heuristic with an explicit `main`-relative proof. Every automated deletion writes a ledger record carrying the branch, its tip SHA, and the passing proof output.
+
+`git branch -D` remains **forbidden** outside this path: any branch that is not registry-scoped, or whose `--is-ancestor` proof fails, is reported and left for a human under the existing second-approval rule. `CLAUDE.md`'s branch-discipline amendment (§9, item 3) states this exception explicitly rather than leaving the two rules in silent conflict.
+
+R1 lists `branch -D` as a high-severity rewrite op, so the reaper's own deletion would self-trip the guard. The reaper therefore sets `WORKTREE_GUARD=reaper` on that one invocation; the hook classifies it as `reaper_delete` — ledgered with the proof, never warned, never blocked. This is a *narrow* exemption keyed to the script, not a general escape: a hand-typed `git branch -D` still fires R1.
 
 ### 7.3 GC sweep
 
@@ -236,7 +253,7 @@ Three edits to `CLAUDE.md`:
 
 1. **Replace the incorrect lesson at line 292.** The current text instructs agents in a shared worktree to commit with an explicit pathspec. Replacement states that no commit form is safe alongside another writer, and that the rule is one worktree per concurrent writer.
 2. **Add to Hard rules:** one worktree per concurrent writer; the controller is a writer too — "sequential dispatch" does not exempt the controller from the rule while an agent is running.
-3. **Amend Branch discipline** to permit proof-gated automated removal for registry-scoped worktrees (§7.2), leaving every other removal human-approved and keeping the `git branch -D` second-approval rule intact.
+3. **Amend Branch discipline** to permit proof-gated automated removal for registry-scoped worktrees (§7.2), and to state the D8 exception explicitly: `git branch -D` is permitted by the reaper only after a passing `git merge-base --is-ancestor <branch> main` proof on a registry-scoped branch. Every other branch deletion — and every worktree removal that fails proof — remains human-approved under the existing second-approval rule. Without this amendment the two rules sit in silent conflict and the cleanup path deadlocks.
 
 ## 10. Testing
 
@@ -262,7 +279,7 @@ Three edits to `CLAUDE.md`:
 1. Dispatching a bundle task through `pnpm harness:worktree add` produces a registered worktree, a named branch, and a prompt preamble, with no manual `git worktree add`.
 2. `git reset HEAD~1` issued in any worktree produces a guard warning naming the rule and instructing escalation, and a ledger record — without blocking, in advisory mode.
 3. A bare `git commit` in the primary checkout while a run is active fires R2 and R4 and names the conflicting owner.
-4. `reap` removes a merged task's worktree and branch when all five proofs pass, and removes nothing while any proof fails, naming the failing check.
+4. `reap` removes a merged task's worktree and branch when all five proofs pass — including the D8 branch-deletion path exercised against a branch whose commits are in `main` while `main` is not checked out anywhere — and removes nothing while any proof fails, naming the failing check.
 5. `report` classifies all existing worktrees into the four buckets without removing anything.
 6. A gate run warns about foreign dev-server processes before executing suites, and refuses to report a red result while the pnpm install lock is held.
 7. `CLAUDE.md:292`'s pathspec guidance is gone, replaced per §9.
