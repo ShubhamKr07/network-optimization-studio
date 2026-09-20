@@ -122,6 +122,7 @@ git log main -3 --name-only --pretty=format: | grep -vE '^docs/|^$'   # non-empt
 | T3b | may need a manifest-hash fixture update | `computeSha256()` hashes only `dataset/*.json`, never `manifest.json` | no fixture change needed — traced, not guessed |
 | T5 | literal YAML for the new PATCH | every sibling scenario route also documents `401` | added `401` for consistency |
 | T5 | — | `UpdateDistanceBandsBody` hit the same ambiguous star-export collision already documented for `ExportScenarioParams` | added an explicit re-export in `lib/api-zod/src/index.ts` (not generated code) |
+| T6 | file list named only `jobRunner.ts` + `jobRunner.test.ts` | `jobRunnerConcurrency.test.ts` mocks `@workspace/db` **independently** and had no `transaction` mock — the new `db.transaction()` threw, was swallowed by the worker pool's `.catch()`, and silently broke that file's concurrency assertion | added the same `transaction` mock; **a real regression the plan's file list would have missed** |
 
 ---
 
