@@ -303,4 +303,24 @@ describe("PlantsTab — FilterMenu, two independent tables (B7)", () => {
     expect(screen.getByText("Brisbane")).toBeInTheDocument();
     expect(screen.getByText("Toowoomba")).toBeInTheDocument();
   });
+
+  // T8 (Workspace fixups 2, item 3) — PlantsTab already mounts the base
+  // table's FilterMenu inside its own toolbar row (`ml-auto` sibling of the
+  // Download/Upload buttons); this locks that placement in as a regression
+  // guard once the base table has >10 rows.
+  it("base plants table with >10 rows: the FilterMenu trigger is inside the SAME toolbar row as the Import/Export buttons", () => {
+    const manyPlants = Array.from({ length: 12 }, (_, i) => ({
+      id: `plant-${i + 1}`,
+      name: `Plant ${i + 1}`,
+      city: `City${i + 1}`,
+      state: "QLD",
+      lat: -25 - i,
+      lng: 143 + i,
+    }));
+    render(<PlantsTab plants={manyPlants} />);
+    const toolbar = screen.getByTestId("plants-tab-toolbar");
+    expect(within(toolbar).getByTestId("button-export-plants-csv")).toBeInTheDocument();
+    expect(within(toolbar).getByTestId("button-import-plants")).toBeInTheDocument();
+    expect(within(toolbar).getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+  });
 });

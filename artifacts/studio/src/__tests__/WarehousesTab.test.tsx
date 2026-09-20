@@ -87,8 +87,10 @@ describe("WarehousesTab", () => {
     expect(screen.queryAllByRole("spinbutton").length).toBe(0);
   });
 
-  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu, threaded
-  // through to the underlying WarehouseTable.
+  // B6 (JADE Ch.9 Workspace Bundle, spec §10) — opt-in FilterMenu. T8
+  // (Workspace fixups 2, item 3) moved the actual `useTableFilters`/
+  // FilterMenu mount from WarehouseTable.tsx up into this tab's own toolbar
+  // row (see WarehouseTable.test.tsx's own note pointing here).
   describe("enableFilters (B6)", () => {
     const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
       id: `WH${i}`,
@@ -111,6 +113,48 @@ describe("WarehousesTab", () => {
     it("enableFilters=true with >10 rows: FilterMenu is shown", () => {
       render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
       expect(screen.getByTestId("button-filter-menu-trigger")).toBeInTheDocument();
+    });
+
+    it("filtering by ID (text) narrows the rendered base-table rows", async () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
+      await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+      await userEvent.type(screen.getByTestId("input-filter-id"), "WH1");
+      // "WH1" matches WH1, WH10, WH11 (substring match).
+      expect(screen.getByText("City1")).toBeInTheDocument();
+      expect(screen.getByText("City10")).toBeInTheDocument();
+      expect(screen.getByText("City11")).toBeInTheDocument();
+      expect(screen.queryByText("City2")).not.toBeInTheDocument();
+    });
+  });
+
+  // T8 (Workspace fixups 2, item 3) — the FilterMenu must sit on the SAME
+  // header row as the Import/Export toolbar (no orphaned second filter row
+  // above the table). Applies only to JADE-enabled tabs (enableFilters);
+  // non-JADE tabs render no FilterMenu at all — unchanged.
+  describe("FilterMenu placement (T8, item 3)", () => {
+    const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
+      id: `WH${i}`,
+      city: `City${i}`,
+      state: "IL",
+      lat: 41 + i * 0.01,
+      lng: -87 - i * 0.01,
+    }));
+
+    it("JADE-enabled tab: the FilterMenu trigger is inside the SAME toolbar row as the Import/Export buttons", () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} enableFilters />);
+      const toolbar = screen.getByTestId("warehouses-tab-toolbar");
+      // Import/Export buttons live in the toolbar...
+      expect(toolbar).toContainElement(screen.getByTestId("button-export-warehouses-csv"));
+      expect(toolbar).toContainElement(screen.getByTestId("button-import-warehouses"));
+      // ...and so does the FilterMenu trigger — one row, not a separate one.
+      expect(toolbar).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
+    });
+
+    it("non-JADE tab (enableFilters omitted): no FilterMenu anywhere, even with >10 rows", () => {
+      render(<WarehousesTab warehouses={manyWarehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+      expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+      // The toolbar still renders (Import/Export unaffected).
+      expect(screen.getByTestId("warehouses-tab-toolbar")).toBeInTheDocument();
     });
   });
 });

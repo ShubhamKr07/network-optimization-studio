@@ -832,3 +832,33 @@ describe("CustomersTab — enableFilters (B7, opt-in shared FilterMenu)", () => 
     expect(screen.queryByText("City1")).not.toBeInTheDocument();
   });
 });
+
+// T8 (Workspace fixups 2, item 3) — the FilterMenu must sit on the SAME
+// header row as the Import/Export toolbar (CustomersTab already mounts it
+// there — `toolbar`'s own `flex items-center gap-1.5 mb-2` div — this locks
+// that placement in as a regression guard). Non-JADE tabs (enableFilters
+// omitted) still render no FilterMenu at all.
+describe("CustomersTab — FilterMenu placement (T8, item 3)", () => {
+  const manyCustomers = Array.from({ length: 12 }, (_, i) => ({
+    id: `C${i + 1}`,
+    city: `City${i + 1}`,
+    state: "NY",
+    lat: 40 + i,
+    lng: -74 - i,
+    demand: 100 + i,
+  }));
+
+  it("JADE-enabled tab: the FilterMenu trigger is inside the SAME toolbar row as the Import/Export buttons", () => {
+    render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} enableFilters />);
+    const toolbar = screen.getByTestId("customers-tab-toolbar");
+    expect(toolbar).toContainElement(screen.getByTestId("button-export-customers-csv"));
+    expect(toolbar).toContainElement(screen.getByTestId("button-import-customers"));
+    expect(toolbar).toContainElement(screen.getByTestId("button-filter-menu-trigger"));
+  });
+
+  it("non-JADE tab (enableFilters omitted): no FilterMenu anywhere, even with >10 rows", () => {
+    render(<CustomersTab customers={manyCustomers} overrides={[]} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    expect(screen.getByTestId("customers-tab-toolbar")).toBeInTheDocument();
+  });
+});
