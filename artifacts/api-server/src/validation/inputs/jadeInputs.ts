@@ -157,10 +157,10 @@ export const jadeInputsSchema = z.object({
   p: z.number().int().min(1),
   distanceBands: z
     .array(z.number().int().positive())
-    .length(4)
+    .min(1)
     .refine(
       (bands) => bands.every((b, i) => i === 0 || b > bands[i - 1]),
-      { message: "distanceBands must be exactly 4 strictly-ascending positive integers" },
+      { message: "distanceBands must be one or more strictly-ascending positive integers" },
     ),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1), // required -- NaN here kills every solve

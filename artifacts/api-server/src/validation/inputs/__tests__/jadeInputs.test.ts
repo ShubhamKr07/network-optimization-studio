@@ -62,20 +62,35 @@ describe("jadeInputsSchema — required fields", () => {
   });
 });
 
-describe("jadeInputsSchema — distanceBands (exactly 4 strictly-ascending positive ints)", () => {
-  it("rejects fewer than 4 bands", () => {
+describe("jadeInputsSchema — distanceBands (one or more strictly-ascending positive ints)", () => {
+  it("rejects an empty band list", () => {
+    const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a single band", () => {
+    const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [200] });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts 3 strictly-ascending positive ints", () => {
     const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [200, 400, 800] });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("rejects more than 4 bands", () => {
+  it("accepts 5 strictly-ascending positive ints", () => {
     const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [200, 400, 800, 1600, 2000] });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("rejects non-ascending bands", () => {
+  it("rejects non-ascending bands, with the new free-band message", () => {
     const result = jadeInputsSchema.safeParse({ ...BASE, distanceBands: [200, 800, 400, 1600] });
     expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe(
+        "distanceBands must be one or more strictly-ascending positive integers",
+      );
+    }
   });
 
   it("rejects non-strictly-ascending bands (a repeated value)", () => {
