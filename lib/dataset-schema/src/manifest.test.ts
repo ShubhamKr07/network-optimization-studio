@@ -337,9 +337,10 @@ describe("ManifestSchema — chens-cosmetics-cn (Chapter 4, C4.2)", () => {
     expect(props.p.minimum).toBe(1);
     expect(props.p.maximum).toBe(25);
 
-    // distanceBands: exactly two positive numbers.
-    expect(props.distanceBands.minItems).toBe(2);
-    expect(props.distanceBands.maxItems).toBe(2);
+    // distanceBands (T3, spec Part A supersedes D19): a free reporting lens —
+    // at least one positive boundary, no upper bound on count.
+    expect(props.distanceBands.minItems).toBe(1);
+    expect(props.distanceBands.maxItems).toBeUndefined();
     expect(props.distanceBands.items.exclusiveMinimum).toBe(0);
 
     // Nested required arrays.

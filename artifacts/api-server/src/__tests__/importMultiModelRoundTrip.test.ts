@@ -412,25 +412,25 @@ describe("Chen (chens-cosmetics-cn) — customers import preview resolves Chen's
   });
 });
 
-// C4.6 — D19: the STORED Chen inputs.distanceBands is always exactly
-// [highServiceDistKm, maxDistKm] (chensInputsSchema's transform derives it),
-// so a stale THIRD boundary staged by ANY write path (POST/PATCH/import-apply)
-// can never persist and is never a 422. The customers import/apply path
-// re-validates the merged inputs through validateInputsForModel before storage,
-// so it exercises D19 WITHOUT depending on C4.7's estimator/normalizer.
-describe("Chen (chens-cosmetics-cn) — D19 distanceBands normalized on every write path", () => {
-  it("POST /api/scenarios: a stale third distanceBands boundary is normalized to [high, max] on store (never 422)", async () => {
+// T3 (spec Part A, supersedes D19): the STORED Chen inputs.distanceBands is
+// preserved VERBATIM on every write path (POST/PATCH/import-apply) — the
+// [high,max] overwrite is gone. `[high,max]` is derived only as a back-compat
+// default when a payload omits the field entirely. The customers import/apply
+// path re-validates the merged inputs through validateInputsForModel before
+// storage, so it exercises this WITHOUT depending on C4.7's estimator/normalizer.
+describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on every write path (T3)", () => {
+  it("POST /api/scenarios: a supplied 3-boundary distanceBands array is preserved verbatim on store (never 422)", async () => {
     const cookie = await loginAs(OWNER);
     const chain = makeChain([chensRow]);
     mockDb.insert.mockReturnValue(chain);
-    const staleInputs = { ...chensInputs, distanceBands: [600, 5000, 99999] };
+    const supplied = { ...chensInputs, distanceBands: [600, 5000, 99999] };
     const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
-      .send({ name: "Chen New", modelId: "chens-cosmetics-cn", inputs: staleInputs });
+      .send({ name: "Chen New", modelId: "chens-cosmetics-cn", inputs: supplied });
     expect(res.status).toBe(201);
     const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
     };
-    expect(insertArgs.inputs.distanceBands).toEqual([600, 5000]);
+    expect(insertArgs.inputs.distanceBands).toEqual([600, 5000, 99999]);
   });
 
   it("POST /api/scenarios: omitting the five sparse arrays persists them as []", async () => {
@@ -472,29 +472,52 @@ describe("Chen (chens-cosmetics-cn) — D19 distanceBands normalized on every wr
     expect(res.status).toBe(422);
   });
 
-  it("PATCH /api/scenarios/:id: a stale third distanceBands boundary is normalized to [high, max] on store", async () => {
+  it("PATCH /api/scenarios/:id: a supplied 3-boundary distanceBands array is preserved verbatim on store", async () => {
     const cookie = await loginAs(OWNER);
     mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
     const chain = makeChain([chensRow]);
     mockDb.update.mockReturnValue(chain);
-    const staleInputs = { ...chensInputs, distanceBands: [600, 5000, 99999] };
+    const supplied = { ...chensInputs, distanceBands: [600, 5000, 99999] };
     const res = await request(app).patch("/api/scenarios/20").set("Cookie", cookie)
-      .send({ inputs: staleInputs });
+      .send({ inputs: supplied });
     expect(res.status).toBe(200);
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[] };
     };
-    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000, 99999]);
   });
 
-  it("POST /api/scenarios/:id/import/apply (customers): re-validation normalizes a stale third distanceBands boundary to [high, max]", async () => {
+  // The mandatory route-level proof (plan Step 5b): a `distances`
+  // import/apply's merged-inputs reparse must NOT overwrite a
+  // previously-supplied band array — a ROUTE-level assertion the applied
+  // bands actually land in scenario storage, not just that they parse
+  // cleanly in isolation (import.test.ts only exercises the parser).
+  it("POST /api/scenarios/:id/import/apply (distances): a previously-supplied 3-boundary distanceBands array is preserved verbatim in stored scenario state", async () => {
     const cookie = await loginAs(OWNER);
-    // The persisted scenario carries a STALE 3-boundary distanceBands; the
-    // customers apply re-validates the merged inputs (validateInputsForModel),
-    // running D19's transform, so the stored value collapses back to [600,5000].
-    const staleRow = { ...chensRow, inputs: { ...chensInputs, distanceBands: [600, 5000, 99999] } };
-    mockDb.select.mockReturnValueOnce(makeChain([staleRow]));
-    const chain = makeChain([staleRow]);
+    const suppliedRow = { ...chensRow, inputs: { ...chensInputs, distanceBands: [600, 5000, 99999] } };
+    mockDb.select.mockReturnValueOnce(makeChain([suppliedRow]));
+    const chain = makeChain([suppliedRow]);
+    mockDb.update.mockReturnValue(chain);
+    const distancesCsv = "template_version,from_id,to_id,distance\n1,wh-15,cs-1,123.4\n";
+    const res = await request(app).post("/api/scenarios/20/import/apply").set("Cookie", cookie)
+      .send({ entity: "distances", csvText: distancesCsv, mode: "all_or_nothing" });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[]; distanceOverrides: Array<{ fromId: string; toId: string; distance: number }> };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000, 99999]);
+    const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "wh-15" && o.toId === "cs-1");
+    expect(staged?.distance).toBe(123.4);
+  });
+
+  it("POST /api/scenarios/:id/import/apply (customers): re-validation preserves a previously-supplied 3-boundary distanceBands array verbatim", async () => {
+    const cookie = await loginAs(OWNER);
+    // The persisted scenario carries a valid 3-boundary distanceBands array;
+    // the customers apply re-validates the merged inputs
+    // (validateInputsForModel), and the reparse must not overwrite it.
+    const suppliedRow = { ...chensRow, inputs: { ...chensInputs, distanceBands: [600, 5000, 99999] } };
+    mockDb.select.mockReturnValueOnce(makeChain([suppliedRow]));
+    const chain = makeChain([suppliedRow]);
     mockDb.update.mockReturnValue(chain);
     const csv = "template_version,id,display_code,city,state,lat,lng,demand,status\n1,cs-1,,,,,,458287,excluded\n";
     const res = await request(app).post("/api/scenarios/20/import/apply").set("Cookie", cookie)
@@ -503,7 +526,7 @@ describe("Chen (chens-cosmetics-cn) — D19 distanceBands normalized on every wr
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[]; customerOverrides: Array<{ id: string; status: string }> };
     };
-    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    expect(setArgs.inputs.distanceBands).toEqual([600, 5000, 99999]);
     // Sanity: the apply actually merged the customer change it was given.
     expect(setArgs.inputs.customerOverrides).toContainEqual(
       expect.objectContaining({ id: "cs-1", status: "excluded" }),

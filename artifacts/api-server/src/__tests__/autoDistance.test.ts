@@ -982,11 +982,21 @@ describe("fillEstimatedChensDistances (chens-cosmetics-cn)", () => {
     expect(result.coverageFloorDemand).toBe(12345);
     expect(result.highServiceDistKm).toBe(700);
     expect(result.maxDistKm).toBe(4200);
-    // D19 — distanceBands is always the derived [high, max], never a
-    // separately-authored array.
-    expect(result.distanceBands).toEqual([700, 4200]);
+    // T3 (spec Part A, supersedes D19) — distanceBands is a free reporting
+    // lens, preserved VERBATIM from the supplied input (CHENS_BASE_INPUTS's
+    // [600, 5000]) even though highServiceDistKm/maxDistKm changed above; it
+    // is derived from the thresholds ONLY when the field is omitted entirely.
+    expect(result.distanceBands).toEqual([600, 5000]);
     // The estimate still landed.
     expect(result.distanceOverrides.some((o) => o.fromId === "wh-new1" && o.estimated === true)).toBe(true);
+  });
+
+  it("distanceBands is derived from the (possibly changed) thresholds ONLY when omitted entirely", () => {
+    const { distanceBands: _omit, ...withoutBands } = CHENS_BASE_INPUTS;
+    void _omit;
+    const inputs = { ...withoutBands, highServiceDistKm: 700, maxDistKm: 4200 };
+    const result = fillEstimatedChensDistances(inputs as unknown as ChensInputs, CHENS_TEST_DATASET);
+    expect(result.distanceBands).toEqual([700, 4200]);
   });
 
   it("an inactive added warehouse contributes no rows; an excluded base customer is not a fill target", () => {
