@@ -22,4 +22,6 @@ export interface Scenario {
   solvedAt: Date | null;
   /** Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null. */
   stale: boolean;
+  /** The solve_jobs id that produced this scenario's current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable. */
+  readonly resultRunId: number | null;
 }

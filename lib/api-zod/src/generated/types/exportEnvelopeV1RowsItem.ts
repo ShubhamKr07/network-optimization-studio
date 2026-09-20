@@ -6,4 +6,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ExportEnvelopeRowsItem = { [key: string]: unknown };
+export type ExportEnvelopeV1RowsItem = { [key: string]: unknown };

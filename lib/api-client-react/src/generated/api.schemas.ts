@@ -391,6 +391,8 @@ export interface Scenario {
   solvedAt: string | null;
   /** Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null. */
   stale: boolean;
+  /** The solve_jobs id that produced this scenario's current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable. */
+  readonly resultRunId: number | null;
 }
 
 export interface SolveJobQueued {
@@ -621,35 +623,285 @@ export interface ImportApplyResult {
   errors: ImportError[];
 }
 
-export type ExportEnvelopeEntity = typeof ExportEnvelopeEntity[keyof typeof ExportEnvelopeEntity];
+export type ExportEnvelopeV1TemplateVersion = typeof ExportEnvelopeV1TemplateVersion[keyof typeof ExportEnvelopeV1TemplateVersion];
 
 
-export const ExportEnvelopeEntity = {
+export const ExportEnvelopeV1TemplateVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type ExportEnvelopeV1Entity = typeof ExportEnvelopeV1Entity[keyof typeof ExportEnvelopeV1Entity];
+
+
+export const ExportEnvelopeV1Entity = {
   warehouses: 'warehouses',
   customers: 'customers',
   mines: 'mines',
   stations: 'stations',
   refineries: 'refineries',
-  distances: 'distances',
-  laneCosts: 'laneCosts',
-  legDistances: 'legDistances',
-  assignments: 'assignments',
-  openWarehouses: 'openWarehouses',
-  costSummary: 'costSummary',
-  serviceStats: 'serviceStats',
-  flows: 'flows',
   plants: 'plants',
   plantCapabilities: 'plantCapabilities',
+  openWarehouses: 'openWarehouses',
 } as const;
 
-export type ExportEnvelopeRowsItem = { [key: string]: unknown };
+export type ExportEnvelopeV1RowsItem = { [key: string]: unknown };
 
-export interface ExportEnvelope {
-  templateVersion: number;
-  entity: ExportEnvelopeEntity;
-  /** Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add. */
-  rows: ExportEnvelopeRowsItem[];
+/**
+ * Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.
+ */
+export interface ExportEnvelopeV1 {
+  templateVersion: ExportEnvelopeV1TemplateVersion;
+  entity: ExportEnvelopeV1Entity;
+  /** Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across these entities and are enforced + tested at the services/templates.ts layer, not this contract. */
+  rows: ExportEnvelopeV1RowsItem[];
 }
+
+export type ExportEnvelopeV2TemplateVersion = typeof ExportEnvelopeV2TemplateVersion[keyof typeof ExportEnvelopeV2TemplateVersion];
+
+
+export const ExportEnvelopeV2TemplateVersion = {
+  NUMBER_2: 2,
+} as const;
+
+export type ExportEnvelopeV2Entity = typeof ExportEnvelopeV2Entity[keyof typeof ExportEnvelopeV2Entity];
+
+
+export const ExportEnvelopeV2Entity = {
+  distances: 'distances',
+  legDistances: 'legDistances',
+  laneCosts: 'laneCosts',
+} as const;
+
+export type ExportEnvelopeV2Unit = typeof ExportEnvelopeV2Unit[keyof typeof ExportEnvelopeV2Unit];
+
+
+export const ExportEnvelopeV2Unit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+export type ExportEnvelopeV2RowsItem = { [key: string]: unknown };
+
+/**
+ * Unit-bearing importable input entities (distances, legDistances, laneCosts). `unit` is the value's unit in this emitted file; import converts a different-but-known unit to the model's canonical unit.
+ */
+export interface ExportEnvelopeV2 {
+  templateVersion: ExportEnvelopeV2TemplateVersion;
+  entity: ExportEnvelopeV2Entity;
+  unit: ExportEnvelopeV2Unit;
+  /** Intentionally opaque. distances/legDistances rows carry {fromId, toId, distance}; laneCosts rows carry {fromId, toId, cost} (chapter vocabulary preserved) — enforced at services/templates.ts, not this contract. */
+  rows: ExportEnvelopeV2RowsItem[];
+}
+
+/**
+ * Generic (non-JADE) assignment row — band is the zero-based index, -1 = overflow.
+ */
+export interface AssignmentExportRow {
+  customerId: string;
+  warehouseId: string;
+  distance: number;
+  band: number;
+  flow: number;
+}
+
+/**
+ * Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.
+ */
+export interface FlowExportRow {
+  fromId: string;
+  toId: string;
+  distance: number;
+  band: number;
+  flow: number;
+}
+
+/**
+ * two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.
+ */
+export interface JadeAssignmentExportRow {
+  productId: string;
+  customerId: string;
+  warehouseId: string;
+  distance: number;
+  band: string;
+}
+
+export type JadeFlowExportRowLeg = typeof JadeFlowExportRowLeg[keyof typeof JadeFlowExportRowLeg];
+
+
+export const JadeFlowExportRowLeg = {
+  plant_to_warehouse: 'plant_to_warehouse',
+  warehouse_to_customer: 'warehouse_to_customer',
+} as const;
+
+/**
+ * two-echelon-jade-us combined-leg flow row — band is the display-label string.
+ */
+export interface JadeFlowExportRow {
+  leg: JadeFlowExportRowLeg;
+  fromId: string;
+  toId: string;
+  distance: number;
+  band: string;
+  flows: number;
+}
+
+/**
+ * Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.
+ */
+export interface ServiceStatsExportRow {
+  band: number;
+  percent: number;
+}
+
+/**
+ * No band field — costSummary is not a band-bearing entity.
+ */
+export interface CostSummaryExportRow {
+  /** @nullable */
+  objective: number | null;
+  /** @nullable */
+  objectiveMode: string | null;
+  /** @nullable */
+  weightedAvgDistance: number | null;
+  /** @nullable */
+  runTimeSec: number | null;
+  quality: string;
+  solverUsed: string;
+}
+
+export type AssignmentsExportEnvelopeTemplateVersion = typeof AssignmentsExportEnvelopeTemplateVersion[keyof typeof AssignmentsExportEnvelopeTemplateVersion];
+
+
+export const AssignmentsExportEnvelopeTemplateVersion = {
+  NUMBER_3: 3,
+} as const;
+
+export type AssignmentsExportEnvelopeEntity = typeof AssignmentsExportEnvelopeEntity[keyof typeof AssignmentsExportEnvelopeEntity];
+
+
+export const AssignmentsExportEnvelopeEntity = {
+  assignments: 'assignments',
+} as const;
+
+export type AssignmentsExportEnvelopeUnit = typeof AssignmentsExportEnvelopeUnit[keyof typeof AssignmentsExportEnvelopeUnit];
+
+
+export const AssignmentsExportEnvelopeUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+/**
+ * v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.
+ */
+export interface AssignmentsExportEnvelope {
+  templateVersion: AssignmentsExportEnvelopeTemplateVersion;
+  entity: AssignmentsExportEnvelopeEntity;
+  unit: AssignmentsExportEnvelopeUnit;
+  rows: (AssignmentExportRow | JadeAssignmentExportRow)[];
+}
+
+export type FlowsExportEnvelopeTemplateVersion = typeof FlowsExportEnvelopeTemplateVersion[keyof typeof FlowsExportEnvelopeTemplateVersion];
+
+
+export const FlowsExportEnvelopeTemplateVersion = {
+  NUMBER_3: 3,
+} as const;
+
+export type FlowsExportEnvelopeEntity = typeof FlowsExportEnvelopeEntity[keyof typeof FlowsExportEnvelopeEntity];
+
+
+export const FlowsExportEnvelopeEntity = {
+  flows: 'flows',
+} as const;
+
+export type FlowsExportEnvelopeUnit = typeof FlowsExportEnvelopeUnit[keyof typeof FlowsExportEnvelopeUnit];
+
+
+export const FlowsExportEnvelopeUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+/**
+ * v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.
+ */
+export interface FlowsExportEnvelope {
+  templateVersion: FlowsExportEnvelopeTemplateVersion;
+  entity: FlowsExportEnvelopeEntity;
+  unit: FlowsExportEnvelopeUnit;
+  rows: (FlowExportRow | JadeFlowExportRow)[];
+}
+
+export type CostSummaryExportEnvelopeTemplateVersion = typeof CostSummaryExportEnvelopeTemplateVersion[keyof typeof CostSummaryExportEnvelopeTemplateVersion];
+
+
+export const CostSummaryExportEnvelopeTemplateVersion = {
+  NUMBER_3: 3,
+} as const;
+
+export type CostSummaryExportEnvelopeEntity = typeof CostSummaryExportEnvelopeEntity[keyof typeof CostSummaryExportEnvelopeEntity];
+
+
+export const CostSummaryExportEnvelopeEntity = {
+  costSummary: 'costSummary',
+} as const;
+
+export type CostSummaryExportEnvelopeUnit = typeof CostSummaryExportEnvelopeUnit[keyof typeof CostSummaryExportEnvelopeUnit];
+
+
+export const CostSummaryExportEnvelopeUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+/**
+ * v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.
+ */
+export interface CostSummaryExportEnvelope {
+  templateVersion: CostSummaryExportEnvelopeTemplateVersion;
+  entity: CostSummaryExportEnvelopeEntity;
+  unit: CostSummaryExportEnvelopeUnit;
+  rows: CostSummaryExportRow[];
+}
+
+export type ServiceStatsExportEnvelopeTemplateVersion = typeof ServiceStatsExportEnvelopeTemplateVersion[keyof typeof ServiceStatsExportEnvelopeTemplateVersion];
+
+
+export const ServiceStatsExportEnvelopeTemplateVersion = {
+  NUMBER_3: 3,
+} as const;
+
+export type ServiceStatsExportEnvelopeEntity = typeof ServiceStatsExportEnvelopeEntity[keyof typeof ServiceStatsExportEnvelopeEntity];
+
+
+export const ServiceStatsExportEnvelopeEntity = {
+  serviceStats: 'serviceStats',
+} as const;
+
+export type ServiceStatsExportEnvelopeUnit = typeof ServiceStatsExportEnvelopeUnit[keyof typeof ServiceStatsExportEnvelopeUnit];
+
+
+export const ServiceStatsExportEnvelopeUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+/**
+ * v3 serviceStats export — cumulative + overflow rows under the requested unit.
+ */
+export interface ServiceStatsExportEnvelope {
+  templateVersion: ServiceStatsExportEnvelopeTemplateVersion;
+  entity: ServiceStatsExportEnvelopeEntity;
+  unit: ServiceStatsExportEnvelopeUnit;
+  rows: ServiceStatsExportRow[];
+}
+
+/**
+ * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/costSummary/serviceStats). Never a single global v3+unit shape.
+ */
+export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;
 
 export type GetDatasetParams = {
 modelId?: GetDatasetModelId;
@@ -703,6 +955,15 @@ format: ExportScenarioFormat;
  * entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse/mine or customer/station (base dataset or this scenario's added entities) to generate a blank fill-in-the-blanks distance/cost template for — one row per counterpart (distance/cost omitted) — instead of exporting the scenario's existing distanceOverrides/laneCostOverrides.
  */
 stubFor?: string;
+/**
+ * Unit for distance-dimension values in the emitted file. Validated for EVERY entity; an unknown value is 400 even for a non-distance entity. Ignored (byte-identical output) for non-distance entities. Omitted = each model's canonical unit.
+ */
+unit?: ExportScenarioUnit;
+/**
+ * Export a specific solve run (a solve_jobs id owned by the caller AND belonging to this scenario) instead of the scenario's latest result.
+ * @minimum 1
+ */
+runId?: number;
 };
 
 export type ExportScenarioEntity = typeof ExportScenarioEntity[keyof typeof ExportScenarioEntity];
@@ -733,4 +994,17 @@ export const ExportScenarioFormat = {
   csv: 'csv',
   json: 'json',
 } as const;
+
+export type ExportScenarioUnit = typeof ExportScenarioUnit[keyof typeof ExportScenarioUnit];
+
+
+export const ExportScenarioUnit = {
+  km: 'km',
+  mi: 'mi',
+} as const;
+
+export type UpdateDistanceBandsBody = {
+  /** @minItems 1 */
+  distanceBands: number[];
+};
 

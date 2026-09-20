@@ -237,7 +237,8 @@ export const ListScenariosResponseItem = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 export const ListScenariosResponse = zod.array(ListScenariosResponseItem)
 
@@ -312,7 +313,8 @@ export const GetScenarioResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 
 
@@ -381,7 +383,8 @@ export const UpdateScenarioResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 
 
@@ -535,7 +538,8 @@ export const ApplyScenarioImportResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "solvedAt": zod.coerce.date().nullable(),
-  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.')
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 }).optional(),
   "applied": zod.number(),
   "errors": zod.array(zod.object({
@@ -555,24 +559,165 @@ export const CloneScenarioParams = zod.object({
 
 
 /**
+ * JADE Ch.9 workspace bundle (task A4, spec §5c): for two-echelon-jade-us, entity=assignments and entity=flows use model-specific schemas instead of the generic edges-derived export every other model gets (branched server-side on the scenario's modelId, entity enum unchanged). entity=assignments is product-level — one row per (product, customer) sourced from the solved result's details.assignments — with columns product,customer,assigned_warehouse,distance,distance_band (no demand/flow). entity=flows is ONE combined file spanning both legs, columns leg,from_id,to_id,distance,distance_band,flows: inbound plant_to_warehouse rows are aggregated per (plant,warehouse) pair with flows summed across products; outbound warehouse_to_customer rows are one per customer. distance_band is derived from the scenario's CURRENT SAVED inputs.distanceBands (server-side bandLabel-equivalent: "Band N" 1-indexed, upper-inclusive boundary, "Overflow" above the highest boundary) — it reflects the last saved bands, not unsaved UI edits. Every other model's assignments/flows export is unchanged.
  * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
  */
 export const ExportScenarioParams = zod.object({
   "scenarioId": zod.coerce.number()
 })
 
+
+
+
 export const ExportScenarioQueryParams = zod.object({
   "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities']),
   "format": zod.enum(['csv', 'json']),
-  "stubFor": zod.coerce.string().optional().describe('entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse\/mine or customer\/station (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance\/cost template for — one row per counterpart (distance\/cost omitted) — instead of exporting the scenario\'s existing distanceOverrides\/laneCostOverrides.')
+  "stubFor": zod.coerce.string().optional().describe('entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse\/mine or customer\/station (base dataset or this scenario\'s added entities) to generate a blank fill-in-the-blanks distance\/cost template for — one row per counterpart (distance\/cost omitted) — instead of exporting the scenario\'s existing distanceOverrides\/laneCostOverrides.'),
+  "unit": zod.enum(['km', 'mi']).optional().describe('Unit for distance-dimension values in the emitted file. Validated for EVERY entity; an unknown value is 400 even for a non-distance entity. Ignored (byte-identical output) for non-distance entities. Omitted = each model\'s canonical unit.'),
+  "runId": zod.coerce.number().min(1).optional().describe('Export a specific solve run (a solve_jobs id owned by the caller AND belonging to this scenario) instead of the scenario\'s latest result.')
 })
 
-export const ExportScenarioResponse = zod.object({
-  "templateVersion": zod.number(),
-  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'distances', 'laneCosts', 'legDistances', 'assignments', 'openWarehouses', 'costSummary', 'serviceStats', 'flows', 'plants', 'plantCapabilities']),
+export const ExportScenarioResponse = zod.union([zod.object({
+  "templateVersion": zod.literal(1),
+  "entity": zod.enum(['warehouses', 'customers', 'mines', 'stations', 'refineries', 'plants', 'plantCapabilities', 'openWarehouses']),
   "rows": zod.array(zod.object({
 
-}).passthrough()).describe('Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services\/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add.')
+}).passthrough()).describe('Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across these entities and are enforced + tested at the services\/templates.ts layer, not this contract.')
+}).describe('Unitless export entities (warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses). Output is byte-identical whether or not `unit=` was supplied — deliberately no `unit` property on this schema.'),zod.object({
+  "templateVersion": zod.literal(2),
+  "entity": zod.enum(['distances', 'legDistances', 'laneCosts']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.object({
+
+}).passthrough()).describe('Intentionally opaque. distances\/legDistances rows carry {fromId, toId, distance}; laneCosts rows carry {fromId, toId, cost} (chapter vocabulary preserved) — enforced at services\/templates.ts, not this contract.')
+}).describe('Unit-bearing importable input entities (distances, legDistances, laneCosts). `unit` is the value\'s unit in this emitted file; import converts a different-but-known unit to the model\'s canonical unit.'),zod.object({
+  "templateVersion": zod.literal(3),
+  "entity": zod.enum(['assignments']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.union([zod.object({
+  "customerId": zod.string(),
+  "warehouseId": zod.string(),
+  "distance": zod.number(),
+  "band": zod.number(),
+  "flow": zod.number()
+}).describe('Generic (non-JADE) assignment row — band is the zero-based index, -1 = overflow.'),zod.object({
+  "productId": zod.string(),
+  "customerId": zod.string(),
+  "warehouseId": zod.string(),
+  "distance": zod.number(),
+  "band": zod.string()
+}).describe('two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.')]))
+}).describe('v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.'),zod.object({
+  "templateVersion": zod.literal(3),
+  "entity": zod.enum(['flows']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.union([zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "distance": zod.number(),
+  "band": zod.number(),
+  "flow": zod.number()
+}).describe('Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.'),zod.object({
+  "leg": zod.enum(['plant_to_warehouse', 'warehouse_to_customer']),
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "distance": zod.number(),
+  "band": zod.string(),
+  "flows": zod.number()
+}).describe('two-echelon-jade-us combined-leg flow row — band is the display-label string.')]))
+}).describe('v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.'),zod.object({
+  "templateVersion": zod.literal(3),
+  "entity": zod.enum(['costSummary']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.object({
+  "objective": zod.number().nullable(),
+  "objectiveMode": zod.string().nullable(),
+  "weightedAvgDistance": zod.number().nullable(),
+  "runTimeSec": zod.number().nullable(),
+  "quality": zod.string(),
+  "solverUsed": zod.string()
+}).describe('No band field — costSummary is not a band-bearing entity.'))
+}).describe('v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.'),zod.object({
+  "templateVersion": zod.literal(3),
+  "entity": zod.enum(['serviceStats']),
+  "unit": zod.enum(['km', 'mi']),
+  "rows": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+}).describe('Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.'))
+}).describe('v3 serviceStats export — cumulative + overflow rows under the requested unit.')]).describe('One of three versioned families (spec Part E): v1 unitless (warehouses\/customers\/mines\/stations\/refineries\/plants\/ plantCapabilities\/openWarehouses), v2 unit-bearing input (distances\/legDistances\/laneCosts), or v3 unit-bearing output (assignments\/flows\/costSummary\/serviceStats). Never a single global v3+unit shape.')
+
+
+/**
+ * Atomic, field-scoped update of inputs.distanceBands — never a read-modify-write of the whole inputs blob, so it cannot clobber a concurrent edit to any other input field. Does not bump inputsUpdatedAt (a bands-only change is a reporting lens, not a model-geometric change), so the returned Scenario.stale is unaffected.
+ * @summary Field-scoped update of a scenario's distance bands (reporting lens only)
+ */
+export const UpdateDistanceBandsParams = zod.object({
+  "scenarioId": zod.coerce.number()
+})
+
+export const updateDistanceBandsBodyDistanceBandsItemExclusiveMin = 0;
+
+
+
+
+export const UpdateDistanceBandsBody = zod.object({
+  "distanceBands": zod.array(zod.number().gt(updateDistanceBandsBodyDistanceBandsItemExclusiveMin)).min(1)
+})
+
+export const UpdateDistanceBandsResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "modelId": zod.enum(['p-median-us', 'transport-coal', 'p-median-brazil', 'two-echelon-gold-au', 'two-echelon-jade-us', 'chens-cosmetics-cn', 'max_coverage', 'p_center', 'set_cover']),
+  "inputs": zod.object({
+
+}).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
+  "result": zod.union([zod.object({
+  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "objective": zod.number(),
+  "runTimeSec": zod.number(),
+  "quality": zod.string(),
+  "edges": zod.array(zod.object({
+  "fromId": zod.string(),
+  "toId": zod.string(),
+  "flow": zod.number(),
+  "distance": zod.number(),
+  "band": zod.number().optional(),
+  "leg": zod.enum(['mine_to_refinery', 'refinery_to_customer', 'plant_to_warehouse', 'warehouse_to_customer']).optional().describe('Two-echelon models tag each edge with its leg so the map can style each leg differently. Absent for single-echelon models. Consumers must classify legs semantically (source->facility vs facility->demand), never assume only the Chapter-10 strings.'),
+  "productId": zod.string().optional().describe('Chapter 9 JADE — set on plant_to_warehouse (inbound) edges, one per positive (plant,warehouse,product) flow. Absent on warehouse_to_customer (outbound) edges, which aggregate across products per single-source customer, and absent for every other model.')
+}).describe('Model-agnostic view of a solved flow (Phase 3.5, G2.1) — warehouse->customer assignment for p-median, mine->station shipment for transport LP, mine->refinery\/refinery->customer shipment for two-echelon-gold-au, plant->warehouse\/warehouse->customer shipment for two-echelon-jade-us. flow is demand units or tons depending on the model. leg tags the echelon for two-echelon models only.')),
+  "metrics": zod.object({
+  "utilizationByNode": zod.array(zod.object({
+  "warehouseId": zod.string(),
+  "city": zod.string(),
+  "utilization": zod.number()
+})).optional(),
+  "bandCoverage": zod.array(zod.object({
+  "band": zod.number(),
+  "percent": zod.number()
+})).optional(),
+  "weightedAvgDistance": zod.number().optional(),
+  "avgDistanceByLeg": zod.array(zod.object({
+  "leg": zod.string(),
+  "avgDistance": zod.number(),
+  "totalFlow": zod.number()
+})).optional().describe('Two-echelon models emit per-leg average distance + total flow. Absent for single-echelon models.'),
+  "openFacilityIds": zod.array(zod.string()).optional().describe('Chapter 9 JADE — authoritative open-facility id list, including a facility with zero outbound flow (a forced-open warehouse serving no one still counts as open). Optional; other models derive their open set from edges\/details instead.'),
+  "totalDemand": zod.number().optional().describe('Chapter 9 JADE — total effective demand (tons) across all customers\/products, after exclusions. Optional.'),
+  "inboundCost": zod.number().optional().describe('Chapter 9 JADE — total plant->warehouse transport cost component of the objective. Optional.'),
+  "outboundCost": zod.number().optional().describe('Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.')
+}),
+  "details": zod.object({
+
+}).passthrough().describe('Model-specific extras opaque to this contract — e.g. p-median\'s openWarehouseIds\/assignments, transport\'s per-shipment flowFraction.'),
+  "solverUsed": zod.string(),
+  "infeasibilityReason": zod.string().nullable()
+}).describe('Standardized result envelope (Phase 3.5, G2.1\/Phase 4) — solve.py\'s raw stdout shape, unwrapped by no TS-side shim as of Phase 4.'),zod.null()]),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "solvedAt": zod.coerce.date().nullable(),
+  "stale": zod.boolean().describe('Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.'),
+  "resultRunId": zod.number().nullable().describe('The solve_jobs id that produced this scenario\'s current `result`. Null for pre-migration solves, whose full result was not retained — such a history entry is non-exportable.')
 })
 
 

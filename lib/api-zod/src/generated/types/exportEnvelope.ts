@@ -5,12 +5,14 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
-import type { ExportEnvelopeEntity } from './exportEnvelopeEntity';
-import type { ExportEnvelopeRowsItem } from './exportEnvelopeRowsItem';
+import type { AssignmentsExportEnvelope } from './assignmentsExportEnvelope';
+import type { CostSummaryExportEnvelope } from './costSummaryExportEnvelope';
+import type { ExportEnvelopeV1 } from './exportEnvelopeV1';
+import type { ExportEnvelopeV2 } from './exportEnvelopeV2';
+import type { FlowsExportEnvelope } from './flowsExportEnvelope';
+import type { ServiceStatsExportEnvelope } from './serviceStatsExportEnvelope';
 
-export interface ExportEnvelope {
-  templateVersion: number;
-  entity: ExportEnvelopeEntity;
-  /** Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add. */
-  rows: ExportEnvelopeRowsItem[];
-}
+/**
+ * One of three versioned families (spec Part E): v1 unitless (warehouses/customers/mines/stations/refineries/plants/ plantCapabilities/openWarehouses), v2 unit-bearing input (distances/legDistances/laneCosts), or v3 unit-bearing output (assignments/flows/costSummary/serviceStats). Never a single global v3+unit shape.
+ */
+export type ExportEnvelope = ExportEnvelopeV1 | ExportEnvelopeV2 | AssignmentsExportEnvelope | FlowsExportEnvelope | CostSummaryExportEnvelope | ServiceStatsExportEnvelope;

@@ -499,6 +499,22 @@ paths:
             blank fill-in-the-blanks distance/cost template for — one row
             per counterpart (distance/cost omitted) — instead of exporting
             the scenario's existing distanceOverrides/laneCostOverrides.
+        - name: unit
+          in: query
+          required: false
+          schema: { type: string, enum: [km, mi] }
+          description: >-
+            Unit for distance-dimension values in the emitted file. Validated for
+            EVERY entity; an unknown value is 400 even for a non-distance entity.
+            Ignored (byte-identical output) for non-distance entities. Omitted =
+            each model's canonical unit.
+        - name: runId
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: >-
+            Export a specific solve run (a solve_jobs id owned by the caller AND
+            belonging to this scenario) instead of the scenario's latest result.
       responses:
         "200":
           description: Export data
@@ -509,12 +525,62 @@ paths:
             text/csv:
               schema:
                 type: string
+        "400":
+          description: Invalid unit or runId (unit not km/mi, or runId not a positive integer)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           description: Not authenticated
         "404":
-          description: Not found
+          description: Not found (also returned for a runId not owned by the caller or not belonging to this scenario)
         "422":
-          description: Invalid entity/format, this scenario's model doesn't support export, stubFor used with an entity other than distances/laneCosts, or stubFor does not reference a known warehouse/mine or customer/station
+          description: Invalid entity/format, this scenario's model doesn't support export, stubFor used with an entity other than distances/laneCosts, stubFor does not reference a known warehouse/mine or customer/station, or runId addresses a legacy solve_jobs row whose full result was not retained
+
+  /scenarios/{scenarioId}/distance-bands:
+    patch:
+      operationId: updateDistanceBands
+      tags: [scenarios]
+      summary: Field-scoped update of a scenario's distance bands (reporting lens only)
+      description: >-
+        Atomic, field-scoped update of inputs.distanceBands — never a
+        read-modify-write of the whole inputs blob, so it cannot clobber a
+        concurrent edit to any other input field. Does not bump
+        inputsUpdatedAt (a bands-only change is a reporting lens, not a
+        model-geometric change), so the returned Scenario.stale is
+        unaffected.
+      parameters:
+        - name: scenarioId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [distanceBands]
+              properties:
+                distanceBands:
+                  type: array
+                  minItems: 1
+                  items: { type: number, exclusiveMinimum: 0 }
+      responses:
+        "200":
+          description: Updated scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "400":
+          description: Invalid or missing body, or a model-invalid band array
+        "401":
+          description: Not authenticated
+        "404":
+          description: Not found (also returned for a scenario owned by another user)
 
   /auth/register:
     post:
@@ -1076,6 +1142,14 @@ components:
         stale:
           type: boolean
           description: Derived, never stored — true when inputs changed after the last solve (result is present but no longer reflects current inputs). Always false when result is null.
+        resultRunId:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: >-
+            The solve_jobs id that produced this scenario's current `result`.
+            Null for pre-migration solves, whose full result was not retained —
+            such a history entry is non-exportable.
       required:
         - id
         - name
@@ -1086,6 +1160,7 @@ components:
         - updatedAt
         - solvedAt
         - stale
+        - resultRunId
 
     SolveJobQueued:
       type: object
@@ -1318,17 +1393,232 @@ components:
             $ref: "#/components/schemas/ImportError"
       required: [applied, errors]
 
-    ExportEnvelope:
+    # T5 (SCND scaling — Chen bands & units): the export endpoint returns three
+    # versioned families, not one shape. A blanket v3+unit envelope would
+    # misdescribe v1's unitless entities, so ExportEnvelope is a oneOf over
+    # entity/version-scoped schemas instead. Placement rule (spec Part E):
+    # v1 carries templateVersion+entity ONLY — no `unit` property at all; v2/v3
+    # add `unit` on the envelope; rows in every family carry neither
+    # envelope-level field.
+    ExportEnvelopeV1:
       type: object
+      description: >-
+        Unitless export entities (warehouses, customers, mines, stations,
+        refineries, plants, plantCapabilities, openWarehouses). Output is
+        byte-identical whether or not `unit=` was supplied — deliberately no
+        `unit` property on this schema.
+      example: { templateVersion: 1, entity: warehouses, rows: [] }
       properties:
         templateVersion:
           type: integer
+          enum: [1]
         entity:
           type: string
-          enum: [warehouses, customers, mines, stations, refineries, distances, laneCosts, legDistances, assignments, openWarehouses, costSummary, serviceStats, flows, plants, plantCapabilities]
+          enum: [warehouses, customers, mines, stations, refineries, plants, plantCapabilities, openWarehouses]
         rows:
           type: array
-          description: Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across all ~15 export entities and are enforced + tested at the services/templates.ts layer, not this contract — typing every entity-discriminated row variant is out of scope for a model-add.
+          description: Intentionally opaque (array of untyped objects). Exact per-entity row shapes differ across these entities and are enforced + tested at the services/templates.ts layer, not this contract.
           items:
             type: object
       required: [templateVersion, entity, rows]
+
+    ExportEnvelopeV2:
+      type: object
+      description: >-
+        Unit-bearing importable input entities (distances, legDistances,
+        laneCosts). `unit` is the value's unit in this emitted file; import
+        converts a different-but-known unit to the model's canonical unit.
+      example: { templateVersion: 2, entity: distances, unit: km, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [2]
+        entity:
+          type: string
+          enum: [distances, legDistances, laneCosts]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          description: >-
+            Intentionally opaque. distances/legDistances rows carry
+            {fromId, toId, distance}; laneCosts rows carry
+            {fromId, toId, cost} (chapter vocabulary preserved) — enforced
+            at services/templates.ts, not this contract.
+          items:
+            type: object
+      required: [templateVersion, entity, unit, rows]
+
+    # v3 output row shapes — copied verbatim from the spec's Part E "Exact v3
+    # contracts" table. Band representation is schema-specific and never
+    # conflated: generic rows carry a numeric index (-1 = overflow); JADE rows
+    # carry the display-label string ("Band N" / "Overflow"); serviceStats
+    # carries the distance boundary itself in the requested unit (-1 =
+    # overflow). OVERFLOW_BAND (-1) is a categorical sentinel, never converted.
+    AssignmentExportRow:
+      type: object
+      description: Generic (non-JADE) assignment row — band is the zero-based index, -1 = overflow.
+      properties:
+        customerId: { type: string }
+        warehouseId: { type: string }
+        distance: { type: number }
+        band: { type: integer }
+        flow: { type: number }
+      required: [customerId, warehouseId, distance, band, flow]
+
+    FlowExportRow:
+      type: object
+      description: Generic (non-JADE) flow row — band is the zero-based index, -1 = overflow.
+      properties:
+        fromId: { type: string }
+        toId: { type: string }
+        distance: { type: number }
+        band: { type: integer }
+        flow: { type: number }
+      required: [fromId, toId, distance, band, flow]
+
+    JadeAssignmentExportRow:
+      type: object
+      description: two-echelon-jade-us product-level assignment row, sourced from details.assignments — band is the display-label string.
+      properties:
+        productId: { type: string }
+        customerId: { type: string }
+        warehouseId: { type: string }
+        distance: { type: number }
+        band: { type: string }
+      required: [productId, customerId, warehouseId, distance, band]
+
+    JadeFlowExportRow:
+      type: object
+      description: two-echelon-jade-us combined-leg flow row — band is the display-label string.
+      properties:
+        leg:
+          type: string
+          enum: [plant_to_warehouse, warehouse_to_customer]
+        fromId: { type: string }
+        toId: { type: string }
+        distance: { type: number }
+        band: { type: string }
+        flows: { type: number }
+      required: [leg, fromId, toId, distance, band, flows]
+
+    ServiceStatsExportRow:
+      type: object
+      description: Cumulative + overflow coverage row — band is the distance BOUNDARY itself, converted to the requested unit (not an index); -1 = overflow.
+      properties:
+        band: { type: number }
+        percent: { type: number }
+      required: [band, percent]
+
+    CostSummaryExportRow:
+      type: object
+      description: No band field — costSummary is not a band-bearing entity.
+      properties:
+        objective: { type: ["number", "null"] }
+        objectiveMode: { type: ["string", "null"] }
+        weightedAvgDistance: { type: ["number", "null"] }
+        runTimeSec: { type: ["number", "null"] }
+        quality: { type: string }
+        solverUsed: { type: string }
+      required: [objective, objectiveMode, weightedAvgDistance, runTimeSec, quality, solverUsed]
+
+    AssignmentsExportEnvelope:
+      type: object
+      description: v3 assignments export — rows are either the generic shape or (two-echelon-jade-us) the JADE product-level shape.
+      example: { templateVersion: 3, entity: assignments, unit: mi, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [3]
+        entity:
+          type: string
+          enum: [assignments]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/AssignmentExportRow"
+              - $ref: "#/components/schemas/JadeAssignmentExportRow"
+      required: [templateVersion, entity, unit, rows]
+
+    FlowsExportEnvelope:
+      type: object
+      description: v3 flows export — rows are either the generic shape or (two-echelon-jade-us) the JADE combined-leg shape.
+      example: { templateVersion: 3, entity: flows, unit: km, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [3]
+        entity:
+          type: string
+          enum: [flows]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/FlowExportRow"
+              - $ref: "#/components/schemas/JadeFlowExportRow"
+      required: [templateVersion, entity, unit, rows]
+
+    CostSummaryExportEnvelope:
+      type: object
+      description: v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.
+      example: { templateVersion: 3, entity: costSummary, unit: km, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [3]
+        entity:
+          type: string
+          enum: [costSummary]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostSummaryExportRow"
+      required: [templateVersion, entity, unit, rows]
+
+    ServiceStatsExportEnvelope:
+      type: object
+      description: v3 serviceStats export — cumulative + overflow rows under the requested unit.
+      example: { templateVersion: 3, entity: serviceStats, unit: mi, rows: [] }
+      properties:
+        templateVersion:
+          type: integer
+          enum: [3]
+        entity:
+          type: string
+          enum: [serviceStats]
+        unit:
+          type: string
+          enum: [km, mi]
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceStatsExportRow"
+      required: [templateVersion, entity, unit, rows]
+
+    ExportEnvelope:
+      description: >-
+        One of three versioned families (spec Part E): v1 unitless
+        (warehouses/customers/mines/stations/refineries/plants/
+        plantCapabilities/openWarehouses), v2 unit-bearing input
+        (distances/legDistances/laneCosts), or v3 unit-bearing output
+        (assignments/flows/costSummary/serviceStats). Never a single global
+        v3+unit shape.
+      oneOf:
+        - $ref: "#/components/schemas/ExportEnvelopeV1"
+        - $ref: "#/components/schemas/ExportEnvelopeV2"
+        - $ref: "#/components/schemas/AssignmentsExportEnvelope"
+        - $ref: "#/components/schemas/FlowsExportEnvelope"
+        - $ref: "#/components/schemas/CostSummaryExportEnvelope"
+        - $ref: "#/components/schemas/ServiceStatsExportEnvelope"

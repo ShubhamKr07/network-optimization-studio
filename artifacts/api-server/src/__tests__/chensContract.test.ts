@@ -75,14 +75,42 @@ describe("Chen's Cosmetics OpenAPI contract (C4.5)", () => {
   });
 
   it("request<->response entity parity: every export request entity is accepted by ExportEnvelope.entity", () => {
+    // T5 (SCND scaling — Chen bands & units): the response envelope is now
+    // three versioned families (v1 unitless, v2 unit-bearing input, v3
+    // unit-bearing output) per spec Part E — a single flat
+    // {templateVersion:1, entity, rows} shape no longer describes every
+    // entity, so each entity is asserted against its own family's shape.
     const requestEntities = ExportScenarioQueryParams.shape.entity.options as readonly string[];
+    const v1Entities = new Set([
+      "warehouses", "customers", "mines", "stations", "refineries",
+      "plants", "plantCapabilities", "openWarehouses",
+    ]);
+    const v2Entities = new Set(["distances", "laneCosts", "legDistances"]);
+    const v3Entities = new Set(["assignments", "flows", "costSummary", "serviceStats"]);
+
     for (const entity of requestEntities) {
-      const result = ExportScenarioResponse.safeParse({ templateVersion: 1, entity, rows: [] });
-      expect(result.success, `ExportEnvelope.entity should accept "${entity}"`).toBe(true);
+      let envelope: Record<string, unknown>;
+      if (v1Entities.has(entity)) {
+        envelope = { templateVersion: 1, entity, rows: [] };
+      } else if (v2Entities.has(entity)) {
+        envelope = { templateVersion: 2, entity, unit: "km", rows: [] };
+      } else if (v3Entities.has(entity)) {
+        envelope = { templateVersion: 3, entity, unit: "km", rows: [] };
+      } else {
+        throw new Error(`entity "${entity}" is not classified into any export envelope family — update this test`);
+      }
+      const result = ExportScenarioResponse.safeParse(envelope);
+      expect(result.success, `ExportEnvelope should accept entity "${entity}" as v${envelope.templateVersion}`).toBe(true);
     }
     // Concretely covers the 4 output entities added in C4.5.
     for (const entity of ["assignments", "openWarehouses", "costSummary", "serviceStats"]) {
       expect(requestEntities.includes(entity)).toBe(true);
     }
+  });
+
+  it("v1 envelopes carry no `unit` property at all", () => {
+    const result = ExportScenarioResponse.safeParse({ templateVersion: 1, entity: "warehouses", rows: [] });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data).not.toHaveProperty("unit");
   });
 });

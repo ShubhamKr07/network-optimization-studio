@@ -7,6 +7,7 @@
  */
 import type { ExportScenarioEntity } from './exportScenarioEntity';
 import type { ExportScenarioFormat } from './exportScenarioFormat';
+import type { ExportScenarioUnit } from './exportScenarioUnit';
 
 export type ExportScenarioParams = {
 entity: ExportScenarioEntity;
@@ -15,4 +16,13 @@ format: ExportScenarioFormat;
  * entity=distances or entity=laneCosts only (SCN v0.3 B4.3, extended by Task 30). Id of a warehouse/mine or customer/station (base dataset or this scenario's added entities) to generate a blank fill-in-the-blanks distance/cost template for — one row per counterpart (distance/cost omitted) — instead of exporting the scenario's existing distanceOverrides/laneCostOverrides.
  */
 stubFor?: string;
+/**
+ * Unit for distance-dimension values in the emitted file. Validated for EVERY entity; an unknown value is 400 even for a non-distance entity. Ignored (byte-identical output) for non-distance entities. Omitted = each model's canonical unit.
+ */
+unit?: ExportScenarioUnit;
+/**
+ * Export a specific solve run (a solve_jobs id owned by the caller AND belonging to this scenario) instead of the scenario's latest result.
+ * @minimum 1
+ */
+runId?: number;
 };
