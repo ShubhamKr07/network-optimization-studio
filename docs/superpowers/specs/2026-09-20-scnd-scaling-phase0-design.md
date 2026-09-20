@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §14 findings resolved (Q4–Q9 answered 2026-09-21, see §15).** This document is not implemented as a single unit. §§0–12 are the audit trail (proposed design + two review rounds); §13 is the authoritative split map; §14 is the split-map review; §15 records the Q4–Q9 decisions and where each landed. The implementable successor is `2026-09-21-scnd-solver-result-contract-design.md`; measurement and B2 remain TBD (own passes).
+**Status:** **SUPERSEDED — audit/split ledger; §16 findings resolved (Q10–Q16 answered 2026-09-21, see §17).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14 first split-map review; §15 Q4–Q9 resolutions; §16 post-resolution review; §17 Q10–Q16 decisions + destinations. The correctness successor (`2026-09-21-scnd-solver-result-contract-design.md`) is **approved to execute P0R.1 + P0R.2 only**; P0R.3/P0R.4 need a post-spike design update + review. Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -507,7 +507,7 @@ The 2026-09-21 answers resolved the §12 blockers structurally rather than by in
 |---|---|---|
 | **Correctness contract** — `2026-09-21-scnd-solver-result-contract-design.md` | Two-dimensional `solutionStatus`+`terminationReason`, CBC parser, versioned v1/v2 envelope, truthful expanded `status` projection, invariant matrix, lifecycle+cache/publish policy branch, frontend + read-time legacy compat, consumer migration, Q4 sacred-test correction. Tasks P0R.1–P0R.4. | Implementation-ready draft; **P0R.1 is a go/no-go spike gating P0R.3**. Ships standalone. |
 | **Measurement + experiments** — TBD (`2026-09-2x-scnd-scaling-measurement-design.md`) | Benchmark harness + corpus (N≥30, provenance, raw-vs-aggregate schemas, per-process RSS), MIP-start-from-cache experiment (corrected construction), warm/persistent-worker experiment, Render candidate-plan matrix incl. gap=0 forced-open re-measurement, **and the Q7 compute-topology comparison (high-core vertical vs dedicated worker vs horizontal fleet)**. Feeds B2 sizing. | Needs its own brainstorm/spec pass. |
-| **B2 — durable queue, horizontal solver tier, pilot gate** — TBD (`2026-09-2x-scnd-scaling-b2-design.md`) | Full concurrency protocol (atomic CAS claim, ownership/lease, attempts/retry-exhaustion, graceful shutdown + process-group kill, version-aware recovery, readiness-on-recovery-failure), stale-result CAS publication guard, worker split, scheduler, **horizontal scaling** (Q2), single-flight/coalescing, retention/index/bounds, two-gate pilot authorization, four load profiles incl. sustained 2,500 cold-miss/3h, numeric SLOs + headroom, executable live-test runbook, cost outputs. | Needs its own brainstorm/spec pass (now a large, coherent unit). |
+| **B2 — durable isolated solver tier + pilot gate** — TBD (`2026-09-2x-scnd-scaling-b2-design.md`) | Full concurrency protocol (atomic CAS claim, ownership/lease, attempts/retry-exhaustion, graceful shutdown + process-group kill, version-aware recovery, readiness-on-recovery-failure), stale-result CAS publication guard, worker split, scheduler, **the measurement-selected compute topology** (high-core vertical / dedicated worker / horizontal fleet — Q7/§16.5, not pre-decided), single-flight/coalescing, retention/index/bounds, two-gate pilot authorization, four load profiles incl. sustained 2,500 cold-miss/3h, numeric SLOs + headroom, executable live-test runbook, cost outputs. **Worker isolation + reliability protocol mandatory regardless of topology.** | Needs its own brainstorm/spec pass. |
 
 ### 13.2 §12 finding → destination
 
@@ -677,11 +677,13 @@ After these changes, this file can be approved as the historical audit trail and
 
 ---
 
-## 15. §14 resolution — Q4–Q9 decisions (2026-09-21)
+## 15. §14 proposed resolution — Q4–Q9 decisions (2026-09-21)
+
+This section preserves the resolution recorded after §14. The later approval review in §16 found that Q4 lacks an auditable human authorization and that parts of its proposed test policy are technically unsound. For current implementation authority, §16 supersedes this section where they conflict.
 
 | Q | Decision | Landed in |
 |---|---|---|
-| **Q4** protected suite | **Approved rule-#2 override:** correct `e2e_accuracy.py` so `gap>0` cases assert truthful `feasible`+`gap_limit` (+ preserve objective/monotonicity/feasibility invariants); `gap=0` stays strict `optimal`; **zero golden-objective changes**. | Correctness spec §3 P0R.4, §4. |
+| **Q4** protected suite | **Proposed rule-#2 override, not yet authorized:** correct `e2e_accuracy.py` narrowly while preserving mathematical invariants and making **zero golden-objective changes**. The exact status policy also requires correction per §16.2/Q11; requested gap alone does not establish achieved status. | Correctness spec §3 P0R.4, §4; blocked on Q10/Q11. |
 | **Q5** legacy shape | `envelopeVersion:1` + `solutionStatus:null` + `terminationReason:unknown` + `legacyUnverified:true`; raw legacy `status` preserved separately; v2 enum stays clean. | Correctness spec §2.5. |
 | **Q6** cache/publish | Cache `optimal`/`infeasible`/`unbounded`; cache `feasible` only with full gap/time/version key; **never** cache `error`; **do not** cache `no_solution`. | Correctness spec §2.6. |
 | **Q7** topology | **Measure then select** (high-core vertical vs dedicated worker vs horizontal fleet); worker isolation + B2 reliability mandatory regardless. Core count alone does **not** mandate horizontal (§14.6). | §13 corrected; measurement spec + B2. |
@@ -689,3 +691,151 @@ After these changes, this file can be approved as the historical audit trail and
 | **Q9** `status` expansion | Truthful expanded projection = explicit **versioned breaking change**; internal readers migrate atomically; retained field preserves name, not universal back-compat. | Correctness spec §2.2/2.3/P0R.3. |
 
 Also applied from §14: 14.2 lifecycle/cache/publish branch (correctness §2.6), 14.4 invariant matrix (§2.4), 14.5 CBC-file capture (§3 P0R.1), 14.7 "byte-identical" wording corrected to "golden objectives unchanged + invariants preserved" (§2.3). §14.8 stands: this file is the audit/split ledger; only the corrected correctness spec is eligible for implementation approval; measurement and B2 remain unapproved until their own specs are reviewed.
+
+---
+
+## 16. Post-resolution approval review — unresolved findings and questions (2026-09-21)
+
+**Review disposition: REQUEST CHANGES.** The three-spec split is structurally sound, the full 2,500 unique cold-miss/hour workload is restored, and most §14 concerns are represented in the successor material. The correctness successor is nevertheless **not approved as a whole**. P0R.1 may begin as a feasibility spike, and independent P0R.2 fixture capture may proceed, but P0R.3/P0R.4 must wait for the decisions and contract corrections below. This ledger therefore cannot claim that all §14 findings are resolved.
+
+### 16.1 CRITICAL — sacred-test override lacks auditable human approval
+
+Section 15 recorded Q4 as approved, and the correctness successor states that human approval was recorded. No explicit product-owner/user authorization for changing the protected `e2e_accuracy.py` suite is present in the review record. A reviewer recommendation, agent-authored decision table, or local commit message is not independent human authority to override a sacred-test rule.
+
+Required before P0R.4:
+
+1. obtain an explicit human decision approving or rejecting the narrow exception;
+2. assign it a dated decision identifier;
+3. reference that identifier from this ledger and the correctness successor;
+4. preserve the zero-golden-objective-change constraint if the exception is approved.
+
+Until that evidence exists, Q4 is a proposal rather than a locked decision.
+
+### 16.2 CRITICAL — P0R.4 infers achieved status from the requested gap
+
+The correctness successor correctly says that a requested tolerance does not determine achieved status, but its P0R.4 test instructions then prescribe `feasible + gap_limit` for every protected case with `gap > 0` and strict `optimal` for `gap == 0`. Those rules contradict the result model:
+
+- a solve requested with `gap > 0` may still prove optimality, stop at the requested gap, hit a time limit with or without an incumbent, or prove infeasibility/unboundedness;
+- a solve requested with `gap == 0` may still fail to prove optimality before its time/resource limit;
+- the expected status and termination reason must come from committed CBC evidence for the exact case, not from the request parameter alone.
+
+Required policy:
+
+- keep a case-specific strict assertion only when committed, repeatable CBC evidence establishes the termination pair for that protected scenario;
+- otherwise permit only the explicitly valid status/reason pairs and validate the returned pair against actual evidence;
+- keep deterministic parser fixtures authoritative for exercising `gap_limit`, `time_limit`, infeasible, unbounded, and error branches;
+- never calculate an expected achieved status solely as `requestedGap > 0 ? feasible : optimal`.
+
+### 16.3 CRITICAL — exact objective equality conflicts with observed CBC numerics
+
+The correctness successor's invariant matrix requires `objective === incumbentObjective`. A fresh targeted probe of the existing Brazil P=5, cap=20M, requested gap=0.05 case produced:
+
+```text
+application envelope objective = 27022899702
+CBC incumbent objective        = 27022899653.800003
+difference                     = 48.19999694824219
+CBC best bound                 = 26971509401.152
+CBC reason                     = Result - Optimal solution found (within gap tolerance)
+```
+
+The application objective is recomputed/rounded from PuLP variable values, while the CBC log reports its own floating-point incumbent representation. Strict equality would reject an otherwise valid result, or force a change to the public objective that could violate the zero-golden-change constraint.
+
+Before P0R.3, define all of the following:
+
+- the canonical public/application `objective` and its per-model/API rounding rule;
+- whether `incumbentObjective` stores CBC's raw value or the application-canonical value;
+- if it stores CBC's raw value, a documented absolute/relative comparison tolerance instead of `===`;
+- an `achievedGap` formula based on unrounded solver evidence, including sign, denominator, precision, and near-zero-objective behavior;
+- preservation of raw solver values separately from presentation-rounded values where needed for auditability.
+
+Recommended direction: preserve the existing application objective and golden values, retain CBC's raw incumbent/bound as solver evidence (or compare using an explicit tolerance), and derive the achieved gap from the raw values.
+
+### 16.4 HIGH — raw solver validation and normalized legacy reads need separate schemas
+
+The current plan makes one envelope union serve both raw solver stdout and historical/cache reads. That allows a legacy v1 shape to pass at the solver boundary with `solutionStatus:null`, even though the new-write lifecycle policy has no valid null-status branch. Compatibility at a storage/read boundary must not weaken validation of newly produced solver output.
+
+Use three explicit boundaries:
+
+1. `SolverEnvelopeV2Schema` — validates raw solver stdout and all new cache writes; v2 only.
+2. `StoredResultSchema` — validates persisted historical data in its stored form.
+3. `NormalizedSolveResultSchema` — the normalized v1/v2 read/API/UI union.
+
+A dedicated normalizer should convert a stored legacy row to the normalized v1 representation. The normalized legacy payload must use a named field such as `legacyStatus` rather than the ambiguous instruction to preserve the old status "separately." Raw solver output must never be accepted as v1.
+
+### 16.5 HIGH — §13 still contradicts the measure-then-select topology decision
+
+Section 13 correctly says to compare high-core vertical, dedicated-worker, and horizontal-fleet options before selecting a topology. Section 13.1 nevertheless names B2 "durable queue, horizontal solver tier" and lists horizontal scaling as mandatory scope. Core count alone does not justify that conclusion, and the measurement plan has not run.
+
+Rename the successor to a topology-neutral title such as **"B2 — durable isolated solver tier + pilot gate."** State that measurement selects the compute topology; horizontal scaling remains one candidate. Worker isolation and the B2 reliability protocol remain mandatory regardless of topology. This also preserves the cost comparison between vertical and horizontal scaling strategies required by the Render scaling guidance.
+
+### 16.6 HIGH — “implementation-ready” overstates the approval scope
+
+The correctness successor and §13.1 use "implementation-ready" while P0R.1 is explicitly a go/no-go dependency for core integration. CBC evidence capture, cleanup, parsing, and PuLP compatibility are not yet proven, so the dependent tasks cannot have unconditional implementation approval.
+
+Use this status instead:
+
+> **Approved to execute P0R.1. P0R.3–P0R.4 remain conditionally specified and require a post-spike design update and approval.** Independent deterministic fixture collection in P0R.2 may proceed where it does not assume the unresolved contract.
+
+### 16.7 MEDIUM — exact contract values remain open
+
+Close these details before P0R.3:
+
+- enumerate the exact `quality` string for every allowed solution-status/termination-reason pair rather than describing it only as a deterministic function;
+- replace `error -> solver_error (or explicitly-approved infra reason)` with one closed termination-reason enum and exact classification rules;
+- define the complete `achievedGap` formula and numeric policy described in §16.3;
+- correct the successor's claim that the old `status` field had only two values: the current OpenAPI contract includes `optimal`, `infeasible`, and `error`;
+- explicitly migrate `artifacts/api-server/src/solver/tests/_envelope_compat.py`; it currently flattens only the legacy fields and would discard `terminationReason`, preventing the protected suite from asserting the new contract;
+- name the legacy raw-status field and define when it is present or absent.
+
+### 16.8 Validated improvements retained
+
+The latest review confirms these improvements and they should not regress:
+
+- the full all-JADE, sustained 2,500 unique cold-miss/hour contract is restored;
+- vertical, dedicated-worker, and horizontal options are compared before topology selection;
+- lifecycle, cache, publication, and public-status behavior is mapped by outcome;
+- legacy records are no longer promoted to proven optimal;
+- concurrency-safe CBC evidence capture is treated as a spike rather than an assumption;
+- stale-publication protection and the full queue reliability protocol remain in B2;
+- measurement and B2 are explicitly unapproved until their own design/review passes.
+
+### 16.9 Decisions/questions required (Q10–Q16)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q10 — sacred-test authorization** | Does the product owner explicitly authorize the narrow `e2e_accuracy.py` exception, with no golden-objective changes? | Require a direct human approval and dated decision ID before P0R.4; otherwise leave the protected file unchanged. |
+| **Q11 — protected approximate-case assertions** | How should expected status/reason be selected for protected cases that request a nonzero gap (and for zero-gap cases subject to limits)? | Use committed per-case CBC evidence. Do not derive achieved status from requested gap. Use deterministic parser fixtures as the authoritative branch tests. |
+| **Q12 — objective/incumbent numeric policy** | Which value is canonical, and how are CBC raw values, rounding, equality tolerance, and achieved gap represented? | Preserve the existing application objective/goldens; retain raw CBC evidence separately or compare it with an explicit abs/rel tolerance; compute achieved gap from raw values. |
+| **Q13 — schema boundary** | May compatibility parsing share the raw solver-output schema? | No. Approve separate v2 solver, stored-result, and normalized-read schemas with an explicit legacy normalizer. |
+| **Q14 — B2 topology naming/scope** | Is horizontal scaling already selected, or does measurement select among vertical/dedicated/horizontal candidates? | Keep B2 topology-neutral until measurement selects a plan; require isolation/reliability independently. |
+| **Q15 — implementation approval scope** | Is the entire correctness successor approved before P0R.1 proves the integration mechanism? | Approve only P0R.1 plus contract-independent fixture capture. Require post-spike review before P0R.3/P0R.4. |
+| **Q16 — exact contract closure** | Must quality strings, reason enum, gap formula, legacy field, and compatibility-helper migration be specified before integration? | Yes. Add exact tables/formulas and the helper migration to the correctness successor before P0R.3. |
+
+### 16.10 Approval checklist
+
+- [ ] Q10 contains explicit human authorization or rejection with a dated decision ID.
+- [ ] P0R.4 is evidence-driven and does not infer achieved status from requested gap.
+- [ ] Objective/incumbent canonicalization, tolerance, rounding, and raw-gap calculation are exact.
+- [ ] Raw v2 solver validation is separated from stored-data compatibility and normalized reads.
+- [ ] B2 naming and scope are topology-neutral until measurement selects a plan.
+- [ ] Successor status grants only the implementation scope actually proven by P0R.1.
+- [ ] `quality`, termination reasons, `achievedGap`, legacy-field behavior, and compatibility-helper migration are fully specified.
+- [ ] The correctness successor receives a post-revision approval review before P0R.3/P0R.4.
+
+Once these items are closed, this file can be approved as the authoritative audit/split ledger. That approval would not approve the still-TBD measurement or B2 implementation specs.
+
+---
+
+## 17. §16 resolution — Q10–Q16 decisions (2026-09-21)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q10** sacred-test authorization | **Confirmed** — recorded as **DEC-2026-09-21-01** (product owner approves the narrow `e2e_accuracy.py` correction; zero golden-objective changes). | Correctness spec header, §3 P0R.4, §4. |
+| **Q11** approximate-case assertions | **Evidence-driven** — expected status/reason from committed CBC evidence per case; **never** `requestedGap>0 ? feasible : optimal`; deterministic parser fixtures authoritative. | Correctness spec §3 P0R.4. |
+| **Q12** objective/incumbent numerics | Public `objective` = app-canonical (unchanged, preserves goldens); `incumbentObjective` = raw CBC; compare with abs/rel **tolerance** (not `===`); `achievedGap` from raw values. | Correctness spec §2.2/§2.4. |
+| **Q13** schema boundary | **Three schemas** — `SolverEnvelopeV2Schema` (raw stdout + new cache writes, v2-only) / `StoredResultSchema` / `NormalizedSolveResultSchema` + normalizer; `legacyStatus` named field. | Correctness spec §2.6/§2.7. |
+| **Q14** B2 topology naming | **Topology-neutral** — B2 renamed "durable isolated solver tier + pilot gate"; measurement selects vertical/dedicated/horizontal; isolation+reliability mandatory regardless. | §13.1 (renamed); measurement spec + B2. |
+| **Q15** implementation scope | **Only P0R.1 + P0R.2** approved; P0R.3/P0R.4 conditional on a post-spike design update + review. | Correctness spec status. |
+| **Q16** exact contract closure | Exact `quality` strings per pair, closed termination-reason enum, `achievedGap` formula, corrected 3-value `status`, `_envelope_compat.py` migration, named `legacyStatus`. | Correctness spec §2.2/§2.4/§2.5/§3 P0R.3. |
+
+Also applied from §16: 16.2 evidence-driven asserts (§3 P0R.4), 16.3 objective tolerance (§2.4), 16.4 three schemas (§2.6), 16.5 topology-neutral B2 (§13.1), 16.6 status downgrade (correctness header), 16.7 exact values + `_envelope_compat.py` (§2/§3). §16.7 factual corrections verified in-repo: `SolveResult.status` enum = `[optimal, infeasible, error]` (3 values); `_envelope_compat.py` `flatten_envelope` discards `terminationReason` and must be migrated. This ledger's §16 findings are now resolved; the correctness successor governs implementation (P0R.1/P0R.2 approved).
