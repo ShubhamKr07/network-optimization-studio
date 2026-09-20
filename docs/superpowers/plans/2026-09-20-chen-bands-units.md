@@ -1737,16 +1737,10 @@ it("dirty-nav prompt: a REJECTED Save leaves everything exactly as it was", asyn
   expect(screen.getByTestId("save-error")).toBeVisible();// the save error is still reported
 });
 
-// NOTE: moved to Task 14b (plan-review-8 #2) — at the T14 commit the controls
-// still call downloadEntityExport directly and do not consume the context.
-it.todo("legacy LATEST result stays exportable; the same entry goes non-exportable once it is history", async () => {
-  // resultRunId === null while it IS the latest:
-  expect(downloadControl()).toBeEnabled();
-  expect(lastExportRequest().searchParams.has("runId")).toBe(false);
-  // after a newer solve makes it a historical entry:
-  expect(downloadControl()).toBeDisabled();
-  expect(downloadControl()).toHaveAccessibleDescription(/wasn't retained/i);
-});
+// The legacy latest-to-history LIFECYCLE test lives in Task 14b Step 1c — it
+// needs real controls consuming the provider, which do not exist until then.
+// Deliberately NOT stubbed here as `it.todo`: a skipped test reports green
+// forever (plan-review-9 #1/#3).
 ```
 
 - [ ] **Step 2a: Chen defaults (spec Part A + Part B)**
@@ -1828,15 +1822,18 @@ const exportValue: ExportProviderValue = {       // state only — the provider
 
 This object is a complete **`ExportProviderValue`** — `scenarioId`, `unit: ExportUnit`, `runId`, both family reasons — and deliberately **not** an `ExportApi`: `disabledReasonFor` and `download` are added by the provider, so typing this state object as `ExportApi` would not compile (plan-review-8 #1). Tests assert the complete `ExportProviderValue` **input** here, and the complete `ExportApi` **hook result** in Task 11b.
 
-Tests:
+**Tests — provider-STATE derivation only (plan-review-9 #1).** At this commit the 26 controls still call `downloadEntityExport` directly and consume nothing, so **no production-button assertion can pass here**; every such test belongs to T14b. Assert the derived `ExportProviderValue`, and — where a behavioral check is genuinely useful — mount a tiny **test-only context probe** beneath the real provider and assert `disabledReasonFor`. Never assert a real control's state or a request.
+
 ```ts
-it("passes the effective unit (auto -> canonical; forced km/mi overrides)", () => {});
-it("passes runId only while browsing history, never on the latest entry", () => {});
-it("sets resultDisabledReason only for an unaddressable historical entry", () => {});
-it("sets inputDisabledReason for ANY historical entry", () => {});
-it("disables export controls entirely while the manifest is unresolved (no fallback unit)", () => {});
-it("passes scenarioId, and disables everything when no scenario is selected", () => {});
+it("derives the effective unit (auto -> canonical; forced km/mi overrides canonical)", () => {});
+it("derives runId only while browsing history, never on the latest entry", () => {});
+it("derives resultDisabledReason only for an unaddressable historical entry", () => {});
+it("derives inputDisabledReason for ANY historical entry", () => {});
+it("derives unit === null while the manifest is unresolved (no fallback)", () => {});
+it("derives scenarioId === null when no scenario is selected", () => {});
 it("supplies a complete ExportProviderValue (shape assertion, not a subset)", () => {});
+// Optional behavioral check, via a test-only probe under the real provider:
+it("probe: disabledReasonFor routes input vs result entities from the derived state", () => {});
 ```
 
 - [ ] **Step 7: Run-id threading** — `ResultHistoryEntry` gains `runId?: number`; the seed takes `currentScenario.resultRunId`; a new solve attaches the polling job id **independently of `timing`**; **an entry with no `runId` is non-exportable ONLY once it is no longer the latest** (plan-review #4). A legacy *latest* result must still export through the existing latest-result path with `runId` omitted — the spec's Part F rule is narrower than "any null runId is disabled". Lock it as:
@@ -1848,7 +1845,7 @@ it("supplies a complete ExportProviderValue (shape assertion, not a subset)", ()
 const unaddressableHistoricalEntry = isBrowsingHistory && entry.runId == null;
 ```
 
-Disable and label the download in **that** state only. Test **both** branches: legacy entry while it is latest → export request fires with **no** `runId`; the same entry after a newer solve → download disabled + labelled. The `downloadEntityExport` signature change itself belongs to **T11b**; this task only feeds the provider.
+That predicate drives `resultDisabledReason`. Disabling and labelling the actual download, and the two-branch lifecycle test, are executed in **Task 14b Step 1c**. The `downloadEntityExport` signature change itself belongs to **T11b**; this task only feeds the provider.
 
 - [ ] **Step 8: Gate + commit**
 
@@ -1868,7 +1865,10 @@ git commit -m "[T14] Workspace integration — band lens, history action matrix,
 **Files (self-contained; creates none of T11b's files):**
 - Modify: the **15 helper-calling tab files** — `AssignmentsTab`, `FlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
 - Modify: **`JadeFlowsTab.tsx`** — its two client-generated CSV controls (`handleDownloadPw`, `handleDownloadWc`, on a local `downloadClientCsv`, lines ~136/210/218). It calls `downloadEntityExport` **nowhere**, so a mechanical helper-conversion would leave both JADE downloads bypassing server conversion, `unit=`, `runId`, v3 and history addressing (plan-review-5 #3).
-- Test: **every existing test rendering one of those 16 tabs**, migrated to `renderWithExportProvider` (created by T11b) — `AssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab`
+- Test — **split by render boundary (plan-review-9 #2); "every affected test" must NOT be read as "wrap everything"**:
+  - **Direct-component tests** (render the tab itself) migrate to `renderWithExportProvider`: `AssignmentsTab`, `FlowsTab`, `JadeFlowsTab`, `ServiceStatsTab`, `CostSummaryTab`, `OpenWarehousesTab`, `JadeAssignmentsTab`, `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab`, `WarehousesTab`, `CustomersTab`, `MinesTab`, `StationsTab`, `PlantsTab` tests.
+  - **Tests that render `Workspace`** (`Workspace.test.tsx`, `Workspace.TabCoverage.test.tsx`) stay **UNWRAPPED** and exercise the real production mount. Wrapping them would let them pass even if `Workspace`'s provider were later deleted — precisely the regression the throwing hook exists to catch — and the nested production provider would silently win over the outer test provider, making overrides misleading.
+  - Keep T11b's **direct-component no-provider test** as the hook's fail-loud guard.
 
 - [ ] **Step 1: Execute Steps 4, 4b, 4c and 4d** exactly as written in Task 11b.
 
@@ -1883,6 +1883,29 @@ it("a disabled control fires no network call", () => {});
 it("the resolved provider unit reaches the request as unit=", () => {});
 ```
 
+- [ ] **Step 1c: The legacy latest→history lifecycle test — real, unwrapped, and gated (plan-review-9 #3)**
+
+Task 14 deliberately does **not** stub this as `it.todo`; a skipped test reports green forever. It is written here as a real `it(...)`, rendered through an **unwrapped `Workspace`** so it proves the production provider mount *and* the state derivation in one pass:
+
+```ts
+// artifacts/studio/src/__tests__/Workspace.exportLifecycle.test.tsx — NO
+// renderWithExportProvider: the provider must come from Workspace itself.
+it("legacy LATEST result exports without runId; the same entry is disabled once it is history", async () => {
+  // resultRunId === null while this entry IS the latest:
+  expect(downloadControl()).toBeEnabled();
+  await click(downloadControl());
+  expect(lastExportRequest().searchParams.has("runId")).toBe(false);
+  // after a newer solve makes it a historical entry:
+  expect(downloadControl()).toBeDisabled();
+  expect(downloadControl()).toHaveAccessibleDescription(/wasn't retained/i);
+  expect(networkCallsSince(mark)).toHaveLength(0);
+});
+
+it("an unwrapped Workspace render supplies the context to a real export control", () => {});
+```
+
+Add `artifacts/studio/src/__tests__/Workspace.exportLifecycle.test.tsx` to this task's Files and commit path.
+
 - [ ] **Step 2: Gate + commit**
 
 ```bash
@@ -1890,10 +1913,13 @@ it("the resolved provider unit reaches the request as unit=", () => {});
 # removal) and an input exporter such as DistancesTab (spec 1k disabling).
 pnpm --filter studio test -- ExportContext AssignmentsTab FlowsTab JadeFlowsTab ServiceStatsTab \
   CostSummaryTab OpenWarehousesTab JadeAssignmentsTab DistancesTab LegDistancesTab \
-  JadeDistancesTab LaneCostsTab WarehousesTab CustomersTab MinesTab StationsTab PlantsTab
+  JadeDistancesTab LaneCostsTab WarehousesTab CustomersTab MinesTab StationsTab PlantsTab \
+  Workspace.exportLifecycle Workspace.TabCoverage Workspace
 pnpm --filter studio test && pnpm run typecheck
-git commit -m "[T14b] route all 26 export controls through the mounted ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs)" -- \
-  artifacts/studio/src/components/workspace/tabs artifacts/studio/src/__tests__
+git commit -m "[T14b] route all 26 export controls through the mounted ExportContext (24 helper calls in 15 files + JADE's 2 client CSVs) + unwrapped Workspace export-lifecycle test" -- \
+  artifacts/studio/src/components/workspace/tabs \
+  artifacts/studio/src/__tests__/Workspace.exportLifecycle.test.tsx \
+  artifacts/studio/src/__tests__
 ```
 
 ---
@@ -2591,3 +2617,57 @@ Move the complete Task 14b section after Task 14. This makes document order matc
 ### Eighth re-review exit criteria
 
 Approval requires all five comments to be folded into the normative plan, not merely recorded here. Use `ExportProviderValue` at every provider-input construction site; allocate context, provider-derivation, and production-control tests to T11b, T14, and T14b respectively; remove `auto` and `useDisplayUnit()` from the context-only task; give T11b and T14b unambiguous file ownership; and place T14b after T14 in both the dependency map and document order. Then run `git diff --check` and validate that each task's declared files, tests, gate, and commit can succeed at that exact point in the sequence.
+
+---
+
+## Appendix — ninth approval re-review comments (2026-09-20, `2076d8e`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All three folded — see `plan-review-9 #N` markers.)* The eighth-review revision resolves the provider-value typing, context-only T11b tests, unit-state boundaries, file ownership, and document ordering. The worktree was clean and `git diff --check HEAD^ HEAD` passed. One sequencing blocker and two related test-regression gaps remain.
+
+### 1. BLOCKER — Task 14 still requires production-control behavior before T14b creates it
+
+The three-stage split is now explicit and correct:
+
+- T11b creates the context and helper signature with no consumers;
+- T14 mounts an inert production provider;
+- T14b converts the 26 controls to consume that provider.
+
+Task 14 even marks the legacy latest-to-history control test as `it.todo`, correctly noting that the controls still call `downloadEntityExport` directly at that commit. But the same Task 14 still requires tests that “disable export controls entirely” while the manifest is unresolved and “disable everything” when no scenario is selected. Its run-id step also still instructs the implementer to disable and label the download, fire the request on the legacy latest entry, and test both branches.
+
+Those are production-control behaviors. They cannot exist at the T14 commit because no control calls `useExport()` until T14b. A mounted provider with no consumers can expose derived state through a test probe, but it cannot change the old buttons.
+
+Make the task boundary exact:
+
+- **T14** tests only the `ExportProviderValue` it derives: effective unit, scenario id, historical run id, result reason, input reason, and null/unresolved states. If a behavioral assertion is useful, mount a small test-only context probe below the real provider and assert `disabledReasonFor`; do not assert production button state or requests.
+- **T14b** owns every actual-button assertion and mutation: enabled/disabled state, accessible reason, request firing or suppression, and the legacy-latest-to-history transition.
+
+Delete the `it.todo` block from Task 14 rather than committing a skipped requirement, remove the production-control wording from Task 14 Steps 7b/7, and place the full executable test in Task 14b.
+
+### 2. HIGH — wrapping every tab-rendering test would hide a missing production provider mount
+
+Task 14b says **every existing test rendering one of the 16 tabs** is migrated to `renderWithExportProvider`. That set includes tests which render the tabs indirectly through `Workspace`. Wrapping those tests in an external provider would allow them to pass if the real `Workspace` provider mount were later deleted—the exact regression that `useExport()` throwing without a provider is intended to catch. It can also make provider overrides misleading because the production provider nested inside `Workspace` wins over the outer test provider.
+
+Split the testing rule by render boundary:
+
+- tests that render a tab component **directly** use `renderWithExportProvider`;
+- tests that render `Workspace` remain **unwrapped** and exercise the real production `ExportProvider` mount;
+- at least one unwrapped Workspace integration test opens/renders an export-control tab successfully and proves the context comes from Workspace itself;
+- the direct-component no-provider test remains as the hook's fail-loud guard.
+
+Update the Task 14b Files/test inventory so “every affected test” cannot be interpreted as wrapping Workspace tests.
+
+### 3. MEDIUM — the skipped lifecycle requirement is not explicitly activated or focused-gated in T14b
+
+T14b contains a generic result-control assertion, but it does not explicitly say to replace/remove Task 14's `it.todo`, does not name an unwrapped Workspace integration test file, and its targeted command omits `Workspace`. The later full-suite command does not repair this: a skipped test reports green indefinitely.
+
+In Task 14b:
+
+- add or enable the full legacy lifecycle test as a real `it(...)`, not `it.todo(...)`;
+- run it through an unwrapped `Workspace` render so it proves both the provider mount and state derivation;
+- assert latest legacy export fires with no `runId`, then after a newer solve makes that entry historical the same control is disabled and accessibly labelled;
+- include the selected `Workspace` test file/filter in the targeted T14b gate; and
+- include that test file explicitly in T14b's Files block and commit path description.
+
+### Ninth re-review exit criteria
+
+Approval requires all three findings to be folded into the normative tasks, not merely recorded here. Task 14 must contain provider-state derivation tests only and no skipped or premature production-control assertions; the shared provider helper must be restricted to direct-component tests; Workspace tests must remain unwrapped and prove the real production mount; and T14b must own, enable, target, and commit the complete legacy latest-to-history lifecycle test. Run `git diff --check`, then validate T11b, T14, and T14b as three independently green commits in that order.
