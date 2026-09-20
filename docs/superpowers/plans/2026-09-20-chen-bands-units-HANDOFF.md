@@ -44,7 +44,18 @@ Without it you get `DATABASE_URL must be set` and 3–4 whole files fail to load
 | T8 | `services/import.ts` — read unit, convert to canonical | ⬜ | — |
 | T9 | Routes — `unit=`, `runId`, field-scoped bands PATCH | ⬜ | — |
 
-**First action on resume:** `git log --oneline main..HEAD` and `git status --porcelain` — confirm the last `[Tn]` commit matches this table and the tree is clean. **T7 is next.**
+**Session ended cleanly here (2026-09-20).** HEAD = `ae52c8f`, worktree clean, 0 behind `main`.
+Final gate at this commit: **typecheck clean · api-server 1021/1021 (29 files, no flake)**.
+
+**T7 was dispatched and then cancelled** for the session restart. It was killed before writing anything — **it left no partial state, nothing to undo**. Start it fresh.
+
+**First action on resume:**
+1. `cd /private/tmp/chen-impl && git log --oneline -1` → expect `ae52c8f`; `git status --porcelain` → expect empty.
+2. `git merge-base --is-ancestor main HEAD && echo BASE_OK` — if this fails, `main` moved; rebase before dispatching anything.
+3. Check whether `workspace-fixups-2` has merged (§4 monitor command). If it has, Pass 2 unblocks and the §4 checklist applies.
+4. Otherwise dispatch **T7** (`services/templates.ts` — the largest backend task; sole writer of that file). Its brief is the plan's Task 7 plus the spec's Part E tables, which are normative for the exact wire shapes. Cross-check against `openapi.yaml`, which T5 already encoded from the same tables.
+
+**Session note:** the `TodoWrite` tool was unavailable in the session that produced this work (absent from its toolset, not merely deferred; the `Task*` tools were withdrawn mid-session too). Nothing in `.claude/settings*.json` or `~/.claude/settings*.json` gates tools, so the cause was harness-side. If a fresh session has it, prefer it over prose tracking.
 
 ### Pass 2 — frontend, deferred
 
