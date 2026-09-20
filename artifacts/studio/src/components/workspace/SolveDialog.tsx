@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
-import { JadeBandEditor } from "@/components/workspace/tabs/JadeBandEditor";
 import { useElapsed, type ElapsedJobStatus } from "@/lib/useElapsed";
 
 /**
@@ -29,12 +28,12 @@ export type SolveDialogPhase = "idle" | "saving" | "solving" | "failed";
 interface SolveDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** jade B9 — active model id. Only "two-echelon-jade-us" (JADE, Ch.9)
-   * renders the fixed-4-slot, fully-validated `JadeBandEditor` in place of
-   * the chip editor below — mirrors OptimizationParametersTab's (B8) own
-   * `modelId`-gated branch exactly, so the two surfaces can never diverge on
-   * which editor a given model gets. Every other modelId (including
-   * undefined) is unaffected. */
+  /** Active model id. jade-INT (workspace-fixups-2, item 7) — JADE (Ch.9)
+   * used to render a separate fixed-4-slot `JadeBandEditor` here, gated on
+   * this prop; that editor is deleted and JADE now renders the SAME shared
+   * free chip editor as every other model (JADE's `distanceBands` schema was
+   * relaxed to `.min(1)`, matching p-median/transport/gold-au). `modelId` is
+   * kept on the props for other model-specific sections in this dialog. */
   modelId?: string;
   /** Same `localInputs` draft A1.2's Optimization Parameters tab reads/writes
    * (Workspace.tsx passes both these values and `onChange` through
@@ -67,14 +66,6 @@ interface SolveDialogProps {
    * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
    * defaults true, so every other model's Solve dialog is unchanged. */
   showBandEditor?: boolean;
-  /** jade B9 — fires on every validity transition of the JADE fixed-4 band
-   * editor (mirrors OptimizationParametersTab's identically-named prop, B8).
-   * This dialog does NOT and CANNOT disable its own Run button from this
-   * signal — that gate lives in Workspace.tsx/INT, which observes validity
-   * centrally and guards every save/solve entry point (Save, save-before-
-   * solve, and this dialog's Run). No-op for every non-JADE model (the chip
-   * editor never calls this). */
-  onDistanceBandsValidityChange?: (isValid: boolean) => void;
   // ── jade B9 — running solve clock (spec §9) ───────────────────────────────
   // All four OPTIONAL, default undefined: with none supplied the dialog
   // renders nothing timing-related (every existing caller is unaffected).
@@ -127,7 +118,10 @@ interface SolveDialogProps {
 export function SolveDialog({
   open,
   onOpenChange,
-  modelId,
+  // modelId is unused for the band editor now (item 7 — JADE renders the
+  // same shared chip editor as every other model); kept in the destructure
+  // for parity with the other model-specific sections below, even though
+  // none of them currently read it either.
   p,
   pMax = 50,
   gap,
@@ -135,7 +129,6 @@ export function SolveDialog({
   distanceBands,
   distanceUnit,
   showBandEditor = true,
-  onDistanceBandsValidityChange,
   queuedAt,
   startedAt,
   finishedAt,
@@ -152,7 +145,6 @@ export function SolveDialog({
   const busy = phase === "saving" || phase === "solving";
   const [addingBand, setAddingBand] = useState(false);
   const [newBandValue, setNewBandValue] = useState("");
-  const isJade = modelId === "two-echelon-jade-us";
 
   // jade B9 — live solve clock (spec §9). All four inputs are optional and
   // default to undefined; with none supplied `elapsed.label` is null and
@@ -309,31 +301,16 @@ export function SolveDialog({
             </div>
           </div>
 
-          {/* jade B9 — for modelId==="two-echelon-jade-us", the fixed-4-slot,
-              fully-validated JadeBandEditor replaces the chip editor below —
-              mirrors OptimizationParametersTab's (B8) own modelId-gated
-              branch exactly, so the two surfaces can never diverge on which
-              editor a given model gets. It never publishes an invalid set;
-              validity surfaces up via onDistanceBandsValidityChange for
-              Workspace.tsx/INT to gate Save/Run on — this dialog's own Run
-              button is NOT disabled here. */}
-          {showBandEditor && isJade && (
-            <JadeBandEditor
-              bands={distanceBands}
-              onChange={next => onChange("distanceBands", next)}
-              onValidityChange={onDistanceBandsValidityChange}
-              distanceUnit={distanceUnit}
-            />
-          )}
-
           {/* R5 — distance-band range editor, prefilled from the scenario's
               current `inputs.distanceBands` and two-way synced with the same
               draft `onChange` as p/gap/timeLimitSec above. Mirrors
               OptimizationParametersTab's own bands chip editor exactly (same
               add/dedupe/sort/remove behavior) so the two surfaces can never
-              show conflicting values for the same field. Every non-JADE
-              model keeps this editor unchanged. */}
-          {showBandEditor && !isJade && (
+              show conflicting values for the same field. jade-INT
+              (workspace-fixups-2, item 7) — JADE renders this SAME editor now
+              (the fixed-4-slot `JadeBandEditor` is deleted; JADE's
+              `distanceBands` schema is `.min(1)` like every other model). */}
+          {showBandEditor && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-foreground">
@@ -364,7 +341,13 @@ export function SolveDialog({
                     aria-label={`Remove band ${b}`}
                     data-testid={`solve-dialog-button-remove-band-${b}`}
                     onClick={() => removeBand(b)}
-                    disabled={busy}
+                    // item 7 (Codex plan-review P1) — never remove the LAST
+                    // remaining band: every free-chip model's schema is now
+                    // `.min(1)`, so emptying the array to [] would 422 on
+                    // Save. Disabling the last band's × control by
+                    // construction closes that gap (mirrors the add-side
+                    // dedupe guard above).
+                    disabled={busy || distanceBands.length <= 1}
                     className="text-muted-foreground hover:text-foreground"
                   >
                     <X className="w-2.5 h-2.5" />

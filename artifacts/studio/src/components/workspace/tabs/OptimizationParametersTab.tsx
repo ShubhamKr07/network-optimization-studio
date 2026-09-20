@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { JadeBandEditor } from "@/components/workspace/tabs/JadeBandEditor";
 
 export type OptimizationParametersField =
   | "p"
@@ -30,12 +29,13 @@ export type OptimizationParametersField =
   | "coverageFloorDemand";
 
 interface OptimizationParametersTabProps {
-  /** jade B8 — active model id. Undefined/anything other than
-   * "two-echelon-jade-us" renders the existing add/remove chip band editor
-   * unchanged (every other model). Only two-echelon-jade-us (JADE, Ch.9)
-   * renders the fixed-4-slot `JadeBandEditor` instead, since only its schema
-   * (jadeInputsSchema.distanceBands) mandates exactly 4 strictly-ascending
-   * positive integers. */
+  /** Active model id. jade-INT (workspace-fixups-2, item 7) — JADE (Ch.9)
+   * used to render a separate fixed-4-slot `JadeBandEditor` here, gated on
+   * this prop; that editor is deleted and JADE now renders the SAME shared
+   * free add/remove chip band editor as every other model (its schema was
+   * relaxed to `.min(1)`, matching p-median/transport/gold-au). `modelId`
+   * currently has no other reader in this component, but stays on the props
+   * for parity with the other model-gated sections/callers. */
   modelId?: string;
   /** Undefined when the active model has no P concept (transport-coal,
    * two-echelon-gold-au) — mirrors Studio.tsx's modelId-gated P section
@@ -97,12 +97,6 @@ interface OptimizationParametersTabProps {
    * are DERIVED (`[high, max]`), not user-editable, so Workspace passes
    * `false` for Chen; defaults true, so every other model is unchanged. */
   showBandEditor?: boolean;
-  /** jade B8 — fires on every validity transition of the JADE fixed-4 band
-   * editor (spec §2 R6-1 + plan review R-plan-2). This component CANNOT
-   * itself disable Save (Save lives in Workspace.tsx) — it only surfaces
-   * validity for a caller (ultimately Workspace/INT) to gate on. No-op for
-   * every non-JADE model (the chip editor never calls this). */
-  onDistanceBandsValidityChange?: (isValid: boolean) => void;
   /** A single (field, value) callback rather than per-field callbacks — this
    * composes directly with Workspace.tsx's `updateInputsField(key, value)`,
    * the same localInputs-draft mechanism WarehousesTab/CustomersTab already
@@ -123,7 +117,10 @@ interface OptimizationParametersTabProps {
 // (the standing manual-Save pattern from A1.1), this component only calls
 // `onChange`.
 export function OptimizationParametersTab({
-  modelId,
+  // modelId is intentionally NOT destructured (item 7 — JADE renders the
+  // same shared chip band editor as every other model now, so nothing in
+  // this component reads it); it stays on `OptimizationParametersTabProps`
+  // so callers are unaffected.
   p,
   pMax = 50,
   gap,
@@ -142,7 +139,6 @@ export function OptimizationParametersTab({
   onObjectiveModeChange,
   onServiceDistanceChange,
   showBandEditor = true,
-  onDistanceBandsValidityChange,
   onChange,
 }: OptimizationParametersTabProps) {
   const [addingBand, setAddingBand] = useState(false);
@@ -392,19 +388,11 @@ export function OptimizationParametersTab({
         </div>
       )}
 
+      {/* jade-INT (workspace-fixups-2, item 7) — JADE (Ch.9) renders this
+          SAME free add/remove chip editor as every other model now; the
+          fixed-4-slot `JadeBandEditor` is deleted (JADE's `distanceBands`
+          schema is `.min(1)` like p-median/transport/gold-au). */}
       {showBandEditor && (
-        modelId === "two-echelon-jade-us" ? (
-          // jade B8 — JADE's fixed-4-slot, fully-validated editor (spec §2
-          // R3-1 + R6-1). Never publishes an invalid set; surfaces validity
-          // via onDistanceBandsValidityChange for a caller (Workspace/INT)
-          // to gate Save/Run on — this component cannot disable Save itself.
-          <JadeBandEditor
-            bands={distanceBands}
-            onChange={next => onChange("distanceBands", next)}
-            onValidityChange={onDistanceBandsValidityChange}
-            distanceUnit={distanceUnit}
-          />
-        ) : (
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label className="text-xs font-semibold text-foreground">Distance bands ({distanceUnit})</Label>
@@ -428,6 +416,10 @@ export function OptimizationParametersTab({
                 aria-label={`Remove band ${b}`}
                 data-testid={`button-remove-band-${b}`}
                 onClick={() => removeBand(b)}
+                // item 7 (Codex plan-review P1) — never remove the LAST
+                // remaining band: every free-chip model's schema is now
+                // `.min(1)`, so emptying the array to [] would 422 on Save.
+                disabled={distanceBands.length <= 1}
                 className="text-muted-foreground hover:text-foreground"
               >
                 <X className="w-2.5 h-2.5" />
@@ -477,7 +469,6 @@ export function OptimizationParametersTab({
           </div>
         )}
       </div>
-        )
       )}
     </div>
   );
