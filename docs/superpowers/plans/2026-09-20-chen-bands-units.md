@@ -51,7 +51,7 @@ New files, and what each owns:
 | `artifacts/studio/src/contexts/UnitContext.tsx` | `UnitProvider` + `useDisplayUnit()`; localStorage persistence; wraps `@workspace/units`. |
 | `lib/units` wiring | `@workspace/units` dep in both consumer `package.json`s + a root `tsconfig.json` project reference (plan-review #1). |
 | `artifacts/studio/src/components/UnitToggle.tsx` | The `auto/km/mi` header control. |
-| `artifacts/studio/src/hooks/useDistanceDraft.ts` | The draft contract (grammar, toggle behavior, commit) as one reusable hook. |
+| `artifacts/studio/src/hooks/useDistanceDraft.ts` | The draft contract (grammar, toggle behavior, commit) as one reusable hook. **Created in Task 10** so Tasks 12 and 13 can both consume it in parallel. |
 | `artifacts/studio/src/components/workspace/DirtyNavPrompt.tsx` | Save / Discard / Cancel dialog for decision 1i. |
 | `artifacts/api-server/src/routes/distanceBands.ts` | Part G field-scoped PATCH (kept out of the already-huge `scenarios.ts`). |
 
@@ -72,7 +72,8 @@ Wave 0 (parallel, file-disjoint):  T1 units pkg (+monorepo wiring) · T2 db sche
 Wave 1 (after W0):                 T1b studio bands.ts re-export · T5 openapi+codegen · T6 jobRunner txn   [T6 needs T2]
 Wave 2 (sequential, hot files):    T7 templates.ts  →  T8 import.ts             [need T1, T5]
 Wave 3:                            T9 routes/scenarios.ts + distanceBands.ts    [needs T5,T6,T7]
-Wave 4 (frontend):                 T10 UnitContext+AppShell  →  then T11 ∥ T12 ∥ T13 (file-disjoint, see below)
+Wave 4 (frontend):                 T10 UnitContext + UnitToggle + AppShell + useDistanceDraft
+                                     →  then T11 ∥ T12 ∥ T13 (genuinely file-disjoint, see below)
                                    T14 Workspace.tsx INT (sole writer, last)
 Wave 5:                            T15 QA (real-browser Playwright)
 ```
@@ -81,12 +82,15 @@ Wave 5:                            T15 QA (real-browser Playwright)
 
 | Task | Owns |
 |---|---|
-| T11 read paths | `NetworkMap`, `MapLegend`, `OutputMapTab`, `CostSummaryTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `ObjectiveBar`, Landing recent-solves, validation strings |
-| T12 write paths | `useDistanceDraft` (new), `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` |
-| T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, `ServiceStatsTab` — including applying T12's draft hook to *its own three* files |
+| T10 foundation | `UnitContext`, `UnitToggle`, `AppShell` (Landing mount), `formatObjective`, **`useDistanceDraft`** |
+| T11 read-only surfaces | `NetworkMap`, `MapLegend`, `OutputMapTab`, `CostSummaryTab`, `JadeAssignmentsTab`, `JadeFlowsTab`, `ObjectiveBar`, `Landing` recent-solves, validation strings |
+| T12 distance editors | `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab` |
+| T13 Chen + coverage | `OptimizationParametersTab`, **`SolveDialog`**, `ServiceStatsTab` |
 
-```
-```
+Two rules make the parallelism real (plan-review-2 #1):
+
+1. **The shared draft hook is created in T10, not T12.** T12 and T13 are both *consumers* of `useDistanceDraft`; if T12 created it, T13 would depend on T12 and the three could not run together.
+2. **A component with both a read half and a write half has exactly ONE owner, who implements both halves.** `DistancesTab`/`LegDistancesTab`/`JadeDistancesTab` render reference distances *and* accept edits — all of that is T12's. `ServiceStatsTab` renders distances *and* holds the Chen coverage guard — all of that is T13's. No task may reclaim another's file under a phrase like "every reachable component".
 
 ---
 
@@ -539,19 +543,26 @@ import { describe, it, expect } from "vitest";
 import * as studioBands from "@/lib/bands";
 import * as sharedUnits from "@workspace/units";
 
+// `as never` cannot be indexed; use a plain string-keyed record view of each
+// module so the identity comparison actually typechecks (plan-review-2 #5).
+const studioShared = studioBands as unknown as Record<string, unknown>;
+const packageShared = sharedUnits as unknown as Record<string, unknown>;
+
 describe("the frontend has no second band implementation", () => {
-  it.each(["OVERFLOW_BAND", "assignBandOrOverflow", "computeCumulativeBandCoverage"] as const)(
+  it.each(["OVERFLOW_BAND", "assignBandOrOverflow", "computeCumulativeBandCoverage", "serviceEdgesFor"])(
     "%s is the SAME binding as @workspace/units", name => {
-      expect((studioBands as never)[name]).toBe((sharedUnits as never)[name]);
+      expect(studioShared[name]).toBe(packageShared[name]);
     });
 
-  it("bandLabel is the shared classifier under the frontend's existing name", () => {
-    expect(studioBands.bandLabel(9999, [200, 400])).toBe(sharedUnits.bandLabelOrOverflow(9999, [200, 400]));
+  it("bandLabel is the shared classifier itself, merely renamed", () => {
+    // Identity, not equal output — an independently written function that
+    // happens to return the same strings must still fail this.
+    expect(studioBands.bandLabel).toBe(sharedUnits.bandLabelOrOverflow);
   });
 });
 ```
 
-`toBe` (reference identity), not `toEqual` — a copied function with identical behavior must still fail this test.
+Every assertion is `toBe` (reference identity), never `toEqual` — a copied function with identical behavior must still fail, for **all four** shared exports plus the renamed label helper.
 
 - [ ] **Step 2: Run — expect failure** (`pnpm --filter studio test -- bandsSingleSource`): the two modules currently export distinct function objects.
 
@@ -642,8 +653,9 @@ import { solveJobsTable } from "./solve_jobs.js";
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { solveJobsTable } from "@workspace/db/schema/solve_jobs";
-import { scenariosTable } from "@workspace/db/schema/scenarios";
+// @workspace/db exports exactly two entry points — "." and "./schema".
+// Deep subpaths like "@workspace/db/schema/solve_jobs" do NOT resolve.
+import { solveJobsTable, scenariosTable } from "@workspace/db/schema";
 
 describe("Part F schema additions", () => {
   it("solve_jobs.result exists and is nullable", () => {
@@ -656,8 +668,6 @@ describe("Part F schema additions", () => {
   });
 });
 ```
-
-(Import paths must match this repo's existing `@workspace/db` export style — copy whatever a current api-server test already uses.)
 
 - [ ] **Step 4: Push the schema and verify the FK action**
 
@@ -691,6 +701,8 @@ git commit -m "[T2] add solve_jobs.result + scenarios.result_run_id (nullable, O
 - Modify: `artifacts/api-server/src/validation/inputs/chens.ts`
 - Modify: `solvers/chens-cosmetics-cn/manifest.json`
 - Test: `artifacts/api-server/src/validation/inputs/__tests__/chens.test.ts`
+- Test: `artifacts/api-server/src/__tests__/routes.test.ts` (create + whole-input PATCH band preservation — Step 5b)
+- Test: `artifacts/api-server/src/__tests__/import.test.ts` (import-apply band preservation — Step 5b)
 
 **Interfaces:**
 - Produces: `chensInputsSchema` that **preserves** a supplied `distanceBands`, and a manifest declaring `minItems: 1` with no `maxItems`.
@@ -794,10 +806,20 @@ it("POST /scenarios/:id/import/apply preserves a supplied band array", () => {})
 it.each(["create", "patch", "import-apply"])("%s derives [high,max] only when distanceBands is omitted", () => {});
 ```
 
+Then run the suite that actually executes them — the validator-only run in Step 5 does **not** cover these (plan-review-2 #3):
+
+```bash
+pnpm --filter api-server test
+```
+Expected: PASS, including the three new route/import cases.
+
 - [ ] **Step 6: Commit**
 
 ```bash
-git commit -m "[T3] Chen bands are free and preserved — stop the [high,max] overwrite, minItems 1, reject maxDist<=high" -- artifacts/api-server/src/validation/inputs solvers/chens-cosmetics-cn/manifest.json
+git commit -m "[T3] Chen bands are free and preserved — stop the [high,max] overwrite, minItems 1, reject maxDist<=high" -- \
+  artifacts/api-server/src/validation/inputs \
+  artifacts/api-server/src/__tests__ \
+  solvers/chens-cosmetics-cn/manifest.json
 ```
 
 ---
@@ -943,7 +965,12 @@ One endpoint returns **three different versioned families**, so a single v3 unit
 | **v2, unit-bearing input** | `distances`, `legDistances`, `laneCosts` | `templateVersion` const `2` + `unit`; rows per the spec's input contract (`laneCosts` keeps its `cost` column) |
 | **v3, unit-bearing output** | `assignments`, `flows`, `costSummary`, `serviceStats` (+ the JADE assignment/flow variants) | `templateVersion` const `3` + `unit`; the six exact row shapes from the spec's Part E table |
 
-Rules: envelope carries `templateVersion` + `unit`; **rows carry neither**. `JadeFlowRow.leg` is `enum: [plant_to_warehouse, warehouse_to_customer]`. `band` is non-nullable on every band-bearing row; `costSummary` has none. Every generated schema **example** must assert `1`, `2`, or `3` per the version matrix — never v3 globally. The entity-specific **CSV** contracts stay documented separately from the JSON envelopes.
+Placement rule, **scoped per family** (plan-review-2 #2 — a blanket "every envelope carries `templateVersion` + `unit`" contradicts the v1 row directly above):
+- **v1 envelopes** carry `templateVersion` + `entity` and have **no `unit` property at all**;
+- **v2 and v3 envelopes** carry `templateVersion` + `entity` + `unit`;
+- **rows in every family carry neither** envelope-level field.
+
+Generated-schema fixtures must **prove the absence** of `unit` on a v1 envelope (e.g. `expect(envelope).not.toHaveProperty("unit")`), not merely its presence on v2/v3. `JadeFlowRow.leg` is `enum: [plant_to_warehouse, warehouse_to_customer]`. `band` is non-nullable on every band-bearing row; `costSummary` has none. Every generated schema **example** must assert `1`, `2`, or `3` per the version matrix — never v3 globally. The entity-specific **CSV** contracts stay documented separately from the JSON envelopes.
 
 - [ ] **Step 5: Regenerate and gate**
 
@@ -1232,7 +1259,7 @@ git commit -m "[T9] export unit=/runId addressing + field-scoped distance-bands 
 ### Task 10: `UnitContext` + toggle + objective wrapper
 
 **Files:**
-- Create: `artifacts/studio/src/contexts/UnitContext.tsx`, `artifacts/studio/src/components/UnitToggle.tsx`
+- Create: `artifacts/studio/src/contexts/UnitContext.tsx`, `artifacts/studio/src/components/UnitToggle.tsx`, **`artifacts/studio/src/hooks/useDistanceDraft.ts`**
 - Modify: `artifacts/studio/src/main.tsx` (mount `UnitProvider` at the root), `artifacts/studio/src/components/AppShell.tsx` (mount `UnitToggle` in the Landing header), `artifacts/studio/src/lib/formatObjective.ts` (becomes a wrapper) — note the real filename is `formatObjective.ts`, **not** `objectiveFormat.ts`
 - Test: `artifacts/studio/src/__tests__/UnitContext.test.tsx`, `artifacts/studio/src/__tests__/formatObjective.test.ts`
 
@@ -1252,13 +1279,21 @@ Neither task edits the other's file.
 
 - [ ] **Step 4: Rewrite `formatObjective.ts` as a wrapper** — it may add locale formatting and the suffix string only; the `(modelId, mode) → dimension` mapping and the numeric conversion both come from `@workspace/units`.
 
-- [ ] **Step 5: Gate + commit.**
+- [ ] **Step 5: Create `useDistanceDraft` here, not in T12 (plan-review-2 #1)**
+
+Both T12 and T13 consume this hook, so it must exist before either starts or they cannot run in parallel. Implement the full draft contract exactly as written in **Task 12 Step 2** (grammar constant, toggle behavior, commit behavior) and ship it with its own unit tests for the grammar and the toggle/commit transitions. T12 and T13 then only *adopt* it.
+
+- [ ] **Step 6: Gate + commit.**
 
 ---
 
 ### Task 11: Read-path de-hardcoding (no fallback unit)
 
-**Files:** every reachable component that renders a distance or a unit label — output grids/KPIs, `NetworkMap` popups + `MapLegend`, `DistancesTab`/`LegDistancesTab`/`JadeDistancesTab` display cells, `CostSummaryTab`, `ServiceStatsTab`, `ObjectiveBar`, Landing recent-solves, validation strings. **`Studio.tsx` is excluded (dead code).**
+**Files — exactly the T11 row of the Wave 4 ownership table, nothing else:**
+- Modify: `artifacts/studio/src/components/NetworkMap.tsx`, `components/workspace/map/MapLegend.tsx`, `components/workspace/tabs/OutputMapTab.tsx`, `components/workspace/tabs/CostSummaryTab.tsx`, `components/workspace/tabs/JadeAssignmentsTab.tsx`, `components/workspace/tabs/JadeFlowsTab.tsx`, `components/ObjectiveBar.tsx`, `pages/Landing.tsx` (recent-solves rows only)
+- Test: the matching `__tests__` files
+
+**Explicitly NOT this task's files:** `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, `LaneCostsTab` (T12 owns both their read and write halves); `ServiceStatsTab`, `OptimizationParametersTab`, `SolveDialog` (T13 owns both halves). **`Studio.tsx` is excluded entirely (dead code).**
 
 - [ ] **Step 1: Failing tests** — spec tests 11b, 12: a delayed-manifest Chen **read** renders a placeholder, never a number or an `mi` label, until the canonical unit is authoritative; non-distance fields (demand, `coverageFloorDemand`, `p`, gap, time, JADE monetary objective) are untouched by the toggle.
 
@@ -1272,7 +1307,11 @@ Neither task edits the other's file.
 
 ### Task 12: Write-path draft contract
 
-**Files:** create `artifacts/studio/src/hooks/useDistanceDraft.ts`; modify `OptimizationParametersTab`, `SolveDialog`, `DistancesTab`, `LegDistancesTab`, `LaneCostsTab`, `JadeDistancesTab`.
+**Files — exactly the T12 row of the Wave 4 ownership table:**
+- Modify: `components/workspace/tabs/DistancesTab.tsx`, `LegDistancesTab.tsx`, `LaneCostsTab.tsx`, `JadeDistancesTab.tsx` — **both halves of each**: the reference/existing-row *display* cells and the edit/add *write* paths
+- Test: the matching `__tests__` files
+
+`useDistanceDraft` is **created in T10** and merely consumed here (plan-review-2 #1). `OptimizationParametersTab` and `SolveDialog` belong to T13.
 
 - [ ] **Step 1: Failing tests** — spec tests 11, 11b, 11c. Each grammar token explicitly:
 
@@ -1286,7 +1325,7 @@ it("toggling never mutates localInputs, never marks dirty, never changes a paylo
 it("the editor is disabled until the canonical unit resolves (delayed manifest)", () => {});
 ```
 
-- [ ] **Step 2: Implement the hook**
+- [ ] **Step 2: The hook's contract (implemented in T10 Step 5; this is the normative definition both T12 and T13 code against)**
 
 ```ts
 export const COMPLETE_NUMBER = /^-?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
@@ -1303,7 +1342,11 @@ Toggle: complete → convert text in place; **incomplete → discard** (field re
 
 ### Task 13: Chen band editor + live coverage
 
-**Files:** modify `OptimizationParametersTab.tsx` (band editor), **`SolveDialog.tsx` (its SEPARATE band editor)**, `ServiceStatsTab.tsx` (remove the Chen guard).
+**Files — exactly the T13 row of the Wave 4 ownership table:**
+- Modify: `components/workspace/tabs/OptimizationParametersTab.tsx` (band editor + its high/max/avg-cap distance inputs), **`components/workspace/SolveDialog.tsx` (its SEPARATE band editor + avg-cap input)**, `components/workspace/tabs/ServiceStatsTab.tsx` (**both halves** — its distance/unit read paths and the Chen coverage guard)
+- Test: the matching `__tests__` files
+
+This task **consumes** T10's `useDistanceDraft` for its own three files' distance inputs; it does not create it.
 
 **Why `SolveDialog` is in this task (plan-review #5):** it has its own `addBand`/`removeBand` (`SolveDialog.tsx:165-175`), and its `removeBand` is a bare `filter` with **no minimum guard** — re-enabling Chen's editor without touching it would let a user delete the last boundary, violating the locked `minItems: 1` rule, and would leave two band editors free to drift. Prefer **extracting one shared `<BandChipEditor>`** used by both surfaces; including both files in this one serialized task is the acceptable fallback.
 
@@ -1327,7 +1370,26 @@ Both surfaces must: edit the **dedicated active lens** (never an independent `lo
 
 This task owns every cross-cutting behavior: the band-lens state, the history action matrix, the dirty-nav prompt, the shared payload builder, `Save as scenario`, and run-id threading.
 
-- [ ] **Step 1: Failing tests** — spec tests 7, 7e, 7g, 7h, 7i, and the client half of 7c/14b.
+- [ ] **Step 1: Failing tests** — spec tests 7, 7e, 7g, 7h, 7i, and the client half of 7c/14b. Plus these two written out explicitly, because a spec-group reference is too weak to pin them (plan-review-2 #4/#6):
+
+```ts
+it("dirty-nav prompt: a REJECTED Save leaves everything exactly as it was", async () => {
+  // ordinaryDirty on the latest entry -> click Back -> prompt -> Save -> mutation rejects.
+  expect(resultHistoryIndex()).toBe(indexBeforeClick);   // index unchanged
+  expect(localInputsNow()).toEqual(draftBeforeClick);    // ordinary draft unchanged
+  expect(stepResultBackEffectFired()).toBe(false);       // no navigation occurred
+  expect(screen.getByTestId("save-error")).toBeVisible();// the save error is still reported
+});
+
+it("legacy LATEST result stays exportable; the same entry goes non-exportable once it is history", async () => {
+  // resultRunId === null while it IS the latest:
+  expect(downloadControl()).toBeEnabled();
+  expect(lastExportRequest().searchParams.has("runId")).toBe(false);
+  // after a newer solve makes it a historical entry:
+  expect(downloadControl()).toBeDisabled();
+  expect(downloadControl()).toHaveAccessibleDescription(/wasn't retained/i);
+});
+```
 
 - [ ] **Step 2a: Chen defaults (spec Part A + Part B)**
 
@@ -1508,3 +1570,76 @@ The final Playwright step currently proves only that two export files differ; th
 ### Re-review exit criteria
 
 Approval requires all eight comments to be folded into the task file lists, dependency map, commands, and acceptance tests—not merely acknowledged in this appendix. Re-run `git diff --check` after the rewrite and re-review the resulting task graph against the approved design before implementation starts.
+
+---
+
+## Appendix — second approval re-review comments (2026-09-20, `39e76ef`, verbatim; all folded into the tasks above)
+
+**Original decision: NOT APPROVED.** *(All six are now folded into the normative plan — see the per-item `plan-review-2 #N` markers throughout.)* Most first-review findings were addressed, but the following corrections were only partially folded into the normative plan.
+
+### 1. BLOCKER — Wave 4 is still not file-disjoint or executable in parallel
+
+The Wave 4 ownership table assigns the shared draft hook to T12 and says T13 applies that hook, so T13 depends on T12 and cannot run alongside it. The detailed task inventories also still contradict the ownership table:
+
+- T11 still claims `DistancesTab`, `LegDistancesTab`, `JadeDistancesTab`, and `ServiceStatsTab`;
+- T12 still claims `OptimizationParametersTab` and `SolveDialog`; and
+- T13 claims `OptimizationParametersTab`, `SolveDialog`, and `ServiceStatsTab` while consuming the hook created by T12.
+
+Make T12 precede T13, or move creation of the shared hook into an earlier task that both can consume. Rewrite the T11/T12/T13 file inventories and implementation steps to match the ownership table exactly. Components containing both read and write paths must have one owner that implements **both** halves; broad wording such as "every reachable component" must not silently reclaim another task's files.
+
+### 2. HIGH — the OpenAPI envelope rule contradicts its v1 table
+
+Task 5's v1 row correctly states that unitless envelopes have no `unit` property, but the immediately following general rule says every envelope carries `templateVersion + unit`. Scope the placement rule explicitly:
+
+- v1 envelopes carry `templateVersion` and `entity`, with **no** `unit`;
+- v2/v3 envelopes carry `templateVersion`, `entity`, and `unit`; and
+- rows in every family carry neither envelope-level field.
+
+The generated-schema fixtures must prove the absence of `unit` on v1, not merely its presence on v2/v3.
+
+### 3. HIGH — Task 3's new route tests would not be committed
+
+Task 3 Step 5b adds create/PATCH/import-apply tests, but the task's file list names only `chens.test.ts`, its explicit commit path includes only the validator directory and manifest, and no test gate runs after Step 5b.
+
+Add the concrete route/import test files to Task 3's `Files` section and explicit commit pathspec. Run the API test suite **after** the Step 5b tests are added. The task must not finish with those tests untracked or outside its commit.
+
+### 4. MEDIUM — Task 2 shows invalid package subpath imports
+
+The schema test imports `@workspace/db/schema/solve_jobs` and `@workspace/db/schema/scenarios`, but `@workspace/db` exports only `.` and `./schema`. Replace the snippet with the real public import:
+
+```ts
+import { solveJobsTable, scenariosTable } from "@workspace/db/schema";
+```
+
+Do not leave an invalid concrete snippet followed by a note telling the implementer to discover the correct form.
+
+### 5. MEDIUM — the T1b guard test contains an invalid TypeScript cast and does not identity-check the label alias
+
+`(studioBands as never)[name]` cannot be safely indexed. Use a typed record, direct assertions, or a helper whose key type is the intersection of both module surfaces. For example:
+
+```ts
+const studioShared = studioBands as Record<string, unknown>;
+const packageShared = sharedUnits as Record<string, unknown>;
+expect(studioShared[name]).toBe(packageShared[name]);
+```
+
+The label assertion should also prove binding identity rather than only equal output:
+
+```ts
+expect(studioBands.bandLabel).toBe(sharedUnits.bandLabelOrOverflow);
+```
+
+That makes the test enforce the stated "no copied implementation" rule for all four shared exports.
+
+### 6. MEDIUM — dirty-navigation Save failure is specified but not explicitly added to the test list
+
+Task 14 now states the correct behavior—a failing Save leaves the history index and ordinary draft unchanged—but its failing-test step only references broad spec groups. Add an explicit test case that rejects the prompt's Save mutation and asserts:
+
+- the selected history index is unchanged;
+- the ordinary draft is unchanged;
+- no navigation occurs; and
+- the existing save error remains visible/reported.
+
+### Second re-review exit criteria
+
+Approval requires these six comments to be folded into the normative dependency map, file lists, code snippets, commit pathspecs, and explicit tests. Remove the stray empty fenced block beneath the Wave 4 ownership table while editing, then run `git diff --check` and perform another approval review against the approved design.
