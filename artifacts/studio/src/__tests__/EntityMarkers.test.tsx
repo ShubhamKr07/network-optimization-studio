@@ -2,8 +2,26 @@ import { describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { render, fireEvent } from "@testing-library/react";
 import { MapContainer, TileLayer } from "react-leaflet";
-import { EntityMarkers, warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
+import { EntityMarkers, warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg, warehouseTypeLabel, customerTypeLabel } from "@/components/workspace/map/EntityMarkers";
 import type { MapWarehouse, MapCustomer, MapPlant } from "@/components/workspace/map/types";
+
+// T5 (workspace-fixups-2, item 4) — capture every <Tooltip> child so its
+// content (Type · DisplayId · City, State) can be asserted without depending
+// on Leaflet's real hover-to-attach DOM behavior under jsdom. Mirrors
+// NetworkMap.test.tsx's own pattern exactly, but only swaps Tooltip — the
+// real MapContainer/Marker/TileLayer are kept (via importActual) so every
+// pre-existing marker-shape/class assertion in this file is unaffected.
+const tooltipChildren: React.ReactNode[] = [];
+vi.mock("react-leaflet", async () => {
+  const actual = await vi.importActual<typeof import("react-leaflet")>("react-leaflet");
+  return {
+    ...actual,
+    Tooltip: (props: { children?: React.ReactNode } & Record<string, unknown>) => {
+      if (props.children) tooltipChildren.push(props.children);
+      return null;
+    },
+  };
+});
 
 // Real MapContainer + real Marker under jsdom (same pattern NetworkMap.test.tsx
 // already relies on for shape/class assertions) rather than a hand-rolled
@@ -406,5 +424,91 @@ describe("EntityMarkers", () => {
       const widthNoHuge = Number(markerWithout.querySelector("svg")!.getAttribute("width"));
       expect(widthHuge).not.toBe(widthNoHuge);
     });
+  });
+});
+
+// ── T5 (workspace-fixups-2, item 4) — `<Type> · <DisplayId> · City, State` ──
+describe("EntityMarkers marker tooltip: Type · DisplayId · City, State (T5, item 4)", () => {
+  it("warehouseTypeLabel/customerTypeLabel resolve per modelId", () => {
+    expect(warehouseTypeLabel(undefined)).toBe("Warehouse");
+    expect(warehouseTypeLabel("p-median-us")).toBe("Warehouse");
+    expect(warehouseTypeLabel("transport-coal")).toBe("Mine");
+    expect(warehouseTypeLabel("two-echelon-gold-au")).toBe("Refinery");
+    expect(customerTypeLabel(undefined)).toBe("Customer");
+    expect(customerTypeLabel("p-median-us")).toBe("Customer");
+    expect(customerTypeLabel("transport-coal")).toBe("Station");
+  });
+
+  it("a warehouse marker (default modelId) shows 'Warehouse · <displayCode> · City, State'", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({ warehouses: [wh({ id: "W1", displayCode: "WH-IL-CHI-01", city: "Chicago", state: "IL" })] });
+    expect(tooltipChildren).toHaveLength(1);
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Warehouse · WH-IL-CHI-01 · Chicago, IL");
+  });
+
+  it("a customer marker (default modelId) shows 'Customer · <displayCode> · City, State'", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({ customers: [cs({ id: "C1", displayCode: "CS-IL-CHI-01", city: "Chicago", state: "IL" })] });
+    expect(tooltipChildren).toHaveLength(1);
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Customer · CS-IL-CHI-01 · Chicago, IL");
+  });
+
+  it("a plant marker shows 'Plant · <displayCode> · City, State'", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({ plants: [pl({ id: "P1", displayCode: "PL-KY-ASHLAND-01", city: "Ashland", state: "KY" })] });
+    expect(tooltipChildren).toHaveLength(1);
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Plant · PL-KY-ASHLAND-01 · Ashland, KY");
+  });
+
+  it("a warehouse-role marker shows 'Mine · ...' given modelId='transport-coal'", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({
+      warehouses: [wh({ id: "M1", displayCode: "MN-KY-PIK-01", city: "Pikeville", state: "KY" })],
+      modelId: "transport-coal",
+    });
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Mine · MN-KY-PIK-01 · Pikeville, KY");
+  });
+
+  it("a customer-role marker shows 'Station · ...' given modelId='transport-coal'", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({
+      customers: [cs({ id: "S1", displayCode: "ST-PA-PIT-01", city: "Pittsburgh", state: "PA" })],
+      modelId: "transport-coal",
+    });
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Station · ST-PA-PIT-01 · Pittsburgh, PA");
+  });
+
+  it("a warehouse-role marker shows 'Refinery · ...' given modelId='two-echelon-gold-au'", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({
+      warehouses: [wh({ id: "R1", displayCode: "WH-QLD-CUN-01", city: "Cunnamulla", state: "QLD" })],
+      modelId: "two-echelon-gold-au",
+    });
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Refinery · WH-QLD-CUN-01 · Cunnamulla, QLD");
+  });
+
+  it("falls back to the canonical id when displayCode is empty", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({ warehouses: [wh({ id: "W1", displayCode: "", city: "Chicago", state: "IL" })] });
+    const { container } = render(<>{tooltipChildren[0]}</>);
+    expect(container.textContent).toBe("Warehouse · W1 · Chicago, IL");
+  });
+
+  it("formats a missing state without a trailing comma (formatCityState) for both warehouse and customer markers", () => {
+    tooltipChildren.length = 0;
+    renderMarkers({
+      warehouses: [wh({ id: "W1", displayCode: "WH-CN-CHE-01", city: "Chengdu", state: "" })],
+      customers: [cs({ id: "C1", displayCode: "CS-CN-CHA-01", city: "Changchun", state: "" })],
+    });
+    expect(tooltipChildren).toHaveLength(2);
+    const texts = tooltipChildren.map((child) => render(<>{child}</>).container.textContent ?? "");
+    expect(texts.find((t) => t.includes("Chengdu"))).toBe("Warehouse · WH-CN-CHE-01 · Chengdu");
+    expect(texts.find((t) => t.includes("Changchun"))).toBe("Customer · CS-CN-CHA-01 · Changchun");
   });
 });

@@ -11,6 +11,25 @@ import { getLegColor, isInboundLeg } from "@/lib/legPalette";
 import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
+import { formatCityState } from "@/lib/formatLocation";
+
+// T5 (workspace-fixups-2, item 4) — marker-type label by role, output-map
+// side. Duplicated (not shared) from EntityMarkers.tsx's own
+// warehouseTypeLabel/customerTypeLabel: this component additionally has a
+// `kind` field to key off (dataset.warehouses' WarehouseCandidateKind,
+// two-echelon-gold-au only), which the input-map's MapWarehouse rows don't
+// carry at all — a genuinely different signature, not just a different file.
+function warehouseTypeLabel(kind: string | undefined, modelId: string | undefined): string {
+  if (kind === "mine") return "Mine";
+  if (modelId === "transport-coal") return "Mine";
+  if (modelId === "two-echelon-gold-au") return "Refinery";
+  return "Warehouse";
+}
+
+function customerTypeLabel(modelId: string | undefined): string {
+  if (modelId === "transport-coal") return "Station";
+  return "Customer";
+}
 
 // Local — WarehouseStatusEntry was removed from the generated API types when
 // Scenario.inputs became opaque (D0.1); this is a purely local rendering
@@ -357,6 +376,20 @@ interface NetworkMapProps {
   // hideClosedWarehouses either (it's not a facility-location choice), so it
   // needs its own toggle, not the warehouse one. Default `true`.
   showPlantMarkers?: boolean;
+  // T5 (workspace-fixups-2, item 4) — the active model's id, used ONLY to
+  // resolve a marker's `<Type>` tooltip label (gold-au facility -> Refinery,
+  // transport-coal customer-role -> Station) when `kind` alone can't
+  // disambiguate. Optional, default undefined -> every existing caller
+  // (Studio.tsx, tests, OutputMapTab pre-T9) renders today's generic
+  // Warehouse/Customer labels unchanged.
+  modelId?: string;
+  // T5 (workspace-fixups-2, item 4) — canonical id -> human display id
+  // (item-2 fallback contract: prefer a scenario-added entity's display
+  // code, else the canonical id). Optional, default `{}` so every existing
+  // caller renders `displayIdById[id] ?? id` = `id`, unchanged from today's
+  // raw-id tooltip. INT (T9) feeds this from the solved-snapshot
+  // `outputIdentityById`.
+  displayIdById?: Record<string, string>;
 }
 
 export function NetworkMap({
@@ -365,7 +398,7 @@ export function NetworkMap({
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
   hideClosedWarehouses = false, distanceUnit = "mi", visibleLegs,
-  plants = [], showPlantMarkers = true,
+  plants = [], showPlantMarkers = true, modelId, displayIdById = {},
 }: NetworkMapProps) {
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
@@ -733,7 +766,10 @@ export function NetworkMap({
             >
               <Tooltip direction="top" offset={[0, -4]} opacity={1}>
                 <span className="font-semibold text-xs">
-                  {(c as unknown as { city?: string }).city ?? c.id}, {(c as unknown as { state?: string }).state ?? ""}
+                  {customerTypeLabel(modelId)} · {displayIdById[c.id] ?? c.id} · {formatCityState(
+                    (c as unknown as { city?: string }).city ?? "",
+                    (c as unknown as { state?: string }).state ?? "",
+                  )}
                   {" · "}
                   <span className="font-mono">{c.demand.toLocaleString()} {assignment ? `· ${bandLabel(assignment.distance, bands)}` : ""}</span>
                 </span>
@@ -777,8 +813,7 @@ export function NetworkMap({
                   always false for it) showed nothing on hover at all. */}
               <Tooltip direction="top" offset={[0, -10]} opacity={1}>
                 <span className="font-semibold text-xs">
-                  {w.id} — {w.city}, {w.state}
-                  {w.kind === "mine" && " (mine)"}
+                  {warehouseTypeLabel(w.kind, modelId)} · {displayIdById[w.id] ?? w.id} · {formatCityState(w.city, w.state)}
                   {result && isOpen ? (
                     <span className="font-mono"> · {warehouseCustomerIds && w.id === selectedWarehouseId ? warehouseCustomerIds.size : (result.edges.filter((e) => e.fromId === w.id).length)} customers</span>
                   ) : ""}
@@ -796,7 +831,7 @@ export function NetworkMap({
           <Marker key={p.id} position={[p.lat, p.lng]} icon={createPlantIcon()}>
             <Tooltip direction="top" offset={[0, -10]} opacity={1}>
               <span className="font-semibold text-xs">
-                {p.id} — {p.city}, {p.state}
+                Plant · {displayIdById[p.id] ?? p.id} · {formatCityState(p.city, p.state)}
               </span>
             </Tooltip>
           </Marker>
