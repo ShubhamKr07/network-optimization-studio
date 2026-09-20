@@ -15,6 +15,11 @@ export const solveJobsTable = pgTable("solve_jobs", {
   queuedAt: timestamp("queued_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   finishedAt: timestamp("finished_at"),
+  // Part F — the run's FULL result envelope, so a historical export can be
+  // addressed by run id. Deliberately NOT a join to result_cache: that table's
+  // contract is a cache, and adding eviction later would silently break
+  // historical export. Nullable: pre-migration rows have none.
+  result: jsonb("result").$type<Record<string, unknown> | null>(),
 }, (table) => [index("IDX_solve_jobs_user_id").on(table.userId)]);
 
 export type SolveJob = typeof solveJobsTable.$inferSelect;

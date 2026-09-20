@@ -243,8 +243,10 @@ const jadeRow = {
 };
 
 // C4.7 — chens-cosmetics-cn (Chapter 4). Coverage-mode inputs; distanceBands
-// seeded deliberately STALE (a third boundary 3000) so the D19 assertion can
-// prove the normalizer's chensInputsSchema reparse rewrites it to [high, max].
+// carries THREE ascending boundaries (600, 3000, 5000) deliberately — T3
+// (spec Part A, supersedes D19) preserves a supplied band array verbatim, so
+// this fixture proves the schema no longer treats a third boundary as a
+// stale value to overwrite back to [high, max].
 const chensInputs = {
   objective: "coverage",
   p: 3,
@@ -839,8 +841,9 @@ describe("jade-T12 — auto-estimate distance normalizer (two-echelon-jade-us)",
 // writer of routes/scenarios.ts's normalizeAddedEntityDistances. Fills
 // missing added-entity warehouse<->customer distances as RAW-km
 // `estimated: true` rows on all three persist paths (POST create, PATCH,
-// import/apply); the chensInputsSchema reparse also re-applies the D19
-// distanceBands=[high,max] transform.
+// import/apply). The chensInputsSchema reparse on each of these paths no
+// longer overwrites `distanceBands` (T3, spec Part A supersedes D19) — the
+// fixture's supplied 3-boundary array passes through unchanged.
 describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () => {
   const newWarehouse = { id: "wh-new1", city: "Wuhan", state: "Hubei", lat: 30.5928, lng: 114.3055, status: "active" };
 
@@ -860,8 +863,8 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
     // All values are raw km (positive), never 0.
     expect(fromNew.every((o) => o.distance > 0)).toBe(true);
-    // D19 — the stale 3-boundary distanceBands seed is normalized to [high, max].
-    expect(insertArgs.inputs.distanceBands).toEqual([600, 5000]);
+    // T3 — bands are free: the supplied 3-boundary array is preserved verbatim.
+    expect(insertArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
   });
 
   it("PATCH /api/scenarios/:id: an added warehouse gets estimated rows filled in on save", async () => {
@@ -878,7 +881,8 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
     const fromNew = setArgs.inputs.distanceOverrides.filter((o) => o.fromId === "wh-new1");
     expect(fromNew.length).toBe(CHENS_CUSTOMERS.length);
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
-    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    // T3 — bands are free: the supplied 3-boundary array is preserved verbatim.
+    expect(setArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
   });
 
   it("POST /api/scenarios/:id/import/apply: an ADD-classified warehouse row gets estimated distances filled on save", async () => {
@@ -906,13 +910,13 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
     expect(fromNew.every((o) => o.estimated === true)).toBe(true);
   });
 
-  // D19 (deferred from C4.6) — a `distances` import/apply that stages no band
-  // change at all still corrects a stale third distanceBands boundary, because
-  // the normalizer's chensInputsSchema reparse re-derives distanceBands from
-  // the two thresholds on every persist path.
-  it("POST /api/scenarios/:id/import/apply (distances): a stale third distanceBands boundary is rewritten to [high, max]", async () => {
+  // T3 (spec Part A, supersedes D19) — a `distances` import/apply that stages
+  // no band change at all leaves a previously-supplied 3-boundary
+  // distanceBands array untouched, because the normalizer's chensInputsSchema
+  // reparse no longer overwrites a supplied array on any persist path.
+  it("POST /api/scenarios/:id/import/apply (distances): a supplied 3-boundary distanceBands array is preserved verbatim", async () => {
     const cookie = await loginAs(OWNER);
-    // chensRow.inputs.distanceBands is the stale [600, 3000, 5000].
+    // chensRow.inputs.distanceBands is [600, 3000, 5000].
     mockDb.select.mockReturnValue(makeChain([chensRow]));
     const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
     mockDb.update.mockReturnValue(chain);
@@ -923,11 +927,83 @@ describe("C4.7 — auto-estimate distance normalizer (chens-cosmetics-cn)", () =
     const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       inputs: { distanceBands: number[]; distanceOverrides: Array<{ fromId: string; toId: string; distance: number }> };
     };
-    expect(setArgs.inputs.distanceBands).toEqual([600, 5000]);
+    expect(setArgs.inputs.distanceBands).toEqual([600, 3000, 5000]);
     // The staged override was applied (base<->base pair, so it is a real
     // override the estimator then leaves untouched).
     const staged = setArgs.inputs.distanceOverrides.find((o) => o.fromId === "wh-15" && o.toId === "cs-1");
     expect(staged?.distance).toBe(123.4);
+  });
+});
+
+// T3 (spec Part A, supersedes D19) — dedicated route-level proof that the
+// [high,max] overwrite is gone on the two JSON write paths. The distances
+// import/apply write-path proof lives in importMultiModelRoundTrip.test.ts
+// (a route-level assertion the applied bands land in scenario storage).
+describe("Chen (chens-cosmetics-cn) — distanceBands preserved verbatim on JSON write paths (T3)", () => {
+  it("POST /scenarios (create) preserves a supplied band array verbatim", async () => {
+    const cookie = await loginAs(OWNER);
+    const supplied = { ...chensInputs, distanceBands: [600, 1200, 2400, 5000] };
+    const chain = makeChain([{ ...chensRow, inputs: supplied }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Chen Free Bands", modelId: "chens-cosmetics-cn", inputs: supplied });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[] };
+    };
+    expect(insertArgs.inputs.distanceBands).toEqual([600, 1200, 2400, 5000]);
+  });
+
+  it("POST /scenarios (create) derives [high,max] ONLY when distanceBands is omitted", async () => {
+    const cookie = await loginAs(OWNER);
+    const { distanceBands: _omit, ...withoutBands } = chensInputs;
+    void _omit;
+    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.insert.mockReturnValue(chain);
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Chen Legacy", modelId: "chens-cosmetics-cn", inputs: withoutBands });
+    expect(res.status).toBe(201);
+    const insertArgs = (chain.values as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[] };
+    };
+    expect(insertArgs.inputs.distanceBands).toEqual([withoutBands.highServiceDistKm, withoutBands.maxDistKm]);
+  });
+
+  it("PATCH /scenarios/:id (whole-input) preserves a supplied band array verbatim", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const supplied = { ...chensInputs, distanceBands: [600, 1200, 2400, 5000] };
+    const chain = makeChain([{ ...chensRow, inputs: supplied }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: supplied });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[] };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([600, 1200, 2400, 5000]);
+  });
+
+  it("PATCH /scenarios/:id (whole-input) derives [high,max] ONLY when distanceBands is omitted", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValueOnce(makeChain([chensRow]));
+    const { distanceBands: _omit, ...withoutBands } = chensInputs;
+    void _omit;
+    const chain = makeChain([{ ...chensRow, inputs: chensInputs }]);
+    mockDb.update.mockReturnValue(chain);
+    const res = await request(app).patch("/api/scenarios/13").set("Cookie", cookie).send({ inputs: withoutBands });
+    expect(res.status).toBe(200);
+    const setArgs = (chain.set as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      inputs: { distanceBands: number[] };
+    };
+    expect(setArgs.inputs.distanceBands).toEqual([withoutBands.highServiceDistKm, withoutBands.maxDistKm]);
+  });
+
+  it("rejects maxDistKm <= highServiceDistKm at the route boundary", async () => {
+    const cookie = await loginAs(OWNER);
+    const invalid = { ...chensInputs, highServiceDistKm: 600, maxDistKm: 600 };
+    const res = await request(app).post("/api/scenarios").set("Cookie", cookie)
+      .send({ name: "Chen Invalid", modelId: "chens-cosmetics-cn", inputs: invalid });
+    expect(res.status).toBe(422);
   });
 });
 
@@ -1120,6 +1196,32 @@ describe("DELETE /api/scenarios/:id", () => {
     const deleteCalls = (mockDb.delete as ReturnType<typeof vi.fn>).mock.calls;
     expect(deleteCalls[0][0]).toBe(solveJobsTable);
     expect(deleteCalls[1][0]).toBe(scenariosTable);
+  });
+
+  // T2 regression (scenarios.result_run_id FK, ON DELETE SET NULL): the
+  // delete-child-jobs-first order above must still work now that a SECOND FK
+  // (scenarios.result_run_id -> solve_jobs.id) also points at the row being
+  // deleted first. A restrictive default FK action would make this delete
+  // order deadlock/500; ON DELETE SET NULL is what keeps it a clean no-op at
+  // the DB level, and this route never touches result_run_id itself either
+  // way — this test proves the observable HTTP contract (204 then 404 on
+  // refetch) survives the new FK's presence, exactly like a real never-solved
+  // scenario would.
+  it("204s a solved scenario delete, then 404s a refetch, with the new resultRunId FK in place", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.delete
+      .mockReturnValueOnce(makeChain([{ count: 1 }])) // solve_jobs delete
+      .mockReturnValueOnce(makeChain([pmedianRow])); // scenario delete
+
+    const deleteRes = await request(app).delete("/api/scenarios/1").set("Cookie", cookie);
+    expect(deleteRes.status).toBe(204);
+
+    // Refetch: mockDb.select still holds its beforeEach default ([]), which
+    // is exactly what the real table looks like post-delete (and post
+    // ON DELETE SET NULL on any sibling scenario's now-dangling pointer).
+    const refetchRes = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(refetchRes.status).toBe(404);
+    expect(refetchRes.body).toMatchObject({ error: "Not found" });
   });
 
   it("returns 404 when not found (no row deleted)", async () => {
