@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §28 findings resolved (Q50=A + Q51–Q57, see §29).** **P0R.1 is on HOLD / not authorized to start** (Q55 — latest user direction: refine the contract first). §§0–12 audit trail; §13 split map; §14–§28 successive reviews; §15/§17/§19/§21/§23/§25/§27/§29 resolutions. P0R.2 attainable-CBC fixture capture retains evidence-only approval; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1); it does **not** authorize any solver behavioral change (see Q50). Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §30 findings resolved (Q58–Q64 answered 2026-09-22, see §31). P0R.1 HOLD.** §28 received the §29 response, but the deep re-review found unresolved authority, schema/persistence, failure, limit, protocol, and rollout contradictions. **P0R.1 remains on HOLD / not authorized to start**; P0R.2 attainable-CBC fixture capture retains evidence-only approval; P0R.3/P0R.4 require P0R.1 evidence, a post-spike design update, and another approval review. §§0–12 are the original audit trail; §13 is the split map; §14–§30 record successive reviews/resolutions, with §30 controlling. **DEC-2026-09-21-01 remains authorized only for its narrow evidence-driven status/termination assertion correction** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19); it authorizes no solver behavioral change. Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -1766,17 +1766,192 @@ Until every applicable item above is closed, §27's statement that §26 is resol
 
 ---
 
-## 29. §28 resolution — Q50–Q57 (2026-09-21, partial: Q50 open)
+## 29. §28 resolution — Q50–Q57 (2026-09-21, complete; Q50=A)
 
 | Q | Decision | State |
 |---|---|---|
 | **Q50** 60s cap | **A — revert the ceiling (product owner, 2026-09-21).** NO clamp/behavioral change: existing per-model limits stand; the new fields only *record* actual values; any cost-ceiling is a separate benchmark-backed decision + its own authorization. Keeps DEC-01 scope clean. | §2.12 finalized. |
 | **Q51** requested vs cache | **Resolved.** Requested values on the job/request record (nullable + `source`); effective on the cacheable result + cache key; API composes requested onto the response after cache lookup (a cache hit never returns a stale requested value). | §2.12. |
 | **Q52** failure message/API | Exact bounded `SolverProcessMessage` (transport/framing/size/mismatch/partial) + `failureStage` + allowlisted **structured** diagnostics (not raw-text sanitize) + stable public `errorCode` enum. | Adopted; folds into §2.11 + P0R.3. |
-| **Q53** P0R.3 ownership | Rewrite P0R.3 so every Q43–Q48 decision has an explicit file/seam/test/schema-push/codegen/rollback; fix stale §2.2 field list. | Pending consolidated post-Q50 pass. |
+| **Q53** P0R.3 ownership | **Done** — P0R.3 rewritten with a named task/seam/test per decision (T-solve…T-rollout); §2.2 field list fixed. | Applied. |
 | **Q54** staged deployment | Reader-first → both-compatible frontend → feature-flagged v2 writer → compat window → cleanup; rollback for v2 rows; `nos-api`/`nos-studio` deploy ordering. | Adopted; new §2.13 in consolidated pass. |
 | **Q55** execution authority | **P0R.1 HOLD** — latest user direction controls over the older "authorized" wording. | **Applied** (status line). |
 | **Q56** telemetry lifecycle | Separate `scenario solve completed` (v2 post-cutover) / `scenario solve failed` (bounded internal tags) / optional legacy-read telemetry, each at its real emission site; decide fate of the current `objective` property. | Adopted; folds into §2.7.1. |
 | **Q57** public error reachability | **Applied** — `error` is runner-private; excluded from the published `NormalizedSolveResult` union; public failure = job `errorCode`. | **Applied** (§2.4/§2.8). |
 
 **Consolidated pass complete (Q50=A, 2026-09-21):** §2.12 finalized (no clamp; requested-on-job / effective-on-cache, composed on read — Q51); §2.11 gained the exact `SolverProcessMessage` (fd3/NDJSON/1MB) + `failureStage` + public `errorCode` enum + allowlisted structured diagnostics (Q52); §2.13 staged reader-first/flag/rollback rollout added (Q54); §2.7.1 telemetry split per real emission site, `objective` property retained, no legacy-read event (Q56); P0R.3 rewritten with a named task/seam/test per decision (T-solve…T-rollout) + §2.2 field list fixed (Q53). §28 fully resolved.
+
+---
+
+## 30. Deep approval review after §29 consolidation (2026-09-21)
+
+### 30.1 Decision and approval scope
+
+**Decision: REQUEST CHANGES / NOT APPROVED. P0R.1 remains on HOLD.** The §29 consolidation is materially better, but the ledger and correctness successor do not yet form one unambiguous, executable contract. The controlling execution status conflicts across the two documents; request-specific limit metadata has neither a complete persistence model nor a distinct post-cache response schema; the error/failure contract still has mutually incompatible public/private branches; the promised public-error mapping cannot be reconstructed from the proposed stored fields; the no-behavior-change limit decision still introduces new behavior; and §2.13 remains a rollout checklist rather than a safe rollback protocol.
+
+| Scope | Approval decision | Reason |
+|---|---|---|
+| This ledger as resolved/authoritative | **NOT APPROVED** | §29 and the successor retain contradictory and stale normative state. |
+| P0R.1 CBC-evidence spike | **HOLD — NOT AUTHORIZED TO START** | The ledger says HOLD while the executable successor says approved; Q58–Q64 below must be resolved before authority can be lifted. |
+| P0R.2 attainable-CBC fixture capture | **APPROVED, EVIDENCE-ONLY** | Existing narrow approval remains; captured artifacts must not change or deploy solver behavior. |
+| P0R.2 parser tests | **BLOCKED** | Depend on the accepted P0R.1 parser/interface and authoritative CBC records. |
+| P0R.3 / P0R.4 | **NOT APPROVED** | Q35/Q41 remain intentionally open, and the schema/persistence/error/rollout contracts below are incomplete. |
+| DEC-2026-09-21-01 | **VALIDATED FOR ITS NARROW SCOPE** | GitHub issue #19 contains the exact evidence-driven status/termination authorization and zero-golden-objective restriction claimed here. |
+| Measurement / B2 topology and cost | **TBD / NOT APPROVED** | Render ceilings are platform bounds, not throughput or cost evidence; sizing remains benchmark-gated. |
+
+### 30.2 Blocking findings
+
+#### 30.2.1 CRITICAL — there is still no single controlling execution authority
+
+This ledger's header and Q55 say **P0R.1 is on HOLD / not authorized to start**. The correctness successor's header, P0R.1 heading, and summary still say **approved to execute**. The successor header also carries Q43–Q49 as open until the post-spike update even though §29 says the Q50–Q57 consolidation folded those contracts in. Within §29 itself, the heading still says `partial: Q50 open`, and the Q53 row still says `Pending consolidated post-Q50 pass`, while the concluding paragraph says Q50 and Q53 are complete.
+
+Historical review sections may retain their historical decisions, but every current-status surface must identify one controlling state. An implementer cannot be expected to infer that a superseded ledger header overrides an explicitly executable successor task.
+
+**Required correction:**
+
+1. Make the correctness-successor header, P0R.1 heading, and summary say **HOLD / not authorized to start**.
+2. Replace its stale Q43–Q49 open-gate wording with the actual current gates.
+3. Correct §29's heading and Q53 state.
+4. If the hold is later lifted, record that as a new explicit approval decision after Q58–Q64 close; do not silently reinterpret the old approval wording.
+
+#### 30.2.2 HIGH — requested-limit composition has no implementable schema or persistence path
+
+Successor §2.2/§2.12 says requested values live on the job/request record, configured values live in the cacheable result/key, and the API composes requested values onto the response after cache lookup. That separation is correct in principle, but the rest of the design cannot implement it:
+
+- current `solve_jobs` has only `inputs_hash`, `result_summary`, and `error` beyond lifecycle fields; no requested-limit values or source fields exist;
+- T-db adds only `failure_reason` and `error_detail`;
+- T-solve emits only `configuredGap` and `configuredTimeLimitSec`;
+- `SolverEnvelopeV2Schema` is defined as both raw solver output and every new cache write;
+- normalized v2 is described as v2 "as-is" while §2.7 requires requested fields in its complete field set; and
+- no distinct typed post-cache/published-result schema or scenario-persistence composition step exists.
+
+A single `source: default|request` is also insufficient: gap may be omitted/defaulted while time is explicitly requested, or vice versa. The source must be per field.
+
+**Required correction:** define exact job columns or one exact typed JSON structure for `requestedGap`, `requestedGapSource`, `requestedTimeLimitSec`, and `requestedTimeLimitSource`; write them atomically at enqueue so later scenario edits cannot change their meaning. Define separate schemas for the cacheable solver result and the request-specific published/stored scenario result, plus the exact composition point used on both fresh solves and cache hits. Add retry/restart/cache-hit tests proving the values survive process loss and never come from a different request.
+
+#### 30.2.3 HIGH — the public/private error model still describes incompatible branches
+
+The successor simultaneously says:
+
+- `solutionStatus:error`, `terminationReason:solver_error`, and `"Solve failed"` are public;
+- `error` is runner-private and excluded from published `NormalizedSolveResult`;
+- `SolverEnvelopeV2` contains an `error` row;
+- `SolverProcessMessage` has a separate `{ failureReason, failureStage, errorDetail }` failure branch; and
+- every error fails the job and is never cached or published.
+
+The private message's envelope-or-failure invariant is not meaningful if an error may be represented either as an error envelope or as the failure branch. Lines that still call the error envelope public also directly contradict Q57.
+
+**Required correction:** recommended: make the envelope branch success/mathematical-outcome-only (`optimal|feasible|infeasible|unbounded|no_solution`) and represent every execution failure through the private failure branch. Remove `error` from public, normalized, stored-scenario, and cacheable unions. If an internal error envelope must remain, give it a distinct internal schema/name and define exactly why it is not the failure branch; remove every claim that it is public.
+
+#### 30.2.4 HIGH — the stable public `errorCode` cannot be derived after persistence
+
+Successor §2.11 promises a fixed mapping table but does not provide it. The internal `failureReason` enum has no timeout member, while the public enum contains `TIMEOUT`. T-db persists only `failure_reason` and `error_detail`, not the derived `error_code`; after restart, a timeout cannot be reconstructed losslessly if it was stored as generic `internal_error`. `failureStage` is transported but is not persisted. `INPUT_INVALID` also has no ordinary job-producing path because scenario input validation currently returns HTTP 422 before enqueue.
+
+The additive rollout says `errorCode` coexists with legacy `error` for one window, whereas §2.11/T-db say the old public field is replaced. The safe-message field name and storage/derivation authority are therefore still ambiguous.
+
+**Required correction:** provide an exhaustive table covering every Python reason and Node class: pre-spawn, outer timeout, cancellation, nonzero exit, protocol absent/partial/oversize/invalid, schema rejection, serialization failure, cleanup failure, and unexpected exception. Persist `error_code` or a lossless internal class from which it is deterministically derived. Decide whether `INPUT_INVALID` remains synchronous 422/no job (recommended) or define the exceptional asynchronous path. Specify the transition response exactly: field names, nullability, legacy `error` behavior, fixed safe message per code, and cleanup release.
+
+#### 30.2.5 HIGH — Q50=A still contains unauthorized behavior changes
+
+Section 2.12 says there is no clamp/ceiling and no behavioral change, but it introduces `gap max 1.0`. Current validators and solver manifests require `gap` and enforce only a minimum of zero; values above 1.0 are not currently rejected by that contract. A new maximum is therefore a behavioral change.
+
+The same section describes omitted values and per-model defaults, but current request validators and every manifest require both `gap` and `timeLimitSec`; the UI's 120-second initial value is not a backend omission/default contract. Its test rule `invalid/non-finite → failed job` also conflicts with the current HTTP 422 before enqueue behavior.
+
+**Required correction:** for a true Q50=A implementation, preserve the current required fields and existing accepted ranges, making each source `request`. Alternatively, separately authorize optional/default behavior and/or a maximum, then enumerate the validator, manifest, scenario create/update, enqueue, hashing, persistence, HTTP, and protected-test changes. Validation rejected before enqueue should remain 422/no job unless a deliberate API change is approved.
+
+#### 30.2.6 HIGH — §2.13 is a rollout TODO, and its old-reader safety assertion is false
+
+Section 2.13 ends with "Specify schema-push ownership/timing..."; those are unresolved requirements, not an executable plan. It does not define the releases, flag name/owner, public response behavior during the reader-first stage, drain proof, compatibility-window duration/exit criteria, schema rollback rule, or minimum rollback version.
+
+The claim that `envelopeVersion` guarantees an old instance never mistakes v2 for v1 is not true of the current implementation. The current Zod result object is not strict: unknown keys, including `envelopeVersion` and new evidence fields, are stripped, so a v2 `optimal`/`infeasible`/`error` object with the old required fields can validate as the old shape. An already-deployed old binary cannot be made discriminator-aware retroactively. A composite cache key helps isolate cache generations but does not by itself protect `scenarios.result`, rolling writers, or rollback to a pre-dual-reader binary.
+
+**Required correction:** define named releases and an irreversible rollout floor:
+
+1. nullable schema push + internal dual readers while public responses remain old-client-compatible;
+2. deploy a frontend that treats all new fields as optional and works against the old API;
+3. deploy/verify the dual-reader API and additive job-error fields;
+4. drain every pre-dual-reader API instance, prove this from Render deploy/health evidence, then enable the default-off v2 writer flag;
+5. allow rollback only to the dual-reader release after the first v2 write;
+6. disable the writer before rollback and define treatment of existing v2 scenario/cache rows; and
+7. remove deprecated fields only after a named compatibility window and observed client/version criteria.
+
+Use explicit legacy/v2 discrimination in the new readers; do not claim the discriminator protects an old binary.
+
+#### 30.2.7 MEDIUM — the private fd3 protocol is not yet fully bounded
+
+`fd 3 + NDJSON + one message + max 1 MB` improves the design but still leaves implementation-significant choices: whether the limit is bytes or characters; whether exactly one newline-terminated JSON object is required; handling of extra non-empty lines or trailing bytes; bounded incremental reading rather than buffer-then-check; child/process-group disposition on overflow; EOF/partial-write classification; and precise `stdio`/fd setup.
+
+The design bounds fd3 but not stdout/stderr. The current runner accumulates both strings without a ceiling, so moving the contract to fd3 does not by itself remove the memory-risk path. fd3 must also be close-on-exec/not inherited by CBC so a descendant cannot keep the transport open after Python exits.
+
+**Required correction:** define the byte-level grammar and maximum (prefer an explicit byte count), incremental overflow behavior, extra-message rejection, EOF rule, descriptor inheritance, and bounded stdout/stderr capture/discard policy. Test oversize, multiple messages, missing newline/EOF, inherited-descriptor behavior, and process-group cleanup.
+
+#### 30.2.8 MEDIUM — telemetry and Sentry clauses retain stale contradictions
+
+The §2.7.1 boundary matrix still says legacy reads are tagged in telemetry, while its concrete Q56 rule says normalized legacy reads emit no telemetry. Only the latter matches the actual lifecycle and should remain.
+
+The leakage paragraph lists Sentry among surfaces on which `failureReason`/`errorDetail` must not appear, but the next line explicitly sends the bounded reason as a tag and sanitized detail as the Sentry message. Sentry is not a public response; the current wording makes the intended test impossible to interpret.
+
+**Required correction:** update the stale matrix row to `no telemetry`. Define the exact Sentry allowlist and distinguish public-response leakage tests from operator-observability tests. Sentry tests should prohibit raw payloads, secrets, paths, stdout/stderr, and arbitrary exception text while permitting only the explicitly approved bounded tags/message.
+
+#### 30.2.9 MEDIUM — Q35/Q41 remain a deliberate implementation blocker
+
+The deterministic composite solver/cache identity is correctly left open, but this means P0R.3 cannot receive approval yet even if the other contracts are repaired. The post-spike update must still provide the exact sorted artifact manifest, path/content byte framing, dependency/build identities, semantic contract constant, example hash vectors, startup failure behavior, and invalidation/stability tests.
+
+This is not a defect in the evidence-spike approach; it is a reason the document cannot describe the whole correctness migration as approved or implementation-ready.
+
+### 30.3 Validated improvements and external/platform facts
+
+- Q50 correctly removes the unauthorized 60-second time-limit ceiling; §30.2.5 concerns the remaining `gap max 1.0` and omission/default inconsistencies, not that decision.
+- Q51's separation of request-specific metadata from effective cache identity is the right direction; §30.2.2 supplies the missing persistence/schema boundary.
+- Q56's completed/failed/no-legacy-read event split matches the real emission sites, except for the stale matrix row.
+- The rewritten P0R.3 work package is substantially clearer and assigns the major seams; the missing exact schemas/migrations/mappings keep it conditional.
+- Node's documented POSIX behavior supports the selected premise that `detached:true` makes the child a new process-group/session leader: [Node `child_process` documentation](https://nodejs.org/api/child_process.html#optionsdetached). P0R.1 must still prove TERM→KILL, direct-child wait, group-death probing, descriptor closure, and temp cleanup on the production OS.
+- DEC-2026-09-21-01 remains independently auditable and valid only for its stated evidence-driven status/termination assertion corrections with zero golden-objective changes: [GitHub issue #19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19).
+- Current Render documentation supports the cited ceiling of 12 CPU for web/private/background-worker compute and up to 100 same-plan instances per service: [Render compute plans](https://render.com/docs/compute-plans), [Render service scaling](https://render.com/docs/scaling). Render bills each same-plan instance; those platform ceilings do not establish solver concurrency, worker count, SLO attainment, or minimum cost. Those remain measurement decisions.
+
+### 30.4 Decisions/questions required (Q58–Q64)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q58 — controlling authority** | Which current document/status controls P0R.1 execution? | Apply the latest direction consistently: HOLD everywhere until a new approval closes this review. |
+| **Q59 — cache vs published schema** | What exact schemas persist effective cache data and request-specific published data, and where are they composed? | Separate cacheable solver result from published/stored scenario result; persist per-field requested values/sources on the job and compose before scenario publication. |
+| **Q60 — error/failure authority** | Does an execution failure use an error envelope or the private failure branch? | Use the failure branch only; remove `error` from public/cacheable/published result unions. |
+| **Q61 — durable public error mapping** | What exhaustive internal/Node mapping produces `errorCode`, and what is persisted? | Publish the full table and persist `error_code` or a lossless source class; keep pre-enqueue validation as 422/no job. |
+| **Q62 — limit compatibility** | Does Q50=A preserve today's required fields/ranges, or authorize optional/default/max-gap behavior? | Preserve current behavior now; treat any optional/default/maximum change as separately authorized product work. |
+| **Q63 — rollout and rollback floor** | What exact releases, flag, evidence, compatibility window, and minimum rollback version apply? | Reader/additive-client first, drain old instances, flag writes, and never roll back below the dual-reader release after v2 data exists. |
+| **Q64 — bounded diagnostics protocol** | What byte grammar, stream bounds, descriptor rules, and Sentry allowlist govern failures? | Specify all fd3/stdout/stderr limits and closure rules; separate public leakage assertions from approved operator diagnostics. |
+
+### 30.5 Re-approval checklist
+
+- [ ] Ledger and successor expose one current authority state; P0R.1 is HOLD until a new approval explicitly lifts it.
+- [ ] §29 heading/table and successor open-gate list no longer carry stale Q50/Q53/Q43–Q49 state.
+- [ ] Per-field requested values and sources have exact nullable types, job persistence, enqueue/retry semantics, and database-push ownership.
+- [ ] Cacheable solver result and request-specific published/stored result are distinct typed schemas with one exact composition point.
+- [ ] The public/cacheable result union has no contradictory or unreachable `error` branch.
+- [ ] An exhaustive Python/Node failure-to-public-code table exists, and the persisted record reconstructs the same `errorCode` after restart.
+- [ ] `INPUT_INVALID`, synchronous 422 validation, cleanup failure, timeout, cancellation, and protocol failure each have exactly one lifecycle.
+- [ ] Q50=A introduces no new gap ceiling or omission/default behavior unless separately authorized.
+- [ ] The rollout defines named releases, flag default/owner, public compatibility, drain evidence, rollback floor, v2-row handling, compatibility-window exit, and deprecated-field cleanup.
+- [ ] New readers explicitly discriminate stored legacy/v2; no safety claim depends on a pre-v2 binary rejecting unknown fields.
+- [ ] fd3 framing/byte limit/EOF/overflow/multiple-message/descriptor rules and stdout/stderr bounds are exact and tested.
+- [ ] Telemetry matrix and concrete event rules agree; Sentry has an explicit structured allowlist and negative raw-data leakage tests.
+- [ ] Q35/Q41's deterministic composite cache manifest, framing, identities, vectors, and fail-closed tests are approved before P0R.3 cache use.
+- [ ] P0R.1 receives a new explicit approval only after every applicable pre-spike item above is closed.
+
+Until then, §29's statement that §28 is fully resolved is historical rather than sufficient implementation approval; this §30 decision controls.
+
+---
+
+## 31. §30 resolution — Q58–Q64 decisions (2026-09-22)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q58** controlling authority | **HOLD everywhere.** Successor status/P0R.1 heading/summary set to HOLD; §29 heading fixed ("complete; Q50=A") + Q53 row → Done; stale Q43–Q49 open-gate list replaced with the real gate (Q35/Q41). Lifting the hold = a new explicit approval after Q58–Q64. | Successor header/§3/§5; this ledger §29. |
+| **Q59** cache vs published schema | Per-field job columns `requestedGap`/`requestedGapSource`/`requestedTimeLimitSec`/`requestedTimeLimitSource` (atomic at enqueue); cacheable-result schema (effective only) distinct from published/stored scenario-result schema; one composition point on fresh + cache-hit. | Successor §2.12. |
+| **Q60** error/failure authority | **A — failure-branch-only.** Solver envelope = success/math outcomes only (`optimal\|feasible\|infeasible\|unbounded\|no_solution`); `error` removed from public/cacheable/normalized/stored unions + `solutionStatus` enum; all failures via the private failure branch → failed job + public `errorCode`. | Successor §2.1/§2.4/§2.5/§2.11. |
+| **Q61** durable errorCode | Exhaustive `failureReason`+Node-class → `errorCode` table; internal enum gains `timeout`/`interrupted`; persist `error_code`+`failure_stage` (not just reason) so `TIMEOUT` reconstructs after restart; `INPUT_INVALID` stays synchronous 422/no-job. | Successor §2.11. |
+| **Q62** limit compatibility | **A — preserve current exactly.** Both fields required, existing ranges (min 0, **no** new gap max, no defaults), invalid → 422/no-job; new fields only record actuals (`source=request`, `configured==requested`). No behavioral change; any max/default is separate authorized work. | Successor §2.12. |
+| **Q63** rollout/rollback floor | Named releases R1(schema+dual-reader)/R2(frontend)/R3(flagged writer); **new readers explicitly discriminate legacy/v2** (the `envelopeVersion`-protects-old-binary claim was FALSE — Zod strips unknowns); rollback floor = never below R1 after any v2 write, disable writer before rollback. | Successor §2.13. |
+| **Q64** bounded diagnostics | fd3 exact bytes (one newline-terminated JSON, 1,048,576-byte cap, incremental abort, extra-line/EOF/partial → internal_error, **close-on-exec** so CBC can't inherit); bounded stdout/stderr capture; Sentry = operator allowlist, distinct from public-leakage tests. | Successor §2.11. |
+
+§30 fully resolved. **P0R.1 remains on HOLD** — a new explicit approval lifts it once the post-spike design update closes Q35/Q41. The correctness successor and this ledger now carry one controlling state (HOLD).
