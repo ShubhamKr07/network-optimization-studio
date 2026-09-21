@@ -7,6 +7,7 @@ import {
   useGetScenario,
   useGetDataset,
   useUpdateScenario,
+  useUpdateDistanceBands,
   useSolveScenario,
   useCreateScenario,
   useCloneScenario,
@@ -44,7 +45,7 @@ import { WarehousesTab, type AddedWarehouse } from "@/components/workspace/tabs/
 import { CustomersTab, type AddedCustomer } from "@/components/workspace/tabs/CustomersTab";
 import { MinesTab, type AddedMine } from "@/components/workspace/tabs/MinesTab";
 import { StationsTab, type AddedStation } from "@/components/workspace/tabs/StationsTab";
-import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { OptimizationParametersTab, type OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
@@ -61,6 +62,10 @@ import { PlantsTab, type AddedPlant } from "@/components/workspace/tabs/PlantsTa
 import { CapabilityMatrixTab, type CapabilityOverride } from "@/components/workspace/tabs/CapabilityMatrixTab";
 import { JadeDistancesTab, type JadeDistanceOverride } from "@/components/workspace/tabs/JadeDistancesTab";
 import { StaleOutputBanner } from "@/components/workspace/StaleOutputBanner";
+import { DirtyNavPrompt } from "@/components/workspace/DirtyNavPrompt";
+import { ExportProvider, type ExportProviderValue } from "@/contexts/ExportContext";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { UnitToggle } from "@/components/UnitToggle";
 import type { WarehouseOverride } from "@/components/tables/WarehouseTable";
 import type { CustomerOverride } from "@/components/tables/CustomerTable";
 import type { MineOverride } from "@/components/tables/MineTable";
@@ -123,7 +128,15 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
         gap: 0,
         timeLimitSec: 120,
         capacityMode: "none",
-        distanceBands: [600, 5000],
+        // chen-bands-units, Part A/B, Task 14 Step 2a — [600, 1200, 2400,
+        // 5000] (600 == the default highServiceDistKm). Independently, the
+        // two service-distance defaults immediately above/below
+        // (highServiceDistKm=600, avgServiceDistCapKm=1000) are NOT changed
+        // and must NEVER be made equal — doing so tightens the default
+        // solve from the frozen golden 66.0639% / {wh-40, wh-69, wh-102} to
+        // 64.8234% / {wh-40, wh-102, wh-147} and breaks
+        // e2e/chens-cosmetics.spec.ts. See the guard test in Workspace.test.tsx.
+        distanceBands: [600, 1200, 2400, 5000],
         warehouseOverrides: [],
         customerOverrides: [],
         addedWarehouses: [],
@@ -222,23 +235,6 @@ function timeLimitSecFromInputs(inputs: Record<string, unknown> | null): number 
 function distanceBandsFromInputs(inputs: Record<string, unknown> | null): number[] {
   const raw = inputs?.distanceBands;
   return Array.isArray(raw) ? (raw as number[]) : [];
-}
-
-// jade-INT (#1, spec §2 "One band field; a bands-only save is non-geometric")
-// — key-level diff between two `inputs` snapshots, same JSON.stringify
-// per-key comparison `isDirty` already uses for the whole-object case.
-// handleSaveInputs uses this to detect a SAVE whose only changed key is
-// `distanceBands`, so it can sync the displayed history entry in place
-// (see the result-history append effect's own comment on why a bands-only
-// save would otherwise silently revert on step-away/step-back).
-function diffInputKeys(prev: Record<string, unknown> | null, next: Record<string, unknown>): string[] {
-  const prevObj = prev ?? {};
-  const keys = new Set([...Object.keys(prevObj), ...Object.keys(next)]);
-  const changed: string[] = [];
-  for (const k of keys) {
-    if (JSON.stringify(prevObj[k]) !== JSON.stringify(next[k])) changed.push(k);
-  }
-  return changed;
 }
 
 // C4.12 — Chen (chens-cosmetics-cn) objective mode + coverage params, all read
@@ -1277,6 +1273,16 @@ interface ResultHistoryEntry {
   // per spec's own "after reload, suppressed" resolution) and for any entry
   // a bands-only save resynced in place (that path never touches timing).
   timing?: SolveTiming;
+  // chen-bands-units, Part F/G, Task 14 Step 7 (decision 1g) — the
+  // `solve_jobs.id` that produced this entry's result, for run-addressed
+  // export (T14b). The SEED entry (first load/scenario-switch) takes this
+  // from `currentScenario.resultRunId`; a freshly appended entry takes it
+  // from the polling job id independently of `timing`'s own presence
+  // (timing is session-local and absent after reload; runId must not be
+  // gated on it). Absent (undefined) for a legacy pre-migration result —
+  // that entry is explicitly non-exportable once it's no longer the latest
+  // (decision 1g), never a silently-wrong export.
+  runId?: number;
 }
 
 export function Workspace({ modelId, userEmail }: WorkspaceProps) {
@@ -1302,6 +1308,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     query: { queryKey: getGetDatasetQueryKey(datasetParams) },
   });
   const updateScenario = useUpdateScenario();
+  // chen-bands-units, Part G — field-scoped `distanceBands` PATCH.
+  const updateDistanceBandsMutation = useUpdateDistanceBands();
 
   // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset where every
   // warehouse/customer row has `state: ""`. Gate WarehousesTab/CustomersTab's
@@ -1338,6 +1346,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     activeModelManifest?.distanceUnit === "km" || activeModelManifest?.distanceUnit === "mi"
       ? activeModelManifest.distanceUnit
       : null;
+
+  // chen-bands-units, Task 14 Step 7b — resolves the effective display unit
+  // for `ExportProviderValue.unit`. This is the one layer holding both the
+  // display preference AND the model's canonical unit, so it's the right
+  // place to resolve "auto -> canonical" (a real `ExportUnit`, never a
+  // fallback — stays `null` until `canonicalUnit` itself resolves).
+  const { effectiveUnit } = useDisplayUnit();
 
   // Bundle 6 T2 (item 1) — default scenario when there's no `?scenario=` in
   // the URL: prefer the most-recently-solved scenario (greatest non-null
@@ -1419,10 +1434,26 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [localInputs, setLocalInputs] = useState<Record<string, unknown> | null>(null);
   const savedInputsRef = useRef<Record<string, unknown> | null>(null);
 
+  // chen-bands-units, Part A/G, Task 14 Step 2b — the dedicated band-LENS
+  // state (decision 1f/1b). Deliberately NOT part of `localInputs`: bands
+  // are a live visualization lens that spans history and is persisted via
+  // its own field-scoped route (`useUpdateDistanceBands`), never folded
+  // into the whole-input PATCH except as the last-write-wins override
+  // `buildWholeInputPayload()` applies. Seeded ONLY on scenario switch
+  // (this same effect) — history stepping (`stepResultBack`/`stepResultForward`
+  // below) must NOT touch it, and a bands-only save
+  // (`handleSaveBandsOnly`) updates `savedBandLensRef` directly rather than
+  // re-running this effect.
+  const [activeBandLens, setActiveBandLens] = useState<number[]>([]);
+  const savedBandLensRef = useRef<number[]>([]);
+
   useEffect(() => {
     if (currentScenario) {
       setLocalInputs(currentScenario.inputs);
       savedInputsRef.current = currentScenario.inputs;
+      const bands = distanceBandsFromInputs(currentScenario.inputs);
+      setActiveBandLens(bands);
+      savedBandLensRef.current = bands;
     }
   }, [currentScenario?.id]);
 
@@ -1461,6 +1492,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // the FIRST time it appends a new entry for that same scenario — never
   // attached to the currently-displayed (older) entry.
   const retainedTimingRef = useRef<{ scenarioId: number; jobId: number; timing: SolveTiming } | null>(null);
+  // chen-bands-units, Part F/G, Task 14 Step 7 — a SEPARATE retained ref for
+  // the polling job id, deliberately NOT folded into `retainedTimingRef`:
+  // that ref is only set when BOTH queuedAt/finishedAt are present, but
+  // decision 1g requires runId threading "independently of timing" — a job
+  // whose timestamps didn't resolve must still attach its runId.
+  const retainedRunIdRef = useRef<{ scenarioId: number; jobId: number } | null>(null);
 
   useEffect(() => {
     if (!currentScenario) return;
@@ -1468,11 +1505,16 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // Scenario switched (including the very first render) — reseed to
       // exactly one entry (the scenario's already-persisted result), or
       // empty if it's unsolved. Mirrors Studio.tsx:443-450's own seeding
-      // effect.
+      // effect. `runId` comes from `scenarios.result_run_id`
+      // (decision 1g) — deterministic, never a latest-succeeded-job guess.
       historyScenarioIdRef.current = currentScenario.id;
       if (currentScenario.result) {
         setResultHistoryState({
-          items: [{ result: currentScenario.result, inputs: currentScenario.inputs as Record<string, unknown> }],
+          items: [{
+            result: currentScenario.result,
+            inputs: currentScenario.inputs as Record<string, unknown>,
+            runId: currentScenario.resultRunId ?? undefined,
+          }],
           index: 0,
         });
       } else {
@@ -1501,6 +1543,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     const retained = retainedTimingRef.current;
     const timingForThisAppend =
       willAppend && retained && retained.scenarioId === currentScenario.id ? retained.timing : undefined;
+    // chen-bands-units, Task 14 Step 7 — runId threading, independent of
+    // whether timing resolved (see retainedRunIdRef's own comment).
+    const retainedRun = retainedRunIdRef.current;
+    const runIdForThisAppend =
+      willAppend && retainedRun && retainedRun.scenarioId === currentScenario.id ? retainedRun.jobId : undefined;
     setResultHistoryState(prev => {
       const newest = prev.items[prev.items.length - 1];
       if (newest && newest.result === latest) return prev;
@@ -1508,6 +1555,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         result: latest,
         inputs: currentScenario.inputs as Record<string, unknown>,
         timing: timingForThisAppend,
+        runId: runIdForThisAppend,
       };
       return { items: [...prev.items, entry], index: prev.items.length };
     });
@@ -1517,6 +1565,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // isn't this job's own success).
       retainedTimingRef.current = null;
     }
+    if (runIdForThisAppend != null) {
+      retainedRunIdRef.current = null;
+    }
   }, [currentScenario?.result, currentScenario?.id]);
 
   // Stepping through history also restores the exact inputs that produced
@@ -1525,9 +1576,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // Studio.tsx's goResultBack/goResultForward, which syncs both localConfig
   // AND savedConfig for the same reason). Side effects happen in the event
   // handler body, not inside the setResultHistoryState updater, which must
-  // stay pure.
-  function stepResultBack() {
-    const nextIndex = Math.max(0, resultHistoryState.index - 1);
+  // stay pure. chen-bands-units, Part A (decision 1b) — the band LENS
+  // (`activeBandLens`/`savedBandLensRef`) is deliberately NOT touched here;
+  // it intentionally spans history.
+  function performStep(direction: "back" | "forward") {
+    const nextIndex =
+      direction === "back"
+        ? Math.max(0, resultHistoryState.index - 1)
+        : Math.min(resultHistoryState.items.length - 1, resultHistoryState.index + 1);
     const entry = resultHistoryState.items[nextIndex];
     if (!entry) return;
     setResultHistoryState(prev => ({ ...prev, index: nextIndex }));
@@ -1535,13 +1591,59 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     savedInputsRef.current = entry.inputs;
   }
 
+  // chen-bands-units, Part A (decision 1i), Task 14 Step 5 — dirty-nav
+  // prompt. Guards the STEP FUNCTIONS themselves (not merely the stepper
+  // buttons), so a programmatic call can never discard an unsaved ordinary
+  // edit either. `lensDirty` alone never triggers this prompt — the band
+  // lens intentionally spans history (decision 1b) and is persisted by its
+  // own field-scoped route, never blocking navigation.
+  const [dirtyNavPrompt, setDirtyNavPrompt] = useState<{ open: boolean; direction: "back" | "forward" | null }>({
+    open: false,
+    direction: null,
+  });
+
+  function attemptStep(direction: "back" | "forward") {
+    if (isDirty) {
+      setDirtyNavPrompt({ open: true, direction });
+      return;
+    }
+    performStep(direction);
+  }
+
+  function stepResultBack() {
+    attemptStep("back");
+  }
+
   function stepResultForward() {
-    const nextIndex = Math.min(resultHistoryState.items.length - 1, resultHistoryState.index + 1);
-    const entry = resultHistoryState.items[nextIndex];
-    if (!entry) return;
-    setResultHistoryState(prev => ({ ...prev, index: nextIndex }));
-    setLocalInputs(entry.inputs);
-    savedInputsRef.current = entry.inputs;
+    attemptStep("forward");
+  }
+
+  // Discard: revert the ordinary draft to the last-saved snapshot, then
+  // proceed with the navigation that was intercepted.
+  function handleDirtyNavDiscard() {
+    setLocalInputs(savedInputsRef.current);
+    const direction = dirtyNavPrompt.direction;
+    setDirtyNavPrompt({ open: false, direction: null });
+    if (direction) performStep(direction);
+  }
+
+  // Cancel: leaves both the index and the draft completely untouched.
+  function handleDirtyNavCancel() {
+    setDirtyNavPrompt({ open: false, direction: null });
+  }
+
+  // Save: only proceeds with navigation once the save has actually
+  // RESOLVED — a rejected save must leave both the history index and the
+  // draft exactly as they were (plan-review #7), never costing the user
+  // both the edit and their place. `saveWholeInputsAsync` (below,
+  // shared with the plain Save button) rejects on failure, which
+  // propagates out of this function uncaught — DirtyNavPrompt itself
+  // catches it to render the inline error and keep the dialog open.
+  async function handleDirtyNavSave() {
+    await saveWholeInputsAsync();
+    const direction = dirtyNavPrompt.direction;
+    setDirtyNavPrompt({ open: false, direction: null });
+    if (direction) performStep(direction);
   }
 
   const canGoBackResult = resultHistoryState.index > 0;
@@ -1645,8 +1747,45 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     savedInputsRef.current != null &&
     JSON.stringify(localInputs) !== JSON.stringify(savedInputsRef.current);
 
+  // chen-bands-units, Part A — "ordinaryDirty" is exactly the pre-existing
+  // `isDirty` above (unaffected by band edits, since those now write
+  // `activeBandLens`, never `localInputs`, per decision 1f). `lensDirty` is
+  // the lens's OWN independent dirty flag (decision 1f — `isBandsOnlyChange`
+  // could not carry this, since history nav replaces both `localInputs` AND
+  // `savedInputsRef`). `isBrowsingHistoryNow` mirrors `canGoForwardResult`
+  // exactly ("the stepper is parked on a non-latest entry").
+  const ordinaryDirty = isDirty;
+  const lensDirty = JSON.stringify(activeBandLens) !== JSON.stringify(savedBandLensRef.current);
+  const isBrowsingHistoryNow = canGoForwardResult;
+
+  // Part A (decision 1h) — "ordinary input editing is disabled" while
+  // browsing history, enforced at this single choke point (every generic
+  // OptimizationParametersTab/DistancesTab/etc `onChange` routes through
+  // here) PLUS a defense-in-depth guard on `handleSaveInputs` itself below,
+  // so the whole-input PATCH is genuinely unreachable regardless of
+  // whether every individual editor's own disabled-attribute wiring is
+  // perfect. See Task 14's own report for the exact scope of this guard.
   function updateInputsField(key: string, value: unknown) {
+    if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => (prev ? { ...prev, [key]: value } : prev));
+  }
+
+  // chen-bands-units, Part A/G (plan-review HIGH #5) — the ONE onChange
+  // handler passed to BOTH OptimizationParametersTab and SolveDialog, so
+  // the two surfaces can never drift onto two different band-editing
+  // targets. `distanceBands` is special-cased to the dedicated lens
+  // (`activeBandLens`), never `localInputs` — every other field is an
+  // ordinary input, routed through `updateInputsField` (and therefore
+  // subject to the same history-read-only guard). The lens itself is NOT
+  // guarded by `isBrowsingHistoryNow` here — it stays editable while
+  // browsing history (decision 1b/1h; the history action matrix's "Save
+  // bands" row).
+  function handleOptimizationParamsChange(field: OptimizationParametersField, value: number | number[] | boolean) {
+    if (field === "distanceBands") {
+      setActiveBandLens(Array.isArray(value) ? (value as number[]) : []);
+      return;
+    }
+    updateInputsField(field, value);
   }
 
   // C4.12 — Chen objective mode toggle (D1). Atomic (a single functional
@@ -1659,6 +1798,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // field is currently absent — which it always is right after a toggle, since
   // the opposite toggle deleted it.
   function setChenObjectiveMode(mode: "coverage" | "min_distance") {
+    if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => {
       if (!prev) return prev;
       const next: Record<string, unknown> = { ...prev, objective: mode };
@@ -1675,20 +1815,21 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     });
   }
 
-  // C4.12 — editing Chen's high-service / max distance re-derives
-  // `distanceBands` to `[high, max]` in the SAME atomic update (D13/D19): Chen's
-  // bands are a derived two-class coverage lens, not a free-edited list (its
-  // band editor is hidden precisely because these two fields OWN the bands).
-  // Reads `prev` for the unchanged member of the pair so a single edit doesn't
-  // clobber the other threshold.
+  // C4.12 — editing Chen's high-service / max distance.
+  // chen-bands-units, Part A (amendment table: D13/D19 superseded) — this NO
+  // LONGER re-derives `distanceBands`. Chen's bands are now a free,
+  // independently-editable lens (`activeBandLens`), not a derived
+  // `[high, max]` pair. The CONDITIONAL retarget of a band that happens to
+  // equal the old high value lives inside `OptimizationParametersTab`'s own
+  // `handleHighServiceDistChange` (T13), which calls `onChange("distanceBands",
+  // ...)` — routed to `activeBandLens` by this component's wrapper below —
+  // BEFORE calling this function, so the two updates compose correctly
+  // without this function touching bands at all.
   function updateChenServiceDistance(field: "highServiceDistKm" | "maxDistKm", value: number) {
+    if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => {
       if (!prev) return prev;
-      const prevHigh = typeof prev.highServiceDistKm === "number" ? prev.highServiceDistKm : value;
-      const prevMax = typeof prev.maxDistKm === "number" ? prev.maxDistKm : value;
-      const high = field === "highServiceDistKm" ? value : prevHigh;
-      const max = field === "maxDistKm" ? value : prevMax;
-      return { ...prev, [field]: value, distanceBands: [high, max] };
+      return { ...prev, [field]: value };
     });
   }
 
@@ -1770,80 +1911,145 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     });
   }
 
+  // chen-bands-units, Part A/G, Task 14 Step 3 (ninth-review #2) — EVERY
+  // whole-input writer builds its payload through this ONE function
+  // immediately before validation/PATCH, so the active band lens always
+  // wins over whatever stale `distanceBands` sits in `localInputs`. Used by
+  // `saveWholeInputsAsync` below AND by `handleSolve`'s save-before-solve
+  // branch — a second whole-input writer that would otherwise persist a
+  // stale `localInputs.distanceBands` over the active lens.
+  function buildWholeInputPayload(): Record<string, unknown> {
+    return { ...(localInputs ?? {}), distanceBands: activeBandLens };
+  }
+
+  // chen-bands-units, Task 14 Step 3/5 — the shared whole-input save,
+  // Promise-wrapped so BOTH the plain Save control (`handleSaveInputs`,
+  // fire-and-forget) and the dirty-nav prompt's Save action (awaited — a
+  // rejection must propagate so the prompt can render the inline error and
+  // leave the history index/draft untouched, per plan-review #7) drive the
+  // exact same save. Part A (decision 1h) — refuses while browsing history
+  // (defense-in-depth alongside `updateInputsField`'s own guard above), so
+  // the whole-input PATCH is genuinely unreachable there regardless of
+  // which caller invoked it.
+  function saveWholeInputsAsync(): Promise<Scenario> {
+    return new Promise((resolve, reject) => {
+      if (!currentScenario || !localInputs || isBrowsingHistoryNow) {
+        reject(new Error("Nothing to save."));
+        return;
+      }
+      const scenarioId = currentScenario.id;
+      const inputs = buildWholeInputPayload();
+      // T8 — pre-save snapshot, diffed post-save against the response's own
+      // distanceOverrides to compute the "N distances estimated" toast (see
+      // reportEstimatedDistanceWatches's own comment) — captured here, not
+      // read from `savedInputsRef` inside onSuccess, since by the time
+      // onSuccess runs `inputs` is what was actually SENT.
+      const preSaveDistanceOverrides = distanceOverridesFromInputs(inputs);
+      // T6 (Bundle 2) — transport-coal analogue, captured the same way and
+      // for the same reason. A no-op read for every other model
+      // (laneCostOverridesFromInputs on a non-transport `inputs` blob is
+      // always []).
+      const preSaveLaneCostOverrides = laneCostOverridesFromInputs(inputs);
+      updateScenario.mutate(
+        { scenarioId, data: { inputs } },
+        {
+          onSuccess: updated => {
+            // T8 (Input Map v2) — adopt the RESPONSE inputs, not the pre-send
+            // `inputs`: T1's backend normalizer can add estimated
+            // distanceOverrides rows for any newly-created/moved entity, and
+            // trusting the pre-send value here would mean those rows don't
+            // show up until an unrelated refetch happens to land, AND would
+            // immediately re-flag the scenario dirty (savedInputsRef would
+            // disagree with what the server actually persisted the moment a
+            // background refetch of currentScenario lands).
+            setLocalInputs(updated.inputs);
+            savedInputsRef.current = updated.inputs;
+            // chen-bands-units — a whole-input save always carries the
+            // active lens (buildWholeInputPayload), so the lens's own saved
+            // ref advances too, keeping `lensDirty` correct afterward.
+            savedBandLensRef.current = distanceBandsFromInputs(updated.inputs);
+            queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
+            queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
+            queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
+            // B5.2 — refetch precheck against the just-saved inputs (see the
+            // usePrecheckScenario call site's comment above).
+            queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(scenarioId) });
+            // Phase 3.2, Task 4 — resolve any pending Input Map precheck
+            // watches for this scenario now that its inputs are persisted.
+            void reportPendingPrecheckWatches(scenarioId);
+            // T8 — resolve any pending map create/move estimate watches.
+            reportEstimatedDistanceWatches(scenarioId, preSaveDistanceOverrides, distanceOverridesFromInputs(updated.inputs));
+            // T6 (Bundle 2) — transport-coal's own "N lane costs estimated" watch.
+            reportEstimatedLaneCostWatches(scenarioId, preSaveLaneCostOverrides, laneCostOverridesFromInputs(updated.inputs));
+            resolve(updated);
+          },
+          onError: err => {
+            reject(err instanceof Error ? err : new Error("Save failed."));
+          },
+        },
+      );
+    });
+  }
+
+  // The plain Save control — fires the whole-input save and swallows a
+  // rejection (this path had no visible error handling before this bundle
+  // either; DirtyNavPrompt's own Save action is the one place a rejection
+  // must surface inline, per plan-review #7).
   function handleSaveInputs() {
-    if (!currentScenario || !localInputs || !isDirty) return;
+    if (!currentScenario || !localInputs || isBrowsingHistoryNow || !ordinaryDirty) return;
+    saveWholeInputsAsync().catch(() => {
+      // Intentionally silent here — see the comment above.
+    });
+  }
+
+  // chen-bands-units, Part G, Task 14 — the field-scoped `distanceBands`
+  // PATCH (decision 1f). Fired by the Save control precisely when
+  // `lensDirty` is true and `ordinaryDirty` is not (the history action
+  // matrix, Part A) — on EITHER the latest entry or while browsing history,
+  // since the lens is a display-only reporting concern that spans both.
+  function handleSaveBandsOnly() {
+    if (!currentScenario) return;
     const scenarioId = currentScenario.id;
-    const inputs = localInputs;
-    // T8 — pre-save snapshot, diffed post-save against the response's own
-    // distanceOverrides to compute the "N distances estimated" toast (see
-    // reportEstimatedDistanceWatches's own comment) — captured here, not
-    // read from `savedInputsRef` inside onSuccess, since by the time
-    // onSuccess runs `inputs` is what was actually SENT.
-    const preSaveDistanceOverrides = distanceOverridesFromInputs(inputs);
-    // T6 (Bundle 2) — transport-coal analogue, captured the same way and
-    // for the same reason. A no-op read for every other model
-    // (laneCostOverridesFromInputs on a non-transport `inputs` blob is
-    // always []).
-    const preSaveLaneCostOverrides = laneCostOverridesFromInputs(inputs);
-    // jade-INT (#1, spec §2 "One band field; a bands-only save is
-    // non-geometric" + "sync the history entry on a bands-only save") — is
-    // `distanceBands` the SOLE changed key relative to what's currently
-    // saved? If so, this save is non-geometric (the backend, A4, already
-    // skips the stale bump for exactly this case) and the CURRENTLY
-    // DISPLAYED history entry's own `inputs.distanceBands` would otherwise
-    // go stale the moment a step-away/step-back restores its pre-save
-    // snapshot (see the result-history stepper's own comment on this exact
-    // failure mode). Diffed against `savedInputsRef.current` — the
-    // last-known-saved snapshot BEFORE this save, i.e. what the server
-    // itself will diff against.
-    const isBandsOnlyChange = (() => {
-      const changed = diffInputKeys(savedInputsRef.current, inputs);
-      return changed.length === 1 && changed[0] === "distanceBands";
-    })();
-    const displayedHistoryIndexAtSaveTime = resultHistoryState.index;
-    updateScenario.mutate(
-      { scenarioId, data: { inputs } },
+    const bands = activeBandLens;
+    updateDistanceBandsMutation.mutate(
+      { scenarioId, data: { distanceBands: bands } },
       {
         onSuccess: updated => {
-          // T8 (Input Map v2) — adopt the RESPONSE inputs, not the pre-send
-          // `inputs`: T1's backend normalizer can add estimated
-          // distanceOverrides rows for any newly-created/moved entity, and
-          // trusting the pre-send value here would mean those rows don't
-          // show up until an unrelated refetch happens to land, AND would
-          // immediately re-flag the scenario dirty (savedInputsRef would
-          // disagree with what the server actually persisted the moment a
-          // background refetch of currentScenario lands).
-          setLocalInputs(updated.inputs);
-          savedInputsRef.current = updated.inputs;
+          savedBandLensRef.current = bands;
           queryClient.setQueryData(getGetScenarioQueryKey(scenarioId), updated);
           queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
-          // B5.2 — refetch precheck against the just-saved inputs (see the
-          // usePrecheckScenario call site's comment above).
-          queryClient.invalidateQueries({ queryKey: getPrecheckScenarioQueryKey(scenarioId) });
-          // Phase 3.2, Task 4 — resolve any pending Input Map precheck
-          // watches for this scenario now that its inputs are persisted.
-          void reportPendingPrecheckWatches(scenarioId);
-          // T8 — resolve any pending map create/move estimate watches.
-          reportEstimatedDistanceWatches(scenarioId, preSaveDistanceOverrides, distanceOverridesFromInputs(updated.inputs));
-          // T6 (Bundle 2) — transport-coal's own "N lane costs estimated" watch.
-          reportEstimatedLaneCostWatches(scenarioId, preSaveLaneCostOverrides, laneCostOverridesFromInputs(updated.inputs));
-          // jade-INT (#1) — sync the DISPLAYED history entry's bands in
-          // place so stepping away and back preserves the save (the entry's
-          // `.result` is untouched — this is a non-geometric edit).
-          if (isBandsOnlyChange) {
-            const savedBands = distanceBandsFromInputs(updated.inputs);
-            setResultHistoryState(prev => {
-              const idx = displayedHistoryIndexAtSaveTime;
-              if (idx < 0 || !prev.items[idx]) return prev;
-              const items = prev.items.slice();
-              items[idx] = { ...items[idx], inputs: { ...items[idx].inputs, distanceBands: savedBands } };
-              return { ...prev, items };
-            });
-          }
         },
       },
     );
+  }
+
+  // chen-bands-units, Part A — the history action matrix, implemented
+  // exactly (eighth-review #1). `saveEnabled`/`saveLabel` drive the shared
+  // toolbar Save control's disabled state and label; `handleSaveClick`
+  // routes to whichever writer the matrix specifies for the current state:
+  //   - historical, nothing dirty            -> disabled (unreachable click)
+  //   - historical, lens dirty only          -> "Save bands", field-scoped
+  //   - historical, ordinary "dirty"         -> genuinely unreachable
+  //     (editors disabled in history + the dirty-nav prompt resolves any
+  //     dirty draft before the index ever changes)
+  //   - latest, lens dirty only              -> "Save bands", field-scoped
+  //   - latest, ordinary dirty (± lens)      -> "Save", whole-input PATCH
+  //     with `activeBandLens` merged last (`buildWholeInputPayload`)
+  const saveEnabled = isBrowsingHistoryNow ? lensDirty : ordinaryDirty || lensDirty;
+  const saveLabel = !ordinaryDirty && lensDirty ? "Save bands" : "Save";
+  const saveIsPending = updateScenario.isPending || updateDistanceBandsMutation.isPending;
+
+  function handleSaveClick() {
+    if (isBrowsingHistoryNow) {
+      if (lensDirty) handleSaveBandsOnly();
+      return;
+    }
+    if (ordinaryDirty) {
+      handleSaveInputs();
+    } else if (lensDirty) {
+      handleSaveBandsOnly();
+    }
   }
 
   // A1.3 — mirrors Studio.tsx's `handleImportApplied`: an import-apply
@@ -2417,7 +2623,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // it first and wait for that save to succeed, THEN enqueue the solve.
   // Never let this dialog become a second place where that bug can recur.
   function handleSolve() {
-    if (!currentScenario) return;
+    // chen-bands-units, Part A (eighth-review #3) — `Run Optimizer` is
+    // disabled at an older history index (the button itself, below), but
+    // `handleSolve` ALSO rejects a historical position defensively, so
+    // neither this save-before-solve branch nor the direct-solve branch can
+    // ever run there even if invoked programmatically.
+    if (!currentScenario || isBrowsingHistoryNow) return;
     setSolveError(null);
     const scenarioId = currentScenario.id;
 
@@ -2446,14 +2657,22 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       );
     };
 
-    if (isDirty && localInputs) {
+    if (ordinaryDirty && localInputs) {
       setSolvePhase("saving");
-      const inputs = localInputs;
+      // chen-bands-units, Part A (ninth-review #2) — this is the SECOND
+      // whole-input writer `buildWholeInputPayload()` exists for: without
+      // it, this branch would persist `localInputs`' stale `distanceBands`
+      // over the active lens. A lens-only-dirty Run does NOT reach this
+      // branch at all (ordinaryDirty is false) — it enqueues the solve
+      // directly, with no whole-input PATCH, deliberately leaving the lens
+      // dirty (bands never reach the solver, so nothing needs saving first).
+      const inputs = buildWholeInputPayload();
       updateScenario.mutate(
         { scenarioId, data: { inputs } },
         {
           onSuccess: () => {
             savedInputsRef.current = inputs;
+            savedBandLensRef.current = distanceBandsFromInputs(inputs);
             queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
             queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(scenarioId) });
             runSolve();
@@ -2509,6 +2728,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // for this result runs on a LATER render (once the refetch below
       // lands), by which point jobStatus/pollingJobId may already be gone.
       if (pollingJobId != null) {
+        // chen-bands-units, Task 14 Step 7 — retained UNCONDITIONALLY
+        // (independently of whether the timestamps below resolve into a
+        // usable SolveTiming), per decision 1g.
+        retainedRunIdRef.current = { scenarioId: currentScenario.id, jobId: pollingJobId };
         const queuedMs = jobStatus.queuedAt ? new Date(jobStatus.queuedAt).getTime() : null;
         const startedMs = jobStatus.startedAt ? new Date(jobStatus.startedAt).getTime() : null;
         const finishedMs = jobStatus.finishedAt ? new Date(jobStatus.finishedAt).getTime() : null;
@@ -2560,8 +2783,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     const entry = resultHistoryState.items[resultHistoryState.index];
     if (!entry) return;
     const name = `${currentScenario?.name ?? "Scenario"} (saved run)`;
+    // chen-bands-units, Part A (eighth-review #3) — "clone what I am
+    // looking at": the active DRAFT lens, not the entry's own (possibly
+    // stale) stored bands, since a student may be looking at a live unsaved
+    // band edit on top of this historical entry's other inputs. Draft
+    // rather than saved lens deliberately — the clone is a brand-new
+    // scenario, so persisting an unsaved lens edit here is harmless.
+    const inputs = { ...entry.inputs, distanceBands: activeBandLens };
     createScenario.mutate(
-      { data: { name, modelId, inputs: entry.inputs } },
+      { data: { name, modelId, inputs } },
       {
         onSuccess: created => {
           queryClient.setQueryData<Scenario[]>(getListScenariosQueryKey({ modelId }), prev =>
@@ -2958,12 +3188,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           p={pFromInputs(localInputs)}
           gap={gapFromInputs(localInputs)}
           timeLimitSec={timeLimitSecFromInputs(localInputs)}
-          distanceBands={distanceBandsFromInputs(localInputs)}
+          // chen-bands-units, Part A/G, Task 14 Step 2b — the DEDICATED
+          // band lens, not `localInputs.distanceBands` (decision 1f). This
+          // is the ONE remaining read of the lens by this tab; `onChange`
+          // below special-cases writes to it too (`handleOptimizationParamsChange`).
+          distanceBands={activeBandLens}
           capacityFactor={capacityFactorFromInputs(localInputs)}
           singleSource={singleSourceFromInputs(localInputs)}
           capacityInactive={capacityInactiveFromInputs(localInputs)}
           bomRatio={bomRatioFromInputs(localInputs)}
-          distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
+          // chen-bands-units, Task 14 Step 6a — `canonicalUnit` supersedes
+          // `distanceUnit` for any caller that supplies it (this one now
+          // does); no `?? "mi"` fallback anywhere on this call site.
+          canonicalUnit={canonicalUnit}
           // jade-T15.5 — two-echelon-jade-us has no static p.max (unlike
           // p-median-us/brazil's schema-level cap of 50): the real bound is
           // the effective active-warehouse count, which genuinely differs
@@ -2977,9 +3214,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           pMax={modelId === "two-echelon-jade-us" ? jadeActiveWarehouseCount(dataset, localInputs) : modelId === "chens-cosmetics-cn" ? 25 : undefined}
           // C4.12 — Chen inputs UI (all gated on modelId so a sibling model
           // never receives these; the tab's own Chen block is gated on
-          // `objective != null`). D13/D19: hide the free-edit band editor —
-          // Chen's bands are derived [high, max] from the two thresholds.
-          showBandEditor={modelId !== "chens-cosmetics-cn"}
+          // `objective != null`).
+          // chen-bands-units, Part A (amendment table: D13/D19 superseded) —
+          // Chen now gets the SAME free-edit band chip editor as every
+          // other model (`showBandEditor` omitted below, defaulting true) —
+          // its bands are no longer derived [high, max]; see
+          // `updateChenServiceDistance`'s own comment for the conditional
+          // high-link retarget that replaces that old coupling.
           objective={modelId === "chens-cosmetics-cn" ? objectiveFromInputs(localInputs) : undefined}
           highServiceDistKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "highServiceDistKm") : undefined}
           maxDistKm={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "maxDistKm") : undefined}
@@ -2987,7 +3228,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           coverageFloorDemand={modelId === "chens-cosmetics-cn" ? optionalNumberFromInputs(localInputs, "coverageFloorDemand") : undefined}
           onObjectiveModeChange={setChenObjectiveMode}
           onServiceDistanceChange={updateChenServiceDistance}
-          onChange={(field, value) => updateInputsField(field, value)}
+          onChange={handleOptimizationParamsChange}
         />
       );
     }
@@ -3233,7 +3474,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // history entry is resynced in place on save (handleSaveInputs
           // above), so persisting this edit never staleifies the scenario
           // or reverts on step-away/step-back either.
-          bands={distanceBandsFromInputs(localInputs)}
+          bands={activeBandLens}
           countryBounds={activeModelManifest?.countryBounds}
           addedWarehouses={
             !projectsAddedEntities
@@ -3354,8 +3595,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           <JadeAssignmentsTab
             result={result}
             dataset={dataset}
-            bands={distanceBandsFromInputs(localInputs)}
-            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
+            bands={activeBandLens}
+            distanceUnit={canonicalUnit}
             scenarioId={currentScenario!.id}
             displayedInputs={{
               addedWarehouses: addedWarehousesFromInputs(displayedInputs),
@@ -3371,7 +3612,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             scenarioId={currentScenario!.id}
             displayedInputs={facilityDisplayedInputs(displayedInputs)}
             locationById={jadeOutputLocationById ?? chenOutputLocationById}
-            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
+            distanceUnit={canonicalUnit}
             identityById={outputIdentityById}
           />
         );
@@ -3403,8 +3644,8 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             result={result}
             dataset={dataset}
             effectivePlants={effectiveFlowsPlants}
-            bands={distanceBandsFromInputs(localInputs)}
-            distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
+            bands={activeBandLens}
+            distanceUnit={canonicalUnit}
             scenarioId={currentScenario!.id}
             identityById={outputIdentityById}
           />
@@ -3422,11 +3663,19 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       // SSC-T1 (spec §4b) — the LIVE `presentationBands` lens drives the
       // ServiceStats coverage-bar recompute (spec §2 R2-3/§4a). It does NOT
       // gate the Plant Production section — that gates separately on
-      // `supportsPlantProductCapability` + its snapshot props. Now wired
-      // for every distance-band model EXCEPT `chens-cosmetics-cn`, whose
-      // "coverage" is a distinct min-distance concept the distance-band
-      // recompute doesn't apply to — it stays on the frozen
-      // result.metrics.bandCoverage.
+      // `supportsPlantProductCapability` + its snapshot props.
+      // chen-bands-units, Part A/D (decision 1d), Task 14 Step C — the
+      // Chen carve-out is REMOVED: T13 already deleted ServiceStatsTab's
+      // own internal Chen guard (its `useLiveCoverage` gate is now purely
+      // "did the caller pass presentationBands", nothing modelId-specific),
+      // but this call site still special-cased Chen to `undefined`, which
+      // left Chen's live cumulative coverage dormant even after that fix —
+      // T13's own commit note flagged this as waiting on Task 14. Chen now
+      // computes live like its five siblings, cumulative + overflow labels
+      // (`≤ 600 / ≤ 1200 / … / Overflow`), from the SAME dedicated band
+      // lens every other live-band surface on this page reads.
+      // Chen's SEPARATE coverage-% KPIs (`result.details.coveragePct`) are
+      // untouched — this only wires the distance-band coverage bars.
       return (
         <ServiceStatsTab
           result={result}
@@ -3436,7 +3685,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           products={modelId === "two-echelon-jade-us" ? (dataset?.products ?? []) : undefined}
           baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
           capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(displayedInputs) : []}
-          presentationBands={modelId !== "chens-cosmetics-cn" ? distanceBandsFromInputs(localInputs) : undefined}
+          presentationBands={activeBandLens}
           identityById={outputIdentityById}
         />
       );
@@ -3453,6 +3702,34 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       </span>
     );
   }
+
+  // chen-bands-units, Task 14 Step 7b — ExportProviderValue derivation
+  // (plan-review-8 #1: this is a complete `ExportProviderValue`, deliberately
+  // NOT an `ExportApi` — `disabledReasonFor`/`download` are added by the
+  // provider itself). Task 14b converts the 26 export controls to consume
+  // this; at this commit it has zero consumers, so it is inert by
+  // construction (a provider with no consumers cannot regress anything).
+  const displayedHistoryEntryForExport =
+    resultHistoryState.index >= 0 ? resultHistoryState.items[resultHistoryState.index] : undefined;
+  const exportValue: ExportProviderValue = {
+    scenarioId: currentScenario?.id ?? null,
+    // No fallback — stays null until `canonicalUnit` itself resolves,
+    // matching every other distance surface Step 6a touched.
+    unit: canonicalUnit == null ? null : effectiveUnit(canonicalUnit),
+    runId: isBrowsingHistoryNow ? displayedHistoryEntryForExport?.runId : undefined,
+    // decision 1g — set only for an UNADDRESSABLE historical entry (a
+    // legacy latest result stays exportable via the latest-result path with
+    // runId omitted, exactly as before this bundle).
+    resultDisabledReason:
+      isBrowsingHistoryNow && displayedHistoryEntryForExport?.runId == null
+        ? "This solve's result wasn't retained"
+        : undefined,
+    // decision 1k — set for ANY historical entry: the run's inputs snapshot
+    // is never persisted server-side, so an input export while browsing
+    // history would silently emit the scenario's CURRENT saved inputs
+    // rather than what's on screen.
+    inputDisabledReason: isBrowsingHistoryNow ? "Input exports reflect the current scenario" : undefined,
+  };
 
   return (
     <div className="h-screen flex flex-col overflow-hidden scn-theme" data-testid="workspace-page">
@@ -3514,7 +3791,23 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 </button>
               </div>
             )}
-            <Button size="sm" disabled={!currentScenario} onClick={openSolveDialog} data-testid="button-run-optimizer">Run Optimizer</Button>
+            {/* chen-bands-units, Task 14 Step 7a — the model-page mount of
+                UnitToggle (AppShell owns the Landing-header mount, T10). */}
+            <UnitToggle />
+            {/* chen-bands-units, Part A (eighth-review #3) — disabled while
+                browsing an older history entry: POST /solve carries no
+                body and solves whatever is ALREADY PERSISTED, not the
+                historical inputs on screen, so running from history would
+                be misleading. `handleSolve` itself also refuses this
+                defensively (see its own guard). */}
+            <Button
+              size="sm"
+              disabled={!currentScenario || isBrowsingHistoryNow}
+              onClick={openSolveDialog}
+              data-testid="button-run-optimizer"
+            >
+              Run Optimizer
+            </Button>
           </div>
         </div>
       </header>
@@ -3564,7 +3857,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
             // row instead (see saveInLayersRow/saveInLayersRowTransport/
             // saveInLayersRowTwoEchelon above).
             <div className="flex items-center justify-end gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10">
-              {isDirty && (
+              {(ordinaryDirty || lensDirty) && (
                 <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
                   Unsaved changes
                 </span>
@@ -3572,39 +3865,46 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleSaveInputs}
-                disabled={!isDirty || updateScenario.isPending}
+                onClick={handleSaveClick}
+                disabled={!saveEnabled || saveIsPending}
                 data-testid="button-save"
-                className={isDirty ? "border-primary text-primary hover:bg-primary/10" : ""}
+                className={saveEnabled ? "border-primary text-primary hover:bg-primary/10" : ""}
               >
                 <Save className="w-3.5 h-3.5 mr-1" />
-                {updateScenario.isPending ? "Saving…" : "Save"}
+                {saveIsPending ? "Saving…" : saveLabel}
               </Button>
             </div>
           )}
           <div className="flex-1 min-h-0 flex overflow-hidden">
-            <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
-              {!currentScenario ? (
-                // First-run empty state: with no scenario, the input tabs'
-                // own `!localInputs` branches would otherwise sit on a
-                // permanent, misleading "Loading…" (localInputs only fills
-                // once a scenario exists). Show one clear centered call to
-                // action instead, from any tab, so the user's first move is
-                // obvious.
-                <div className="h-full flex flex-col items-center justify-center gap-3 text-center" data-testid="create-first-scenario-cta">
-                  <p className="text-muted-foreground max-w-sm">
-                    No scenarios yet — create one to start building and solving this model.
-                  </p>
-                  <Button size="sm" onClick={handleCreateScenario} data-testid="button-create-first-scenario">
-                    Create your first scenario
-                  </Button>
-                </div>
-              ) : activeTab ? (
-                renderTabContent()
-              ) : (
-                <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>
-              )}
-            </div>
+            {/* chen-bands-units, Task 14 Step 7b — wraps the tab area with
+                the populated ExportProvider. T14b converts the 26 export
+                controls inside `renderTabContent()`'s tab components to
+                consume it; nothing does yet, so this is inert (a provider
+                with no consumers cannot regress anything). */}
+            <ExportProvider value={exportValue}>
+              <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
+                {!currentScenario ? (
+                  // First-run empty state: with no scenario, the input tabs'
+                  // own `!localInputs` branches would otherwise sit on a
+                  // permanent, misleading "Loading…" (localInputs only fills
+                  // once a scenario exists). Show one clear centered call to
+                  // action instead, from any tab, so the user's first move is
+                  // obvious.
+                  <div className="h-full flex flex-col items-center justify-center gap-3 text-center" data-testid="create-first-scenario-cta">
+                    <p className="text-muted-foreground max-w-sm">
+                      No scenarios yet — create one to start building and solving this model.
+                    </p>
+                    <Button size="sm" onClick={handleCreateScenario} data-testid="button-create-first-scenario">
+                      Create your first scenario
+                    </Button>
+                  </div>
+                ) : activeTab ? (
+                  renderTabContent()
+                ) : (
+                  <span className="text-muted-foreground">Pick an item from the sidebar to open it as a tab.</span>
+                )}
+              </div>
+            </ExportProvider>
           </div>
         </div>
       </div>
@@ -3622,10 +3922,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         jobStatus={lastJobSnapshot?.status}
         p={pFromInputs(localInputs)}
         // C4.12/D27 — Chen caps P at 25 in the Solve dialog too (26 can't be
-        // authored from either surface). D13/D19 — Chen has no band editor
-        // here either (bands are derived [high, max]).
+        // authored from either surface).
+        // chen-bands-units, Part A (plan-review HIGH #5) — Chen's band
+        // editor is re-enabled here too (`showBandEditor` omitted, defaults
+        // true), edited through the SAME `activeBandLens`/
+        // `handleOptimizationParamsChange` as OptimizationParametersTab, so
+        // the two surfaces can never drift onto two different states.
         pMax={modelId === "chens-cosmetics-cn" ? 25 : undefined}
-        showBandEditor={modelId !== "chens-cosmetics-cn"}
         // Chen's coverage/min-distance mode toggle — same wiring as
         // OptimizationParametersTab above (`setChenObjectiveMode` is the
         // single shared transition handler; do not reimplement its
@@ -3636,15 +3939,30 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         onObjectiveModeChange={setChenObjectiveMode}
         gap={gapFromInputs(localInputs)}
         timeLimitSec={timeLimitSecFromInputs(localInputs)}
-        // R5 — the DRAFT bands (localInputs), same as p/gap/timeLimitSec
-        // above: this dialog edits what the NEXT solve will use, not what's
-        // currently displayed (see displayedInputs's own comment).
-        distanceBands={distanceBandsFromInputs(localInputs)}
-        distanceUnit={activeModelManifest?.distanceUnit ?? "mi"}
-        onChange={(field, value) => updateInputsField(field, value)}
+        // chen-bands-units, Part A/G — the DEDICATED band lens (decision
+        // 1f), same source `OptimizationParametersTab` reads — this dialog
+        // and that tab are a single source of truth for bands too, not just
+        // p/gap/timeLimitSec.
+        distanceBands={activeBandLens}
+        // chen-bands-units, Task 14 Step 6a — no `?? "mi"` fallback;
+        // `canonicalUnit` supersedes the legacy `distanceUnit` label prop.
+        canonicalUnit={canonicalUnit}
+        onChange={handleOptimizationParamsChange}
         phase={solvePhase}
         errorMessage={solveError}
         onSolve={handleSolve}
+      />
+
+      {/* chen-bands-units, Part A (decision 1i), Task 14 Step 5 — rendered
+          UNCONDITIONALLY (see this file's own documented Dialog-in-an-
+          unreachable-branch gotcha, CLAUDE.md): Workspace.tsx has a single
+          return with no early-return branches, so this is always reachable
+          regardless of which branch would otherwise trigger it. */}
+      <DirtyNavPrompt
+        open={dirtyNavPrompt.open}
+        onSave={handleDirtyNavSave}
+        onDiscard={handleDirtyNavDiscard}
+        onCancel={handleDirtyNavCancel}
       />
 
       {/* A4.1 — create-scenario dialog, triggered by SidebarTree's "+".
