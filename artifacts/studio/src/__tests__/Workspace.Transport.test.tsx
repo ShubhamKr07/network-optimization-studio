@@ -101,6 +101,7 @@ vi.mock("@workspace/api-client-react", () => ({
     data: [
       {
         id: "transport-coal",
+        distanceUnit: "mi",
         countryBounds: { sw: [24, -125], ne: [49, -66] },
         capabilities: { supportsP: false, capacityModes: ["per_mine"], demandEditable: true, outputGrids: ["flows", "costSummary", "serviceStats"], supportsFacilityStatus: false },
       },

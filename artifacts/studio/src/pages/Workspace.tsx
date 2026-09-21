@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import type { CanonicalUnit } from "@workspace/units";
 import {
   useListScenarios,
   useGetScenario,
@@ -1321,6 +1322,18 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // here beyond passing whatever's currently available.
   const { data: models } = useListModels();
   const activeModelManifest = models?.find(m => m.id === modelId);
+
+  // chen-bands-units, Part D "No fallback unit — writes". The active model's
+  // CANONICAL unit, or null until the manifest genuinely resolves. Threaded to
+  // the four distance-editor tabs, whose useDistanceDraft stays disabled (and
+  // commits nothing) while it is null — deliberately NOT the `?? "mi"` the
+  // five older call sites below still use, because a guessed unit on a WRITE
+  // path stores a wrongly-converted number rather than merely mislabelling it.
+  // Removing those five remaining fallbacks is Task 14's own step.
+  const canonicalUnit: CanonicalUnit | null =
+    activeModelManifest?.distanceUnit === "km" || activeModelManifest?.distanceUnit === "mi"
+      ? activeModelManifest.distanceUnit
+      : null;
 
   // Bundle 6 T2 (item 1) — default scenario when there's no `?scenario=` in
   // the URL: prefer the most-recently-solved scenario (greatest non-null
@@ -3003,6 +3016,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <DistancesTab
+          canonicalUnit={canonicalUnit}
           distanceOverrides={distanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
           warehouseIds={knownWarehouseIds(dataset, localInputs)}
@@ -3044,6 +3058,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LegDistancesTab
+          canonicalUnit={canonicalUnit}
           distanceOverrides={distanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={distanceOverridesFromInputs(savedInputsRef.current)}
           mineIds={knownGoldMineIds(dataset)}
@@ -3078,6 +3093,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <JadeDistancesTab
+          canonicalUnit={canonicalUnit}
           distanceOverrides={jadeDistanceOverridesFromInputs(localInputs)}
           savedDistanceOverrides={jadeDistanceOverridesFromInputs(savedInputsRef.current)}
           plantIds={knownJadePlantIds(dataset, localInputs)}
@@ -3109,6 +3125,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <LaneCostsTab
+          canonicalUnit={canonicalUnit}
           laneCostOverrides={laneCostOverridesFromInputs(localInputs)}
           savedLaneCostOverrides={laneCostOverridesFromInputs(savedInputsRef.current)}
           mineIds={knownMineIds(dataset, localInputs)}

@@ -107,6 +107,7 @@ vi.mock("@workspace/api-client-react", () => ({
     data: [
       {
         id: "p-median-us",
+        distanceUnit: "mi",
         countryBounds: { sw: [24, -125], ne: [50, -66] },
         capabilities: {
           supportsP: true,
@@ -120,6 +121,7 @@ vi.mock("@workspace/api-client-react", () => ({
       },
       {
         id: "p-median-brazil",
+        distanceUnit: "mi",
         countryBounds: { sw: [-30.04, -67.82], ne: [0.04, -34.86] },
         capabilities: {
           supportsP: true,
@@ -130,6 +132,7 @@ vi.mock("@workspace/api-client-react", () => ({
       },
       {
         id: "transport-coal",
+        distanceUnit: "mi",
         countryBounds: { sw: [29.76, -122.42], ne: [47.61, -73.61] },
         capabilities: {
           supportsP: false,
@@ -140,6 +143,7 @@ vi.mock("@workspace/api-client-react", () => ({
       },
       {
         id: "two-echelon-gold-au",
+        distanceUnit: "mi",
         countryBounds: { sw: [-38.5, 113.0], ne: [-16.0, 154.5] },
         capabilities: {
           supportsP: false,

@@ -110,6 +110,7 @@ vi.mock("@workspace/api-client-react", () => ({
     data: [
       {
         id: "p-median-brazil",
+        distanceUnit: "mi",
         countryBounds: { sw: [-30, -68], ne: [0, -35] },
         capabilities: { supportsP: true, capacityModes: ["uniform"], demandEditable: false, outputGrids: ["openWarehouses", "assignments", "costSummary", "serviceStats"], supportsFacilityStatus: true },
       },

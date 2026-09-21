@@ -210,6 +210,7 @@ describe("Workspace tab coverage — p-median-us", () => {
       data: [
         {
           id: "p-median-us",
+          distanceUnit: "mi",
           countryBounds: { sw: [24, -125], ne: [50, -66] },
           capabilities: {
             supportsP: true,
@@ -303,6 +304,7 @@ describe("Workspace tab coverage — transport-coal", () => {
       data: [
         {
           id: "transport-coal",
+          distanceUnit: "mi",
           countryBounds: { sw: [29.76, -122.42], ne: [47.61, -73.61] },
           capabilities: {
             supportsP: false,
@@ -397,6 +399,7 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
       data: [
         {
           id: "two-echelon-gold-au",
+          distanceUnit: "mi",
           countryBounds: { sw: [-38.5, 113.0], ne: [-16.0, 154.5] },
           capabilities: {
             supportsP: false,
@@ -611,6 +614,7 @@ describe("Workspace tab coverage — p-median-brazil", () => {
       data: [
         {
           id: "p-median-brazil",
+          distanceUnit: "mi",
           countryBounds: { sw: [-30, -68], ne: [0, -35] },
           capabilities: {
             supportsP: true,
