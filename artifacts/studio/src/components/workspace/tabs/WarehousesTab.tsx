@@ -93,6 +93,13 @@ interface WarehousesTabProps {
    * (wired by INT). Threaded straight through to `WarehouseTable`, which
    * owns the actual runtime `>10 rendered rows` visibility rule. */
   enableFilters?: boolean;
+  /** chen-bands-units follow-up (QA defect) — threaded straight through to
+   * the base `WarehouseTable` only (see that component's own prop comment);
+   * the separate "Added ..." section below has no local draft state of its
+   * own (its inputs already read straight off props), so it isn't affected
+   * by the defect this exists to fix and doesn't need the prop. Defaults
+   * false — every existing caller is unaffected. */
+  disabled?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -122,6 +129,7 @@ export function WarehousesTab({
   precheckErrors = [],
   hasStateColumn = true,
   enableFilters = false,
+  disabled = false,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const { download, disabledReasonFor } = useExport();
@@ -557,6 +565,7 @@ export function WarehousesTab({
         capacityMode={capacityMode}
         onChange={onChange}
         hasStateColumn={hasStateColumn}
+        disabled={disabled}
       />
       {addedSection}
       {importDialog}

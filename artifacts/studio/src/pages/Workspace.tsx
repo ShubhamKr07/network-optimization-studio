@@ -3020,6 +3020,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // true only on the JADE path; every other model sharing this
           // branch (p-median-us/brazil/Chen) keeps the default `false`.
           enableFilters={modelId === "two-echelon-jade-us"}
+          // chen-bands-units follow-up (QA defect) — decision 1h's "ordinary
+          // editors are disabled while browsing history" was only enforced
+          // at the write layer (`updateInputsField`'s no-op above); this
+          // makes it visible too.
+          disabled={isBrowsingHistoryNow}
         />
       );
     }
@@ -3050,6 +3055,9 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           onDeleteWarehouse={id => deleteAddedEntityAndOverrides("addedRefineries", id)}
           precheckErrors={precheck?.errors}
           hasStateColumn={hasStateColumn}
+          // chen-bands-units follow-up (QA defect) — see the Warehouses tab
+          // call site above for the full rationale.
+          disabled={isBrowsingHistoryNow}
         />
       );
     }
@@ -3147,6 +3155,11 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           // true only on the JADE path; every other model sharing this
           // branch keeps the default `false`.
           enableFilters={isJade}
+          // chen-bands-units follow-up (QA defect) — see the Warehouses tab
+          // call site's identical comment for the full rationale. Has no
+          // effect on JADE's own separate productMode table (out of this
+          // fix's scope — see CustomersTabProps.disabled's own comment).
+          disabled={isBrowsingHistoryNow}
           // T5 (Step 1b/2b) — p-median-brazil's manifest declares
           // demandEditable:false (textbook-fixed region demand); every other
           // model here defaults true. Never applied to the "Added customers"

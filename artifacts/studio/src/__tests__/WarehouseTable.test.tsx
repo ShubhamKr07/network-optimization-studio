@@ -24,6 +24,20 @@ function StatefulWarehouseTable(props: { capacityMode: "none" | "uniform" | "per
   );
 }
 
+// chen-bands-units follow-up (QA defect) — same round trip as
+// StatefulWarehouseTable, plus an explicit "Discard" action that mutates
+// the SAME `overrides` state from OUTSIDE WarehouseTable's own onChange
+// path — mirrors Workspace.tsx's real `handleDirtyNavDiscard`.
+function StatefulWarehouseTableWithDiscard() {
+  const [overrides, setOverrides] = useState<WarehouseOverride[]>([]);
+  return (
+    <div>
+      <WarehouseTable warehouses={warehouses} overrides={overrides} capacityMode="per_wh" onChange={setOverrides} />
+      <button type="button" onClick={() => setOverrides([])}>discard</button>
+    </div>
+  );
+}
+
 describe("WarehouseTable", () => {
   it("renders one row per warehouse with id and city/state", () => {
     render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} />);
@@ -110,6 +124,45 @@ describe("WarehouseTable", () => {
     expect(screen.queryByText("State")).not.toBeInTheDocument();
     expect(screen.queryByText("IL")).not.toBeInTheDocument();
     expect(screen.getByText("Chicago")).toBeInTheDocument();
+  });
+
+  // chen-bands-units follow-up (QA defect) — draft-shadowing fix. See
+  // CustomerTable.test.tsx's identical describe block for the full
+  // rationale; this mirrors it for the capacity field.
+  describe("draft resync (QA defect fix)", () => {
+    it("typing a multi-character value is not reset mid-keystroke (regression guard for the reset mechanism)", async () => {
+      const onChangeSpy = vi.fn();
+      render(<StatefulWarehouseTable capacityMode="per_wh" onChangeSpy={onChangeSpy} />);
+      const input = screen.getByTestId("input-wh-capacity-CHI");
+      await userEvent.type(input, "12345");
+      // If the reset mechanism ever fired on the component's OWN commits,
+      // this would have snapped back to an earlier partial value (or
+      // cleared) somewhere mid-sequence instead of accumulating.
+      expect(input).toHaveValue(12345);
+      expect(onChangeSpy).toHaveBeenLastCalledWith([{ id: "CHI", status: "active", capacity: 12345 }]);
+    });
+
+    it("disabled=true renders the input disabled and blocks typing from changing its displayed value", async () => {
+      const onChange = vi.fn();
+      render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="per_wh" onChange={onChange} disabled />);
+      const input = screen.getByTestId("input-wh-capacity-CHI");
+      expect(input).toBeDisabled();
+      await userEvent.type(input, "99999");
+      expect(input).toHaveValue(null); // empty (no capacity override, no baseline) — unchanged
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("after an external override change (e.g. Discard), the input shows the reverted value, not the previously-typed one", async () => {
+      render(<StatefulWarehouseTableWithDiscard />);
+      const input = screen.getByTestId("input-wh-capacity-CHI");
+      await userEvent.type(input, "7500");
+      expect(input).toHaveValue(7500);
+      // Discard reverts `overrides` from OUTSIDE this component's own
+      // onChange path — exactly the shape of Workspace.tsx's real
+      // `handleDirtyNavDiscard`.
+      await userEvent.click(screen.getByText("discard"));
+      expect(screen.getByTestId("input-wh-capacity-CHI")).toHaveValue(null);
+    });
   });
 
   // T8 (Workspace fixups 2, item 3) — filtering (and the FilterMenu) moved

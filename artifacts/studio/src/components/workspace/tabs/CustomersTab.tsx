@@ -112,6 +112,15 @@ interface CustomersTabProps {
    * base table is wired; the separate "Added customers" table isn't named
    * in spec §10's JADE table list. */
   enableFilters?: boolean;
+  /** chen-bands-units follow-up (QA defect) — threaded straight through to
+   * the base (non-JADE) `CustomerTable` only; JADE's own inline per-product
+   * table (this component's `productMode` branch) has a separate,
+   * analogous local-draft pattern (`productDrafts`) that this task does not
+   * touch — out of the fix's authorized scope, flagged separately, not
+   * silently left inconsistent. The "Added customers" section has no local
+   * draft state of its own (reads straight off props) and isn't affected
+   * either. Defaults false — every existing caller is unaffected. */
+  disabled?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -138,6 +147,7 @@ export function CustomersTab({
   onProductOverridesChange,
   hasStateColumn = true,
   enableFilters = false,
+  disabled = false,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
   const { download, disabledReasonFor } = useExport();
@@ -732,7 +742,7 @@ export function CustomersTab({
           </Table>
         </div>
       ) : (
-        <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
+        <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} disabled={disabled} />
       )}
       {addedSection}
       {importDialog}
