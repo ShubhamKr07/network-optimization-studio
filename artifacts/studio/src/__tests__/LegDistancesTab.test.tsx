@@ -20,7 +20,21 @@ function withDefaultUnit(ui: ReactElement): ReactElement {
   const existing = (ui.props as { canonicalUnit?: unknown }).canonicalUnit;
   return cloneElement(ui, { canonicalUnit: existing !== undefined ? existing : "mi" } as Record<string, unknown>);
 }
-function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+// T14b — `exportOverrides` is optional and additive (defaults to
+// AllProviders' {scenarioId: 1, unit: "mi"}) so every pre-existing call site
+// is unaffected; only the two tests needing a non-default provider state
+// (disabled-until-resolved, scenarioId=7 in the export URL) pass one.
+function render(
+  ui: ReactElement,
+  options?: Parameters<typeof rtlRender>[1],
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
+  if (exportOverrides) {
+    const Providers = ({ children }: { children: React.ReactNode }) => (
+      <UnitProvider><ExportProvider value={makeExportProviderValue(exportOverrides)}>{children}</ExportProvider></UnitProvider>
+    );
+    return rtlRender(withDefaultUnit(ui), { wrapper: Providers, ...options });
+  }
   return rtlRender(withDefaultUnit(ui), { wrapper: AllProviders, ...options });
 }
 
@@ -47,14 +61,17 @@ function jsonResponse(body: unknown, contentType = "application/json") {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": contentType } });
 }
 
-function renderWithQueryClient(ui: React.ReactElement) {
+function renderWithQueryClient(
+  ui: React.ReactElement,
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   // Note: wrapping `ui` in `<QueryClientProvider>` here means `withDefaultUnit`
   // (invoked by the local `render` above) sees the PROVIDER element, not
   // `<LegDistancesTab>` itself, so `canonicalUnit` is defaulted at each call
   // site below instead (this component has no reference-distance query, so
   // QueryClientProvider is only needed for ImportDialog's own hooks).
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>, undefined, exportOverrides);
 }
 
 beforeEach(() => {
@@ -389,6 +406,9 @@ describe("LegDistancesTab — displayCodeById (Followup)", () => {
 
 describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; Import still reads the prop directly.
     render(
       <LegDistancesTab
         distanceOverrides={overrides}
@@ -398,6 +418,8 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
         customerIds={customerIds}
         onChange={vi.fn()}
       />,
+      undefined,
+      { scenarioId: null },
     );
     expect(screen.getByTestId("button-export-legdistances-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-legdistances-json")).toBeDisabled();
@@ -417,6 +439,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
         scenarioId={7}
         canonicalUnit="mi"
       />,
+      { scenarioId: 7 },
     );
 
     await userEvent.click(screen.getByTestId("button-export-legdistances-csv"));

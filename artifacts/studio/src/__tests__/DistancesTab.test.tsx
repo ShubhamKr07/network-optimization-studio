@@ -81,12 +81,21 @@ function withDefaultUnit(ui: ReactElement): ReactElement {
 // wrapping `ui` directly) so that this same provider tree is automatically
 // reapplied by the returned `rerender()` too — a plain wrapping element is
 // otherwise lost on `rerender`, per T11's own documented finding.
-function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient) {
+// T14b — `exportOverrides` is optional and additive (defaults to T11b's
+// {scenarioId: 1, unit: "mi"}, matching every pre-existing call site's own
+// scenarioId prop) so the ~50 existing call sites are unaffected; only the
+// two tests that need a non-default provider state (disabled-until-resolved,
+// scenarioId=7 in the export URL) pass one.
+function renderWithQueryClient(
+  ui: React.ReactElement,
+  queryClient?: QueryClient,
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
   const client =
     queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const Providers = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={client}>
-      <UnitProvider><ExportProvider value={makeExportProviderValue()}>{children}</ExportProvider></UnitProvider>
+      <UnitProvider><ExportProvider value={makeExportProviderValue(exportOverrides)}>{children}</ExportProvider></UnitProvider>
     </QueryClientProvider>
   );
   return render(withDefaultUnit(ui), { wrapper: Providers });
@@ -985,6 +994,9 @@ describe("DistancesTab — estimated rows (T9)", () => {
 
 describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; Import still reads the prop directly.
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
@@ -993,6 +1005,8 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
         customerIds={["C001", "C002"]}
         onChange={vi.fn()}
       />,
+      undefined,
+      { scenarioId: null },
     );
     expect(screen.getByTestId("button-export-distances-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-distances-json")).toBeDisabled();
@@ -1012,6 +1026,8 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
         onChange={vi.fn()}
         scenarioId={7}
       />,
+      undefined,
+      { scenarioId: 7 },
     );
 
     await userEvent.click(screen.getByTestId("button-export-distances-csv"));
