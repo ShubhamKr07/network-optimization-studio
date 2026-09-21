@@ -1,11 +1,11 @@
 # Worktree Collision Prevention — Design
 
 **Date:** 2026-09-21
-**Revision:** Rev 2 — §13 review findings folded into the normative body; §14 maps each finding to its resolution
-**Status:** Design; Rev 2 re-review completed 2026-09-21 — changes requested (see §15)
+**Revision:** Rev 3 — §15 re-review findings folded into the normative body; §16 maps each finding to its resolution
+**Status:** Design; awaiting re-review against §15.9's six conditions
 **Scope:** Agent-team execution hygiene — worktree isolation, git-op guardrails, worktree lifecycle, gate-run hygiene
 
-Sections 1–12 are the normative design. §13 is the Rev-1 review, retained verbatim as the historical record. §14 is the resolution map. Where §13 and §§1–12 appear to disagree, §§1–12 win: they carry the resolved decisions.
+Sections 1–12 are the normative design. §13 (Rev-1 review) and §15 (Rev-2 re-review) are retained verbatim as the historical record; §14 and §16 are their resolution maps. Where a review section and §§1–12 appear to disagree, §§1–12 win: they carry the resolved decisions. Where §14 and §16 disagree, §16 wins.
 
 ---
 
@@ -70,9 +70,12 @@ Normative for the implementation plan.
 | D6 | The implementation is a `PreToolUse` `Bash`/`Write`/`Edit` hook backed by a run registry, with a git `pre-commit` backstop. Git-native hooks alone were rejected: git has no `pre-reset` or `pre-checkout` hook, so it is structurally blind to the operation that caused I2. Its enforceable scope is bounded by §4.2. |
 | D7 | Scope includes the worktree backlog triage, gate-run process hygiene, pnpm-store serialization, and the `CLAUDE.md` corrections. |
 | D8 | **(Rev 2, replaces Rev 1's `-D` rule.)** Integration stays cherry-pick-based. Reap proof is patch-equivalence — zero `+` lines from `git cherry -v <integrationRef> <taskTip> <baseSha>` — and branch deletion uses **compare-and-delete**: `git update-ref -d refs/heads/<branch> <taskTip>`. `git branch -d` is HEAD-relative and refuses every reap while the integration branch is unchecked-out; `git branch -D` discards the safety check entirely. `update-ref -d <ref> <oldvalue>` does neither: it deletes only if the ref still points at the proven tip, closing the time-of-check/time-of-use window in the same operation. |
-| D9 | **The registry has exactly one writer: the dispatch/reaper CLI, run by the controller.** Hooks never mutate it. Everything a hook observes — `adhoc` worktree sightings, session binding, rule firings — is appended to the JSONL ledger instead. This removes the concurrent read-modify-write class by construction rather than mitigating it with locks. |
-| D10 | Ownership identity is **the worktree path**, assigned at dispatch. Session and process identifiers are recorded as observations and may inform warnings, but never establish or transfer ownership. |
+| D9 | **The registry has exactly one writer: the dispatch/reaper CLI, run by the controller.** Hooks never mutate it. Everything a hook observes — `adhoc` worktree sightings, actor observations, rule firings — is written to the per-call event ledger instead (D14, §5.3). This removes the concurrent read-modify-write class by construction rather than mitigating it with locks. |
+| D10 | **(Rev 3, replaces Rev 2's path-only rule.)** Each entry carries **both** a worktree path and an actor identity bound at dispatch. The hook compares the payload's `agent_id` (verified present in 2.1.278's hook-payload field list, §4.1) against the entry's bound actor, so "a different actor is acting inside T3's worktree" is decidable. Path partitioning remains the primary mechanism; actor identity is what makes R3's foreign-worktree clause enforceable. If the P1 probe (§11) finds `agent_id` unpopulated for a caller class, R3's cwd clause is **dropped** for that class and the guard is documented as path-partitioning only — never silently assumed. |
 | D11 | Reaping requires an **explicit terminal ownership release** recorded in the registry by the controller. Process-liveness and ledger-quiescence checks are supplementary signals, never the gate. |
+| D12 | **The controller is a registered writer with its own worktree.** `start` creates and registers a controller-owned **integration worktree** (`role: "integration"`), and all cherry-picking, re-gating, and `land` work happens there. `primaryCheckout` is write-free while a run is active, so R2 stays strict with no controller exception, no pause state, and no temporary ownership transfer. This applies the design's own thesis to the controller instead of carving it out — and structurally prevents I4, which was a controller commit in the shared checkout. |
+| D13 | **Reap order is detach → compare-and-delete → remove**, not remove-then-delete. The worktree's `HEAD` is first detached at the proven `taskTip` (a same-SHA detach changes no file), then the ref is deleted with compare-and-delete, then the worktree is removed. A lost race therefore fails with **nothing removed**: the ref survives, the worktree survives, and recovery is a single `git -C <wt> switch <branch>`. Both paths are verified in §7.2.1. |
+| D14 | The guard ledger is **one immutable event file per `tool_use_id`**, folded at report time — not concurrent appends to a shared JSONL. Rev 2's `PIPE_BUF` justification was wrong (it bounds pipe writes, not Node's regular-file append), and ledger records carry unbounded command strings. |
 
 ## 4. Verified platform contracts and the observation boundary
 
@@ -80,7 +83,15 @@ Normative for the implementation plan.
 
 Checked against this machine's runtime, not assumed:
 
-- **Hook payload.** `.claude/hooks/permission-ledger.mjs` (live in this repo, registered in `.claude/settings.json` on `PermissionRequest` and `PostToolUse`, matcher `Bash`) reads a JSON payload from stdin carrying `tool_name`, `cwd`, `session_id`, `tool_use_id`, `permission_mode`, `hook_event_name`, and `tool_input.command`. The documented input schema for Claude Code 2.1.278 lists only `session_id`, `tool_name`, `tool_input`, and `tool_response`; the additional fields above are observed in the live hook. **`agent_id` / `agent_type` are not verified present on this runtime and this design does not depend on them** — see D10.
+- **Hook payload.** `.claude/hooks/permission-ledger.mjs` (live in this repo, registered in `.claude/settings.json` on `PermissionRequest` and `PostToolUse`, matcher `Bash`) reads a JSON payload from stdin carrying `tool_name`, `cwd`, `session_id`, `tool_use_id`, `permission_mode`, `hook_event_name`, and `tool_input.command`. The *documentation* bundled with 2.1.278 lists only `session_id`, `tool_name`, `tool_input`, and `tool_response`, but the binary's own hook-payload common-field list is:
+
+```js
+["hook_event_name","session_id","transcript_path","cwd","scratchpad_dir",
+ "prompt_id","permission_mode","agent_id","agent_type","served_call",
+ "caller_session_id","effort"]
+```
+
+**`agent_id` and `agent_type` are therefore part of the hook input on this runtime** — Rev 2 asserted the opposite from the documentation excerpt alone and was wrong. Presence in the field list is *not* proof of population for every caller (a main-session call may legitimately carry no `agent_id`), so P1 includes a probe task (§11) that records the actually-populated fields for a main-session call and a subagent call, with the D10 fallback if a class is unpopulated.
 - **Hook output.** On `PreToolUse`, 2.1.278 supports `hookSpecificOutput.additionalContext` ("Context injected back to model"), `hookSpecificOutput.permissionDecision` (`allow` | `deny` | `ask`) with `permissionDecisionReason`, and top-level `systemMessage` shown to the user. Advisory mode therefore reaches agent and human without blocking, and promotion to blocking changes one emitted field.
 - **Shared git directory.** `git rev-parse --git-common-dir` executed inside a linked worktree returns the primary `/Users/shubhamkr/network-optimization-studio/.git`, while `--git-dir` returns the per-worktree subdirectory. The common dir is therefore the canonical anchor for shared scratch state (§5.1).
 - **Compare-and-delete.** Verified in a throwaway repository: `git update-ref -d refs/heads/feat <wrong-sha>` fails with `cannot lock ref 'refs/heads/feat': is at <actual> but expected <wrong>`, while the same command with the correct tip deletes the ref. This is a true atomic compare-and-delete and is the mechanism D8 relies on.
@@ -115,13 +126,26 @@ Path: `<git-common-dir>/../.harness/worktrees/registry.json`, resolved by every 
   "entries": [
     {
       "taskId": "T3",
+      "role": "task",
       "branch": "bundle7-T3-work",
       "worktree": "/Users/shubhamkr/network-optimization-studio/.claude/worktrees/bundle7-T3",
       "agent": "frontend-engineer",
+      "actorId": "<agent_id bound at dispatch>",
       "baseSha": "7406fb2...",
       "taskTip": null,
       "landedShas": [],
       "solePaths": ["artifacts/studio/src/components/workspace/tabs/FlowsTab.tsx"],
+      "locked": true,
+      "status": "active"
+    },
+    {
+      "taskId": "__integration__",
+      "role": "integration",
+      "branch": "bundle7-integration",
+      "worktree": "/Users/shubhamkr/network-optimization-studio/.claude/worktrees/bundle7-integration",
+      "agent": "controller",
+      "actorId": "<controller session/agent id>",
+      "solePaths": ["**"],
       "locked": true,
       "status": "active"
     }
@@ -129,9 +153,13 @@ Path: `<git-common-dir>/../.harness/worktrees/registry.json`, resolved by every 
 }
 ```
 
-`status` ∈ `active` | `adhoc` | `released` | `landed` | `reaped`. `baseSha` is the immutable dispatch base. `taskTip` and `landedShas` are recorded by the controller at release and integration time respectively.
+`role` ∈ `task` | `integration`. `status` ∈ `active` | `adhoc` | `released` | `landed` | `reaped`. `baseSha` is the immutable dispatch base. `taskTip` and `landedShas` are recorded by the controller at release and integration time respectively. `actorId` is bound at dispatch (D10).
+
+The `integration` entry is the controller's own workspace (D12). It is the only entry whose `solePaths` is unrestricted, because integrating a released task branch necessarily touches that task's files — but it can only do so **after** that task is `released`, and only inside its own worktree. `primaryCheckout` appears in no entry and is writable by nobody while `active` is true.
 
 **Writer discipline (D9).** The CLI is the only writer. Every mutation is a read-modify-write under an advisory lock held by that single process, written through a same-filesystem temporary file plus `rename()`. Concurrent runs are refused: `start` fails if `active` is true for a different `runId`, printing the holder. Hooks open the registry **read-only**.
+
+**Registry lock, with recovery.** The lock is a `mkdir`-based directory at `<git-common-dir>/../.harness/worktrees/registry.lock` containing `{pid, processStartTime, owner, acquiredAt}` — the same discipline as the install lock (§8.3), because a CLI crash while holding it would otherwise permanently block `release`, `land`, and `reap`. A lock whose PID is dead, **or** whose recorded `processStartTime` no longer matches that PID (guarding PID reuse), is recoverable; recovery is ledgered with the stale owner's metadata. A lock held by a live, matching PID is never broken — the CLI reports the holder and exits non-zero.
 
 **Integration ref.** `start --run <id> [--integration <ref>]` resolves and stores `integrationRef` (default `refs/heads/main`) and records `integrationRefResolvedAt`. Waves within a run share it; changing it requires an explicit `start --force` that rewrites the registry and is ledgered.
 
@@ -141,16 +169,21 @@ Registered on `PreToolUse` with matchers `Bash` and `Write|Edit`. Reads payload 
 
 Invariants, matching the existing ledger hook: dependency-free ESM, 2-second stdin timeout, whole body in `try/catch`, exits 0 on every path in advisory mode, emits nothing for unclassified commands, and **never writes the registry**.
 
-### 5.3 Guard ledger — append-only JSONL
+### 5.3 Guard ledger — one immutable event file per tool call (D14)
 
-Path: `<git-common-dir>/../.harness/worktrees/guard-ledger.jsonl`. One line per classified operation or observation:
+Directory: `<git-common-dir>/../.harness/worktrees/events/`. Each classified operation or observation is written **once**, to its own file named `<ISO-timestamp>-<tool_use_id>.json`, created with `wx` (exclusive) so a retry cannot clobber an existing record:
 
 ```jsonc
-{"at":"...","sessionId":"...","toolUseId":"...","cwd":"...","worktree":"...","taskId":"T3","verb":"reset","rule":"rewrite_op","severity":"high","wouldBlock":true,"override":false,"command":"git reset HEAD~1"}
-{"at":"...","event":"adhoc_sighting","worktree":"/private/tmp/x","sessionId":"..."}
+{"at":"...","sessionId":"...","agentId":"...","toolUseId":"...","cwd":"...","worktree":"...",
+ "taskId":"T3","verb":"reset","rule":"rewrite_op","severity":"high","wouldBlock":true,
+ "override":false,"command":"git reset HEAD~1","commandTruncated":false}
 ```
 
-Single-line appends under `PIPE_BUF` are the same atomicity assumption the existing permission ledger already relies on. This file is the evidence base for promotion (§6.3) and the input to a retro's near-miss count.
+Rev 2 justified concurrent appends to a shared JSONL by `PIPE_BUF`. That was wrong: `PIPE_BUF` bounds atomic writes to pipes and FIFOs, and is not a guarantee Node's regular-file append API provides — and these records carry an unbounded `command` string, so no small-write assumption holds anyway. One file per `tool_use_id` needs no lock, cannot interleave, and loses nothing if a hook process dies mid-write (a truncated file is detected and reported at fold time rather than corrupting neighbours).
+
+`command` is recorded up to a stated byte bound (4 KiB) with `commandTruncated: true` when clipped. `report` and the promotion review (§6.3) fold the directory into a single ordered view; folding is read-only.
+
+The existing `permission-ledger.mjs` JSONL remains as-is — it is prior art for hook mechanics, not evidence that concurrent appends are safe.
 
 ### 5.4 Harness CLI — `scripts/src/harness/worktree.ts`
 
@@ -172,12 +205,12 @@ The hook resolves registry and ledger paths through `git rev-parse --git-common-
 |---|---|---|---|---|
 | R1 | `rewrite_op` | `git reset`, `rebase`, `stash*`, `commit --amend`, `checkout <branch>`, `switch`, `checkout --`, `restore`, `clean`, `push --force*`, `branch -D`, `update-ref -d` without an expected-oldvalue argument — in **any** worktree, registry active or not | high | yes |
 | R2 | `shared_checkout_write` | cwd is `primaryCheckout` and a run is active, and the command is `git commit` / `add` / `merge` / `cherry-pick`; or a `Write`/`Edit` targets a file under `primaryCheckout` | high | yes |
-| R3 | `foreign_path` | the command or edit touches a path in another active entry's `solePaths`, or cwd is another entry's worktree | high | yes |
+| R3 | `foreign_path` | the command or edit touches a path in another active entry's `solePaths`; **or** the acting `agent_id` differs from the `actorId` bound to the worktree it is acting in (D10 — this clause is active only for caller classes the P1 probe shows carry a populated `agent_id`, and is dropped otherwise) | high | yes |
 | R4 | `cohabited_commit` | `git commit` in a worktree where a second entry is also `active` — with or without a pathspec | high | yes |
 | R5 | `unregistered_worktree` | cwd is a worktree absent from the registry while a run is active | medium | no |
 | R6 | `chained_suites` | one Bash command chains two or more test-suite invocations (`vitest`, `pytest`, `playwright`) with `&&` | low | no |
 | R7 | `verify_bypass` | `git commit --no-verify` / `-n`, i.e. an explicit request to skip the §5.5 backstop | high | yes |
-| R8 | `unsanctioned_install` | a direct `pnpm install` during an active run that does not hold the §8.3 lock | medium | no |
+| R8 | `unsanctioned_install` | a direct `pnpm install` during an active run that does not hold the §8.3 lock. Advisory, but an R8 event whose timestamp falls inside a recorded gate interval **invalidates that gate's result** (§8.3) | medium | no |
 | R9 | `opaque_git_context` | a git command whose acting worktree cannot be resolved — `git -C <path>`, a set `GIT_WORK_TREE`/`GIT_DIR`, a shell chain or newline-joined command, or an alias the classifier cannot expand | medium | no |
 
 Never classified, never warned: read-only git (`status`, `log`, `diff`, `show`, `cherry`, `worktree list`, `rev-parse`), and any operation inside an agent's own registered worktree touching only its own paths. The guard must be invisible on the happy path, or agents will route around it.
@@ -219,7 +252,7 @@ pnpm harness:worktree start --run bundle7 [--integration refs/heads/main]
 pnpm harness:worktree add --task T3 --agent frontend-engineer --paths <globs>
 ```
 
-`start` writes the registry, resolves and stores `integrationRef`, and sets `active: true`; it refuses if another run is active. `add` creates branch `<run>-<task>-work` off the integration ref, records `baseSha`, adds the worktree under `.claude/worktrees/<run>-<task>`, applies `git worktree lock` (matching the repo's standing protection rule), writes the entry, and prints the dispatch preamble:
+`start` writes the registry, resolves and stores `integrationRef`, **creates and registers the controller's integration worktree** (D12) on a branch `<run>-integration` off the integration ref, and sets `active: true`; it refuses if another run is active. From that moment the controller works in its own worktree; `primaryCheckout` is written by nobody until the run ends. `add` creates branch `<run>-<task>-work` off the integration ref, records `baseSha`, adds the worktree under `.claude/worktrees/<run>-<task>`, applies `git worktree lock` (matching the repo's standing protection rule), writes the entry, and prints the dispatch preamble:
 
 - the agent's worktree path and branch, stated as the only place it may write;
 - the base guard already learned during the JADE bundle — `git merge-base --is-ancestor <integration-tip> HEAD` before starting, reporting `BASE_OK` — which exists because two agents there forked off a stale base 61 commits behind merged `main`;
@@ -233,7 +266,7 @@ pnpm harness:worktree add --task T3 --agent frontend-engineer --paths <globs>
 Three explicit transitions replace Rev 1's implicit one.
 
 1. **`release --task T3 --tip <sha>`** — the controller records that the agent has finished and the branch is frozen at `taskTip`. Status → `released`. This is the ownership-release gate (D11).
-2. **`land --task T3 --commits <sha>...`** — after cherry-picking and re-gating, the controller records the commit SHAs that actually landed on the integration ref. Status → `landed`.
+2. **`land --task T3 --commits <sha>...`** — the controller cherry-picks the released branch **in its own integration worktree** (D12), re-gates there, and records the commit SHAs that actually landed. Status → `landed`. Because this happens in a registered worktree the controller owns, it is an ordinary owner-in-own-worktree operation: R2 never sees it, no override is needed, and the path works identically in advisory and block mode. The run's integration branch is fast-forwarded into the real integration ref at run end, when `active` is false.
 3. **`reap --task T3`** — removal, only if all five gating proofs pass. A sixth item is recorded as a supplementary signal and never gates:
 
    1. the entry's status is `landed` (explicit release and integration both recorded);
@@ -243,7 +276,16 @@ Three explicit transitions replace Rev 1's implicit one.
    5. the path resolves (realpath) inside an allowed root and is not `primaryCheckout`;
    *(supplementary, recorded but never gating)* no live process has that path as its cwd, and no other `sessionId` appears in the ledger for that worktree within 10 minutes. Per D11 these inform the printed report; they cannot block or authorize a reap.
 
-   On success, in order: `git worktree unlock <path>` → `git worktree remove <path>` → `git update-ref -d refs/heads/<branch> <taskTip>`. Never `rm -rf`. Any proof failure prints the failing check and removes nothing.
+   On success, in this order (D13):
+
+   ```
+   git worktree unlock <path>
+   git -C <path> switch --detach <taskTip>        # same-SHA detach: no file changes
+   git update-ref -d refs/heads/<branch> <taskTip> # compare-and-delete
+   git worktree remove <path>
+   ```
+
+   Never `rm -rf`. Any proof failure, **and any failure of the compare-and-delete**, prints the failing check and removes nothing — see §7.2.1 for why this ordering is what makes that statement true.
 
 ### 7.2.1 Branch deletion — why neither `-d` nor `-D` is used (D8)
 
@@ -258,6 +300,36 @@ because the acting checkout's HEAD was an unrelated branch. Since the integratio
 Rev 1's dogfood also could not have caught this, because that integration was a fast-forward `git push . <branch>:main` — the one shape where ancestry holds. The repo's real workflow is cherry-pick, where it never does.
 
 **Resolution.** Deletion is `git update-ref -d refs/heads/<branch> <taskTip>`, verified on this machine to delete only when the ref still points at the expected SHA and to fail loudly otherwise. It is strictly safer than `-D` (which checks nothing) and strictly more applicable than `-d` (which checks the wrong base), and it closes the TOCTOU window in the same operation. `git branch -D` appears nowhere in this design, so `CLAUDE.md`'s existing second-approval rule for it needs no exception.
+
+### 7.2.2 Ordering — why detach comes first (D13)
+
+Rev 2 removed the worktree *before* deleting the ref. If the branch advanced in between, compare-and-delete correctly refused — but the worktree was already gone, contradicting D5's "anything failing proof is reported, never removed."
+
+Two candidate fixes were rejected:
+
+- **Compensate by recreating the worktree** after a failed delete. This is silent data loss: `git worktree remove` deletes the directory including *ignored* files, so `node_modules`, `.env`, and build caches do not come back. A recreated worktree restores tracked files only, while reporting success at restoring "the worktree."
+- **Delete the ref first, unchanged.** `git update-ref -d` will happily delete a branch that is still checked out, leaving that worktree's `HEAD` pointing at a missing ref.
+
+**Adopted: detach first.** Detaching the worktree at the already-proven `taskTip` changes no file (same SHA), and afterwards the branch is no longer checked out anywhere, so the ref deletion is safe and the removal happens only after the ref is gone. Verified on this machine — failure path, with the branch advanced between proof and delete:
+
+```
+$ git -C <wt> switch --detach <taskTip>
+$ git update-ref -d refs/heads/task <taskTip>
+error: cannot lock ref 'refs/heads/task': is at 9b547b4 but expected df6fe03
+worktree still present: YES    branch still present: 1
+$ git -C <wt> switch task          # full recovery, one command
+Switched to branch 'task'
+```
+
+and the success path:
+
+```
+$ git -C <wt> switch --detach <taskTip>
+$ git update-ref -d refs/heads/task <taskTip>   → ref deleted
+$ git worktree remove <wt>                      → removed; branch count 0
+```
+
+The internal `switch --detach` is issued by the CLI, not as a Claude tool call, so per §4.2 it is outside the guard's observation boundary and trips no rule — no exemption is required or provided.
 
 ### 7.3 GC sweep
 
@@ -293,7 +365,12 @@ The gate runs each suite as its own invocation rather than chaining them with `&
 
 Installs run through `pnpm harness:worktree install-deps`, which acquires a lock at `<git-common-dir>/../.harness/locks/pnpm-install.lock` (a `mkdir`-based lock, portable on macOS, which lacks `flock`) and holds it for the install's full duration. The lock directory contains `{pid, processStartTime, owner, worktree, acquiredAt}`; a lock whose PID is dead **or** whose recorded start time no longer matches that PID is recoverable, and recovery is ledgered.
 
-The gate **acquires the same lock for its own duration** rather than checking once, which is what closes the race in which an install starts immediately after a preflight check. A direct `pnpm install` during an active run bypasses this and is classified as R8 — advisory, because a blanket block on `pnpm install` would be more disruptive than the failure it prevents, and because the gate's own lock already protects the result being trusted.
+The gate **acquires the same lock for its own duration** rather than checking once. That alone does not stop a direct `pnpm install`, which never asks for the lock — Rev 2 claimed otherwise and was wrong. The gate therefore also **records its lock interval** `{gateId, acquiredAt, releasedAt}`, and at completion checks that interval against the event directory and the process table:
+
+- any R8 event timestamped inside the interval, **or**
+- any unattributed `pnpm install` process observed running inside it
+
+**invalidates the gate result.** The gate reports `INVALIDATED — concurrent install` with the offending evidence and exits non-zero; it never prints a green result it cannot stand behind. R8 stays advisory rather than blocking, because a blanket block on `pnpm install` is more disruptive than the failure it prevents, and invalidation already removes the only consequence that matters — a red or green run that was never trustworthy.
 
 This targets the Bundle 4 incident where four agents' concurrent installs churned the shared store mid-test and produced transient unresolvable-import failures across 11 test files.
 
@@ -310,19 +387,23 @@ Three edits to `CLAUDE.md`, **all landed in P1** (§11) — known-unsafe guidanc
 | Layer | What |
 |---|---|
 | Classifier | Pure-function tests: `(command, registry state, cwd)` → `{rule, severity, wouldBlock}`, covering every rule, the read-only allowlist, `solePaths` glob/realpath/non-existent-target semantics, `commit` vs `commit -a` vs pathspec set selection, and R9's unresolvable contexts (`git -C`, `GIT_WORK_TREE`, chains, aliases). |
-| Registry | Single-writer concurrency tests: two CLI invocations racing a mutation lose nothing; an interrupted write leaves the previous file intact (temp + rename); `start` refuses a second active run; hooks opening the registry never mutate it. |
+| Registry | Single-writer concurrency tests: two CLI invocations racing a mutation lose nothing; an interrupted write leaves the previous file intact (temp + rename); `start` refuses a second active run; hooks opening the registry never mutate it. Lock recovery: dead-PID lock is recovered and ledgered; a live matching PID is never broken; a reused PID with a mismatched `processStartTime` is treated as stale. |
+| Ledger | Parallel-hook stress test: N concurrent hook processes each write their own event file; every event is independently parseable, none lost, none clobbered (`wx` create); a deliberately truncated file is reported at fold time without affecting neighbours; an over-bound command is stored truncated with `commandTruncated: true`. |
+| Integration path | An ordinary task cherry-pick through the controller's integration worktree completes in **both advisory and block mode with no override**, and fires no rule; a cherry-pick attempted from `primaryCheckout` while a run is active still fires R2. |
+| Actor identity | Probe fixture records which caller classes populate `agent_id`; with it populated, a different actor issuing a tool call from a registered worktree is classified R3 and denied after promotion; with it unpopulated, the cwd clause is inactive and the rule degrades to path partitioning without false positives. |
 | Hook | Smoke tests piping real payload JSON, asserting exit 0, expected `additionalContext`, and a well-formed ledger line; malformed-payload, missing-registry, and unreadable-registry cases assert exit 0 with no output and no mutation. |
-| Reaper | Temp-repo matrix: **a cherry-pick that deliberately produces a different SHA from the task commit must reap successfully**; each of the five gating proofs fails independently and removes nothing; an idle-but-unreleased owner blocks reaping; a branch ref advanced between proof and deletion causes `update-ref -d` to fail and the worktree to survive; an already-removed worktree directory is handled without error. |
+| Reaper | Temp-repo matrix: **a cherry-pick that deliberately produces a different SHA from the task commit must reap successfully**; each of the five gating proofs fails independently and removes nothing; an idle-but-unreleased owner blocks reaping; **a branch ref advanced after the detach causes `update-ref -d` to fail with the worktree still present and the branch intact, and `git -C <wt> switch <branch>` restores it**; an already-removed worktree directory is handled without error; a detach that itself fails aborts before any deletion. |
 | Backstop | `pre-commit` refuses a staged path owned by another active entry and allows the owner's own path; `install` refuses to overwrite a pre-existing different `core.hooksPath`; `start` fails when the backstop is inactive; `--no-verify` is classified as R7. |
 | Negative probes | One deliberate reproduction per `wouldBlock` rule, retained as the promotion evidence required by §6.3 — including a bare `git commit` in `primaryCheckout` with a run active. |
-| Gate hygiene | Stale-lock recovery (dead PID, and live PID with mismatched start time); gate holding the lock for its duration; unattributed process never killed under `--force`. |
+| Gate hygiene | Stale-lock recovery (dead PID, and live PID with mismatched start time); gate holding the lock for its duration; unattributed process never killed under `--force`; **a direct `pnpm install` started after the gate acquires the lock causes the gate to report `INVALIDATED` and exit non-zero, never a trusted result**. |
 
 ## 11. Phasing
 
 | Phase | Contents |
 |---|---|
-| P1 | `CLAUDE.md` corrections (§9, all three); registry + single-writer CLI (`install`, `start`, `add`); guard hook in advisory mode; classifier and registry tests. |
-| P2 | `release` / `land` / `reap` / `gc` / `report`; backstop install; backlog triage run. |
+| P0 | **Hook-payload probe.** A throwaway `PreToolUse` hook records the fully-populated payload for a main-session call and for a subagent call, establishing which caller classes carry `agent_id`/`agent_type`. Its result selects the D10 branch (actor-bound R3, or path-partitioning-only) before any rule is written. |
+| P1 | `CLAUDE.md` corrections (§9, all three); **backstop implementation *and* activation** (`install`, `.githooks/pre-commit`, `core.hooksPath`) — landed before the first `start`, so §5.5's invariant is satisfiable from the outset; registry + single-writer CLI (`install`, `start`, `add`) including the integration worktree; guard hook in advisory mode; classifier, registry-lock, and ledger-concurrency tests. |
+| P2 | `release` / `land` / `reap` / `gc` / `report`; backlog triage run. |
 | P3 | Gate hygiene wrapper, `install-deps` lock, process attribution. |
 | P4 | Negative probes executed and ledgered; promotion review against §6.3. |
 
@@ -336,6 +417,10 @@ Three edits to `CLAUDE.md`, **all landed in P1** (§11) — known-unsafe guidanc
 6. A gate run reports foreign dev-server processes and aborts by default, and holds the install lock for its full duration.
 7. `CLAUDE.md:292`'s pathspec guidance is gone in P1, replaced per §9.
 8. The §4.2 observation boundary is stated in the dispatch preamble and `CLAUDE.md`, and no rule or document claims exhaustive git-operation detection.
+9. The controller lands an ordinary task — cherry-pick, re-gate, `land` — through its own integration worktree in **block mode with no override and no rule firing**, while a cherry-pick attempted from `primaryCheckout` during the same run still fires R2.
+10. When the branch advances between the detach and the compare-and-delete, `reap` exits non-zero with the ref error, the worktree still present, and the branch intact; `git -C <wt> switch <branch>` restores the prior state in one command.
+11. A direct `pnpm install` started after the gate takes the install lock causes the gate to exit non-zero as `INVALIDATED`, naming the overlapping evidence.
+12. N concurrent hook processes produce N independently parseable event files with none lost or clobbered, and a dead-PID registry lock is recovered while a live one is never broken.
 
 ---
 
@@ -419,7 +504,7 @@ Every §13 finding is accepted on substance. Two are resolved by a mechanism str
 |---|---|---|
 | 13.1 cherry-pick vs ancestry | Accepted, option 2. Proof is zero `+` from `git cherry -v <integrationRef> <taskTip> <baseSha>`; `baseSha`/`taskTip`/`integrationRef`/`landedShas` are registry fields; deletion is compare-and-delete. Rev 1's dogfood is explained: it integrated by fast-forward, the only shape where ancestry holds. | D8, §5.1, §7.2, §7.2.1, §10 (different-SHA cherry-pick test), §12.4 |
 | 13.2 registry concurrency | Accepted, resolved more strongly: the registry has **one writer** (the CLI); hooks are read-only and append observations to the JSONL ledger instead, removing the read-modify-write race by construction. Canonical path via `git rev-parse --git-common-dir` (verified). Temp-file + rename, single active run enforced. | D9, §5.1, §5.3, §10 (registry tests) |
-| 13.2 sub-point: use `agent_id`/`agent_type` | **Rejected as unverifiable.** Those fields are not confirmed present on 2.1.278; the documented input schema lists only `session_id`, `tool_name`, `tool_input`, `tool_response`. Ownership is instead keyed on **worktree path**, assigned at dispatch; session identifiers are observations only. | D10, §4.1 |
+| 13.2 sub-point: use `agent_id`/`agent_type` | ~~Rejected as unverifiable.~~ **SUPERSEDED by §16 (15.3).** Rev 2 inferred absence from the bundled documentation excerpt instead of probing the runtime, and was wrong: both fields are in 2.1.278's hook-payload common-field list. Actor identity is now bound at dispatch and compared per call. | D10, §4.1, §16 |
 | 13.3 observation boundary | Accepted. Goal 2 and D6 narrowed to direct `Bash`/`Write`/`Edit` calls; the boundary is written out and repeated in the dispatch preamble and `CLAUDE.md`. `WORKTREE_GUARD=reaper` removed — it was unnecessary, and moot once `branch -D` left the design. | Goal 2, D6, §4.2, §6.2, §7.1, §9.3 |
 | 13.4 ownership release | Accepted. Explicit `release` → `land` → `reap` transitions; process and ledger checks demoted to supplementary; worktrees locked at dispatch and unlocked immediately before removal; TOCTOU closed by compare-and-delete. | D11, §7.1, §7.2, §10 (idle-owner and advanced-ref tests) |
 | 13.5 guard/backstop | Accepted, all five. Idempotent non-destructive `install`; R7 classifies `--no-verify` with the residual limit stated; canonical paths from `--git-common-dir`; full `solePaths` matching semantics; R9 replaces the exhaustiveness claim. | §5.5, §6.1 (R7, R9), §6.2, §10 |
@@ -519,3 +604,21 @@ Rev 2 is ready for another approval review when:
 4. a direct install cannot overlap a trusted gate result;
 5. ledger and registry-lock concurrency have crash-safe, tested behavior; and
 6. backstop installation and `start` occupy a coherent phase.
+
+---
+
+## 16. Rev 2 re-review resolution (Rev 3, 2026-09-21)
+
+All seven §15 findings are accepted on substance. One Rev-2 decision is reversed against measured evidence; one resolution is replaced with a mechanism verified to be safer than either option offered. Nothing is deferred.
+
+| Finding | Resolution | Where |
+|---|---|---|
+| 15.1 R2 deadlocks the controller | Accepted, shape 1. `start` creates and registers a **controller-owned integration worktree**; `land` cherry-picks and re-gates there. The controller becomes an ordinary registered writer rather than an exception, `primaryCheckout` is write-free during a run, R2 needs no softening, and the path is identical in advisory and block mode. | D12, §5.1, §7.1, §7.2, §10 (integration-path test), §12.9 |
+| 15.2 reaper ordering vs advanced-ref test | Accepted; **both offered resolutions rejected** for a third. Compensation-by-recreate is silent data loss (`git worktree remove` destroys ignored files — `node_modules`, `.env` — which a recreated worktree cannot restore); narrowing D5 trades away the invariant under review. Adopted: **detach at the proven tip → compare-and-delete → remove**. A lost race removes nothing; recovery is one `switch`. Both paths verified on this machine. | D13, §7.2, §7.2.2, §10 (reaper matrix), §12.10 |
+| 15.3 path-only identity cannot enforce R3 | Accepted, shape 2 — **and Rev 2's rejection of `agent_id` is reversed.** Probing the 2.1.278 binary shows `agent_id`/`agent_type` in the hook-payload common-field list; Rev 2 inferred absence from the bundled documentation excerpt and was wrong. Actor identity is bound at dispatch and compared per call, with a P0 probe establishing which caller classes populate it and an explicit fallback to path-partitioning-only if one does not. | D10, §4.1, §6.1 (R3), §11 (P0), §10 (actor-identity test) |
+| 15.4 pnpm mutex does not stop the bypass | Accepted. The claim that the gate's lock protected the result was false. The gate now records its lock interval and **invalidates its own result** on any overlapping R8 event or unattributed install process, exiting non-zero rather than reporting a run it cannot stand behind. R8 stays advisory. | §6.1 (R8), §8.3, §10, §12.11 |
+| 15.5 `PIPE_BUF` is the wrong primitive | Accepted. Justification removed. Ledger becomes **one immutable event file per `tool_use_id`**, created `wx`, folded read-only at report time; `command` bounded at 4 KiB with an explicit truncation flag. Parallel-hook stress test added. The existing permission ledger is prior art for hook mechanics only, not evidence of append safety. | D14, §5.3, §10 (ledger test), §12.12 |
+| 15.6 registry-lock crash recovery | Accepted. Registry lock gets the same `{pid, processStartTime, owner, acquiredAt}` discipline and conservative recovery as the install lock, with dead-PID and PID-reuse tests; a live matching holder is never broken. | §5.1, §10 (registry tests), §12.12 |
+| 15.7 phasing contradicts the backstop invariant | Accepted. Backstop implementation **and** activation move entirely into P1, ahead of the first `start`. A new P0 carries the payload probe, since D10's branch must be settled before rules are written. | §11 |
+
+**§15.9 conditions:** 1 → D12/§7.2/§12.9; 2 → D13/§7.2.2/§12.10; 3 → D10/§4.1/§11 P0; 4 → §8.3/§12.11; 5 → §5.1/§5.3/§12.12; 6 → §11.
