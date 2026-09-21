@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
+import { UnitProvider } from "@/contexts/UnitContext";
 
 // Capture every <Tooltip> child rendered by NetworkMap so we can assert that a
 // Tooltip (hover label) is rendered for each customer/station marker with the
@@ -49,7 +50,7 @@ const dataset = {
 describe("NetworkMap customer/station hover tooltip", () => {
   it("renders a Tooltip for every customer/station marker", () => {
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -59,7 +60,7 @@ describe("NetworkMap customer/station hover tooltip", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
 
     // One customer + one warehouse -> two Tooltips, regardless of solve/open
@@ -85,7 +86,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
   it("a plain warehouse (no kind, no modelId) shows 'Warehouse · <id> · City, State'", () => {
     tooltipChildren.length = 0;
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -95,7 +96,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -107,7 +108,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
   it("a plain customer (no modelId) shows 'Customer · <id> · City, State'", () => {
     tooltipChildren.length = 0;
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -117,7 +118,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -133,7 +134,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       customers: [],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={mineDataset}
         warehouseStatuses={[]}
         result={null}
@@ -144,7 +145,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         modelId="two-echelon-gold-au"
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -160,7 +161,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       customers: [],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={goldDataset}
         warehouseStatuses={[]}
         result={null}
@@ -171,7 +172,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         modelId="two-echelon-gold-au"
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -187,7 +188,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       customers: [{ id: "S1", city: "Pittsburgh", state: "PA", lat: 40.44, lng: -79.99, demand: 800 }],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={transportDataset}
         warehouseStatuses={[]}
         result={null}
@@ -198,7 +199,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         modelId="transport-coal"
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -212,7 +213,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
     tooltipChildren.length = 0;
     const plantOnlyDataset = { warehouses: [], customers: [] };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={plantOnlyDataset}
         warehouseStatuses={[]}
         result={null}
@@ -223,7 +224,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         plants={[{ id: "plant-1", city: "Springfield", state: "IL", lat: 39.78, lng: -89.65 }]}
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -239,7 +240,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       customers: [{ id: "ac-uuid-1", city: "Sampleburg", state: "SB", lat: 41, lng: -91, demand: 5000 }],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={addedDataset}
         warehouseStatuses={[]}
         result={null}
@@ -250,7 +251,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         displayIdById={{ "aw-uuid-1": "WH-TS-TES-01", "ac-uuid-1": "CS-SB-SAM-01" }}
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -265,7 +266,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
   it("falls back to the canonical id when displayIdById has no entry for it (default {})", () => {
     tooltipChildren.length = 0;
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -275,7 +276,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -291,7 +292,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
       customers: [{ id: "C1", city: "Changchun", state: "", lat: 43.87, lng: 125.35, demand: 100 }],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={noStateDataset}
         warehouseStatuses={[]}
         result={null}
@@ -301,7 +302,7 @@ describe("NetworkMap marker tooltip: Type · DisplayId · City, State (T5, item 
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const texts = tooltipChildren.map((child) => {
       const { container } = render(<>{child}</>);
@@ -322,7 +323,7 @@ describe("NetworkMap multi-select", () => {
       customers: [],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[{ warehouseId: "W1", status: "forced_open" }]}
         result={null}
@@ -332,7 +333,7 @@ describe("NetworkMap multi-select", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={onToggleWarehouseMultiSelect}
         onToggleCustomerMultiSelect={vi.fn()}
-      />,
+      /></UnitProvider>,
     );
     const marker = document.querySelector(".leaflet-marker-icon") as HTMLElement;
     fireEvent.click(marker, { shiftKey: true });
@@ -345,7 +346,7 @@ describe("NetworkMap multi-select", () => {
       customers: [],
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[{ warehouseId: "W1", status: "forced_open" }]}
         result={null}
@@ -355,7 +356,7 @@ describe("NetworkMap multi-select", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={vi.fn()}
         onToggleCustomerMultiSelect={vi.fn()}
-      />,
+      /></UnitProvider>,
     );
     // The multi-select ring uses a distinct stroke token (--map-ring-multiselect,
     // violet) from the existing single-select highlight ring
@@ -373,7 +374,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
       customers: [],
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={mineDataset}
         warehouseStatuses={[]}
         result={null}
@@ -383,7 +384,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const marker = container.querySelector(".leaflet-marker-icon");
     expect(marker?.innerHTML).toContain("<path");
@@ -396,7 +397,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
       customers: [],
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={facilityDataset}
         warehouseStatuses={[]}
         result={null}
@@ -406,7 +407,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const marker = container.querySelector(".leaflet-marker-icon");
     expect(marker?.innerHTML).toContain("<polygon");
@@ -417,7 +418,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
     // dataset.warehouses[0] has no `kind` field — matches every model except
     // two-echelon-gold-au. Must render identically to before this change.
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -427,7 +428,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const marker = container.querySelector(".leaflet-marker-icon");
     expect(marker?.innerHTML).toContain("<polygon");
@@ -445,7 +446,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
     };
     const tooltipCountBefore = tooltipChildren.length;
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={mineDataset}
         warehouseStatuses={[]}
         result={null}
@@ -455,7 +456,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     expect(container.textContent).toContain("Mine (fixed)");
     // The mine's own Tooltip (gated on isOpen before this fix — a mine is
@@ -471,7 +472,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
 
   it("does NOT show a 'Mine (fixed)' legend entry for models with no mine", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -481,7 +482,7 @@ describe("NetworkMap warehouse icon shape by kind", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     expect(container.textContent).not.toContain("Mine (fixed)");
   });
@@ -514,7 +515,7 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
 
   it("replaces the Leaflet map DOM node when a degenerate dataset's manifest countryBounds changes from undefined to a real value (Tier-3 fallback)", () => {
     const { container, rerender } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={singleEntityDataset}
         warehouseStatuses={[]}
         result={null}
@@ -524,13 +525,13 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const firstMapNode = container.querySelector(".leaflet-container");
     expect(firstMapNode).not.toBeNull();
 
     rerender(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={singleEntityDataset}
         warehouseStatuses={[]}
         result={null}
@@ -541,7 +542,7 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const secondMapNode = container.querySelector(".leaflet-container");
     expect(secondMapNode).not.toBeNull();
@@ -554,7 +555,7 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
   it("does NOT remount when countryBounds is unchanged across renders (2+ real marker coords already determine the union)", () => {
     const bounds = { sw: [-38.5, 113.0], ne: [-16.0, 154.5] };
     const { container, rerender } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -565,14 +566,14 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const firstMapNode = container.querySelector(".leaflet-container");
 
     // Re-render with a new object reference but the same values, plus an
     // unrelated prop change (showRoutes) — should NOT remount the map.
     rerender(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -583,7 +584,7 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const secondMapNode = container.querySelector(".leaflet-container");
     expect(secondMapNode).toBe(firstMapNode);
@@ -597,7 +598,7 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
     // affect the rendered union (hideClosedWarehouses, with no result so
     // isOpen is always false and there's no mine) must not remount.
     const { container, rerender } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -607,11 +608,11 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const firstMapNode = container.querySelector(".leaflet-container");
     rerender(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -621,7 +622,7 @@ describe("NetworkMap remounts on bounds resolution (jade-B1 union-bounds)", () =
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const secondMapNode = container.querySelector(".leaflet-container");
     expect(secondMapNode).toBe(firstMapNode);
@@ -651,7 +652,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
 
   it("renders only the opened warehouse's marker when hideClosedWarehouses is true", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={twoWarehouseDataset}
         warehouseStatuses={[]}
         result={resultOpensW1}
@@ -662,7 +663,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         hideClosedWarehouses
-      />,
+      /></UnitProvider>,
     );
     expect(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")).toHaveLength(1);
     expect(container.textContent).not.toContain("Closed");
@@ -670,7 +671,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
 
   it("renders BOTH warehouses' markers when hideClosedWarehouses is false (default) — unchanged legacy behavior", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={twoWarehouseDataset}
         warehouseStatuses={[]}
         result={resultOpensW1}
@@ -680,14 +681,14 @@ describe("NetworkMap hideClosedWarehouses", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     expect(container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon")).toHaveLength(2);
   });
 
   it("still renders the opened warehouse's route and the (unaffected) customer marker when hideClosedWarehouses is true", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={twoWarehouseDataset}
         warehouseStatuses={[]}
         result={resultOpensW1}
@@ -698,7 +699,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         hideClosedWarehouses
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     expect((routeHtml.match(/<path/g) ?? []).length).toBe(1);
@@ -729,7 +730,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
       infeasibilityReason: null,
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={mineDataset}
         warehouseStatuses={[]}
         result={resultNoOpens}
@@ -740,7 +741,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         hideClosedWarehouses
-      />,
+      /></UnitProvider>,
     );
     // Exactly the mine's marker survives — the closed W2 candidate is
     // filtered out entirely (its Tooltip content, mocked elsewhere in this
@@ -754,7 +755,7 @@ describe("NetworkMap hideClosedWarehouses", () => {
 describe("NetworkMap MapContainer boxZoom", () => {
   it("disables Leaflet's boxZoom so it doesn't collide with shift-click multi-select", () => {
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={dataset}
         warehouseStatuses={[]}
         result={null}
@@ -764,7 +765,7 @@ describe("NetworkMap MapContainer boxZoom", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
 
     expect(mapContainerProps.length).toBeGreaterThan(0);
@@ -816,7 +817,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
       infeasibilityReason: null,
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={twoEchelonDataset}
         warehouseStatuses={[]}
         result={result}
@@ -832,7 +833,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     // Isolate the route-pane SVG so the assertion reflects the polylines'
     // strokes, not the band-legend swatches.
@@ -874,7 +875,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
       infeasibilityReason: null,
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={realShapeDataset}
         warehouseStatuses={[]}
         result={result}
@@ -886,7 +887,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
@@ -924,7 +925,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
       infeasibilityReason: null,
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={singleEchelonDataset}
         warehouseStatuses={[]}
         result={result}
@@ -934,7 +935,7 @@ describe("NetworkMap edge coloring by leg (M4.2)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     // Isolate the route-pane SVG: the legend swatches in the results overlay
     // always paint Band 1 (getBandColor(0)) regardless of the edges, so
@@ -994,7 +995,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
 
   it("renders plant_to_warehouse (inbound) and warehouse_to_customer (outbound) with distinct colors", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadeDataset}
         warehouseStatuses={[]}
         result={jadeResult}
@@ -1008,7 +1009,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
@@ -1021,7 +1022,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
 
   it("toggling a leg layer off hides only that leg's routes (visibleLegs prop)", () => {
     const { container: inboundOnly } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadeDataset}
         warehouseStatuses={[]}
         result={jadeResult}
@@ -1032,14 +1033,14 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         visibleLegs={["plant_to_warehouse"]}
-      />,
+      /></UnitProvider>,
     );
     const inboundHtml = inboundOnly.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     expect(inboundHtml).toContain("var(--map-warehouse-open)");
     expect(inboundHtml).not.toContain("var(--danger)");
 
     const { container: outboundOnly } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadeDataset}
         warehouseStatuses={[]}
         result={jadeResult}
@@ -1050,7 +1051,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         visibleLegs={["warehouse_to_customer"]}
-      />,
+      /></UnitProvider>,
     );
     const outboundHtml = outboundOnly.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     expect(outboundHtml).toContain("var(--danger)");
@@ -1072,7 +1073,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
     let container: HTMLElement;
     expect(() => {
       ({ container } = render(
-        <NetworkMap
+        <UnitProvider><NetworkMap
           dataset={jadeDataset}
           warehouseStatuses={[]}
           result={unknownLegResult}
@@ -1082,7 +1083,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
           multiSelectedCustomerIds={[]}
           onToggleWarehouseMultiSelect={() => {}}
           onToggleCustomerMultiSelect={() => {}}
-        />,
+        /></UnitProvider>,
       ));
     }).not.toThrow();
     const routeHtml = container!.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
@@ -1101,7 +1102,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
       ],
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadeDataset}
         warehouseStatuses={[]}
         result={multiProductResult}
@@ -1111,7 +1112,7 @@ describe("NetworkMap JADE leg coloring + layer toggles (jade-T13)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeSvg = container.querySelector(".leaflet-route-pane svg");
     const routeHtml = routeSvg?.innerHTML ?? "";
@@ -1144,7 +1145,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
   it("renders a translucent, pointer-events-none Tooltip on the route polyline with cities + distance in the model's unit (default mi)", () => {
     tooltipCalls.length = 0;
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={routeDataset}
         warehouseStatuses={[]}
         result={routeResult}
@@ -1154,7 +1155,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
 
     const routeTooltip = tooltipCalls.find((c) => {
@@ -1171,13 +1172,43 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     expect(tooltipContainer.textContent).toContain("Testville");
     expect(tooltipContainer.textContent).toContain("Sampleburg");
     expect(tooltipContainer.textContent).toContain("Testville → Sampleburg");
+    // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
+    // was passed, so the canonical unit is unresolved — the tooltip shows a
+    // placeholder, never a guessed "mi".
+    expect(tooltipContainer.textContent).not.toContain("123 mi");
+    expect(tooltipContainer.textContent).toContain("—");
+  });
+
+  it("renders the route tooltip distance explicitly in mi when the model's canonical unit is mi", () => {
+    tooltipCalls.length = 0;
+    render(
+      <UnitProvider><NetworkMap
+        dataset={routeDataset}
+        warehouseStatuses={[]}
+        result={routeResult}
+        showRoutes={true}
+        bands={[500, 1000, 1500, 2000]}
+        multiSelectedWarehouseIds={[]}
+        multiSelectedCustomerIds={[]}
+        onToggleWarehouseMultiSelect={() => {}}
+        onToggleCustomerMultiSelect={() => {}}
+        distanceUnit="mi"
+      /></UnitProvider>,
+    );
+
+    const routeTooltip = tooltipCalls.find((c) => {
+      const { container } = render(<>{c.children}</>);
+      return container.textContent?.includes("Testville") && container.textContent?.includes("Sampleburg");
+    });
+    expect(routeTooltip).toBeDefined();
+    const { container: tooltipContainer } = render(<>{routeTooltip!.children}</>);
     expect(tooltipContainer.textContent).toContain("123 mi");
   });
 
   it("renders the route tooltip in a non-mi model unit (e.g. km), never hardcoding mi", () => {
     tooltipCalls.length = 0;
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={routeDataset}
         warehouseStatuses={[]}
         result={routeResult}
@@ -1188,7 +1219,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         distanceUnit="km"
-      />,
+      /></UnitProvider>,
     );
 
     const routeTooltip = tooltipCalls.find((c) => {
@@ -1203,7 +1234,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
 
   it("does NOT change the click-based CustomerPopup content or behavior", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={routeDataset}
         warehouseStatuses={[]}
         result={routeResult}
@@ -1214,7 +1245,7 @@ describe("NetworkMap route hover tooltip (A4)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         distanceUnit="km"
-      />,
+      /></UnitProvider>,
     );
     const customerMarker = container.querySelector(".leaflet-interactive");
     expect(customerMarker).not.toBeNull();
@@ -1237,8 +1268,15 @@ describe("NetworkMap route hover tooltip (A4)", () => {
     distanceMi: 1234, band: 0, bandLabelText: "Band 1",
   };
 
-  it("buildCustomerPopupHtml renders the distance in mi by default", () => {
+  it("buildCustomerPopupHtml renders a placeholder — never a value or a guessed 'mi' label — when no unit is resolved (default)", () => {
     const html = buildCustomerPopupHtml(popupInfo);
+    expect(html).not.toContain("1,234 mi");
+    expect(html).not.toMatch(/\bmi<\/strong>/);
+    expect(html).toContain("—");
+  });
+
+  it("buildCustomerPopupHtml renders the distance in mi when explicitly passed", () => {
+    const html = buildCustomerPopupHtml(popupInfo, "mi");
     expect(html).toContain("1,234 mi");
   });
 
@@ -1283,7 +1321,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
 
   it("shows 'Open' (not a separate 'Forced Open' entry) for a solved result with a forced-open facility — the marker→legend mapping matches getStatus", () => {
     const { container, getByTestId } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={legendDataset}
         warehouseStatuses={[{ warehouseId: "W1", status: "forced_open" }]}
         result={forcedOpenResult}
@@ -1293,7 +1331,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const legend = getByTestId("map-legend");
     expect(legend.textContent).toContain("Open");
@@ -1312,7 +1350,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
       customers: [],
     };
     const { getByTestId } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={mineDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1322,7 +1360,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     expect(getByTestId("legend-output-mine")).toBeInTheDocument();
     expect(getByTestId("map-legend").textContent).toContain("Mine (fixed)");
@@ -1330,7 +1368,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
 
   it("hides the facility/mine legend entries (but not Customer) when showWarehouseMarkers is false", () => {
     const { getByTestId, queryByText, getByText } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={legendDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1341,7 +1379,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         showWarehouseMarkers={false}
-      />,
+      /></UnitProvider>,
     );
     const legend = getByTestId("map-legend");
     expect(legend.textContent).not.toContain("Potential");
@@ -1352,7 +1390,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
 
   it("hides the Customer legend entry (but not facility entries) when showCustomerMarkers is false", () => {
     const { getByTestId } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={legendDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1363,7 +1401,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         showCustomerMarkers={false}
-      />,
+      /></UnitProvider>,
     );
     const legend = getByTestId("map-legend");
     expect(legend.textContent).toContain("Potential");
@@ -1373,7 +1411,7 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
   it("renders exactly one route-band swatch per band, even past the 5-entry BAND_COLORS palette (6 bands)", () => {
     const sixBands = [500, 1000, 1500, 2000, 2500, 3000];
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={legendDataset}
         warehouseStatuses={[{ warehouseId: "W1", status: "forced_open" }]}
         result={forcedOpenResult}
@@ -1383,14 +1421,18 @@ describe("NetworkMap Output legend (Bundle 6.1 T1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const legend = container.querySelector('[data-testid="map-legend"]')!;
     const swatches = legend.querySelectorAll('[data-testid^="legend-band-"]');
     expect(swatches.length).toBe(6);
-    // Labeled by upper bound, not the old ordinal "Band N" — default unit
-    // "mi" since this render doesn't pass distanceUnit.
-    expect(legend.textContent).toContain("≤ 3000 mi");
+    // chen-bands-units, Part D "No fallback unit — reads": this render
+    // doesn't pass `distanceUnit`, so the canonical unit is unresolved — the
+    // label shows a placeholder, never a guessed "mi" (intentional test
+    // change from the pre-existing "defaults to mi" expectation).
+    expect(legend.textContent).not.toContain("≤ 3000 mi");
+    expect(legend.textContent).not.toContain(" mi");
+    expect(legend.textContent).toContain("≤ —");
   });
 });
 
@@ -1439,7 +1481,7 @@ describe("NetworkMap Chen two-class coverage lens (C4.14)", () => {
 
   it("colors a ≤high route as covered (band 0) and a high<d≤max route as uncovered (band 1), client-side", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={chenDataset}
         warehouseStatuses={[]}
         result={chenResult}
@@ -1451,7 +1493,7 @@ describe("NetworkMap Chen two-class coverage lens (C4.14)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = (container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "").toLowerCase();
     const covered = getBandColor(0).toLowerCase();
@@ -1465,7 +1507,7 @@ describe("NetworkMap Chen two-class coverage lens (C4.14)", () => {
 
   it("does NOT gain the coal/gold/JADE leg coloring — Chen edges carry no `leg`", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={chenDataset}
         warehouseStatuses={[]}
         result={chenResult}
@@ -1476,7 +1518,7 @@ describe("NetworkMap Chen two-class coverage lens (C4.14)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     // Leg colors (two-echelon inbound/outbound) must be absent on Chen routes.
@@ -1509,7 +1551,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
 
   it("colors the lane with the distinct overflow color, not the last band's color", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={overflowDataset}
         warehouseStatuses={[]}
         result={overflowResult}
@@ -1519,7 +1561,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     expect(routeHtml.toLowerCase()).toContain(getBandColor(-1).toLowerCase());
@@ -1530,7 +1572,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
   it("reads 'Overflow' (not a Band N label) in the customer hover tooltip", () => {
     tooltipChildren.length = 0;
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={overflowDataset}
         warehouseStatuses={[]}
         result={overflowResult}
@@ -1540,7 +1582,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const customerTooltip = tooltipChildren.find((child) => {
       const { container } = render(<>{child}</>);
@@ -1554,7 +1596,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
 
   it("highlights the selected overflow customer with the overflow color (fill + stroke)", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={overflowDataset}
         warehouseStatuses={[]}
         result={overflowResult}
@@ -1564,7 +1606,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     // showRoutes=false -> the customer CircleMarker is the only
     // .leaflet-interactive element (no route polylines to collide with).
@@ -1580,7 +1622,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
 
   it("shows the overflow color + 'Overflow' label in the click-triggered customer popup", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={overflowDataset}
         warehouseStatuses={[]}
         result={overflowResult}
@@ -1590,7 +1632,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const customerMarker = container.querySelector(".leaflet-overlay-pane .leaflet-interactive") as HTMLElement;
     fireEvent.click(customerMarker);
@@ -1610,7 +1652,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
       edges: [{ fromId: "W1", toId: "C1", flow: 5000, distance: 2000 }], // == the highest boundary
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={overflowDataset}
         warehouseStatuses={[]}
         result={onBoundaryResult}
@@ -1620,7 +1662,7 @@ describe("NetworkMap all-site overflow consistency (jade-B1 #1)", () => {
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     // Band index 3 (the 4th/last boundary, 2000) — NOT the overflow color.
@@ -1661,7 +1703,7 @@ describe("NetworkMap band coloring overrides leg coloring when bands is non-empt
   it("uses distance-band colors, not leg colors, for both legs when bands is non-empty (Color-by-band ON)", () => {
     const bands = [200, 400, 800, 1600];
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadeDataset}
         warehouseStatuses={[]}
         result={jadeResult}
@@ -1671,7 +1713,7 @@ describe("NetworkMap band coloring overrides leg coloring when bands is non-empt
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     // Neither leg color appears — this is the fix: the "leg color wins for
@@ -1710,7 +1752,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
   it("renders a plant marker (square icon, not the triangle/star warehouse icons) at its own coordinates, plus a Tooltip", () => {
     tooltipChildren.length = 0;
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadePlantDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1721,7 +1763,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         plants={plants}
-      />,
+      /></UnitProvider>,
     );
     // 1 warehouse (triangle) + 1 plant (factory silhouette) marker.
     // T3 — plantSquareSvg is now a filled factory silhouette (saw-tooth
@@ -1743,7 +1785,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
 
   it("does NOT render plant markers when showPlantMarkers is false, but the inbound route still draws (plants remain authoritative for endpoint resolution)", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadePlantDataset}
         warehouseStatuses={[]}
         result={plantResult}
@@ -1755,7 +1797,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
         onToggleCustomerMultiSelect={() => {}}
         plants={plants}
         showPlantMarkers={false}
-      />,
+      /></UnitProvider>,
     );
     const markers = container.querySelectorAll(".leaflet-marker-pane .leaflet-marker-icon");
     // Only the 1 warehouse marker — the plant marker is suppressed.
@@ -1771,7 +1813,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
 
   it("renders the plant_to_warehouse route connecting to the plant's own coordinates even when the plant is NOT folded into dataset.warehouses (the real, un-folded shape)", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={jadePlantDataset}
         warehouseStatuses={[]}
         result={plantResult}
@@ -1782,7 +1824,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         plants={plants}
-      />,
+      /></UnitProvider>,
     );
     // dataset.warehouses has NO "plant-1" entry at all — the fromId lookup
     // MUST resolve via the `plants` prop for the inbound route to draw.
@@ -1800,7 +1842,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
       customers: [{ id: "customer-1", city: "Dallas", state: "TX", lat: 32.78, lng: -96.8, demand: 500 }],
     };
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={foldedDataset}
         warehouseStatuses={[]}
         result={plantResult}
@@ -1811,7 +1853,7 @@ describe("NetworkMap plant markers (jade-B1 #2)", () => {
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         // no `plants` prop at all -> defaults to []
-      />,
+      /></UnitProvider>,
     );
     const routeHtml = container.querySelector(".leaflet-route-pane svg")?.innerHTML ?? "";
     const pathCount = (routeHtml.match(/<path/g) ?? []).length;
@@ -1830,7 +1872,7 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
 
   it("expands maxBounds to include a plant far outside the other markers' area", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={closeDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1841,7 +1883,7 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
         plants={farPlant}
-      />,
+      /></UnitProvider>,
     );
     const lastProps = mapContainerProps[mapContainerProps.length - 1];
     const maxBounds = lastProps.maxBounds as [[number, number], [number, number]];
@@ -1854,7 +1896,7 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
 
   it("falls back to all-effective-entity coords (padded, non-degenerate) when every marker layer is toggled off", () => {
     const { container } = render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={closeDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1866,7 +1908,7 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
         onToggleCustomerMultiSelect={() => {}}
         showWarehouseMarkers={false}
         showCustomerMarkers={false}
-      />,
+      /></UnitProvider>,
     );
     const lastProps = mapContainerProps[mapContainerProps.length - 1];
     const maxBounds = lastProps.maxBounds as [[number, number], [number, number]];
@@ -1889,7 +1931,7 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
       customers: [],
     };
     render(
-      <NetworkMap
+      <UnitProvider><NetworkMap
         dataset={singleEntityDataset}
         warehouseStatuses={[]}
         result={null}
@@ -1899,7 +1941,7 @@ describe("NetworkMap union bounds + degenerate-bounds guard (jade-B1 #2)", () =>
         multiSelectedCustomerIds={[]}
         onToggleWarehouseMultiSelect={() => {}}
         onToggleCustomerMultiSelect={() => {}}
-      />,
+      /></UnitProvider>,
     );
     const lastProps = mapContainerProps[mapContainerProps.length - 1];
     const maxBounds = lastProps.maxBounds as [[number, number], [number, number]];

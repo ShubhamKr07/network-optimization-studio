@@ -1,6 +1,14 @@
+import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, fireEvent, screen, waitFor } from "@testing-library/react";
+import { UnitProvider } from "@/contexts/UnitContext";
 import { OutputMapTab } from "@/components/workspace/tabs/OutputMapTab";
+
+// chen-bands-units, Part D — OutputMapTab reads the display-unit preference
+// via useDisplayUnit(), which throws outside a UnitProvider. Shadowing
+// `render` keeps all 43 existing call sites byte-identical instead of
+// wrapping each one, the same pattern AppShell.test.tsx's renderShell uses.
+const render = (ui: ReactElement) => rtlRender(<UnitProvider>{ui}</UnitProvider>);
 import { getBandColor } from "@/lib/bandPalette";
 import { INBOUND_LEG_COLOR, OUTBOUND_LEG_COLOR } from "@/lib/legPalette";
 import * as copyMapToClipboard from "@/lib/copyMapToClipboard";
@@ -494,7 +502,13 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
     expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500.0 km");
   });
 
-  it("defaults to 'mi' when modelId is not provided", () => {
+  // chen-bands-units, Part D "No fallback unit — reads". This test previously
+  // asserted a "500.0 mi" default when modelId was absent. That expectation
+  // encoded the very fallback this bundle deletes: Chen is a km model, so
+  // guessing "mi" renders a CORRECT number under a WRONG unit, which a student
+  // reads as fact. With no modelId the canonical unit is unresolved, so the
+  // overlay must show a placeholder and no unit label at all.
+  it("renders a placeholder, never a guessed 'mi', when modelId is not provided", () => {
     render(
       <OutputMapTab
         dataset={dataset}
@@ -503,7 +517,11 @@ describe("OutputMapTab — floating metric overlay (B2.1 item 2)", () => {
         bands={[250, 500, 750]}
       />,
     );
-    expect(screen.getByTestId("output-map-metric-overlay")).toHaveTextContent("500.0 mi");
+    const overlay = screen.getByTestId("output-map-metric-overlay");
+    expect(overlay).toHaveTextContent("—");
+    expect(overlay).not.toHaveTextContent("mi");
+    expect(overlay).not.toHaveTextContent("km");
+    expect(overlay).not.toHaveTextContent("500.0");
   });
 
   it("is absent when result is null (pre-solve / inactive tab)", () => {
@@ -530,9 +548,13 @@ describe("OutputMapTab — three weighted-average distance lines (jade-B1 #3)", 
     },
   };
 
+  // `modelId` is required now: without it the canonical unit is unresolved and
+  // every distance renders as a placeholder (Part D, no fallback unit). This
+  // test is about the three labelled LINES, so it resolves a real unit rather
+  // than weakening its own value assertions.
   it("shows three labelled avg-distance lines (per-leg x2 + overall) for a two-echelon result", () => {
     render(
-      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} />,
+      <OutputMapTab dataset={dataset} warehouseStatuses={[]} result={twoLegResult} bands={[250, 500, 750]} modelId="p-median-us" />,
     );
     const overlay = screen.getByTestId("output-map-metric-overlay");
     // Per-leg lines, labelled via legLabel() (never a hardcoded JADE-only string).
