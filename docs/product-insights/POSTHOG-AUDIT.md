@@ -24,7 +24,7 @@ Task POSTHOG-1. Read-only inventory of the **existing** PostHog wiring, done bef
 ## Identity equality (load-bearing for POSTHOG-4)
 
 - Backend: every capture uses `distinctId: req.userId`. `req.userId` is set from the signed session cookie in `middlewares/auth.ts:15-20` — it **is** the DB `users.id` string.
-- API contract: the auth response envelope is `AuthUserEnvelope { user: AuthUser | null }`; `AuthUser` has a **required `id: string`** field (`lib/api-spec/openapi.yaml:573-584`). Note the schema is named `AuthUser`, not `User`.
+- API contract: the auth response envelope is `AuthUserEnvelope { user: AuthUser | null }`; `AuthUser` has a **required `id: string`** field (`lib/api-spec/openapi.yaml:594-605`). Note the schema is named `AuthUser`, not `User`.
 - Frontend: `data?.user` in `App.tsx:36` is that `AuthUser`.
 - **Conclusion:** `data.user.id` (frontend) === `req.userId` (backend). POSTHOG-4 calls `identifyUser(user.id)`. Same string both sides ⇒ one person profile, no PII.
 
