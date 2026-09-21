@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-21
 **Revision:** Rev 2 — §13 review findings folded into the normative body; §14 maps each finding to its resolution
-**Status:** Design; awaiting re-review against §13.8's six approval conditions
+**Status:** Design; Rev 2 re-review completed 2026-09-21 — changes requested (see §15)
 **Scope:** Agent-team execution hygiene — worktree isolation, git-op guardrails, worktree lifecycle, gate-run hygiene
 
 Sections 1–12 are the normative design. §13 is the Rev-1 review, retained verbatim as the historical record. §14 is the resolution map. Where §13 and §§1–12 appear to disagree, §§1–12 win: they carry the resolved decisions.
@@ -427,3 +427,95 @@ Every §13 finding is accepted on substance. Two are resolved by a mechanism str
 | 13.7 gate hygiene | Accepted. Installs go through a lock the gate also holds for its full duration; stale-lock recovery keyed on PID **and** process start time; direct installs classified R8; process attribution registered at spawn, abort-and-report by default, `--force` a human boundary that never kills unattributed processes. | §8.1, §8.3, §6.1 (R8), §10 |
 
 **§13.8 conditions:** 1 → D8/§7.2/§10; 2 → D9/D10/§5.1; 3 → §4.2; 4 → D11/§7.2; 5 → §5.5/§8.3/§8.1/§12.3/§7.3/§6.3; 6 → §9/§11.
+
+---
+
+## 15. Rev 2 written-spec re-review (Codex, 2026-09-21)
+
+**Decision: changes requested; Rev 2 is not yet approved for implementation.** Rev 2 resolves the original cherry-pick/ancestry contradiction, narrows the hook observation boundary honestly, makes registry mutation single-writer, introduces explicit ownership release, and moves the unsafe `CLAUDE.md` correction into P1. Three approval blockers and four important design inconsistencies remain.
+
+### 15.1 Blocker: R2 prevents the controller's specified integration workflow
+
+R2 classifies `git cherry-pick` from `primaryCheckout` as a high-severity, eventually blocking operation whenever a run is active (§6.1). The lifecycle simultaneously requires the controller to cherry-pick and re-gate before `land` (§7.2), and the run remains active throughout that sequence. No controller identity, registered integration worktree, pause state, or temporary ownership transfer makes the legitimate cherry-pick distinguishable from the collision R2 is intended to stop.
+
+The result is an operational deadlock in block mode. In advisory mode, every normal landing is a high-severity false positive, so §6.3's requirement that high-severity firings be true positives also prevents promotion.
+
+**Required resolution:** define an executable integration path. Acceptable shapes include:
+
+1. `start` creates and registers a dedicated controller-owned integration worktree, and the rules explicitly allow that owner to integrate released task branches there; or
+2. the lifecycle includes a controller-claim transition that can occur only after every writer in `primaryCheckout` is released, with R2 keyed to that state.
+
+The implementation tests must exercise an ordinary task cherry-pick through the chosen path in both advisory and block modes without an override.
+
+### 15.2 Blocker: reaper ordering cannot satisfy its advanced-ref test
+
+§7.2 specifies this success order:
+
+```
+git worktree unlock <path>
+git worktree remove <path>
+git update-ref -d refs/heads/<branch> <taskTip>
+```
+
+If the branch advances between proof 3 and the final `update-ref`, compare-and-delete correctly fails, but the worktree has already been removed. This contradicts §10's required test that an advanced ref makes deletion fail **and the worktree survive**, as well as D5's "anything failing proof is reported, never removed" intent.
+
+This was reproduced in a throwaway repository: after worktree removal, advancing the branch caused `update-ref -d ... <old-tip>` to fail with the expected ref-mismatch error while the worktree path remained missing and the advanced branch remained present. Reordering the ref deletion first is not a safe fix: `git update-ref -d` can delete a branch that is still checked out, leaving that worktree with `HEAD` pointing at a missing ref.
+
+**Required resolution:** keep worktree removal before ref deletion, but specify a compensating transaction. If compare-and-delete fails, recreate the worktree at the still-present branch, relock it, leave the registry entry `landed`, and report the race; failure to compensate must be a loud partial-failure state with recovery instructions. Add tests for both successful compensation and compensation failure. Alternatively, narrow D5 and the acceptance test explicitly to permit removal of the clean, released worktree while guaranteeing that the advanced branch and commits remain intact.
+
+### 15.3 Blocker: path-only identity cannot enforce R3's foreign-worktree clause
+
+D10 defines ownership identity as the worktree path and says session/process identifiers never establish ownership. Under that model, if another agent accidentally changes cwd into T3's worktree, the classifier resolves the acting identity from that cwd and therefore treats the actor as T3. It cannot determine that the cwd is "another entry's worktree," as R3 claims.
+
+**Required resolution:** either:
+
+1. remove the unenforceable cwd clause from R3 and state plainly that the guard enforces path partitioning, not actor-to-worktree binding; or
+2. bind an actor identifier explicitly at dispatch/controller acknowledgement and compare it on each hook call. Before rejecting `agent_id`/`agent_type`, add a runtime probe on the pinned Claude Code version; current Claude Code documentation states that subagent tool-hook inputs carry those fields. A controller-assigned `sessionId` binding is also acceptable if it is explicit rather than first-caller-wins.
+
+Any retained R3 actor/worktree rule needs a negative test where a different actor issues a tool call from a registered worktree and is denied after promotion.
+
+### 15.4 Important: the pnpm mutex does not protect against the bypass it identifies
+
+§8.3 says the gate holds the install mutex for its full duration, but a direct `pnpm install` does not acquire that mutex. Classifying the bypass as permanently advisory R8 does not prevent it from running concurrently with the gate, so the statement that the gate's lock protects the trusted result is false for the exact bypass under discussion.
+
+**Required resolution:** while a gate is active, either make R8 blocking or record the gate interval and invalidate/abort the gate if any overlapping R8 event or unattributed install process is observed. The acceptance test must start a direct install after the gate acquires the lock and prove the gate cannot report a trusted result.
+
+### 15.5 Important: JSONL append atomicity relies on the wrong primitive
+
+§5.3 invokes `PIPE_BUF` to justify concurrent single-line appends, but `PIPE_BUF` is the atomicity bound for pipes/FIFOs, not a guarantee supplied by Node's regular-file append API. Ledger records also contain the full command and therefore have no stated maximum size. The existing permission ledger is precedent, not evidence that the promotion ledger cannot interleave or lose records under concurrent hook processes.
+
+**Required resolution:** serialize guard-ledger appends with a recoverable lock, or write one immutable event file per `toolUseId` and fold them during reporting. Add a parallel-hook stress test that verifies every event remains independently parseable and none are lost.
+
+### 15.6 Important: registry-lock crash recovery is unspecified
+
+§5.1 requires registry mutations to hold an advisory lock, but unlike the pnpm lock it defines no owner metadata or stale-lock recovery. A controller or CLI crash while holding the lock can permanently prevent `release`, `land`, or `reap`.
+
+**Required resolution:** give the registry lock the same `{pid, processStartTime, owner, acquiredAt}` discipline and conservative recovery rules as §8.3, and test dead-PID plus PID-reuse recovery.
+
+### 15.7 Important: the phasing contradicts the backstop invariant
+
+§5.5 says `start` fails when the pre-commit backstop is inactive. P1 includes `install`, `start`, and `add`, while P2 lists "backstop install." If that means the hook or its activation does not exist until P2, P1 cannot exercise its own dispatch flow.
+
+**Required resolution:** implement and activate the backstop in P1 before the first successful `start`, or explicitly run P1 in an advisory bootstrap mode and state when the invariant becomes mandatory. The simpler resolution is to move the backstop implementation and activation entirely into P1.
+
+### 15.8 Rev 2 approval-condition result
+
+| Prior condition | Result | Reason |
+|---|---|---|
+| §13.8.1 cherry-pick/reaper proof | **Pass** | Patch-equivalence and different-SHA coverage replace the invalid ancestry proof. |
+| §13.8.2 canonical, serialized, identity-aware registry | **Partial** | Canonical single-writer mutation is resolved; actor/worktree identity is not. |
+| §13.8.3 accurate observation boundary | **Pass** | §4.2 and the dispatch/docs requirements state the boundary accurately. |
+| §13.8.4 release + atomic expected-tip deletion | **Partial** | Explicit release and atomic ref deletion exist, but the worktree is removed before a failed compare-delete can be handled. |
+| §13.8.5 backstop/gate/process/R2-R4/GC/promotion details | **Partial** | Most are specified; controller integration, direct-install overlap, ledger integrity, and phasing remain unresolved. |
+| §13.8.6 unsafe guidance corrected in P1 | **Pass** | §9 and §11 now place all corrections in P1. |
+
+### 15.9 Conditions for the next approval pass
+
+Rev 2 is ready for another approval review when:
+
+1. the controller can land a task through a non-overridden path in block mode;
+2. the reaper specifies and tests consistent behavior when the ref advances after worktree removal;
+3. R3 matches the identity information the implementation can actually observe;
+4. a direct install cannot overlap a trusted gate result;
+5. ledger and registry-lock concurrency have crash-safe, tested behavior; and
+6. backstop installation and `start` occupy a coherent phase.
