@@ -86,6 +86,45 @@ describe("OpenWarehousesTab", () => {
       const call = spy.mock.calls[0];
       expect(call[3]).toEqual({ unit: "mi", runId: undefined });
     });
+
+    // Decision 1g's legacy latest->history transition, proven against a
+    // REAL rendered control across a real rerender — not a fixed-value
+    // snapshot, and not stubbed. Every render call below (initial AND every
+    // rerender) explicitly includes the same <ExportProvider> ancestor at
+    // the same tree position, so React reconciles in place rather than
+    // remounting (the exact double-wrap/remount trap this suite's sibling
+    // file, JadeAssignmentsTab.test.tsx, hit and fixed this same task).
+    it("a real control disables when browsing to a legacy (no-runId) history entry, then re-enables back at the latest result", () => {
+      const { rerender } = rtlRender(
+        <ExportProvider value={makeExportProviderValue()}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      const button = screen.getByTestId("button-download-open-warehouses-csv");
+      expect(button).not.toBeDisabled();
+
+      // Student steps the result-history stepper back to an entry that
+      // predates run history (no runId was ever recorded for it) — a
+      // server-side export at this point would silently return the LATEST
+      // result instead of the one on screen (decision 1g), so the control
+      // must disable.
+      rerender(
+        <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "This entry predates run history — export unavailable." })}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "This entry predates run history — export unavailable.");
+
+      // Student steps forward again to the latest result — the control
+      // re-enables, proving this isn't a one-way/sticky disable.
+      rerender(
+        <ExportProvider value={makeExportProviderValue()}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      expect(button).not.toBeDisabled();
+    });
   });
 
   // B2.2-T6 — B1: utilization column gate
