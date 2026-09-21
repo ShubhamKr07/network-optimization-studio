@@ -36,11 +36,16 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
   // Per-model validation delegated to the existing registry/validator, so
-  // each model keeps its own rules (Chen: >=1, strictly ascending, unique,
-  // positive; JADE: fixed cardinality (4) + strict ascent unchanged) — same
-  // single source of truth every other write path already uses. Invalid
-  // (including a model-specific cardinality/order violation) -> 400, before
-  // any write.
+  // each model keeps its own rules — the same single source of truth every
+  // other write path already uses. Invalid -> 400, before any write.
+  //
+  // Every model now shares one shape: at least one boundary, positive,
+  // strictly ascending. JADE's old fixed-cardinality-4 rule is GONE — it was
+  // relaxed to `.min(1)` in `1134004` (and its manifest to `minItems: 1` in
+  // `5bfdf27`), because the unit toggle converts e.g. 500 km to 310.6856 mi,
+  // which the old integer-and-exactly-four rule rejected outright. Do not
+  // "restore" a 4-band rule for JADE from this comment: doing so would
+  // invalidate every existing JADE scenario.
   const candidateInputs = { ...(scenario.inputs as Record<string, unknown>), distanceBands: parsedBody.data.distanceBands };
   const revalidated = validateInputsForModel(scenario.modelId, candidateInputs);
   if (!revalidated.success) {
