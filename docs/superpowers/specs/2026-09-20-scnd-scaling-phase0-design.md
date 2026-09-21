@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §24 findings resolved (Q37–Q42 answered 2026-09-21, see §25).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20/§22/§24 successive reviews; §15/§17/§19/§21/§23/§25 resolutions. Execution authorization: **P0R.1 + P0R.2 attainable-CBC fixture capture only**; P0R.2 parser tests depend on P0R.1; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1). Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §26 findings resolved (Q43–Q49 answered 2026-09-21, see §27).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20/§22/§24/§26 successive reviews; §15/§17/§19/§21/§23/§25/§27 resolutions. Execution authorization: **P0R.1 evidence spike (go/no-go not yet accepted) + P0R.2 attainable-CBC fixture capture**; P0R.2 parser tests depend on accepted P0R.1 evidence; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1). Measurement and B2 remain TBD. **User direction 2026-09-21: keep refining the contract before executing the spike.**
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -1466,3 +1466,162 @@ Until every applicable item above is closed, §23's statement that the §22 find
 | **Q42** solver-limit metadata | `requestedGap`/`configuredTimeLimitSec` = typed, validated **effective-value** fields (post defaults/clamping = actual CBC args); present on every terminal incl. `no_solution`/`error`; tied to the cache key; boundary/invalid/retry tests. | Correctness spec §2.12. |
 
 §24 findings resolved; correctness successor governs implementation (P0R.1 + P0R.2 fixture capture approved). Q39 refines Q32 (granular reasons retained but moved off the public contract into an internal record — closes the §24.2.3 leakage). Q38 supersedes §22's "wrapper owns kill" with a surviving-parent (Node) process-group owner.
+
+---
+
+## 26. Deep approval validation — post-§25 executable-contract review (2026-09-21)
+
+### 26.1 Approval decision
+
+**Decision: NOT APPROVED as a fully resolved implementation contract.** The §25 decisions improve the intended architecture, but several of them lack the transport, schema, migration, transition, and platform details needed to implement them without reopening product/security decisions. The existing narrow authorization is retained: P0R.1 may start as an evidence spike and P0R.2 may capture attainable CBC fixtures; neither authorizes P0R.3/P0R.4 or production promotion.
+
+| Scope | Decision | Reason |
+|---|---|---|
+| Ledger claim that §24 is fully resolved | **NOT APPROVED** | Q43–Q49 below remain open; §25 records decisions but does not make all of them executable. |
+| P0R.1 evidence spike | **APPROVED TO START; GO/NO-GO NOT YET ACCEPTED** | The spike is the correct way to obtain CBC/process evidence, but Q46 and its no-orphan acceptance test must be resolved before passing the gate. |
+| P0R.2 attainable-CBC fixture capture | **APPROVED** | Evidence capture is within the existing narrow scope. |
+| P0R.2 parser tests | **BLOCKED ON ACCEPTED P0R.1 EVIDENCE/INTERFACE** | Parser expectations must follow the accepted wrapper/record authority. |
+| P0R.3 and P0R.4 | **NOT APPROVED** | Require the post-spike update, exact schemas/migrations/transitions, closure of Q43–Q49, and another approval review. |
+| `DEC-2026-09-21-01` | **AUTHORIZED** | GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) remains open and retains the exact narrow product-owner approval wording. |
+| Measurement plan and B2 topology | **TBD / NOT APPROVED** | Platform limits are validated, but topology, concurrency, queueing, runtime, and cost still require measurements. |
+
+### 26.2 Findings requiring correction
+
+#### 26.2.1 HIGH — the internal failure record has no safe transport, persistence migration, or public-job boundary
+
+Successor §2.11 requires granular `failureReason` and sanitized `errorDetail` on the internal `solve_jobs` row while prohibiting them from the public result. The current `solve_jobs` schema has only `error`; the public solve-job endpoint returns that field directly. Current `markFailed(...)` inputs include raw spawn errors, Python stderr, and solver stdout fragments, so simply reusing `error` would violate the promised negative-leakage boundary. P0R.3 does not assign a database schema/migration or a public job-error contract.
+
+There is also no defined channel by which Python can tell Node `data_error` versus `model_error` versus `internal_error` after the public solver envelope has deliberately collapsed every failure to `error/solver_error/"Solve failed"`. Node cannot persist a distinction it never receives.
+
+**Required correction:** define an end-to-end private failure protocol before P0R.3 approval:
+
+- a runner-private process message/schema that carries the public result separately from internal failure metadata, or another explicitly bounded private channel;
+- exact Python→Node mappings for every internal reason and for pre-spawn/outer-timeout/nonzero-exit/JSON/schema failures;
+- a `solve_jobs` migration and Drizzle schema ownership for `failure_reason` and sanitized `error_detail` (or an explicitly justified alternative);
+- the fate of the existing public `SolveJob.error` field — remove it, or restrict it to a stable code/coarse safe message that is never the operator diagnostic;
+- one sanitization function with byte/character bound, allow/deny policy, and tests against paths, secrets, stdout/stderr, payload fragments, and schema dumps; and
+- negative-leakage tests across scenario reads, solve-job polling, history, exports, logs, telemetry, and Sentry.
+
+#### 26.2.2 HIGH — normalized legacy v1 is still not a complete or discriminated schema
+
+Successor §2.7 calls the normalized-v1 output complete, sets `solutionStatus:null`, and says the raw legacy status must not be re-exposed as truthful `status`, but it never defines the normalized row's deprecated `status` field. Existing API `SolveResult.status` is required, and v2 requires it to equal the projection of `solutionStatus`. An implementer must therefore guess whether v1 omits `status`, makes it null, emits `unknown`, adds `legacy_unverified`, or incorrectly copies the historical value.
+
+The successor also does not give legacy-v1 behavior for `requestedGap`/`configuredTimeLimitSec`, while §2.12 requires those fields on every terminal result, or reconcile §2.2's field list with §2.7.1's rule that `legacyUnverified` is always emitted and is `false` for v2.
+
+**Required correction:** write the exact version-discriminated schemas, not only prose:
+
+- v2: `envelopeVersion:2`, non-null truthful statuses, `legacyUnverified:false`, and the complete required/nullable field set;
+- normalized v1: `envelopeVersion:1`, `solutionStatus:null`, `terminationReason:"unknown"`, `legacyUnverified:true`, the chosen non-truth-claiming `status` representation, `legacyStatus`, and explicit absent/null behavior for all v2-only evidence/limit fields; and
+- stored legacy: its own raw shape, never accepted by the raw-solver schema.
+
+Update OpenAPI and consumer compatibility rules to match the selected v1 `status` representation and test mixed v1/v2 collections.
+
+#### 26.2.3 HIGH — Q42 still does not define an executable solver-limit policy
+
+Successor §2.12 says the fields are effective values after defaults/clamping, but defines no defaults, maximums, or clamping rules. It gives only `requestedGap >= 0` and `configuredTimeLimitSec > 0`. Current request validators require both fields, impose only lower bounds, and do not clamp them. This leaves unbounded requested runtimes as a compute-cost risk and makes the phrase "after defaults/clamping" non-normative.
+
+The name `requestedGap` also conflicts with the claim that it stores the post-clamp effective value. P0R.3's task list does not explicitly add either field to `_envelope`, the schemas, OpenAPI, the effective-value normalizer, or the cache-key construction.
+
+**Required correction:** decide and document:
+
+- exact request defaults, minimums, maximums, and reject-versus-clamp behavior per field;
+- whether the product preserves both the original request and effective configuration (`requestedGap` plus `configuredGap`) or stores only a truthfully named effective value;
+- the single normalization point before CBC invocation and cache-key construction;
+- behavior for validation failures that never start a solver versus terminal solver errors; and
+- explicit P0R.3 tasks/tests proving the effective values in CBC arguments, result, job evidence, telemetry, and cache identity are identical.
+
+#### 26.2.4 HIGH — Node process-group ownership still lacks temp-path handoff and precise platform/reaping semantics
+
+The direction in Q38 is sound: on POSIX, Node can spawn detached Python as a new process-group/session leader and signal the group. But the successor simultaneously says Python's wrapper creates a unique per-solve temp directory and Node owns final cleanup. Node cannot remove an unknown path after Python is killed unless it creates the directory or receives the path through a trusted channel.
+
+The wording that Node "reaps" Python+CBC is also too broad: Node directly waits/reaps its Python child; it can signal and prove death of CBC descendants, but it is not their parent after orphaning and does not directly reap them. Negative-PGID group signaling is POSIX-specific and must not silently become a Windows implementation assumption.
+
+**Required correction:** choose one exact temp protocol, preferably Node `mkdtemp` → validated absolute path passed to Python → Python constrained to that directory → Node idempotently removes it after direct-child close and group-death verification. Specify:
+
+- production and CI platform assumptions, and explicit unsupported/fail-fast or alternate Windows behavior;
+- PGID derivation, group `TERM`/grace/`KILL`, ESRCH/race handling, direct-child close wait, group-existence probe, cleanup order, and cleanup-failure disposition;
+- how cancellation and outer timeout share one once-only state machine; and
+- no-orphan tests on the production OS, including a killed Python parent with CBC alive and holding inherited descriptors.
+
+Node's documented guarantee is only that `detached:true` makes the child a process-group/session leader on **non-Windows** platforms: [Node.js child-process documentation](https://nodejs.org/api/child_process.html#optionsdetached).
+
+#### 26.2.5 MEDIUM — the Q35 cache gate conflicts with the already-shipping cache and the approved-spike transition
+
+Successor §2.10 says no cache read/write ships until the deterministic composite hash is approved, but the application already performs cache lookup and write-through using a hash that covers only `solve.py`. P0R.1 can add wrapper/parser files that the current hash does not include. The design does not say whether the approved spike is evidence-only and forbidden from deployment, whether cache is disabled during the transition, or whether the composite version must land before any spike code can be promoted.
+
+**Required correction:** select an explicit transition:
+
+1. P0R.1/P0R.2 artifacts are evidence-only and cannot be deployed or merged into a release path before approved P0R.3;
+2. all result-cache reads/writes are feature-flagged off until the composite version lands; or
+3. a minimal fail-closed composite version lands before any wrapper/parser code can deploy, with the full reviewed manifest still gating v2 cache use.
+
+Define behavior for existing unversioned cache rows, rollback between old/new releases, and mixed rolling instances so no old instance can write an entry a new instance mistakes for v2.
+
+#### 26.2.6 MEDIUM — Q40 telemetry and history tagging still have competing names and incomplete schemas
+
+The legacy matrix says telemetry is tagged `legacyUnverified`; the concrete clause says `resultContract: "v2" | "legacy"`. It refers to `solve-completed`, while the current event is named `"scenario solve completed"` and uses snake-case properties. Solve-history `resultSummary` remains an opaque object with no exact verification marker contract. Q40 therefore selected a direction but did not establish the exact event/schema it required.
+
+**Required correction:** specify:
+
+- the exact existing-or-new telemetry event string and exact bounded property name/value spelling;
+- cache-hit, fresh-v2, normalized-legacy-read, and failed-job emission rules without payload contents;
+- the typed `resultSummary` v1/v2 marker and OpenAPI changes, including whether `legacyUnverified` is always emitted; and
+- tests that protect event/property cardinality and prevent objectives, inputs, results, paths, or diagnostics from leaking into telemetry.
+
+#### 26.2.7 LOW — the successor's approval provenance is stale after §25
+
+The correctness successor header still says it incorporates reviews through §22 and decisions Q4–Q36 even though §25 claims Q37–Q42 are normative. This makes it unclear whether the newest decisions actually govern implementation.
+
+**Required correction:** update the successor header to cite §24 and Q37–Q42, list Q35/Q41 and Q43–Q49 as open gates where applicable, and keep the narrow execution authorization visibly distinct from full implementation approval.
+
+### 26.3 Validated improvements and external facts
+
+- Q37 corrected the stale P0R.2/P0R.3 task language so the canonical taxonomy and legacy matrix are not implicitly reopened.
+- The public coarse failure message `"Solve failed"` and internal granular taxonomy are directionally sound; Q43 concerns the missing safe transport/storage/public boundary, not that product decision.
+- Q35/Q41 is now honestly identified as open rather than implementation-ready.
+- The process-group owner is now the surviving Node parent, which is directionally correct; Q46 supplies the remaining temp/platform/state-machine requirements.
+- GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) remains open with the exact narrow product-owner authorization; DEC-2026-09-21-01 remains valid.
+- Current Render documentation confirms the applicable hard bounds: web/private/background-worker plans top out at **12 CPU per instance**, and a service can scale to at most **100 same-plan instances**. Sources: [Render compute plans](https://render.com/docs/compute-plans), [Render service scaling](https://render.com/docs/scaling). The older 16/32-CPU service table in the local scaling-skill reference is stale; those are not the current web/private/background-worker ceiling. These facts validate platform limits only, not worker count, autoscaling policy, throughput, or cost.
+
+### 26.4 Decisions/questions required (Q43–Q49)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q43 — private failure path** | How does granular failure metadata travel Python→Node, where is it persisted, and what safe information remains in the public solve-job response? | Define a runner-private message, add the DB migration/typed internal columns, and replace public raw `error` with a stable coarse code/message plus negative-leakage tests. |
+| **Q44 — normalized-v1 discriminator** | What exact value/presence does deprecated `status` have on normalized legacy, and what happens to every v2-only field? | Publish explicit v1/v2 discriminated schemas; never copy legacy `optimal` into truthful `status`. |
+| **Q45 — limit normalization and ceilings** | What defaults, upper bounds, rejection/clamping rules, and requested-versus-effective names govern gap and time limit? | Normalize once before CBC/cache; retain separate requested/effective fields if clamping, and impose a product-approved maximum time limit. |
+| **Q46 — process/temp/platform protocol** | Who creates and communicates the temp path, what exactly does Node wait/reap/probe, and which OS behavior is supported? | Have Node create/pass/clean the directory, document POSIX production/CI semantics, and test group death + direct-child close + idempotent cleanup. |
+| **Q47 — cache transition** | Can P0R.1 code deploy while the current solve.py-only cache key remains active? | No: mark it evidence-only or disable/version the cache before promotion; define mixed-version and rollback behavior. |
+| **Q48 — telemetry/history exact contract** | Which exact event/property and history field identify v2 versus legacy? | Use one bounded naming scheme consistent with current telemetry conventions and add a typed history summary plus no-payload tests. |
+| **Q49 — normative provenance** | Does the successor formally incorporate §24/Q37–Q42 and expose the new open gates? | Update its header/status so the implementation authority and remaining blockers are unambiguous. |
+
+### 26.5 Re-approval checklist
+
+- [ ] A runner-private failure message carries granular reason/detail without adding them to the public envelope.
+- [ ] `solve_jobs` migration/schema and public solve-job error behavior are defined; existing raw `error` leakage is removed and tested.
+- [ ] Exact version-discriminated raw-v2, stored-result, normalized-v2, and normalized-v1 schemas define every required/nullable/absent field, including legacy `status`.
+- [ ] Gap/time-limit defaults, ceilings, normalization, names, terminal behavior, CBC arguments, telemetry, persistence, and cache-key equality are fully specified and assigned to P0R.3.
+- [ ] Node/Python temp-path ownership and the POSIX process-group state machine are implementable and pass the production-OS no-orphan suite.
+- [ ] P0R.1/P0R.2 deployment policy and cache transition prevent wrapper/parser changes from using the solve.py-only cache identity.
+- [ ] Telemetry and solve-history use one exact, typed, bounded legacy/v2 marker with negative-leakage tests.
+- [ ] The successor header incorporates §24/Q37–Q42 and explicitly carries forward Q35/Q41 and Q43–Q49 as open gates.
+- [ ] P0R.1 evidence and all attainable/unattainable CBC pairs are recorded in the post-spike update.
+- [ ] A new approval review closes Q43–Q49 and authorizes P0R.3/P0R.4 before implementation begins.
+
+Until every applicable item above is closed, §25's statement that the §24 findings are resolved is historical rather than the current approval state; this §26 decision controls.
+
+---
+
+## 27. §26 resolution — Q43–Q49 decisions (2026-09-21)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q43** private failure transport | Runner-private message carries public result separate from `{failureReason, errorDetail}`; Node maps every failure path; `solve_jobs` gains nullable `failure_reason`/`error_detail` (Drizzle); public `SolveJob.error` replaced by a stable coarse code+safe message; one `sanitizeErrorDetail` + negative-leakage tests across all read surfaces. | Correctness spec §2.11. |
+| **Q44** v1/v2 discriminator | Exact discriminated schemas; deprecated `status` made **nullable** — v1 `status:null` (legacy value only in `legacyStatus`, never copied to truthful `status`); all v2-only fields null on v1; stored-legacy never accepted by the v2 solver schema. | Correctness spec §2.7. |
+| **Q45** limit ceilings | `timeLimitSec` default 60 / **max 60, clamp** / min 1; `gap` default 0 / max 1.0 clamp; **requested + configured (effective) pairs** both recorded; single normalization point before CBC + cache key. | Correctness spec §2.12. |
+| **Q46** process/temp protocol | Node `mkdtemp`s + passes validated path + idempotently cleans; spawns Python `detached` PG leader (POSIX only), signals negative-PGID TERM→KILL, reaps Python child + probes CBC group death (ESRCH/race); one once-only state machine; Linux prod/CI, Windows fail-fast; prod-OS no-orphan test incl. killed-parent/CBC-alive. | Correctness spec §3 P0R.1. |
+| **Q47** cache transition | P0R.1/P0R.2 **evidence-only** (not deployed); `solve.py`-only hash unchanged until composite version lands with P0R.3; mixed-rolling/rollback defined so no old instance writes a v2-mistakable entry. | Correctness spec §2.10. |
+| **Q48** telemetry/history | Existing event `"scenario solve completed"` + bounded snake_case `result_contract: v2\|legacy` (no payload contents); typed `resultSummary` `legacyUnverified` marker (OpenAPI); cardinality + no-leak tests. | Correctness spec §2.7.1. |
+| **Q49** provenance | Successor header updated to §14–§24 / Q4–Q42 + open gates (Q35/Q41, Q43–Q49); execution authority kept distinct from implementation approval. | Correctness spec header. |
+
+**User direction (2026-09-21):** keep refining the contract before executing the spike. §26 findings folded into the successor; genuinely evidence-gated exactness (Q35 CBC build identity, Q46 real reap timing, parser records) still finalizes in the **post-spike design update**. §26 resolved.

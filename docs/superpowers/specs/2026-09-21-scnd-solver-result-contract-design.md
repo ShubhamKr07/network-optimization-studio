@@ -1,7 +1,7 @@
 # SCND Solver Result Contract — Spec
 
 **Date:** 2026-09-21
-**Status:** **Approved to execute P0R.1 (go/no-go CBC-evidence spike) and P0R.2 fixture *capture* only. P0R.2 parser tests depend on P0R.1; P0R.3–P0R.4 are conditionally specified and require a post-spike design update + approval review** (§16.6/Q15, §18). Incorporates reviews §14/§16/§18/§20/§22 and decisions Q4–Q36.
+**Status:** **Approved to execute P0R.1 (go/no-go CBC-evidence spike) and P0R.2 fixture *capture* only. P0R.2 parser tests depend on P0R.1; P0R.3–P0R.4 are conditionally specified and require a post-spike design update + approval review** (§16.6/Q15, §18). Incorporates reviews §14/§16/§18/§20/§22/§24 and decisions Q4–Q42. **Open gates carried forward:** Q35/Q41 (deterministic cache hash) and Q43–Q49 (private failure transport, v1/v2 discriminated schemas, limit ceilings, process/temp protocol, cache transition, telemetry naming) — all close in the **post-spike design update**, not now. Narrow execution authority (P0R.1 + P0R.2 fixture capture) is distinct from full P0R.3/P0R.4 implementation approval.
 **Sacred-test authorization — DEC-2026-09-21-01:** durable, independently-auditable product-owner approval at **GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19)** — verbatim: *"I approve DEC-2026-09-21-01: update e2e_accuracy.py status/termination assertions based on committed CBC evidence, with zero changes to golden objective values."* (resolves §20.2.1). Scope: a narrow, **evidence-driven** correction to `e2e_accuracy.py` approximate-case assertions with **zero golden-objective changes**. Referenced by §3 P0R.4 and §4.
 **Program context:** Carved from `2026-09-20-scnd-scaling-phase0-design.md` (§13 ledger) per Q1=Split. Standalone.
 
@@ -77,6 +77,12 @@ Read-time only, no backfill/re-solve. Normalized v1 from a stored legacy-nested 
 - **`objective` (status/evidence-aware, §22.2.4/Q33 — never `===0` alone):** legacy `status:"infeasible"|"error"` → `objective:null`; legacy successful/`optimal` row → **preserve the stored numeric (including a legitimate `0`** — zero-demand scenarios can solve to 0); malformed/contradictory legacy row → conservative, explicitly-tested rule;
 - new solver-evidence fields (`solverIncumbentObjective`/`solverBestBound`/`achievedGap`) = `null`.
 
+**Exact discriminated schema (§26.2.2/Q44) — prose is not enough:**
+- **v2:** `envelopeVersion:2`, non-null truthful `solutionStatus`/`terminationReason`, `status` = §2.3 projection, `legacyUnverified:false`, complete field set incl. §2.12 limit fields.
+- **normalized v1:** `envelopeVersion:1`, `solutionStatus:null`, `terminationReason:"unknown"`, `legacyUnverified:true`, **`status:null`** — the deprecated `status` is made **nullable** in the union; the legacy value is **never** copied into truthful `status`, only into `legacyStatus`; **all v2-only fields null** (`solverIncumbentObjective`/`solverBestBound`/`achievedGap`/`requestedGap`/`requestedTimeLimitSec`/`configuredGap`/`configuredTimeLimitSec`).
+- **stored legacy:** its own raw nested unversioned shape (§2.6), **never** accepted by `SolverEnvelopeV2Schema`.
+- OpenAPI + consumers updated to the nullable-`status` union; tests exercise mixed v1/v2 collections.
+
 ### 2.7.1 Normative legacy-consumer boundary matrix (§22.2.1/Q30 — decided now, no "define later")
 
 | Boundary | Decision |
@@ -89,7 +95,7 @@ Read-time only, no backfill/re-solve. Normalized v1 from a stored legacy-nested 
 | Smoke checks / tests | Each states which schema it validates (`SolverEnvelopeV2Schema` for new; `NormalizedSolveResultSchema` for reads). |
 | Result cache (unversioned rows) | **Cache miss / re-solve** (composite version §2.10 changes anyway). |
 
-**Concrete contract (§24.2.4/Q40):** a typed `legacyUnverified: boolean` field on the normalized read (always emitted; `false` for v2 rows); the export rejection is `409`/`LEGACY_RESULT_REQUIRES_RESOLVE`; telemetry carries a bounded `resultContract: "v2" | "legacy"` property (no payload/result contents); P0R.3 delivers a full scenario-read / history / output-export / input-template-export / cache call-site inventory + a per-row integration test (incl. authorization behavior and mixed legacy/v2 collections).
+**Concrete contract (§24.2.4/§26.2.6/Q40/Q48):** a typed `legacyUnverified: boolean` on the normalized read (always emitted; `false` for v2). Export rejection = `409`/`LEGACY_RESULT_REQUIRES_RESOLVE`. **Telemetry:** the existing event **`"scenario solve completed"`** gains a bounded snake_case property **`result_contract: "v2" | "legacy"`** (matching current snake_case convention; **no** payload/objective/result/input/path/diagnostic contents); emission rules defined for cache-hit / fresh-v2 / normalized-legacy-read / failed-job. **Solve history:** `resultSummary` gains a typed `legacyUnverified` marker (OpenAPI). P0R.3 delivers the full scenario-read / history / output-export / input-template-export / cache call-site inventory + per-row integration tests (authorization + mixed v1/v2 collections) + telemetry cardinality/no-leak tests.
 
 ### 2.10 Composite solver-contract / cache version (§20.2.5/§22.2.6/Q26/Q35)
 Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace with a **composite version**. The **post-spike design update** must define it **deterministically** (§22.2.6/Q35):
@@ -102,20 +108,32 @@ Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace wi
 
 **Q35 is an OPEN, mandatory P0R.3 gate (§24.2.5/Q41)** — not resolved yet. No cache read/write ships until the exact manifest, byte framing, PuLP/CBC identities, example hash vectors, fail-closed behavior, and invalidation/stability tests are in the post-spike design update and approved.
 
-### 2.11 Internal failure record (§24.2.3/Q39) — NOT in the public envelope
-The granular failure classification is **internal/operator-facing only**, stored on the `solve_jobs` row and emitted to telemetry + Sentry — **never** in the public `SolveResult`:
-- `failureReason` (internal enum): `solver_error` (CBC started then failed/abandoned/numerically errored) | `data_error` (dataset/config load/validate failure) | `model_error` (dispatch/model construction failed before CBC) | `internal_error` (unexpected application exception).
-- `errorDetail` (internal, **sanitized**): bounded diagnostic text — **prohibited** from containing secrets, filesystem paths, or raw solver stdout.
-- The public envelope only ever carries `solutionStatus:error` + `terminationReason:solver_error` + `quality:"Solve failed"`. **Negative-leakage tests** assert no `failureReason`/`errorDetail`/path/secret appears in any public response.
-- Sentry/telemetry mapping: `failureReason` is a bounded tag; `errorDetail` is the sanitized message.
+**Cache transition (§26.2.5/Q47):** **P0R.1/P0R.2 artifacts are evidence-only** — not merged into a release/deploy path before approved P0R.3. The current `solve.py`-only cache hash keeps operating unchanged until the composite version lands with P0R.3; a wrapper/parser file must not deploy against the old hash. Define existing-unversioned-cache-row behavior (cache miss), release rollback, and mixed rolling instances so **no old instance can write an entry a new instance mistakes for v2** (the composite version discriminates).
 
-### 2.12 Solver-limit metadata contract (§24.2.6/Q42)
-`requestedGap` and `configuredTimeLimitSec` are **effective-value** fields (the values actually passed to CBC, after defaults/clamping/normalization):
-- types/units: `requestedGap` = number (relative, ≥0, finite); `configuredTimeLimitSec` = number (seconds, >0, finite);
-- mapping: derived from request `gap`/`timeLimitSec` **after** defaults + clamping — the same values handed to `PULP_CBC_CMD`;
-- presence: emitted on **every** terminal result including `no_solution` and `error` (they describe the attempt, not the outcome);
-- invariants: the values in the result **and** in the cache key equal the actual CBC arguments; a change to either effective limit produces a distinct cache key;
-- tests: defaults, boundaries, invalid/non-finite numbers, retries, and cache separation when either effective limit changes.
+### 2.11 Internal failure record + private transport (§24.2.3/§26.2.1/Q39/Q43) — NOT in the public envelope
+Granular failure classification is **internal/operator-facing only**:
+- `failureReason` (internal enum): `solver_error` (CBC started then failed/abandoned/numerically errored) | `data_error` (dataset/config load/validate failure) | `model_error` (dispatch/model construction failed before CBC) | `internal_error` (unexpected application exception).
+- `errorDetail` (internal, **sanitized**): bounded diagnostic text.
+
+**Private transport (Q43):** the runner subprocess message carries the **public result separately from internal failure metadata** — Python emits, on a defined private channel, both the public envelope (or nothing on pre-CBC failure) **and** `{failureReason, errorDetail}`. Node maps every path: `data_error`/`model_error`/`internal_error`/`solver_error` from Python; pre-spawn/outer-timeout/nonzero-exit/JSON/schema failures classified Node-side. Node never derives a distinction it wasn't sent.
+
+**Persistence (Q43, rule #3):** add nullable `failure_reason` + `error_detail` columns to `solve_jobs` (Drizzle schema + `drizzle-kit push`). The **existing public `SolveJob.error` field is replaced** with a stable coarse **code + safe message** (never the operator diagnostic); the raw diagnostic lives only in `error_detail` (internal) + Sentry.
+
+**Sanitization (Q43):** one `sanitizeErrorDetail(raw) -> string` with an explicit byte/char bound and allow/deny policy; tests against filesystem paths, secrets, solver stdout/stderr, payload fragments, and schema dumps.
+
+**Leakage:** the public envelope only ever carries `solutionStatus:error` + `terminationReason:solver_error` + `quality:"Solve failed"`. **Negative-leakage tests** across scenario reads, solve-job polling, history, exports, logs, telemetry, and Sentry assert no `failureReason`/`errorDetail`/path/secret/stdout appears in any public response.
+- Sentry/telemetry mapping: `failureReason` = bounded tag; `errorDetail` = sanitized message.
+
+### 2.12 Solver-limit metadata contract (§24.2.6/§26.2.3/Q42/Q45)
+**Requested vs effective pairs** (the reviewer's Q45 rec — retain both because limits clamp):
+- `requestedGap` / `requestedTimeLimitSec` = as submitted (original request).
+- `configuredGap` / `configuredTimeLimitSec` = **effective** values after defaults + clamping = the **actual `PULP_CBC_CMD` arguments**.
+- **Ceilings/defaults (Q45):** `timeLimitSec` — default 60, min 1, **max 60, clamp above** (a value >60 is clamped, not rejected; both requested + configured recorded so the clamp is auditable). `gap` — default 0 (proven), min 0, max 1.0, clamp above.
+- types/units: gaps = number (relative, ≥0, finite); time = number (seconds, finite, in `[1,60]` effective).
+- **single normalization point** before CBC invocation **and** cache-key construction; the cache key uses the **effective** values.
+- presence: all four emitted on **every** terminal result incl. `no_solution` and `error` (they describe the attempt).
+- invariants: result + cache-key effective values equal the actual CBC arguments; a change to either effective limit → distinct cache key.
+- tests: defaults, boundaries (0/1/60/61→60), invalid/non-finite, retries, and cache separation when an effective limit changes; a pre-CBC validation failure (never starts a solver) is a failed job, not a terminal envelope.
 
 ### 2.8 Lifecycle + cache/publish policy (§14.2/Q6) — branch before cache-write/`markSucceeded`
 `optimal`→succeeded/cache/publish · `feasible`→succeeded/cache **only with full gap-time-version key**/publish-labelled · `infeasible`,`unbounded`→succeeded/cache/publish · `no_solution`→succeeded/**no cache**/publish-no-incumbent · `error`→**failed/no cache/no publish**.
@@ -141,9 +159,14 @@ Canonical `achievedGap` (one authority, §18.7/§20.2.4/§22.2.5/Q25/Q34): a **n
 ### P0R.1 — CBC termination-evidence spike (**go/no-go; gates P0R.3**) — APPROVED TO EXECUTE
 PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally before returning; `keepFiles=True` names collide under concurrency. **Primary approved approach (Q8):** a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing unique temp paths + **per-solve unique temp dir + unique problem name**, parsing before deletion. **Fallback:** a controlled direct CBC subprocess preserving PuLP name mapping — permitted **only** after a recorded P0R.1 no-go on the primary + a design-update approval (§18.8). Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})` + authoritative-record note.
 
-**Process-tree ownership = Node owns the process group (§24.2.2/Q38 — the surviving actor).** A dead Python wrapper (SIGKILL) cannot kill CBC or clean its temp dir, so the owner must be the surviving parent: **`jobRunner` spawns Python detached as a process-group leader, tracks the PGID, and on outer timeout/cancel sends TERM→(grace)→KILL to the whole group** (Python + CBC), waits/reaps, and **owns final temp-dir cleanup**; it publishes the terminal result **exactly once**. The design documents process-group creation, PGID handoff, timeout ordering (TERM→KILL grace), wait/reap, cancellation equivalence, temp ownership, platform assumptions, and the single publisher. (Bounded group-kill only; full graceful-drain stays B2.)
+**Process-tree ownership = Node owns the process group (§24.2.2/§26.2.4/Q38/Q46 — the surviving actor).** A dead Python wrapper (SIGKILL) cannot kill CBC or clean its temp dir, so the surviving parent owns it. Exact protocol:
+- **Temp:** **Node** `mkdtemp`s a unique dir → passes the **validated absolute path** to Python → Python is **constrained to that dir** → **Node idempotently removes it** after direct-child close **and** group-death verification (Node creates it precisely so it can clean it after a Python kill).
+- **Process group:** Node spawns Python **`detached:true`** as a process-group/session leader (**POSIX only** — Node guarantees this on non-Windows); tracks the PGID; on outer timeout/cancel signals the **negative PGID** `TERM`→(grace)→`KILL`. Node directly waits/reaps its **Python child**; for CBC descendants it **signals + probes group death** (ESRCH/race handled), not direct reap.
+- **State machine:** timeout and cancellation share **one once-only** publisher/terminal-state machine; cleanup order + cleanup-failure disposition defined.
+- **Platform:** production + CI are **Linux/POSIX** (Render); Windows is **unsupported/fail-fast**, not a silent assumption.
+(Bounded group-kill only; full graceful-drain stays B2.)
 
-**Go/no-go acceptance:** concurrent same-name solves don't collide; cleanup on success/parser-error/timeout/kill; path-traversal-safe; no repo artifacts; never classify by wall-clock; **no-orphan test — record Python + CBC PIDs/PGID, force timeout/cancel AND a forced-kill/crash case, prove within a bounded interval that neither process survives, temp is reclaimed, completion is once-only, and repeated timeouts accumulate no processes/artifacts.** **P0R.3 blocked until this passes + post-spike review.**
+**Go/no-go acceptance:** concurrent same-name solves don't collide; cleanup on success/parser-error/timeout/kill; path-traversal-safe; no repo artifacts; never classify by wall-clock; **no-orphan test on the production OS (Linux) — record Python + CBC PIDs/PGID, force timeout/cancel AND a forced-kill/crash case (incl. a killed Python parent with CBC still alive holding inherited descriptors), prove within a bounded interval that neither process survives, temp is reclaimed, completion is once-only, and repeated timeouts accumulate no processes/artifacts.** **P0R.3 blocked until this passes + post-spike review.**
 
 ### P0R.2 — fixtures (capture APPROVED now) + parser tests (after P0R.1)
 Four **separate** test categories (§20.2.7/Q28), not one CBC-fixture set:
