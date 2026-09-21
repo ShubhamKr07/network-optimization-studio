@@ -139,14 +139,18 @@ describe("MapLegend", () => {
       });
     });
 
-    it("corner defaults to bl (left-4) and can be switched to br (right-4)", () => {
+    // ch4-fixes item 2 — the DEFAULT flipped from "bl" to "br": every legend
+    // in the app now anchors bottom-right. This asserts the new default AND
+    // that the "bl" opt-out still works, so a future caller with a real
+    // bottom-right conflict keeps an escape hatch.
+    it("corner defaults to br (right-4) and can be switched to bl (left-4)", () => {
       const { getByTestId, rerender } = render(<UnitProvider><MapLegend /></UnitProvider>);
-      expect(getByTestId("map-legend").className).toContain("left-4");
-      expect(getByTestId("map-legend").className).not.toContain("right-4");
-
-      rerender(<UnitProvider><MapLegend corner="br" /></UnitProvider>);
       expect(getByTestId("map-legend").className).toContain("right-4");
       expect(getByTestId("map-legend").className).not.toContain("left-4");
+
+      rerender(<UnitProvider><MapLegend corner="bl" /></UnitProvider>);
+      expect(getByTestId("map-legend").className).toContain("left-4");
+      expect(getByTestId("map-legend").className).not.toContain("right-4");
     });
   });
 

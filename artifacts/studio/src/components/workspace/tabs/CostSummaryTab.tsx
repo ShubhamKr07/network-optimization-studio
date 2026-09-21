@@ -352,6 +352,17 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       ["Solver", result.solverUsed, false],
     );
 
+    // ch4-fixes item 3 — single-scenario now renders the SAME <table> shell
+    // compare mode uses (metric column + one column per scenario), so
+    // selecting a 2nd scenario only ADDS a column instead of swapping the
+    // whole layout from a <dl> to a table. Applies to every model.
+    //
+    // The ROW SET still differs per mode by explicit decision: this mode
+    // keeps "Solver" (compare has no room for it and it's near-constant),
+    // and compare keeps its Open-facilities + per-band rows. Only the shell
+    // and typography are shared.
+    const ownName = sameModelScenarios.find(s => s.id === scenarioId)?.name ?? "Current";
+
     return (
       <div className="flex flex-col h-full overflow-hidden">
         {toggleList}
@@ -368,14 +379,29 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
             Download CSV
           </button>
         </div>
-        <dl className="p-4 space-y-2 text-sm" data-testid="cost-summary-list">
-          {rows.map(([label, value, mono]) => (
-            <div key={label} className="flex justify-between border-b pb-1">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className={`font-medium${mono ? " font-mono" : ""}`} data-testid={`cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}>{value}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="overflow-auto flex-1 p-2">
+          <table className="w-full text-sm border-collapse" data-testid="cost-summary-list">
+            <thead>
+              <tr>
+                <th className="text-left p-2 border-b"></th>
+                <th className="text-left p-2 border-b" data-testid="cost-summary-single-column">{ownName}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([label, value, mono]) => (
+                <tr key={label}>
+                  <td className="p-2 text-muted-foreground">{label}</td>
+                  <td
+                    className={`p-2${mono ? " font-mono" : ""}`}
+                    data-testid={`cost-summary-value-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                  >
+                    {value}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -415,6 +441,33 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
                 </td>
               ))}
             </tr>
+            {/* ch4-fixes item 3 — Chapter 9 (JADE) inbound/outbound cost split,
+                mirroring the single-scenario rows that already existed.
+                Gated on PRESENCE across the selection, never on modelId: a
+                model whose envelope omits the metric simply never shows the
+                row (byte-identical to before for all five other models). A
+                selected scenario that lacks the metric while a sibling has it
+                renders "—" rather than dropping the whole row. */}
+            {compareScenarios.some(s => s.result!.metrics.inboundCost != null) && (
+              <tr>
+                <td className="p-2 text-muted-foreground">Inbound cost</td>
+                {compareScenarios.map(s => (
+                  <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-inbound-${s.id}`}>
+                    {s.result!.metrics.inboundCost != null ? s.result!.metrics.inboundCost.toLocaleString() : "—"}
+                  </td>
+                ))}
+              </tr>
+            )}
+            {compareScenarios.some(s => s.result!.metrics.outboundCost != null) && (
+              <tr>
+                <td className="p-2 text-muted-foreground">Outbound cost</td>
+                {compareScenarios.map(s => (
+                  <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-outbound-${s.id}`}>
+                    {s.result!.metrics.outboundCost != null ? s.result!.metrics.outboundCost.toLocaleString() : "—"}
+                  </td>
+                ))}
+              </tr>
+            )}
             <tr>
               <td className="p-2 text-muted-foreground">Weighted avg. distance{unitLabel ? ` (${unitLabel})` : ""}</td>
               {compareScenarios.map(s => (

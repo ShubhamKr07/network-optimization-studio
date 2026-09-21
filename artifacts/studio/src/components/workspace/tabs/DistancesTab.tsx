@@ -12,6 +12,7 @@ import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
+import { formatDistanceDisplay, stripGrouping } from "@/lib/formatDistanceDisplay";
 
 export interface DistanceOverride {
   fromId: string;
@@ -141,6 +142,7 @@ function DistanceOverrideCell({
     canonicalUnit,
     value: currentValue ?? 0,
     resetKey,
+    presentation: "grouped",
     onCommit: v => {
       if (Number.isFinite(v) && v > 0) onCommitValid(v);
     },
@@ -152,7 +154,11 @@ function DistanceOverrideCell({
   // "complete" (e.g. "5." shows no error here, matching this field's
   // pre-existing whole-value `Number()` behavior; it just won't COMMIT on
   // blur/Enter until it becomes grammar-complete, per the hook's contract).
-  const trimmed = text.trim();
+  // ch4-fixes item 4 — strip grouping BEFORE the numeric check: the idle text
+  // is now formatted ("1,234.57") and `Number("1,234.57")` is NaN, which
+  // would render a false "must be a positive number" on a perfectly valid
+  // committed override.
+  const trimmed = stripGrouping(text).trim();
   const numeric = trimmed === "" ? null : Number(trimmed);
   const error =
     trimmed !== "" && (numeric === null || Number.isNaN(numeric) || numeric <= 0)
@@ -171,6 +177,7 @@ function DistanceOverrideCell({
         value={text}
         disabled={draft.disabled}
         onChange={e => draft.onChange(e.target.value)}
+        onFocus={draft.onFocus}
         onBlur={draft.commit}
         onKeyDown={e => {
           if (e.key === "Enter") draft.commit();
@@ -529,7 +536,9 @@ export function DistancesTab({
       if (referenceQuery.isError) return "unavailable";
     }
     if (r.base == null) return "—";
-    return String(roundForFile(toDisplay(r.base, canonicalUnit)));
+    // ch4-fixes item 4 — grouped, max 2 dp. `roundForFile` (4 dp, ungrouped)
+    // stays the EXPORT contract and is untouched; this is display only.
+    return formatDistanceDisplay(toDisplay(r.base, canonicalUnit));
   }
 
   function handleAddRow() {

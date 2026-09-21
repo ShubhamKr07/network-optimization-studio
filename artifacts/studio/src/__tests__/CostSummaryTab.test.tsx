@@ -198,8 +198,12 @@ describe("CostSummaryTab — Chapter 9 JADE inbound/outbound cost split", () => 
 
   it("places Inbound/Outbound cost rows between Objective and Weighted avg. distance", () => {
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
+    // ch4-fixes item 3 — single-scenario now renders the same <table> shell
+    // compare mode uses, so the metric labels are the first <td> of each row
+    // rather than a <dt>. The ROW ORDER contract this test exists to pin is
+    // unchanged.
     const list = screen.getByTestId("cost-summary-list");
-    const labels = [...list.querySelectorAll("dt")].map(dt => dt.textContent);
+    const labels = [...list.querySelectorAll("tbody tr")].map(tr => tr.querySelector("td")?.textContent);
     expect(labels).toEqual(["Objective", "Inbound cost", "Outbound cost", "Weighted avg. distance", "Runtime", "Quality", "Solver"]);
   });
 
@@ -417,6 +421,43 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     const j2 = scenario({
       id: 51, name: "JADE B", modelId: "two-echelon-jade-us",
       result: { ...result, objective: 260000000, metrics: { weightedAvgDistance: 520, openFacilityIds: ["wh-11"] }, edges: [] },
+    });
+
+    // ch4-fixes item 3 — the inbound/outbound split now also renders in
+    // COMPARE mode (it was single-scenario-only). Gated on metric PRESENCE
+    // across the selection, never on modelId.
+    it("shows Inbound/Outbound cost rows in compare mode when the metrics carry them", () => {
+      const a = scenario({
+        id: 70, name: "JADE cost A", modelId: "two-echelon-jade-us",
+        result: { ...result, metrics: { weightedAvgDistance: 500, inboundCost: 100000000, outboundCost: 154060828 }, edges: [] },
+      });
+      const b = scenario({
+        id: 71, name: "JADE cost B", modelId: "two-echelon-jade-us",
+        result: { ...result, metrics: { weightedAvgDistance: 520, inboundCost: 99000000, outboundCost: 150000000 }, edges: [] },
+      });
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={a.result} scenarioId={70} modelId="two-echelon-jade-us" scenarios={[a, b]} /></ExportProvider></UnitProvider>);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-71").querySelector("input")!);
+      expect(screen.getByTestId("cost-summary-compare-inbound-70")).toHaveTextContent("100,000,000");
+      expect(screen.getByTestId("cost-summary-compare-outbound-70")).toHaveTextContent("154,060,828");
+      expect(screen.getByTestId("cost-summary-compare-inbound-71")).toHaveTextContent("99,000,000");
+      expect(screen.getByTestId("cost-summary-compare-outbound-71")).toHaveTextContent("150,000,000");
+    });
+
+    // A selected scenario missing the metric while a sibling has it renders
+    // "—" rather than dropping the whole row for everyone.
+    it("renders a placeholder for a compare column whose envelope omits the cost split", () => {
+      const withCost = scenario({
+        id: 72, name: "with cost", modelId: "two-echelon-jade-us",
+        result: { ...result, metrics: { weightedAvgDistance: 500, inboundCost: 100000000, outboundCost: 154060828 }, edges: [] },
+      });
+      const withoutCost = scenario({
+        id: 73, name: "without cost", modelId: "two-echelon-jade-us",
+        result: { ...result, metrics: { weightedAvgDistance: 520 }, edges: [] },
+      });
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={withCost.result} scenarioId={72} modelId="two-echelon-jade-us" scenarios={[withCost, withoutCost]} /></ExportProvider></UnitProvider>);
+      fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-73").querySelector("input")!);
+      expect(screen.getByTestId("cost-summary-compare-inbound-72")).toHaveTextContent("100,000,000");
+      expect(screen.getByTestId("cost-summary-compare-inbound-73")).toHaveTextContent("—");
     });
 
     it("uses metrics.openFacilityIds (not derived edges), including a zero-flow open warehouse, and excludes the plant", () => {

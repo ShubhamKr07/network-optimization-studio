@@ -68,9 +68,13 @@ export interface MapLegendProps {
    * (Potential/Open/Customer/Mine) + the distance-band route swatches; NO
    * demand ramp (Output has no size-by-demand toggle to show a scale for). */
   variant?: "input" | "output";
-  /** Bundle 6.1 (T1) — which map corner the legend anchors to. Default "bl"
-   * (today's Input Map position, unchanged); Output passes "br" (NetworkMap's
-   * old inline-legend position). */
+  /** Bundle 6.1 (T1) — which map corner the legend anchors to.
+   *
+   * ch4-fixes item 2 — default flipped "bl" -> "br": every legend in the app
+   * now anchors bottom-right. Output (`NetworkMap`) already passed "br"
+   * explicitly and is unaffected; the four Input Map call sites relied on
+   * this default and move with it. The "bl" value is kept (not deleted) so a
+   * future caller with a genuine bottom-right conflict can still opt out. */
   corner?: "bl" | "br";
   /** Full scenario customer-demand population (base + added, INCLUDING
    * excluded) — same population EntityMarkers computes its scale from.
@@ -157,7 +161,7 @@ export interface MapLegendProps {
 // not re-apply the .scn-theme class itself.
 export function MapLegend({
   variant = "input",
-  corner = "bl",
+  corner = "br",
   customers,
   modelId = "p-median-us",
   showStatusLegend = true,

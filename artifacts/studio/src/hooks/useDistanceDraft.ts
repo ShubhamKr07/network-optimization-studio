@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { roundForFile, type CanonicalUnit } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
+import { formatDistanceDisplay, stripGrouping } from "@/lib/formatDistanceDisplay";
 
 // SCN chen-bands-units, Part D — the write-path draft contract. This is the
 // SINGLE normative implementation; T12/T13's editors consume it verbatim,
@@ -53,6 +54,20 @@ export interface UseDistanceDraftOptions {
    * independently of `value` itself.
    */
   resetKey?: unknown;
+  /**
+   * ch4-fixes item 4 — how the COMMITTED value renders while the field is
+   * idle. Opt-in, default `"raw"`, so the five non-Distances-tab consumers
+   * (SolveDialog, OptimizationParametersTab, WarehouseTable, CustomerTable,
+   * BandChipEditor) are byte-for-byte unchanged.
+   *
+   * `"grouped"`: idle text is thousands-grouped at max 2 dp ("11,998.25").
+   * The instant the field is FOCUSED it reverts to the full-precision raw
+   * text ("11998.2461") — so a user who focuses a 4-dp override and commits
+   * it cannot silently truncate the stored value to the 2 dp they were
+   * shown. Grouping separators are stripped on input, so typing or pasting
+   * "1,234.5" still parses.
+   */
+  presentation?: "raw" | "grouped";
 }
 
 export interface UseDistanceDraftResult {
@@ -72,6 +87,13 @@ export interface UseDistanceDraftResult {
   commit(): void;
   /** Call on Escape. Always discards, never commits. */
   discard(): void;
+  /**
+   * ch4-fixes item 4 — call on the input's `onFocus`. Under
+   * `presentation: "grouped"` this is what swaps the idle formatted text for
+   * the full-precision raw value before any keystroke can anchor off it.
+   * A no-op under the default `"raw"` presentation.
+   */
+  onFocus(): void;
 }
 
 export function useDistanceDraft({
@@ -79,11 +101,14 @@ export function useDistanceDraft({
   value,
   onCommit,
   resetKey,
+  presentation = "raw",
 }: UseDistanceDraftOptions): UseDistanceDraftResult {
   const { effectiveUnit, toDisplay, fromDisplay } = useDisplayUnit();
   const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
+  // ch4-fixes item 4 — only ever read under `presentation: "grouped"`.
+  const [focused, setFocused] = useState(false);
 
   // React-sanctioned "adjust state during render in response to a prop
   // change" pattern (no effect, no extra paint) — see
@@ -116,19 +141,40 @@ export function useDistanceDraft({
 
   const disabled = canonicalUnit == null || unit == null;
 
+  // The committed value's raw, full-precision display text. This is what a
+  // draft anchors off and what `"grouped"` reverts to on focus — the
+  // formatted form below is never an input to any conversion.
+  const committedRawText = disabled ? "" : String(roundForFile(toDisplay(value, canonicalUnit!)));
+
   const text = disabled
     ? ""
     : draft !== null
       ? draft.text
-      : String(roundForFile(toDisplay(value, canonicalUnit)));
+      : presentation === "grouped" && !focused
+        ? formatDistanceDisplay(toDisplay(value, canonicalUnit!))
+        : committedRawText;
 
   function onChange(next: string): void {
     if (disabled || canonicalUnit == null) return;
-    const anchor = isComplete(next) ? fromDisplay(parseFloat(next), canonicalUnit) : Number.NaN;
-    setDraft({ text: next, anchor });
+    // ch4-fixes item 4 — a pasted/typed grouped value ("1,234.5") must still
+    // satisfy the completeness grammar. Stripping is unconditional: a comma
+    // is never valid in a raw draft either, so this cannot change `"raw"`
+    // behavior for any input a user could previously commit.
+    const cleaned = stripGrouping(next);
+    const anchor = isComplete(cleaned) ? fromDisplay(parseFloat(cleaned), canonicalUnit) : Number.NaN;
+    setDraft({ text: cleaned, anchor });
+  }
+
+  function onFocus(): void {
+    if (presentation === "grouped") setFocused(true);
   }
 
   function commit(): void {
+    // ch4-fixes item 4 — `commit` IS the blur handler at every call site (and
+    // the Enter handler, which is also a natural "done editing" signal), so
+    // it is where the grouped presentation resumes. Cleared before the
+    // early return so blurring an untouched field still re-formats it.
+    setFocused(false);
     if (disabled || draft === null) return;
     if (isComplete(draft.text) && !Number.isNaN(draft.anchor)) {
       onCommit(draft.anchor);
@@ -137,8 +183,9 @@ export function useDistanceDraft({
   }
 
   function discard(): void {
+    setFocused(false);
     setDraft(null);
   }
 
-  return { text, disabled, isDirty: draft !== null, onChange, commit, discard };
+  return { text, disabled, isDirty: draft !== null, onChange, commit, discard, onFocus };
 }
