@@ -191,10 +191,11 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
-import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
+import { useGetSolveJob, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
+const mockUseListModels = vi.mocked(useListModels);
 const mockUseListScenarios = vi.mocked(useListScenarios);
 const mockUsePrecheckScenario = vi.mocked(usePrecheckScenario);
 const mockUseGetScenario = vi.mocked(useGetScenario);
@@ -1167,36 +1168,66 @@ describe("Workspace — Solve dialog", () => {
     expect(screen.getByTestId("button-remove-band-800")).toBeInTheDocument();
   });
 
-  // T2's ModelInfo.distanceUnit isn't in this file's useListModels fixture
-  // (unresolved/absent) — the dialog must fall back to "mi", matching the
-  // same default the public API boundary itself applies.
-  it("the Solve dialog's distance-band editor defaults to the 'mi' unit label when the model manifest has no distanceUnit resolved", () => {
-    renderWorkspace();
-    fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
+  // chen-bands-units, Part D (no-fallback rule), Task 14 Step 6a — this
+  // test's fixture used to (correctly, at the time) describe the model
+  // manifest fixture as having no `distanceUnit`, and asserted the dialog
+  // fell back to a GUESSED "mi" label — exactly the fallback this bundle
+  // deletes. `canonicalUnit` is now threaded into the Solve dialog with NO
+  // fallback: while the manifest is genuinely unresolved, the editor must
+  // render a loading placeholder, never a guessed unit — a Chen (km) value
+  // must never transiently render (or be editable) under an "mi" label.
+  it("renders a loading placeholder, never a guessed unit, when the model manifest has no distanceUnit resolved", () => {
+    // A persistent `mockImplementation` override (a `mockReturnValueOnce`
+    // queue leaks into later tests if this test triggers more re-renders
+    // than values queued — `clearAllMocks()` in `beforeEach` clears call
+    // history, not a pending once-queue). Captured/restored explicitly so
+    // this override cannot outlive this one test.
+    const defaultImpl = mockUseListModels.getMockImplementation();
+    mockUseListModels.mockImplementation(
+      () => ({ data: [{ id: "p-median-us", capabilities: {} }] }) as unknown as ReturnType<typeof useListModels>,
+    );
+    try {
+      renderWorkspace();
+      fireEvent.click(screen.getByTestId("button-run-optimizer"));
+      expect(screen.queryByText(/Distance bands \(m/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId("solve-dialog-bands-unit-pending")).toBeInTheDocument();
+      expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeDisabled();
+    } finally {
+      if (defaultImpl) mockUseListModels.mockImplementation(defaultImpl);
+    }
   });
 
-  // Same save-before-solve contract the test below already proves for `p` —
-  // an edited DRAFT distanceBands must be part of what gets persisted before
-  // the solve is enqueued, not silently discarded (R5: bands are a real
-  // solve input, not a post-solve lens).
-  it("clicking Solve after editing bands in the Solve dialog saves the edited distanceBands before enqueuing the solve", () => {
-    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
-      opts.onSuccess();
-    });
+  // chen-bands-units — superseded: bands are now the dedicated LENS
+  // (decision 1f), not part of `localInputs`, and are never a solver input
+  // (the standing project invariant — "Distance bands are a reporting lens,
+  // not model constraints"). A lens-only-dirty edit therefore does NOT
+  // trigger save-before-solve; Solve is enqueued directly, and the lens
+  // stays dirty afterward (nothing to persist before a solve that never
+  // reads it) — spec Part A, "a lens-only-dirty Run enqueues the solve
+  // directly, with no whole-input PATCH".
+  it("clicking Solve after editing ONLY bands in the Solve dialog solves directly, with no whole-input save first", () => {
     renderWorkspace();
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     fireEvent.click(screen.getByTestId("solve-dialog-button-remove-band-1600"));
     fireEvent.click(screen.getByTestId("solve-dialog-solve"));
 
-    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
-    const [saveArgs] = mockUpdateScenario.mutate.mock.calls[0];
-    expect(saveArgs).toEqual({
-      scenarioId: 1,
-      data: { inputs: expect.objectContaining({ distanceBands: [200, 400, 800] }) },
-    });
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
     expect(mockSolveScenario.mutate).toHaveBeenCalledTimes(1);
+    expect(mockSolveScenario.mutate.mock.calls[0][0]).toEqual({ scenarioId: 1 });
+  });
+
+  it("editing ONLY bands leaves the lens dirty after a direct solve — Save still offers 'Save bands'", () => {
+    renderWorkspace();
+
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-button-remove-band-1600"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-save")).toBeEnabled();
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 
   // The one test that must exist per the task brief: this repo already shipped
@@ -2055,11 +2086,19 @@ describe("defaultInputsForModel — chens-cosmetics-cn", () => {
     expect(d.timeLimitSec).toBe(120);
   });
 
-  it("has high < max thresholds and distanceBands derived as [high, max]", () => {
+  // chen-bands-units, Part A/B, Task 14 Step 2a — the exact locked default
+  // band array `[600, 1200, 2400, 5000]` (600 == the default
+  // highServiceDistKm). Both service-distance defaults below are asserted
+  // TOGETHER and pinned to their exact values so a future "tidy-up" cannot
+  // silently make them equal — doing so would tighten the default solve
+  // from the frozen golden 66.0639% / {wh-40, wh-69, wh-102} to 64.8234% /
+  // {wh-40, wh-102, wh-147} and break e2e/chens-cosmetics.spec.ts.
+  it("has high < max thresholds (deliberately NOT coupled) and the locked default distanceBands array", () => {
     expect(d.highServiceDistKm).toBe(600);
     expect(d.maxDistKm).toBe(5000);
+    expect(d.avgServiceDistCapKm).toBe(1000);
     expect((d.highServiceDistKm as number)).toBeLessThan(d.maxDistKm as number);
-    expect(d.distanceBands).toEqual([600, 5000]);
+    expect(d.distanceBands).toEqual([600, 1200, 2400, 5000]);
   });
 
   it("has no capacity concept (capacityMode 'none') and p within the 1..25 Chen bound", () => {
@@ -2163,17 +2202,34 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
     expect(args.data.inputs).not.toHaveProperty("coverageFloorDemand");
   });
 
-  it("editing a service-distance threshold resyncs distanceBands to [high, max] in state BEFORE any save (D13/D19)", () => {
+  // chen-bands-units — superseded (was "... resyncs distanceBands to
+  // [high, max] ... (D13/D19)"): D13/D19's unconditional derivation is
+  // gone (amendment table). Chen's bands are now the dedicated LENS
+  // (activeBandLens), and `updateChenServiceDistance` no longer touches
+  // `distanceBands` at all — only the CONDITIONAL high-link retarget
+  // (inside OptimizationParametersTab, on a band that happens to equal the
+  // OLD high) still moves a band, and it moves the LENS, not `localInputs`.
+  // The fixture's initial `distanceBands: [600, 5000]` contains 600 (the
+  // old high), so editing high 600->700 retargets that band; the save
+  // payload's `distanceBands` comes from `buildWholeInputPayload()`
+  // (`{...localInputs, distanceBands: activeBandLens}`), not from
+  // `updateChenServiceDistance` writing it directly. Also exercises the
+  // real commit contract once `canonicalUnit` is threaded in: this field is
+  // a raw-string draft now, committed on blur (Part D write path), not on
+  // every keystroke.
+  it("editing a service-distance threshold retargets a band equal to the old high, via the lens (not a localInputs derivation)", () => {
     renderChen();
     openParamsTab();
 
-    fireEvent.change(screen.getByTestId("input-high-service-dist"), { target: { value: "700" } });
+    const input = screen.getByTestId("input-high-service-dist");
+    fireEvent.change(input, { target: { value: "700" } });
+    fireEvent.blur(input);
 
     fireEvent.click(screen.getByTestId("button-save"));
+    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
-    // The changed threshold AND the derived bands both landed in the SAME
-    // localInputs update — the save payload proves the resync happened in
-    // component state, not just at the solver boundary.
+    // The changed threshold and the retargeted lens both land in the SAME
+    // whole-input save (buildWholeInputPayload's last-write-wins merge).
     expect(args.data.inputs.highServiceDistKm).toBe(700);
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
@@ -2192,14 +2248,21 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
     expect(dialogThumb).toHaveAttribute("aria-valuemax", "25");
   });
 
-  it("hides the distance-band editor in BOTH the tab and the Solve dialog (Chen bands are derived, D13/D19)", () => {
+  // chen-bands-units — superseded (was "hides the distance-band editor ...
+  // D13/D19"): Chen's bands are no longer derived/hidden — Part A
+  // re-enables the SAME free add/remove chip editor as every other model,
+  // in BOTH the tab and the Solve dialog, edited through the one dedicated
+  // lens (`activeBandLens`).
+  it("shows the SAME free-edit band chip editor for Chen, in BOTH the tab and the Solve dialog", () => {
     renderChen();
 
     openParamsTab();
-    expect(screen.queryByTestId("button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+    expect(screen.getByTestId("button-remove-band-600")).toBeInTheDocument();
+    expect(screen.getByTestId("button-remove-band-5000")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
-    expect(screen.queryByTestId("solve-dialog-button-bands-plus")).not.toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeInTheDocument();
   });
 });
 
@@ -2431,16 +2494,26 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     updatedAt: "2026-01-01T00:00:00Z",
   };
 
-  it("does NOT pass presentationBands to ServiceStats for chens-cosmetics-cn — bars stay frozen on result.metrics.bandCoverage", () => {
+  // chen-bands-units, Part A/D (decision 1d), Task 14 Step C — superseded
+  // (was "does NOT pass presentationBands ... bars stay frozen"): the
+  // deliberate Chen carve-out is REMOVED. Chen now computes LIVE like its
+  // five siblings, from the SAME dedicated band lens (seeded from this
+  // scenario's `distanceBands: [111]`), not the frozen
+  // `result.metrics.bandCoverage` (600/66%). The one edge (distance 300)
+  // exceeds the single 111 boundary, so it falls entirely into the
+  // overflow bucket.
+  it("Chen computes LIVE band coverage from the dedicated lens, like its five siblings (bars no longer frozen)", () => {
     mockUseGetScenario.mockReturnValue({ data: solvedChensScenario } as unknown as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: [solvedChensScenario] } as unknown as ReturnType<typeof useListScenarios>);
     render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
 
     fireEvent.click(screen.getByTestId("sidebar-output-service-stats"));
 
-    // Frozen band (600, 66% from result.metrics.bandCoverage), not the
-    // (never-wired) live 111 boundary from localInputs.distanceBands.
-    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
-    expect(screen.queryByTestId("service-stats-band-111")).not.toBeInTheDocument();
+    // Live band (111, 0% — the only edge at distance 300 exceeds it) plus
+    // an overflow row (100%) — NOT the frozen 600/66% from
+    // result.metrics.bandCoverage.
+    expect(screen.getByTestId("service-stats-band-111")).toHaveTextContent("0%");
+    expect(screen.getByTestId("service-stats-band--1")).toHaveTextContent("100%");
+    expect(screen.queryByTestId("service-stats-band-600")).not.toBeInTheDocument();
   });
 });
