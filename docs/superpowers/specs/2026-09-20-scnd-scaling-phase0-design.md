@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §20 findings resolved (Q22–Q29 answered 2026-09-21, see §21).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20 successive reviews; §15/§17/§19/§21 resolutions. Execution authorization: **P0R.1 + P0R.2 attainable-CBC fixture capture only**; P0R.2 parser tests depend on P0R.1; P0R.3/P0R.4 need a post-spike design update + review. **DEC-2026-09-21-01 is authorized** with a durable, independently-auditable artifact — product-owner approval at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (resolves §20.2.1). Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §22 findings resolved (Q30–Q36 answered 2026-09-21, see §23).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20/§22 successive reviews; §15/§17/§19/§21/§23 resolutions. Execution authorization: **P0R.1 + P0R.2 attainable-CBC fixture capture only**; P0R.2 parser tests depend on P0R.1; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1). Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -1168,3 +1168,173 @@ Until every applicable item above is closed, §19's statement that the §18 find
 | **Q29** normalized-legacy consumers | Every named read/export/template/history/telemetry boundary gets an explicit accept/normalize/reject decision in P0R.3 — no "define later" placeholder. | Correctness spec §2.7. |
 
 Verified in-repo this round: `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (→ Q26 composite version needed); `jobRunner` persists the nested `_envelope` unchanged to `scenarios.result` (→ Q23 legacy shape is nested, not flat). §20 findings resolved; correctness successor governs implementation (P0R.1 + P0R.2 fixture capture approved). Render fact confirmed by §20.3: 12-CPU max per web/worker instance, up to 100 same-plan instances per service.
+
+---
+
+## 22. Deep approval validation — post-§21 consistency and runtime review (2026-09-21)
+
+### 22.1 Approval decision
+
+**REQUEST CHANGES.** §21 correctly closes several §20 findings, including the sacred-test authorization, known legacy shape, no-incumbent bound rule, exact public-objective table, and separation of fixture/test categories. It does **not** close every finding it claims to close. This ledger is therefore not approved as authoritative/resolved, and P0R.3/P0R.4 remain unapproved pending the P0R.1 evidence, a design update, and another approval review.
+
+| Scope | Decision after this review |
+|---|---|
+| This Phase-0 ledger as authoritative/resolved | **Not approved** — Q30–Q36 remain open. |
+| `DEC-2026-09-21-01` | **Authorized and auditable** — GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) contains the product owner's exact narrow approval. |
+| P0R.1 CBC-evidence spike | **Approved to proceed**; its acceptance must include Q31's no-orphan-process proof. |
+| P0R.2 attainable CBC fixture capture | **Approved to proceed**. |
+| P0R.2 parser tests | Blocked on the P0R.1 interface. |
+| P0R.3 contract/consumer implementation | **Not approved**; Q30 and Q32–Q35 require normative design decisions. |
+| P0R.4 integration/sacred-test changes | **Not approved for execution yet**; DEC authorization exists, but the task remains conditional on P0R.1, the design update, and re-review. |
+| Measurement and B2 | Still TBD and not reviewed for implementation approval here. |
+
+### 22.2 Blocking findings
+
+#### 22.2.1 HIGH — Q29 is deferred, not resolved
+
+§21/Q29 claims that every named legacy consumer gets an explicit accept/normalize/reject decision and that no "define later" placeholder remains. The successor does the opposite:
+
+- §2.7 says each decision **will be made in P0R.3**, rather than stating the decision; and
+- P0R.3 still says `exports/templates (define accept-vs-reject of legacy)`.
+
+This matters in the current repository: scenario list/get return `row.result` directly; output exports validate `scenario.result` against `ResultEnvelopeSchema` before deriving rows; solve history reads a separate, historically drifting `resultSummary`; telemetry and smoke checks have different data paths. One policy cannot be inferred safely for all of them.
+
+**Required correction:** add a normative boundary table before P0R.3 approval. At minimum, decide:
+
+| Boundary | Required explicit decision |
+|---|---|
+| Scenario list/get and `toApiScenario()` | Accept stored legacy → normalize v1, or reject; specify API result. |
+| Output exports (`assignments`, `openWarehouses`, `costSummary`, `serviceStats`, `flows`) | Normalize and accept only when preserved payload is sufficient, or reject with a defined status/error. |
+| Input/template exports | State whether result-contract version is irrelevant; do not group these implicitly with output exports. |
+| Solve history | Define legacy `resultSummary` handling separately from `scenarios.result`. |
+| Telemetry | Define whether legacy reads are tagged, omitted, or normalized; new-solve telemetry remains v2. |
+| Smoke checks/tests | State which schema each boundary validates and the expected legacy behavior. |
+| Result cache | Retain the already-decided cache miss/re-solve behavior for unversioned rows. |
+
+Until that table exists, Q29 is open and §21 must not call all §20 findings resolved.
+
+#### 22.2.2 HIGH — timeout kills can leave the CBC descendant running
+
+P0R.1 introduces a Python wrapper that launches CBC, while current `jobRunner.ts::runSolverProcess` launches `python3` and, on outer timeout, sends `SIGKILL` only to that Python child. Killing a process does not reliably kill its descendants; Node's own documentation explicitly notes that child processes of child processes are not terminated when their parent is killed on Linux: [Node `child_process` documentation](https://nodejs.org/api/child_process.html#subprocesskillsignal).
+
+The existing P0R.1 acceptance requires temporary-path cleanup on timeout/kill, but it does not explicitly require that the CBC grandchild is gone. A surviving CBC process can consume CPU after the job is marked failed, violating cost, concurrency, and capacity assumptions. Python `finally`/temporary-directory cleanup is also not available after `SIGKILL`.
+
+**Required correction:** add an explicit P0R.1 acceptance test that records the Python and CBC PIDs, triggers the outer timeout/cancellation path, and proves within a bounded interval that:
+
+- no CBC descendant survives;
+- the result is published at most once and the job is failed once;
+- the unique temporary directory is removed or reclaimed by a deterministic parent/janitor path; and
+- repeated timeouts do not accumulate processes or artifacts.
+
+The design must choose process-group/tree termination, a parent-owned wrapper/process handle, or an equivalent proven mechanism. If correctness Phase 0 cannot supply this, P0R.3 deployment must be blocked until B2's process-group termination lands.
+
+#### 22.2.3 HIGH — `solver_error` still conflates CBC termination with data/model/internal failures
+
+The successor's Q28 boundary maps `solve.py`-declared load/model errors to `error/solver_error`. Current `solve.py` emits the same legacy error envelope for missing/corrupt datasets, unknown `modelType`, and a catch-all exception around the entire dispatcher. Those failures are not CBC solver termination evidence. Treating all of them as `solver_error` undermines the contract's stated truthfulness goal and obscures operational diagnosis.
+
+**Required correction:** choose one normative taxonomy before P0R.3. Recommended:
+
+- `solver_error`: CBC started and failed/abandoned/numerically errored;
+- `data_error`: required dataset/configuration could not be loaded or validated;
+- `model_error`: dispatch/model construction failed before CBC started;
+- `internal_error`: unexpected application exception; and
+- process/spawn/outer-timeout/JSON/schema failures: failed job with no published solver result, as already specified.
+
+If the product intentionally retains one generic reason, rename it from `solver_error` to an honest pipeline-wide term and document that it is not CBC termination evidence. Tests must cover every retained reason and the failed-job/no-result boundary.
+
+#### 22.2.4 MEDIUM — the legacy zero-sentinel rule can erase a valid zero objective
+
+The successor says a legacy no-result `objective:0` sentinel normalizes to null, but it does not define how the normalizer distinguishes the sentinel from a legitimate solved objective of zero. Several current input schemas permit zero demand, so zero is not intrinsically proof of no incumbent.
+
+**Required correction:** make normalization status/evidence-aware. A safe minimum rule is:
+
+- legacy `status:"infeasible"|"error"` → `objective:null` regardless of stored zero;
+- legacy successful/`optimal` row → preserve numeric zero because the old row cannot prove that it was merely a sentinel; and
+- malformed or contradictory legacy rows → reject or normalize through an explicitly tested conservative rule.
+
+Do not use `objective === 0` alone as the discriminator.
+
+#### 22.2.5 MEDIUM — the canonical gap policy specifies two different denominator rules
+
+The successor gives the formula `abs(I-B)/(abs(I)+EPS)` but calls `EPS` a denominator **floor**. These are not equivalent: a floor is `max(abs(I), EPS)`, while adding epsilon biases every nonzero denominator and produces materially different results near zero. The phrase "serialized to 6 decimal places" is also ambiguous for JSON numbers, which do not preserve trailing-zero formatting.
+
+**Required correction:** choose one exact policy and use it consistently in prose, implementation, schemas, and fixtures. Recommended options are:
+
+1. numeric `round(abs(I-B)/max(abs(I), EPS), 6)` with display formatting handled separately; or
+2. `0` when `I==B==0`, otherwise `null` for a zero incumbent if the product considers relative gap undefined, while retaining raw values/absolute difference as evidence.
+
+State whether the API field is a JSON number rounded to at most six fractional digits or a string with exactly six decimal places. Keep presentation formatting out of the evidence field unless a string is deliberately chosen.
+
+#### 22.2.6 MEDIUM — the composite cache version is directionally correct but not deterministic enough to implement
+
+The successor now requires hashing `solve.py`, parser/wrapper modules, relevant model/config code, and CBC/PuLP versions. It does not define the exact manifest, ordering/encoding, how the CBC binary/build is identified, behavior when an input is missing/unreadable, or an explicit contract-version escape hatch. Different implementations could therefore produce unstable keys or omit a semantic dependency while claiming compliance.
+
+**Required correction:** the post-spike design update must define:
+
+- an explicit sorted manifest of files or a build-generated artifact manifest;
+- byte-delimited hashing with paths and contents included unambiguously;
+- the pinned PuLP version and an authoritative CBC binary version/build identifier;
+- fail-closed startup behavior if a required hash input/version cannot be read;
+- an explicit `SOLVER_CONTRACT_VERSION` constant for semantic changes not represented by file bytes; and
+- tests proving changes to the parser, wrapper, dependency/build identifier, and contract constant each invalidate the cache while identical artifacts remain stable.
+
+Q26 is therefore **directionally resolved**, not implementation-ready.
+
+#### 22.2.7 LOW — one guardrail still cites superseded approval provenance
+
+The correctness successor header correctly cites GitHub issue #19, but its hard-rule guardrail still says `e2e_accuracy.py` was authorized by in-session Q4/Q10 selections. That is stale and reintroduces the provenance ambiguity §20/Q22 resolved.
+
+**Required correction:** make every DEC reference point to GitHub issue #19 and state the same narrow scope: evidence-driven status/termination assertion changes with zero golden-objective changes. Also update the successor's header statement that it incorporates only Q4–Q21 if Q22–Q29 are intended to be normative inputs.
+
+### 22.3 Validated improvements
+
+- GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) is a valid, direct product-owner authorization for `DEC-2026-09-21-01`; the former approval-provenance blocker is closed.
+- The known stored legacy generation is correctly identified as the nested unversioned envelope rather than the Python test shim's flat projection.
+- The invariant matrix correctly permits `solverBestBound` without an incumbent and requires bound+gap for `feasible/gap_limit`.
+- The public-objective table now states exact derivations for each implemented model/mode.
+- P0R.2 correctly separates attainable CBC terminal fixtures, malformed parser cases, wrapper tests, and process-level job-runner failures.
+- The primary P0R.1 wrapper and recorded-no-go/design-approval requirement for the direct-CBC fallback remain appropriate.
+- Current Render documentation still supports the recorded platform facts: web/private-service/background-worker plans top out at 12 CPU per instance, scaled instances use the same plan, and a service can scale to at most 100 instances. Sources: [Render compute plans](https://render.com/docs/compute-plans), [Render service scaling](https://render.com/docs/scaling). This validates the platform constraints only; topology still requires measurement.
+
+### 22.4 Decisions/questions required (Q30–Q36)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q30 — legacy consumer boundary matrix** | What does each scenario read, output/input export, solve-history, telemetry, smoke-test, and cache boundary do with normalized legacy? | Record an explicit accept/normalize/reject result for each boundary now; do not defer with "define in P0R.3." |
+| **Q31 — CBC descendant termination** | How does the outer timeout/cancellation kill the Python wrapper and every CBC descendant and reclaim temp artifacts? | Make no-surviving-CBC/process-tree cleanup a P0R.1 go/no-go acceptance test; otherwise block P0R.3 until B2. |
+| **Q32 — truthful error taxonomy** | Are dataset/model/internal failures really `solver_error`, or do they receive separate reasons/failed-job treatment? | Use distinct `data_error`, `model_error`, `internal_error`, and genuine `solver_error`, or rename the generic reason honestly. |
+| **Q33 — legacy zero objective** | When is stored legacy `objective:0` a no-result sentinel versus a legitimate objective? | Never infer from zero alone; use legacy status/evidence, preserve zero on legacy successful rows, and test contradictions. |
+| **Q34 — gap denominator and serialization** | Is the denominator `abs(I)+EPS` or `max(abs(I),EPS)`, and is six-decimal handling numeric rounding or string formatting? | Choose one formula; keep `achievedGap` numeric and round deterministically, with display formatting separate. |
+| **Q35 — deterministic solver-contract hash** | What exact artifacts, ordering, dependency/build identifiers, failure policy, and manual version constant define the cache version? | Specify a sorted manifest, unambiguous byte framing, CBC/PuLP identifiers, fail-closed startup, `SOLVER_CONTRACT_VERSION`, and invalidation/stability tests. |
+| **Q36 — DEC citation consistency** | Which artifact is normative everywhere for sacred-test authorization? | Cite GitHub issue #19 in the header, guardrails, P0R.4, and commit guidance; remove stale in-session Q4/Q10 provenance. |
+
+### 22.5 Re-approval checklist
+
+- [ ] §21 no longer claims Q29 resolved while the successor defers its decisions.
+- [ ] Every legacy consumer boundary has a normative accept/normalize/reject behavior and test expectation.
+- [ ] P0R.1 proves no CBC descendant or temporary artifact survives timeout/cancellation.
+- [ ] The error taxonomy distinguishes genuine CBC solver errors from data/model/internal and outer-process failures, or uses an honestly named generic category.
+- [ ] Legacy objective-zero normalization is status/evidence-aware and preserves legitimate zero objectives.
+- [ ] `achievedGap` has one exact denominator formula and unambiguous numeric/string serialization semantics.
+- [ ] The solver-contract/cache hash has an exact deterministic manifest, dependency/build identifiers, failure behavior, manual semantic version, and tests.
+- [ ] Every DEC reference cites GitHub issue #19 consistently and preserves its narrow scope.
+- [ ] P0R.1 evidence is incorporated into a successor design update.
+- [ ] A new approval review occurs before P0R.3/P0R.4.
+
+Until every applicable item above is closed, §21's statement that all §20 findings are resolved remains historical rather than the current approval state; this §22 decision controls.
+
+---
+
+## 23. §22 resolution — Q30–Q36 decisions (2026-09-21)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q30** legacy-consumer matrix | Normative boundary table (no "define later"): scenario read/`toApiScenario`→normalize; **output exports→reject legacy with a "re-solve to export" error**; input/template exports→unaffected; solve-history→separate, tagged; telemetry→legacy tagged, new=v2; smoke→schema-per-boundary; cache→miss. | Correctness spec §2.7.1. |
+| **Q31** CBC descendant kill | **P0R.1 wrapper owns bounded process-group kill**; a no-orphan go/no-go acceptance test (records PIDs, triggers timeout, proves no surviving CBC + reclaimed temp + publish-once). Full graceful-drain stays B2. | Correctness spec §3 P0R.1. |
+| **Q32** error taxonomy | **Distinct reasons** — `terminationReason` gains `data_error`/`model_error`/`internal_error` beside genuine `solver_error`; operator/telemetry/Sentry-facing; students see a coarse quality string only; spawn/timeout/JSON/schema = failed-job-no-result. | Correctness spec §2.1/§2.4. |
+| **Q33** legacy zero objective | Status/evidence-aware: legacy infeasible/error→null; legacy success→**preserve numeric zero**; malformed→conservative tested rule. Never `===0` alone. | Correctness spec §2.7. |
+| **Q34** gap denominator/serialization | `round(abs(I-B)/max(abs(I),EPS),6)` — explicit **floor**, not `+EPS`; numeric field, display separate; `I==B==0`→0. | Correctness spec §2.9. |
+| **Q35** deterministic cache hash | Post-spike design-update deliverable: sorted manifest + byte-framed hashing + pinned PuLP/CBC build IDs + fail-closed + `SOLVER_CONTRACT_VERSION` + invalidation/stability tests. | Correctness spec §2.10. |
+| **Q36** DEC citation | Every DEC reference cites GitHub issue #19 (header, §4 guardrail, P0R.4, commit); stale in-session Q4/Q10 provenance removed; header note updated to Q4–Q36. | Correctness spec header/§4. |
+
+§22 findings resolved; correctness successor governs implementation (P0R.1 + P0R.2 fixture capture approved). §22.2.7/Q36 (stale guardrail provenance) fixed. Q29's "define later" placeholder replaced by the §2.7.1 normative table (closes §22.2.1).
