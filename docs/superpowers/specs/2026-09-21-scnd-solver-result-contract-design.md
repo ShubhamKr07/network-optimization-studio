@@ -1,7 +1,7 @@
 # SCND Solver Result Contract — Spec
 
 **Date:** 2026-09-21
-**Status (§30.2.1/Q58 — single controlling state = HOLD):** **P0R.1 is on HOLD / NOT authorized to start.** P0R.2 attainable-CBC fixture *capture* retains **evidence-only** approval; P0R.2 parser tests depend on an accepted P0R.1 interface; P0R.3–P0R.4 NOT approved (need P0R.1 evidence + a post-spike design update + a new approval review that explicitly lifts the hold). Incorporates reviews §14–§30 and decisions Q4–Q64. **Open gate:** Q35/Q41 (deterministic composite cache identity) is a mandatory P0R.3 gate. The prior "approved to execute" wording is **superseded**, not silently reinterpreted — lifting the hold is a new explicit approval after §30's Q58–Q64 close.
+**Status (updated 2026-09-22):** **P0R.1 is AUTHORIZED TO EXECUTE** — explicit product-owner approval on 2026-09-22, lifting the §30.2.1/Q58 HOLD after §30/§32 (Q58–Q72) closed. This is the new explicit approval Q58 required (not a silent reinterpretation). P0R.1 runs as a **go/no-go evidence spike**; P0R.2 attainable-CBC fixture capture proceeds alongside. **P0R.3/P0R.4 remain NOT approved** — they need P0R.1's evidence + a post-spike design update + a new approval review; the **Q35/Q41 composite cache identity** stays a mandatory P0R.3 gate. Incorporates reviews §14–§32 and decisions Q4–Q72.
 **Sacred-test authorization — DEC-2026-09-21-01:** durable, independently-auditable product-owner approval at **GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19)** — verbatim: *"I approve DEC-2026-09-21-01: update e2e_accuracy.py status/termination assertions based on committed CBC evidence, with zero changes to golden objective values."* (resolves §20.2.1). Scope: a narrow, **evidence-driven** correction to `e2e_accuracy.py` approximate-case assertions with **zero golden-objective changes**. Referenced by §3 P0R.4 and §4.
 **Program context:** Carved from `2026-09-20-scnd-scaling-phase0-design.md` (§13 ledger) per Q1=Split. Standalone.
 
@@ -182,7 +182,7 @@ Canonical `achievedGap` (one authority, §18.7/§20.2.4/§22.2.5/Q25/Q34): a **n
 
 ## 3. Tasks
 
-### P0R.1 — CBC termination-evidence spike (**go/no-go; gates P0R.3**) — ON HOLD (§30.2.1/Q58; not authorized to start until a new approval lifts the hold)
+### P0R.1 — CBC termination-evidence spike (**go/no-go; gates P0R.3**) — AUTHORIZED TO EXECUTE (product owner, 2026-09-22)
 PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally before returning; `keepFiles=True` names collide under concurrency. **Primary approved approach (Q8):** a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing unique temp paths + **per-solve unique temp dir + unique problem name**, parsing before deletion. **Fallback:** a controlled direct CBC subprocess preserving PuLP name mapping — permitted **only** after a recorded P0R.1 no-go on the primary + a design-update approval (§18.8). Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})` + authoritative-record note.
 
 **Process-tree ownership = Node owns the process group (§24.2.2/§26.2.4/Q38/Q46 — the surviving actor).** A dead Python wrapper (SIGKILL) cannot kill CBC or clean its temp dir, so the surviving parent owns it. Exact protocol:
