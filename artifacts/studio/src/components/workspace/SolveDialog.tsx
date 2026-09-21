@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +12,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { OptimizationParametersField } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { BandChipEditor } from "@/components/workspace/tabs/BandChipEditor";
 import { useElapsed, type ElapsedJobStatus } from "@/lib/useElapsed";
+import { type CanonicalUnit } from "@workspace/units";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 /**
  * `"idle"` — dialog just opened / previous run finished cleanly.
@@ -60,8 +63,19 @@ interface SolveDialogProps {
   /** T2's per-model `ModelInfo.distanceUnit` ("mi" | "km"), so the bands
    * editor's label shows the right unit. Optional — defaults to "mi" (the
    * same default the public API boundary itself applies when a manifest
-   * predates this field, or before `useListModels` has resolved). */
+   * predates this field, or before `useListModels` has resolved). Ignored
+   * once `canonicalUnit` (below) is supplied. */
   distanceUnit?: string;
+  /** chen-bands-units, Part D opt-in — identical three-state contract to
+   * `OptimizationParametersTab`'s own `canonicalUnit` prop (see that file's
+   * doc comment): `undefined` -> legacy, unconverted, no `UnitProvider`
+   * dependency; `null` -> opted in but unresolved (disabled placeholder,
+   * no fallback); a resolved `CanonicalUnit` -> full display-unit-aware
+   * editing via `useDistanceDraft`, the SAME hook and math
+   * `OptimizationParametersTab` uses — one state source, not a parallel
+   * copy. `gap` / `timeLimitSec` / `coverageFloorDemand` are never gated
+   * or converted by this prop. */
+  canonicalUnit?: CanonicalUnit | null;
   /** C4.12/D13/D19 — hide the free-edit distance-bands chip editor. Chen's
    * bands are DERIVED (`[high, max]`), so Workspace passes `false` for Chen;
    * defaults true, so every other model's Solve dialog is unchanged. */
@@ -128,6 +142,7 @@ export function SolveDialog({
   timeLimitSec,
   distanceBands,
   distanceUnit,
+  canonicalUnit,
   showBandEditor = true,
   queuedAt,
   startedAt,
@@ -143,29 +158,11 @@ export function SolveDialog({
   onSolve,
 }: SolveDialogProps) {
   const busy = phase === "saving" || phase === "solving";
-  const [addingBand, setAddingBand] = useState(false);
-  const [newBandValue, setNewBandValue] = useState("");
 
   // jade B9 — live solve clock (spec §9). All four inputs are optional and
   // default to undefined; with none supplied `elapsed.label` is null and
   // nothing timing-related renders (every existing caller is unaffected).
   const elapsed = useElapsed({ queuedAt, startedAt, finishedAt, status: jobStatus });
-
-  // R5 — same add/remove logic as OptimizationParametersTab's own bands
-  // editor (dedupe, sort ascending), writing through the shared `onChange`
-  // so this dialog and that tab can never drift onto two different copies.
-  function addBand() {
-    const val = parseInt(newBandValue, 10);
-    if (!isNaN(val) && val > 0 && !distanceBands.includes(val)) {
-      onChange("distanceBands", [...distanceBands, val].sort((a, b) => a - b));
-    }
-    setNewBandValue("");
-    setAddingBand(false);
-  }
-
-  function removeBand(band: number) {
-    onChange("distanceBands", distanceBands.filter(b => b !== band));
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -231,20 +228,32 @@ export function SolveDialog({
               </div>
 
               {objective === "coverage" && (
-                <div>
-                  <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
-                    Avg service distance cap ({distanceUnit ?? "mi"})
-                  </Label>
-                  <Input
+                canonicalUnit !== undefined ? (
+                  <SolveDialogDistanceInput
                     id="solve-dialog-input-avg-service-cap"
-                    type="number"
-                    value={avgServiceDistCapKm ?? ""}
+                    testId="solve-dialog-input-avg-service-cap"
+                    labelPrefix="Avg service distance cap"
+                    canonicalUnit={canonicalUnit}
+                    value={avgServiceDistCapKm ?? 0}
                     disabled={busy}
-                    onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
-                    className="h-8 text-sm mt-1 font-mono"
-                    data-testid="solve-dialog-input-avg-service-cap"
+                    onCommit={v => onChange("avgServiceDistCapKm", v)}
                   />
-                </div>
+                ) : (
+                  <div>
+                    <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
+                      Avg service distance cap ({distanceUnit ?? "mi"})
+                    </Label>
+                    <Input
+                      id="solve-dialog-input-avg-service-cap"
+                      type="number"
+                      value={avgServiceDistCapKm ?? ""}
+                      disabled={busy}
+                      onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
+                      className="h-8 text-sm mt-1 font-mono"
+                      data-testid="solve-dialog-input-avg-service-cap"
+                    />
+                  </div>
+                )
               )}
 
               {objective === "min_distance" && (
@@ -300,100 +309,22 @@ export function SolveDialog({
 
           {/* R5 — distance-band range editor, prefilled from the scenario's
               current `inputs.distanceBands` and two-way synced with the same
-              draft `onChange` as p/gap/timeLimitSec above. Mirrors
-              OptimizationParametersTab's own bands chip editor exactly (same
-              add/dedupe/sort/remove behavior) so the two surfaces can never
-              show conflicting values for the same field. jade-INT
-              (workspace-fixups-2, item 7) — JADE renders this SAME editor now
-              (the fixed-4-slot `JadeBandEditor` is deleted; JADE's
-              `distanceBands` schema is `.min(1)` like every other model). */}
+              draft `onChange` as p/gap/timeLimitSec above. chen-bands-units,
+              T13 — now the SAME shared `BandChipEditor` OptimizationParametersTab
+              renders, so the two surfaces can never drift onto two different
+              add/remove implementations again. jade-INT (workspace-fixups-2,
+              item 7) — JADE renders this too (fixed-4-slot `JadeBandEditor`
+              deleted upstream; JADE's `distanceBands` schema is `.min(1)`
+              like every other model). */}
           {showBandEditor && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-foreground">
-                Distance bands ({distanceUnit ?? "mi"})
-              </Label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setAddingBand(true)}
-                disabled={busy}
-                data-testid="solve-dialog-button-bands-plus"
-                className="h-6 px-2 text-xs"
-              >
-                + Add
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {distanceBands.map(b => (
-                <span
-                  key={b}
-                  className="inline-flex items-center gap-1 text-xs bg-muted border border-border rounded px-2 py-1 font-mono"
-                  data-testid={`solve-dialog-band-${b}`}
-                >
-                  {b.toLocaleString()}
-                  <button
-                    type="button"
-                    aria-label={`Remove band ${b}`}
-                    data-testid={`solve-dialog-button-remove-band-${b}`}
-                    onClick={() => removeBand(b)}
-                    // item 7 (Codex plan-review P1) — never remove the LAST
-                    // remaining band: every free-chip model's schema is now
-                    // `.min(1)`, so emptying the array to [] would 422 on
-                    // Save. Disabling the last band's × control by
-                    // construction closes that gap (mirrors the add-side
-                    // dedupe guard above).
-                    disabled={busy || distanceBands.length <= 1}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </span>
-              ))}
-              {distanceBands.length === 0 && (
-                <span className="text-xs text-muted-foreground" data-testid="solve-dialog-bands-empty">
-                  No bands configured.
-                </span>
-              )}
-            </div>
-            {addingBand && (
-              <div className="flex gap-1.5">
-                <Input
-                  type="number"
-                  autoFocus
-                  value={newBandValue}
-                  onChange={e => setNewBandValue(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter") addBand();
-                    if (e.key === "Escape") {
-                      setAddingBand(false);
-                      setNewBandValue("");
-                    }
-                  }}
-                  className="h-7 text-xs w-28 font-mono"
-                  placeholder="e.g. 500"
-                  data-testid="solve-dialog-input-new-band"
-                />
-                <Button type="button" size="sm" onClick={addBand} className="h-7 px-2 text-xs" data-testid="solve-dialog-button-add-band-confirm">
-                  Add
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setAddingBand(false);
-                    setNewBandValue("");
-                  }}
-                  className="h-7 px-2 text-xs"
-                  data-testid="solve-dialog-button-add-band-cancel"
-                >
-                  Cancel
-                </Button>
-              </div>
-            )}
-          </div>
+            <BandChipEditor
+              bands={distanceBands}
+              onChange={bands => onChange("distanceBands", bands)}
+              disabled={busy}
+              distanceUnit={distanceUnit}
+              canonicalUnit={canonicalUnit}
+              testIdPrefix="solve-dialog-"
+            />
           )}
 
           {busy && (
@@ -441,5 +372,57 @@ export function SolveDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// chen-bands-units, T13, Step 3b — mirrors OptimizationParametersTab's own
+// `ChenDistanceInput`: adopts `useDistanceDraft` verbatim, only mounted once
+// the caller opts into `canonicalUnit` (undefined callers never trigger
+// `useDisplayUnit()` and need no `UnitProvider`). "One state source, not a
+// parallel copy" is satisfied by both call sites routing through the SAME
+// hook + the SAME `@workspace/units` conversion functions — not by sharing
+// this small presentational wrapper itself.
+function SolveDialogDistanceInput({
+  id,
+  testId,
+  labelPrefix,
+  canonicalUnit,
+  value,
+  onCommit,
+  disabled,
+}: {
+  id: string;
+  testId: string;
+  labelPrefix: string;
+  canonicalUnit: CanonicalUnit | null;
+  value: number;
+  onCommit: (canonicalValue: number) => void;
+  disabled?: boolean;
+}) {
+  const { effectiveUnit } = useDisplayUnit();
+  const draft = useDistanceDraft({ canonicalUnit, value, onCommit });
+  const unitLabel = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+  return (
+    <div>
+      <Label htmlFor={id} className="text-xs text-muted-foreground">
+        {labelPrefix}
+        {unitLabel ? ` (${unitLabel})` : ""}
+      </Label>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        value={draft.text}
+        disabled={disabled || draft.disabled}
+        onChange={e => draft.onChange(e.target.value)}
+        onBlur={draft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") draft.commit();
+          if (e.key === "Escape") draft.discard();
+        }}
+        className="h-8 text-sm mt-1 font-mono"
+        data-testid={testId}
+      />
+    </div>
   );
 }
