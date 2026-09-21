@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@workspace/api-client-react";
+import { roundForFile, type CanonicalUnit } from "@workspace/units";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,8 @@ import { formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor, type FilterValue } from "@/lib/useTableFilters";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer) in one flat array, keyed
@@ -122,12 +125,89 @@ interface JadeDistancesTabProps {
    * sources, else the canonical id — leaving this prop unset is
    * byte-unchanged. */
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
+  /** chen-bands-units, Task 12 — the active model's canonical distance unit
+   * ("km" | "mi"), sourced from the manifest. `null`/undefined while it
+   * hasn't resolved yet — there is NO fallback: every value/label below and
+   * every editable cell stays gated (no number, no unit suffix, disabled
+   * input) until this is authoritative (Part D, "No fallback unit"). Wired
+   * by Workspace.tsx (Task 14). */
+  canonicalUnit?: CanonicalUnit | null;
 }
 
 const LEG_LABEL: Record<JadeLeg, string> = {
   plant_to_warehouse: "Plant → Warehouse",
   warehouse_to_customer: "Warehouse → Customer",
 };
+
+// chen-bands-units, Task 12 — one row's Override cell, the triple-keyed
+// analogue of DistancesTab's own `DistanceOverrideCell` (same Rules-of-Hooks
+// reason: `useDistanceDraft` must be called unconditionally once per
+// row-component-instance, not inline inside the parent's `.map()`).
+// `currentValue` is undefined for a base row with no override yet — text is
+// forced blank whenever there's no override AND no in-progress draft.
+function JadeDistanceOverrideCell({
+  canonicalUnit,
+  currentValue,
+  resetKey,
+  onCommitValid,
+  inputTestId,
+  errorTestId,
+}: {
+  canonicalUnit: CanonicalUnit | null;
+  currentValue: number | undefined;
+  resetKey: unknown;
+  onCommitValid: (canonicalValue: number) => void;
+  inputTestId: string;
+  errorTestId: string;
+}) {
+  const draft = useDistanceDraft({
+    canonicalUnit,
+    value: currentValue ?? 0,
+    resetKey,
+    onCommit: v => {
+      if (Number.isFinite(v) && v > 0) onCommitValid(v);
+    },
+  });
+  const text = !draft.isDirty && currentValue == null ? "" : draft.text;
+
+  // Live, as-you-type domain validation — deliberately independent of the
+  // unit-toggle grammar's own notion of "complete" (mirrors DistancesTab's
+  // own `DistanceOverrideCell`, this component's non-triple-keyed sibling).
+  const trimmed = text.trim();
+  const numeric = trimmed === "" ? null : Number(trimmed);
+  const error =
+    trimmed !== "" && (numeric === null || Number.isNaN(numeric) || numeric <= 0)
+      ? "Distance must be a positive number."
+      : null;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {/* text (not type="number") — a native number input's own
+          sanitization silently strips a malformed string like "12abc" to
+          "" before onChange ever fires. */}
+      <Input
+        type="text"
+        inputMode="decimal"
+        value={text}
+        disabled={draft.disabled}
+        onChange={e => draft.onChange(e.target.value)}
+        onBlur={draft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") draft.commit();
+          else if (e.key === "Escape") draft.discard();
+        }}
+        aria-invalid={error ? "true" : undefined}
+        className={`h-7 text-xs w-24 font-mono ${error ? "border-destructive" : ""}`}
+        data-testid={inputTestId}
+      />
+      {error && (
+        <p className="text-[11px] text-destructive mt-0.5" data-testid={errorTestId}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function tripleKey(leg: string, fromId: string, toId: string): string {
   return `${leg}|${fromId}|${toId}`;
@@ -203,16 +283,30 @@ export function JadeDistancesTab({
   inactiveWarehouseIds,
   excludedCustomerIds,
   identityById,
+  canonicalUnit = null,
 }: JadeDistancesTabProps) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [addingRow, setAddingRow] = useState(false);
   const [newLeg, setNewLeg] = useState<JadeLeg>("plant_to_warehouse");
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
-  const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // chen-bands-units, Task 12 — display-unit label + the add-row Distance
+  // field's own draft (mirrors DistancesTab's identical pattern).
+  const { effectiveUnit, toDisplay } = useDisplayUnit();
+  const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+  const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
+  const newDistanceCanonicalRef = useRef<number | null>(null);
+  const newDistanceDraft = useDistanceDraft({
+    canonicalUnit,
+    value: 0,
+    resetKey: scenarioId,
+    onCommit: v => {
+      newDistanceCanonicalRef.current = v;
+    },
+  });
+  const newDistanceText = newDistanceDraft.isDirty ? newDistanceDraft.text : "";
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
@@ -408,33 +502,18 @@ export function JadeDistancesTab({
     return saved.distance !== current.distance;
   }
 
-  // Whole-value validation: `Number(raw.trim())`, NOT `parseFloat`, which
-  // would silently accept a numeric-prefix string like "12abc" as 12.
-  function editOverride(r: MergedRow, raw: string) {
+  // chen-bands-units, Task 12 — commit-to-parent logic invoked from
+  // `JadeDistanceOverrideCell`'s `onCommitValid` (fires only for a
+  // grammar-complete, positive canonical value on blur/Enter).
+  function commitOverride(r: MergedRow, canonicalValue: number) {
     const key = tripleKey(r.leg, r.fromId, r.toId);
-    setDrafts(prev => ({ ...prev, [key]: raw }));
-    const trimmed = raw.trim();
-    if (trimmed === "") {
-      setErrors(prev => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      return;
-    }
-    const n = Number(trimmed);
-    if (!Number.isFinite(n) || n <= 0) {
-      setErrors(prev => ({ ...prev, [key]: "Distance must be a positive number." }));
-      return;
-    }
-    setErrors(prev => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    const nextOverride: JadeDistanceOverride = { leg: r.leg, fromId: r.fromId, toId: r.toId, distance: n, estimated: undefined };
+    const nextOverride: JadeDistanceOverride = {
+      leg: r.leg,
+      fromId: r.fromId,
+      toId: r.toId,
+      distance: canonicalValue,
+      estimated: undefined,
+    };
     onChange(
       overrideByKey.has(key)
         ? distanceOverrides.map(o => (tripleKey(o.leg, o.fromId, o.toId) === key ? nextOverride : o))
@@ -445,30 +524,22 @@ export function JadeDistancesTab({
   function clearOverride(r: MergedRow) {
     const key = tripleKey(r.leg, r.fromId, r.toId);
     onChange(distanceOverrides.filter(o => tripleKey(o.leg, o.fromId, o.toId) !== key));
-    setDrafts(prev => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    setErrors(prev => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }
-
-  function draftFor(r: MergedRow): string {
-    const key = tripleKey(r.leg, r.fromId, r.toId);
-    return drafts[key] ?? (r.override ? String(r.override.distance) : "");
   }
 
   // loading: base cells show a spinner (not "—"), added-entity override rows
   // stay editable. error: base cells show "unavailable", override rows stay
   // editable. Only on SUCCESS does a genuinely base-absent pair (`base ===
-  // null`) show "—".
+  // null`) show "—". chen-bands-units, Task 12 — an unresolved canonicalUnit
+  // is treated as its own loading state, ahead of every other branch.
   function baseCell(r: MergedRow) {
+    if (canonicalUnit == null) {
+      return (
+        <Spinner
+          className="w-3 h-3"
+          data-testid={`spinner-jadedistance-unit-${r.leg}-${r.fromId}-${r.toId}`}
+        />
+      );
+    }
     if (referenceCapable) {
       if (referenceQuery.isLoading) {
         return (
@@ -480,7 +551,8 @@ export function JadeDistancesTab({
       }
       if (referenceQuery.isError) return "unavailable";
     }
-    return r.base == null ? "—" : r.base;
+    if (r.base == null) return "—";
+    return String(roundForFile(toDisplay(r.base, canonicalUnit)));
   }
 
   function fromRoleId(leg: JadeLeg): Set<string> {
@@ -493,13 +565,16 @@ export function JadeDistancesTab({
   function handleAddRow() {
     const fromId = newFrom.trim();
     const toId = newTo.trim();
-    const distance = parseFloat(newDistance);
+    // Resolve any pending typed value synchronously — see DistancesTab's
+    // identical pattern/comment.
+    newDistanceDraft.commit();
+    const distance = newDistanceCanonicalRef.current;
 
     if (!fromId || !toId) {
       setAddError("From ID and To ID are both required.");
       return;
     }
-    if (!Number.isFinite(distance) || distance <= 0) {
+    if (distance == null || !Number.isFinite(distance) || distance <= 0) {
       setAddError("Distance must be a positive number.");
       return;
     }
@@ -512,7 +587,8 @@ export function JadeDistancesTab({
     onChange([...distanceOverrides, { leg: newLeg, fromId, toId, distance }]);
     setNewFrom("");
     setNewTo("");
-    setNewDistance("");
+    newDistanceDraft.discard();
+    newDistanceCanonicalRef.current = null;
     setAddingRow(false);
   }
 
@@ -521,7 +597,8 @@ export function JadeDistancesTab({
     setNewLeg("plant_to_warehouse");
     setNewFrom("");
     setNewTo("");
-    setNewDistance("");
+    newDistanceDraft.discard();
+    newDistanceCanonicalRef.current = null;
     setAddError(null);
   }
 
@@ -600,10 +677,17 @@ export function JadeDistancesTab({
         data-testid="input-new-jadedistance-to"
       />
       <Input
-        type="number"
-        placeholder="Distance"
-        value={newDistance}
-        onChange={e => setNewDistance(e.target.value)}
+        type="text"
+        inputMode="decimal"
+        placeholder={unitSuffix("Distance")}
+        value={newDistanceText}
+        disabled={newDistanceDraft.disabled}
+        onChange={e => newDistanceDraft.onChange(e.target.value)}
+        onBlur={newDistanceDraft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") newDistanceDraft.commit();
+          else if (e.key === "Escape") newDistanceDraft.discard();
+        }}
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-jadedistance-value"
       />
@@ -651,8 +735,8 @@ export function JadeDistancesTab({
                 <TableHead>Leg</TableHead>
                 <TableHead>From</TableHead>
                 <TableHead>To</TableHead>
-                <TableHead>Base</TableHead>
-                <TableHead>Override</TableHead>
+                <TableHead>{unitSuffix("Base")}</TableHead>
+                <TableHead>{unitSuffix("Override")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -662,7 +746,6 @@ export function JadeDistancesTab({
                 const changed = isChangedRow(r);
                 const fromUnknown = !fromRoleId(r.leg).has(r.fromId);
                 const toUnknown = !toRoleId(r.leg).has(r.toId);
-                const error = errors[key];
                 return (
                   <TableRow
                     key={key}
@@ -711,19 +794,13 @@ export function JadeDistancesTab({
                     <TableCell className="font-mono text-xs">{baseCell(r)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {/* text (not type="number") — a native number input's
-                            own sanitization silently strips a malformed
-                            string like "12abc" to "" before onChange fires,
-                            which would make the whole-value Number()-vs-
-                            parseFloat distinction below unreachable. */}
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          value={draftFor(r)}
-                          onChange={e => editOverride(r, e.target.value)}
-                          aria-invalid={error ? "true" : undefined}
-                          className={`h-7 text-xs w-24 font-mono ${error ? "border-destructive" : ""}`}
-                          data-testid={`input-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
+                        <JadeDistanceOverrideCell
+                          canonicalUnit={canonicalUnit}
+                          currentValue={r.override?.distance}
+                          resetKey={`${scenarioId ?? ""}:${r.override ? "1" : "0"}`}
+                          onCommitValid={v => commitOverride(r, v)}
+                          inputTestId={`input-jadedistance-${r.leg}-${r.fromId}-${r.toId}`}
+                          errorTestId={`text-jadedistance-error-${r.leg}-${r.fromId}-${r.toId}`}
                         />
                         {r.override?.estimated && (
                           <span
@@ -742,14 +819,6 @@ export function JadeDistancesTab({
                           </span>
                         )}
                       </div>
-                      {error && (
-                        <p
-                          className="text-[11px] text-destructive mt-0.5"
-                          data-testid={`text-jadedistance-error-${r.leg}-${r.fromId}-${r.toId}`}
-                        >
-                          {error}
-                        </p>
-                      )}
                     </TableCell>
                     <TableCell>
                       {(r.override || r.base == null) && (
