@@ -1,7 +1,7 @@
 # SCND Solver Result Contract — Spec
 
 **Date:** 2026-09-21
-**Status:** **Approved to execute P0R.1 (go/no-go CBC-evidence spike) and P0R.2 fixture *capture* only. P0R.2 parser tests depend on P0R.1; P0R.3–P0R.4 are conditionally specified and require a post-spike design update + approval review** (§16.6/Q15, §18). Incorporates reviews §14/§16/§18 and decisions Q4–Q21.
+**Status:** **Approved to execute P0R.1 (go/no-go CBC-evidence spike) and P0R.2 fixture *capture* only. P0R.2 parser tests depend on P0R.1; P0R.3–P0R.4 are conditionally specified and require a post-spike design update + approval review** (§16.6/Q15, §18). Incorporates reviews §14/§16/§18/§20/§22 and decisions Q4–Q36.
 **Sacred-test authorization — DEC-2026-09-21-01:** durable, independently-auditable product-owner approval at **GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19)** — verbatim: *"I approve DEC-2026-09-21-01: update e2e_accuracy.py status/termination assertions based on committed CBC evidence, with zero changes to golden objective values."* (resolves §20.2.1). Scope: a narrow, **evidence-driven** correction to `e2e_accuracy.py` approximate-case assertions with **zero golden-objective changes**. Referenced by §3 P0R.4 and §4.
 **Program context:** Carved from `2026-09-20-scnd-scaling-phase0-design.md` (§13 ledger) per Q1=Split. Standalone.
 
@@ -27,7 +27,7 @@ Verified facts driving the contract:
 
 ### 2.1 Two dimensions
 - `solutionStatus`: `optimal | feasible | infeasible | unbounded | no_solution | error`
-- `terminationReason` (closed): `optimality_proven | gap_limit | time_limit | node_limit | infeasible | unbounded | interrupted | solver_error | unknown`
+- `terminationReason` (closed): `optimality_proven | gap_limit | time_limit | node_limit | infeasible | unbounded | interrupted | solver_error | data_error | model_error | internal_error | unknown`. **Error taxonomy (§22.2.3/Q32) is operator/telemetry/Sentry-facing** — `solver_error` = CBC started then failed/abandoned/numerically errored; `data_error` = dataset/config load/validate failure; `model_error` = dispatch/model construction failed before CBC; `internal_error` = unexpected application exception. Students see only the coarse derived `quality` string, never the raw reason. Spawn/outer-timeout/JSON/schema failures are **not** reasons — they are a failed job with no published result.
 
 ### 2.2 Fields
 - `envelopeVersion`: `2` for new solver output/writes. (Historical rows are **unversioned**, not `1`; the number `1` denotes the *normalized read view* only — §2.7.)
@@ -53,9 +53,9 @@ Verified facts driving the contract:
 | `infeasible` | `infeasible` | all null |
 | `unbounded` | `unbounded` | all null |
 | `no_solution` | `time_limit \| node_limit \| interrupted` | objective null; solverIncumbent null; achievedGap null; **`solverBestBound: number \| null`** (§20.2.3/Q24 — CBC can expose a bound with no incumbent via `Cbc_getBestPossibleObjValue`) |
-| `error` | `solver_error` | all null |
+| `error` | `solver_error \| data_error \| model_error \| internal_error` | all null |
 
-**No `objective === solverIncumbentObjective` invariant** (§18.2 — units/rounding differ per model). `status` equals §2.3 projection; `quality` equals §2.5. Other combinations schema-**rejected**.
+`quality` for every `error/*` pair = "Solver error" (coarse, student-facing); the specific reason is operator-only. **No `objective === solverIncumbentObjective` invariant** (§18.2 — units/rounding differ per model). `status` equals §2.3 projection; `quality` equals §2.5. Other combinations schema-**rejected**.
 
 ### 2.5 `quality` strings (exact)
 `optimal/optimality_proven`→"Proven optimal" · `feasible/gap_limit`→"Feasible — stopped at gap limit" · `feasible/time_limit`→"Feasible — time limit reached" · `feasible/node_limit`→"Feasible — node limit reached" · `feasible/interrupted`→"Feasible — interrupted" · `infeasible/infeasible`→"Infeasible" · `unbounded/unbounded`→"Unbounded" · `no_solution/*`→"No solution found" · `error/solver_error`→"Solver error".
@@ -72,13 +72,30 @@ Read-time only, no backfill/re-solve. Normalized v1 from a stored legacy-nested 
 - `envelopeVersion:1`, `solutionStatus:null`, `terminationReason:"unknown"`, `legacyUnverified:true`;
 - `legacyStatus` = the raw historical `status` (isolated; **not** re-exposed as the truthful `status`);
 - `quality` = a **non-proof** legacy string, e.g. `"Legacy result (unverified)"` — **never** "Proven optimal"/"Optimal" (would recreate the false-proof defect);
-- **preserve payload:** `objective` (as-stored; a legacy no-result `0` sentinel is normalized to `null`), `runTimeSec`, `edges`, `metrics`, `details`, `solverUsed`, `infeasibilityReason` carried through unchanged;
+- **preserve payload:** `runTimeSec`, `edges`, `metrics`, `details`, `solverUsed`, `infeasibilityReason` carried through unchanged;
+- **`objective` (status/evidence-aware, §22.2.4/Q33 — never `===0` alone):** legacy `status:"infeasible"|"error"` → `objective:null`; legacy successful/`optimal` row → **preserve the stored numeric (including a legitimate `0`** — zero-demand scenarios can solve to 0); malformed/contradictory legacy row → conservative, explicitly-tested rule;
 - new solver-evidence fields (`solverIncumbentObjective`/`solverBestBound`/`achievedGap`) = `null`.
 
-Old **result-cache** rows: **cache miss** (re-solve under v2), not normalized — the composite solver-contract version (§2.10) changes anyway. **Every named read/export/template/history/telemetry boundary (§20.2.2/Q29) gets an explicit accept/normalize/reject decision in P0R.3 — no "define later" placeholder.**
+### 2.7.1 Normative legacy-consumer boundary matrix (§22.2.1/Q30 — decided now, no "define later")
 
-### 2.10 Composite solver-contract / cache version (§20.2.5/Q26)
-Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace with a **composite version** hashing everything that can change result semantics: `solve.py` + the P0R.1 termination wrapper/parser module(s) + relevant model/config code + the CBC/PuLP versions. Add a test proving a **parser/contract-version bump invalidates the cache even when `solve.py` bytes and inputs are unchanged.**
+| Boundary | Decision |
+|---|---|
+| Scenario list/get + `toApiScenario()` (`routes/scenarios.ts:131–153`) | **Normalize** stored legacy → v1 view. |
+| Output exports (`assignments`/`openWarehouses`/`costSummary`/`serviceStats`/`flows`) | **Reject** a legacy-unverified result with a defined "re-solve to export" error (Q30) — never export data of unknowable proof state. |
+| Input/template exports | Result-contract version **irrelevant** (no result read); unaffected. |
+| Solve history `resultSummary` | Handled **separately** from `scenarios.result`; legacy summaries read as-is, tagged unverified; no promotion to proven. |
+| Telemetry (`solve-completed`) | Legacy reads **tagged** `legacyUnverified`; new solves emit v2. |
+| Smoke checks / tests | Each states which schema it validates (`SolverEnvelopeV2Schema` for new; `NormalizedSolveResultSchema` for reads). |
+| Result cache (unversioned rows) | **Cache miss / re-solve** (composite version §2.10 changes anyway). |
+
+### 2.10 Composite solver-contract / cache version (§20.2.5/§22.2.6/Q26/Q35)
+Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace with a **composite version**. The **post-spike design update** must define it **deterministically** (§22.2.6/Q35):
+- an explicit **sorted manifest** of hash-input files (`solve.py` + P0R.1 wrapper/parser module(s) + relevant model/config code) — or a build-generated manifest;
+- **byte-delimited hashing** including each path + contents unambiguously (stable ordering/encoding);
+- the **pinned PuLP version** + an authoritative **CBC binary version/build identifier**;
+- **fail-closed startup** if any required hash input/version can't be read;
+- an explicit **`SOLVER_CONTRACT_VERSION`** constant for semantic changes not represented by file bytes;
+- tests proving a change to the parser, wrapper, dependency/build identifier, **or** the contract constant each invalidates the cache, while identical artifacts stay stable.
 
 ### 2.8 Lifecycle + cache/publish policy (§14.2/Q6) — branch before cache-write/`markSucceeded`
 `optimal`→succeeded/cache/publish · `feasible`→succeeded/cache **only with full gap-time-version key**/publish-labelled · `infeasible`,`unbounded`→succeeded/cache/publish · `no_solution`→succeeded/**no cache**/publish-no-incumbent · `error`→**failed/no cache/no publish**.
@@ -97,12 +114,12 @@ Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace wi
 
 Each row is the exact current derivation (preserve goldens); no ellipsis. Implement as a named per-model function.
 
-Canonical `achievedGap` (one authority, §18.7/§20.2.4/Q25): computed **in the solver's objective space** as `abs(solverIncumbentObjective - solverBestBound) / (abs(solverIncumbentObjective) + EPS)`, `EPS=1e-10`. Domain **non-negative and unbounded — NOT clamped** (a poor incumbent or objective crossing zero can legitimately exceed 1.0, matching CBC `ratioGap`'s `0..∞`). Null when incumbent or bound absent. Absolute numerator (handles min/max + negative objectives); explicit near-zero-incumbent policy (the `EPS` denominator floor is the documented rule, not silent). **Serialized to 6 decimal places.** A parsed CBC-reported gap, if available, is retained **only as separate evidence**, never as the `achievedGap` field. P0R.2 fixtures must cover minimization, maximization, negative objective, zero/near-zero incumbent, and a gap `> 1.0`.
+Canonical `achievedGap` (one authority, §18.7/§20.2.4/§22.2.5/Q25/Q34): a **numeric** JSON field computed in the solver's objective space as **`round(abs(solverIncumbentObjective - solverBestBound) / max(abs(solverIncumbentObjective), EPS), 6)`**, `EPS=1e-10`. The denominator is an explicit **floor** (`max(…, EPS)`), **not** `+EPS` (§22.2.5). Domain **non-negative and unbounded — NOT clamped** (can exceed 1.0, matching CBC `ratioGap` `0..∞`). Null when incumbent or bound absent. Absolute numerator (min/max + negative objectives). Zero policy: `I==B==0` → `0`. It is a **number rounded to ≤6 fractional digits**, not a fixed-width string; display formatting is a frontend concern, kept out of the evidence field. A parsed CBC-reported gap, if available, is separate evidence, never this field. P0R.2 fixtures cover minimization, maximization, negative objective, zero/near-zero incumbent, and a gap `> 1.0`.
 
 ## 3. Tasks
 
 ### P0R.1 — CBC termination-evidence spike (**go/no-go; gates P0R.3**) — APPROVED TO EXECUTE
-PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally before returning; `keepFiles=True` names collide under concurrency. **Primary approved approach (Q8):** a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing unique temp paths + **per-solve unique temp dir + unique problem name**, parsing before deletion. **Fallback:** a controlled direct CBC subprocess preserving PuLP name mapping — permitted **only** after a recorded P0R.1 no-go on the primary + a design-update approval (§18.8). Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})` + authoritative-record note. **Go/no-go acceptance:** concurrent same-name solves don't collide; cleanup on success/parser-error/timeout/kill; path-traversal-safe; no repo artifacts; never classify by wall-clock. **P0R.3 blocked until this passes + post-spike review.**
+PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally before returning; `keepFiles=True` names collide under concurrency. **Primary approved approach (Q8):** a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing unique temp paths + **per-solve unique temp dir + unique problem name**, parsing before deletion. **Fallback:** a controlled direct CBC subprocess preserving PuLP name mapping — permitted **only** after a recorded P0R.1 no-go on the primary + a design-update approval (§18.8). Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})` + authoritative-record note. The wrapper launches CBC in **its own process group** and owns bounded termination of it (§22.2.2/Q31 — killing the Python child does NOT kill the CBC grandchild on Linux; `SIGKILL` skips Python `finally`, so cleanup is parent/janitor-owned). **Go/no-go acceptance:** concurrent same-name solves don't collide; cleanup on success/parser-error/timeout/kill; path-traversal-safe; no repo artifacts; never classify by wall-clock; **and a no-orphan test that records the Python + CBC PIDs, triggers the outer timeout/cancel path, and proves within a bounded interval that no CBC descendant survives, the result publishes at most once / job fails once, the temp dir is reclaimed, and repeated timeouts accumulate no processes/artifacts.** (Bounded process-group kill only; full graceful-drain stays B2.) **P0R.3 blocked until this passes + post-spike review.**
 
 ### P0R.2 — fixtures (capture APPROVED now) + parser tests (after P0R.1)
 Four **separate** test categories (§20.2.7/Q28), not one CBC-fixture set:
@@ -131,7 +148,7 @@ Four **separate** test categories (§20.2.7/Q28), not one CBC-fixture set:
 - **Acceptance:** full repo gate green; **both** `e2e_accuracy.py` (evidence-corrected, unchanged objectives) **and** repaired `e2e_journey.py` pass; a gap-stopped solve reports `feasible`+`gap_limit`; a legacy row reads `legacyUnverified`, never `optimal`; `achievedGap` matches fixture values.
 
 ## 4. Hard-rule guardrails
-- **#2:** `e2e_accuracy.py` corrected only per **DEC-2026-09-21-01** (authorized by the in-session Q4+Q10 selections, recorded in the header) — evidence-driven assertions, **zero golden-objective changes**.
+- **#2:** `e2e_accuracy.py` corrected only per **DEC-2026-09-21-01**, authorized at **GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19)** (§20.2.1/Q22/Q36) — evidence-driven status/termination assertion changes, **zero golden-objective changes**. Every DEC reference (header, this guardrail, P0R.4, commit body) cites issue #19.
 - **#1:** OpenAPI + regen one commit; generated never hand-edited.
 - **#4:** one task = one commit, `[P0R.N] <summary>`.
 - No solver **math** changes; both standalone e2e scripts run after solver changes (AGENTS.md).
