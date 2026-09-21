@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { UnitProvider } from "@/contexts/UnitContext";
 
 // chen-bands-units, Part D — components rendered inside this tree now read the
@@ -1121,6 +1121,135 @@ describe("Workspace — Optimization Parameters tab", () => {
     expect(screen.queryByTestId("text-unsaved-changes")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("button-p-quick-10"));
     expect(screen.getByTestId("text-unsaved-changes")).toBeInTheDocument();
+  });
+});
+
+// chen-bands-units, Part A (decision 1i), Task 14 Step 1/5 — the dirty-nav
+// prompt intercepting stepResultBack/Forward while an ORDINARY input edit is
+// unsaved. Builds the same 2-entry history Task 6's own tests already
+// establish (resultA/p=3, resultB/p=10), then makes a THIRD, unsaved
+// ordinary edit on top of the latest entry before stepping back.
+describe("Workspace — dirty-nav prompt (chen-bands-units, decision 1i)", () => {
+  const resultA = {
+    status: "optimal" as const, objective: 111, runTimeSec: 0.1, quality: "Proven optimal",
+    edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+  };
+  const resultB = { ...resultA, objective: 222 };
+  const scenarioWithA = { ...scenario, inputs: { ...pmedianInputs, p: 3 }, result: resultA, stale: false };
+  const scenarioWithB = { ...scenario, inputs: { ...pmedianInputs, p: 10 }, result: resultB, stale: false };
+
+  async function buildTwoEntryHistoryAtLatest() {
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess());
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) =>
+      opts.onSuccess({ jobId: 7 }),
+    );
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "succeeded", error: null, resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    const view = renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithA } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("1/1");
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-10"));
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+    mockUseGetScenario.mockReturnValue({ data: scenarioWithB } as unknown as ReturnType<typeof useGetScenario>);
+    view.rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
+    expect(await screen.findByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    // Reset the mutate mock's implementation so the dirty-nav prompt's own
+    // Save action (below) starts from a clean slate, not still wired to
+    // auto-succeed from the setup solves above.
+    mockUpdateScenario.mutate.mockReset();
+  }
+
+  it("intercepts Back with an unsaved ordinary edit on the latest entry — a REJECTED Save leaves everything exactly as it was", async () => {
+    await buildTwoEntryHistoryAtLatest();
+
+    // Unsaved ordinary edit on top of the latest (2/2, p=10) entry.
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
+    // Index has NOT changed yet — the prompt intercepted, it didn't navigate.
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onError: (e: unknown) => void }) =>
+      opts.onError(new Error("HTTP 422: invalid input")),
+    );
+    fireEvent.click(screen.getByTestId("dirty-nav-save"));
+
+    await screen.findByTestId("save-error");
+    // Index unchanged, draft unchanged, dialog still open.
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
+  });
+
+  it("a SUCCESSFUL Save from the prompt proceeds with navigation", async () => {
+    await buildTwoEntryHistoryAtLatest();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.getByTestId("dirty-nav-prompt")).toBeInTheDocument();
+
+    mockUpdateScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (u: unknown) => void }) =>
+      opts.onSuccess({ ...scenarioWithB, inputs: { ...scenarioWithB.inputs, p: 25 } }),
+    );
+    fireEvent.click(screen.getByTestId("dirty-nav-save"));
+
+    await waitFor(() => expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument());
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+  });
+
+  it("Discard reverts the draft to the last-saved snapshot and proceeds with navigation", async () => {
+    await buildTwoEntryHistoryAtLatest();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    fireEvent.click(screen.getByTestId("dirty-nav-discard"));
+
+    expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    // Stepped to the entry that produced resultA (p=3), not the discarded p=25.
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
+  });
+
+  it("Cancel leaves the index and the draft completely untouched", async () => {
+    await buildTwoEntryHistoryAtLatest();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-p-quick-25"));
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    fireEvent.click(screen.getByTestId("dirty-nav-cancel"));
+
+    expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("2/2");
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("25");
+  });
+
+  it("an unsaved band-lens-only edit never prompts — navigation proceeds immediately", async () => {
+    await buildTwoEntryHistoryAtLatest();
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    fireEvent.click(screen.getByTestId("button-remove-band-400"));
+
+    fireEvent.click(screen.getByTestId("button-result-back"));
+    expect(screen.queryByTestId("dirty-nav-prompt")).not.toBeInTheDocument();
+    expect(screen.getByTestId("text-result-history-position")).toHaveTextContent("1/2");
   });
 });
 
