@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §26 findings resolved (Q43–Q49 answered 2026-09-21, see §27).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20/§22/§24/§26 successive reviews; §15/§17/§19/§21/§23/§25/§27 resolutions. Execution authorization: **P0R.1 evidence spike (go/no-go not yet accepted) + P0R.2 attainable-CBC fixture capture**; P0R.2 parser tests depend on accepted P0R.1 evidence; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1). Measurement and B2 remain TBD. **User direction 2026-09-21: keep refining the contract before executing the spike.**
+**Status:** **SUPERSEDED — audit/split ledger; §28 under resolution (Q50 open, Q51–Q57 folding in — see §29).** **P0R.1 is on HOLD / not authorized to start** (Q55 — latest user direction: refine the contract first). §§0–12 audit trail; §13 split map; §14–§28 successive reviews; §15/§17/§19/§21/§23/§25/§27/§29 resolutions. P0R.2 attainable-CBC fixture capture retains evidence-only approval; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1); it does **not** authorize any solver behavioral change (see Q50). Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -1625,3 +1625,158 @@ Until every applicable item above is closed, §25's statement that the §24 find
 | **Q49** provenance | Successor header updated to §14–§24 / Q4–Q42 + open gates (Q35/Q41, Q43–Q49); execution authority kept distinct from implementation approval. | Correctness spec header. |
 
 **User direction (2026-09-21):** keep refining the contract before executing the spike. §26 findings folded into the successor; genuinely evidence-gated exactness (Q35 CBC build identity, Q46 real reap timing, parser records) still finalizes in the **post-spike design update**. §26 resolved.
+
+---
+
+## 28. Deep approval validation — post-§27 behavioral, cache, and rollout review (2026-09-21)
+
+### 28.1 Approval decision
+
+**Decision: NOT APPROVED. P0R.1 is on HOLD.** The §27 resolution improves schema and process direction, but it introduces an unauthorized 60-second behavioral cap, makes requested metadata incompatible with effective-only cache identity, leaves the private failure protocol and public error API underspecified, and does not define a safe rolling deployment for the breaking v2 contract. The explicit user direction to refine before executing the spike controls over the older "approved to execute" wording.
+
+| Scope | Decision | Reason |
+|---|---|---|
+| Ledger claim that §26 is fully resolved | **NOT APPROVED** | Q50–Q57 remain open; multiple §27 decisions are internally inconsistent or not assigned to a work package. |
+| P0R.1 evidence spike | **HOLD — NOT AUTHORIZED TO START** | Latest user direction requires contract refinement first; Q50–Q57 include non-evidence product/rollout decisions. |
+| P0R.2 attainable-CBC fixture capture | **APPROVED AS EVIDENCE-ONLY** | Prior narrow approval remains; fixtures must not alter/deploy solver behavior. |
+| P0R.2 parser tests | **BLOCKED ON ACCEPTED P0R.1 EVIDENCE/INTERFACE** | Parser expectations depend on the accepted authoritative records/interface. |
+| P0R.3 and P0R.4 | **NOT APPROVED** | Require closure of Q50–Q57, P0R.1 evidence, a post-spike update, and a new approval review. |
+| `DEC-2026-09-21-01` | **AUTHORIZED, SCOPE UNCHANGED** | Allows evidence-driven status/termination assertion correction only, with zero golden-objective changes. |
+| Measurement plan and B2 topology | **TBD / NOT APPROVED** | Platform ceilings remain valid, but capacity and cost topology remain measurement-gated. |
+
+### 28.2 Findings requiring correction
+
+#### 28.2.1 CRITICAL — the 60-second clamp changes existing solver behavior without authorization
+
+Successor §2.12 changes `timeLimitSec` to default 60 / maximum 60 / clamp above. The shipped application defaults every Workspace model to 120 seconds, UI fallbacks use 120, protected `e2e_accuracy.py` cases use 120 and 180, and all six manifests currently require the supplied value with no maximum. Clamping those cases to 60 is not merely result metadata: it changes the CBC stopping condition and can change termination classification, incumbent quality, and potentially golden objectives.
+
+`DEC-2026-09-21-01` authorizes evidence-driven status/termination assertion changes with **zero golden-objective changes**. It does not authorize shortening solve duration. The phrase `gap default 0 (proven)` also contradicts the central rule that a requested gap does not prove the achieved outcome; a zero requested gap can still end at a time/node/interruption limit.
+
+**Required correction:** preserve current effective time limits during P0R unless the product owner explicitly approves a behavioral ceiling backed by benchmark/CBC evidence. If a ceiling is desired, record its rationale, affected existing scenarios/tests/UI/manifests, migration behavior, objective/status evidence, and separate authorization. Replace "0 (proven)" with "0 (requests zero relative-gap tolerance); outcome remains evidence-derived."
+
+#### 28.2.2 HIGH — effective-only cache identity cannot safely return requested-value metadata
+
+Successor §2.12 requires every terminal envelope to contain original requested and effective configured pairs, while the cache key uses only effective values. With clamping, requests such as 61 and 300 seconds both configure to 60 and share a cache key. An immutable cached envelope created by the first request would then return the wrong `requestedTimeLimitSec` to the second. The same defect applies to clamped gap values.
+
+The default case is also undefined: if a field is omitted, "as submitted" implies missing/null, while §2.12 requires all four fields to be numeric and always emitted.
+
+**Required correction:** separate request audit metadata from the cacheable computation artifact. Recommended contract:
+
+- job/request record owns original requested values (nullable when omitted, or explicitly records `source: default|request`);
+- cacheable solver result owns configured/effective values and evidence only;
+- cache key remains based on effective computation identity; and
+- API composition attaches the current job's requested values after cache lookup.
+
+The alternative is including requested values in the key, which is correct but needlessly fragments equivalent compute results. Whichever policy is chosen, specify retries and cache-hit reconstruction tests.
+
+#### 28.2.3 HIGH — the private failure protocol and public failure API remain non-executable
+
+Successor §2.11 calls the channel "defined" but does not define the transport (extra fd, stdout wrapper, file, or other), framing, exact schema, maximum size, ordering, partial-message behavior, or what happens when public and private halves disagree. It also says Node maps every failure path, but the four-value internal enum does not represent spawn failure, outer timeout, nonzero exit, invalid JSON, schema rejection, cleanup failure, or restart interruption.
+
+The public `SolveJob.error` replacement is described only as "code + safe message" without field names, stable code enum, status-by-code mapping, or backward compatibility. Finally, sanitizing arbitrary raw exception/stdout/stderr text cannot reliably prove that unknown secrets were removed.
+
+**Required correction:** define an exact bounded `SolverProcessMessage` schema and transport; a complete internal job-failure taxonomy or `failureReason` + `failureStage`; a fixed public `errorCode` enum and safe-message table; mismatch/partial/oversize handling; and allowlisted structured diagnostics generated at failure sites. Raw stdout, stderr, payloads, paths, and arbitrary exception text must never flow through a generic sanitizer into public storage. Define Sentry as an operator sink with sanitized structured detail, not as a public leakage surface.
+
+#### 28.2.4 HIGH — the P0R.3 work package does not implement the §27 decisions
+
+Successor P0R.3 still omits named tasks for the `solve_jobs` schema push, private process-message validation, granular failure persistence, public solve-job error replacement, four requested/configured limit fields, one-point limit normalization, typed history summaries, telemetry changes, and leakage tests. Its `solve.py` task also omits the §2.12 fields. The general §2.2 field list remains stale, listing only `requestedGap` and `configuredTimeLimitSec` rather than both requested/configured pairs.
+
+An implementer following §3 can therefore complete every listed task without implementing Q43/Q45/Q48 while still claiming P0R.3 complete.
+
+**Required correction:** rewrite P0R.3 so every Q43–Q48 decision has an explicit file/change, owner/seam, acceptance test, schema/codegen step, database push step, and rollback requirement. Reference canonical clauses rather than copying divergent field subsets. Update §2.2 to the complete contract.
+
+#### 28.2.5 HIGH — "atomic consumer migration" is not a viable Render rollout or rollback plan
+
+P0R.3 changes the persisted result version, expands/makes nullable public status, replaces the public job-error shape, adds database columns, regenerates clients, and changes frontend rendering. The API and static Studio are separate Render services and do not deploy atomically. API deployments can also overlap old and new instances. Q47 protects cache keys only; it does not stop an old API instance from writing an unversioned scenario result during rollout, an old frontend from reading v2, or a rolled-back API from encountering v2 rows.
+
+**Required correction:** define an additive, staged release:
+
+1. push nullable DB columns and deploy readers/API schemas that accept v1 and v2 while continuing to write v1;
+2. deploy a frontend compatible with both contracts and an additive public job-error transition;
+3. after old API instances have drained and compatibility smoke tests pass, enable v2 writes behind a server-side flag;
+4. preserve dual-read/rollback compatibility for a defined window before removing deprecated fields.
+
+Specify schema-push ownership/timing, feature-flag default, drain/health evidence, old-writer/new-reader and new-writer/old-reader tests, rollback behavior for v2 scenario/cache rows, and deploy ordering between `nos-api` and `nos-studio`.
+
+#### 28.2.6 HIGH — the normative approval state contradicts the recorded user direction
+
+The ledger header says P0R.1 is authorized; §27 says to keep refining before executing it; the successor says Q43–Q49 are open until the post-spike update; and §27 simultaneously declares §26 resolved. These statements cannot all control. Several Q43–Q49 items are product/schema/rollout decisions that do not require CBC evidence and should not be deferred past the spike merely because some Q35/Q46 details are evidence-gated.
+
+**Required correction:** make the latest user direction authoritative: mark P0R.1 **HOLD / not authorized to start** until Q50–Q57 are resolved. Separate:
+
+- decisions that must close before the spike (limits, cache metadata, message/API schema, work-package ownership, rollout, authority state, telemetry lifecycle); from
+- evidence that can close only after the spike (actual CBC records, authoritative build identity, measured TERM/KILL/reap timing).
+
+Do not label a review resolved while its successor header explicitly carries the same questions as open.
+
+#### 28.2.7 MEDIUM — telemetry rules do not match when legacy, success, and failure events occur
+
+`"scenario solve completed"` is emitted for a fresh solve or cache hit. A legacy result is encountered during scenario/history reads, not during a new solve; legacy cache rows are mandated cache misses. Therefore `result_contract:"legacy"` has no coherent path on the completed event. The clause also mentions failed-job emission rules even though failures use `"scenario solve failed"`. Its new prohibition on objective contents conflicts with the current completed event, which emits `objective`.
+
+**Required correction:** define telemetry separately:
+
+- fresh/cache-hit `scenario solve completed` — necessarily v2 after cutover, with its exact allowed properties;
+- `scenario solve failed` — internal bounded failure tags only, with no result-contract claim unless defined; and
+- normalized legacy reads — either no telemetry, or a separate explicitly justified/read-sampled event to avoid high-cardinality/noisy read tracking.
+
+State whether the existing objective property is removed, why, and which dashboards/analytics migrate. Add tests to every actual emission site rather than one abstract matrix row.
+
+#### 28.2.8 MEDIUM — public `error` results are unreachable under the selected lifecycle
+
+The target contract calls `solutionStatus:error` + `terminationReason:solver_error` + `quality:"Solve failed"` a public result, but §2.8 requires every error to mark the job failed, skip cache, and **not publish** a scenario result. Public clients therefore observe a failed `SolveJob`, not an error-shaped `Scenario.result`. Keeping an unreachable error branch in the public result union invites frontend and OpenAPI behavior that can never occur.
+
+**Required correction:** choose one authority. Recommended: retain error outcomes in the runner-private/raw solver message for validation and internal classification, remove them from the public published scenario-result union, and make the public job-error code/message the only failure surface. If an error result must be public, define exactly where it is published and reconcile that with §2.8.
+
+### 28.3 Validated improvements and external facts
+
+- Q44 now makes normalized legacy explicit with `status:null`, `legacyStatus` isolated, and v2-only evidence fields null.
+- Q46's Node-owned `mkdtemp`, POSIX process-group ownership, direct-child wait, group-death probe, and Linux no-orphan acceptance direction are implementable; measured timing remains evidence-gated.
+- Q47 correctly prevents P0R.1/P0R.2 artifacts from entering a release under the old solve.py-only cache identity.
+- The durable DEC artifact remains narrowly valid; this review does not reopen its authorized status/termination-only scope.
+- Current Render documentation still confirms **12 CPU** as the eligible web/private/background-worker ceiling and **100 same-plan instances per service**. Sources: [Render compute plans](https://render.com/docs/compute-plans), [Render service scaling](https://render.com/docs/scaling). These limits do not validate the proposed 60-second product cap or any worker-count/cost conclusion.
+
+### 28.4 Decisions/questions required (Q50–Q57)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q50 — solver-limit compatibility** | Is the 60-second default/cap authorized despite shipped 120/180-second behavior and protected cases? | Preserve existing limits until benchmark evidence and explicit product authorization support a change; never call requested gap 0 "proven." |
+| **Q51 — requested metadata vs cache** | How can an effective-key cache return request-specific audit values? | Keep requested values on the job/request and effective evidence in the cache; compose on read. |
+| **Q52 — failure message/API** | What exact private transport/schema, complete failure taxonomy, public code/message shape, and diagnostic policy apply? | Define a bounded runner message, structured allowlisted diagnostics, complete Node/Python mappings, and stable public code enum. |
+| **Q53 — P0R.3 ownership** | Which task implements each Q43–Q48 contract and DB/API/frontend seam? | Rewrite P0R.3 with explicit files, schema push, codegen, tests, rollout and rollback acceptance. |
+| **Q54 — staged deployment** | How do separately deployed API/Studio and overlapping API instances safely cross the breaking v1→v2 boundary? | Reader-first, frontend-compatible, feature-flagged writer cutover, compatibility window, then cleanup. |
+| **Q55 — execution authority** | Does the older P0R.1 approval or the later refine-before-spike direction control? | Latest user direction controls: P0R.1 remains on HOLD until this review closes. |
+| **Q56 — telemetry lifecycle** | Which real event receives which result-contract/failure marker, and what happens to the current objective property? | Specify completed, failed, and optional legacy-read telemetry independently at their actual emission sites. |
+| **Q57 — public error reachability** | Is an error envelope a public scenario result or only a runner-private outcome? | Keep it runner-private and expose failure through the safe public job error unless a real publish path is deliberately selected. |
+
+### 28.5 Re-approval checklist
+
+- [ ] The 60-second behavior change is removed or separately authorized with CBC/benchmark evidence and protected-objective proof.
+- [ ] Requested gap 0 is described as a request, never proof of achieved optimality.
+- [ ] Request-specific limit metadata is separated from or safely reconciled with effective-value cache identity.
+- [ ] Exact private runner-message framing/schema and all Python/Node failure mappings are defined and bounded.
+- [ ] Public job-error fields and stable code/message mappings are exact, additive during rollout, and negative-leakage tested.
+- [ ] P0R.3 explicitly owns every §2.7/§2.10/§2.11/§2.12 schema, DB, API, codegen, frontend, telemetry, rollout, and rollback change.
+- [ ] A staged reader-first / writer-flag rollout works across API overlap, independent Studio deployment, rollback, legacy rows, and v2 rows.
+- [ ] Ledger and successor agree that P0R.1 is on HOLD until the latest user direction is satisfied.
+- [ ] Completed, failed, and optional legacy-read telemetry contracts map to real emission sites and migrate existing objective analytics deliberately.
+- [ ] Public scenario-result and public job-failure schemas contain no unreachable/contradictory error branch.
+- [ ] A new approval review closes Q50–Q57 before P0R.1 begins.
+
+Until every applicable item above is closed, §27's statement that §26 is resolved is historical rather than the current approval state; this §28 decision controls.
+
+---
+
+## 29. §28 resolution — Q50–Q57 (2026-09-21, partial: Q50 open)
+
+| Q | Decision | State |
+|---|---|---|
+| **Q50** 60s cap | **OPEN — surfaced to product owner.** The Q45 clamp is a behavioral change (shipped 120s; protected e2e 120/180s) colliding with DEC-01's zero-golden-objective scope. Awaiting: (A) revert ceiling [rec], (B) authorize as a benchmark-backed behavioral change re-approving affected goldens, (C) cap new/non-protected only. | Blocks §2.12 finalize + Q51. |
+| **Q51** requested vs cache | Requested values on the job/request record; effective values in the cacheable result + cache key; compose on read. | Pending Q50 (dissolves if A: no clamp → requested==effective). |
+| **Q52** failure message/API | Exact bounded `SolverProcessMessage` (transport/framing/size/mismatch/partial) + `failureStage` + allowlisted **structured** diagnostics (not raw-text sanitize) + stable public `errorCode` enum. | Adopted; folds into §2.11 + P0R.3. |
+| **Q53** P0R.3 ownership | Rewrite P0R.3 so every Q43–Q48 decision has an explicit file/seam/test/schema-push/codegen/rollback; fix stale §2.2 field list. | Pending consolidated post-Q50 pass. |
+| **Q54** staged deployment | Reader-first → both-compatible frontend → feature-flagged v2 writer → compat window → cleanup; rollback for v2 rows; `nos-api`/`nos-studio` deploy ordering. | Adopted; new §2.13 in consolidated pass. |
+| **Q55** execution authority | **P0R.1 HOLD** — latest user direction controls over the older "authorized" wording. | **Applied** (status line). |
+| **Q56** telemetry lifecycle | Separate `scenario solve completed` (v2 post-cutover) / `scenario solve failed` (bounded internal tags) / optional legacy-read telemetry, each at its real emission site; decide fate of the current `objective` property. | Adopted; folds into §2.7.1. |
+| **Q57** public error reachability | **Applied** — `error` is runner-private; excluded from the published `NormalizedSolveResult` union; public failure = job `errorCode`. | **Applied** (§2.4/§2.8). |
+
+Applied this round: Q55 (HOLD), Q57 (error branch), Q50 wording ("0 requests zero-gap; outcome evidence-derived"). Q52/Q54/Q56 directions adopted; Q51/Q53 + §2.12 finalize + §2.2 fix are held for one consolidated pass once Q50 is answered (its outcome reshapes the limit contract, cache metadata, and rollout).
