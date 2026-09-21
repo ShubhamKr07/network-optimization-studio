@@ -3,6 +3,8 @@ import { downloadEntityExport } from "@/lib/exportEntity";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 // B2.2-T6 — same snapshot shape as OpenWarehousesTab.tsx's
 // OpenWarehousesDisplayedInputs (kept as a separate local declaration per
@@ -39,9 +41,13 @@ interface AssignmentsTabProps {
    * "rich" table (shows both id and location whenever `locationById` has an
    * entry, at any row count) — no `>10` gate applied. */
   identityById?: Record<string, EntityIdentity>;
-  /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit).
-   * Optional/defaults to "mi" so existing callers stay unchanged; Chen passes "km". */
-  distanceUnit?: string;
+  /** C4.11 — active model's CANONICAL distance unit (manifest
+   * ModelInfo.distanceUnit). chen-bands-units, Part D "No fallback unit —
+   * reads": `undefined`/`null` means the canonical unit hasn't resolved yet
+   * — the Distance column and every row's value show a loading placeholder
+   * instead of ever guessing "mi" (Chen is km — a guess would render a
+   * correct number under a wrong label). */
+  distanceUnit?: CanonicalUnit | null;
 }
 
 // Merges addedWarehouses ∪ addedRefineries into one id -> displayCode
@@ -142,7 +148,12 @@ function resolveCell(
 // Phase C, Task 3 — one row per solved edge (customer <- warehouse
 // assignment). Purely a read of the already-solved result; no local state,
 // no editing (output tabs are read-only, unlike the input grid tabs).
-export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, identityById, distanceUnit = "mi" }: AssignmentsTabProps) {
+export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, identityById, distanceUnit }: AssignmentsTabProps) {
+  const unit = useDisplayUnit();
+  const canonicalResolved = distanceUnit != null;
+  const distanceHeaderLabel = canonicalResolved ? `Distance (${unit.effectiveUnit(distanceUnit)})` : "Distance";
+  const formatRowDistance = (raw: number): string =>
+    canonicalResolved ? unit.toDisplay(raw, distanceUnit).toFixed(1) : "—";
   if (!result) {
     return (
       <div className="p-4 text-sm text-muted-foreground" data-testid="assignments-empty">
@@ -172,7 +183,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
             <tr>
               <th className="text-left p-2">Customer</th>
               <th className="text-left p-2">Warehouse</th>
-              <th className="text-right p-2">Distance ({distanceUnit})</th>
+              <th className="text-right p-2">{distanceHeaderLabel}</th>
               <th className="text-right p-2">Flow</th>
             </tr>
           </thead>
@@ -181,7 +192,7 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
               <tr key={r.customerId} data-testid={`assignment-row-${r.customerId}`} className="border-b">
                 <td className="p-2">{resolveCell(r.customerId, r.customerId, locationById, identityById)}</td>
                 <td className="p-2">{resolveCell(r.warehouseId, codeById[r.warehouseId] ?? r.warehouseId, locationById, identityById)}</td>
-                <td className="p-2 text-right font-mono">{r.distance.toFixed(1)}</td>
+                <td className="p-2 text-right font-mono">{formatRowDistance(r.distance)}</td>
                 <td className="p-2 text-right font-mono">{r.flow.toLocaleString()}</td>
               </tr>
             ))}

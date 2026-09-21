@@ -1,7 +1,16 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import * as exportEntity from "@/lib/exportEntity";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// FlowsTab now calls useDisplayUnit() unconditionally — every render needs a
+// UnitProvider ancestor. Shadowing `render` keeps every existing call site
+// byte-identical, same pattern as AppShell.test.tsx's renderShell.
+function render(ui: ReactElement) {
+  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+}
 
 const transportResult = {
   status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "x",
@@ -72,6 +81,39 @@ describe("FlowsTab", () => {
   it("shows an empty-state message when result is null", () => {
     render(<FlowsTab result={null} scenarioId={1} />);
     expect(screen.getByTestId("flows-empty")).toBeInTheDocument();
+  });
+
+  // chen-bands-units, Part D "No fallback unit — reads": this table used to
+  // hardcode "Distance (mi)" unconditionally — no `distanceUnit` passed now
+  // means the canonical unit is unresolved, and the header + every row must
+  // show a placeholder, never a guessed "mi".
+  describe("distance unit (chen-bands-units)", () => {
+    it("shows a Distance placeholder header and no row value — never a guessed 'mi' — when distanceUnit is not resolved", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} />);
+      expect(screen.getByText("Distance")).toBeInTheDocument();
+      expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Distance \(/)).not.toBeInTheDocument();
+      const row = screen.getByTestId("flow-row-KY-CHI");
+      expect(row).not.toHaveTextContent("300.0");
+      expect(row).toHaveTextContent("—");
+    });
+
+    it("renders the Distance header and value in mi when explicitly resolved", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
+      expect(screen.getByText("Distance (mi)")).toBeInTheDocument();
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300.0");
+    });
+
+    it("renders the Distance header and value in km (never mi) for a Chen-like distanceUnit", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="km" />);
+      expect(screen.getByText("Distance (km)")).toBeInTheDocument();
+      expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
+    });
+
+    it("does not affect the non-distance Flow value when the unit is unresolved", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} />);
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("500");
+    });
   });
 
   it("calls downloadEntityExport with entity=flows when Download CSV is clicked", () => {
