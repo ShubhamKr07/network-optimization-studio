@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 
 // chen-bands-units, T13 — ServiceStatsTab now calls `useDisplayUnit()`
 // unconditionally (no legacy/new split here — this component always
@@ -74,7 +76,36 @@ describe("ServiceStatsTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
     fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-service-stats-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 5 })}>
+            <ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv", { unit: "mi", runId: 5 });
+    });
   });
 
   it("labels the chart as demand-weighted (R9)", () => {

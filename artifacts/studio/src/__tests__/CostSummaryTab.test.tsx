@@ -1,5 +1,4 @@
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
-import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import type { Scenario } from "@workspace/api-client-react";
@@ -8,14 +7,13 @@ import { ExportProvider } from "@/contexts/ExportContext";
 import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 
 // SCN chen-bands-units, Task 14b — CostSummaryTab now calls useExport()
-// unconditionally. This file's every call site already inlines its own
-// `<UnitProvider><ExportProvider value={makeExportProviderValue()}>` wrap (no shadowed local `render`, no `rerender()` calls
-// anywhere in this file) — shadowing RTL's own `render` here wraps every one
-// of those ~35 call sites in an ExportProvider too, with zero edits to each
-// individual call.
-function render(ui: ReactElement) {
-  return rtlRender(<ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider>);
-}
+// unconditionally. Every one of this file's ~37 call sites was updated
+// in-place to inline `<UnitProvider><ExportProvider value={...}>` around its
+// own `<CostSummaryTab .../>` (no `rerender()` calls anywhere in this file,
+// so no double-wrap remount risk) — `render` is a bare alias, not an
+// additional wrapping layer, to avoid nesting a second, redundant
+// ExportProvider around every already-wrapped call site.
+const render = rtlRender;
 
 // R6+R8 — distanceUnit + the supportsP capability flag are both sourced from
 // GET /api/models (via useListModels), same pattern ServiceStatsTab.test.tsx
@@ -136,7 +134,36 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      render(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <CostSummaryTab result={result} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-cost-summary-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      render(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 8 })}>
+            <CostSummaryTab result={result} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv", { unit: "mi", runId: 8 });
+    });
   });
 
   it("uses the model's distanceUnit ('mi') for a two-echelon-gold-au render", () => {
