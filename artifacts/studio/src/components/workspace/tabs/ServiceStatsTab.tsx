@@ -3,8 +3,10 @@ import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "
 import { useListModels } from "@workspace/api-client-react";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { plantIdCityState } from "@/lib/formatLocation";
-import { computeCumulativeBandCoverage } from "@/lib/bands";
+import { computeCumulativeBandCoverage, OVERFLOW_BAND } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
+import { type CanonicalUnit } from "@workspace/units";
+import { useDisplayUnit } from "@/contexts/UnitContext";
 import { cellCapacity, isCellEnabled, type CapabilityOverride } from "@/lib/jadeCapability";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
@@ -197,17 +199,20 @@ export function ServiceStatsTab({
   identityById,
 }: ServiceStatsTabProps) {
   // R9 — distanceUnit is sourced from the model manifest (G1.1) via
-  // GET /api/models, defaulting to "mi" both when the manifest field is
-  // absent (T2's ModelInfo.distanceUnit may not have landed yet, or the
-  // model simply hasn't set one — the public boundary already defaults
-  // absent -> "mi") and while models/modelId haven't resolved yet. Cast
-  // rather than a hard type dependency on ModelInfo.distanceUnit so this
-  // compiles independent of T2's landing order (see plan Task T3 note).
+  // GET /api/models. chen-bands-units, T13, Step 3b — the `?? "mi"`
+  // fallback is GONE: no distance value or unit label renders here until
+  // the canonical unit is authoritative (no fallback, ever — a Chen (km)
+  // value transiently rendered as "mi" is a correct number under a wrong
+  // unit, which a student reads as fact). `canonicalUnit` is `null` while
+  // `models`/`modelId` haven't resolved, gating the whole distance-bearing
+  // section below via the early return further down.
   const { data: models } = useListModels();
   const activeModel = models?.find((m) => m.id === modelId) as
-    | { distanceUnit?: string; capabilities?: { supportsPlantProductCapability?: boolean } }
+    | { distanceUnit?: CanonicalUnit; capabilities?: { supportsPlantProductCapability?: boolean } }
     | undefined;
-  const distanceUnit = activeModel?.distanceUnit ?? "mi";
+  const canonicalUnit: CanonicalUnit | null = activeModel?.distanceUnit ?? null;
+  const { effectiveUnit, toDisplay } = useDisplayUnit();
+  const distanceUnit: CanonicalUnit | null = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
   // Gate on the manifest capability, never on `modelId` directly (see
   // jadeCapability.ts's own header + the codebase-wide convention this
   // mirrors, e.g. `supportsFacilityStatus`/`supportsReferenceDistances`).
@@ -249,6 +254,17 @@ export function ServiceStatsTab({
     return <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-empty">No solved result yet.</div>;
   }
 
+  // chen-bands-units, T13, Step 3b — no distance value or unit label
+  // renders, and nothing below is computed, until the canonical unit is
+  // authoritative. No fallback, ever.
+  if (canonicalUnit == null || distanceUnit == null) {
+    return (
+      <div className="p-4 text-sm text-muted-foreground" data-testid="service-stats-unit-pending">
+        Loading distance unit…
+      </div>
+    );
+  }
+
   // C4.14 (D14) — Chen's Cosmetics coverage KPIs, read off the envelope's
   // `details`. Gated on the presence of `coveragePct` (a Chen-only field —
   // absent for every other model's envelope), NOT a `modelId` ternary, so
@@ -258,15 +274,17 @@ export function ServiceStatsTab({
     | undefined;
   const showCoverageKpis = typeof details?.coveragePct === "number";
 
-  // SSC-T1 (spec §5d) — belt-and-suspenders: chens-cosmetics-cn's
-  // "coverage" is a distinct min-distance concept the distance-band
-  // recompute doesn't apply to. Workspace.tsx never passes
-  // `presentationBands` for it, but gate on the envelope's own shape here
-  // too (`showCoverageKpis`, the same Chen-only signal the KPI block
-  // above uses — never a `modelId` ternary) so a chens result stays on
-  // the frozen `result.metrics.bandCoverage` even if a future caller
-  // mistakenly wired `presentationBands` for it.
-  const bandCoverage = useLiveCoverage && !showCoverageKpis
+  // chen-bands-units, Part A — Chen is now wired into the SAME live
+  // `presentationBands` recompute as its five siblings; the deliberate
+  // "stay frozen for Chen" guard that used to live here
+  // (`&& !showCoverageKpis`) is deleted. Chen's `details.coveragePct` KPI
+  // block above is a SEPARATE, untouched concept — this only changes
+  // which source the band-coverage BARS read from. A model that hasn't
+  // wired `presentationBands` (any pre-existing call site, or Chen before
+  // Workspace.tsx wires it) is unaffected: `useLiveCoverage` is false and
+  // this falls through to the frozen `result.metrics.bandCoverage` exactly
+  // as before.
+  const bandCoverage = useLiveCoverage
     ? computeCumulativeBandCoverage(serviceEdges, presentationBands as number[])
     : (result.metrics.bandCoverage ?? []);
   const avgServiceDistance = result.metrics.weightedAvgDistance;
@@ -309,7 +327,9 @@ export function ServiceStatsTab({
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Avg service distance</dt>
             <dd className="font-medium font-mono" data-testid="service-stats-avg-service-distance">
-              {avgServiceDistance != null ? `${avgServiceDistance.toFixed(1)} ${distanceUnit}` : "—"}
+              {avgServiceDistance != null
+                ? `${toDisplay(avgServiceDistance, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 1, useGrouping: false })} ${distanceUnit}`
+                : "—"}
             </dd>
           </div>
         </dl>
@@ -332,10 +352,20 @@ export function ServiceStatsTab({
               array (not hardcoded to 1600), so this works for any model's
               band configuration. */}
           {(() => {
-            const maxBoundary = bandCoverage.reduce((max, b) => (b.band !== -1 && b.band > max ? b.band : max), 0);
+            // `maxBoundary` is a REAL boundary distance (derived from the
+            // other rows) and converts; `OVERFLOW_BAND` (-1) is a
+            // categorical sentinel used only to pick this branch — it is
+            // never itself passed through `toDisplay` (that would produce
+            // a nonsense negative distance like "-0.62").
+            const maxBoundary = bandCoverage.reduce(
+              (max, b) => (b.band !== OVERFLOW_BAND && b.band > max ? b.band : max),
+              0,
+            );
             return bandCoverage.map(b => {
-              const isOverflow = b.band === -1;
-              const label = isOverflow ? `> ${maxBoundary} ${distanceUnit}` : `≤ ${b.band} ${distanceUnit}`;
+              const isOverflow = b.band === OVERFLOW_BAND;
+              const label = isOverflow
+                ? `> ${toDisplay(maxBoundary, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false })} ${distanceUnit}`
+                : `≤ ${toDisplay(b.band, canonicalUnit).toLocaleString(undefined, { maximumFractionDigits: 4, useGrouping: false })} ${distanceUnit}`;
               return (
                 <div key={b.band} data-testid={`service-stats-band-${b.band}`} className="flex items-center gap-2 text-sm">
                   <span className="w-24 flex-shrink-0 font-mono">{label}</span>
