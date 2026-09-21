@@ -1850,6 +1850,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // naming choice made in this task's stage 1, specifically so this
   // function would generalize without a third near-duplicate).
   function deleteAddedEntityAndOverrides(arrayKey: "addedWarehouses" | "addedCustomers" | "addedRefineries", id: string) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => {
       if (!prev) return prev;
       const arr = Array.isArray(prev[arrayKey]) ? (prev[arrayKey] as { id: string }[]) : [];
@@ -1872,6 +1879,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // independent (precheckTransportInputs is its own function, not a call
   // into precheckPMedianInputs, for the same reasoning).
   function deleteAddedTransportEntityAndOverrides(arrayKey: "addedMines" | "addedStations", id: string) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => {
       if (!prev) return prev;
       const arr = Array.isArray(prev[arrayKey]) ? (prev[arrayKey] as { id: string }[]) : [];
@@ -1893,6 +1907,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // — all in the SAME atomic localInputs update, same hazard
   // deleteAddedEntityAndOverrides's own comment documents.
   function deleteAddedPlantAndOverrides(id: string) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     setLocalInputs(prev => {
       if (!prev) return prev;
       const arr = Array.isArray(prev.addedPlants) ? (prev.addedPlants as { id: string }[]) : [];
@@ -2275,6 +2296,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // demand-only edits and deletes are not watched (see detectMapWatches's
   // own comment).
   function handlePMedianMapInputsChange(next: PMedianMapInputs) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     if (currentScenario) {
       const scenarioId = currentScenario.id;
       const watched = [
@@ -2295,6 +2323,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // model-agnostic, id-scoped) — reportEstimatedLaneCostWatches (below)
   // resolves it against laneCostOverrides instead of distanceOverrides.
   function handleTransportMapInputsChange(next: TransportMapInputs) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     if (currentScenario) {
       const scenarioId = currentScenario.id;
       const watched = [
@@ -2315,6 +2350,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // watched, since it can't be created/moved at all (it's never in either
   // array — see InputMapTab.tsx's own `mine` prop comment).
   function handleTwoEchelonMapInputsChange(next: TwoEchelonMapInputs) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     if (currentScenario) {
       const scenarioId = currentScenario.id;
       const watched = [
@@ -2336,6 +2378,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // unlike two-echelon-gold-au's fixed mine (never watched — it can't be
   // created/moved).
   function handleJadeMapInputsChange(next: JadeMapInputs) {
+    // chen-bands-units, Task 14 Step 4 (history action matrix) — ordinary
+    // input editing is unreachable while an older result is displayed. The
+    // whole-input PATCH is already blocked at the save/solve call sites, so
+    // this is defence in depth: it stops a stale edit being written into
+    // `localInputs` at all, which would otherwise survive a step back to the
+    // latest entry and silently become part of the next save.
+    if (isBrowsingHistoryNow) return;
     if (currentScenario) {
       const scenarioId = currentScenario.id;
       const watched = [
