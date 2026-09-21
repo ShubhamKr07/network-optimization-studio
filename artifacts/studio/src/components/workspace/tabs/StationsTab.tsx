@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import {
   completenessCountForStation,
   idCollisionMessageForStation,
@@ -76,6 +76,7 @@ export function StationsTab({
   precheckErrors = [],
 }: StationsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
 
   const [addingRow, setAddingRow] = useState(false);
   const [newCity, setNewCity] = useState("");
@@ -185,8 +186,9 @@ export function StationsTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "stations", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("stations", "csv")}
+        disabled={disabledReasonFor("stations") != null}
+        title={disabledReasonFor("stations")}
         data-testid="button-export-stations-csv"
         className="h-7 text-xs"
       >
@@ -195,8 +197,9 @@ export function StationsTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "stations", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("stations", "json")}
+        disabled={disabledReasonFor("stations") != null}
+        title={disabledReasonFor("stations")}
         data-testid="button-export-stations-json"
         className="h-7 text-xs"
       >

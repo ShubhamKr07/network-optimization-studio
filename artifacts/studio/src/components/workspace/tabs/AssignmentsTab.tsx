@@ -1,5 +1,5 @@
 import type { SolveResult } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
@@ -150,6 +150,7 @@ function resolveCell(
 // no editing (output tabs are read-only, unlike the input grid tabs).
 export function AssignmentsTab({ result, scenarioId, displayedInputs, locationById, identityById, distanceUnit }: AssignmentsTabProps) {
   const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
   const canonicalResolved = distanceUnit != null;
   const distanceHeaderLabel = canonicalResolved ? `Distance (${unit.effectiveUnit(distanceUnit)})` : "Distance";
   const formatRowDistance = (raw: number): string =>
@@ -171,8 +172,10 @@ export function AssignmentsTab({ result, scenarioId, displayedInputs, locationBy
         <button
           type="button"
           data-testid="button-download-assignments-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted"
-          onClick={() => downloadEntityExport(scenarioId, "assignments", "csv")}
+          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+          onClick={() => download("assignments", "csv")}
+          disabled={disabledReasonFor("assignments") != null}
+          title={disabledReasonFor("assignments")}
         >
           Download CSV
         </button>

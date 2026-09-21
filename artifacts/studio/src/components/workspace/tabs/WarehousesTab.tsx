@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import {
   completenessCountForWarehouse,
   idCollisionMessageForWarehouse,
@@ -124,6 +124,7 @@ export function WarehousesTab({
   enableFilters = false,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const candidates = warehouses.filter(w => w.kind !== "mine");
   const emptyLabel = entity === "refineries" ? "No refinery candidates in this dataset." : "No warehouse candidates in this dataset.";
   // B6.2 — singular label for the "Added ..." section's copy (heading,
@@ -286,8 +287,9 @@ export function WarehousesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, entity, "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download(entity, "csv")}
+        disabled={disabledReasonFor(entity) != null}
+        title={disabledReasonFor(entity)}
         data-testid={`button-export-${entity}-csv`}
         className="h-7 text-xs"
       >
@@ -296,8 +298,9 @@ export function WarehousesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, entity, "json")}
-        disabled={scenarioId == null}
+        onClick={() => download(entity, "json")}
+        disabled={disabledReasonFor(entity) != null}
+        title={disabledReasonFor(entity)}
         data-testid={`button-export-${entity}-json`}
         className="h-7 text-xs"
       >

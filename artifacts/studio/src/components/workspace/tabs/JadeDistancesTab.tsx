@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { formatCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { FilterMenu } from "@/components/tables/FilterMenu";
@@ -286,6 +286,7 @@ export function JadeDistancesTab({
   canonicalUnit = null,
 }: JadeDistancesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const [addingRow, setAddingRow] = useState(false);
   const [newLeg, setNewLeg] = useState<JadeLeg>("plant_to_warehouse");
   const [newFrom, setNewFrom] = useState("");
@@ -607,8 +608,9 @@ export function JadeDistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "legDistances", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("legDistances", "csv")}
+        disabled={disabledReasonFor("legDistances") != null}
+        title={disabledReasonFor("legDistances")}
         data-testid="button-export-legdistances-csv"
         className="h-7 text-xs"
       >
@@ -617,8 +619,9 @@ export function JadeDistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "legDistances", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("legDistances", "json")}
+        disabled={disabledReasonFor("legDistances") != null}
+        title={disabledReasonFor("legDistances")}
         data-testid="button-export-legdistances-json"
         className="h-7 text-xs"
       >

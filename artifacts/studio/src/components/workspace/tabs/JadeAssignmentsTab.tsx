@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
@@ -216,6 +216,7 @@ export function JadeAssignmentsTab({
 }: JadeAssignmentsTabProps) {
   const [page, setPage] = useState(1);
   const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
   const canonicalResolved = distanceUnit != null;
   const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
   // `bandRangeLabel` (lib/bands.ts) has no unit-conversion awareness of its
@@ -305,17 +306,17 @@ export function JadeAssignmentsTab({
             {filteredCount} of {totalCount}
           </span>
           {totalCount > 10 && <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />}
-          {scenarioId != null && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              data-testid="button-download-jadeassignments-csv"
-              onClick={() => downloadEntityExport(scenarioId, "assignments", "csv")}
-            >
-              Download CSV
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-testid="button-download-jadeassignments-csv"
+            onClick={() => download("assignments", "csv")}
+            disabled={disabledReasonFor("assignments") != null}
+            title={disabledReasonFor("assignments")}
+          >
+            Download CSV
+          </Button>
         </div>
       </div>
       <div className="overflow-auto flex-1">

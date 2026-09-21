@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { formatCityState } from "@/lib/formatLocation";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
@@ -143,6 +143,7 @@ function resolveWarehouseIdentity(
 }
 
 export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locationById, identityById, enableFilters = false }: OpenWarehousesTabProps) {
+  const { download, disabledReasonFor } = useExport();
   // B6 (spec §10) — `rows`/the filter hook must be computed BEFORE the
   // early-return below (rules of hooks: no conditional hook calls). `!result`
   // degrades to an empty rows array here; the early return still fires
@@ -206,8 +207,10 @@ export function OpenWarehousesTab({ result, scenarioId, displayedInputs, locatio
           <button
             type="button"
             data-testid="button-download-open-warehouses-csv"
-            className="text-xs border rounded px-2 py-1 hover:bg-muted"
-            onClick={() => downloadEntityExport(scenarioId, "openWarehouses", "csv")}
+            className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+            onClick={() => download("openWarehouses", "csv")}
+            disabled={disabledReasonFor("openWarehouses") != null}
+            title={disabledReasonFor("openWarehouses")}
           >
             Download CSV
           </button>

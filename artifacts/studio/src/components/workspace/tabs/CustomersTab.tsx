@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import {
   completenessCountForCustomer,
   idCollisionMessageForCustomer,
@@ -140,6 +140,7 @@ export function CustomersTab({
   enableFilters = false,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   // T11 — the actual switch: per-product mode only renders when the caller
   // has ACTUALLY wired the full capability (data + callback), not merely
   // passed a non-empty `products` array with no override plumbing behind
@@ -386,8 +387,9 @@ export function CustomersTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "customers", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("customers", "csv")}
+        disabled={disabledReasonFor("customers") != null}
+        title={disabledReasonFor("customers")}
         data-testid="button-export-customers-csv"
         className="h-7 text-xs"
       >
@@ -396,8 +398,9 @@ export function CustomersTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "customers", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("customers", "json")}
+        disabled={disabledReasonFor("customers") != null}
+        title={disabledReasonFor("customers")}
         data-testid="button-export-customers-json"
         className="h-7 text-xs"
       >

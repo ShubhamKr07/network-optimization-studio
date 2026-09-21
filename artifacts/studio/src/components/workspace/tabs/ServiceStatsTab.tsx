@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Edge, Plant, PlantProductCapability, Product, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { plantIdCityState } from "@/lib/formatLocation";
 import { computeCumulativeBandCoverage, OVERFLOW_BAND } from "@/lib/bands";
 import { isOutboundLeg } from "@/lib/legPalette";
@@ -198,6 +198,7 @@ export function ServiceStatsTab({
   presentationBands,
   identityById,
 }: ServiceStatsTabProps) {
+  const { download, disabledReasonFor } = useExport();
   // R9 — distanceUnit is sourced from the model manifest (G1.1) via
   // GET /api/models. chen-bands-units, T13, Step 3b — the `?? "mi"`
   // fallback is GONE: no distance value or unit label renders here until
@@ -296,8 +297,10 @@ export function ServiceStatsTab({
         <button
           type="button"
           data-testid="button-download-service-stats-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted"
-          onClick={() => downloadEntityExport(scenarioId, "serviceStats", "csv")}
+          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+          onClick={() => download("serviceStats", "csv")}
+          disabled={disabledReasonFor("serviceStats") != null}
+          title={disabledReasonFor("serviceStats")}
         >
           Download CSV
         </button>

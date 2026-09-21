@@ -6,7 +6,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ImportDialog } from "@/components/ImportDialog";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
@@ -135,6 +135,7 @@ export function LaneCostsTab({
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
@@ -265,8 +266,9 @@ export function LaneCostsTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "laneCosts", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("laneCosts", "csv")}
+        disabled={disabledReasonFor("laneCosts") != null}
+        title={disabledReasonFor("laneCosts")}
         data-testid="button-export-lanecosts-csv"
         className="h-7 text-xs"
       >
@@ -275,8 +277,9 @@ export function LaneCostsTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "laneCosts", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("laneCosts", "json")}
+        disabled={disabledReasonFor("laneCosts") != null}
+        title={disabledReasonFor("laneCosts")}
         data-testid="button-export-lanecosts-json"
         className="h-7 text-xs"
       >

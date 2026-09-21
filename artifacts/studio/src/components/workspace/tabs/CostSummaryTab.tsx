@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
@@ -192,6 +192,7 @@ function scenariosShareBands(results: SolveResult[]): boolean {
 
 export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], isBrowsingHistory = false, locationById }: CostSummaryTabProps) {
   const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
   // R9/R6+R8 — same lookup ServiceStatsTab.tsx already does: GET /api/models
   // is independent of everything else on this page. chen-bands-units, Part D
   // "No fallback unit — reads": `canonicalDistanceUnit` is `undefined` while
@@ -359,8 +360,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           <button
             type="button"
             data-testid="button-download-cost-summary-csv"
-            className="text-xs border rounded px-2 py-1 hover:bg-muted"
-            onClick={() => downloadEntityExport(scenarioId, "costSummary", "csv")}
+            className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+            onClick={() => download("costSummary", "csv")}
+            disabled={disabledReasonFor("costSummary") != null}
+            title={disabledReasonFor("costSummary")}
           >
             Download CSV
           </button>

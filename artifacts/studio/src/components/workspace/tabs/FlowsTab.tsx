@@ -1,5 +1,5 @@
 import type { SolveResult } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
 import { useDisplayUnit } from "@/contexts/UnitContext";
@@ -91,6 +91,7 @@ function flowRows(result: SolveResult) {
 
 export function FlowsTab({ result, scenarioId, locationById, identityById, distanceUnit }: FlowsTabProps) {
   const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
   const canonicalResolved = distanceUnit != null;
   const distanceHeaderLabel = canonicalResolved ? `Distance (${unit.effectiveUnit(distanceUnit)})` : "Distance";
   const formatRowDistance = (raw: number): string =>
@@ -113,8 +114,10 @@ export function FlowsTab({ result, scenarioId, locationById, identityById, dista
         <button
           type="button"
           data-testid="button-download-flows-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted"
-          onClick={() => downloadEntityExport(scenarioId, "flows", "csv")}
+          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+          onClick={() => download("flows", "csv")}
+          disabled={disabledReasonFor("flows") != null}
+          title={disabledReasonFor("flows")}
         >
           Download CSV
         </button>

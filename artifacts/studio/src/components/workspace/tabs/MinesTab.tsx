@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import {
   completenessCountForMine,
   idCollisionMessageForMine,
@@ -83,6 +83,7 @@ export function MinesTab({
   precheckErrors = [],
 }: MinesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
 
   // B5.2-mirrored add-row form draft state.
   const [addingRow, setAddingRow] = useState(false);
@@ -202,8 +203,9 @@ export function MinesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "mines", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("mines", "csv")}
+        disabled={disabledReasonFor("mines") != null}
+        title={disabledReasonFor("mines")}
         data-testid="button-export-mines-csv"
         className="h-7 text-xs"
       >
@@ -212,8 +214,9 @@ export function MinesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "mines", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("mines", "json")}
+        disabled={disabledReasonFor("mines") != null}
+        title={disabledReasonFor("mines")}
         data-testid="button-export-mines-json"
         className="h-7 text-xs"
       >

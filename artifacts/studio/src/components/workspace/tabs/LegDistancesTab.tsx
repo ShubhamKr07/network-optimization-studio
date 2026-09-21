@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ImportDialog } from "@/components/ImportDialog";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
@@ -149,6 +149,7 @@ export function LegDistancesTab({
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
@@ -304,8 +305,9 @@ export function LegDistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "legDistances", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("legDistances", "csv")}
+        disabled={disabledReasonFor("legDistances") != null}
+        title={disabledReasonFor("legDistances")}
         data-testid="button-export-legdistances-csv"
         className="h-7 text-xs"
       >
@@ -314,8 +316,9 @@ export function LegDistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "legDistances", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("legDistances", "json")}
+        disabled={disabledReasonFor("legDistances") != null}
+        title={disabledReasonFor("legDistances")}
         data-testid="button-export-legdistances-json"
         className="h-7 text-xs"
       >

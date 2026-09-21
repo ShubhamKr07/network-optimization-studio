@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
@@ -278,6 +278,7 @@ export function DistancesTab({
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
@@ -578,8 +579,9 @@ export function DistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "distances", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("distances", "csv")}
+        disabled={disabledReasonFor("distances") != null}
+        title={disabledReasonFor("distances")}
         data-testid="button-export-distances-csv"
         className="h-7 text-xs"
       >
@@ -588,8 +590,9 @@ export function DistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "distances", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("distances", "json")}
+        disabled={disabledReasonFor("distances") != null}
+        title={disabledReasonFor("distances")}
         data-testid="button-export-distances-json"
         className="h-7 text-xs"
       >
