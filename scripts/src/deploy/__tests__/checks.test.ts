@@ -61,7 +61,7 @@ describe("pure helpers", () => {
 });
 
 describe("postgresTls check with injected fetch", () => {
-  const ctx = (impl: typeof fetch): SmokeCtx => ({ fetch: impl, cookieJar: { value: null } });
+  const ctx = (impl: typeof fetch): SmokeCtx => ({ fetch: impl, cookieJar: { value: null }, createdAccounts: [] });
   const env = { apiBase: "http://api", studioBase: "http://studio" };
 
   it("passes when healthz reports db:ok", async () => {

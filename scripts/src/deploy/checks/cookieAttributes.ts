@@ -22,6 +22,11 @@ export const cookieAttributes: Check = async (env, ctx) => {
     }),
   );
   const setCookie = firstSetCookie(res.headers);
+  // Record it whenever the account was actually created (201/200), so the run
+  // can report the residue even if a later check fails or throws. Registering
+  // is unavoidable here — the Secure/SameSite=None assertion needs a real
+  // register response — but leaving it unreported is not.
+  if (res.ok) ctx.createdAccounts.push(email);
   if (setCookie) ctx.cookieJar.value = setCookie.split(";")[0];
   const isProd = env.apiBase.includes("onrender.com");
   const hasSecure = !!setCookie && /;\s*Secure/i.test(setCookie);

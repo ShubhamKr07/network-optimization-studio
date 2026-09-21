@@ -8,6 +8,18 @@ export interface SmokeEnv {
 export interface SmokeCtx {
   fetch: typeof fetch;
   cookieJar: { value: string | null };
+  /**
+   * Every account a check registers on the TARGET environment.
+   *
+   * `cookie_attributes` has to register against production to verify the
+   * session cookie really carries `Secure` + `SameSite=None` (R0.3) — that
+   * cannot be asserted without a real register response. But the app exposes
+   * no account-deletion endpoint, so the run cannot clean up after itself,
+   * and a 2026-09-21 production smoke silently left `smoke+dercom-90367@
+   * example.com` behind. Recording them here makes the residue impossible to
+   * miss: `main()` prints a CLEANUP REQUIRED block with the exact SQL.
+   */
+  createdAccounts: string[];
 }
 
 /** Outcome of one named check. `warn` = soft failure (does not fail the run). */

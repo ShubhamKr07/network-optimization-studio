@@ -106,7 +106,7 @@ const ORDERED_CHECKS: Check[] = [
 async function main() {
   const args = parseSmokeArgs(process.argv.slice(2));
   const env = resolveEnv(args);
-  const ctx = { fetch: globalThis.fetch, cookieJar: { value: null as string | null } };
+  const ctx = { fetch: globalThis.fetch, cookieJar: { value: null as string | null }, createdAccounts: [] as string[] };
   process.stdout.write(`smoke: env=${args.env} api=${env.apiBase} studio=${env.studioBase}\n`);
 
   const results: CheckResult[] = [];
@@ -133,6 +133,25 @@ async function main() {
       incident: "",
       notes: results.filter((x) => x.warn).map((x) => `${x.name}:${x.detail}`).join(" | "),
     });
+  }
+
+  // A smoke run against production registers a real account (cookie_attributes
+  // must see a real register response to assert Secure + SameSite=None) and the
+  // app has no account-deletion endpoint, so the run cannot tidy up after
+  // itself. Never let that residue pass silently — on 2026-09-21 a production
+  // run left `smoke+dercom-90367@example.com` behind unnoticed.
+  if (ctx.createdAccounts.length > 0) {
+    const list = ctx.createdAccounts.map((e) => `'${e}'`).join(", ");
+    process.stdout.write(
+      `\nCLEANUP REQUIRED — this run created ${ctx.createdAccounts.length} account(s) on ${env.apiBase}:\n` +
+        ctx.createdAccounts.map((e) => `  - ${e}\n`).join("") +
+        "  There is no deletion endpoint; remove them directly, e.g.\n" +
+        "    BEGIN;\n" +
+        `    DELETE FROM solve_jobs WHERE user_id IN (SELECT id FROM users WHERE email IN (${list}));\n` +
+        `    DELETE FROM scenarios  WHERE user_id IN (SELECT id FROM users WHERE email IN (${list}));\n` +
+        `    DELETE FROM users      WHERE email IN (${list});\n` +
+        "    COMMIT;\n",
+    );
   }
 
   const anyHardFail = results.some((r) => !r.pass && !r.warn);
