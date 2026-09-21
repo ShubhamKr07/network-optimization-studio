@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
+import type { CanonicalUnit } from "@workspace/units";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ImportDialog } from "@/components/ImportDialog";
 import { downloadEntityExport } from "@/lib/exportEntity";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 export interface LaneCostOverride {
   fromId: string;
@@ -48,10 +51,65 @@ interface LaneCostsTabProps {
    * (matching Open WHs) once the unfiltered row count exceeds 10 AND this
    * map is present; unset (every pre-INT caller) is byte-unchanged. */
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
+  /** chen-bands-units, Task 12 — the active model's canonical distance unit.
+   * `laneCostOverrides.cost` values ARE distances in miles
+   * (`transportLp.ts:18-25`: named `cost` for transport-coal's own chapter
+   * vocabulary only — the objective is literally distance × flow) — they
+   * convert exactly like every other distance field in this bundle, despite
+   * carrying no unit label anywhere in the pre-existing UI and no "mi"/"km"
+   * string anywhere in this file for a unit-literal grep to find. `null`/
+   * undefined while unresolved — no fallback (Part D). Wired by
+   * Workspace.tsx (Task 14). */
+  canonicalUnit?: CanonicalUnit | null;
 }
 
 function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
+}
+
+// chen-bands-units, Task 12 — one row's Cost cell. Dedicated child component
+// for the same Rules-of-Hooks reason as the sibling tabs' own per-row cells.
+// `cost` here is semantically a DISTANCE (see the prop comment above) — it
+// routes through the identical `useDistanceDraft` contract as every other
+// tab's distance field, not a special-cased "it's just a cost" path.
+function LaneCostValueCell({
+  canonicalUnit,
+  currentValue,
+  resetKey,
+  onCommitValid,
+  inputTestId,
+}: {
+  canonicalUnit: CanonicalUnit | null;
+  currentValue: number;
+  resetKey: unknown;
+  onCommitValid: (canonicalValue: number) => void;
+  inputTestId: string;
+}) {
+  const draft = useDistanceDraft({
+    canonicalUnit,
+    value: currentValue,
+    resetKey,
+    onCommit: v => {
+      if (Number.isFinite(v) && v > 0) onCommitValid(v);
+    },
+  });
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      min={0}
+      value={draft.text}
+      disabled={draft.disabled}
+      onChange={e => draft.onChange(e.target.value)}
+      onBlur={draft.commit}
+      onKeyDown={e => {
+        if (e.key === "Enter") draft.commit();
+        else if (e.key === "Escape") draft.discard();
+      }}
+      className="h-7 text-xs w-24 font-mono"
+      data-testid={inputTestId}
+    />
+  );
 }
 
 // Task 30 (B6.1 stage 4) — transport-coal's "Lane costs" grid tab, the
@@ -72,16 +130,33 @@ export function LaneCostsTab({
   focusEntityId,
   displayCodeById,
   identityById,
+  canonicalUnit = null,
 }: LaneCostsTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
-  const [newCost, setNewCost] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // chen-bands-units, Task 12 — display-unit label + the add-row Cost
+  // field's own draft. Mirrors DistancesTab/LegDistancesTab's identical
+  // pattern exactly — `cost` here IS a distance (see the prop comment on
+  // `canonicalUnit` above), so it gets the same treatment, not a lesser one.
+  const { effectiveUnit } = useDisplayUnit();
+  const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+  const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
+  const newCostCanonicalRef = useRef<number | null>(null);
+  const newCostDraft = useDistanceDraft({
+    canonicalUnit,
+    value: 0,
+    resetKey: scenarioId,
+    onCommit: v => {
+      newCostCanonicalRef.current = v;
+    },
+  });
+  const newCostText = newCostDraft.isDirty ? newCostDraft.text : "";
 
   // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
   // Reuses this component's own existing `row-lanecost-${fromId}-${toId}`
@@ -132,13 +207,13 @@ export function LaneCostsTab({
     return saved === undefined || saved !== o.cost;
   }
 
-  function updateCost(fromId: string, toId: string, raw: string) {
-    const key = pairKey(fromId, toId);
-    setDrafts(prev => ({ ...prev, [key]: raw }));
-    const parsed = parseFloat(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return;
+  // chen-bands-units, Task 12 — commit-to-parent logic invoked from
+  // `LaneCostValueCell`'s `onCommitValid` (fires only for a grammar-complete,
+  // positive CANONICAL value on blur/Enter — `cost` converts exactly like
+  // every other distance field, see the `canonicalUnit` prop comment above).
+  function commitCost(fromId: string, toId: string, canonicalValue: number) {
     onChange(
-      laneCostOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, cost: parsed } : o)),
+      laneCostOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, cost: canonicalValue } : o)),
     );
   }
 
@@ -149,13 +224,16 @@ export function LaneCostsTab({
   function handleAddRow() {
     const fromId = newFrom.trim();
     const toId = newTo.trim();
-    const cost = parseFloat(newCost);
+    // Resolve any pending typed value synchronously — see DistancesTab's
+    // identical pattern/comment.
+    newCostDraft.commit();
+    const cost = newCostCanonicalRef.current;
 
     if (!fromId || !toId) {
       setAddError("From ID and To ID are both required.");
       return;
     }
-    if (!Number.isFinite(cost) || cost <= 0) {
+    if (cost == null || !Number.isFinite(cost) || cost <= 0) {
       setAddError("Cost must be a positive number.");
       return;
     }
@@ -168,7 +246,8 @@ export function LaneCostsTab({
     onChange([...laneCostOverrides, { fromId, toId, cost }]);
     setNewFrom("");
     setNewTo("");
-    setNewCost("");
+    newCostDraft.discard();
+    newCostCanonicalRef.current = null;
     setAddingRow(false);
   }
 
@@ -176,7 +255,8 @@ export function LaneCostsTab({
     setAddingRow(false);
     setNewFrom("");
     setNewTo("");
-    setNewCost("");
+    newCostDraft.discard();
+    newCostCanonicalRef.current = null;
     setAddError(null);
   }
 
@@ -257,10 +337,17 @@ export function LaneCostsTab({
         data-testid="input-new-lanecost-to"
       />
       <Input
-        type="number"
-        placeholder="Cost"
-        value={newCost}
-        onChange={e => setNewCost(e.target.value)}
+        type="text"
+        inputMode="decimal"
+        placeholder={unitSuffix("Cost")}
+        value={newCostText}
+        disabled={newCostDraft.disabled}
+        onChange={e => newCostDraft.onChange(e.target.value)}
+        onBlur={newCostDraft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") newCostDraft.commit();
+          else if (e.key === "Escape") newCostDraft.discard();
+        }}
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-lanecost-value"
       />
@@ -298,7 +385,7 @@ export function LaneCostsTab({
               <TableRow>
                 <TableHead>From (mine)</TableHead>
                 <TableHead>To (station)</TableHead>
-                <TableHead>Cost</TableHead>
+                <TableHead>{unitSuffix("Cost")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -342,13 +429,12 @@ export function LaneCostsTab({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={drafts[key] ?? String(o.cost)}
-                          onChange={e => updateCost(o.fromId, o.toId, e.target.value)}
-                          className="h-7 text-xs w-24 font-mono"
-                          data-testid={`input-lanecost-${o.fromId}-${o.toId}`}
+                        <LaneCostValueCell
+                          canonicalUnit={canonicalUnit}
+                          currentValue={o.cost}
+                          resetKey={scenarioId}
+                          onCommitValid={v => commitCost(o.fromId, o.toId, v)}
+                          inputTestId={`input-lanecost-${o.fromId}-${o.toId}`}
                         />
                         {changed && (
                           <span
