@@ -151,7 +151,7 @@ function renderPlantCell(
       <EntityIdCell
         entityId={plantId}
         displayId={identity.displayId}
-        location={identity.city ? { city: identity.city, state: identity.state } : undefined}
+        location={(identity.city || identity.state) ? { city: identity.city, state: identity.state } : undefined}
       />
     );
   }

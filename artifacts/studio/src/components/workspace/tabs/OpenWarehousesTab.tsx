@@ -136,7 +136,7 @@ function resolveWarehouseIdentity(
   if (identity) {
     return {
       displayId: identity.displayId,
-      location: identity.city ? { city: identity.city, state: identity.state } : undefined,
+      location: (identity.city || identity.state) ? { city: identity.city, state: identity.state } : undefined,
     };
   }
   return { displayId: codeById[id] ?? id, location: locationById?.[id] };

@@ -554,24 +554,28 @@ function jadeMapInputsSlice(inputs: Record<string, unknown> | null): JadeMapInpu
   } as JadeMapInputs;
 }
 
-// jade-T15.5 — effective plants for the Capability Matrix tab (Gate 6.5's
-// projection principle applied to a non-map surface): base dataset plants
-// ∪ scenario-local addedPlants, translated to the api-client-react `Plant`
-// shape that component expects. An added plant has no `sourceId`.
-function effectivePlantsForCapabilityMatrix(
+// The ONE canonical effective-plants projection (workspace-fixups-2 review
+// Minor-2 — consolidates the former `effectivePlantsForCapabilityMatrix`
+// concat + the `effectiveFlowsPlants` deduped Map into a single helper):
+// base dataset plants ∪ scenario-local addedPlants, keyed by id with **base
+// winning on collision** (Map seeded base-first, added only if absent),
+// translated to the api-client-react `Plant` shape. Dedup base-wins is
+// correct for every consumer — the capability-matrix/service-stats grids
+// iterate (a duplicate was harmless there) AND JadeFlowsTab's
+// `resolvePlantLabel` does a `.find()` (where a duplicate is NOT harmless,
+// order-dependent). An added plant has no `sourceId`.
+function mergeEffectivePlants(
   dataset: { plants?: Plant[] } | undefined,
   inputs: Record<string, unknown> | null,
 ): Plant[] {
-  const base = dataset?.plants ?? [];
-  const added: Plant[] = addedPlantsFromInputs(inputs).map(p => ({
-    id: p.id,
-    name: p.displayCode ?? p.id,
-    city: p.city,
-    state: p.state,
-    lat: p.lat,
-    lng: p.lng,
-  }));
-  return [...base, ...added];
+  const byId = new Map<string, Plant>();
+  for (const p of dataset?.plants ?? []) byId.set(p.id, p);
+  for (const p of addedPlantsFromInputs(inputs)) {
+    if (!byId.has(p.id)) {
+      byId.set(p.id, { id: p.id, name: p.displayCode ?? p.id, city: p.city, state: p.state, lat: p.lat, lng: p.lng });
+    }
+  }
+  return [...byId.values()];
 }
 
 // jade-T15.5 — the P slider's semantic maximum for two-echelon-jade-us
@@ -1588,25 +1592,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   // projection for JadeFlowsTab's P->W Plant column, resolved from the SAME
   // SOLVED snapshot (`displayedInputs`) every other JADE output surface
   // reads, NEVER `localInputs` (an unsaved draft edit must not change an
-  // already-displayed solve's labels). Base `dataset.plants` wins on id
-  // collision (Map seeded with base first, added only if absent) — a plain
-  // concat (as `effectivePlantsForCapabilityMatrix` above uses, correct for
-  // its own "one row per plant, duplicates are fine" table) would let
-  // `resolvePlantLabel`'s `.find()` lookup return either entry depending on
-  // array order, which is NOT fine for a label lookup. Memoized on
-  // `[dataset, displayedInputs]` so unrelated Workspace renders don't rebuild
-  // the array (keeps JadeFlowsTab's own `pwRows` memo, which depends on a
-  // signature derived from this array, stable).
-  const effectiveFlowsPlants: Plant[] = useMemo(() => {
-    const byId = new Map<string, Plant>();
-    for (const p of dataset?.plants ?? []) byId.set(p.id, p);
-    for (const p of addedPlantsFromInputs(displayedInputs)) {
-      if (!byId.has(p.id)) {
-        byId.set(p.id, { id: p.id, name: p.displayCode ?? p.id, city: p.city, state: p.state, lat: p.lat, lng: p.lng });
-      }
-    }
-    return [...byId.values()];
-  }, [dataset, displayedInputs]);
+  // already-displayed solve's labels). Uses the canonical `mergeEffectivePlants`
+  // (base wins on id collision — correct for `resolvePlantLabel`'s `.find()`).
+  // Memoized on `[dataset, displayedInputs]` so unrelated Workspace renders
+  // don't rebuild the array (keeps JadeFlowsTab's own `pwRows` memo, which
+  // depends on a signature derived from this array, stable).
+  const effectiveFlowsPlants: Plant[] = useMemo(
+    () => mergeEffectivePlants(dataset, displayedInputs),
+    [dataset, displayedInputs],
+  );
 
   // jade-INT (workspace-fixups-2, item 2) — the one canonical-id -> {city,
   // state, displayId} identity projection (T3's buildEntityIdentityById),
@@ -2801,14 +2795,14 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
     // jade-T15.5 — Capability Matrix tab. `plants` is the effective-row
     // projection (base ∪ added, Gate 6.5) built by
-    // effectivePlantsForCapabilityMatrix; an added plant defaults every
+    // mergeEffectivePlants; an added plant defaults every
     // capability cell to disabled (baseCapabilities has no row for it,
     // baseEnabled's own `?? 0 > 0` fallback in CapabilityMatrixTab.tsx).
     if (activeTab.kind === "input" && activeTab.entity === "capability-matrix" && activeModelManifest?.capabilities?.supportsPlantProductCapability) {
       if (!dataset || !localInputs) return <span className="text-muted-foreground" data-testid="tab-content-loading">Loading…</span>;
       return (
         <CapabilityMatrixTab
-          plants={effectivePlantsForCapabilityMatrix(dataset, localInputs)}
+          plants={mergeEffectivePlants(dataset, localInputs)}
           products={dataset.products ?? []}
           baseCapabilities={dataset.plantProductCapabilities ?? []}
           overrides={plantProductCapabilityFromInputs(localInputs)}
@@ -3264,13 +3258,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           hideClosedWarehouses={hidesClosedFacilities}
           // jade-INT (#2, spec §3 R2-4) — base dataset plants ∪ this solve
           // snapshot's scenario-local addedPlants (reuses
-          // effectivePlantsForCapabilityMatrix's identical base∪added
+          // mergeEffectivePlants's identical base∪added
           // projection — same union the Capability Matrix tab already
           // builds, just off displayedInputs here instead of localInputs,
           // matching every other prop on this call). undefined for every
           // non-JADE model — OutputMapTab's own `plants = []` default
           // keeps them unaffected.
-          plants={modelId === "two-echelon-jade-us" ? effectivePlantsForCapabilityMatrix(dataset, displayedInputs) : undefined}
+          plants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, displayedInputs) : undefined}
           // jade-INT (#8, spec §9) — the displayed history entry's own
           // frozen timing; suppressed by OutputMapTab itself when absent.
           timing={displayedTiming}
@@ -3438,7 +3432,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           result={result}
           scenarioId={currentScenario!.id}
           modelId={modelId}
-          effectivePlants={modelId === "two-echelon-jade-us" ? effectivePlantsForCapabilityMatrix(dataset, displayedInputs) : undefined}
+          effectivePlants={modelId === "two-echelon-jade-us" ? mergeEffectivePlants(dataset, displayedInputs) : undefined}
           products={modelId === "two-echelon-jade-us" ? (dataset?.products ?? []) : undefined}
           baseCapabilities={modelId === "two-echelon-jade-us" ? (dataset?.plantProductCapabilities ?? []) : undefined}
           capabilityOverrides={modelId === "two-echelon-jade-us" ? plantProductCapabilityFromInputs(displayedInputs) : []}
