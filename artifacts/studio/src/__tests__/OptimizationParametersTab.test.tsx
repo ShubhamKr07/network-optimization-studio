@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import { OptimizationParametersTab } from "@/components/workspace/tabs/OptimizationParametersTab";
+import { UnitProvider } from "@/contexts/UnitContext";
 
 const baseProps = {
   p: 3,
@@ -9,6 +10,23 @@ const baseProps = {
   distanceBands: [200, 400, 800, 1600],
   onChange: vi.fn(),
 };
+
+// chen-bands-units, T13 — every render in this file now goes through a
+// `UnitProvider` ancestor via RTL's `wrapper` OPTION (not a wrapping
+// element — a wrapping element is silently dropped by a later
+// `rerender(...)` call). A `UnitProvider` ancestor is harmless for every
+// pre-existing (legacy, `canonicalUnit`-omitting) test above — nothing in
+// this file's legacy path calls `useDisplayUnit()`, so wrapping
+// unconditionally costs nothing and lets every `render(...)` call in this
+// file (old and new) stay textually unchanged.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: UnitProvider, ...options });
+}
+
+const STORAGE_KEY = "nos:display-unit-pref";
 
 describe("OptimizationParametersTab", () => {
   it("renders the real form (not a placeholder), with current values", () => {
@@ -341,5 +359,138 @@ describe("OptimizationParametersTab — zero-band guard (item 7, any model)", ()
   it("does not disable a remove control when more than one band remains", () => {
     render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
     expect(screen.getByTestId("button-remove-band-200")).toBeEnabled();
+  });
+});
+
+// chen-bands-units, T13, Part A + Part D — Chen's free band editor
+// re-enabled, plus the display-unit draft contract on OptimizationParametersTab's
+// own three distance fields (high-service, max, avg-cap) once a caller opts
+// in via `canonicalUnit`. Every test above this point deliberately omits
+// `canonicalUnit` and is unaffected by anything below.
+describe("OptimizationParametersTab — Part D display-unit contract (canonicalUnit opt-in)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  const chenUnitProps = {
+    p: 3,
+    pMax: 25,
+    gap: 0,
+    timeLimitSec: 120,
+    distanceBands: [600, 5000],
+    canonicalUnit: "km" as const,
+    objective: "coverage" as const,
+    highServiceDistKm: 600,
+    maxDistKm: 5000,
+    avgServiceDistCapKm: 1000,
+    showBandEditor: true,
+    onChange: vi.fn(),
+  };
+
+  it("renders a placeholder and disables editing until the Chen manifest resolves (canonicalUnit=null)", () => {
+    render(<OptimizationParametersTab {...chenUnitProps} canonicalUnit={null} onChange={vi.fn()} />);
+    expect(screen.getByTestId("input-high-service-dist")).toBeDisabled();
+    expect(screen.getByTestId("input-high-service-dist")).toHaveValue("");
+    expect(screen.getByTestId("input-max-dist")).toBeDisabled();
+    expect(screen.getByTestId("input-avg-service-cap")).toBeDisabled();
+    expect(screen.getByTestId("button-bands-plus")).toBeDisabled();
+    expect(screen.getByTestId("bands-unit-pending")).toBeInTheDocument();
+  });
+
+  it("commits a value typed in mi as canonical km for Chen", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const onServiceDistanceChange = vi.fn();
+    render(
+      <OptimizationParametersTab {...chenUnitProps} onServiceDistanceChange={onServiceDistanceChange} onChange={vi.fn()} />,
+    );
+    const input = screen.getByTestId("input-high-service-dist");
+    // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
+    expect(input).toHaveValue("372.8227");
+    fireEvent.change(input, { target: { value: "400" } });
+    fireEvent.blur(input);
+    // 400 mi -> km: 400 * 1.609344 = 643.7376.
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 643.7376);
+  });
+
+  it("p / gap / timeLimitSec / coverageFloorDemand are untouched by the toggle", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const onChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...chenUnitProps}
+        objective="min_distance"
+        avgServiceDistCapKm={undefined}
+        coverageFloorDemand={131645389}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByTestId("text-p-value")).toHaveTextContent("3");
+    expect(screen.getByTestId("input-gap")).toHaveValue(0);
+    expect(screen.getByTestId("input-time-limit")).toHaveValue(120);
+    const floor = screen.getByTestId("input-coverage-floor");
+    expect(floor).toHaveValue(131645389);
+    fireEvent.change(floor, { target: { value: "200000000" } });
+    expect(onChange).toHaveBeenCalledWith("coverageFloorDemand", 200000000);
+  });
+
+  it("a high-service edit retargets a band equal to the OLD high, then dedupes and re-sorts", () => {
+    const onChange = vi.fn();
+    const onServiceDistanceChange = vi.fn();
+    render(
+      <OptimizationParametersTab
+        {...chenUnitProps}
+        distanceBands={[600, 1200, 2400, 5000]}
+        onChange={onChange}
+        onServiceDistanceChange={onServiceDistanceChange}
+      />,
+    );
+    const input = screen.getByTestId("input-high-service-dist");
+    fireEvent.change(input, { target: { value: "700" } });
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledWith("distanceBands", [700, 1200, 2400, 5000]);
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+  });
+
+  it("removing the high band first means a later high edit leaves bands untouched", () => {
+    const onChange = vi.fn();
+    const onServiceDistanceChange = vi.fn();
+    // 600 already removed from bands — simulates the user having removed it.
+    render(
+      <OptimizationParametersTab
+        {...chenUnitProps}
+        distanceBands={[1200, 2400, 5000]}
+        onChange={onChange}
+        onServiceDistanceChange={onServiceDistanceChange}
+      />,
+    );
+    const input = screen.getByTestId("input-high-service-dist");
+    fireEvent.change(input, { target: { value: "700" } });
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onServiceDistanceChange).toHaveBeenCalledWith("highServiceDistKm", 700);
+  });
+
+  it("re-enables the free band chip editor for Chen (showBandEditor truthy) — add/remove works", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...chenUnitProps} onChange={onChange} />);
+    expect(screen.getByTestId("button-bands-plus")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("button-remove-band-5000"));
+    expect(onChange).toHaveBeenCalledWith("distanceBands", [600]);
+  });
+
+  it("blocks removing the last remaining Chen band", () => {
+    const onChange = vi.fn();
+    render(<OptimizationParametersTab {...chenUnitProps} distanceBands={[600]} onChange={onChange} />);
+    const removeBtn = screen.getByTestId("button-remove-band-600");
+    expect(removeBtn).toBeDisabled();
+    fireEvent.click(removeBtn);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("does not render a distance-unit label or value for the band editor until canonicalUnit resolves", () => {
+    render(<OptimizationParametersTab {...chenUnitProps} canonicalUnit={null} onChange={vi.fn()} />);
+    expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
   });
 });
