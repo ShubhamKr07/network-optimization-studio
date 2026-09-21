@@ -1,8 +1,20 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import * as exportEntity from "@/lib/exportEntity";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { exportProviderWrapper, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+
+// SCN chen-bands-units, Task 14b — OpenWarehousesTab now calls useExport()
+// unconditionally, needing an ExportProvider ancestor for every render.
+// Shadowing `render` (RTL's `wrapper` OPTION, not a JSX-wrapping element —
+// see this repo's own documented rerender gotcha) keeps every pre-existing
+// bare `render(<OpenWarehousesTab .../>)` call site byte-identical.
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: exportProviderWrapper() });
+}
 
 const result = {
   status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
@@ -36,7 +48,83 @@ describe("OpenWarehousesTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<OpenWarehousesTab result={result} scenarioId={1} />);
     fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv");
+    // scenarioId/unit come from the ExportProvider context (default {scenarioId:1, unit:"mi"}),
+    // NOT from this component's own `scenarioId` prop — toHaveBeenCalledWith
+    // ignores the undefined `runId` key (vitest/jest equality semantics).
+    expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions the context-only ExportContext
+  // tests (Task 11b) deliberately left to the real consumers.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced when the displayed result has no runId (resultDisabledReason)", () => {
+      rtlRender(
+        <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "This result predates run history — export the latest result instead." })}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      const button = screen.getByTestId("button-download-open-warehouses-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "This result predates run history — export the latest result instead.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <ExportProvider value={makeExportProviderValue({ runId: 42 })}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv", { unit: "mi", runId: 42 });
+    });
+
+    it("omits runId (undefined) when the latest result is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      render(<OpenWarehousesTab result={result} scenarioId={1} />);
+      fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+      const call = spy.mock.calls[0];
+      expect(call[3]).toEqual({ unit: "mi", runId: undefined });
+    });
+
+    // Decision 1g's legacy latest->history transition, proven against a
+    // REAL rendered control across a real rerender — not a fixed-value
+    // snapshot, and not stubbed. Every render call below (initial AND every
+    // rerender) explicitly includes the same <ExportProvider> ancestor at
+    // the same tree position, so React reconciles in place rather than
+    // remounting (the exact double-wrap/remount trap this suite's sibling
+    // file, JadeAssignmentsTab.test.tsx, hit and fixed this same task).
+    it("a real control disables when browsing to a legacy (no-runId) history entry, then re-enables back at the latest result", () => {
+      const { rerender } = rtlRender(
+        <ExportProvider value={makeExportProviderValue()}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      const button = screen.getByTestId("button-download-open-warehouses-csv");
+      expect(button).not.toBeDisabled();
+
+      // Student steps the result-history stepper back to an entry that
+      // predates run history (no runId was ever recorded for it) — a
+      // server-side export at this point would silently return the LATEST
+      // result instead of the one on screen (decision 1g), so the control
+      // must disable.
+      rerender(
+        <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "This entry predates run history — export unavailable." })}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "This entry predates run history — export unavailable.");
+
+      // Student steps forward again to the latest result — the control
+      // re-enables, proving this isn't a one-way/sticky disable.
+      rerender(
+        <ExportProvider value={makeExportProviderValue()}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      expect(button).not.toBeDisabled();
+    });
   });
 
   // B2.2-T6 — B1: utilization column gate

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { warehouseStatusPresentation } from "@/components/workspace/map/statusPresentation";
@@ -21,6 +21,11 @@ interface WarehouseTableProps {
   onChange: (next: WarehouseOverride[]) => void;
   /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
   hasStateColumn?: boolean;
+  /** chen-bands-units follow-up (QA defect) — see CustomerTable's identical
+   * prop for the full rationale. Disables every capacity input outright and
+   * ignores any in-progress draft for display while browsing result
+   * history. Defaults false — every existing caller is unaffected. */
+  disabled?: boolean;
 }
 
 const STATUSES = ["active", "forced_open", "inactive"] as const;
@@ -33,12 +38,20 @@ const STATUSES = ["active", "forced_open", "inactive"] as const;
 // can't drift between callers. The stored/API enum (and every `data-testid`,
 // which still uses the raw enum values below) is untouched.
 
-export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, hasStateColumn = true }: WarehouseTableProps) {
+export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, hasStateColumn = true, disabled = false }: WarehouseTableProps) {
   // Local draft text, keyed by warehouse id — decoupled from the committed
   // override so an in-progress keystroke isn't snapped back before the user
   // finishes typing (same rationale as CustomerTable's demand drafts).
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const getOverride = (id: string) => overrides.find(o => o.id === id);
+
+  // chen-bands-units follow-up (QA defect) — see CustomerTable.tsx's
+  // identical `lastCommittedRef` for the full rationale: per-id "what we
+  // last actually committed" (as the exact string the display formula
+  // below renders), only ever compared against — never assumed — so a
+  // clear only fires on an EXTERNAL mutation of `overrides` (Discard,
+  // history step), never on the user's own keystroke.
+  const lastCommittedRef = useRef<Record<string, string>>({});
 
   function upsert(id: string, patch: Partial<WarehouseOverride>) {
     const existing = getOverride(id);
@@ -51,6 +64,23 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
     const rest = overrides.filter(o => o.id !== id);
     const isNoOp = merged.status === "active" && merged.capacity == null;
     onChange(isNoOp ? rest : [...rest, merged]);
+  }
+
+  // React-sanctioned "adjust state during render in response to a prop
+  // change" pattern (mirrors CustomerTable.tsx's identical block and
+  // useDistanceDraft.ts's own use of it) — no effect, no extra paint.
+  const staleDraftIds = Object.keys(drafts).filter(id => {
+    const committed = lastCommittedRef.current[id];
+    if (committed === undefined) return false;
+    const effective = String(getOverride(id)?.capacity ?? "");
+    return committed !== effective;
+  });
+  if (staleDraftIds.length > 0) {
+    setDrafts(prev => {
+      const next = { ...prev };
+      for (const id of staleDraftIds) delete next[id];
+      return next;
+    });
   }
 
   return (
@@ -85,13 +115,17 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
                     <Input
                       type="number"
                       min={0}
-                      value={drafts[wh.id] ?? String(o?.capacity ?? "")}
+                      value={disabled ? String(o?.capacity ?? "") : drafts[wh.id] ?? String(o?.capacity ?? "")}
                       onChange={e => {
+                        if (disabled) return;
                         const raw = e.target.value;
                         setDrafts(prev => ({ ...prev, [wh.id]: raw }));
                         const capacity = raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0);
                         upsert(wh.id, { capacity });
+                        lastCommittedRef.current[wh.id] = capacity === null ? "" : String(capacity);
                       }}
+                      disabled={disabled}
+                      title={disabled ? "Read-only while browsing result history." : undefined}
                       className="h-7 text-xs w-28 font-mono"
                       placeholder="uniform"
                       data-testid={`input-wh-capacity-${wh.id}`}

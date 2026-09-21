@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
 import { useGetReferenceDistances, getGetReferenceDistancesQueryKey } from "@workspace/api-client-react";
+import { roundForFile, type CanonicalUnit } from "@workspace/units";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ImportDialog } from "@/components/ImportDialog";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 export interface DistanceOverride {
   fromId: string;
@@ -18,7 +21,7 @@ export interface DistanceOverride {
    * haversine normalizer (services/autoDistance.ts) rather than entered or
    * imported by the student. Matches distanceOverrideSchema's own optional
    * `estimated` field exactly. Purely a display flag — editing the distance
-   * (see `editOverride`) drops it, treating the edit as a confirmation. */
+   * (see `commitOverride`) drops it, treating the edit as a confirmation. */
   estimated?: boolean;
 }
 
@@ -93,10 +96,97 @@ interface DistancesTabProps {
    * `locationById`-driven display already renders rich at every row count
    * and is never gated by this threshold. */
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
+  /** chen-bands-units, Task 12 — the active model's canonical distance unit
+   * ("km" | "mi"), sourced from the manifest. `null`/undefined while it
+   * hasn't resolved yet — there is NO fallback: every value/label below and
+   * every editable cell stays gated (no number, no unit suffix, disabled
+   * input) until this is authoritative (Part D, "No fallback unit"). Wired
+   * by Workspace.tsx (Task 14); every pre-Task-14 caller omits it, which is
+   * exactly the disabled/unresolved state, not a behavior regression for
+   * those callers since none of them previously carried unit awareness. */
+  canonicalUnit?: CanonicalUnit | null;
 }
 
 function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
+}
+
+// chen-bands-units, Task 12 — one row's Override cell. A dedicated child
+// component (not a hook called inline inside the parent's `.map()`) because
+// `useDistanceDraft` must be called unconditionally, the same number of times
+// on every render of ITS OWN component instance — the parent's row list
+// changes shape across renders (pagination/filter/add/remove), which would
+// violate the Rules of Hooks if the hook were invoked directly inside the
+// parent's map callback. `currentValue` is undefined for a base row with no
+// override yet (its own "revert to" baseline is genuinely blank, not a real
+// canonical number) — text is forced blank whenever there's no override AND
+// no in-progress draft, regardless of what baseline value the hook itself is
+// keyed on.
+function DistanceOverrideCell({
+  canonicalUnit,
+  currentValue,
+  resetKey,
+  onCommitValid,
+  inputTestId,
+  errorTestId,
+}: {
+  canonicalUnit: CanonicalUnit | null;
+  currentValue: number | undefined;
+  resetKey: unknown;
+  onCommitValid: (canonicalValue: number) => void;
+  inputTestId: string;
+  errorTestId: string;
+}) {
+  const draft = useDistanceDraft({
+    canonicalUnit,
+    value: currentValue ?? 0,
+    resetKey,
+    onCommit: v => {
+      if (Number.isFinite(v) && v > 0) onCommitValid(v);
+    },
+  });
+  const text = !draft.isDirty && currentValue == null ? "" : draft.text;
+
+  // Live, as-you-type domain validation (positive-number business rule) —
+  // deliberately independent of the unit-toggle grammar's own notion of
+  // "complete" (e.g. "5." shows no error here, matching this field's
+  // pre-existing whole-value `Number()` behavior; it just won't COMMIT on
+  // blur/Enter until it becomes grammar-complete, per the hook's contract).
+  const trimmed = text.trim();
+  const numeric = trimmed === "" ? null : Number(trimmed);
+  const error =
+    trimmed !== "" && (numeric === null || Number.isNaN(numeric) || numeric <= 0)
+      ? "Distance must be a positive number."
+      : null;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {/* text (not type="number") — a native number input's own
+          sanitization silently strips a malformed string like "12abc" to
+          "" before onChange ever fires, which would make the whole-value
+          Number()-vs-parseFloat distinction below unreachable/untestable. */}
+      <Input
+        type="text"
+        inputMode="decimal"
+        value={text}
+        disabled={draft.disabled}
+        onChange={e => draft.onChange(e.target.value)}
+        onBlur={draft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") draft.commit();
+          else if (e.key === "Escape") draft.discard();
+        }}
+        aria-invalid={error ? "true" : undefined}
+        className={`h-7 text-xs w-24 font-mono ${error ? "border-destructive" : ""}`}
+        data-testid={inputTestId}
+      />
+      {error && (
+        <p className="text-[11px] text-destructive mt-0.5" data-testid={errorTestId}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 // Bundle 6.1, T2 — one shared pager over the single merged table (replaces
@@ -183,17 +273,47 @@ export function DistancesTab({
   excludedCustomerIds,
   locationById,
   identityById,
+  canonicalUnit = null,
 }: DistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
-  const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // chen-bands-units, Task 12 — the display unit for labels ("Base (mi)"/
+  // "Override (km)"), derived once here for header/placeholder text. Every
+  // VALUE (base cells, override drafts) routes through `useDistanceDraft`
+  // itself, which reads the same context internally — this is presentation
+  // labeling only.
+  const { effectiveUnit, toDisplay } = useDisplayUnit();
+  const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+  const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
+
+  // chen-bands-units, Task 12 — the add-row Distance field. Called
+  // unconditionally (Rules of Hooks) even though its JSX is only rendered
+  // while `addingRow` — the hook itself must exist for every render of this
+  // component regardless of whether the form is currently shown. There is no
+  // stored "value" to revert to for a brand-new row (see `DistanceOverrideCell`'s
+  // own comment on the same issue) — `newDistanceCanonicalRef` captures
+  // whatever the hook last synchronously committed, read directly inside
+  // `handleAddRow` (NOT via a state round-trip, which can't be read back
+  // within the same click handler) rather than relying on the input's own
+  // blur firing before the Add button's click (fragile to simulate in tests
+  // that use `fireEvent` instead of realistic focus-transition events).
+  const newDistanceCanonicalRef = useRef<number | null>(null);
+  const newDistanceDraft = useDistanceDraft({
+    canonicalUnit,
+    value: 0,
+    resetKey: scenarioId,
+    onCommit: v => {
+      newDistanceCanonicalRef.current = v;
+    },
+  });
+  const newDistanceText = newDistanceDraft.isDirty ? newDistanceDraft.text : "";
 
   // Bundle 6.1, T2 — a single pager over the merged row list (was two
   // independent pagers, one per table, before the merge).
@@ -361,37 +481,19 @@ export function DistancesTab({
     return saved.distance !== current.distance;
   }
 
-  // Resolution #4/#7 — whole-value validation: `Number(raw.trim())`, NOT
-  // `parseFloat`, which would silently accept a numeric-prefix string like
-  // "12abc" as 12. An empty draft is the mid-clear state (no error, no
-  // commit); a non-empty draft that isn't a finite positive number is
-  // invalid (inline error, no onChange); a valid positive number upserts the
-  // override, dropping any `estimated` flag (editing is a confirm action).
-  function editOverride(r: MergedRow, raw: string) {
+  // chen-bands-units, Task 12 — the actual commit-to-parent logic now lives
+  // in `DistanceOverrideCell`'s `onCommitValid` callback (per row), which
+  // fires only once `useDistanceDraft` has resolved a grammar-complete,
+  // positive canonical value on blur/Enter. This function stays as the
+  // upsert-vs-insert decision the cell's callback delegates to.
+  function commitOverride(r: MergedRow, canonicalValue: number) {
     const key = pairKey(r.fromId, r.toId);
-    setDrafts(prev => ({ ...prev, [key]: raw }));
-    const trimmed = raw.trim();
-    if (trimmed === "") {
-      setErrors(prev => {
-        if (!(key in prev)) return prev;
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      return;
-    }
-    const n = Number(trimmed);
-    if (!Number.isFinite(n) || n <= 0) {
-      setErrors(prev => ({ ...prev, [key]: "Distance must be a positive number." }));
-      return;
-    }
-    setErrors(prev => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    const nextOverride: DistanceOverride = { fromId: r.fromId, toId: r.toId, distance: n, estimated: undefined };
+    const nextOverride: DistanceOverride = {
+      fromId: r.fromId,
+      toId: r.toId,
+      distance: canonicalValue,
+      estimated: undefined,
+    };
     onChange(
       overrideByKey.has(key)
         ? distanceOverrides.map(o => (pairKey(o.fromId, o.toId) === key ? nextOverride : o))
@@ -400,28 +502,12 @@ export function DistancesTab({
   }
 
   // Resolution #4 — removes the override (base row reverts to base; an
-  // added-entity row disappears entirely) and drops any lingering draft/error
-  // for this key so a stale invalid draft doesn't linger after Clear.
+  // added-entity row disappears entirely). `DistanceOverrideCell`'s own
+  // `resetKey` (keyed partly on override presence) discards any lingering
+  // in-progress draft for this row once `r.override` disappears.
   function clearOverride(r: MergedRow) {
     const key = pairKey(r.fromId, r.toId);
     onChange(distanceOverrides.filter(o => pairKey(o.fromId, o.toId) !== key));
-    setDrafts(prev => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    setErrors(prev => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }
-
-  function draftFor(r: MergedRow): string {
-    const key = pairKey(r.fromId, r.toId);
-    return drafts[key] ?? (r.override ? String(r.override.distance) : "");
   }
 
   // Resolution #6 — loading: base cells show a spinner (not "—"), added-entity
@@ -429,26 +515,39 @@ export function DistancesTab({
   // override rows stay editable. Only on SUCCESS does a genuinely base-absent
   // pair (`base === null`) show "—". When the model has no reference matrix
   // at all (`referenceCapable` falsy), there's no load/error state to report.
+  // chen-bands-units, Task 12 — "No fallback unit" (Part D): an unresolved
+  // canonicalUnit is treated as its own loading state, ahead of every other
+  // branch, so a base value is never shown without a trustworthy unit.
   function baseCell(r: MergedRow) {
+    if (canonicalUnit == null) {
+      return <Spinner className="w-3 h-3" data-testid={`spinner-distance-unit-${r.fromId}-${r.toId}`} />;
+    }
     if (referenceCapable) {
       if (referenceQuery.isLoading) {
         return <Spinner className="w-3 h-3" data-testid={`spinner-distance-base-${r.fromId}-${r.toId}`} />;
       }
       if (referenceQuery.isError) return "unavailable";
     }
-    return r.base == null ? "—" : r.base;
+    if (r.base == null) return "—";
+    return String(roundForFile(toDisplay(r.base, canonicalUnit)));
   }
 
   function handleAddRow() {
     const fromId = newFrom.trim();
     const toId = newTo.trim();
-    const distance = parseFloat(newDistance);
+    // Resolve any pending typed value synchronously — `commit()` calls its
+    // `onCommit` callback (which writes `newDistanceCanonicalRef`) as a plain
+    // function call, not via a deferred state update, so the ref is
+    // guaranteed current by the time we read it below regardless of whether
+    // a real blur ever fired first.
+    newDistanceDraft.commit();
+    const distance = newDistanceCanonicalRef.current;
 
     if (!fromId || !toId) {
       setAddError("From ID and To ID are both required.");
       return;
     }
-    if (!Number.isFinite(distance) || distance <= 0) {
+    if (distance == null || !Number.isFinite(distance) || distance <= 0) {
       setAddError("Distance must be a positive number.");
       return;
     }
@@ -461,7 +560,8 @@ export function DistancesTab({
     onChange([...distanceOverrides, { fromId, toId, distance }]);
     setNewFrom("");
     setNewTo("");
-    setNewDistance("");
+    newDistanceDraft.discard();
+    newDistanceCanonicalRef.current = null;
     setAddingRow(false);
   }
 
@@ -469,7 +569,8 @@ export function DistancesTab({
     setAddingRow(false);
     setNewFrom("");
     setNewTo("");
-    setNewDistance("");
+    newDistanceDraft.discard();
+    newDistanceCanonicalRef.current = null;
     setAddError(null);
   }
 
@@ -478,8 +579,9 @@ export function DistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "distances", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("distances", "csv")}
+        disabled={disabledReasonFor("distances") != null}
+        title={disabledReasonFor("distances")}
         data-testid="button-export-distances-csv"
         className="h-7 text-xs"
       >
@@ -488,8 +590,9 @@ export function DistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "distances", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("distances", "json")}
+        disabled={disabledReasonFor("distances") != null}
+        title={disabledReasonFor("distances")}
         data-testid="button-export-distances-json"
         className="h-7 text-xs"
       >
@@ -559,10 +662,17 @@ export function DistancesTab({
         data-testid="input-new-distance-to"
       />
       <Input
-        type="number"
-        placeholder="Distance"
-        value={newDistance}
-        onChange={e => setNewDistance(e.target.value)}
+        type="text"
+        inputMode="decimal"
+        placeholder={unitSuffix("Distance")}
+        value={newDistanceText}
+        disabled={newDistanceDraft.disabled}
+        onChange={e => newDistanceDraft.onChange(e.target.value)}
+        onBlur={newDistanceDraft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") newDistanceDraft.commit();
+          else if (e.key === "Escape") newDistanceDraft.discard();
+        }}
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-distance-value"
       />
@@ -613,8 +723,8 @@ export function DistancesTab({
               <TableRow>
                 <TableHead>From</TableHead>
                 <TableHead>To</TableHead>
-                <TableHead>Base</TableHead>
-                <TableHead>Override</TableHead>
+                <TableHead>{unitSuffix("Base")}</TableHead>
+                <TableHead>{unitSuffix("Override")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -624,7 +734,6 @@ export function DistancesTab({
                 const changed = isChangedRow(r);
                 const fromUnknown = !warehouseIdSet.has(r.fromId);
                 const toUnknown = !customerIdSet.has(r.toId);
-                const error = errors[key];
                 return (
                   <TableRow
                     key={key}
@@ -668,20 +777,18 @@ export function DistancesTab({
                     <TableCell className="font-mono text-xs">{baseCell(r)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {/* text (not type="number") — see the note on why below:
-                            a native number input's own value-sanitization
-                            algorithm silently strips a malformed string like
-                            "12abc" to "" before onChange ever fires, which
-                            would make the whole-value Number()-vs-parseFloat
-                            distinction below unreachable/untestable. */}
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          value={draftFor(r)}
-                          onChange={e => editOverride(r, e.target.value)}
-                          aria-invalid={error ? "true" : undefined}
-                          className={`h-7 text-xs w-24 font-mono ${error ? "border-destructive" : ""}`}
-                          data-testid={`input-distance-${r.fromId}-${r.toId}`}
+                        <DistanceOverrideCell
+                          canonicalUnit={canonicalUnit}
+                          currentValue={r.override?.distance}
+                          // Discards a stale in-progress draft on scenario
+                          // switch AND when this specific row's override is
+                          // cleared out from under it (e.g. the trash-icon
+                          // click below, mid-edit) — see the component's own
+                          // header comment.
+                          resetKey={`${scenarioId ?? ""}:${r.override ? "1" : "0"}`}
+                          onCommitValid={v => commitOverride(r, v)}
+                          inputTestId={`input-distance-${r.fromId}-${r.toId}`}
+                          errorTestId={`text-distance-error-${r.fromId}-${r.toId}`}
                         />
                         {r.override?.estimated && (
                           <span
@@ -700,14 +807,6 @@ export function DistancesTab({
                           </span>
                         )}
                       </div>
-                      {error && (
-                        <p
-                          className="text-[11px] text-destructive mt-0.5"
-                          data-testid={`text-distance-error-${r.fromId}-${r.toId}`}
-                        >
-                          {error}
-                        </p>
-                      )}
                     </TableCell>
                     <TableCell>
                       {(r.override || r.base == null) && (

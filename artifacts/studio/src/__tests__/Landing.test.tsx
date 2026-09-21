@@ -12,12 +12,17 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Landing } from "@/pages/Landing";
+import { UnitProvider } from "@/contexts/UnitContext";
 
+// Landing now calls useDisplayUnit() unconditionally — needs a UnitProvider
+// ancestor.
 function renderLanding() {
   return render(
-    <WouterRouter>
-      <Landing />
-    </WouterRouter>,
+    <UnitProvider>
+      <WouterRouter>
+        <Landing />
+      </WouterRouter>
+    </UnitProvider>,
   );
 }
 

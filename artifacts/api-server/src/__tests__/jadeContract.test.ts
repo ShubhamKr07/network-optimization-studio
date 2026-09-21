@@ -94,6 +94,7 @@ describe("JADE OpenAPI contract (jade-T3.5)", () => {
       updatedAt: new Date().toISOString(),
       solvedAt: new Date().toISOString(),
       stale: false,
+      resultRunId: null,
     };
     const result = ListScenariosResponseItem.safeParse(jadeScenario);
     expect(result.success).toBe(true);
@@ -120,6 +121,7 @@ describe("JADE OpenAPI contract (jade-T3.5)", () => {
       updatedAt: new Date().toISOString(),
       solvedAt: new Date().toISOString(),
       stale: false,
+      resultRunId: null,
     };
     const result = ListScenariosResponseItem.safeParse(pMedianScenario);
     expect(result.success).toBe(true);

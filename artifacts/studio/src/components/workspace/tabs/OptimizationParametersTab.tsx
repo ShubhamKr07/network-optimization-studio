@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
+import { type CanonicalUnit } from "@workspace/units";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
+import { BandChipEditor } from "@/components/workspace/tabs/BandChipEditor";
 
 export type OptimizationParametersField =
   | "p"
@@ -68,8 +69,27 @@ interface OptimizationParametersTabProps {
   bomRatio?: number;
   /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit),
    * used in the distance-bands label. Optional/defaults to "mi" so existing
-   * callers stay unchanged; Chen (chens-cosmetics-cn) passes "km". */
+   * callers stay unchanged; Chen (chens-cosmetics-cn) passes "km". Ignored
+   * once `canonicalUnit` (below) is supplied — that prop supersedes this
+   * label-only string for any caller that has migrated to Part D. */
   distanceUnit?: string;
+  /**
+   * chen-bands-units, Part D — opt-in switch, three states:
+   * - `undefined` (omitted): every existing/not-yet-migrated caller is
+   *   completely unaffected — the band editor and Chen's distance fields
+   *   stay on the pre-Part-D raw-number behavior above, no `UnitProvider`
+   *   dependency at all.
+   * - `null`: the caller has opted in, but the active model's manifest
+   *   (canonical distance unit) hasn't resolved yet — every distance field
+   *   this component owns (the band chip editor, Chen's high/max/avg-cap)
+   *   renders a disabled placeholder. No fallback unit, ever.
+   * - a resolved `CanonicalUnit`: full display-unit-aware editing via
+   *   `useDistanceDraft` (converted through `@workspace/units`, the single
+   *   authority for the math — never re-derived here).
+   * `p` / `gap` / `timeLimitSec` / `coverageFloorDemand` are NOT distances
+   * and are never gated or converted by this prop.
+   */
+  canonicalUnit?: CanonicalUnit | null;
   // ── C4.12 — Chen's Cosmetics coverage model (chens-cosmetics-cn) ──────────
   // The whole Chen block is gated on `objective != null` (present only for
   // Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a sibling
@@ -131,6 +151,7 @@ export function OptimizationParametersTab({
   capacityInactive,
   bomRatio,
   distanceUnit = "mi",
+  canonicalUnit,
   objective,
   highServiceDistKm,
   maxDistKm,
@@ -141,20 +162,24 @@ export function OptimizationParametersTab({
   showBandEditor = true,
   onChange,
 }: OptimizationParametersTabProps) {
-  const [addingBand, setAddingBand] = useState(false);
-  const [newBandValue, setNewBandValue] = useState("");
-
-  function addBand() {
-    const val = parseInt(newBandValue, 10);
-    if (!isNaN(val) && val > 0 && !distanceBands.includes(val)) {
-      onChange("distanceBands", [...distanceBands, val].sort((a, b) => a - b));
+  // chen-bands-units, Part A — the conditionally-linked high boundary: on a
+  // highServiceDistKm edit oldHigh -> newHigh, retarget a band EQUAL TO
+  // oldHigh to newHigh, but ONLY if such a band is present (the user may
+  // have already removed it — in which case bands stay untouched and later
+  // high edits never touch them again). Dedupe + re-sort after. This is a
+  // pure business-logic wrapper around `onServiceDistanceChange`, and
+  // applies identically regardless of legacy vs unit-aware mode below.
+  function handleHighServiceDistChange(newHigh: number) {
+    const oldHigh = highServiceDistKm;
+    if (oldHigh != null && oldHigh !== newHigh && distanceBands.includes(oldHigh)) {
+      const nextBands = Array.from(
+        new Set(distanceBands.map(b => (b === oldHigh ? newHigh : b))),
+      )
+        .filter(b => b > 0)
+        .sort((a, b) => a - b);
+      onChange("distanceBands", nextBands);
     }
-    setNewBandValue("");
-    setAddingBand(false);
-  }
-
-  function removeBand(band: number) {
-    onChange("distanceBands", distanceBands.filter(b => b !== band));
+    onServiceDistanceChange?.("highServiceDistKm", newHigh);
   }
 
   return (
@@ -227,48 +252,82 @@ export function OptimizationParametersTab({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="input-high-service-dist" className="text-xs text-muted-foreground">
-                High-service distance ({distanceUnit})
-              </Label>
-              <Input
-                id="input-high-service-dist"
-                type="number"
-                value={highServiceDistKm ?? ""}
-                onChange={e => onServiceDistanceChange?.("highServiceDistKm", parseFloat(e.target.value) || 0)}
-                className="h-8 text-sm mt-1 font-mono"
-                data-testid="input-high-service-dist"
-              />
-            </div>
-            <div>
-              <Label htmlFor="input-max-dist" className="text-xs text-muted-foreground">
-                Max distance ({distanceUnit})
-              </Label>
-              <Input
-                id="input-max-dist"
-                type="number"
-                value={maxDistKm ?? ""}
-                onChange={e => onServiceDistanceChange?.("maxDistKm", parseFloat(e.target.value) || 0)}
-                className="h-8 text-sm mt-1 font-mono"
-                data-testid="input-max-dist"
-              />
-            </div>
+            {canonicalUnit !== undefined ? (
+              <>
+                <ChenDistanceInput
+                  id="input-high-service-dist"
+                  testId="input-high-service-dist"
+                  labelPrefix="High-service distance"
+                  canonicalUnit={canonicalUnit}
+                  value={highServiceDistKm ?? 0}
+                  onCommit={handleHighServiceDistChange}
+                />
+                <ChenDistanceInput
+                  id="input-max-dist"
+                  testId="input-max-dist"
+                  labelPrefix="Max distance"
+                  canonicalUnit={canonicalUnit}
+                  value={maxDistKm ?? 0}
+                  onCommit={v => onServiceDistanceChange?.("maxDistKm", v)}
+                />
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label htmlFor="input-high-service-dist" className="text-xs text-muted-foreground">
+                    High-service distance ({distanceUnit})
+                  </Label>
+                  <Input
+                    id="input-high-service-dist"
+                    type="number"
+                    value={highServiceDistKm ?? ""}
+                    onChange={e => handleHighServiceDistChange(parseFloat(e.target.value) || 0)}
+                    className="h-8 text-sm mt-1 font-mono"
+                    data-testid="input-high-service-dist"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="input-max-dist" className="text-xs text-muted-foreground">
+                    Max distance ({distanceUnit})
+                  </Label>
+                  <Input
+                    id="input-max-dist"
+                    type="number"
+                    value={maxDistKm ?? ""}
+                    onChange={e => onServiceDistanceChange?.("maxDistKm", parseFloat(e.target.value) || 0)}
+                    className="h-8 text-sm mt-1 font-mono"
+                    data-testid="input-max-dist"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {objective === "coverage" && (
-            <div>
-              <Label htmlFor="input-avg-service-cap" className="text-xs text-muted-foreground">
-                Avg service distance cap ({distanceUnit})
-              </Label>
-              <Input
+            canonicalUnit !== undefined ? (
+              <ChenDistanceInput
                 id="input-avg-service-cap"
-                type="number"
-                value={avgServiceDistCapKm ?? ""}
-                onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
-                className="h-8 text-sm mt-1 font-mono"
-                data-testid="input-avg-service-cap"
+                testId="input-avg-service-cap"
+                labelPrefix="Avg service distance cap"
+                canonicalUnit={canonicalUnit}
+                value={avgServiceDistCapKm ?? 0}
+                onCommit={v => onChange("avgServiceDistCapKm", v)}
               />
-            </div>
+            ) : (
+              <div>
+                <Label htmlFor="input-avg-service-cap" className="text-xs text-muted-foreground">
+                  Avg service distance cap ({distanceUnit})
+                </Label>
+                <Input
+                  id="input-avg-service-cap"
+                  type="number"
+                  value={avgServiceDistCapKm ?? ""}
+                  onChange={e => onChange("avgServiceDistCapKm", parseFloat(e.target.value) || 0)}
+                  className="h-8 text-sm mt-1 font-mono"
+                  data-testid="input-avg-service-cap"
+                />
+              </div>
+            )
           )}
 
           {objective === "min_distance" && (
@@ -284,9 +343,6 @@ export function OptimizationParametersTab({
                 className="h-8 text-sm mt-1 font-mono"
                 data-testid="input-coverage-floor"
               />
-              <p className="text-[10px] text-muted-foreground mt-1" data-testid="coverage-floor-hint">
-                &gt; total demand 199M = infeasible
-              </p>
             </div>
           )}
         </div>
@@ -389,87 +445,72 @@ export function OptimizationParametersTab({
       )}
 
       {/* jade-INT (workspace-fixups-2, item 7) — JADE (Ch.9) renders this
-          SAME free add/remove chip editor as every other model now; the
-          fixed-4-slot `JadeBandEditor` is deleted (JADE's `distanceBands`
-          schema is `.min(1)` like p-median/transport/gold-au). */}
+          SAME shared editor as every other model now (fixed-4-slot
+          `JadeBandEditor` deleted upstream — its schema is `.min(1)` like
+          p-median/transport/gold-au). chen-bands-units, T13 — re-enabled
+          for Chen too (`showBandEditor` truthy) via the ONE shared
+          `BandChipEditor`, which OptimizationParametersTab and SolveDialog
+          both render now instead of each holding its own copy. */}
       {showBandEditor && (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold text-foreground">Distance bands ({distanceUnit})</Label>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setAddingBand(true)}
-            data-testid="button-bands-plus"
-            className="h-6 px-2 text-xs"
-          >
-            + Add
-          </Button>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {distanceBands.map(b => (
-            <span key={b} className="inline-flex items-center gap-1 text-xs bg-muted border border-border rounded px-2 py-1 font-mono">
-              {b.toLocaleString()}
-              <button
-                type="button"
-                aria-label={`Remove band ${b}`}
-                data-testid={`button-remove-band-${b}`}
-                onClick={() => removeBand(b)}
-                // item 7 (Codex plan-review P1) — never remove the LAST
-                // remaining band: every free-chip model's schema is now
-                // `.min(1)`, so emptying the array to [] would 422 on Save.
-                disabled={distanceBands.length <= 1}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            </span>
-          ))}
-          {distanceBands.length === 0 && (
-            <span className="text-xs text-muted-foreground" data-testid="distance-bands-empty">
-              No bands configured.
-            </span>
-          )}
-        </div>
-        {addingBand && (
-          <div className="flex gap-1.5">
-            <Input
-              type="number"
-              autoFocus
-              value={newBandValue}
-              onChange={e => setNewBandValue(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") addBand();
-                if (e.key === "Escape") {
-                  setAddingBand(false);
-                  setNewBandValue("");
-                }
-              }}
-              className="h-7 text-xs w-28 font-mono"
-              placeholder="e.g. 500"
-              data-testid="input-new-band"
-            />
-            <Button type="button" size="sm" onClick={addBand} className="h-7 px-2 text-xs" data-testid="button-add-band-confirm">
-              Add
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setAddingBand(false);
-                setNewBandValue("");
-              }}
-              className="h-7 px-2 text-xs"
-              data-testid="button-add-band-cancel"
-            >
-              Cancel
-            </Button>
-          </div>
-        )}
-      </div>
+        <BandChipEditor
+          bands={distanceBands}
+          onChange={bands => onChange("distanceBands", bands)}
+          distanceUnit={distanceUnit}
+          canonicalUnit={canonicalUnit}
+        />
       )}
+    </div>
+  );
+}
+
+// chen-bands-units, T13, Step 3b — Chen's high/max/avg-cap distance fields
+// adopt `useDistanceDraft` verbatim once the caller opts into `canonicalUnit`
+// (see the prop doc above). This is its own component, not an inline branch
+// inside `OptimizationParametersTab` itself, specifically so that hook is
+// only ever called by an instance that actually mounts — a legacy caller
+// that never passes `canonicalUnit` therefore never triggers `useDisplayUnit()`
+// and needs no `UnitProvider` ancestor (Rules of Hooks: the hook lives in
+// whichever component mounts, never in a runtime branch of one component's
+// own body).
+function ChenDistanceInput({
+  id,
+  testId,
+  labelPrefix,
+  canonicalUnit,
+  value,
+  onCommit,
+}: {
+  id: string;
+  testId: string;
+  labelPrefix: string;
+  canonicalUnit: CanonicalUnit | null;
+  value: number;
+  onCommit: (canonicalValue: number) => void;
+}) {
+  const { effectiveUnit } = useDisplayUnit();
+  const draft = useDistanceDraft({ canonicalUnit, value, onCommit });
+  const unitLabel = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+  return (
+    <div>
+      <Label htmlFor={id} className="text-xs text-muted-foreground">
+        {labelPrefix}
+        {unitLabel ? ` (${unitLabel})` : ""}
+      </Label>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        value={draft.text}
+        disabled={draft.disabled}
+        onChange={e => draft.onChange(e.target.value)}
+        onBlur={draft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") draft.commit();
+          if (e.key === "Escape") draft.discard();
+        }}
+        className="h-8 text-sm mt-1 font-mono"
+        data-testid={testId}
+      />
     </div>
   );
 }

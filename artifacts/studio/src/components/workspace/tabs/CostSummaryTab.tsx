@@ -1,20 +1,59 @@
 import { useState } from "react";
 import type { GetDatasetParams, Scenario, SolveResult } from "@workspace/api-client-react";
 import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
-import { formatChenObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
+import { useExport } from "@/contexts/ExportContext";
+import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
+import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
+
+// chen-bands-units, Part D "No fallback unit — reads". `formatDistance*`/
+// `distanceUnitLabel` below are this file's single choke point for turning a
+// CANONICAL distance number into display text — every call site routes
+// through one of them instead of hand-rolling `${value} ${distanceUnit}`, so
+// there is exactly one place that can ever render "—" instead of a guessed
+// unit. `canonical` is `undefined` while GET /api/models hasn't resolved yet
+// (or the active model id has no matching manifest entry) — in that window
+// every one of these returns the placeholder, never a number under a
+// guessed label.
+function formatDistance(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
+  if (raw == null || canonical == null) return "—";
+  return `${unit.toDisplay(raw, canonical).toFixed(1)} ${unit.effectiveUnit(canonical)}`;
+}
+
+function formatDistanceValueOnly(raw: number | null | undefined, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
+  if (raw == null || canonical == null) return "—";
+  return unit.toDisplay(raw, canonical).toFixed(1);
+}
+
+function formatBandBoundary(raw: number, canonical: CanonicalUnit | undefined, unit: UnitApi): string {
+  if (canonical == null) return "—";
+  return `${unit.toDisplay(raw, canonical).toLocaleString()} ${unit.effectiveUnit(canonical)}`;
+}
+
+function formatBandList(boundaries: number[], canonical: CanonicalUnit | undefined, unit: UnitApi): string {
+  if (boundaries.length === 0) return "no bands";
+  if (canonical == null) return "—";
+  const converted = boundaries.map(b => unit.toDisplay(b, canonical).toLocaleString()).join("/");
+  return `${converted} ${unit.effectiveUnit(canonical)}`;
+}
+
+function distanceUnitLabel(canonical: CanonicalUnit | undefined, unit: UnitApi): string | null {
+  return canonical == null ? null : unit.effectiveUnit(canonical);
+}
 
 interface CostSummaryTabProps {
   result: SolveResult | null;
   scenarioId: number;
-  // R6+R8 — `modelId` sources distanceUnit + the supportsFacilityStatus
-  // capability flag off GET /api/models, same pattern T3 already established
-  // for ServiceStatsTab (fetch useListModels internally, take modelId as a
-  // prop) rather than threading a distanceUnit prop through Workspace.tsx a
-  // second way. Optional so pre-existing call sites (and this file's own
-  // pre-T5 tests) keep compiling unchanged, defaulting to "mi"/no
-  // facility-location rows.
+  // R6+R8 — `modelId` sources the canonical distance unit + the
+  // supportsFacilityStatus capability flag off GET /api/models, same pattern
+  // T3 already established for ServiceStatsTab (fetch useListModels
+  // internally, take modelId as a prop) rather than threading a distanceUnit
+  // prop through Workspace.tsx a second way. Optional so pre-existing call
+  // sites (and this file's own pre-T5 tests) keep compiling unchanged;
+  // chen-bands-units, Part D — an absent/unresolved modelId means every
+  // distance-bearing cell shows a loading placeholder ("—"), NEVER a
+  // guessed "mi" (see `formatDistance`/`distanceUnitLabel` above).
   modelId?: string;
   // R6+R8 — the active model's own scenarios (Workspace.tsx's existing
   // `useListScenarios({ modelId })` result, already same-model-scoped —
@@ -152,14 +191,20 @@ function scenariosShareBands(results: SolveResult[]): boolean {
 }
 
 export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], isBrowsingHistory = false, locationById }: CostSummaryTabProps) {
+  const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
   // R9/R6+R8 — same lookup ServiceStatsTab.tsx already does: GET /api/models
-  // is independent of everything else on this page, defaulting absent ->
-  // "mi"/no facility rows rather than blocking render on it resolving.
+  // is independent of everything else on this page. chen-bands-units, Part D
+  // "No fallback unit — reads": `canonicalDistanceUnit` is `undefined` while
+  // this hasn't resolved yet (or `modelId` has no manifest entry) — every
+  // distance-bearing cell below routes through `formatDistance*`, which
+  // renders "—" in that window rather than ever guessing "mi".
   const { data: models } = useListModels();
   const activeModel = models?.find(m => m.id === modelId) as
-    | { distanceUnit?: string; capabilities?: { supportsFacilityStatus?: boolean } }
+    | { distanceUnit?: CanonicalUnit; capabilities?: { supportsFacilityStatus?: boolean } }
     | undefined;
-  const distanceUnit = activeModel?.distanceUnit ?? "mi";
+  const canonicalDistanceUnit = activeModel?.distanceUnit;
+  const unitLabel = distanceUnitLabel(canonicalDistanceUnit, unit);
   // T5 (B5) — the open-facility-by-city row is gated independently: two-echelon
   // has no P but DOES have a real open/closed facility-status concept, so it
   // still gets the city list.
@@ -281,12 +326,18 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     // fields are simply absent for every pre-existing model's envelope, so
     // these two rows never appear for them (byte-identical row set to before
     // this task).
-    // C4.14 (D14) — mode-aware objective (coverage % / min-distance demand-km);
-    // formatChenObjective returns null for every non-Chen model, keeping the
-    // plain toLocaleString format unchanged there.
+    // C4.14 (D14) — mode-aware objective (coverage % / min-distance demand-km).
+    // chen-bands-units, Part D decision 6 — `formatObjective` (the six-model,
+    // unit-aware contract) is used ONLY once BOTH `modelId` and the model's
+    // canonical distance unit are genuinely resolved; a wrong/guessed
+    // `modelId` or unit would silently mislabel the objective's DIMENSION
+    // (not just its number), which is worse than briefly keeping the
+    // pre-existing Chen-only/no-unit formatting while the manifest loads.
+    const objectiveMode = objectiveModeOfDetails(result.details);
     const objectiveText =
-      formatChenObjective(result.objective, objectiveModeOfDetails(result.details))
-      ?? result.objective.toLocaleString();
+      modelId != null && canonicalDistanceUnit != null
+        ? formatObjective(modelId, objectiveMode, result.objective, canonicalDistanceUnit, unit)
+        : formatChenObjective(result.objective, objectiveMode) ?? result.objective.toLocaleString();
     const rows: Array<[string, string, boolean]> = [["Objective", objectiveText, true]];
     if (result.metrics.inboundCost != null) {
       rows.push(["Inbound cost", result.metrics.inboundCost.toLocaleString(), true]);
@@ -295,7 +346,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
       rows.push(["Outbound cost", result.metrics.outboundCost.toLocaleString(), true]);
     }
     rows.push(
-      ["Weighted avg. distance", result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—", true],
+      ["Weighted avg. distance", formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
       ["Quality", result.quality, false],
       ["Solver", result.solverUsed, false],
@@ -309,8 +360,10 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
           <button
             type="button"
             data-testid="button-download-cost-summary-csv"
-            className="text-xs border rounded px-2 py-1 hover:bg-muted"
-            onClick={() => downloadEntityExport(scenarioId, "costSummary", "csv")}
+            className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+            onClick={() => download("costSummary", "csv")}
+            disabled={disabledReasonFor("costSummary") != null}
+            title={disabledReasonFor("costSummary")}
           >
             Download CSV
           </button>
@@ -356,15 +409,17 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               <td className="p-2 text-muted-foreground">Objective</td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-objective-${s.id}`}>
-                  {formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString()}
+                  {modelId != null && canonicalDistanceUnit != null
+                    ? formatObjective(modelId, scenarioObjectiveMode(s), s.result!.objective, canonicalDistanceUnit, unit)
+                    : formatChenObjective(s.result!.objective, scenarioObjectiveMode(s)) ?? s.result!.objective.toLocaleString()}
                 </td>
               ))}
             </tr>
             <tr>
-              <td className="p-2 text-muted-foreground">Weighted avg. distance ({distanceUnit})</td>
+              <td className="p-2 text-muted-foreground">Weighted avg. distance{unitLabel ? ` (${unitLabel})` : ""}</td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2 font-mono" data-testid={`cost-summary-compare-distance-${s.id}`}>
-                  {s.result!.metrics.weightedAvgDistance != null ? s.result!.metrics.weightedAvgDistance.toFixed(1) : "—"}
+                  {formatDistanceValueOnly(s.result!.metrics.weightedAvgDistance, canonicalDistanceUnit, unit)}
                 </td>
               ))}
             </tr>
@@ -427,7 +482,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               bandBoundaries(results[0]).map(band => (
                 <tr key={band}>
                   <td className="p-2 text-muted-foreground font-mono">
-                    ≤ {band} {distanceUnit}
+                    ≤ {formatBandBoundary(band, canonicalDistanceUnit, unit)}
                   </td>
                   {compareScenarios.map(s => {
                     const coverage = (s.result!.metrics.bandCoverage ?? []).find(b => b.band === band);
@@ -444,7 +499,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
         {!sharedBands && (
           <p className="text-xs text-muted-foreground p-2" data-testid="cost-summary-compare-bands-note">
             Selected scenarios use different distance bands — band coverage isn't shown side by side.{" "}
-            {compareScenarios.map(s => `${s.name}: ${bandBoundaries(s.result!).join("/") || "no bands"} ${distanceUnit}`).join("; ")}
+            {compareScenarios.map(s => `${s.name}: ${formatBandList(bandBoundaries(s.result!), canonicalDistanceUnit, unit)}`).join("; ")}
           </p>
         )}
       </div>

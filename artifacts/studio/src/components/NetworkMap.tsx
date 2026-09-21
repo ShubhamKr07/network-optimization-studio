@@ -12,6 +12,8 @@ import { getMapBoundsProps, type CountryBounds } from "@/lib/mapBounds";
 import { MapLegend } from "@/components/workspace/map/MapLegend";
 import { plantSquareSvg } from "@/components/workspace/map/EntityMarkers";
 import { formatCityState } from "@/lib/formatLocation";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 // T5 (workspace-fixups-2, item 4) — marker-type label by role, output-map
 // side. Duplicated (not shared) from EntityMarkers.tsx's own
@@ -245,10 +247,17 @@ interface PopupInfo {
 
 // C4.11 — pure popup-markup builder, extracted so the distance unit is
 // verifiable without driving Leaflet's imperative L.popup() through jsdom.
-// `distanceUnit` comes from the active model's manifest (ModelInfo.distanceUnit)
-// — defaults to "mi", Chen (chens-cosmetics-cn) passes "km".
-export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit = "mi"): string {
+// chen-bands-units, Part D "No fallback unit — reads": `distanceUnit` is the
+// ALREADY-RESOLVED effective display unit label (never a canonical guess) —
+// `null` means the canonical unit hasn't resolved yet (e.g. the manifest is
+// still loading), in which case the whole "Distance: <value> <unit>" line
+// renders a loading placeholder instead of ever defaulting to "mi". This
+// function stays pure (no hook) — the caller (CustomerPopup) is responsible
+// for resolving the unit via useDisplayUnit() and converting `info.distanceMi`
+// before calling this.
+export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit: CanonicalUnit | null = null): string {
   const color = getBandColor(info.band);
+  const distanceLine = distanceUnit == null ? "—" : `${info.distanceMi.toLocaleString()} ${distanceUnit}`;
   return `
       <div style="font-family:system-ui,sans-serif;font-size:12px;line-height:1.6;min-width:150px">
         <div style="font-weight:700;font-size:13px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:4px">
@@ -260,7 +269,7 @@ export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit = "mi"): st
         </div>
         <div style="margin-bottom:3px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Distance:</span>
-          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${info.distanceMi.toLocaleString()} ${distanceUnit}</strong>
+          <strong style="margin-left:4px;font-family:var(--app-font-mono)">${distanceLine}</strong>
         </div>
         <div style="display:flex;align-items:center;gap:5px;color:var(--text-body)">
           <span style="color:var(--text-muted)">Band:</span>
@@ -271,11 +280,21 @@ export function buildCustomerPopupHtml(info: PopupInfo, distanceUnit = "mi"): st
     `;
 }
 
-function CustomerPopup({ info, onClose, distanceUnit = "mi" }: { info: PopupInfo; onClose: () => void; distanceUnit?: string }) {
+// `distanceUnit` here is the CANONICAL unit (from the active model's
+// manifest), not yet converted — this component resolves the real display
+// unit via useDisplayUnit() and converts `info.distanceMi` (itself already
+// canonical) before handing off to the pure buildCustomerPopupHtml above.
+// `null`/`undefined` (unresolved canonical) propagates straight through as
+// `null`, never defaulting to "mi".
+function CustomerPopup({ info, onClose, distanceUnit }: { info: PopupInfo; onClose: () => void; distanceUnit: CanonicalUnit | null | undefined }) {
   const map = useMap();
+  const unit = useDisplayUnit();
+  const canonicalResolved = distanceUnit != null;
+  const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
+  const displayDistance = canonicalResolved ? unit.toDisplay(info.distanceMi, distanceUnit) : info.distanceMi;
 
   useEffect(() => {
-    const content = buildCustomerPopupHtml(info, distanceUnit);
+    const content = buildCustomerPopupHtml({ ...info, distanceMi: displayDistance }, resolvedUnitLabel);
 
     const popup = L.popup({
       closeButton: true,
@@ -295,7 +314,7 @@ function CustomerPopup({ info, onClose, distanceUnit = "mi" }: { info: PopupInfo
       map.off("popupclose", handleClose);
       map.closePopup(popup);
     };
-  }, [info.customerCity, info.warehouseCity, info.distanceMi, info.band, distanceUnit, info.bandLabelText]);
+  }, [info.customerCity, info.warehouseCity, displayDistance, info.band, resolvedUnitLabel, info.bandLabelText]);
 
   return null;
 }
@@ -342,12 +361,16 @@ interface NetworkMapProps {
   // false so every existing caller (Studio.tsx, Input Map, tests) renders
   // every candidate exactly as before.
   hideClosedWarehouses?: boolean;
-  // B2.2-T4 (A4) — unit each edge's `distance` is reported in, sourced from
-  // the active model's manifest (ModelInfo.distanceUnit) by the caller.
-  // Optional/defaults to "mi" so every existing caller that hasn't threaded
-  // it through yet (Studio.tsx, Workspace.tsx call sites owned by other
-  // tasks, tests) keeps compiling and rendering unchanged.
-  distanceUnit?: string;
+  // B2.2-T4 (A4) — CANONICAL unit each edge's `distance` is reported in,
+  // sourced from the active model's manifest (ModelInfo.distanceUnit) by the
+  // caller. chen-bands-units, Part D "No fallback unit — reads":
+  // `undefined`/`null` means the canonical unit hasn't resolved yet — every
+  // distance VALUE and unit LABEL this component renders (route hover
+  // tooltip, customer popup, legend) shows a loading placeholder instead of
+  // ever guessing "mi". This is the model's canonical unit, NOT necessarily
+  // what's shown on screen — useDisplayUnit() (the global auto/km/mi toggle)
+  // decides the actually-rendered unit from this value.
+  distanceUnit?: CanonicalUnit | null;
   // jade-T13 — per-leg lane visibility (the notebook's inbound/outbound/
   // combined layer toggles generalize to "which legs are visible"). When
   // undefined (every existing caller/model), every route renders exactly as
@@ -397,9 +420,18 @@ export function NetworkMap({
   multiSelectedWarehouseIds, multiSelectedCustomerIds,
   onToggleWarehouseMultiSelect, onToggleCustomerMultiSelect,
   showWarehouseMarkers = true, showCustomerMarkers = true,
-  hideClosedWarehouses = false, distanceUnit = "mi", visibleLegs,
+  hideClosedWarehouses = false, distanceUnit, visibleLegs,
   plants = [], showPlantMarkers = true, modelId, displayIdById = {},
 }: NetworkMapProps) {
+  const displayUnit = useDisplayUnit();
+  // chen-bands-units, Part D "No fallback unit — reads" — resolved once here
+  // and reused by both the route hover tooltip and the customer popup below,
+  // so there is exactly one place that decides "unresolved" for this
+  // component. `null` propagates through unconverted (never "mi").
+  const canonicalResolved = distanceUnit != null;
+  const effectiveDistanceUnitLabel = canonicalResolved ? displayUnit.effectiveUnit(distanceUnit) : null;
+  const formatEdgeDistance = (raw: number): string =>
+    canonicalResolved ? `${displayUnit.toDisplay(raw, distanceUnit).toLocaleString()} ${effectiveDistanceUnitLabel}` : "—";
   const mapBounds = getMapBoundsProps(countryBounds);
   // react-leaflet's MapContainer only applies center/maxBounds/minZoom at
   // construction — they are NOT reactive props. GET /api/models (the source
@@ -710,7 +742,7 @@ export function NetworkMap({
                     <span className="text-xs">
                       {fromEntity.city} → {toEntity.city}
                       <br />
-                      <span className="font-mono">{edge.distance} {distanceUnit}</span>
+                      <span className="font-mono">{formatEdgeDistance(edge.distance)}</span>
                     </span>
                   </Tooltip>
                 </Polyline>

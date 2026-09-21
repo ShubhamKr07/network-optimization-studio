@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import {
   completenessCountForCustomer,
   idCollisionMessageForCustomer,
@@ -112,6 +112,15 @@ interface CustomersTabProps {
    * base table is wired; the separate "Added customers" table isn't named
    * in spec §10's JADE table list. */
   enableFilters?: boolean;
+  /** chen-bands-units follow-up (QA defect) — threaded straight through to
+   * the base (non-JADE) `CustomerTable` only; JADE's own inline per-product
+   * table (this component's `productMode` branch) has a separate,
+   * analogous local-draft pattern (`productDrafts`) that this task does not
+   * touch — out of the fix's authorized scope, flagged separately, not
+   * silently left inconsistent. The "Added customers" section has no local
+   * draft state of its own (reads straight off props) and isn't affected
+   * either. Defaults false — every existing caller is unaffected. */
+  disabled?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing CustomerTable (built
@@ -138,8 +147,10 @@ export function CustomersTab({
   onProductOverridesChange,
   hasStateColumn = true,
   enableFilters = false,
+  disabled = false,
 }: CustomersTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   // T11 — the actual switch: per-product mode only renders when the caller
   // has ACTUALLY wired the full capability (data + callback), not merely
   // passed a non-empty `products` array with no override plumbing behind
@@ -386,8 +397,9 @@ export function CustomersTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "customers", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("customers", "csv")}
+        disabled={disabledReasonFor("customers") != null}
+        title={disabledReasonFor("customers")}
         data-testid="button-export-customers-csv"
         className="h-7 text-xs"
       >
@@ -396,8 +408,9 @@ export function CustomersTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "customers", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("customers", "json")}
+        disabled={disabledReasonFor("customers") != null}
+        title={disabledReasonFor("customers")}
         data-testid="button-export-customers-json"
         className="h-7 text-xs"
       >
@@ -729,7 +742,7 @@ export function CustomersTab({
           </Table>
         </div>
       ) : (
-        <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} />
+        <CustomerTable customers={displayedCustomers} overrides={overrides} onChange={onChange} demandEditable={demandEditable} hasStateColumn={hasStateColumn} disabled={disabled} />
       )}
       {addedSection}
       {importDialog}

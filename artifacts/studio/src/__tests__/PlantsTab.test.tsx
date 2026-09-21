@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor, within } from "@testing-library/react";
+import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlantsTab } from "@/components/workspace/tabs/PlantsTab";
@@ -116,7 +127,11 @@ describe("PlantsTab", () => {
 
 describe("PlantsTab — Upload/Download", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<PlantsTab plants={plants} />);
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <PlantsTab plants={plants} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-plants-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-plants-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-plants")).toBeDisabled();
@@ -124,7 +139,14 @@ describe("PlantsTab — Upload/Download", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=plants&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,city\nplant-1,Daggar Hills", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(<PlantsTab plants={plants} scenarioId={7} />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <PlantsTab plants={plants} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
+    );
 
     await userEvent.click(screen.getByTestId("button-export-plants-csv"));
 

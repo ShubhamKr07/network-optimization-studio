@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor, fireEvent } from "@testing-library/react";
+import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MinesTab } from "@/components/workspace/tabs/MinesTab";
@@ -51,7 +62,11 @@ describe("MinesTab", () => {
 
 describe("MinesTab — Upload/Download (A5.1)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<MinesTab mines={mines} overrides={[]} onChange={vi.fn()} />);
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-mines-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-mines-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-mines")).toBeDisabled();
@@ -59,7 +74,14 @@ describe("MinesTab — Upload/Download (A5.1)", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=mines&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,capacity\nM1,5000", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(<MinesTab mines={mines} overrides={[]} onChange={vi.fn()} scenarioId={7} />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <MinesTab mines={mines} overrides={[]} onChange={vi.fn()} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
+    );
 
     await userEvent.click(screen.getByTestId("button-export-mines-csv"));
 

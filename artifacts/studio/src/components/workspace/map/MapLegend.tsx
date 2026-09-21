@@ -5,6 +5,8 @@ import { demandTone, makeQuintileRadius, QUINTILE_RADII } from "./types";
 import { warehouseTriangleSvg, customerBubbleSvg, plantSquareSvg } from "./EntityMarkers";
 import { getBandColor } from "@/lib/bandPalette";
 import { OVERFLOW_BAND } from "@/lib/bands";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 const STATUSES: WhStatus[] = ["active", "forced_open", "inactive"];
 
@@ -127,11 +129,14 @@ export interface MapLegendProps {
    * into `showStatusLegend`'s status-vocabulary rows. Optional, default
    * `false` (every other model's call site is unaffected). */
   showPlantLayer?: boolean;
-  /** Output variant only — the active model's distance unit (mirrors the
-   * route hover tooltip's own unit, Bundle 2.2 item 12). Used to label each
-   * distance-band swatch's upper bound ("≤ {bound} {distanceUnit}") instead
-   * of the old ordinal "Band N". Optional, default `"mi"`. */
-  distanceUnit?: string;
+  /** Output variant only — the active model's CANONICAL distance unit
+   * (mirrors the route hover tooltip's own unit, Bundle 2.2 item 12). Used to
+   * label each distance-band swatch's upper bound ("≤ {bound} {unit}")
+   * instead of the old ordinal "Band N". chen-bands-units, Part D "No
+   * fallback unit — reads": `undefined`/`null` means the canonical unit
+   * hasn't resolved yet — every band-swatch label shows a loading placeholder
+   * instead of ever guessing "mi". */
+  distanceUnit?: CanonicalUnit | null;
   /** jade-B1 (#2) — Output variant only: whether the dataset has plant
    * entities (two-echelon-jade-us). Gates the "Plant" status entry (ANDed
    * with `showPlantLayer`, the live Plants-layer-toggle state) — mirrors
@@ -165,9 +170,14 @@ export function MapLegend({
   bands = [],
   hintText = null,
   showPlantLayer = false,
-  distanceUnit = "mi",
+  distanceUnit,
   hasPlants = false,
 }: MapLegendProps = {}) {
+  const unit = useDisplayUnit();
+  const canonicalResolved = distanceUnit != null;
+  const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
+  const formatBandBoundary = (raw: number): string =>
+    canonicalResolved ? `${unit.toDisplay(raw, distanceUnit)} ${resolvedUnitLabel}` : "—";
   const tone = demandTone(modelId);
   const demands = (customers ?? FALLBACK_DEMANDS.map((demand) => ({ demand }))).map((c) => c.demand);
   const scale = makeQuintileRadius(demands);
@@ -298,7 +308,7 @@ export function MapLegend({
                   data-testid={`legend-band-${i}`}
                 />
                 <span className="text-muted-foreground font-mono text-[10px]">
-                  ≤ {boundary} {distanceUnit}
+                  ≤ {formatBandBoundary(boundary)}
                 </span>
               </Fragment>
             ))}

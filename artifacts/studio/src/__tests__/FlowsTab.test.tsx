@@ -1,7 +1,21 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import * as exportEntity from "@/lib/exportEntity";
+import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+
+// FlowsTab now calls useDisplayUnit() unconditionally — every render needs a
+// UnitProvider ancestor. Shadowing `render` keeps every existing call site
+// byte-identical, same pattern as AppShell.test.tsx's renderShell.
+//
+// SCN chen-bands-units, Task 14b — FlowsTab now ALSO calls useExport()
+// unconditionally.
+function render(ui: ReactElement) {
+  return rtlRender(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
+}
 
 const transportResult = {
   status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "x",
@@ -74,11 +88,73 @@ describe("FlowsTab", () => {
     expect(screen.getByTestId("flows-empty")).toBeInTheDocument();
   });
 
+  // chen-bands-units, Part D "No fallback unit — reads": this table used to
+  // hardcode "Distance (mi)" unconditionally — no `distanceUnit` passed now
+  // means the canonical unit is unresolved, and the header + every row must
+  // show a placeholder, never a guessed "mi".
+  describe("distance unit (chen-bands-units)", () => {
+    it("shows a Distance placeholder header and no row value — never a guessed 'mi' — when distanceUnit is not resolved", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} />);
+      expect(screen.getByText("Distance")).toBeInTheDocument();
+      expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Distance \(/)).not.toBeInTheDocument();
+      const row = screen.getByTestId("flow-row-KY-CHI");
+      expect(row).not.toHaveTextContent("300.0");
+      expect(row).toHaveTextContent("—");
+    });
+
+    it("renders the Distance header and value in mi when explicitly resolved", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="mi" />);
+      expect(screen.getByText("Distance (mi)")).toBeInTheDocument();
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("300.0");
+    });
+
+    it("renders the Distance header and value in km (never mi) for a Chen-like distanceUnit", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} distanceUnit="km" />);
+      expect(screen.getByText("Distance (km)")).toBeInTheDocument();
+      expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
+    });
+
+    it("does not affect the non-distance Flow value when the unit is unresolved", () => {
+      render(<FlowsTab result={transportResult} scenarioId={1} />);
+      expect(screen.getByTestId("flow-row-KY-CHI")).toHaveTextContent("500");
+    });
+  });
+
   it("calls downloadEntityExport with entity=flows when Download CSV is clicked", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<FlowsTab result={transportResult} scenarioId={1} />);
     fireEvent.click(screen.getByTestId("button-download-flows-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "flows", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "flows", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <FlowsTab result={transportResult} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-flows-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 3 })}>
+            <FlowsTab result={transportResult} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-flows-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "flows", "csv", { unit: "mi", runId: 3 });
+    });
   });
 
   // JADE — "City, ST" primary label + id mono sub-label

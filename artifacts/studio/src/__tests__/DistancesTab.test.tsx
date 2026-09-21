@@ -1,9 +1,23 @@
-import { useState } from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cloneElement, useState, type ReactElement } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DistancesTab } from "@/components/workspace/tabs/DistancesTab";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
 
 // Bundle 6.1, T2 — the two previously-separate sections (read-only reference
 // table + editable overrides table) are now ONE merged, Customers-tab-styled
@@ -51,10 +65,40 @@ function jsonResponse(body: unknown, contentType = "application/json") {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": contentType } });
 }
 
-function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient) {
+// chen-bands-units, Task 12 — every DistancesTab render now needs a
+// UnitProvider ancestor (useDistanceDraft/useDisplayUnit throw without one).
+// Rather than touching every one of this file's ~50 `<DistancesTab .../>`
+// call sites individually, default `canonicalUnit` to "mi" (p-median-us's
+// real canonical unit) HERE, at the single render seam, unless a given
+// test's own JSX already sets it explicitly (e.g. the new disabled-until-
+// resolved test passes `canonicalUnit={null}`, which must win).
+function withDefaultUnit(ui: ReactElement): ReactElement {
+  const existing = (ui.props as { canonicalUnit?: unknown }).canonicalUnit;
+  return cloneElement(ui, { canonicalUnit: existing !== undefined ? existing : "mi" } as Record<string, unknown>);
+}
+
+// The wrapper is passed as RTL's own `wrapper` OPTION (not a JSX element
+// wrapping `ui` directly) so that this same provider tree is automatically
+// reapplied by the returned `rerender()` too — a plain wrapping element is
+// otherwise lost on `rerender`, per T11's own documented finding.
+// T14b — `exportOverrides` is optional and additive (defaults to T11b's
+// {scenarioId: 1, unit: "mi"}, matching every pre-existing call site's own
+// scenarioId prop) so the ~50 existing call sites are unaffected; only the
+// two tests that need a non-default provider state (disabled-until-resolved,
+// scenarioId=7 in the export URL) pass one.
+function renderWithQueryClient(
+  ui: React.ReactElement,
+  queryClient?: QueryClient,
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
   const client =
     queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const Providers = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>
+      <UnitProvider><ExportProvider value={makeExportProviderValue(exportOverrides)}>{children}</ExportProvider></UnitProvider>
+    </QueryClientProvider>
+  );
+  return render(withDefaultUnit(ui), { wrapper: Providers });
 }
 
 beforeEach(() => {
@@ -341,7 +385,13 @@ describe("DistancesTab — the 4 mandated override transitions (resolution #4)",
     );
     await waitFor(() => expect(screen.getByTestId("row-distance-WH01-C001")).toBeInTheDocument());
 
+    // chen-bands-units, Task 12 — commit now happens on blur/Enter, not on
+    // every keystroke (the draft-contract's whole point: a value must sit in
+    // a raw-string draft long enough to survive a mid-edit unit toggle). An
+    // explicit blur after the keystroke is the mechanical update every
+    // edit/add test in this file needs.
     fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
 
     expect(onChange).toHaveBeenCalledWith([{ fromId: "WH01", toId: "C001", distance: 500, estimated: undefined }]);
   });
@@ -358,6 +408,7 @@ describe("DistancesTab — the 4 mandated override transitions (resolution #4)",
       />,
     );
     fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
     expect(onChange).toHaveBeenCalledWith([
       { fromId: "WH01", toId: "C001", distance: 500, estimated: undefined },
       { fromId: "WH01", toId: "C002", distance: 340 },
@@ -403,6 +454,7 @@ describe("DistancesTab — the 4 mandated override transitions (resolution #4)",
           }}
           modelId="p-median-us"
           referenceCapable
+          canonicalUnit="mi"
         />
       );
     };
@@ -442,6 +494,7 @@ describe("DistancesTab — resolution #2 combined regression: inactive/excluded 
           }}
           modelId="p-median-us"
           referenceCapable
+          canonicalUnit="mi"
           inactiveWarehouseIds={["WH01"]}
         />
       );
@@ -480,6 +533,7 @@ describe("DistancesTab — resolution #2 combined regression: inactive/excluded 
           }}
           modelId="p-median-us"
           referenceCapable
+          canonicalUnit="mi"
           excludedCustomerIds={["C001"]}
         />
       );
@@ -570,6 +624,7 @@ describe("DistancesTab — added-entity override rows", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("input-distance-aw-1234-C001"), { target: { value: "99" } });
+    fireEvent.blur(screen.getByTestId("input-distance-aw-1234-C001"));
     expect(onChange).toHaveBeenCalledWith([{ fromId: "aw-1234", toId: "C001", distance: 99, estimated: undefined }]);
   });
 
@@ -692,6 +747,7 @@ describe("DistancesTab — resolution #7: invalid input handling (whole-value va
 
     fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "42" } });
     expect(screen.queryByTestId("text-distance-error-WH01-C001")).not.toBeInTheDocument();
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
     expect(onChange).toHaveBeenCalledWith([
       { fromId: "WH01", toId: "C001", distance: 42, estimated: undefined },
       { fromId: "WH01", toId: "C002", distance: 340 },
@@ -928,6 +984,7 @@ describe("DistancesTab — estimated rows (T9)", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
     const [updated] = onChange.mock.calls[0];
     const editedRow = updated.find((o: { fromId: string; toId: string }) => o.fromId === "WH01" && o.toId === "C001");
     expect(editedRow.distance).toBe(500);
@@ -937,6 +994,9 @@ describe("DistancesTab — estimated rows (T9)", () => {
 
 describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; Import still reads the prop directly.
     renderWithQueryClient(
       <DistancesTab
         distanceOverrides={overrides}
@@ -945,6 +1005,8 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
         customerIds={["C001", "C002"]}
         onChange={vi.fn()}
       />,
+      undefined,
+      { scenarioId: null },
     );
     expect(screen.getByTestId("button-export-distances-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-distances-json")).toBeDisabled();
@@ -964,6 +1026,8 @@ describe("DistancesTab — Upload/Download (mirrors WarehousesTab's A1.3 wiring)
         onChange={vi.fn()}
         scenarioId={7}
       />,
+      undefined,
+      { scenarioId: 7 },
     );
 
     await userEvent.click(screen.getByTestId("button-export-distances-csv"));
@@ -1070,6 +1134,7 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
           warehouseIds={rows.map(o => o.fromId)}
           customerIds={rows.map(o => o.toId)}
           onChange={next => setRows(next)}
+          canonicalUnit="mi"
         />
       );
     };
@@ -1105,17 +1170,22 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
 
     // override #75 (index 74) — target its toId so the effect finds it.
     const target = many[74];
+    // `rerender` re-applies the SAME `wrapper` (QueryClientProvider +
+    // UnitProvider) `renderWithQueryClient` supplied above — no manual
+    // provider JSX needed here, unlike before Task 12 (a plain wrapping
+    // element, rather than RTL's `wrapper` option, would be lost on
+    // rerender). `canonicalUnit` must be set explicitly again since this
+    // bypasses `withDefaultUnit`'s injection.
     rerender(
-      <QueryClientProvider client={client}>
-        <DistancesTab
-          distanceOverrides={many}
-          savedDistanceOverrides={many}
-          warehouseIds={many.map(o => o.fromId)}
-          customerIds={many.map(o => o.toId)}
-          onChange={vi.fn()}
-          focusEntityId={target.toId}
-        />
-      </QueryClientProvider>,
+      <DistancesTab
+        distanceOverrides={many}
+        savedDistanceOverrides={many}
+        warehouseIds={many.map(o => o.fromId)}
+        customerIds={many.map(o => o.toId)}
+        onChange={vi.fn()}
+        focusEntityId={target.toId}
+        canonicalUnit="mi"
+      />,
     );
 
     expect(screen.getByTestId("input-filter-from")).toHaveValue("");
@@ -1280,5 +1350,187 @@ describe("DistancesTab — T11 identityById upgrade (item 2)", () => {
     // no blank cell).
     const row = screen.getByTestId("row-distance-WH01-C001");
     expect(row).toHaveTextContent("C001");
+  });
+});
+
+// chen-bands-units, Task 12 — the display-unit draft contract, exercised
+// directly against this component's Override cell and add-row field (not
+// re-testing useDistanceDraft's own grammar/toggle unit tests, which live in
+// T10's hook test file — these assert THIS component wires the hook
+// correctly end to end).
+function ToggleUnitButton({ to }: { to: "auto" | "km" | "mi" }) {
+  const { setPref } = useDisplayUnit();
+  return (
+    <button data-testid={`toggle-unit-${to}`} onClick={() => setPref(to)}>
+      toggle {to}
+    </button>
+  );
+}
+
+function renderWithToggle(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}>
+        <ToggleUnitButton to="km" />
+        <ToggleUnitButton to="mi" />
+        <ToggleUnitButton to="auto" />
+        {ui}
+      </ExportProvider></UnitProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("DistancesTab — chen-bands-units Task 12: display-unit draft contract", () => {
+  // These tests genuinely call `setPref` (via ToggleUnitButton), which
+  // persists to localStorage — reset it so no test outside this block
+  // (rendered through the plain "mi"-defaulting `renderWithQueryClient`)
+  // ever inherits a forced km/mi preference from here.
+  afterEach(() => {
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  it("a display-unit entry commits the correct CANONICAL value (typing 500 under a forced mi display in a km-canonical model stores 804.672)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "WH01", toId: "C001", distance: 804.672, estimated: undefined }]);
+  });
+
+  it("an incomplete draft ('5.') never commits, even on blur", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        canonicalUnit="mi"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "5." } });
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
+    expect(onChange).not.toHaveBeenCalled();
+    // Reverts to the stored value, not left showing the incomplete "5.".
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveValue("10");
+  });
+
+  it("a unit toggle mid-edit converts a complete draft in place and visibly discards an incomplete one", () => {
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={vi.fn()}
+        canonicalUnit="km"
+      />,
+    );
+    // pref starts "auto" -> effective unit "km" -> field shows "10".
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    // 20 km -> mi, rounded to 4dp.
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveValue("12.4274");
+
+    // Now an incomplete draft, toggled again — discarded, reverts to the
+    // STORED value (10 km) rendered in the now-current display unit (mi).
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "5." } });
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    expect(screen.getByTestId("input-distance-WH01-C001")).toHaveValue("10");
+  });
+
+  it("repeated toggling introduces no drift — the eventually-committed value equals the original conversion exactly", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-distance-WH01-C001"), { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-auto"));
+    fireEvent.blur(screen.getByTestId("input-distance-WH01-C001"));
+    // The anchor (20 canonical km) is fixed at first keystroke and re-projected
+    // on every toggle, never re-derived from the displayed string — four
+    // toggles later it still commits exactly 20, not a drifted value.
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "WH01", toId: "C001", distance: 20, estimated: undefined }]);
+  });
+
+  it("the add-row form converts too — asserts the stored CANONICAL value, not the typed text", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("button-add-distance-row"));
+    fireEvent.change(screen.getByTestId("input-new-distance-from"), { target: { value: "WH01" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-to"), { target: { value: "C001" } });
+    fireEvent.change(screen.getByTestId("input-new-distance-value"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("button-add-distance-confirm"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "WH01", toId: "C001", distance: 804.672 }]);
+  });
+
+  it("the editor is disabled and commits nothing while the canonical unit is unresolved (no fallback)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        canonicalUnit={null}
+      />,
+    );
+    const input = screen.getByTestId("input-distance-WH01-C001");
+    expect(input).toBeDisabled();
+    expect(input).toHaveValue("");
+    fireEvent.change(input, { target: { value: "500" } });
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("toggling units never mutates the parent onChange payload by itself (no write on toggle alone)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <DistancesTab
+        distanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "WH01", toId: "C001", distance: 10 }]}
+        warehouseIds={["WH01"]}
+        customerIds={["C001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    fireEvent.click(screen.getByTestId("toggle-unit-auto"));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

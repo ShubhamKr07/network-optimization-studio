@@ -290,24 +290,41 @@ async function markSucceeded(jobId: number, scenarioId: number, modelId: string,
   // weightedAvgDistanceMi.
   const objectiveMode = typeof envelope.details.objective === "string" ? envelope.details.objective : null;
   const distanceUnit = getManifest(modelId)?.distanceUnit ?? "mi";
-  await db.update(solveJobsTable)
-    .set({
-      status: "succeeded",
-      resultSummary: {
-        status: envelope.status,
-        objective: envelope.objective,
-        objectiveMode,
-        weightedAvgDistance: envelope.metrics.weightedAvgDistance ?? null,
-        distanceUnit,
-        runTimeSec: envelope.runTimeSec,
-      },
-      finishedAt: new Date(),
-    })
-    .where(eq(solveJobsTable.id, jobId));
+  const resultJson = envelope as unknown as Record<string, unknown>;
 
-  await db.update(scenariosTable)
-    .set({ result: envelope as unknown as Record<string, unknown>, solvedAt: new Date(), updatedAt: new Date() })
-    .where(eq(scenariosTable.id, scenarioId));
+  // Part F (T6) — these two writes must be ATOMIC. Split across two
+  // independent statements (the pre-T6 shape), a partial failure could leave
+  // an addressable succeeded run whose scenario still points at an older
+  // result, or a scenario result with no run pointer. Both statements are
+  // id-scoped, so a scenario (and its jobs) deleted mid-solve simply matches
+  // 0 rows on one or both sides and the transaction commits as a harmless
+  // no-op — not an error.
+  await db.transaction(async (tx) => {
+    await tx.update(solveJobsTable)
+      .set({
+        status: "succeeded",
+        result: resultJson,
+        resultSummary: {
+          status: envelope.status,
+          objective: envelope.objective,
+          objectiveMode,
+          weightedAvgDistance: envelope.metrics.weightedAvgDistance ?? null,
+          distanceUnit,
+          runTimeSec: envelope.runTimeSec,
+        },
+        finishedAt: new Date(),
+      })
+      .where(eq(solveJobsTable.id, jobId));
+
+    await tx.update(scenariosTable)
+      .set({
+        result: resultJson,
+        resultRunId: jobId,
+        solvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(scenariosTable.id, scenarioId));
+  });
 }
 
 // The solver wrapper never throws — crashes, timeouts, and unparseable

@@ -19,6 +19,21 @@ function StatefulCustomerTable(props: { customers: Parameters<typeof CustomerTab
   );
 }
 
+// chen-bands-units follow-up (QA defect) — same round trip as
+// StatefulCustomerTable, plus an explicit "Discard" action that mutates the
+// SAME `overrides` state from OUTSIDE CustomerTable's own onChange path —
+// i.e. a genuine EXTERNAL mutation, mirroring Workspace.tsx's real
+// `handleDirtyNavDiscard` (`setLocalInputs(savedInputsRef.current)`).
+function StatefulCustomerTableWithDiscard(props: { customers: Parameters<typeof CustomerTable>[0]["customers"] }) {
+  const [overrides, setOverrides] = useState<CustomerOverride[]>([]);
+  return (
+    <div>
+      <CustomerTable customers={props.customers} overrides={overrides} onChange={setOverrides} />
+      <button type="button" onClick={() => setOverrides([])}>discard</button>
+    </div>
+  );
+}
+
 const customers = Array.from({ length: 200 }, (_, i) => ({
   id: `C${i + 1}`,
   city: `City${i + 1}`,
@@ -127,5 +142,68 @@ describe("CustomerTable", () => {
     expect(screen.queryByText("State")).not.toBeInTheDocument();
     expect(screen.queryByText("XX")).not.toBeInTheDocument();
     expect(screen.getByText("City1")).toBeInTheDocument();
+  });
+
+  // chen-bands-units follow-up (QA defect) — the two draft-shadowing bugs
+  // QA found live: (1) typing while browsing an older result-history entry
+  // visually "stuck" even though the write was a no-op at the data layer;
+  // (2) Discard reverted `localInputs` but the table's own local `drafts`
+  // state kept showing the discarded value. Both traced to `drafts` never
+  // being resynced against the `overrides`/`customers` props once set.
+  describe("draft resync (QA defect fix)", () => {
+    it("typing a multi-character value is not reset mid-keystroke (regression guard for the reset mechanism)", async () => {
+      const onChangeSpy = vi.fn();
+      render(<StatefulCustomerTable customers={customers.slice(0, 2)} onChangeSpy={onChangeSpy} />);
+      const input = screen.getByTestId("input-customer-demand-C1");
+      await userEvent.clear(input);
+      await userEvent.type(input, "84200");
+      // If the reset mechanism ever fired on the component's OWN commits
+      // (rather than only on an external mutation), this would have snapped
+      // back to a stale value somewhere mid-sequence instead of
+      // accumulating to the full typed number.
+      expect(input).toHaveValue(84200);
+      expect(onChangeSpy).toHaveBeenLastCalledWith([{ id: "C1", status: "active", demand: 84200 }]);
+    });
+
+    it("disabled=true renders the input disabled and blocks typing from changing its displayed value", async () => {
+      const onChange = vi.fn();
+      render(<CustomerTable customers={customers.slice(0, 1)} overrides={[]} onChange={onChange} disabled />);
+      const input = screen.getByTestId("input-customer-demand-C1");
+      expect(input).toBeDisabled();
+      await userEvent.type(input, "12345");
+      expect(input).toHaveValue(1000); // unchanged base demand
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("after an external override change (e.g. Discard), the input shows the reverted value, not the previously-typed one", async () => {
+      render(<StatefulCustomerTableWithDiscard customers={customers.slice(0, 1)} />);
+      const input = screen.getByTestId("input-customer-demand-C1");
+      await userEvent.clear(input);
+      await userEvent.type(input, "9999");
+      expect(input).toHaveValue(9999);
+      // Discard reverts `overrides` from OUTSIDE this component's own
+      // onChange path — exactly the shape of Workspace.tsx's real
+      // `handleDirtyNavDiscard` (setLocalInputs(savedInputsRef.current)).
+      await userEvent.click(screen.getByText("discard"));
+      expect(screen.getByTestId("input-customer-demand-C1")).toHaveValue(1000); // baseline demand
+    });
+
+    it("an in-progress invalid draft (never committed) is not clobbered by the resync check", async () => {
+      const onChange = vi.fn();
+      render(<CustomerTable customers={customers.slice(0, 1)} overrides={[]} onChange={onChange} />);
+      const input = screen.getByTestId("input-customer-demand-C1");
+      await userEvent.clear(input);
+      // `clear()` itself commits demand:null (raw === "" is a real commit,
+      // not "invalid") — same established fact as the pre-existing "blocks
+      // a negative demand" test above; reset the spy before the part this
+      // test actually cares about.
+      onChange.mockClear();
+      await userEvent.type(input, "-5");
+      // Never committed (invalid) — the resync check must not have anything
+      // recorded to compare against, so it must leave this draft alone
+      // (still showing the error, not silently reverted to the baseline).
+      expect(screen.getByTestId("error-customer-demand-C1")).toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
+    });
   });
 });

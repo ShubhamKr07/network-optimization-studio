@@ -4,26 +4,52 @@ import { Badge } from "@/components/ui/badge";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
 import { useGetSolveHistory, useGetLandingSummary } from "@workspace/api-client-react";
 import { formatRelativeTime } from "@/lib/relativeTime";
-import { formatChenObjective } from "@/lib/formatObjective";
+import { formatChenObjective, formatObjective as formatObjectiveShared } from "@/lib/formatObjective";
+import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0] ?? "";
   return n.padStart(2, "0");
 }
 
-// D14/C4.10 — the recent-solves objective is labelled by the solve's objective
-// MODE, not just its raw number: Chen's "coverage" solve reports a percentage
-// (NN.NN %), its "min_distance" solve reports demand-weighted distance
-// (demand-km). Every other model (objectiveMode null — mile p-median, transport,
-// two-echelon) keeps the mode-agnostic "obj <sci-notation>" label unchanged.
-function formatObjective(objective: number, objectiveMode: string | null): string {
-  // C4.14 — the two Chen modes are formatted by the shared helper (single
-  // source of truth); Landing keeps its own mode-agnostic default for every
-  // other model (byte-identical to before this consolidation).
-  return formatChenObjective(objective, objectiveMode) ?? `obj ${objective.toExponential(2)}`;
+// `GetSolveHistoryResponseItem.distanceUnit` is a plain `string` at the
+// schema level, but the contract (see its own description) guarantees it is
+// always "mi"|"km", never anything else, never absent — narrowed defensively
+// here rather than trusted blindly.
+function asCanonicalUnit(raw: string): CanonicalUnit | null {
+  return raw === "km" || raw === "mi" ? raw : null;
+}
+
+// D14/C4.10, chen-bands-units Part D decision 6 — every recent-solves row
+// carries BOTH `modelId` and `distanceUnit` synchronously (no manifest fetch
+// needed, unlike ObjectiveBar/CostSummaryTab), so the six-model
+// `formatObjective` contract is used unconditionally per row rather than
+// gated on an async resolution. `formatChenObjective`'s narrower
+// mode-agnostic default is kept only as a genuinely-defensive fallback for a
+// malformed/unexpected `distanceUnit` value, which the contract says cannot
+// happen — not a "canonical unresolved" case.
+function formatHistoryObjective(
+  h: { objective: number; objectiveMode: string | null; modelId: string; distanceUnit: string },
+  unit: UnitApi,
+): string {
+  const canonical = asCanonicalUnit(h.distanceUnit);
+  if (canonical != null) {
+    return formatObjectiveShared(h.modelId, h.objectiveMode, h.objective, canonical, unit);
+  }
+  return formatChenObjective(h.objective, h.objectiveMode) ?? `obj ${h.objective.toExponential(2)}`;
+}
+
+function formatHistoryDistance(h: { weightedAvgDistance: number; distanceUnit: string }, unit: UnitApi): string {
+  const canonical = asCanonicalUnit(h.distanceUnit);
+  if (canonical != null) {
+    return `${unit.toDisplay(h.weightedAvgDistance, canonical).toFixed(1)} ${unit.effectiveUnit(canonical)}`;
+  }
+  return `${h.weightedAvgDistance.toFixed(1)} ${h.distanceUnit}`;
 }
 
 export function Landing() {
+  const unit = useDisplayUnit();
   const { data: history } = useGetSolveHistory({ limit: 5 });
   const { data: summary, isPending, isError } = useGetLandingSummary();
   // TanStack retains the last successful `data` through a background-refetch
@@ -130,8 +156,8 @@ export function Landing() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
-                    {h.objective != null && <span>{formatObjective(h.objective, h.objectiveMode)}</span>}
-                    {h.weightedAvgDistance != null && <span>{h.weightedAvgDistance.toFixed(1)} {h.distanceUnit}</span>}
+                    {h.objective != null && <span>{formatHistoryObjective({ ...h, objective: h.objective }, unit)}</span>}
+                    {h.weightedAvgDistance != null && <span>{formatHistoryDistance({ ...h, weightedAvgDistance: h.weightedAvgDistance }, unit)}</span>}
                     {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
                   </div>
                 </div>

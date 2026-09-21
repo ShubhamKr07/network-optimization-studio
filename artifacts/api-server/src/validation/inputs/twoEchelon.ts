@@ -96,7 +96,7 @@ export const twoEchelonInputsSchema = z.object({
     demand: z.number().min(0).nullable().optional(),
     status: z.enum(["active", "excluded"]),
   })).default([]),
-  distanceBands: z.array(z.number().int().positive()).min(1),
+  distanceBands: z.array(z.number().positive()).min(1),
   gap: z.number().min(0),
   timeLimitSec: z.number().int().min(1),   // required -- NaN here kills every solve
   addedRefineries: z.array(addedRefinerySchema).default([]),

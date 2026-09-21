@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { AllProviders, ExportProviderTestWrapper, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WarehousesTab } from "@/components/workspace/tabs/WarehousesTab";
@@ -183,7 +195,15 @@ describe("WarehousesTab — Chapter 9 JADE (T11, capability-driven, no code chan
 
 describe("WarehousesTab — Upload/Download (A1.3)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; the Import button still reads the
+    // prop directly (unconverted).
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-warehouses-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-warehouses-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-warehouses")).toBeDisabled();
@@ -191,8 +211,13 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=warehouses&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,status\nCHI,active", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(
-      <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} />,
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
     );
 
     await userEvent.click(screen.getByTestId("button-export-warehouses-csv"));
@@ -216,6 +241,42 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("entity=warehouses");
     expect(String(url)).toContain("format=json");
+  });
+
+  // Decision 1k's legacy latest->history transition, for an INPUT entity —
+  // proven against a REAL rendered control across a real rerender, not a
+  // fixed-value snapshot and not stubbed. Every render call (initial AND
+  // rerender) explicitly includes the same <ExportProvider> ancestor at the
+  // same tree position so React reconciles in place rather than remounting.
+  it("a real control disables while browsing history (no inputs snapshot to export), then re-enables back at the latest/current inputs", () => {
+    const { rerender } = rtlRender(
+      <ExportProvider value={makeExportProviderValue()}>
+        <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
+      </ExportProvider>,
+    );
+    const csvButton = screen.getByTestId("button-export-warehouses-csv");
+    expect(csvButton).not.toBeDisabled();
+
+    // Student steps the result-history stepper back to an older entry —
+    // `solve_jobs.result` only stores the run's RESULT, never an inputs
+    // snapshot, so an input-entity export here would silently emit the
+    // scenario's CURRENT saved inputs rather than what's on screen
+    // (decision 1k) — the control must disable while browsing.
+    rerender(
+      <ExportProvider value={makeExportProviderValue({ inputDisabledReason: "Input exports reflect the current saved scenario, not this historical entry." })}>
+        <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
+      </ExportProvider>,
+    );
+    expect(csvButton).toBeDisabled();
+    expect(csvButton).toHaveAttribute("title", "Input exports reflect the current saved scenario, not this historical entry.");
+
+    // Student steps forward again to the latest/current inputs — re-enables.
+    rerender(
+      <ExportProvider value={makeExportProviderValue()}>
+        <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
+      </ExportProvider>,
+    );
+    expect(csvButton).not.toBeDisabled();
   });
 
   it("Upload button opens ImportDialog scoped to entity=warehouses", async () => {

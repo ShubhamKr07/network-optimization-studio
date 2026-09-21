@@ -19,6 +19,13 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { AppShell } from "@/components/AppShell";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// T10 mounts <UnitToggle/> (which requires a UnitProvider ancestor) inside
+// AppShell's own header — every render of AppShell needs that provider now.
+function renderShell(ui: React.ReactElement) {
+  return render(<UnitProvider>{ui}</UnitProvider>);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -27,7 +34,7 @@ beforeEach(() => {
 describe("AppShell logout", () => {
   it("clears the auth-user cache synchronously and navigates to /login on success", async () => {
     mockLogoutMutate.mockImplementation((_body, { onSuccess }) => onSuccess());
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com">
         <div>content</div>
       </AppShell>,
@@ -45,7 +52,7 @@ describe("AppShell logout", () => {
   });
 
   it("renders the user's email and children", () => {
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com">
         <div>lab content</div>
       </AppShell>,
@@ -57,7 +64,7 @@ describe("AppShell logout", () => {
 
 describe("AppShell band hero", () => {
   it("carries the .scnd-band class on the header", () => {
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com">
         <div>lab content</div>
       </AppShell>,
@@ -67,7 +74,7 @@ describe("AppShell band hero", () => {
   });
 
   it("renders the given heroTitle in the band", () => {
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com" heroTitle="Network Design Labs">
         <div>lab content</div>
       </AppShell>,
@@ -77,7 +84,7 @@ describe("AppShell band hero", () => {
   });
 
   it("falls back to the SCND Optimization Studio wordmark when no heroTitle is given", () => {
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com">
         <div>lab content</div>
       </AppShell>,
@@ -88,7 +95,7 @@ describe("AppShell band hero", () => {
 
 describe("AppShell hero variant", () => {
   it("renders the tagline and heroTitle in the expanded band when hero is set", () => {
-    render(
+    renderShell(
       <AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero>
         <div>content</div>
       </AppShell>,
@@ -99,7 +106,7 @@ describe("AppShell hero variant", () => {
   });
 
   it("omits the tagline in the compact (non-hero) band", () => {
-    render(
+    renderShell(
       <AppShell userEmail="a@b.edu" heroTitle="Network Design Labs">
         <div>content</div>
       </AppShell>,
@@ -110,7 +117,7 @@ describe("AppShell hero variant", () => {
 
 describe("AppShell layout", () => {
   it("clamps its root to exactly one viewport height and scopes scrolling to <main>", () => {
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com">
         <div>lab content</div>
       </AppShell>,
@@ -128,7 +135,7 @@ describe("AppShell layout", () => {
   });
 
   it("mounts the app footer below the body content, reserving its own height", () => {
-    render(
+    renderShell(
       <AppShell userEmail="student@example.com">
         <div>lab content</div>
       </AppShell>,
@@ -149,7 +156,7 @@ describe("AppShell layout", () => {
     Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
     try {
-      render(
+      renderShell(
         <AppShell userEmail="student@example.com">
           <div>lab content</div>
         </AppShell>,
@@ -171,22 +178,22 @@ describe("AppShell layout", () => {
   });
 
   it("renders the book-cover icon in the hero band", () => {
-    render(<AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero><div>c</div></AppShell>);
+    renderShell(<AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero><div>c</div></AppShell>);
     const header = screen.getByTestId("text-user-email").closest("header") as HTMLElement;
     expect(header.querySelector("img")).toBeInTheDocument();
   });
 
   it("shows the developer-credit footer in hero mode and the plain footer otherwise", () => {
-    const { rerender } = render(<AppShell userEmail="a@b.edu" heroTitle="X" hero><div>c</div></AppShell>);
+    const { rerender } = renderShell(<AppShell userEmail="a@b.edu" heroTitle="X" hero><div>c</div></AppShell>);
     expect(screen.getByTestId("homepage-credit-footer")).toHaveTextContent("Developed by Shubham");
     expect(screen.queryByTestId("app-footer")).not.toBeInTheDocument();
-    rerender(<AppShell userEmail="a@b.edu"><div>c</div></AppShell>);
+    rerender(<UnitProvider><AppShell userEmail="a@b.edu"><div>c</div></AppShell></UnitProvider>);
     expect(screen.queryByTestId("homepage-credit-footer")).not.toBeInTheDocument();
     expect(screen.getByTestId("app-footer")).toBeInTheDocument();
   });
 
   it("gives the log-out button a hover-highlight class", () => {
-    render(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
+    renderShell(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
     expect(screen.getByTestId("button-logout").className).toContain("hover:bg-white/10");
   });
 });

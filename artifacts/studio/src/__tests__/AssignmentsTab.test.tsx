@@ -1,7 +1,24 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import * as exportEntity from "@/lib/exportEntity";
+import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+
+// AssignmentsTab now calls useDisplayUnit() unconditionally — every render
+// needs a UnitProvider ancestor. Shadowing `render` (rather than wrapping
+// each of this file's many call sites individually) keeps every existing
+// call site byte-identical, same pattern as AppShell.test.tsx's renderShell.
+//
+// SCN chen-bands-units, Task 14b — AssignmentsTab now ALSO calls useExport()
+// unconditionally, so this shadow additionally wraps ExportProvider with
+// Task 11b's default value ({scenarioId: 1, unit: "mi"}, matching every
+// existing test's own scenarioId={1} prop).
+function render(ui: ReactElement) {
+  return rtlRender(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
+}
 
 const result = {
   status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
@@ -14,7 +31,11 @@ const result = {
 
 describe("AssignmentsTab", () => {
   it("renders one row per edge with warehouseId/customerId/distance/flow", () => {
-    render(<AssignmentsTab result={result} scenarioId={1} />);
+    // chen-bands-units, Part D — a real caller (Workspace.tsx) always
+    // resolves a canonical unit before rendering; explicit here so this test
+    // keeps asserting a rendered distance value under the new no-fallback
+    // contract (an unresolved unit renders a placeholder, not a number).
+    render(<AssignmentsTab result={result} scenarioId={1} distanceUnit="mi" />);
     expect(screen.getByTestId("assignment-row-C1")).toHaveTextContent("ALN");
     expect(screen.getByTestId("assignment-row-C1")).toHaveTextContent("42.1");
     expect(screen.getByTestId("assignment-row-C2")).toHaveTextContent("DAL");
@@ -25,11 +46,18 @@ describe("AssignmentsTab", () => {
     expect(screen.getByTestId("assignments-empty")).toBeInTheDocument();
   });
 
-  // C4.11 — the Distance column header follows the active model's unit.
-  it("defaults the Distance header to (mi) when no distanceUnit is passed", () => {
+  // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
+  // passed means the canonical unit is unresolved — the header and every row
+  // must show a placeholder, never a guessed "mi" (intentional change from
+  // the pre-existing "defaults to mi" expectation).
+  it("shows a Distance placeholder header and no row value — never a guessed 'mi' — when distanceUnit is not resolved", () => {
     const { container } = render(<AssignmentsTab result={result} scenarioId={1} />);
-    expect(screen.getByText("Distance (mi)")).toBeInTheDocument();
+    expect(screen.getByText("Distance")).toBeInTheDocument();
+    expect(screen.queryByText("Distance (mi)")).not.toBeInTheDocument();
     expect(container.querySelector("thead")?.textContent).not.toContain("(km)");
+    expect(container.querySelector("thead")?.textContent).not.toContain("(mi)");
+    expect(screen.getByTestId("assignment-row-C1")).not.toHaveTextContent("42.1");
+    expect(screen.getByTestId("assignment-row-C1")).toHaveTextContent("—");
   });
 
   it("renders the Distance header in km (never mi) for a Chen scenario (distanceUnit=km)", () => {
@@ -42,7 +70,36 @@ describe("AssignmentsTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<AssignmentsTab result={result} scenarioId={1} />);
     fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "assignments", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <AssignmentsTab result={result} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-assignments-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed, omits it for the latest", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 9 })}>
+            <AssignmentsTab result={result} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi", runId: 9 });
+    });
   });
 
   // B2.2-T6 — B6: added-entity display ID

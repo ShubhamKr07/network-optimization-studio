@@ -5,6 +5,7 @@ const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
+  transaction: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
@@ -60,6 +61,15 @@ beforeEach(() => {
   // keep exercising the real spawn path unchanged; cache-hit tests below
   // override this per-test with mockReturnValueOnce.
   mockDb.select.mockReturnValue(makeChain([]));
+  // Part F (T6): markSucceeded now wraps its two updates in db.transaction().
+  // The mock's transaction runs the callback against `mockDb` itself, so
+  // `tx.update(...)` inside the callback is the SAME mock as `db.update(...)`
+  // everywhere else — every pre-existing test's `mockDb.update.mockReturnValueOnce(...)`
+  // sequencing keeps working unchanged, since the transaction body's two
+  // `tx.update()` calls are indistinguishable from two `db.update()` calls to
+  // the mock. Tests that need to observe the transaction boundary itself
+  // (T6's new tests) override this per-test.
+  mockDb.transaction.mockImplementation(async (cb: (tx: typeof mockDb) => Promise<void>) => cb(mockDb));
 });
 
 afterEach(() => {
@@ -393,6 +403,125 @@ describe("jobRunner", () => {
       expect(calls.some((s) => String(s.error).includes("Failed to parse solver output"))).toBe(true);
       expect(calls.some((s) => String(s.error).includes("traceback boom"))).toBe(true);
     });
+  });
+});
+
+// Part F (T6) — markSucceeded's job-row and scenario-row writes must be
+// ATOMIC: a single db.transaction(), not two independent db.update() calls.
+// Both the normal solver path and the cache-hit path funnel through the
+// SAME markSucceeded, so both must be covered here.
+describe("markSucceeded transaction (Part F / T6)", () => {
+  const envelope = {
+    status: "optimal", objective: 12345, runTimeSec: 0.3, quality: "Optimal",
+    edges: [], metrics: { weightedAvgDistance: 88 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  };
+
+  it("writes job + scenario in ONE transaction on the normal solver path", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    mockDb.update.mockReturnValue(makeChain([{}]));
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(5, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
+    // Both writes happened INSIDE the single transaction call, not as two
+    // independent top-level db.update() calls outside of it.
+    expect(mockDb.update.mock.calls.length).toBeGreaterThanOrEqual(2); // markRunning + the two tx.update()s route through the same mock
+  });
+
+  it("cache-hit path commits both sides identically (one transaction call)", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    mockDb.update.mockReturnValue(makeChain([{}]));
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "h", modelId: "p-median-us", result: envelope },
+    ]));
+
+    await enqueueSolveJob(6, "user-1", baseInput);
+
+    await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it("persists the full envelope on solve_jobs.result and the job id on scenarios.resultRunId", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)      // markRunning
+      .mockReturnValueOnce(jobUpdateChain)      // markSucceeded — job row (inside tx)
+      .mockReturnValueOnce(scenarioUpdateChain); // markSucceeded — scenario row (inside tx)
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "h", modelId: "p-median-us", result: envelope },
+    ]));
+
+    // enqueueSolveJob's own insert mock always returns job id 1 regardless
+    // of the scenarioId argument (see makeChain([{ id: 1 }]) above) — the job
+    // id and the scenario id are deliberately different numbers here so this
+    // assertion can't pass by their accidentally coinciding.
+    const jobId = await enqueueSolveJob(77, "user-1", baseInput);
+    expect(jobId).toBe(1);
+
+    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
+
+    const jobSet = setValues(jobUpdateChain).find((s) => s.status === "succeeded")!;
+    expect(jobSet.result).toEqual(envelope);
+
+    const scenarioSet = setValues(scenarioUpdateChain).find((s) => s.resultRunId === jobId)!;
+    expect(scenarioSet).toBeDefined();
+    expect(scenarioSet.result).toEqual(envelope);
+    expect(scenarioSet.resultRunId).toBe(jobId);
+  });
+
+  it("a forced mid-transaction failure writes NEITHER side", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    // markRunning succeeds normally (outside markSucceeded's transaction).
+    mockDb.update.mockReturnValueOnce(makeChain([{}]));
+    // The transaction itself throws before either update's result is
+    // observable to the outside world — simulates a mid-transaction DB error.
+    mockDb.transaction.mockImplementationOnce(async () => {
+      throw new Error("simulated mid-transaction failure");
+    });
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "h", modelId: "p-median-us", result: envelope },
+    ]));
+
+    // runJob (called via the worker pool's pump()) never throws outward —
+    // confirm the job doesn't crash the process and the failure is swallowed
+    // at the pool boundary, not surfaced as an unhandled rejection.
+    await expect(enqueueSolveJob(8, "user-1", baseInput)).resolves.toBeTypeOf("number");
+    await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
+
+    // Neither the job row nor the scenario row's "succeeded" write ever
+    // landed — only markRunning's single call happened.
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("a solve completing after its scenario was deleted is a 0-row no-op, not an error", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    // Both updates match 0 rows (scenario + its jobs were deleted mid-solve)
+    // but resolve normally rather than throwing — this is what a real
+    // id-scoped UPDATE against a since-deleted row does.
+    mockDb.update.mockReturnValue(makeChain([]));
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(9, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    child.emit("close", 0);
+
+    // The transaction still commits (no throw) even though both updates
+    // affected 0 rows.
+    await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
+    await expect(mockDb.transaction.mock.results[0].value).resolves.toBeUndefined();
   });
 });
 

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import {
   completenessCountForWarehouse,
   idCollisionMessageForWarehouse,
@@ -93,6 +93,13 @@ interface WarehousesTabProps {
    * (wired by INT). Threaded straight through to `WarehouseTable`, which
    * owns the actual runtime `>10 rendered rows` visibility rule. */
   enableFilters?: boolean;
+  /** chen-bands-units follow-up (QA defect) — threaded straight through to
+   * the base `WarehouseTable` only (see that component's own prop comment);
+   * the separate "Added ..." section below has no local draft state of its
+   * own (its inputs already read straight off props), so it isn't affected
+   * by the defect this exists to fix and doesn't need the prop. Defaults
+   * false — every existing caller is unaffected. */
+  disabled?: boolean;
 }
 
 // A1.1 — thin Workspace-tab wrapper around the existing WarehouseTable
@@ -122,8 +129,10 @@ export function WarehousesTab({
   precheckErrors = [],
   hasStateColumn = true,
   enableFilters = false,
+  disabled = false,
 }: WarehousesTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const candidates = warehouses.filter(w => w.kind !== "mine");
   const emptyLabel = entity === "refineries" ? "No refinery candidates in this dataset." : "No warehouse candidates in this dataset.";
   // B6.2 — singular label for the "Added ..." section's copy (heading,
@@ -286,8 +295,9 @@ export function WarehousesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, entity, "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download(entity, "csv")}
+        disabled={disabledReasonFor(entity) != null}
+        title={disabledReasonFor(entity)}
         data-testid={`button-export-${entity}-csv`}
         className="h-7 text-xs"
       >
@@ -296,8 +306,9 @@ export function WarehousesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, entity, "json")}
-        disabled={scenarioId == null}
+        onClick={() => download(entity, "json")}
+        disabled={disabledReasonFor(entity) != null}
+        title={disabledReasonFor(entity)}
         data-testid={`button-export-${entity}-json`}
         className="h-7 text-xs"
       >
@@ -554,6 +565,7 @@ export function WarehousesTab({
         capacityMode={capacityMode}
         onChange={onChange}
         hasStateColumn={hasStateColumn}
+        disabled={disabled}
       />
       {addedSection}
       {importDialog}

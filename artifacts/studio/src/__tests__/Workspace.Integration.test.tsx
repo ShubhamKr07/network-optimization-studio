@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// chen-bands-units, Part D — components rendered inside this tree now read the
+// display-unit preference via useDisplayUnit(), which throws without a
+// provider. main.tsx already wraps the real app (T10); these tests render the
+// component directly, so they need the same ancestor. RTL's `wrapper` option is
+// used rather than a wrapping element so `rerender` keeps the provider too.
+const render = (
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) => rtlRender(ui, { wrapper: UnitProvider, ...options });
+
 
 // jade-INT — Workspace-level integration coverage for the JADE Ch.9
 // Workspace bundle's integration keystone (spec §2/§3/§5/§6/§9/§10):
@@ -72,6 +84,7 @@ vi.mock("@/components/workspace/tabs/OpenWarehousesTab", () => ({
 }));
 
 const mockUpdateScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
+const mockUpdateDistanceBands = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 const mockSolveScenario = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
 
 vi.mock("@workspace/api-client-react", () => ({
@@ -79,6 +92,9 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetScenario: vi.fn(),
   useGetDataset: vi.fn(),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
+  // chen-bands-units, Part G, T14 — field-scoped `distanceBands` PATCH,
+  // used by the Save control when only the band lens is dirty.
+  useUpdateDistanceBands: vi.fn(() => mockUpdateDistanceBands),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
   useCloneScenario: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
@@ -183,7 +199,15 @@ describe("Workspace — #1 live band recolor + history-entry sync (all models)",
     expect(mockSolveScenario.mutate).not.toHaveBeenCalled();
   });
 
-  it("a bands-only save updates the DISPLAYED history entry in place, so step-away/step-back preserves it", () => {
+  // chen-bands-units — superseded rewrite (was "a bands-only save updates
+  // the DISPLAYED history entry in place"). The dedicated band LENS
+  // (decision 1f) makes the old "sync the history entry in place" mechanism
+  // unnecessary: `activeBandLens` is untouched by history navigation at all
+  // (decision 1b), so step-away/step-back preserves an edited/saved lens
+  // structurally, with no per-entry sync needed. A bands-only edit now
+  // routes through the FIELD-SCOPED PATCH (`useUpdateDistanceBands`), never
+  // `useUpdateScenario`.
+  it("a bands-only edit survives step-away/step-back (the lens is independent of history), and Save routes through the field-scoped PATCH", () => {
     const { rerender } = render(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 
     // A second solve lands on the SAME scenario (new `.result` reference) —
@@ -194,28 +218,32 @@ describe("Workspace — #1 live band recolor + history-entry sync (all models)",
     mockUseListScenarios.mockReturnValue({ data: [scenarioB] } as unknown as ReturnType<typeof useListScenarios>);
     rerender(<Workspace modelId="p-median-us" userEmail="student@example.com" />);
 
-    // Edit + save bands on the currently-displayed (newest) entry — a
-    // bands-only change (nothing else edited).
+    // Edit bands on the currently-displayed (newest) entry — a lens-only
+    // change (nothing ordinary edited).
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     fireEvent.click(screen.getByTestId("button-remove-band-400"));
-    fireEvent.click(screen.getByTestId("button-save"));
 
-    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
-    const [saveArgs, saveOpts] = mockUpdateScenario.mutate.mock.calls[0];
-    const sentInputs = saveArgs.data.inputs;
-    act(() => saveOpts.onSuccess({ ...scenarioB, inputs: sentInputs }));
-
-    // Step away (to the OLDER entry, untouched by the save)...
+    // Step away (to the OLDER entry)...
     fireEvent.click(screen.getByTestId("button-result-back"));
-    // ...then back to the entry the save actually applied to.
+    // ...then back to the newest entry. The lens is untouched by either step.
     fireEvent.click(screen.getByTestId("button-result-forward"));
 
     outputMapTabSpy.mockClear();
     fireEvent.click(screen.getByTestId("sidebar-output-output-map"));
-
-    // The saved bands survive the round trip — NOT reverted to entry B's
-    // pre-save snapshot ([100, 200, 300, 400]).
     expect(outputMapTabSpy).toHaveBeenCalledWith(expect.objectContaining({ bands: [100, 200, 300] }));
+
+    // Save routes through the field-scoped PATCH, labelled "Save bands",
+    // never the whole-input PATCH.
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
+    fireEvent.click(screen.getByTestId("button-save"));
+
+    expect(mockUpdateDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateDistanceBands.mutate.mock.calls[0][0]).toEqual({
+      scenarioId: scenarioA.id,
+      data: { distanceBands: [100, 200, 300] },
+    });
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 });
 
@@ -529,6 +557,9 @@ describe("Workspace — JADE uses the shared chip band editor, no validity gate 
     expect(screen.getByTestId("button-remove-band-200")).toBeInTheDocument();
   });
 
+  // chen-bands-units — a band-only edit (nothing ordinary changed) now
+  // routes through the FIELD-SCOPED `distanceBands` PATCH (decision 1f),
+  // never the whole-input PATCH.
   it("adding a 5th band and saving succeeds with no error — no validity gating blocks it", () => {
     render(<Workspace modelId="two-echelon-jade-us" userEmail="student@example.com" />);
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
@@ -539,11 +570,15 @@ describe("Workspace — JADE uses the shared chip band editor, no validity gate 
 
     expect(screen.getByTestId("button-remove-band-3000")).toBeInTheDocument();
     expect(screen.getByTestId("button-save")).toBeEnabled();
+    expect(screen.getByTestId("button-save")).toHaveTextContent("Save bands");
 
     fireEvent.click(screen.getByTestId("button-save"));
-    expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
-    const [args] = mockUpdateScenario.mutate.mock.calls[0];
-    expect((args.data.inputs as { distanceBands: number[] }).distanceBands).toEqual([200, 400, 800, 1600, 3000]);
+    expect(mockUpdateDistanceBands.mutate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateDistanceBands.mutate.mock.calls[0][0]).toEqual({
+      scenarioId: unsolvedScenario.id,
+      data: { distanceBands: [200, 400, 800, 1600, 3000] },
+    });
+    expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
   });
 
   it("removing down to one band disables that last band's × control (Optimization Parameters)", () => {

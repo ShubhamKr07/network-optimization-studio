@@ -45,7 +45,8 @@ import type {
   ScenarioUpdate,
   SolveHistoryEntry,
   SolveJob,
-  SolveJobQueued
+  SolveJobQueued,
+  UpdateDistanceBandsBody
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1373,6 +1374,7 @@ export const getExportScenarioUrl = (scenarioId: number,
 }
 
 /**
+ * JADE Ch.9 workspace bundle (task A4, spec §5c): for two-echelon-jade-us, entity=assignments and entity=flows use model-specific schemas instead of the generic edges-derived export every other model gets (branched server-side on the scenario's modelId, entity enum unchanged). entity=assignments is product-level — one row per (product, customer) sourced from the solved result's details.assignments — with columns product,customer,assigned_warehouse,distance,distance_band (no demand/flow). entity=flows is ONE combined file spanning both legs, columns leg,from_id,to_id,distance,distance_band,flows: inbound plant_to_warehouse rows are aggregated per (plant,warehouse) pair with flows summed across products; outbound warehouse_to_customer rows are one per customer. distance_band is derived from the scenario's CURRENT SAVED inputs.distanceBands (server-side bandLabel-equivalent: "Band N" 1-indexed, upper-inclusive boundary, "Overflow" above the highest boundary) — it reflects the last saved bands, not unsaved UI edits. Every other model's assignments/flows export is unchanged.
  * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
  */
 export const exportScenario = async (scenarioId: number,
@@ -1399,7 +1401,7 @@ export const getExportScenarioQueryKey = (scenarioId: number,
     }
 
 
-export const getExportScenarioQueryOptions = <TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<void>>(scenarioId: number,
+export const getExportScenarioQueryOptions = <TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<ErrorEnvelope | void>>(scenarioId: number,
     params: ExportScenarioParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -1419,14 +1421,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ExportScenarioQueryResult = NonNullable<Awaited<ReturnType<typeof exportScenario>>>
-export type ExportScenarioQueryError = ErrorType<void>
+export type ExportScenarioQueryError = ErrorType<ErrorEnvelope | void>
 
 
 /**
  * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
  */
 
-export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<void>>(
+export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<ErrorEnvelope | void>>(
  scenarioId: number,
     params: ExportScenarioParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
@@ -1444,6 +1446,79 @@ export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenar
 
 
 
+
+export const getUpdateDistanceBandsUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/scenarios/${scenarioId}/distance-bands`
+}
+
+/**
+ * Atomic, field-scoped update of inputs.distanceBands — never a read-modify-write of the whole inputs blob, so it cannot clobber a concurrent edit to any other input field. Does not bump inputsUpdatedAt (a bands-only change is a reporting lens, not a model-geometric change), so the returned Scenario.stale is unaffected.
+ * @summary Field-scoped update of a scenario's distance bands (reporting lens only)
+ */
+export const updateDistanceBands = async (scenarioId: number,
+    updateDistanceBandsBody: UpdateDistanceBandsBody, options?: RequestInit): Promise<Scenario> => {
+
+  return customFetch<Scenario>(getUpdateDistanceBandsUrl(scenarioId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateDistanceBandsBody,)
+  }
+);}
+
+
+
+
+export const getUpdateDistanceBandsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDistanceBands>>, TError,{scenarioId: number;data: BodyType<UpdateDistanceBandsBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateDistanceBands>>, TError,{scenarioId: number;data: BodyType<UpdateDistanceBandsBody>}, TContext> => {
+
+const mutationKey = ['updateDistanceBands'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateDistanceBands>>, {scenarioId: number;data: BodyType<UpdateDistanceBandsBody>}> = (props) => {
+          const {scenarioId,data} = props ?? {};
+
+          return  updateDistanceBands(scenarioId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateDistanceBandsMutationResult = NonNullable<Awaited<ReturnType<typeof updateDistanceBands>>>
+    export type UpdateDistanceBandsMutationBody = BodyType<UpdateDistanceBandsBody>
+    export type UpdateDistanceBandsMutationError = ErrorType<void>
+
+    /**
+ * @summary Field-scoped update of a scenario's distance bands (reporting lens only)
+ */
+export const useUpdateDistanceBands = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDistanceBands>>, TError,{scenarioId: number;data: BodyType<UpdateDistanceBandsBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateDistanceBands>>,
+        TError,
+        {scenarioId: number;data: BodyType<UpdateDistanceBandsBody>},
+        TContext
+      > => {
+      return useMutation(getUpdateDistanceBandsMutationOptions(options));
+    }
 
 export const getRegisterUserUrl = () => {
 

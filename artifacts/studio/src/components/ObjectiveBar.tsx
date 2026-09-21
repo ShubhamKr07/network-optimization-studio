@@ -1,16 +1,21 @@
 import type { SolveResult } from "@workspace/api-client-react";
 import { chapterForModelId } from "@/lib/chapters";
-import { formatChenObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
+import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 interface ObjectiveBarProps {
   result: SolveResult | null;
   scenarioId: number | undefined;
   modelId?: string;
   scenarioName?: string;
-  /** C4.11 — the active model's distance unit (manifest ModelInfo.distanceUnit,
-   * threaded by the caller). Optional/defaults to "mi" so every existing caller
-   * that hasn't wired it stays unchanged; Chen (chens-cosmetics-cn) passes "km". */
-  distanceUnit?: string;
+  /** C4.11 — the active model's CANONICAL distance unit (manifest
+   * ModelInfo.distanceUnit, threaded by the caller). chen-bands-units, Part D
+   * "No fallback unit — reads": `undefined`/`null` means the canonical unit
+   * hasn't resolved yet — the avg-distance stat pill shows a loading
+   * placeholder instead of ever guessing "mi" (Chen is km — a guess would
+   * render a correct number under a wrong label). */
+  distanceUnit?: CanonicalUnit | null;
 }
 
 // Neutral model-summary bar. This was previously a gamified "Beat X mi" goal
@@ -21,15 +26,23 @@ interface ObjectiveBarProps {
 // no second per-model table), the scenario name when present, and plain
 // solve stats read straight off `result` when available. No arbitrary
 // targets, no hit/miss coloring, no checkmarks.
-export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit = "mi" }: ObjectiveBarProps) {
+export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit }: ObjectiveBarProps) {
+  const unit = useDisplayUnit();
   const chapter = chapterForModelId(modelId);
   const avgDistance = result?.metrics.weightedAvgDistance;
-  // C4.14 (D14) — mode-aware objective label: Chen coverage solves report a
-  // percentage, min-distance solves demand-km; every other model keeps the
-  // plain integer format (formatChenObjective returns null -> the ?? default).
+  const canonicalResolved = distanceUnit != null;
+  // chen-bands-units, Part D decision 6 — `formatObjective` (the six-model,
+  // unit-aware contract) is used ONLY once BOTH `modelId` and the model's
+  // canonical distance unit are genuinely resolved; a wrong/guessed
+  // `modelId` or unit would silently mislabel the objective's DIMENSION
+  // (not just its number), which is worse than briefly keeping the
+  // pre-existing Chen-only/no-unit formatting while the manifest loads.
+  const objectiveMode = objectiveModeOfDetails(result?.details);
   const objectiveLabel = result
-    ? formatChenObjective(result.objective, objectiveModeOfDetails(result.details))
-      ?? result.objective.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    ? modelId != null && canonicalResolved
+      ? formatObjective(modelId, objectiveMode, result.objective, distanceUnit, unit)
+      : formatChenObjective(result.objective, objectiveMode)
+        ?? result.objective.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : null;
 
   return (
@@ -67,7 +80,15 @@ export function ObjectiveBar({ result, modelId, scenarioName, distanceUnit = "mi
         {result ? (
           <>
             <StatPill label={`objective ${objectiveLabel}`} />
-            {avgDistance != null && <StatPill label={`avg distance ${avgDistance.toFixed(0)} ${distanceUnit}`} />}
+            {avgDistance != null && (
+              <StatPill
+                label={
+                  canonicalResolved
+                    ? `avg distance ${unit.toDisplay(avgDistance, distanceUnit).toFixed(0)} ${unit.effectiveUnit(distanceUnit)}`
+                    : "avg distance —"
+                }
+              />
+            )}
             <StatPill label={`run ${result.runTimeSec.toFixed(2)}s`} />
           </>
         ) : (

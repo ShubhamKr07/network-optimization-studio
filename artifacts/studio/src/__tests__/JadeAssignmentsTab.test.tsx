@@ -1,9 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeAssignmentsTab } from "@/components/workspace/tabs/JadeAssignmentsTab";
 import * as exportEntity from "@/lib/exportEntity";
 import { bandLabel } from "@/lib/bands";
+import { UnitProvider } from "@/contexts/UnitContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
+
+// JadeAssignmentsTab now calls useDisplayUnit() unconditionally — every
+// render needs a UnitProvider ancestor. Shadowing `render` keeps every
+// existing call site (incl. `rerender`, which reuses the same tree) byte-
+// identical, same pattern as AppShell.test.tsx's renderShell.
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: AllProviders });
+}
 
 // B2 (JADE Ch.9 Workspace Bundle, spec §5a) — Chapter 9 JADE's product-level
 // Customer Assignments table. Separate component from the shared
@@ -124,6 +137,19 @@ describe("JadeAssignmentsTab", () => {
     expect(row).toHaveTextContent("42.1 mi");
   });
 
+  // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
+  // passed means the canonical unit is unresolved — the Distance cell must
+  // show a loading placeholder, never a guessed "mi" (JADE's own canonical
+  // unit is genuinely "mi", but the value must still be threaded, not
+  // defaulted).
+  it("shows a Distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
+    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
+    expect(row).not.toHaveTextContent("42.1 mi");
+    expect(row).not.toHaveTextContent("42.1");
+    expect(row).toHaveTextContent("—");
+  });
+
   it("Distance Band matches the shared bandLabel helper exactly, for both an in-range and an overflow distance", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
     const inRangeRow = screen.getByTestId("row-jadeassignment-product-1|customer-1"); // 42.1 mi
@@ -143,9 +169,49 @@ describe("JadeAssignmentsTab", () => {
   it("calls downloadEntityExport with entity=assignments when Download CSV is clicked", async () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     const user = userEvent.setup();
-    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={7} />);
+    // T14b — download()'s scenarioId comes from the ExportProvider context,
+    // not this component's own `scenarioId` prop (which stays for other,
+    // non-export purposes) — supply it via the provider, not the prop, to
+    // exercise the real call path.
+    rtlRender(
+      <UnitProvider>
+        <ExportProvider value={makeExportProviderValue({ scenarioId: 7 })}>
+          <JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={7} />
+        </ExportProvider>
+      </UnitProvider>,
+    );
     await user.click(screen.getByTestId("button-download-jadeassignments-csv"));
-    expect(spy).toHaveBeenCalledWith(7, "assignments", "csv");
+    expect(spy).toHaveBeenCalledWith(7, "assignments", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-jadeassignments-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed", async () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      const user = userEvent.setup();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 11 })}>
+            <JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      await user.click(screen.getByTestId("button-download-jadeassignments-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi", runId: 11 });
+    });
   });
 
   describe("FilterMenu visibility + count", () => {
@@ -234,6 +300,12 @@ describe("JadeAssignmentsTab", () => {
       expect(within(popover).getByTestId("option-filter-band-Band 1: 0 mi - 250 mi")).toBeInTheDocument();
 
       fetchSpy.mockClear();
+      // `render`'s `wrapper: AllProviders` option is reapplied automatically
+      // by RTL on every `rerender` call — re-wrapping manually here would
+      // insert an EXTRA UnitProvider/ExportProvider layer between the
+      // existing ones and JadeAssignmentsTab, changing the tree shape at that
+      // position and forcing React to unmount+remount the subtree (losing
+      // the already-open filter-menu popover this test still references).
       rerender(
         <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
       );
@@ -260,7 +332,9 @@ describe("JadeAssignmentsTab", () => {
       expect(screen.getByTestId("text-jadeassignments-count")).toHaveTextContent("2 of 11");
 
       // Edit the live distance bands — simulates the band editor changing
-      // boundaries out from under an already-mounted table.
+      // boundaries out from under an already-mounted table. Same reasoning
+      // as the sibling test above: no manual provider re-wrap here, the
+      // `wrapper: AllProviders` option already reapplies on rerender.
       rerender(
         <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
       );

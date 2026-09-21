@@ -232,3 +232,30 @@ describe("pMedianInputsSchema — B1.1 network-edit fields", () => {
     expect(result.success).toBe(true);
   });
 });
+
+// T3b — relax distanceBands to positive numbers (drop .int()) so a unit
+// conversion (e.g. 500 km -> 310.6856 mi) validates. Nothing else about
+// this array's tolerance changes.
+describe("pMedianInputsSchema — distanceBands relaxed to positive numbers (T3b)", () => {
+  it("accepts a non-integral band produced by a unit conversion", () => {
+    expect(() =>
+      pMedianInputsSchema.parse({ ...BASE, distanceBands: [310.6856, 621.3712] })
+    ).not.toThrow();
+  });
+
+  it("still rejects zero and negative bands", () => {
+    expect(() => pMedianInputsSchema.parse({ ...BASE, distanceBands: [0] })).toThrow();
+    expect(() => pMedianInputsSchema.parse({ ...BASE, distanceBands: [-5] })).toThrow();
+  });
+
+  // These schemas do NOT reject duplicate or non-ascending arrays today,
+  // and this task does not add that check. Asserting the existing
+  // tolerance means a future tightening is a deliberate, visible contract
+  // change rather than an accident — the shared band classifier sorts
+  // internally, so there is no correctness gap.
+  it("still ACCEPTS duplicate / non-ascending arrays, exactly as before", () => {
+    expect(() =>
+      pMedianInputsSchema.parse({ ...BASE, distanceBands: [400, 200, 400] })
+    ).not.toThrow();
+  });
+});

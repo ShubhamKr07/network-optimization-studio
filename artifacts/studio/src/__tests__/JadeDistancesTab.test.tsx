@@ -1,9 +1,23 @@
-import { useState } from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { cloneElement, useState, type ReactElement } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { JadeDistancesTab } from "@/components/workspace/tabs/JadeDistancesTab";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer), a visible Leg column,
@@ -90,10 +104,33 @@ function jsonResponse(body: unknown, contentType = "application/json") {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": contentType } });
 }
 
-function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient) {
+// chen-bands-units, Task 12 — every JadeDistancesTab render now needs a
+// UnitProvider ancestor. Default `canonicalUnit` to "mi"
+// (two-echelon-jade-us's real canonical unit) at this single render seam
+// unless a test's own JSX already sets it explicitly, and use RTL's
+// `wrapper` option (not a JSX-wrapping element, lost across `rerender()`)
+// for the provider tree itself.
+function withDefaultUnit(ui: ReactElement): ReactElement {
+  const existing = (ui.props as { canonicalUnit?: unknown }).canonicalUnit;
+  return cloneElement(ui, { canonicalUnit: existing !== undefined ? existing : "mi" } as Record<string, unknown>);
+}
+// T14b — `exportOverrides` is optional and additive (defaults to T11b's
+// {scenarioId: 1, unit: "mi"}) so every pre-existing call site is
+// unaffected; only the two tests needing a non-default provider state
+// (disabled-until-resolved, scenarioId=7 in the export URL) pass one.
+function renderWithQueryClient(
+  ui: React.ReactElement,
+  queryClient?: QueryClient,
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
   const client =
     queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const Providers = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>
+      <UnitProvider><ExportProvider value={makeExportProviderValue(exportOverrides)}>{children}</ExportProvider></UnitProvider>
+    </QueryClientProvider>
+  );
+  return render(withDefaultUnit(ui), { wrapper: Providers });
 }
 
 beforeEach(() => {
@@ -386,9 +423,12 @@ describe("JadeDistancesTab — the 4 override transitions, leg-discriminated", (
       expect(screen.getByTestId("row-jadedistance-plant_to_warehouse-plant-1-wh-1")).toBeInTheDocument(),
     );
 
+    // chen-bands-units, Task 12 — commit now happens on blur/Enter, not on
+    // every keystroke.
     fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
       target: { value: "500" },
     });
+    fireEvent.blur(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"));
 
     expect(onChange).toHaveBeenCalledWith([
       { leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 500, estimated: undefined },
@@ -410,6 +450,7 @@ describe("JadeDistancesTab — the 4 override transitions, leg-discriminated", (
     fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
       target: { value: "500" },
     });
+    fireEvent.blur(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"));
     expect(onChange).toHaveBeenCalledWith([
       { leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 500, estimated: undefined },
       { leg: "warehouse_to_customer", fromId: "wh-1", toId: "customer-1", distance: 340 },
@@ -454,6 +495,7 @@ describe("JadeDistancesTab — the 4 override transitions, leg-discriminated", (
           }}
           modelId="two-echelon-jade-us"
           referenceCapable
+          canonicalUnit="mi"
         />
       );
     };
@@ -590,6 +632,7 @@ describe("JadeDistancesTab — added-entity override rows", () => {
     fireEvent.change(screen.getByTestId("input-jadedistance-warehouse_to_customer-aw-1234-customer-1"), {
       target: { value: "99" },
     });
+    fireEvent.blur(screen.getByTestId("input-jadedistance-warehouse_to_customer-aw-1234-customer-1"));
     expect(onChange).toHaveBeenCalledWith([
       { leg: "warehouse_to_customer", fromId: "aw-1234", toId: "customer-1", distance: 99, estimated: undefined },
     ]);
@@ -634,6 +677,7 @@ describe("JadeDistancesTab — estimated rows", () => {
     fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
       target: { value: "500" },
     });
+    fireEvent.blur(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"));
     const [updated] = onChange.mock.calls[0];
     const editedRow = updated.find((o: { fromId: string; toId: string }) => o.fromId === "plant-1" && o.toId === "wh-1");
     expect(editedRow.distance).toBe(500);
@@ -815,6 +859,9 @@ describe("JadeDistancesTab — client-side reference validation (nice-to-have), 
 
 describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entity)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; Import still reads the prop directly.
     renderWithQueryClient(
       <JadeDistancesTab
         distanceOverrides={overrides}
@@ -824,6 +871,8 @@ describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entit
         customerIds={customerIds}
         onChange={vi.fn()}
       />,
+      undefined,
+      { scenarioId: null },
     );
     expect(screen.getByTestId("button-export-legdistances-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-legdistances-json")).toBeDisabled();
@@ -847,6 +896,8 @@ describe("JadeDistancesTab — Upload/Download (wired to T7's legDistances entit
         onChange={vi.fn()}
         scenarioId={7}
       />,
+      undefined,
+      { scenarioId: 7 },
     );
 
     await userEvent.click(screen.getByTestId("button-export-legdistances-csv"));
@@ -1012,6 +1063,7 @@ describe("JadeDistancesTab — focus/filter-reset handling preserved (B7)", () =
             customerIds={many.map(o => o.toId)}
             onChange={vi.fn()}
             focusEntityId={focusEntityId}
+            canonicalUnit="mi"
           />
         </>
       );
@@ -1098,5 +1150,177 @@ describe("JadeDistancesTab — T11 identityById compatibility resolver (item 2)"
     // falls back to locationById, not blank.
     expect(row).toHaveTextContent("Scranton, PA");
     expect(row).toHaveTextContent("Phoenix, AZ");
+  });
+});
+
+// chen-bands-units, Task 12 — the display-unit draft contract, exercised
+// directly against this component's Override cell and add-row field.
+function ToggleUnitButton({ to }: { to: "auto" | "km" | "mi" }) {
+  const { setPref } = useDisplayUnit();
+  return (
+    <button data-testid={`toggle-unit-${to}`} onClick={() => setPref(to)}>
+      toggle {to}
+    </button>
+  );
+}
+function renderWithToggle(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}>
+        <ToggleUnitButton to="km" />
+        <ToggleUnitButton to="mi" />
+        <ToggleUnitButton to="auto" />
+        {ui}
+      </ExportProvider></UnitProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("JadeDistancesTab — chen-bands-units Task 12: display-unit draft contract", () => {
+  afterEach(() => {
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  const singleOverride = [{ leg: "plant_to_warehouse" as const, fromId: "plant-1", toId: "wh-1", distance: 10 }];
+
+  it("a display-unit entry commits the correct CANONICAL value (typing 500 under a forced mi display in a km-canonical model stores 804.672)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <JadeDistancesTab
+        distanceOverrides={singleOverride}
+        savedDistanceOverrides={singleOverride}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
+      target: { value: "500" },
+    });
+    fireEvent.blur(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"));
+    expect(onChange).toHaveBeenCalledWith([
+      { leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 804.672, estimated: undefined },
+    ]);
+  });
+
+  it("an incomplete draft ('5.') never commits, even on blur", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <JadeDistancesTab
+        distanceOverrides={singleOverride}
+        savedDistanceOverrides={singleOverride}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="mi"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
+      target: { value: "5." },
+    });
+    fireEvent.blur(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1")).toHaveValue("10");
+  });
+
+  it("a unit toggle mid-edit converts a complete draft in place and visibly discards an incomplete one", () => {
+    renderWithToggle(
+      <JadeDistancesTab
+        distanceOverrides={singleOverride}
+        savedDistanceOverrides={singleOverride}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
+      target: { value: "20" },
+    });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    expect(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1")).toHaveValue("12.4274");
+
+    fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
+      target: { value: "5." },
+    });
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    expect(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1")).toHaveValue("10");
+  });
+
+  it("repeated toggling introduces no drift in the eventually-committed value", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <JadeDistancesTab
+        distanceOverrides={singleOverride}
+        savedDistanceOverrides={singleOverride}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"), {
+      target: { value: "20" },
+    });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-auto"));
+    fireEvent.blur(screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1"));
+    expect(onChange).toHaveBeenCalledWith([
+      { leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 20, estimated: undefined },
+    ]);
+  });
+
+  it("the add-row form converts too — asserts the stored CANONICAL value, not the typed text", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <JadeDistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("button-add-jadedistance-row"));
+    fireEvent.change(screen.getByTestId("select-new-jadedistance-leg"), {
+      target: { value: "plant_to_warehouse" },
+    });
+    fireEvent.change(screen.getByTestId("input-new-jadedistance-from"), { target: { value: "plant-1" } });
+    fireEvent.change(screen.getByTestId("input-new-jadedistance-to"), { target: { value: "wh-1" } });
+    fireEvent.change(screen.getByTestId("input-new-jadedistance-value"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("button-add-jadedistance-confirm"));
+    expect(onChange).toHaveBeenCalledWith([{ leg: "plant_to_warehouse", fromId: "plant-1", toId: "wh-1", distance: 804.672 }]);
+  });
+
+  it("the editor is disabled and commits nothing while the canonical unit is unresolved (no fallback)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <JadeDistancesTab
+        distanceOverrides={singleOverride}
+        savedDistanceOverrides={singleOverride}
+        plantIds={plantIds}
+        warehouseIds={warehouseIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit={null}
+      />,
+    );
+    const input = screen.getByTestId("input-jadedistance-plant_to_warehouse-plant-1-wh-1");
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { value: "500" } });
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

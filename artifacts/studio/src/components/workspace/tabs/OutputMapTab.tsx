@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react";
 import type { Dataset, Plant, SolveResult } from "@workspace/api-client-react";
 import { useListModels } from "@workspace/api-client-react";
+import type { CanonicalUnit } from "@workspace/units";
 import { NetworkMap } from "@/components/NetworkMap";
+import { useDisplayUnit } from "@/contexts/UnitContext";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
@@ -137,6 +139,7 @@ export function OutputMapTab({
   addedWarehouses = [], addedCustomers = [], hideClosedWarehouses = false, modelId,
   plants = [], timing, displayIdById = {},
 }: OutputMapTabProps) {
+  const unit = useDisplayUnit();
   const [showWarehouses, setShowWarehouses] = useState(true);
   const [showCustomers, setShowCustomers] = useState(true);
   const [showLanes, setShowLanes] = useState(true);
@@ -180,13 +183,25 @@ export function OutputMapTab({
     });
   }
 
-  // B2.1-T2 (item 2) — same distanceUnit-resolution pattern as
-  // ServiceStatsTab.tsx: model manifest (G1.1) via GET /api/models,
-  // defaulting to "mi" both when the field is absent and while
-  // models/modelId haven't resolved yet.
+  // chen-bands-units, Part D "No fallback unit — reads": the canonical unit
+  // comes from the active model's manifest (G1.1) via GET /api/models and is
+  // `null` until it genuinely resolves. There is deliberately no
+  // unconditional mi-defaulting fallback here: Chen is a km model, so a
+  // fallback would not render a slightly-wrong label, it would render a
+  // CORRECT number under a WRONG unit — which a student reads as fact.
+  // Unresolved renders a placeholder instead.
   const { data: models } = useListModels();
   const activeModel = models?.find(m => m.id === modelId) as { distanceUnit?: string } | undefined;
-  const distanceUnit = activeModel?.distanceUnit ?? "mi";
+  const distanceUnit: CanonicalUnit | null =
+    activeModel?.distanceUnit === "km" || activeModel?.distanceUnit === "mi"
+      ? activeModel.distanceUnit
+      : null;
+  /** A canonical distance rendered in the current display unit, or `—` while
+   *  the canonical unit is unresolved. Never falls back to a unit. */
+  const showDistance = (canonicalValue: number): string =>
+    distanceUnit == null
+      ? "—"
+      : `${unit.toDisplay(canonicalValue, distanceUnit).toFixed(1)} ${unit.effectiveUnit(distanceUnit)}`;
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
   const mapBands = colorByBand ? effectiveBands : [];
@@ -370,13 +385,13 @@ export function OutputMapTab({
                 {result.metrics.avgDistanceByLeg.map(l => (
                   <div key={l.leg} data-testid={`output-map-leg-avg-${l.leg}`}>
                     <span className="text-muted-foreground">{legLabel(l.leg)} avg distance: </span>
-                    <span className="font-medium font-mono">{l.avgDistance.toFixed(1)} {distanceUnit}</span>
+                    <span className="font-medium font-mono">{showDistance(l.avgDistance)}</span>
                   </div>
                 ))}
                 <div data-testid="output-map-overall-avg">
                   <span className="text-muted-foreground">Overall avg distance: </span>
                   <span className="font-medium font-mono">
-                    {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
+                    {result.metrics.weightedAvgDistance != null ? showDistance(result.metrics.weightedAvgDistance) : "—"}
                   </span>
                 </div>
               </>
@@ -384,7 +399,7 @@ export function OutputMapTab({
               <div>
                 <span className="text-muted-foreground">Weighted avg distance: </span>
                 <span className="font-medium font-mono">
-                  {result.metrics.weightedAvgDistance != null ? `${result.metrics.weightedAvgDistance.toFixed(1)} ${distanceUnit}` : "—"}
+                  {result.metrics.weightedAvgDistance != null ? showDistance(result.metrics.weightedAvgDistance) : "—"}
                 </span>
               </div>
             )}

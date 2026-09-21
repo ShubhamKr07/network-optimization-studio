@@ -26,7 +26,7 @@
       "gap": { "type": "number", "minimum": 0 },
       "timeLimitSec": { "type": "integer", "minimum": 1 },
       "capacityMode": { "type": "string", "enum": ["none"] },
-      "distanceBands": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 2, "maxItems": 2 },
+      "distanceBands": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 1 },
       "warehouseOverrides": { "type": "array", "items": { "type": "object",
         "properties": { "id": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["active", "forced_open", "inactive"] } },
         "required": ["id", "status"] } },

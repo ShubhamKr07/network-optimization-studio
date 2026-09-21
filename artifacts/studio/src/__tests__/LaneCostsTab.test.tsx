@@ -1,8 +1,43 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cloneElement, type ReactElement } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LaneCostsTab } from "@/components/workspace/tabs/LaneCostsTab";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
+
+// chen-bands-units, Task 12 — every render now needs a UnitProvider ancestor.
+// Shadow `render` (RTL's `wrapper` option + a default `canonicalUnit="mi"`,
+// transport-coal's real canonical unit) rather than touching every one of
+// this file's bare `render(<LaneCostsTab .../>)` call sites individually.
+// `cost` here IS a distance (transportLp.ts:18-25 — the objective is
+// literally distance x flow; "cost" is chapter vocabulary only), so it gets
+// the identical default-unit treatment as every sibling tab's distance
+// field, not a lesser one.
+function withDefaultUnit(ui: ReactElement): ReactElement {
+  const existing = (ui.props as { canonicalUnit?: unknown }).canonicalUnit;
+  return cloneElement(ui, { canonicalUnit: existing !== undefined ? existing : "mi" } as Record<string, unknown>);
+}
+// T14b — `exportOverrides` is optional and additive (defaults to
+// AllProviders' {scenarioId: 1, unit: "mi"}) so every pre-existing call site
+// is unaffected; only the two tests needing a non-default provider state
+// (disabled-until-resolved, scenarioId=7 in the export URL) pass one.
+function render(
+  ui: ReactElement,
+  options?: Parameters<typeof rtlRender>[1],
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
+  if (exportOverrides) {
+    const Providers = ({ children }: { children: React.ReactNode }) => (
+      <UnitProvider><ExportProvider value={makeExportProviderValue(exportOverrides)}>{children}</ExportProvider></UnitProvider>
+    );
+    return rtlRender(withDefaultUnit(ui), { wrapper: Providers, ...options });
+  }
+  return rtlRender(withDefaultUnit(ui), { wrapper: AllProviders, ...options });
+}
 
 // Task 30 (B6.1 stage 4) — Lane costs grid tab: long-format
 // `{fromId, toId, cost}` rows (transport-coal's laneCostOverrides), no fixed
@@ -22,9 +57,15 @@ function jsonResponse(body: unknown, contentType = "application/json") {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": contentType } });
 }
 
-function renderWithQueryClient(ui: React.ReactElement) {
+function renderWithQueryClient(
+  ui: React.ReactElement,
+  exportOverrides?: Partial<import("@/contexts/ExportContext").ExportProviderValue>,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  // `withDefaultUnit` (invoked by the local `render` above) sees the
+  // PROVIDER element here, not `<LaneCostsTab>` itself — call sites below
+  // that use this helper set `canonicalUnit` explicitly.
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>, undefined, exportOverrides);
 }
 
 beforeEach(() => {
@@ -47,7 +88,9 @@ describe("LaneCostsTab — rendering", () => {
     expect(screen.getByTestId("row-lanecost-MN01-ST001")).toBeInTheDocument();
     expect(screen.getByTestId("row-lanecost-MN01-ST002")).toBeInTheDocument();
     expect(screen.getByTestId("row-lanecost-MN02-ST001")).toBeInTheDocument();
-    expect(screen.getByTestId("input-lanecost-MN01-ST001")).toHaveValue(120.5);
+    // chen-bands-units, Task 12 — the value cell is now `type="text"` (was
+    // `type="number"`), so its committed value is a rendered STRING.
+    expect(screen.getByTestId("input-lanecost-MN01-ST001")).toHaveValue("120.5");
   });
 
   it("shows an empty message plus the add-row affordance when there are no overrides yet", () => {
@@ -111,7 +154,10 @@ describe("LaneCostsTab — inline edit", () => {
         onChange={onChange}
       />,
     );
+    // chen-bands-units, Task 12 — commit now happens on blur/Enter, not on
+    // every keystroke.
     fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST001"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-lanecost-MN01-ST001"));
     expect(onChange).toHaveBeenCalledWith([
       { fromId: "MN01", toId: "ST001", cost: 500 },
       { fromId: "MN01", toId: "ST002", cost: 340 },
@@ -339,12 +385,16 @@ describe("LaneCostsTab — displayCodeById (Followup)", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("input-lanecost-am-5678-ST001"), { target: { value: "99" } });
+    fireEvent.blur(screen.getByTestId("input-lanecost-am-5678-ST001"));
     expect(onChange).toHaveBeenCalledWith([{ fromId: "am-5678", toId: "ST001", cost: 99 }]);
   });
 });
 
 describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; Import still reads the prop directly.
     render(
       <LaneCostsTab
         laneCostOverrides={overrides}
@@ -353,6 +403,8 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
         stationIds={["ST001", "ST002"]}
         onChange={vi.fn()}
       />,
+      undefined,
+      { scenarioId: null },
     );
     expect(screen.getByTestId("button-export-lanecosts-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-lanecosts-json")).toBeDisabled();
@@ -369,7 +421,9 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
         stationIds={["ST001", "ST002"]}
         onChange={vi.fn()}
         scenarioId={7}
+        canonicalUnit="mi"
       />,
+      { scenarioId: 7 },
     );
 
     await userEvent.click(screen.getByTestId("button-export-lanecosts-csv"));
@@ -390,6 +444,7 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
         stationIds={["ST001", "ST002"]}
         onChange={vi.fn()}
         scenarioId={7}
+        canonicalUnit="mi"
       />,
     );
 
@@ -417,6 +472,7 @@ describe("LaneCostsTab — Upload/Download (mirrors DistancesTab's wiring)", () 
         onChange={vi.fn()}
         scenarioId={7}
         onImportApplied={onImportApplied}
+        canonicalUnit="mi"
       />,
     );
 
@@ -496,5 +552,176 @@ describe("LaneCostsTab — T11 identityById upgrade (item 2)", () => {
     const row = screen.getByTestId("row-lanecost-MN01-ST001");
     expect(row).not.toHaveTextContent("Beckley, WV");
     expect(row).toHaveTextContent("MINE-A");
+  });
+});
+
+// chen-bands-units, Task 12 — the display-unit draft contract, exercised
+// directly against this component's value cell and add-row field. This
+// block also carries the SEMANTIC regression guard: `laneCostOverrides.cost`
+// values ARE distances (transportLp.ts:18-25 — the objective is literally
+// distance x flow; "cost" is chapter vocabulary only, not a monetary value),
+// and they DO convert under the unit toggle exactly like every sibling
+// tab's distance field. A future reader must not "fix" this back to a
+// non-converting field on the reasonable-sounding but wrong grounds that
+// "costs aren't distances" — this test pins that claim.
+function ToggleUnitButton({ to }: { to: "auto" | "km" | "mi" }) {
+  const { setPref } = useDisplayUnit();
+  return (
+    <button data-testid={`toggle-unit-${to}`} onClick={() => setPref(to)}>
+      toggle {to}
+    </button>
+  );
+}
+function renderWithToggle(ui: React.ReactElement) {
+  return rtlRender(
+    <UnitProvider><ExportProvider value={makeExportProviderValue()}>
+      <ToggleUnitButton to="km" />
+      <ToggleUnitButton to="mi" />
+      <ToggleUnitButton to="auto" />
+      {ui}
+    </ExportProvider></UnitProvider>,
+  );
+}
+
+describe("LaneCostsTab — chen-bands-units Task 12: display-unit draft contract (cost IS a distance)", () => {
+  afterEach(() => {
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  it("PINS THE SEMANTIC CLAIM: laneCostOverrides.cost converts under the display unit — it is a distance, not a monetary value (transportLp.ts:18-25)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        savedLaneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    // Forcing the display unit to mi while the model's canonical unit is km:
+    // if `cost` did NOT convert (i.e. were treated as an opaque monetary
+    // figure), the stored value after committing a typed "500" would be the
+    // literal 500. Because it DOES convert (it's a distance), it must come
+    // out as 500 mi -> km = 804.672 canonical, exactly like every sibling
+    // tab's distance field.
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST001"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-lanecost-MN01-ST001"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "MN01", toId: "ST001", cost: 804.672 }]);
+  });
+
+  it("the Cost column header carries a unit suffix (it had none before this bundle)", () => {
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        savedLaneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={vi.fn()}
+        canonicalUnit="mi"
+      />,
+    );
+    expect(screen.getByText("Cost (mi)")).toBeInTheDocument();
+  });
+
+  it("an incomplete draft ('5.') never commits, even on blur", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        savedLaneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={onChange}
+        canonicalUnit="mi"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST001"), { target: { value: "5." } });
+    fireEvent.blur(screen.getByTestId("input-lanecost-MN01-ST001"));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("input-lanecost-MN01-ST001")).toHaveValue("10");
+  });
+
+  it("a unit toggle mid-edit converts a complete draft in place and visibly discards an incomplete one", () => {
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        savedLaneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={vi.fn()}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST001"), { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    expect(screen.getByTestId("input-lanecost-MN01-ST001")).toHaveValue("12.4274");
+
+    fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST001"), { target: { value: "5." } });
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    expect(screen.getByTestId("input-lanecost-MN01-ST001")).toHaveValue("10");
+  });
+
+  it("repeated toggling introduces no drift in the eventually-committed value", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        savedLaneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-lanecost-MN01-ST001"), { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-auto"));
+    fireEvent.blur(screen.getByTestId("input-lanecost-MN01-ST001"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "MN01", toId: "ST001", cost: 20 }]);
+  });
+
+  it("the add-row form converts too — asserts the stored CANONICAL value, not the typed text", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[]}
+        savedLaneCostOverrides={[]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("button-add-lanecost-row"));
+    fireEvent.change(screen.getByTestId("input-new-lanecost-from"), { target: { value: "MN01" } });
+    fireEvent.change(screen.getByTestId("input-new-lanecost-to"), { target: { value: "ST001" } });
+    fireEvent.change(screen.getByTestId("input-new-lanecost-value"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("button-add-lanecost-confirm"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "MN01", toId: "ST001", cost: 804.672 }]);
+  });
+
+  it("the editor is disabled and commits nothing while the canonical unit is unresolved (no fallback)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LaneCostsTab
+        laneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        savedLaneCostOverrides={[{ fromId: "MN01", toId: "ST001", cost: 10 }]}
+        mineIds={["MN01"]}
+        stationIds={["ST001"]}
+        onChange={onChange}
+        canonicalUnit={null}
+      />,
+    );
+    const input = screen.getByTestId("input-lanecost-MN01-ST001");
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { value: "500" } });
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

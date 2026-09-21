@@ -1,11 +1,19 @@
 import type { SolveResult } from "@workspace/api-client-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 interface FlowsTabProps {
   result: SolveResult | null;
   scenarioId: number;
+  /** chen-bands-units, Part D — the active model's CANONICAL distance unit
+   * (manifest ModelInfo.distanceUnit). This table previously hardcoded the
+   * Distance column header with a bare mi suffix unconditionally —
+   * `undefined`/`null` (the caller hasn't threaded a resolved unit through
+   * yet) renders a loading placeholder instead, never a guessed unit. */
+  distanceUnit?: CanonicalUnit | null;
   /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
    * by Workspace.tsx's `jadeLocationMapFromInputs`. When present, both the
    * From and To cells show "City, ST" as the primary label with the raw id
@@ -81,7 +89,13 @@ function flowRows(result: SolveResult) {
   return result.edges.filter(e => !(e.leg != null && FACILITY_TO_DEMAND_LEGS.has(e.leg)));
 }
 
-export function FlowsTab({ result, scenarioId, locationById, identityById }: FlowsTabProps) {
+export function FlowsTab({ result, scenarioId, locationById, identityById, distanceUnit }: FlowsTabProps) {
+  const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
+  const canonicalResolved = distanceUnit != null;
+  const distanceHeaderLabel = canonicalResolved ? `Distance (${unit.effectiveUnit(distanceUnit)})` : "Distance";
+  const formatRowDistance = (raw: number): string =>
+    canonicalResolved ? unit.toDisplay(raw, distanceUnit).toFixed(1) : "—";
   if (!result) {
     return <div className="p-4 text-sm text-muted-foreground" data-testid="flows-empty">No solved result yet.</div>;
   }
@@ -100,8 +114,10 @@ export function FlowsTab({ result, scenarioId, locationById, identityById }: Flo
         <button
           type="button"
           data-testid="button-download-flows-csv"
-          className="text-xs border rounded px-2 py-1 hover:bg-muted"
-          onClick={() => downloadEntityExport(scenarioId, "flows", "csv")}
+          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+          onClick={() => download("flows", "csv")}
+          disabled={disabledReasonFor("flows") != null}
+          title={disabledReasonFor("flows")}
         >
           Download CSV
         </button>
@@ -113,7 +129,7 @@ export function FlowsTab({ result, scenarioId, locationById, identityById }: Flo
               <th className="text-left p-2">From</th>
               <th className="text-left p-2">To</th>
               {hasProduct && <th className="text-left p-2">Product</th>}
-              <th className="text-right p-2">Distance (mi)</th>
+              <th className="text-right p-2">{distanceHeaderLabel}</th>
               <th className="text-right p-2">Flow</th>
             </tr>
           </thead>
@@ -130,7 +146,7 @@ export function FlowsTab({ result, scenarioId, locationById, identityById }: Flo
                   <td className="p-2">{resolveCell(e.fromId, locationById, identityById)}</td>
                   <td className="p-2">{resolveCell(e.toId, locationById, identityById)}</td>
                   {hasProduct && <td className="p-2">{e.productId ?? "—"}</td>}
-                  <td className="p-2 text-right font-mono">{e.distance.toFixed(1)}</td>
+                  <td className="p-2 text-right font-mono">{formatRowDistance(e.distance)}</td>
                   <td className="p-2 text-right font-mono">{e.flow.toLocaleString()}</td>
                 </tr>
               );

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Download, Upload, X } from "lucide-react";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { lookupCity } from "@/lib/gazetteer";
 import { cityCode } from "@/lib/entityId";
 import { FilterMenu } from "@/components/tables/FilterMenu";
@@ -97,6 +97,7 @@ export function PlantsTab({
   onDeletePlant,
 }: PlantsTabProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
 
   // B7 (JADE Ch.9 Workspace Bundle, spec §10) — base plants and "Added
   // plants" stay TWO SEPARATE physical tables (unchanged structure); each
@@ -208,8 +209,9 @@ export function PlantsTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "plants", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("plants", "csv")}
+        disabled={disabledReasonFor("plants") != null}
+        title={disabledReasonFor("plants")}
         data-testid="button-export-plants-csv"
         className="h-7 text-xs"
       >
@@ -218,8 +220,9 @@ export function PlantsTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "plants", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("plants", "json")}
+        disabled={disabledReasonFor("plants") != null}
+        title={disabledReasonFor("plants")}
         data-testid="button-export-plants-json"
         className="h-7 text-xs"
       >

@@ -3,6 +3,11 @@ import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { parseAndValidateImport } from "../services/import.js";
+// T8 — round-trip tolerance test exercises the SAME conversion primitives
+// the real export path (templates.ts) uses, rather than a locally
+// recomputed expectation.
+import { toDisplay, roundForFile } from "@workspace/units";
+import type { CanonicalUnit } from "@workspace/units";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures", "imports");
@@ -1020,6 +1025,123 @@ describe("parseAndValidateImport — legDistances (composite key, three id space
     const csv = "template_version,from_id,to_id,distance\n2,kalgoorlie,cunnamulla,100\n";
     const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
     expect(result.errors).toEqual([{ errorClass: "logic", line: 2, message: expect.stringMatching(/template_version/) }]);
+  });
+});
+
+// T8 (Chen-bands-units bundle, Part E) — v2 unit-labeled distances/laneCosts/
+// legDistances files. p-median-us (ALN/C1) is "mi"-canonical, chens-cosmetics-cn
+// (wh-15/cs-1) is "km"-canonical (the one model whose canonical unit differs
+// from every other import-entity test above), transport-coal (KY/CHI) is
+// "mi"-canonical. v1 (unitless) files keep importing unchanged (interpreted
+// as already canonical) — none of the tests above this block changed
+// behavior; this block adds only the NEW v2 behavior.
+describe("parseAndValidateImport — v2 unit-labeled distances/laneCosts/legDistances (T8, Part E)", () => {
+  it("v1 unitless file still imports, interpreted as canonical", () => {
+    const csv = "template_version,from_id,to_id,distance\n1,ALN,C1,123.4\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "ALN|C1", line: 2,
+      before: { status: "active", value: null }, after: { status: "active", value: 123.4 },
+      fromId: "ALN", toId: "C1",
+    }]);
+  });
+
+  it("v2 file in the model's canonical unit imports unchanged", () => {
+    // p-median-us is "mi"-canonical (its manifest); a v2 file declaring
+    // unit=mi needs no conversion at all.
+    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,ALN,C1,123.4\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "ALN|C1", line: 2,
+      before: { status: "active", value: null }, after: { status: "active", value: 123.4 },
+      fromId: "ALN", toId: "C1",
+    }]);
+  });
+
+  it("v2 mi file into a km-canonical model is ACCEPTED and converted", () => {
+    // chens-cosmetics-cn is "km"-canonical (its manifest) — a v2 file
+    // declaring unit=mi is a genuinely different-but-known unit, per Part
+    // E's locked import rule: accepted, converted to canonical km via
+    // fromDisplay, never rejected.
+    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,wh-15,cs-1,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0, "chens-cosmetics-cn");
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    // 100 mi -> km: 100 * 1.609344 = 160.9344
+    expect(result.changes[0]).toMatchObject({ id: "wh-15|cs-1", after: { value: 160.9344 } });
+  });
+
+  it("mixed units inside one file → format-class error", () => {
+    const csv = "template_version,unit,from_id,to_id,distance\n2,km,ALN,C1,100\n2,mi,ALN,C2,50\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "format", line: null });
+    expect(result.changes).toEqual([]);
+  });
+
+  it("mixed template_version inside one file → format-class error", () => {
+    const csv = "template_version,unit,from_id,to_id,distance\n2,km,ALN,C1,100\n1,km,ALN,C2,50\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "format", line: null });
+    expect(result.changes).toEqual([]);
+  });
+
+  it("unknown unit → format-class error", () => {
+    const csv = "template_version,unit,from_id,to_id,distance\n2,furlongs,ALN,C1,100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ errorClass: "format", line: null });
+    expect(result.changes).toEqual([]);
+  });
+
+  it("laneCosts v2 keeps its `cost` column", () => {
+    const csv = "template_version,unit,from_id,to_id,cost\n2,mi,KY,CHI,123.4\n";
+    const result = parseAndValidateImport("laneCosts", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toEqual([{
+      id: "KY|CHI", line: 2,
+      before: { status: "active", value: null }, after: { status: "active", value: 123.4 },
+      fromId: "KY", toId: "CHI",
+    }]);
+  });
+
+  it("legDistances v2 header is also accepted (reuses the distances shape)", () => {
+    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,kalgoorlie,cunnamulla,1464.5\n";
+    const result = parseAndValidateImport("legDistances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({ id: "kalgoorlie|cunnamulla", after: { value: 1464.5 } });
+  });
+
+  it("v2 file still enforces the shared bad-encoding format check before the unit check", () => {
+    const csv = "template_version,unit,from_id,to_id,distance\n2,mi,ALN,C1,�100\n";
+    const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].errorClass).toBe("format");
+  });
+
+  it("round-trips export→import within abs 0.001 / rel 1e-5 over repeated cycles", () => {
+    // Exercises the SAME primitives templates.ts's real export path uses
+    // (toDisplay/roundForFile from @workspace/units), feeding each cycle's
+    // re-imported canonical value into the next cycle's "export", so drift
+    // would compound across cycles if the conversion were lossy beyond the
+    // locked tolerance.
+    const canonical: CanonicalUnit = "mi";
+    let value = 872.3456;
+    for (let cycle = 0; cycle < 6; cycle++) {
+      const displayUnit: CanonicalUnit = cycle % 2 === 0 ? "km" : "mi";
+      const displayValue = roundForFile(toDisplay(value, canonical, displayUnit));
+      const csv = `template_version,unit,from_id,to_id,distance\n2,${displayUnit},ALN,C1,${displayValue}\n`;
+      const result = parseAndValidateImport("distances", csv, NO_OVERRIDES, 0);
+      expect(result.errors).toEqual([]);
+      const importedCanonical = result.changes[0].after.value as number;
+      const tolerance = Math.max(0.001, Math.abs(value) * 1e-5);
+      expect(Math.abs(importedCanonical - value)).toBeLessThanOrEqual(tolerance);
+      value = importedCanonical;
+    }
   });
 });
 

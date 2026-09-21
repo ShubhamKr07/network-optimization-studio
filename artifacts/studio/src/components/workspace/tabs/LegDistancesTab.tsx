@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Download, Upload, X } from "lucide-react";
 import type { Scenario } from "@workspace/api-client-react";
+import type { CanonicalUnit } from "@workspace/units";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ImportDialog } from "@/components/ImportDialog";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import { useDistanceDraft } from "@/hooks/useDistanceDraft";
 
 export interface LegDistanceOverride {
   fromId: string;
@@ -57,10 +60,66 @@ interface LegDistancesTabProps {
    * exceeds 10 AND this map is present; unset (every pre-INT caller) is
    * byte-unchanged. */
   identityById?: Record<string, { city: string; state: string; displayId: string }>;
+  /** chen-bands-units, Task 12 — the active model's canonical distance unit
+   * ("km" | "mi"), sourced from the manifest. `null`/undefined while it
+   * hasn't resolved yet — there is NO fallback: values/labels stay gated (no
+   * number, no unit suffix, disabled input) until this is authoritative
+   * (Part D, "No fallback unit"). Wired by Workspace.tsx (Task 14). */
+  canonicalUnit?: CanonicalUnit | null;
 }
 
 function pairKey(fromId: string, toId: string): string {
   return `${fromId}|${toId}`;
+}
+
+// chen-bands-units, Task 12 — one row's Distance cell, a dedicated child
+// component for the same Rules-of-Hooks reason as DistancesTab's own
+// `DistanceOverrideCell` (`useDistanceDraft` must be called unconditionally
+// once per row-component-instance, not inline inside the parent's `.map()`,
+// whose row count changes across filter/pagination/add/remove renders).
+// Unlike DistancesTab's Override cell, every row here already has a real
+// value (this tab has no "blank until an override exists" state — an
+// existing override IS the row), so there's no blank-baseline special case,
+// and — matching the pre-existing `updateDistance`'s own behavior — an
+// invalid draft is simply never committed, with no separate error UI.
+function LegDistanceValueCell({
+  canonicalUnit,
+  currentValue,
+  resetKey,
+  onCommitValid,
+  inputTestId,
+}: {
+  canonicalUnit: CanonicalUnit | null;
+  currentValue: number;
+  resetKey: unknown;
+  onCommitValid: (canonicalValue: number) => void;
+  inputTestId: string;
+}) {
+  const draft = useDistanceDraft({
+    canonicalUnit,
+    value: currentValue,
+    resetKey,
+    onCommit: v => {
+      if (Number.isFinite(v) && v > 0) onCommitValid(v);
+    },
+  });
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      min={0}
+      value={draft.text}
+      disabled={draft.disabled}
+      onChange={e => draft.onChange(e.target.value)}
+      onBlur={draft.commit}
+      onKeyDown={e => {
+        if (e.key === "Enter") draft.commit();
+        else if (e.key === "Escape") draft.discard();
+      }}
+      className="h-7 text-xs w-24 font-mono"
+      data-testid={inputTestId}
+    />
+  );
 }
 
 // B6.2 stage 4 — two-echelon-gold-au's "Leg distances" grid tab, the
@@ -85,16 +144,35 @@ export function LegDistancesTab({
   focusEntityId,
   displayCodeById,
   identityById,
+  canonicalUnit = null,
 }: LegDistancesTabProps) {
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
+  const { download, disabledReasonFor } = useExport();
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
-  const [newDistance, setNewDistance] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  // chen-bands-units, Task 12 — display-unit label + the add-row Distance
+  // field's own draft (mirrors DistancesTab's identical pattern: no stored
+  // "value" for a brand-new row, so `handleAddRow` reads a ref written
+  // synchronously by an explicit `commit()` call rather than trusting a real
+  // DOM blur to fire before the Add button's click).
+  const { effectiveUnit } = useDisplayUnit();
+  const unit = canonicalUnit == null ? null : effectiveUnit(canonicalUnit);
+  const unitSuffix = (label: string) => (unit ? `${label} (${unit})` : label);
+  const newDistanceCanonicalRef = useRef<number | null>(null);
+  const newDistanceDraft = useDistanceDraft({
+    canonicalUnit,
+    value: 0,
+    resetKey: scenarioId,
+    onCommit: v => {
+      newDistanceCanonicalRef.current = v;
+    },
+  });
+  const newDistanceText = newDistanceDraft.isDirty ? newDistanceDraft.text : "";
 
   // Phase 3.2, Task 4 — post-Save precheck toast's "jump to it" action.
   // Reuses this component's own existing `row-legdistance-${fromId}-${toId}`
@@ -164,13 +242,14 @@ export function LegDistancesTab({
     return saved === undefined || saved !== o.distance;
   }
 
-  function updateDistance(fromId: string, toId: string, raw: string) {
-    const key = pairKey(fromId, toId);
-    setDrafts(prev => ({ ...prev, [key]: raw }));
-    const parsed = parseFloat(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return;
+  // chen-bands-units, Task 12 — commit-to-parent logic invoked from
+  // `LegDistanceValueCell`'s `onCommitValid` (fires only for a
+  // grammar-complete, positive canonical value on blur/Enter — matches this
+  // function's pre-existing silent-reject-on-invalid behavior exactly, just
+  // moved from every keystroke to commit time).
+  function commitDistance(fromId: string, toId: string, canonicalValue: number) {
     onChange(
-      distanceOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, distance: parsed } : o)),
+      distanceOverrides.map(o => (o.fromId === fromId && o.toId === toId ? { ...o, distance: canonicalValue } : o)),
     );
   }
 
@@ -181,13 +260,16 @@ export function LegDistancesTab({
   function handleAddRow() {
     const fromId = newFrom.trim();
     const toId = newTo.trim();
-    const distance = parseFloat(newDistance);
+    // Resolve any pending typed value synchronously — see DistancesTab's
+    // identical pattern/comment.
+    newDistanceDraft.commit();
+    const distance = newDistanceCanonicalRef.current;
 
     if (!fromId || !toId) {
       setAddError("From ID and To ID are both required.");
       return;
     }
-    if (!Number.isFinite(distance) || distance <= 0) {
+    if (distance == null || !Number.isFinite(distance) || distance <= 0) {
       setAddError("Distance must be a positive number.");
       return;
     }
@@ -204,7 +286,8 @@ export function LegDistancesTab({
     onChange([...distanceOverrides, { fromId, toId, distance }]);
     setNewFrom("");
     setNewTo("");
-    setNewDistance("");
+    newDistanceDraft.discard();
+    newDistanceCanonicalRef.current = null;
     setAddingRow(false);
   }
 
@@ -212,7 +295,8 @@ export function LegDistancesTab({
     setAddingRow(false);
     setNewFrom("");
     setNewTo("");
-    setNewDistance("");
+    newDistanceDraft.discard();
+    newDistanceCanonicalRef.current = null;
     setAddError(null);
   }
 
@@ -221,8 +305,9 @@ export function LegDistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "legDistances", "csv")}
-        disabled={scenarioId == null}
+        onClick={() => download("legDistances", "csv")}
+        disabled={disabledReasonFor("legDistances") != null}
+        title={disabledReasonFor("legDistances")}
         data-testid="button-export-legdistances-csv"
         className="h-7 text-xs"
       >
@@ -231,8 +316,9 @@ export function LegDistancesTab({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => scenarioId != null && downloadEntityExport(scenarioId, "legDistances", "json")}
-        disabled={scenarioId == null}
+        onClick={() => download("legDistances", "json")}
+        disabled={disabledReasonFor("legDistances") != null}
+        title={disabledReasonFor("legDistances")}
         data-testid="button-export-legdistances-json"
         className="h-7 text-xs"
       >
@@ -293,10 +379,17 @@ export function LegDistancesTab({
         data-testid="input-new-legdistance-to"
       />
       <Input
-        type="number"
-        placeholder="Distance"
-        value={newDistance}
-        onChange={e => setNewDistance(e.target.value)}
+        type="text"
+        inputMode="decimal"
+        placeholder={unitSuffix("Distance")}
+        value={newDistanceText}
+        disabled={newDistanceDraft.disabled}
+        onChange={e => newDistanceDraft.onChange(e.target.value)}
+        onBlur={newDistanceDraft.commit}
+        onKeyDown={e => {
+          if (e.key === "Enter") newDistanceDraft.commit();
+          else if (e.key === "Escape") newDistanceDraft.discard();
+        }}
         className="h-7 text-xs w-24 font-mono"
         data-testid="input-new-legdistance-value"
       />
@@ -338,7 +431,7 @@ export function LegDistancesTab({
                 <TableHead>Leg</TableHead>
                 <TableHead>From</TableHead>
                 <TableHead>To</TableHead>
-                <TableHead>Distance</TableHead>
+                <TableHead>{unitSuffix("Distance")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -370,13 +463,12 @@ export function LegDistancesTab({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={drafts[key] ?? String(o.distance)}
-                          onChange={e => updateDistance(o.fromId, o.toId, e.target.value)}
-                          className="h-7 text-xs w-24 font-mono"
-                          data-testid={`input-legdistance-${o.fromId}-${o.toId}`}
+                        <LegDistanceValueCell
+                          canonicalUnit={canonicalUnit}
+                          currentValue={o.distance}
+                          resetKey={scenarioId}
+                          onCommitValid={v => commitDistance(o.fromId, o.toId, v)}
+                          inputTestId={`input-legdistance-${o.fromId}-${o.toId}`}
                         />
                         {changed && (
                           <span

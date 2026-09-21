@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act } from "@testing-library/react";
 import { SolveDialog } from "@/components/workspace/SolveDialog";
+import { UnitProvider } from "@/contexts/UnitContext";
 
 // T4/R5 — standalone SolveDialog unit tests for the new distance-band
 // editor: prefill, add/remove writes through the shared `onChange` (the
@@ -8,6 +9,18 @@ import { SolveDialog } from "@/components/workspace/SolveDialog";
 // sourced from `distanceUnit`, and disabled while busy. Workspace.test.tsx
 // covers the end-to-end "solve uses the edited bands" integration case; this
 // file is the component's own contract in isolation.
+//
+// chen-bands-units, T13 — every render in this file now goes through a
+// `UnitProvider` ancestor via RTL's `wrapper` OPTION (not a wrapping
+// element — silently dropped by `rerender(...)`). Harmless for every
+// pre-existing (legacy, `canonicalUnit`-omitting) test above.
+const STORAGE_KEY = "nos:display-unit-pref";
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: UnitProvider, ...options });
+}
 
 function renderDialog(over: Partial<Parameters<typeof SolveDialog>[0]> = {}) {
   const onChange = vi.fn();
@@ -140,10 +153,9 @@ describe("SolveDialog — Chen objective mode toggle", () => {
     expect(screen.queryByTestId("solve-dialog-input-coverage-floor")).not.toBeInTheDocument();
   });
 
-  it("shows the coverage-floor field (with the infeasibility hint) in min-distance mode", () => {
+  it("shows the coverage-floor field in min-distance mode", () => {
     renderDialog({ objective: "min_distance", coverageFloorDemand: 131645389, distanceUnit: "km" });
     expect(screen.getByTestId("solve-dialog-input-coverage-floor")).toBeInTheDocument();
-    expect(screen.getByTestId("solve-dialog-coverage-floor-hint")).toHaveTextContent("> total demand 199M = infeasible");
     expect(screen.queryByTestId("solve-dialog-input-avg-service-cap")).not.toBeInTheDocument();
   });
 
@@ -335,5 +347,85 @@ describe("SolveDialog — running solve clock (B9)", () => {
     // Frozen — further time passing must not change it.
     act(() => vi.advanceTimersByTime(6000));
     expect(screen.getByTestId("solve-dialog-elapsed")).toHaveTextContent("Queued 1s · Solving 2s");
+  });
+});
+
+// chen-bands-units, T13, Part D — SolveDialog's own band editor + avg-cap
+// field adopt the identical `useDistanceDraft` contract OptimizationParametersTab
+// uses (one state source, not a parallel copy — both call the same shared
+// hook and the same `@workspace/units` conversion functions).
+describe("SolveDialog — Part D display-unit contract (canonicalUnit opt-in)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("renders a placeholder and disables editing until the Chen manifest resolves (canonicalUnit=null)", () => {
+    renderDialog({
+      canonicalUnit: null,
+      objective: "coverage",
+      avgServiceDistCapKm: 1000,
+      distanceBands: [600, 5000],
+    });
+    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toBeDisabled();
+    expect(screen.getByTestId("solve-dialog-input-avg-service-cap")).toHaveValue("");
+    expect(screen.getByTestId("solve-dialog-button-bands-plus")).toBeDisabled();
+    expect(screen.getByTestId("solve-dialog-bands-unit-pending")).toBeInTheDocument();
+  });
+
+  it("does the same commit-as-canonical conversion as OptimizationParametersTab, through the identical hook", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const onChange = vi.fn();
+    renderDialog({
+      canonicalUnit: "km",
+      objective: "coverage",
+      avgServiceDistCapKm: 1000,
+      distanceBands: [600, 5000],
+      onChange,
+    });
+    const input = screen.getByTestId("solve-dialog-input-avg-service-cap");
+    // 1000 km displayed in mi: 1000 / 1.609344 = 621.3712 (rounded to 4dp).
+    expect(input).toHaveValue("621.3712");
+    fireEvent.change(input, { target: { value: "500" } });
+    fireEvent.blur(input);
+    // 500 mi -> km: 500 * 1.609344 = 804.672.
+    expect(onChange).toHaveBeenCalledWith("avgServiceDistCapKm", 804.672);
+  });
+
+  it("gap / timeLimitSec / coverageFloorDemand are untouched by the toggle", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const onChange = vi.fn();
+    renderDialog({
+      canonicalUnit: "km",
+      objective: "min_distance",
+      coverageFloorDemand: 131645389,
+      distanceBands: [600, 5000],
+      gap: 0.02,
+      timeLimitSec: 300,
+      onChange,
+    });
+    expect(screen.getByTestId("solve-dialog-input-gap")).toHaveValue(0.02);
+    expect(screen.getByTestId("solve-dialog-input-time-limit")).toHaveValue(300);
+    const floor = screen.getByTestId("solve-dialog-input-coverage-floor");
+    expect(floor).toHaveValue(131645389);
+    fireEvent.change(floor, { target: { value: "200000000" } });
+    expect(onChange).toHaveBeenCalledWith("coverageFloorDemand", 200000000);
+  });
+
+  it("re-enables the free band chip editor for Chen and blocks removing the last boundary", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const onChange = vi.fn();
+    renderDialog({ canonicalUnit: "km", distanceBands: [600] });
+    const removeBtn = screen.getByTestId("solve-dialog-button-remove-band-600");
+    expect(removeBtn).toBeDisabled();
+    fireEvent.click(removeBtn);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("legacy mode (canonicalUnit omitted) is completely unaffected — no UnitProvider dependency triggered", () => {
+    // No canonicalUnit at all — exercises the exact same code path as every
+    // pre-existing test above, confirming the opt-in is additive.
+    renderDialog({ distanceUnit: "mi", distanceBands: [200, 400] });
+    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
+    expect(screen.getByTestId("solve-dialog-band-200")).toHaveTextContent("200");
   });
 });

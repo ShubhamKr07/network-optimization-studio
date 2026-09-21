@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor } from "@/lib/useTableFilters";
 import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
-import { downloadEntityExport } from "@/lib/exportEntity";
+import { useExport } from "@/contexts/ExportContext";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 // B2 (JADE Ch.9 Workspace Bundle, spec §5/§5a) — Chapter 9 JADE's own
 // product-level Customer Assignments table. Deliberately a SEPARATE
@@ -63,9 +65,12 @@ interface JadeAssignmentsTabProps {
    * display fallback (mirrors OutputMapTab.tsx's own `effectiveBands`
    * pattern) when empty/absent. */
   bands?: number[];
-  /** Mirrors ListModelsResponseItem.distanceUnit; defaults to "mi" (JADE's
-   * only unit). */
-  distanceUnit?: string;
+  /** Mirrors ListModelsResponseItem.distanceUnit (JADE's own canonical unit
+   * is always "mi", but this is still threaded rather than defaulted — Part
+   * D's toggle applies here too, and `undefined`/`null` means the manifest
+   * hasn't resolved yet, in which case every distance-bearing cell/filter
+   * option shows a loading placeholder instead of a guessed unit). */
+  distanceUnit?: CanonicalUnit | null;
   /** Optional — enables the Download CSV button (parity with the shared
    * AssignmentsTab's own button; A4's backend export branch serves the
    * matching product-level columns for this model). */
@@ -204,14 +209,27 @@ export function JadeAssignmentsTab({
   result = null,
   dataset = null,
   bands = [],
-  distanceUnit = "mi",
+  distanceUnit,
   scenarioId,
   displayedInputs = null,
   identityById,
 }: JadeAssignmentsTabProps) {
   const [page, setPage] = useState(1);
+  const unit = useDisplayUnit();
+  const { download, disabledReasonFor } = useExport();
+  const canonicalResolved = distanceUnit != null;
+  const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
+  // `bandRangeLabel` (lib/bands.ts) has no unit-conversion awareness of its
+  // own — it just prints whatever numbers/unit it's handed. Converting BOTH
+  // the boundaries and the distance to the display unit before calling it
+  // (rather than passing canonical numbers under a display-unit label) keeps
+  // the printed range numerically correct; scaling every input by the same
+  // factor preserves the same band classification.
+  const formatRowDistance = (raw: number): string =>
+    canonicalResolved ? `${unit.toDisplay(raw, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—";
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
+  const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
 
   const rows: JadeAssignmentRow[] = useMemo(() => {
     return extractAssignments(result).map(a => ({
@@ -238,11 +256,14 @@ export function JadeAssignmentsTab({
         key: "band",
         label: "Distance Band",
         type: "select",
-        accessor: r => bandRangeLabel(r.distance, effectiveBands, distanceUnit),
+        accessor: r =>
+          canonicalResolved
+            ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!)
+            : "—",
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [effectiveBands.join(","), distanceUnit],
+    [effectiveBands.join(","), distanceUnit, unit.pref],
   );
 
   const tableFilters = useTableFilters(rows, filterDescriptors);
@@ -258,7 +279,7 @@ export function JadeAssignmentsTab({
   useEffect(() => {
     setFilter("band", undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveBands.join(","), distanceUnit]);
+  }, [effectiveBands.join(","), distanceUnit, unit.pref]);
 
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -285,17 +306,17 @@ export function JadeAssignmentsTab({
             {filteredCount} of {totalCount}
           </span>
           {totalCount > 10 && <FilterMenu descriptors={filterDescriptors} tableFilters={tableFilters} />}
-          {scenarioId != null && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              data-testid="button-download-jadeassignments-csv"
-              onClick={() => downloadEntityExport(scenarioId, "assignments", "csv")}
-            >
-              Download CSV
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-testid="button-download-jadeassignments-csv"
+            onClick={() => download("assignments", "csv")}
+            disabled={disabledReasonFor("assignments") != null}
+            title={disabledReasonFor("assignments")}
+          >
+            Download CSV
+          </Button>
         </div>
       </div>
       <div className="overflow-auto flex-1">
@@ -320,7 +341,7 @@ export function JadeAssignmentsTab({
                   {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, rows.length > 10)}
                 </TableCell>
                 <TableCell className="text-right font-mono" data-testid={`cell-jadeassignment-distance-${r.key}`}>
-                  {r.distance.toFixed(1)} {distanceUnit}
+                  {formatRowDistance(r.distance)}
                 </TableCell>
                 <TableCell data-testid={`cell-jadeassignment-band-${r.key}`}>{r.band}</TableCell>
               </TableRow>

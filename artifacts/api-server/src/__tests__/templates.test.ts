@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   TEMPLATE_VERSION,
+  DISTANCE_TEMPLATE_VERSION,
   OUTPUT_TEMPLATE_VERSION,
   buildEffectiveFacilityCityLookup,
   applyWarehouseOverrides,
@@ -29,6 +30,10 @@ import {
   buildServiceStatsRows,
   buildFlowRows,
   flowRowsToCsv,
+  buildJadeAssignmentRows,
+  buildJadeFlowRows,
+  jadeAssignmentRowsToCsv,
+  jadeFlowRowsToCsv,
   warehouseRowsToCsv,
   customerRowsToCsv,
   mineRowsToCsv,
@@ -40,8 +45,16 @@ import {
   openWarehouseRowsToCsv,
   costSummaryRowsToCsv,
   serviceStatsRowsToCsv,
+  toDistanceJsonRow,
+  toAssignmentJsonRow,
+  toFlowJsonRow,
+  toCostSummaryJsonRow,
+  toServiceStatsJsonRow,
+  toJadeAssignmentJsonRow,
+  toJadeFlowJsonRow,
 } from "../services/templates.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
+import { objectiveDimension, convertObjective, OVERFLOW_BAND } from "@workspace/units";
 
 describe("applyWarehouseOverrides", () => {
   it("returns one row per baseline warehouse with default status 'active' and null capacity when no override exists", () => {
@@ -278,7 +291,7 @@ describe("B4.3 — applyDistanceOverrides / distances export", () => {
     ]);
     expect(rows).toHaveLength(2);
     expect(rows.every(r => r.overridden === true)).toBe(true);
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "ALN", toId: "C1", distance: 123.4, overridden: true });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "ALN", toId: "C1", distance: 123.4, overridden: true });
   });
 
   it("returns an empty array when the scenario has no distanceOverrides", () => {
@@ -287,18 +300,34 @@ describe("B4.3 — applyDistanceOverrides / distances export", () => {
 });
 
 describe("distanceRowsToCsv", () => {
-  it("produces a header row plus one line per row, 4 columns, no overridden column", () => {
+  it("produces a v2 header (template_version,unit,from_id,to_id,distance) plus one line per row, no overridden column", () => {
     const rows = applyDistanceOverrides([{ fromId: "ALN", toId: "C1", distance: 123.4 }]);
     const csv = distanceRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,from_id,to_id,distance");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},ALN,C1,123.4`);
+    expect(lines[0]).toBe("template_version,unit,from_id,to_id,distance");
+    expect(lines[1]).toBe(`${DISTANCE_TEMPLATE_VERSION},mi,ALN,C1,123.4`);
     expect(lines.length).toBe(2);
   });
 
-  it("renders a null (stub) distance as an empty column", () => {
-    const csv = distanceRowsToCsv([{ templateVersion: TEMPLATE_VERSION, fromId: "ALN", toId: "C1", distance: null }]);
-    expect(csv.trim().split("\n")[1]).toBe(`${TEMPLATE_VERSION},ALN,C1,`);
+  it("renders a null (stub) distance as an empty column, unit still populated", () => {
+    const csv = distanceRowsToCsv([{ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "ALN", toId: "C1", distance: null }]);
+    expect(csv.trim().split("\n")[1]).toBe(`${DISTANCE_TEMPLATE_VERSION},mi,ALN,C1,`);
+  });
+
+  it("every row carries the same valid unit — a km row renders unit=km", () => {
+    const csv = distanceRowsToCsv([
+      { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "km", fromId: "wh-1", toId: "cs-1", distance: 42 },
+    ]);
+    expect(csv.trim().split("\n")[1]).toBe(`${DISTANCE_TEMPLATE_VERSION},km,wh-1,cs-1,42`);
+  });
+});
+
+describe("toDistanceJsonRow", () => {
+  it("strips `unit` — JSON rows never duplicate the envelope-level unit", () => {
+    const row = applyDistanceOverrides([{ fromId: "ALN", toId: "C1", distance: 123.4 }])[0];
+    const jsonRow = toDistanceJsonRow(row);
+    expect(jsonRow).toEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, fromId: "ALN", toId: "C1", distance: 123.4, overridden: true });
+    expect("unit" in jsonRow).toBe(false);
   });
 });
 
@@ -317,9 +346,9 @@ describe("B4.3 — buildDistanceStubRows (distances stub generator)", () => {
     expect(rows).toHaveLength(3);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-2", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-3", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-A", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-A", toId: "C-2", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-A", toId: "C-3", distance: null },
       ]),
     );
   });
@@ -329,8 +358,8 @@ describe("B4.3 — buildDistanceStubRows (distances stub generator)", () => {
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-B", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-A", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-B", toId: "C-1", distance: null },
       ]),
     );
   });
@@ -466,7 +495,7 @@ describe("Task 30 — applyLaneCostOverrides / laneCosts export", () => {
     ]);
     expect(rows).toHaveLength(2);
     expect(rows.every(r => r.overridden === true)).toBe(true);
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "KY", toId: "CHI", cost: 123.4, overridden: true });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "KY", toId: "CHI", cost: 123.4, overridden: true });
   });
 
   it("returns an empty array when the scenario has no laneCostOverrides", () => {
@@ -475,18 +504,18 @@ describe("Task 30 — applyLaneCostOverrides / laneCosts export", () => {
 });
 
 describe("Task 30 — laneCostRowsToCsv", () => {
-  it("produces a header row plus one line per row, 4 columns, no overridden column", () => {
+  it("produces a v2 header (template_version,unit,from_id,to_id,cost) plus one line per row, `cost` column preserved, no overridden column", () => {
     const rows = applyLaneCostOverrides([{ fromId: "KY", toId: "CHI", cost: 123.4 }]);
     const csv = laneCostRowsToCsv(rows);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("template_version,from_id,to_id,cost");
-    expect(lines[1]).toBe(`${TEMPLATE_VERSION},KY,CHI,123.4`);
+    expect(lines[0]).toBe("template_version,unit,from_id,to_id,cost");
+    expect(lines[1]).toBe(`${DISTANCE_TEMPLATE_VERSION},mi,KY,CHI,123.4`);
     expect(lines.length).toBe(2);
   });
 
-  it("renders a null (stub) cost as an empty column", () => {
-    const csv = laneCostRowsToCsv([{ templateVersion: TEMPLATE_VERSION, fromId: "KY", toId: "CHI", cost: null }]);
-    expect(csv.trim().split("\n")[1]).toBe(`${TEMPLATE_VERSION},KY,CHI,`);
+  it("renders a null (stub) cost as an empty column, unit still populated", () => {
+    const csv = laneCostRowsToCsv([{ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "KY", toId: "CHI", cost: null }]);
+    expect(csv.trim().split("\n")[1]).toBe(`${DISTANCE_TEMPLATE_VERSION},mi,KY,CHI,`);
   });
 });
 
@@ -503,9 +532,9 @@ describe("Task 30 — buildLaneCostStubRows (laneCosts stub generator)", () => {
     expect(rows).toHaveLength(3);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "MN-A", toId: "ST-1", cost: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "MN-A", toId: "ST-2", cost: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "MN-A", toId: "ST-3", cost: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MN-A", toId: "ST-1", cost: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MN-A", toId: "ST-2", cost: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MN-A", toId: "ST-3", cost: null },
       ]),
     );
   });
@@ -515,8 +544,8 @@ describe("Task 30 — buildLaneCostStubRows (laneCosts stub generator)", () => {
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "MN-A", toId: "ST-1", cost: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "MN-B", toId: "ST-1", cost: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MN-A", toId: "ST-1", cost: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MN-B", toId: "ST-1", cost: null },
       ]),
     );
   });
@@ -572,8 +601,8 @@ describe("B6.2 — buildLegDistanceStubRows (legDistances stub generator)", () =
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "MINE-A", toId: "REF-A", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "MINE-A", toId: "REF-B", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MINE-A", toId: "REF-A", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MINE-A", toId: "REF-B", distance: null },
       ]),
     );
   });
@@ -581,10 +610,10 @@ describe("B6.2 — buildLegDistanceStubRows (legDistances stub generator)", () =
   it("given a refinery id, emits stub rows for BOTH legs: from every mine AND to every active customer", () => {
     const rows = buildLegDistanceStubRows("REF-A", {}, DATASET)!;
     expect(rows).toHaveLength(1 + 3); // 1 mine + 3 customers
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "MINE-A", toId: "REF-A", distance: null });
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-1", distance: null });
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-2", distance: null });
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-3", distance: null });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "MINE-A", toId: "REF-A", distance: null });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "REF-A", toId: "C-1", distance: null });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "REF-A", toId: "C-2", distance: null });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "REF-A", toId: "C-3", distance: null });
   });
 
   it("given a customer id, emits one blank row per active refinery", () => {
@@ -592,8 +621,8 @@ describe("B6.2 — buildLegDistanceStubRows (legDistances stub generator)", () =
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "REF-A", toId: "C-1", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "REF-B", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "REF-A", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "REF-B", toId: "C-1", distance: null },
       ]),
     );
   });
@@ -785,8 +814,8 @@ describe("jade-T7 — buildJadeLegDistanceStubRows (legDistances stub generator,
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "PLANT-A", toId: "WH-A", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "PLANT-A", toId: "WH-B", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "PLANT-A", toId: "WH-A", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "PLANT-A", toId: "WH-B", distance: null },
       ]),
     );
   });
@@ -794,8 +823,8 @@ describe("jade-T7 — buildJadeLegDistanceStubRows (legDistances stub generator,
   it("given a warehouse id, emits stub rows for BOTH legs: from every plant AND to every active customer", () => {
     const rows = buildJadeLegDistanceStubRows("WH-A", {}, DATASET)!;
     expect(rows).toHaveLength(1 + 3); // 1 plant + 3 customers
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "PLANT-A", toId: "WH-A", distance: null });
-    expect(rows).toContainEqual({ templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "PLANT-A", toId: "WH-A", distance: null });
+    expect(rows).toContainEqual({ templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-A", toId: "C-1", distance: null });
   });
 
   it("given a customer id, emits one blank row per active warehouse", () => {
@@ -803,8 +832,8 @@ describe("jade-T7 — buildJadeLegDistanceStubRows (legDistances stub generator,
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-A", toId: "C-1", distance: null },
-        { templateVersion: TEMPLATE_VERSION, fromId: "WH-B", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-A", toId: "C-1", distance: null },
+        { templateVersion: DISTANCE_TEMPLATE_VERSION, unit: "mi", fromId: "WH-B", toId: "C-1", distance: null },
       ]),
     );
   });
@@ -846,8 +875,12 @@ function makeResult(overrides: Partial<ResultEnvelope> = {}): ResultEnvelope {
 }
 
 describe("buildAssignmentRows", () => {
-  it("returns one row per edge, mapping fromId/toId to warehouseId/customerId (D24: distance + distanceUnit, OUTPUT_TEMPLATE_VERSION)", () => {
-    const rows = buildAssignmentRows(makeResult(), "mi");
+  const bands = [200, 400, 800, 1600];
+
+  it("returns one row per edge, band recomputed from the SAVED lens (numeric index, not the solver's solve-time edge.band)", () => {
+    // Both edges carry a stale solve-time band (0 and 3) that the new
+    // implementation must ignore in favor of recomputing from `bands`.
+    const rows = buildAssignmentRows(makeResult(), "mi", "mi", bands);
     expect(rows).toEqual([
       { templateVersion: OUTPUT_TEMPLATE_VERSION, customerId: "C1", warehouseId: "ALN", distance: 42.1, distanceUnit: "mi", band: 0, flow: 205375 },
       { templateVersion: OUTPUT_TEMPLATE_VERSION, customerId: "C2", warehouseId: "DAL", distance: 812.4, distanceUnit: "mi", band: 3, flow: 150000 },
@@ -855,20 +888,47 @@ describe("buildAssignmentRows", () => {
   });
 
   it("emits the model's distanceUnit (Chen km) and never a distanceMi field", () => {
-    const rows = buildAssignmentRows(makeResult(), "km");
+    const rows = buildAssignmentRows(makeResult(), "km", "km", bands);
     expect(rows[0].distanceUnit).toBe("km");
     expect(rows[0]).not.toHaveProperty("distanceMi");
   });
 
-  it("uses null for band when the edge has no band", () => {
-    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 5 }] });
-    expect(buildAssignmentRows(result, "mi")[0].band).toBeNull();
+  it("boundary equality: a distance exactly equal to a boundary classifies INTO that band, not the next", () => {
+    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 400 }] });
+    expect(buildAssignmentRows(result, "mi", "mi", bands)[0].band).toBe(1);
+  });
+
+  it("overflow present: a distance above the last boundary gets the numeric OVERFLOW_BAND sentinel, not folded into the last band", () => {
+    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 2000 }] });
+    expect(buildAssignmentRows(result, "mi", "mi", bands)[0].band).toBe(OVERFLOW_BAND);
+  });
+
+  it("classifies on the CANONICAL distance before converting/rounding — a near-boundary row keeps its bucket under both units", () => {
+    // 400mi is exactly the km-converted boundary of a 400mi band; under a
+    // requested unit of km the distance itself converts, but classification
+    // already happened against the canonical (mi) value and boundary.
+    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 400 }] });
+    const mi = buildAssignmentRows(result, "mi", "mi", bands)[0];
+    const km = buildAssignmentRows(result, "mi", "km", bands)[0];
+    expect(mi.band).toBe(1);
+    expect(km.band).toBe(1);
+    expect(km.distance).toBeCloseTo(400 * 1.609344, 4);
+    expect(km.distanceUnit).toBe("km");
+  });
+
+  it("converts distance under a requested unit different from canonical (mi -> km)", () => {
+    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 100 }] });
+    const rows = buildAssignmentRows(result, "mi", "km", bands);
+    expect(rows[0].distance).toBeCloseTo(160.9344, 4);
+    expect(rows[0].distanceUnit).toBe("km");
   });
 });
 
 describe("assignmentRowsToCsv", () => {
-  it("emits the template_version,customer_id,warehouse_id,distance,distance_unit,band,flow header and one line per row (D24)", () => {
-    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult(), "mi"));
+  const bands = [200, 400, 800, 1600];
+
+  it("emits the v3 header + a non-null numeric band, at unit=mi", () => {
+    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult(), "mi", "mi", bands));
     const lines = csv.trim().split("\n");
     expect(lines[0]).toBe("template_version,customer_id,warehouse_id,distance,distance_unit,band,flow");
     expect(lines[1]).toBe(`${OUTPUT_TEMPLATE_VERSION},C1,ALN,42.1,mi,0,205375`);
@@ -876,8 +936,28 @@ describe("assignmentRowsToCsv", () => {
   });
 
   it("emits distance_unit=km for a Chen (km) export", () => {
-    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult(), "km"));
+    const csv = assignmentRowsToCsv(buildAssignmentRows(makeResult(), "km", "km", bands));
     expect(csv.trim().split("\n")[1]).toBe(`${OUTPUT_TEMPLATE_VERSION},C1,ALN,42.1,km,0,205375`);
+  });
+
+  it("overflow renders as the literal -1, never converted", () => {
+    const result = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 1, distance: 2000 }] });
+    const csv = assignmentRowsToCsv(buildAssignmentRows(result, "mi", "km", bands));
+    const cols = csv.trim().split("\n")[1].split(",");
+    expect(cols[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
+    expect(cols[4]).toBe("km");
+    expect(cols[5]).toBe("-1");
+    expect(cols[6]).toBe("1");
+  });
+});
+
+describe("toAssignmentJsonRow", () => {
+  it("strips templateVersion and distanceUnit — the exact locked shape is {customerId, warehouseId, distance, band, flow}", () => {
+    const row = buildAssignmentRows(makeResult(), "mi", "mi", [200, 400, 800, 1600])[0];
+    const jsonRow = toAssignmentJsonRow(row);
+    expect(jsonRow).toEqual({ customerId: "C1", warehouseId: "ALN", distance: 42.1, band: 0, flow: 205375 });
+    expect("templateVersion" in jsonRow).toBe(false);
+    expect("distanceUnit" in jsonRow).toBe(false);
   });
 });
 
@@ -973,8 +1053,8 @@ describe("openWarehouseRowsToCsv", () => {
 });
 
 describe("buildCostSummaryRows", () => {
-  it("returns exactly one row with objective/objectiveMode/weightedAvgDistance/distanceUnit/runTimeSec/quality/solverUsed (D25, OUTPUT_TEMPLATE_VERSION)", () => {
-    expect(buildCostSummaryRows(makeResult(), "mi")).toEqual([{
+  it("returns exactly one row; objective/weightedAvgDistance identity when requestedUnit==canonicalUnit", () => {
+    expect(buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")).toEqual([{
       templateVersion: OUTPUT_TEMPLATE_VERSION,
       objective: 29873735731,
       objectiveMode: null,
@@ -987,57 +1067,193 @@ describe("buildCostSummaryRows", () => {
   });
 
   it("serializes objectiveMode as an explicit null (not omitted) when details has no objective mode", () => {
-    const row = buildCostSummaryRows(makeResult(), "mi")[0];
+    const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
     expect(row.objectiveMode).toBeNull();
     expect("objectiveMode" in row).toBe(true);
     expect(JSON.stringify(row)).toContain('"objectiveMode":null');
   });
 
   it("carries Chen's coverage/min_distance mode from details.objective + km unit", () => {
-    const row = buildCostSummaryRows(makeResult({ details: { objective: "coverage" } }), "km")[0];
+    const row = buildCostSummaryRows(makeResult({ details: { objective: "coverage" } }), "km", "km", "chens-cosmetics-cn")[0];
     expect(row.objectiveMode).toBe("coverage");
     expect(row.distanceUnit).toBe("km");
   });
 
   it("uses null for weightedAvgDistance when metrics doesn't have it", () => {
     const result = makeResult({ metrics: {} });
-    expect(buildCostSummaryRows(result, "mi")[0].weightedAvgDistance).toBeNull();
+    expect(buildCostSummaryRows(result, "mi", "mi", "p-median-us")[0].weightedAvgDistance).toBeNull();
+  });
+
+  it("weightedAvgDistance always converts under unit= regardless of objective dimension (JADE monetary objective, distance metric still converts)", () => {
+    const result = makeResult({ objective: 5000, metrics: { weightedAvgDistance: 100 } });
+    const row = buildCostSummaryRows(result, "mi", "km", "two-echelon-jade-us")[0];
+    expect(row.objective).toBe(5000); // monetary — never converts
+    expect(row.weightedAvgDistance).toBeCloseTo(160.9344, 4); // plain distance — always converts
+  });
+
+  it("converts a demand-distance objective (p-median-us) under unit=km", () => {
+    const result = makeResult({ objective: 1000 });
+    const row = buildCostSummaryRows(result, "mi", "km", "p-median-us")[0];
+    expect(row.objective).toBeCloseTo(1609.344, 4);
+  });
+
+  it("does not convert a Chen coverage-percent objective", () => {
+    const result = makeResult({ objective: 66.0639, details: { objective: "coverage" } });
+    const row = buildCostSummaryRows(result, "km", "mi", "chens-cosmetics-cn")[0];
+    expect(row.objective).toBe(66.0639);
+  });
+
+  it("converts a Chen min_distance objective (demand-distance)", () => {
+    const result = makeResult({ objective: 1000, details: { objective: "min_distance" } });
+    const row = buildCostSummaryRows(result, "km", "mi", "chens-cosmetics-cn")[0];
+    expect(row.objective).toBeCloseTo(1000 / 1.609344, 4);
+  });
+
+  it("no modelId supplied (backward-compatible default) never converts — opaque dimension", () => {
+    const result = makeResult({ objective: 1000 });
+    const row = buildCostSummaryRows(result, "mi", "km")[0];
+    expect(row.objective).toBe(1000);
   });
 });
 
 describe("costSummaryRowsToCsv", () => {
-  it("emits exactly one data line (plus header) with the D25 column set", () => {
-    const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult(), "mi")).trim().split("\n");
+  it("emits exactly one data line (plus header) with the v3 column set", () => {
+    const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")).trim().split("\n");
     expect(lines.length).toBe(2);
     expect(lines[0]).toBe("template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used");
+    expect(lines[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
+  });
+});
+
+describe("toCostSummaryJsonRow", () => {
+  it("strips templateVersion and distanceUnit — the exact locked shape", () => {
+    const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
+    const jsonRow = toCostSummaryJsonRow(row);
+    expect(jsonRow).toEqual({
+      objective: 29873735731, objectiveMode: null, weightedAvgDistance: 382.9, runTimeSec: 0.45, quality: "Proven optimal", solverUsed: "CBC",
+    });
+    expect("templateVersion" in jsonRow).toBe(false);
+    expect("distanceUnit" in jsonRow).toBe(false);
+  });
+});
+
+// Step 7b (plan-review #7) — the six-model objective mapping, exercised
+// THROUGH this package's runtime (buildCostSummaryRows), asserted against
+// `convertObjective`/`objectiveDimension` imported directly from
+// `@workspace/units` — never a locally-recomputed expectation. A backend-
+// local duplicate mapping would fail this test.
+describe("buildCostSummaryRows — six-model objective mapping (Step 7b)", () => {
+  it.each([
+    ["p-median-us", null] as const,
+    ["p-median-brazil", null] as const,
+    ["transport-coal", null] as const,
+    ["two-echelon-gold-au", null] as const,
+    ["two-echelon-jade-us", null] as const,
+    ["chens-cosmetics-cn", "coverage"] as const,
+    ["chens-cosmetics-cn", "min_distance"] as const,
+  ])("costSummary objective for %s/%s converts per the shared contract under km AND mi", (modelId, objectiveMode) => {
+    const rawObjective = 1234.5;
+    const dim = objectiveDimension(modelId, objectiveMode);
+    for (const [canonical, requested] of [["mi", "km"], ["km", "mi"]] as const) {
+      const result = makeResult({ objective: rawObjective, details: objectiveMode ? { objective: objectiveMode } : {} });
+      const row = buildCostSummaryRows(result, canonical, requested, modelId)[0];
+      const expected = Math.round(convertObjective(rawObjective, dim, canonical, requested) * 1e4) / 1e4;
+      expect(row.objective).toBe(expected);
+    }
   });
 });
 
 describe("buildServiceStatsRows", () => {
-  it("returns one row per bandCoverage entry, each carrying distanceUnit (D25, OUTPUT_TEMPLATE_VERSION)", () => {
-    expect(buildServiceStatsRows(makeResult(), "km")).toEqual([
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "km", percent: 30 },
-      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 400, distanceUnit: "km", percent: 45 },
+  // totalFlow = 100; within 200 -> edge1 only (60%); within 400 -> both (100%).
+  const twoEdgeResult = makeResult({
+    edges: [
+      { fromId: "ALN", toId: "C1", flow: 60, distance: 100 },
+      { fromId: "DAL", toId: "C2", flow: 40, distance: 300 },
+    ],
+    metrics: {},
+  });
+
+  it("computes LIVE cumulative coverage from the SAVED bands lens (never metrics.bandCoverage), each row carrying distanceUnit", () => {
+    // metrics.bandCoverage (if present) must be ignored entirely.
+    const withStaleBandCoverage = makeResult({ ...twoEdgeResult, metrics: { bandCoverage: [{ band: 999, percent: 1 }] } });
+    expect(buildServiceStatsRows(withStaleBandCoverage, "mi", "mi", [200, 400])).toEqual([
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "mi", percent: 60 },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 400, distanceUnit: "mi", percent: 100 },
     ]);
   });
 
-  it("returns an empty array when metrics has no bandCoverage", () => {
+  it("overflow present: a row beyond the last boundary appends an OVERFLOW_BAND row (-1, never converted)", () => {
+    const rows = buildServiceStatsRows(twoEdgeResult, "mi", "km", [200]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ percent: 60 });
+    expect(rows[1]).toMatchObject({ band: OVERFLOW_BAND, percent: 40 });
+  });
+
+  it("overflow absent: omitted entirely when zero (matches the existing if(overflowFlow>0) guard)", () => {
+    const rows = buildServiceStatsRows(twoEdgeResult, "mi", "mi", [400]);
+    expect(rows).toHaveLength(1);
+    expect(rows.some(r => r.band === OVERFLOW_BAND)).toBe(false);
+  });
+
+  it("zero flow: returns 0% rows, no division by zero", () => {
+    const zeroFlow = makeResult({ edges: [{ fromId: "ALN", toId: "C1", flow: 0, distance: 100 }], metrics: {} });
+    expect(buildServiceStatsRows(zeroFlow, "mi", "mi", [200])).toEqual([
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "mi", percent: 0 },
+    ]);
+  });
+
+  it("boundary is converted to the requested unit — visibly different under km vs mi — while overflow stays exactly -1 in both", () => {
+    const mi = buildServiceStatsRows(twoEdgeResult, "mi", "mi", [200]);
+    const km = buildServiceStatsRows(twoEdgeResult, "mi", "km", [200]);
+    expect(mi[0].band).toBe(200);
+    expect(km[0].band).toBeCloseTo(200 * 1.609344, 4);
+    expect(mi[1].band).toBe(OVERFLOW_BAND);
+    expect(km[1].band).toBe(OVERFLOW_BAND);
+  });
+
+  it("two-echelon/JADE outbound-leg filter: only warehouse_to_customer/refinery_to_customer edges count, inbound legs are excluded", () => {
+    const result = makeResult({
+      edges: [
+        { fromId: "kalgoorlie", toId: "daggar-hills", flow: 1000, distance: 5, leg: "mine_to_refinery" },
+        { fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 100, leg: "refinery_to_customer" },
+      ],
+      metrics: {},
+    });
+    const rows = buildServiceStatsRows(result, "mi", "mi", [200]);
+    // Only the 80-flow outbound edge counts — the 1000-flow inbound edge is
+    // excluded entirely, so coverage is 100% of 80, not diluted by 1000.
+    expect(rows).toEqual([{ templateVersion: OUTPUT_TEMPLATE_VERSION, band: 200, distanceUnit: "mi", percent: 100 }]);
+  });
+
+  it("returns an empty array when no bands are supplied (backward-compatible default)", () => {
     expect(buildServiceStatsRows(makeResult({ metrics: {} }), "mi")).toEqual([]);
   });
 });
 
 describe("serviceStatsRowsToCsv", () => {
-  it("emits the template_version,band,distance_unit,percent header (D25)", () => {
-    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult(), "km"));
+  it("emits the v3 template_version,band,distance_unit,percent header", () => {
+    const csv = serviceStatsRowsToCsv(buildServiceStatsRows(makeResult({ metrics: {} }), "km", "km", [200, 400]));
     expect(csv.trim().split("\n")[0]).toBe("template_version,band,distance_unit,percent");
   });
 });
 
+describe("toServiceStatsJsonRow", () => {
+  it("strips templateVersion and distanceUnit — the exact locked shape {band, percent}", () => {
+    const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", [200, 400])[0];
+    const jsonRow = toServiceStatsJsonRow(row);
+    expect(jsonRow).toEqual({ band: row.band, percent: row.percent });
+    expect("templateVersion" in jsonRow).toBe(false);
+    expect("distanceUnit" in jsonRow).toBe(false);
+  });
+});
+
 describe("buildFlowRows", () => {
-  it("includes edges with no leg (transport-coal shape)", () => {
+  const bands = [200, 400, 800, 1600];
+
+  it("includes edges with no leg (transport-coal shape); v3: distance+distanceUnit (not distanceMi), band always a numeric index", () => {
     const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }] });
-    expect(buildFlowRows(result)).toEqual([
-      { templateVersion: TEMPLATE_VERSION, fromId: "KY", toId: "CHI", distanceMi: 300, band: null, flow: 500 },
+    expect(buildFlowRows(result, "mi", "mi", bands)).toEqual([
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, fromId: "KY", toId: "CHI", distance: 300, distanceUnit: "mi", band: 1, flow: 500 },
     ]);
   });
 
@@ -1048,15 +1264,219 @@ describe("buildFlowRows", () => {
         { fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" },
       ],
     });
-    const rows = buildFlowRows(result);
+    const rows = buildFlowRows(result, "mi", "mi", bands);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ fromId: "kalgoorlie", toId: "daggar-hills" });
+  });
+
+  it("overflow: a distance above the last boundary gets the numeric OVERFLOW_BAND sentinel", () => {
+    const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 2000 }] });
+    expect(buildFlowRows(result, "mi", "mi", bands)[0].band).toBe(OVERFLOW_BAND);
+  });
+
+  it("boundary equality: a distance exactly equal to a boundary classifies into that band", () => {
+    const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 800 }] });
+    expect(buildFlowRows(result, "mi", "mi", bands)[0].band).toBe(2);
+  });
+
+  it("uses the backward-compatible default canonicalUnit='mi' when omitted (transport-coal/gold, the only current callers)", () => {
+    const result = makeResult({ edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }] });
+    expect(buildFlowRows(result)[0].distanceUnit).toBe("mi");
   });
 });
 
 describe("flowRowsToCsv", () => {
-  it("emits the template_version,from_id,to_id,distance_mi,band,flow header", () => {
-    const csv = flowRowsToCsv(buildFlowRows(makeResult()));
-    expect(csv.trim().split("\n")[0]).toBe("template_version,from_id,to_id,distance_mi,band,flow");
+  it("emits the v3 header (distance,distance_unit — no distance_mi)", () => {
+    const csv = flowRowsToCsv(buildFlowRows(makeResult(), "mi", "mi", [200, 400, 800, 1600]));
+    expect(csv.trim().split("\n")[0]).toBe("template_version,from_id,to_id,distance,distance_unit,band,flow");
+    expect(csv).not.toContain("distance_mi");
+  });
+});
+
+describe("toFlowJsonRow", () => {
+  it("strips templateVersion and distanceUnit — the exact locked shape {fromId, toId, distance, band, flow}", () => {
+    const row = buildFlowRows(makeResult(), "mi", "mi", [200, 400, 800, 1600])[0];
+    const jsonRow = toFlowJsonRow(row);
+    expect(jsonRow).toEqual({ fromId: "ALN", toId: "C1", distance: 42.1, band: 0, flow: 205375 });
+    expect("templateVersion" in jsonRow).toBe(false);
+    expect("distanceUnit" in jsonRow).toBe(false);
+  });
+});
+
+// ── JADE assignments/flows — display-label band representation ────────────
+function makeJadeResult(overrides: Partial<ResultEnvelope> = {}): ResultEnvelope {
+  return {
+    status: "optimal",
+    objective: 1000,
+    runTimeSec: 0.5,
+    quality: "Proven optimal",
+    edges: [
+      { fromId: "PL1", toId: "WH1", flow: 100, distance: 150, leg: "plant_to_warehouse", productId: "P1" },
+      { fromId: "PL1", toId: "WH1", flow: 50, distance: 150, leg: "plant_to_warehouse", productId: "P2" },
+      { fromId: "WH1", toId: "C1", flow: 120, distance: 250, leg: "warehouse_to_customer" },
+      { fromId: "WH1", toId: "C2", flow: 900, distance: 2000, leg: "warehouse_to_customer" },
+    ],
+    metrics: {},
+    details: {
+      openWarehouseIds: ["WH1"],
+      assignments: [
+        { customerId: "C1", warehouseId: "WH1", productId: "P1", flow: 80, distanceMi: 250 },
+        { customerId: "C1", warehouseId: "WH1", productId: "P2", flow: 40, distanceMi: 250 },
+        { customerId: "C2", warehouseId: "WH1", productId: "P1", flow: 900, distanceMi: 2000 },
+      ],
+    },
+    solverUsed: "CBC",
+    infeasibilityReason: null,
+    ...overrides,
+  };
+}
+
+describe("buildJadeAssignmentRows", () => {
+  const bands = [200, 400, 800, 1600];
+
+  it("reads from details.assignments (product-level), NOT result.edges — band is a DISPLAY-LABEL string, not a numeric index", () => {
+    const rows = buildJadeAssignmentRows(makeJadeResult(), "mi", bands);
+    expect(rows).toEqual([
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, productId: "P2", customerId: "C1", warehouseId: "WH1", distance: 250, distanceUnit: "mi", band: "Band 2" },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, productId: "P1", customerId: "C2", warehouseId: "WH1", distance: 2000, distanceUnit: "mi", band: "Overflow" },
+    ]);
+  });
+
+  it("row count matches details.assignments length exactly (3), not result.edges length (4) — proves the row source", () => {
+    const rows = buildJadeAssignmentRows(makeJadeResult(), "mi", bands);
+    expect(rows).toHaveLength(3);
+  });
+
+  it("converts distance under a requested unit different from canonical", () => {
+    const rows = buildJadeAssignmentRows(makeJadeResult(), "mi", bands, "km");
+    expect(rows[0].distance).toBeCloseTo(250 * 1.609344, 4);
+    expect(rows[0].distanceUnit).toBe("km");
+    expect(rows[0].band).toBe("Band 2"); // classification unaffected by conversion
+  });
+
+  it("defaults requestedUnit to canonicalUnit when omitted (backward-compatible)", () => {
+    const rows = buildJadeAssignmentRows(makeJadeResult(), "km", bands);
+    expect(rows[0].distanceUnit).toBe("km");
+    expect(rows[0].distance).toBe(250);
+  });
+});
+
+describe("jadeAssignmentRowsToCsv", () => {
+  it("emits the v3 self-describing header (template_version, distance_unit added)", () => {
+    const rows = buildJadeAssignmentRows(makeJadeResult(), "mi", [200, 400, 800, 1600]);
+    const csv = jadeAssignmentRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[0]).toBe("template_version,product,customer,assigned_warehouse,distance,distance_unit,distance_band");
+    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},P1,C1,WH1,250,mi,Band 2`);
+    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},P1,C2,WH1,2000,mi,Overflow`);
+  });
+});
+
+describe("toJadeAssignmentJsonRow", () => {
+  it("strips templateVersion and distanceUnit — the exact locked shape", () => {
+    const row = buildJadeAssignmentRows(makeJadeResult(), "mi", [200, 400, 800, 1600])[0];
+    const jsonRow = toJadeAssignmentJsonRow(row);
+    expect(jsonRow).toEqual({ productId: "P1", customerId: "C1", warehouseId: "WH1", distance: 250, band: "Band 2" });
+    expect("templateVersion" in jsonRow).toBe(false);
+    expect("distanceUnit" in jsonRow).toBe(false);
+  });
+});
+
+describe("buildJadeFlowRows", () => {
+  const bands = [200, 400, 800, 1600];
+
+  it("aggregates plant_to_warehouse edges across products (flows summed), one row per customer for warehouse_to_customer — band is a DISPLAY-LABEL string", () => {
+    const rows = buildJadeFlowRows(makeJadeResult(), bands, "mi");
+    expect(rows).toEqual([
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, distanceUnit: "mi", band: "Band 1", flows: 150 },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C1", distance: 250, distanceUnit: "mi", band: "Band 2", flows: 120 },
+      { templateVersion: OUTPUT_TEMPLATE_VERSION, leg: "warehouse_to_customer", fromId: "WH1", toId: "C2", distance: 2000, distanceUnit: "mi", band: "Overflow", flows: 900 },
+    ]);
+  });
+
+  it("defaults canonicalUnit to 'mi' (JADE's own canonical unit) when omitted (backward-compatible)", () => {
+    const rows = buildJadeFlowRows(makeJadeResult(), bands);
+    expect(rows[0].distanceUnit).toBe("mi");
+  });
+
+  it("converts distance under a requested unit different from canonical", () => {
+    const rows = buildJadeFlowRows(makeJadeResult(), bands, "mi", "km");
+    expect(rows[0].distance).toBeCloseTo(150 * 1.609344, 4);
+    expect(rows[0].distanceUnit).toBe("km");
+  });
+});
+
+describe("jadeFlowRowsToCsv", () => {
+  it("emits the v3 self-describing combined header (template_version, distance_unit added)", () => {
+    const rows = buildJadeFlowRows(makeJadeResult(), [200, 400, 800, 1600], "mi");
+    const csv = jadeFlowRowsToCsv(rows);
+    const lines = csv.trim().split("\n");
+    expect(lines[0]).toBe("template_version,leg,from_id,to_id,distance,distance_unit,distance_band,flows");
+    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},plant_to_warehouse,PL1,WH1,150,mi,Band 1,150`);
+    expect(lines).toContain(`${OUTPUT_TEMPLATE_VERSION},warehouse_to_customer,WH1,C2,2000,mi,Overflow,900`);
+  });
+});
+
+describe("toJadeFlowJsonRow", () => {
+  it("strips templateVersion and distanceUnit — the exact locked shape, `leg` stays the closed union", () => {
+    const row = buildJadeFlowRows(makeJadeResult(), [200, 400, 800, 1600], "mi")[0];
+    const jsonRow = toJadeFlowJsonRow(row);
+    expect(jsonRow).toEqual({ leg: "plant_to_warehouse", fromId: "PL1", toId: "WH1", distance: 150, band: "Band 1", flows: 150 });
+    expect("templateVersion" in jsonRow).toBe(false);
+    expect("distanceUnit" in jsonRow).toBe(false);
+  });
+});
+
+// Step 2 (plan) — one test per row of the spec's v3 matrix, asserting the
+// EMITTED ARTIFACT (the CSV string / JSON row), not an intermediate object.
+describe("v3 version matrix — emitted artifact carries the correct version", () => {
+  const bands = [200, 400, 800, 1600];
+
+  it("generic assignments CSV + JSON row both carry v3", () => {
+    const row = buildAssignmentRows(makeResult(), "mi", "mi", bands)[0];
+    expect(row.templateVersion).toBe(3);
+    expect(assignmentRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+  });
+
+  it("generic flows CSV + JSON row both carry v3 (was v1/TEMPLATE_VERSION)", () => {
+    const row = buildFlowRows(makeResult(), "mi", "mi", bands)[0];
+    expect(row.templateVersion).toBe(3);
+    expect(flowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+  });
+
+  it("costSummary CSV + JSON row both carry v3", () => {
+    const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
+    expect(row.templateVersion).toBe(3);
+    expect(costSummaryRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+  });
+
+  it("serviceStats CSV + JSON row both carry v3", () => {
+    const row = buildServiceStatsRows(makeResult({ metrics: {} }), "mi", "mi", bands)[0];
+    expect(row.templateVersion).toBe(3);
+    expect(serviceStatsRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+  });
+
+  it("JADE assignments CSV + JSON row both carry v3", () => {
+    const row = buildJadeAssignmentRows(makeJadeResult(), "mi", bands)[0];
+    expect(row.templateVersion).toBe(3);
+    expect(jadeAssignmentRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+  });
+
+  it("JADE flows CSV + JSON row both carry v3", () => {
+    const row = buildJadeFlowRows(makeJadeResult(), bands, "mi")[0];
+    expect(row.templateVersion).toBe(3);
+    expect(jadeFlowRowsToCsv([row]).split("\n")[1].split(",")[0]).toBe("3");
+  });
+
+  it("openWarehouses stays v1 — a non-distance entity, unaffected by this bundle", () => {
+    expect(TEMPLATE_VERSION).toBe(1);
+    const rows = buildOpenWarehouseRows(makeResult(), new Map());
+    expect(rows[0].templateVersion).toBe(1);
+  });
+
+  it("DISTANCE_TEMPLATE_VERSION (importable distances/legDistances/laneCosts) is 2, independent of OUTPUT_TEMPLATE_VERSION", () => {
+    expect(DISTANCE_TEMPLATE_VERSION).toBe(2);
+    expect(OUTPUT_TEMPLATE_VERSION).toBe(3);
   });
 });

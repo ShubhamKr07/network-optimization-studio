@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CustomersTab } from "@/components/workspace/tabs/CustomersTab";
@@ -386,7 +397,14 @@ describe("CustomersTab — add-row grid-mirror auto-fill (T9)", () => {
 
 describe("CustomersTab — Upload/Download (A1.3)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />);
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; Import still reads the prop directly.
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-customers-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-customers-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-customers")).toBeDisabled();
@@ -394,7 +412,14 @@ describe("CustomersTab — Upload/Download (A1.3)", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=customers&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,demand\nC1,100", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(<CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} scenarioId={7} />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <CustomersTab customers={customers} overrides={[]} onChange={vi.fn()} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
+    );
 
     await userEvent.click(screen.getByTestId("button-export-customers-csv"));
 

@@ -89,15 +89,35 @@ describe("chensInputsSchema — scalar constraints", () => {
   });
 });
 
-describe("chensInputsSchema — D19 distanceBands derivation", () => {
-  it("overwrites distanceBands to [highServiceDistKm, maxDistKm] when a stale third boundary is supplied", () => {
-    const r = chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600, 5000, 99999] });
-    expect(r.distanceBands).toEqual([600, 5000]);
+describe("chensInputsSchema — distanceBands are free, D19's overwrite is gone", () => {
+  it("preserves a supplied band array verbatim (no [high,max] overwrite)", () => {
+    const r = chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600, 1200, 2400, 5000] });
+    expect(r.distanceBands).toEqual([600, 1200, 2400, 5000]);
   });
 
-  it("derives distanceBands even when the field is omitted entirely (never 422)", () => {
+  it("derives [high,max] ONLY when distanceBands is omitted (legacy payload)", () => {
     const r = chensInputsSchema.parse(COVERAGE_BASE);
-    expect(r.distanceBands).toEqual([600, 5000]);
+    expect(r.distanceBands).toEqual([COVERAGE_BASE.highServiceDistKm, COVERAGE_BASE.maxDistKm]);
+  });
+
+  it("accepts a single band (minItems 1)", () => {
+    expect(chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600] }).distanceBands).toEqual([600]);
+  });
+
+  it.each([
+    ["empty", []],
+    ["non-ascending", [800, 400]],
+    ["duplicate", [400, 400]],
+    ["zero", [0, 400]],
+    ["negative", [-1, 400]],
+  ])("rejects %s band arrays at the API boundary", (_label, bands) => {
+    expect(() => chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: bands })).toThrow();
+  });
+
+  it("rejects maxDistKm <= highServiceDistKm", () => {
+    expect(() =>
+      chensInputsSchema.parse({ ...COVERAGE_BASE, highServiceDistKm: 600, maxDistKm: 600 }),
+    ).toThrow();
   });
 
   it("persists capacityMode 'none' by default", () => {

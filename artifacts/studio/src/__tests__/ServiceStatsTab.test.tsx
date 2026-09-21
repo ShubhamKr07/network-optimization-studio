@@ -1,7 +1,30 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
+import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+
+// chen-bands-units, T13 — ServiceStatsTab now calls `useDisplayUnit()`
+// unconditionally (no legacy/new split here — this component always
+// derives its unit from the model manifest via `useListModels()`, never
+// from a caller-supplied prop), so every render in this file needs a
+// `UnitProvider` ancestor. Uses RTL's `wrapper` OPTION (not a wrapping
+// element, which is silently dropped by `rerender(...)`).
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
+const STORAGE_KEY = "nos:display-unit-pref";
 
 // R9 — distanceUnit is sourced from GET /api/models (via useListModels),
 // so this suite mocks it the same way other Workspace-tab tests do
@@ -53,7 +76,36 @@ describe("ServiceStatsTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />);
     fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-service-stats-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 5 })}>
+            <ServiceStatsTab result={result} scenarioId={1} modelId="p-median-us" />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-service-stats-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "serviceStats", "csv", { unit: "mi", runId: 5 });
+    });
   });
 
   it("labels the chart as demand-weighted (R9)", () => {
@@ -73,9 +125,16 @@ describe("ServiceStatsTab", () => {
     expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
   });
 
-  it("defaults to 'mi' when modelId is not provided (pre-existing call sites)", () => {
+  // chen-bands-units, T13, Step 3b — DELIBERATE behavior change: the `?? "mi"`
+  // fallback this test used to assert is gone. No modelId (or an
+  // unresolved manifest) means the canonical unit is unauthoritative, so
+  // this now renders the disabled placeholder instead of guessing "mi" —
+  // never assume a unit, ever (a Chen (km) scenario transiently rendered
+  // as "mi" is a correct number under a WRONG unit, which reads as fact).
+  it("renders the unit-pending placeholder when modelId is not provided (canonical unit unresolved), no fallback", () => {
     render(<ServiceStatsTab result={result} scenarioId={1} />);
-    expect(screen.getByTestId("service-stats-band-200")).toHaveTextContent("≤ 200 mi");
+    expect(screen.getByTestId("service-stats-unit-pending")).toBeInTheDocument();
+    expect(screen.queryByTestId("service-stats-band-200")).not.toBeInTheDocument();
   });
 
   // Bundle 3, T9 — mono-numbers pass: band/percent cells are numeric and
@@ -599,7 +658,14 @@ describe("ServiceStatsTab", () => {
       expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
     });
 
-    it("chens-cosmetics-cn stays frozen even if presentationBands were (mistakenly) passed", () => {
+    // chen-bands-units, Part A — REVERSES the prior "stays frozen" contract:
+    // the deliberate Chen guard (`&& !showCoverageKpis`) is deleted, so once
+    // a caller wires `presentationBands` for Chen, it computes live from
+    // `edges` exactly like its five siblings (cumulative + overflow,
+    // km-labelled). Chen's SEPARATE `details.coveragePct` KPI block above
+    // is untouched — this only concerns which source the band-coverage
+    // BARS below it read from.
+    it("chens-cosmetics-cn now computes bandCoverage LIVE once presentationBands is wired (Part A guard deleted)", () => {
       const chenResult = {
         status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "w1", toId: "c1", flow: 100, distance: 50 }],
@@ -615,10 +681,20 @@ describe("ServiceStatsTab", () => {
           presentationBands={[10, 20, 30]}
         />,
       );
-      // Frozen bars, not the (mistaken) live recompute over the presentationBands.
-      expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
-      expect(screen.getByTestId("service-stats-band-5000")).toHaveTextContent("100%");
-      expect(screen.queryByTestId("service-stats-band-10")).not.toBeInTheDocument();
+      // Live recompute over the ONE edge (distance 50, flow 100) against the
+      // wired bands [10,20,30] — none of the 3 real boundaries capture it
+      // (50 > 30), so all three read 0% and the flow surfaces as an
+      // Overflow row instead. NOT the frozen 66%/100% from
+      // result.metrics.bandCoverage.
+      expect(screen.getByTestId("service-stats-band-10")).toHaveTextContent("0%");
+      expect(screen.getByTestId("service-stats-band-20")).toHaveTextContent("0%");
+      expect(screen.getByTestId("service-stats-band-30")).toHaveTextContent("0%");
+      const overflowRow = screen.getByTestId("service-stats-band--1");
+      expect(overflowRow).toHaveTextContent("> 30 km");
+      expect(overflowRow).toHaveTextContent("100%");
+      expect(screen.queryByTestId("service-stats-band-600")).not.toBeInTheDocument();
+      // Chen's separate coverage-% KPI block is untouched by this change.
+      expect(screen.getByTestId("service-stats-coverage-pct")).toHaveTextContent("66.67 %");
     });
 
     it("JADE (two-echelon-jade-us) is unchanged — still warehouse_to_customer edges only", () => {
@@ -638,5 +714,43 @@ describe("ServiceStatsTab", () => {
       expect(screen.getByTestId("service-stats-band-100")).toHaveTextContent("10%");
       expect(screen.getByTestId("service-stats-band-300")).toHaveTextContent("100%");
     });
+  });
+});
+
+// chen-bands-units, T13, Part D — ServiceStatsTab's own display-unit
+// contract: every band boundary/distance/unit label routes through
+// `useDisplayUnit()`; the `OVERFLOW_BAND = -1` row is a categorical
+// sentinel and is NEVER itself converted (only the real boundary distance
+// shown alongside it, `maxBoundary`, converts).
+describe("ServiceStatsTab — Part D display-unit contract", () => {
+  it("renders boundaries in the display unit; the -1 overflow row is never converted", () => {
+    window.localStorage.setItem(STORAGE_KEY, "mi");
+    const jadeResult = {
+      ...result,
+      metrics: {
+        bandCoverage: [
+          { band: 600, percent: 66 },
+          { band: -1, percent: 15 },
+        ],
+      },
+    };
+    render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="chens-cosmetics-cn" />);
+    // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
+    expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("≤ 372.8227 mi");
+    const overflowRow = screen.getByTestId("service-stats-band--1");
+    // The overflow row's shown boundary (600, the max REAL boundary) is
+    // converted exactly the same way — never the literal sentinel `-1`
+    // itself (that would produce a nonsense negative distance).
+    expect(overflowRow).toHaveTextContent("> 372.8227 mi");
+    expect(overflowRow).not.toHaveTextContent("-1");
+    expect(overflowRow).toHaveTextContent("15%");
+  });
+
+  it("renders a disabled placeholder and computes nothing until the Chen manifest resolves", () => {
+    // A modelId that isn't in the mocked models list at all — the same
+    // "unresolved" state as a manifest still loading.
+    render(<ServiceStatsTab result={result} scenarioId={1} modelId="not-a-real-model"  />);
+    expect(screen.getByTestId("service-stats-unit-pending")).toBeInTheDocument();
+    expect(screen.queryByTestId("service-stats-band-200")).not.toBeInTheDocument();
   });
 });

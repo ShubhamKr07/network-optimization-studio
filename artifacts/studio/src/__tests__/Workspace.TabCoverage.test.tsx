@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// chen-bands-units, Part D — components rendered inside this tree now read the
+// display-unit preference via useDisplayUnit(), which throws without a
+// provider. main.tsx already wraps the real app (T10); these tests render the
+// component directly, so they need the same ancestor. RTL's `wrapper` option is
+// used rather than a wrapping element so `rerender` keeps the provider too.
+const render = (
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) => rtlRender(ui, { wrapper: UnitProvider, ...options });
+
 
 // Phase 3.2, Task 5 — sweeps EVERY sidebar tab (all Inputs entries,
 // including the new Input Map, plus every Outputs entry the model's real
@@ -69,6 +81,9 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetScenario: vi.fn(),
   useGetDataset: vi.fn(),
   useUpdateScenario: vi.fn(() => mockUpdateScenario),
+  // chen-bands-units, T14 - field-scoped distanceBands PATCH. Minimal mock;
+  // only Workspace.test.tsx asserts on its call args (Save-bands routing).
+  useUpdateDistanceBands: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useSolveScenario: vi.fn(() => mockSolveScenario),
   useCreateScenario: vi.fn(() => mockCreateScenario),
   useCloneScenario: vi.fn(() => mockCloneScenario),
@@ -198,6 +213,7 @@ describe("Workspace tab coverage — p-median-us", () => {
       data: [
         {
           id: "p-median-us",
+          distanceUnit: "mi",
           countryBounds: { sw: [24, -125], ne: [50, -66] },
           capabilities: {
             supportsP: true,
@@ -291,6 +307,7 @@ describe("Workspace tab coverage — transport-coal", () => {
       data: [
         {
           id: "transport-coal",
+          distanceUnit: "mi",
           countryBounds: { sw: [29.76, -122.42], ne: [47.61, -73.61] },
           capabilities: {
             supportsP: false,
@@ -385,6 +402,7 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
       data: [
         {
           id: "two-echelon-gold-au",
+          distanceUnit: "mi",
           countryBounds: { sw: [-38.5, 113.0], ne: [-16.0, 154.5] },
           capabilities: {
             supportsP: false,
@@ -599,6 +617,7 @@ describe("Workspace tab coverage — p-median-brazil", () => {
       data: [
         {
           id: "p-median-brazil",
+          distanceUnit: "mi",
           countryBounds: { sw: [-30, -68], ne: [0, -35] },
           capabilities: {
             supportsP: true,

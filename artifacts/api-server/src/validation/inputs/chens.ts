@@ -78,13 +78,27 @@ function distanceOverridePairKey(o: { fromId: string; toId: string }): string {
   return o.fromId + "|" + o.toId;
 }
 
+// Spec Part A (supersedes D19): distanceBands is a free, user-editable
+// reporting lens, not a derived pair. Every boundary must be strictly
+// positive, and the array strictly ascending (which also guarantees
+// uniqueness) with at least one boundary. There is deliberately NO
+// `<= maxDistKm` rule and no requirement that the top band equal
+// `maxDistKm` — an overflow bucket handles anything beyond the last
+// boundary (see `@workspace/units`'s `assignBandOrOverflow`).
+const distanceBandsSchema = z
+  .array(z.number().positive())
+  .min(1, "distanceBands must contain at least one boundary")
+  .refine((b) => b.every((v, i) => i === 0 || v > b[i - 1]), {
+    message: "distanceBands must be strictly ascending and unique",
+  });
+
 export const chensInputsSchema = z
   .object({
     objective: z.enum(["coverage", "min_distance"]),
     p: z.number().int().min(1).max(25),
-    // RAW km thresholds. `.transform` below overwrites `distanceBands` to
-    // `[highServiceDistKm, maxDistKm]` (D19); the cross-field
-    // `highServiceDistKm < maxDistKm` is enforced in `.superRefine`.
+    // RAW km thresholds. The cross-field `highServiceDistKm < maxDistKm`
+    // invariant (a solver-parameter constraint, independent of
+    // `distanceBands`) is enforced in `.superRefine` below.
     highServiceDistKm: z.number().positive(),
     maxDistKm: z.number().positive(),
     // Objective-discriminated: required iff coverage (superRefine below).
@@ -97,11 +111,12 @@ export const chensInputsSchema = z
     // Chen has no capacity concept — persisted as "none" (defaulted so an
     // omitting client still stores it explicitly).
     capacityMode: z.literal("none").default("none"),
-    // Input is ignored: the `.transform` overwrites it to
-    // `[highServiceDistKm, maxDistKm]` (D19). Lenient/optional so a stale
-    // third boundary (or an absent field) is never a 422 — it is simply
-    // recomputed from the two thresholds.
-    distanceBands: z.array(z.number()).optional(),
+    // Optional: a supplied valid array is preserved VERBATIM (see the
+    // `.transform` below). Omitted ONLY for a legacy payload that predates
+    // this contract — then `[highServiceDistKm, maxDistKm]` is derived as a
+    // back-compat default, never as a silent overwrite of a client's own
+    // supplied value.
+    distanceBands: distanceBandsSchema.optional(),
     warehouseOverrides: z.array(warehouseOverrideSchema).default([]),
     customerOverrides: z.array(customerOverrideSchema).default([]),
     addedWarehouses: z.array(addedWarehouseSchema).default([]),
@@ -148,14 +163,14 @@ export const chensInputsSchema = z
       });
     }
   })
-  // D19: distanceBands is a pure derivation of the two thresholds — never a
-  // separately-authored field. Overwriting here (after validation) guarantees
-  // the STORED inputs.distanceBands is always exactly [high, max], so a stale
-  // third boundary sent by any write path (POST/PATCH/import-apply) can never
-  // persist.
+  // Spec Part A (supersedes D19): a supplied `distanceBands` is preserved
+  // VERBATIM — it is a free reporting lens, not a derived pair. Derive
+  // `[high, max]` ONLY when the payload omits the field entirely (a legacy
+  // payload written before this contract existed), so an old client never
+  // 422s on a field it never knew to send.
   .transform((v) => ({
     ...v,
-    distanceBands: [v.highServiceDistKm, v.maxDistKm],
+    distanceBands: v.distanceBands ?? [v.highServiceDistKm, v.maxDistKm],
   }));
 
 export type ChensInputs = z.infer<typeof chensInputsSchema>;
