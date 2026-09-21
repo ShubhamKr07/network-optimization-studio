@@ -1,7 +1,7 @@
 # Worktree Collision Prevention — Design
 
 **Date:** 2026-09-21
-**Status:** Design, approved section-by-section in brainstorm; awaiting written-spec review
+**Status:** Design; written-spec review completed 2026-09-21 — changes requested (see §13)
 **Scope:** Agent-team execution hygiene — worktree isolation, git-op guardrails, worktree lifecycle, gate-run hygiene
 
 ---
@@ -283,3 +283,71 @@ Three edits to `CLAUDE.md`:
 5. `report` classifies all existing worktrees into the four buckets without removing anything.
 6. A gate run warns about foreign dev-server processes before executing suites, and refuses to report a red result while the pnpm install lock is held.
 7. `CLAUDE.md:292`'s pathspec guidance is gone, replaced per §9.
+
+## 13. Written-spec review (Codex, 2026-09-21)
+
+**Decision: changes requested; not approved for implementation yet.** The root-cause analysis and one-worktree-per-concurrent-writer direction are sound. The advisory-first rollout is also appropriate. The following correctness gaps must be resolved in the design before implementation.
+
+### 13.1 Blocker: the reaper proof is incompatible with the cherry-pick workflow
+
+§7.2 requires `git merge-base --is-ancestor <branch> main` to pass immediately after the controller cherry-picks the task. A normal cherry-pick records the change as a new commit, so the task branch tip is not an ancestor of the integration branch even when every patch landed successfully. In that state, `git cherry -v <integration> <task>` reports `-` (patch-equivalent) while `--is-ancestor` returns 1. D8 therefore solves the `git branch -d`/current-HEAD problem only for ancestry-preserving integration; it does not solve the repository's documented cherry-pick workflow.
+
+**Required resolution:** choose one coherent integration proof:
+
+1. change task integration to an ancestry-preserving merge and retain the ancestor proof; or
+2. retain cherry-picks and store at least `baseSha`, `taskTip`, `integrationRef`, and the controller-recorded landed commit SHA(s). Reaping must require zero `+` commits from `git cherry -v <integrationRef> <taskTip> <baseSha>`, verify that the branch still points to the stored `taskTip`, and delete the ref with compare-and-delete semantics such as `git update-ref -d refs/heads/<branch> <taskTip>`.
+
+The temp-repo test matrix must include a cherry-pick that deliberately produces a different commit SHA from the task commit; that case must reap successfully under the chosen proof.
+
+### 13.2 Blocker: the registry is itself concurrency-unsafe
+
+The design has concurrent hooks mutating one JSON object to bind `sessionId` and auto-register `adhoc` entries, but specifies neither a lock nor atomic update semantics. Two first tool calls can read the same registry revision and overwrite one another; a crash during a direct rewrite can leave malformed JSON. Binding an empty entry to whichever session happens to issue the first Bash call can also assign ownership to the wrong actor.
+
+**Required resolution:** define one canonical registry location that every worktree resolves identically, serialize every read-modify-write, write through a same-filesystem temporary file plus atomic rename, and either support multiple active runs explicitly or refuse `start` while another run is active. Use the hook payload's stable `agent_id`/`agent_type` where available rather than first-Bash ownership; define a controller identity separately. Add a parallel-writer test proving no entry or status transition is lost.
+
+### 13.3 Blocker: the stated guard coverage exceeds `PreToolUse`'s observation boundary
+
+`PreToolUse` sees the Claude tool call and, for Bash, the outer `tool_input.command`. It does not become a recursive interceptor for child processes. For example, a Bash tool call of `pnpm harness:worktree reap --task T3` exposes that pnpm command to the hook; a `git branch -D` spawned inside the TypeScript process is not a second Claude tool call. Consequently, §7.2.1's claim that the reaper's internal deletion would self-trip R1 is incorrect, and `WORKTREE_GUARD=reaper` is unnecessary for that execution path. As written, the same boundary also misses Git operations hidden behind scripts or aliases, human-terminal reset/checkout operations, and arbitrary file writes performed through Bash.
+
+**Required resolution:** either narrow Goal 2 and D6 to direct Claude `Bash`/`Write`/`Edit` calls, explicitly documenting the bypass boundary, or introduce a real Git-command wrapper/interposition mechanism and specify how it is enforced. Remove the purported reaper self-exemption. If any privileged bypass remains, an environment value that a person can type is not sufficient proof that the caller is the reaper.
+
+### 13.4 Blocker: the five reaper checks do not prove that ownership ended
+
+The guard ledger contains only classified operations. Normal edits in an owner's registered worktree are deliberately invisible, so "no other `sessionId` wrote in the last 10 minutes" cannot prove quiescence. An idle or suspended agent may have no live process whose cwd is the worktree and may resume after the reaper removes it. There is also a time-of-check/time-of-use window between proving the branch tip and deleting the ref.
+
+**Required resolution:** require an explicit terminal ownership transition (agent completion plus controller acknowledgement) before reaping; treat process and recent-ledger checks as supplementary signals only. Store and re-check the exact task tip immediately before removal, then use atomic compare-and-delete for the branch ref. The dispatch design must also settle whether created worktrees are locked, matching the repository's current standing rule; if they are, the reaper must unlock only after every proof passes and immediately before `git worktree remove`.
+
+Add negative tests in which an owner is idle but not released and in which the branch ref advances between proof and deletion; both must remove nothing.
+
+### 13.5 Required guard/backstop corrections
+
+- `core.hooksPath` is repository-local configuration, not a committed config change. Define an idempotent install/verification step, preserve or refuse an existing hooks path rather than silently replacing it, and fail `start` if the backstop is expected but inactive.
+- A Git `pre-commit` hook can be bypassed with `--no-verify`; classify that form explicitly and state the residual human-terminal limitation.
+- The registry and ledger paths used by the Git hook must be canonical from every linked worktree. A relative `.harness/...` path in the current worktree does not name shared scratch state.
+- Define path-matching semantics for `solePaths`: repository-relative normalization, glob syntax, symlink/realpath containment, nonexistent write targets, and the staged/working-tree sets inspected for `git commit`, including `-a` and pathspec forms.
+- Define parsing or conservative handling for `git -C`, `GIT_WORK_TREE`, shell chains/newlines, aliases, and destructive forms currently omitted from R1. Otherwise the rule must not claim exhaustive Git-op detection.
+
+### 13.6 Required lifecycle and acceptance-criteria corrections
+
+- Acceptance criterion 3 is inconsistent with the rule table. A commit from `primaryCheckout` while a run is active necessarily fires R2, but R4 fires only if a second active entry is registered in that same worktree. Either change the expected result to R2 or redefine R4 and provide the registry state that makes both rules fire.
+- Store the immutable dispatch base SHA and integration ref in the registry. `start --run` currently does not define how "the integration branch" is selected, validated, or kept stable between waves.
+- Make `gc --apply` registry-scoped for destructive actions. Unregistered worktrees may be reported, but must not be removed automatically under D8.
+- Move the `CLAUDE.md:292` correction from P4 to P1. Known-unsafe guidance must not remain authoritative during the advisory soak period.
+- Promotion cannot be based on a vacuous sample. Two bundles with zero high-severity firings do not validate the high-severity classifiers. Require deliberate negative probes for every blocking rule and a minimum observed sample before switching to block mode.
+
+### 13.7 Required gate-hygiene corrections
+
+The pnpm mutex wrapper does not serialize direct `pnpm install` calls, and a gate preflight check alone races with an install that starts after the check. Define how direct installs are redirected or rejected, how the gate and installer coordinate for the full duration, and how a crashed owner leaves a safely recoverable stale lock (PID/start time, owner, acquisition time, and conservative recovery).
+
+Likewise, "belongs to the current session" is not currently derivable from a process cwd. Define process ownership/registration, PID-reuse protection, termination order (`TERM`, bounded wait, then optional `KILL`), and the approval boundary for `--force`. Until attribution is reliable, abort-and-report is acceptable; killing is not.
+
+### 13.8 Approval conditions
+
+This design is ready for re-review when:
+
+1. the cherry-pick/reaper contradiction is resolved and covered by a different-SHA cherry-pick test;
+2. registry updates are canonical, serialized, atomic, and agent-identity aware;
+3. the hook's enforceable scope and bypass boundary are stated accurately;
+4. reaping requires explicit ownership release and atomic expected-tip deletion;
+5. the Git-hook installation, pnpm lock, process attribution, R2/R4 expectation, GC scope, and promotion criteria above are specified; and
+6. the unsafe `CLAUDE.md` guidance is corrected in P1.
