@@ -4,3 +4,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-09-18T12:05:04.622Z,nonjade-servicestats-coverage,0,0,0,0,,0,0,
 2026-09-19T21:48:52.959Z,workspace-fixups,0,0,0,0,,0,0,
 2026-09-20T20:13:18.106Z,workspace-fixups-2,0,0,0,0,,0,0,
+2026-09-21T18:59:45.756Z,chen-bands-units,825,60,0,2,Read,97,13,"gate: 13 risky grant(s) — human review required; recurring denial: ""Read"" denied again (also flagged in a prior audit)"
