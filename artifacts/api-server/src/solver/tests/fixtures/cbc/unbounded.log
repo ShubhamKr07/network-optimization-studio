@@ -1,0 +1,28 @@
+Welcome to the CBC MILP Solver 
+Version: 2.10.3 
+Build Date: Dec 15 2019 
+
+command line - <CBC_BIN> <WORKDIR>/problem-pulp.mps -max -timeMode elapsed -solve -printingOptions all -solution <WORKDIR>/problem-pulp.sol (default strategy 1)
+At line 2 NAME          MODEL
+At line 3 ROWS
+At line 5 COLUMNS
+At line 7 RHS
+At line 8 BOUNDS
+At line 9 ENDATA
+Problem MODEL has 0 rows, 1 columns and 0 elements
+Coin0008I MODEL read with 0 errors
+Option for timeMode changed from cpu to elapsed
+Empty problem - 0 rows, 1 columns and 0 elements
+Dual infeasible - objective value -0
+DualInfeasible objective -0 - 0 iterations time 0.002
+
+Result - Linear relaxation unbounded
+
+Enumerated nodes:           0
+Total iterations:           0
+Time (CPU seconds):         0.00
+Time (Wallclock Seconds):   0.00
+
+Option for printingOptions changed from normal to all
+Total time (CPU seconds):       0.00   (Wallclock seconds):       0.00
+

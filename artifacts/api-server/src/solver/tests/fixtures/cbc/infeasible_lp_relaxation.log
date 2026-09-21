@@ -1,0 +1,32 @@
+Welcome to the CBC MILP Solver 
+Version: 2.10.3 
+Build Date: Dec 15 2019 
+
+command line - <CBC_BIN> <WORKDIR>/problem-pulp.mps -sec 10 -ratio 0.0 -timeMode elapsed -solve -printingOptions all -solution <WORKDIR>/problem-pulp.sol (default strategy 1)
+At line 2 NAME          MODEL
+At line 3 ROWS
+At line 6 COLUMNS
+At line 9 RHS
+At line 11 BOUNDS
+At line 13 ENDATA
+Problem MODEL has 1 rows, 1 columns and 1 elements
+Coin0008I MODEL read with 0 errors
+seconds was changed from 1e+100 to 10
+ratioGap was changed from 0 to 0
+Option for timeMode changed from cpu to elapsed
+Presolve determined that the problem was infeasible with tolerance of 1e-08
+Analysis indicates model infeasible or unbounded
+0  Obj 0 Primal inf 1.9999999 (1)
+Primal infeasible - objective value 2
+PrimalInfeasible objective 2 - 1 iterations time 0.002
+
+Result - Linear relaxation infeasible
+
+Enumerated nodes:           0
+Total iterations:           0
+Time (CPU seconds):         0.00
+Time (Wallclock Seconds):   0.02
+
+Option for printingOptions changed from normal to all
+Total time (CPU seconds):       0.00   (Wallclock seconds):       0.02
+
