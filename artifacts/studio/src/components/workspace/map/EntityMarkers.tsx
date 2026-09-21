@@ -84,10 +84,11 @@ export interface EntityMarkersProps {
    * item 4) revives this for the marker Tooltip's `<Type>` label
    * (warehouseTypeLabel/customerTypeLabel above), since a "wh"/"cs" rendering
    * role alone can't distinguish e.g. a transport-coal mine/station from a
-   * plain warehouse/customer. Optional, default `"p-median-us"` so every
-   * existing caller/test literal that omits it keeps rendering "Warehouse"/
-   * "Customer" exactly as before. */
-  modelId?: string;
+   * plain warehouse/customer. **Required** (review Minor-5): a default like
+   * `"p-median-us"` would let a future transport-coal/gold-au caller silently
+   * omit it and mislabel every marker; making it required forces every call
+   * site to declare the model at compile time. */
+  modelId: string;
 }
 
 // ── Pure SVG-string builders ────────────────────────────────────────────
@@ -183,7 +184,7 @@ export function EntityMarkers({
   onRightClick,
   onDragEnd,
   draggableIds,
-  modelId = "p-median-us",
+  modelId,
 }: EntityMarkersProps) {
   const tone = demandTone(modelId);
   const scale = useMemo(() => makeQuintileRadius(customers.map((c) => c.demand)), [customers]);

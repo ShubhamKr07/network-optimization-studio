@@ -38,6 +38,7 @@ function renderMarkers(props: Partial<ComponentProps<typeof EntityMarkers>> = {}
     onRightClick: vi.fn(),
     onDragEnd: vi.fn(),
     draggableIds: new Set<string>(),
+    modelId: "p-median-us",
   };
   return render(
     <MapContainer center={[0, 0]} zoom={2}>

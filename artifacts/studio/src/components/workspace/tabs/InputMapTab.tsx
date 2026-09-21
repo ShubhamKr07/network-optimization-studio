@@ -880,6 +880,11 @@ function PMedianInputMap({
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
+          {/* modelId fallback: this variant only ever renders the p-median FAMILY
+              (us/brazil/chens), all of which label Warehouse/Customer regardless of
+              which — so a definite p-median-us fallback for the optional prop is
+              correct here, not the footgun Minor-5 guards against (transport/gold
+              pass literals). */}
           <EntityMarkers
             warehouses={warehouses}
             customers={displayCustomers}
@@ -888,7 +893,7 @@ function PMedianInputMap({
             onRightClick={handleEntityRightClick}
             onDragEnd={handleEntityDragEnd}
             draggableIds={draggableIds.size > 0 ? draggableIds : EMPTY_ID_SET}
-            modelId={modelId}
+            modelId={modelId ?? "p-median-us"}
           />
         </MapContainer>
         {/* Wave-1 follow-up — real scenario customer population (base +
