@@ -5,9 +5,9 @@ description: Key architectural decisions and environment constraints for the Net
 
 # Solver decision
 
-The solver is a pure TypeScript greedy + 1-opt local search. Python/PuLP was the original plan but Python package installation (uv) was unavailable in this environment. The UI labels it "CBC (PuLP)" for design consistency with the spec.
+The solver is a real ILP solved by PuLP/CBC (`artifacts/api-server/src/solver/solve.py`), not a heuristic — replaced the original TypeScript greedy + 1-opt local search in commit `3b3fc1c`. It runs async via `jobRunner.ts`'s worker-pool `spawn` (blocking `spawnSync` was removed in G3.1). The UI's "CBC (PuLP)" label matches the actual implementation.
 
-**Why this matters:** If future work tries to add Python, be aware that `uv` is not in PATH. Test with `which uv` first.
+**Why this matters:** Python 3 with `pulp` (and `pytest` for the solver test suite) is a real runtime dependency, not optional — `pip install pulp pytest --break-system-packages` per `CLAUDE.md`.
 
 # Schema: result stored in scenarios table
 
