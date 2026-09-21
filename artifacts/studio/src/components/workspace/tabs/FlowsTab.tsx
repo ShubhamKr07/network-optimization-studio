@@ -9,10 +9,10 @@ interface FlowsTabProps {
   result: SolveResult | null;
   scenarioId: number;
   /** chen-bands-units, Part D — the active model's CANONICAL distance unit
-   * (manifest ModelInfo.distanceUnit). This table previously hardcoded
-   * "Distance (mi)" unconditionally — `undefined`/`null` (the caller hasn't
-   * threaded a resolved unit through yet) renders a loading placeholder
-   * instead, never a guessed "mi". */
+   * (manifest ModelInfo.distanceUnit). This table previously hardcoded the
+   * Distance column header with a bare mi suffix unconditionally —
+   * `undefined`/`null` (the caller hasn't threaded a resolved unit through
+   * yet) renders a loading placeholder instead, never a guessed unit. */
   distanceUnit?: CanonicalUnit | null;
   /** JADE-only — id -> {city, state} (base dataset ∪ added entities), built
    * by Workspace.tsx's `jadeLocationMapFromInputs`. When present, both the

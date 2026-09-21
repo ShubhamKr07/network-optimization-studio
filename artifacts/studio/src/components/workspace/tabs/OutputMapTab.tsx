@@ -185,10 +185,11 @@ export function OutputMapTab({
 
   // chen-bands-units, Part D "No fallback unit — reads": the canonical unit
   // comes from the active model's manifest (G1.1) via GET /api/models and is
-  // `null` until it genuinely resolves. There is deliberately NO `?? "mi"`
-  // here: Chen is a km model, so a fallback would not render a slightly-wrong
-  // label, it would render a CORRECT number under a WRONG unit — which a
-  // student reads as fact. Unresolved renders a placeholder instead.
+  // `null` until it genuinely resolves. There is deliberately no
+  // unconditional mi-defaulting fallback here: Chen is a km model, so a
+  // fallback would not render a slightly-wrong label, it would render a
+  // CORRECT number under a WRONG unit — which a student reads as fact.
+  // Unresolved renders a placeholder instead.
   const { data: models } = useListModels();
   const activeModel = models?.find(m => m.id === modelId) as { distanceUnit?: string } | undefined;
   const distanceUnit: CanonicalUnit | null =
