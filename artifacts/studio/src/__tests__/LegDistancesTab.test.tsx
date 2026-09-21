@@ -1,8 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cloneElement, type ReactElement } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
+import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
+
+// chen-bands-units, Task 12 — every render now needs a UnitProvider ancestor
+// (useDistanceDraft/useDisplayUnit throw without one). Rather than touching
+// every one of this file's ~25 bare `render(<LegDistancesTab .../>)` call
+// sites, shadow the `render` import itself: RTL's `wrapper` OPTION (not a
+// JSX-wrapping element, which is lost across `rerender()`) plus a default
+// `canonicalUnit="mi"` (two-echelon-gold-au's real canonical unit) injected
+// via cloneElement unless a test's own JSX already sets it explicitly.
+function withDefaultUnit(ui: ReactElement): ReactElement {
+  const existing = (ui.props as { canonicalUnit?: unknown }).canonicalUnit;
+  return cloneElement(ui, { canonicalUnit: existing !== undefined ? existing : "mi" } as Record<string, unknown>);
+}
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(withDefaultUnit(ui), { wrapper: UnitProvider, ...options });
+}
 
 // B6.2 stage 4 — Leg distances grid tab: long-format `{fromId, toId,
 // distance}` rows covering BOTH legs (mine->refinery, refinery->customer),
@@ -29,6 +46,11 @@ function jsonResponse(body: unknown, contentType = "application/json") {
 
 function renderWithQueryClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  // Note: wrapping `ui` in `<QueryClientProvider>` here means `withDefaultUnit`
+  // (invoked by the local `render` above) sees the PROVIDER element, not
+  // `<LegDistancesTab>` itself, so `canonicalUnit` is defaulted at each call
+  // site below instead (this component has no reference-distance query, so
+  // QueryClientProvider is only needed for ImportDialog's own hooks).
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
@@ -53,7 +75,10 @@ describe("LegDistancesTab — rendering", () => {
     expect(screen.getByTestId("row-legdistance-kalgoorlie-daggar-hills")).toBeInTheDocument();
     expect(screen.getByTestId("row-legdistance-cunnamulla-sydney")).toBeInTheDocument();
     expect(screen.getByTestId("row-legdistance-daggar-hills-melbourne")).toBeInTheDocument();
-    expect(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills")).toHaveValue(293.7);
+    // chen-bands-units, Task 12 — the value cell is now `type="text"` (was
+    // `type="number"`), so its committed value is a rendered STRING, not a
+    // number.
+    expect(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills")).toHaveValue("293.7");
   });
 
   it("shows an empty message plus the add-row affordance when there are no overrides yet", () => {
@@ -164,7 +189,10 @@ describe("LegDistancesTab — inline edit", () => {
         onChange={onChange}
       />,
     );
+    // chen-bands-units, Task 12 — commit now happens on blur/Enter, not on
+    // every keystroke.
     fireEvent.change(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"));
     expect(onChange).toHaveBeenCalledWith([
       { fromId: "kalgoorlie", toId: "daggar-hills", distance: 500 },
       overrides[1],
@@ -351,6 +379,7 @@ describe("LegDistancesTab — displayCodeById (Followup)", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("input-legdistance-ar-9012-sydney"), { target: { value: "99" } });
+    fireEvent.blur(screen.getByTestId("input-legdistance-ar-9012-sydney"));
     expect(onChange).toHaveBeenCalledWith([{ fromId: "ar-9012", toId: "sydney", distance: 99 }]);
   });
 });
@@ -383,6 +412,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
         customerIds={customerIds}
         onChange={vi.fn()}
         scenarioId={7}
+        canonicalUnit="mi"
       />,
     );
 
@@ -405,6 +435,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
         customerIds={customerIds}
         onChange={vi.fn()}
         scenarioId={7}
+        canonicalUnit="mi"
       />,
     );
 
@@ -433,6 +464,7 @@ describe("LegDistancesTab — Upload/Download (mirrors LaneCostsTab's wiring)", 
         onChange={vi.fn()}
         scenarioId={7}
         onImportApplied={onImportApplied}
+        canonicalUnit="mi"
       />,
     );
 
@@ -516,5 +548,155 @@ describe("LegDistancesTab — T11 identityById upgrade (item 2)", () => {
     const row = screen.getByTestId("row-legdistance-kalgoorlie-refinery-1");
     expect(row).not.toHaveTextContent("Kalgoorlie, WA");
     expect(row).toHaveTextContent("MINE-1");
+  });
+});
+
+// chen-bands-units, Task 12 — the display-unit draft contract, exercised
+// directly against this component's value cell and add-row field.
+function ToggleUnitButton({ to }: { to: "auto" | "km" | "mi" }) {
+  const { setPref } = useDisplayUnit();
+  return (
+    <button data-testid={`toggle-unit-${to}`} onClick={() => setPref(to)}>
+      toggle {to}
+    </button>
+  );
+}
+function renderWithToggle(ui: React.ReactElement) {
+  return rtlRender(
+    <UnitProvider>
+      <ToggleUnitButton to="km" />
+      <ToggleUnitButton to="mi" />
+      <ToggleUnitButton to="auto" />
+      {ui}
+    </UnitProvider>,
+  );
+}
+
+describe("LegDistancesTab — chen-bands-units Task 12: display-unit draft contract", () => {
+  afterEach(() => {
+    window.localStorage.removeItem("nos:display-unit-pref");
+  });
+
+  it("a display-unit entry commits the correct CANONICAL value (typing 500 under a forced mi display in a km-canonical model stores 804.672)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LegDistancesTab
+        distanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.change(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"), { target: { value: "500" } });
+    fireEvent.blur(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 804.672 }]);
+  });
+
+  it("an incomplete draft ('5.') never commits, even on blur", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LegDistancesTab
+        distanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="mi"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"), { target: { value: "5." } });
+    fireEvent.blur(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills")).toHaveValue("10");
+  });
+
+  it("a unit toggle mid-edit converts a complete draft in place and visibly discards an incomplete one", () => {
+    renderWithToggle(
+      <LegDistancesTab
+        distanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={vi.fn()}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"), { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    expect(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills")).toHaveValue("12.4274");
+
+    fireEvent.change(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"), { target: { value: "5." } });
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    expect(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills")).toHaveValue("10");
+  });
+
+  it("repeated toggling introduces no drift in the eventually-committed value", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LegDistancesTab
+        distanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"), { target: { value: "20" } });
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-km"));
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("toggle-unit-auto"));
+    fireEvent.blur(screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 20 }]);
+  });
+
+  it("the add-row form converts too — asserts the stored CANONICAL value, not the typed text", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LegDistancesTab
+        distanceOverrides={[]}
+        savedDistanceOverrides={[]}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit="km"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("toggle-unit-mi"));
+    fireEvent.click(screen.getByTestId("button-add-legdistance-row"));
+    fireEvent.change(screen.getByTestId("input-new-legdistance-from"), { target: { value: "kalgoorlie" } });
+    fireEvent.change(screen.getByTestId("input-new-legdistance-to"), { target: { value: "daggar-hills" } });
+    fireEvent.change(screen.getByTestId("input-new-legdistance-value"), { target: { value: "500" } });
+    fireEvent.click(screen.getByTestId("button-add-legdistance-confirm"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 804.672 }]);
+  });
+
+  it("the editor is disabled and commits nothing while the canonical unit is unresolved (no fallback)", () => {
+    const onChange = vi.fn();
+    renderWithToggle(
+      <LegDistancesTab
+        distanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        savedDistanceOverrides={[{ fromId: "kalgoorlie", toId: "daggar-hills", distance: 10 }]}
+        mineIds={mineIds}
+        refineryIds={refineryIds}
+        customerIds={customerIds}
+        onChange={onChange}
+        canonicalUnit={null}
+      />,
+    );
+    const input = screen.getByTestId("input-legdistance-kalgoorlie-daggar-hills");
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { value: "500" } });
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
