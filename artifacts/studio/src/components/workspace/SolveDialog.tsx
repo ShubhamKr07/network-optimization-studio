@@ -241,7 +241,7 @@ export function SolveDialog({
                 ) : (
                   <div>
                     <Label htmlFor="solve-dialog-input-avg-service-cap" className="text-xs text-muted-foreground">
-                      Avg service distance cap ({distanceUnit ?? "mi"})
+                      Avg service distance cap{distanceUnit ? ` (${distanceUnit})` : ""}
                     </Label>
                     <Input
                       id="solve-dialog-input-avg-service-cap"

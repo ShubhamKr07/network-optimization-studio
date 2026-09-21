@@ -71,7 +71,7 @@ function LegacyBandChipEditor({
   bands,
   onChange,
   disabled,
-  distanceUnit = "mi",
+  distanceUnit,
   testIdPrefix = "",
 }: BandChipEditorProps) {
   const [addingBand, setAddingBand] = useState(false);
@@ -98,7 +98,13 @@ function LegacyBandChipEditor({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <Label className="text-xs font-semibold text-foreground">Distance bands ({distanceUnit})</Label>
+        {/* No `?? "mi"`: an unmigrated caller shows a bare noun rather than a
+            guessed unit. Chen is km-canonical, so guessing renders a CORRECT
+            number under a WRONG unit — the defect this bundle exists to remove.
+            The unit-aware branch always has a real unit; this one may not. */}
+        <Label className="text-xs font-semibold text-foreground">
+          Distance bands{distanceUnit ? ` (${distanceUnit})` : ""}
+        </Label>
         <Button
           type="button"
           size="sm"

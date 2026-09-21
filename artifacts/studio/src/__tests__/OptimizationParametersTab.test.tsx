@@ -42,9 +42,15 @@ describe("OptimizationParametersTab", () => {
   });
 
   // C4.11 — the distance-bands label follows the active model's unit.
-  it("labels distance bands (mi) by default", () => {
+  // chen-bands-units review Minor 2 — this used to assert a guessed "mi"
+  // default. There is no fallback unit anywhere now: an omitted distanceUnit
+  // renders the bare noun, never a unit the caller never supplied. Chen is
+  // km-canonical, so a guess would render a CORRECT number under a WRONG unit.
+  it("labels distance bands with NO unit when none is supplied (never a guessed mi)", () => {
     render(<OptimizationParametersTab {...baseProps} onChange={vi.fn()} />);
-    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
+    expect(screen.getByText("Distance bands")).toBeInTheDocument();
+    expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Distance bands (km)")).not.toBeInTheDocument();
   });
 
   it("labels distance bands (km), never mi, for a Chen scenario (distanceUnit=km)", () => {

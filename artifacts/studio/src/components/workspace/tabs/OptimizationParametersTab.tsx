@@ -150,7 +150,7 @@ export function OptimizationParametersTab({
   singleSource,
   capacityInactive,
   bomRatio,
-  distanceUnit = "mi",
+  distanceUnit,
   canonicalUnit,
   objective,
   highServiceDistKm,

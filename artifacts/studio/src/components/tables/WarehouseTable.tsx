@@ -54,6 +54,13 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
   const lastCommittedRef = useRef<Record<string, string>>({});
 
   function upsert(id: string, patch: Partial<WarehouseOverride>) {
+    // chen-bands-units review Minor 2 — the status toggles route here, so the
+    // read-only-while-browsing-history rule lives at the mutation itself, not
+    // only on each button's `disabled`. Previously a click was a *silent*
+    // no-op: the write was dropped upstream and the button re-read unchanged
+    // state, so nothing moved and nothing explained why — next to a demand
+    // field that does say "Read-only while browsing result history."
+    if (disabled) return;
     const existing = getOverride(id);
     const merged: WarehouseOverride = {
       id,
@@ -139,11 +146,13 @@ export function WarehouseTable({ warehouses, overrides, capacityMode, onChange, 
                         key={s}
                         data-testid={`button-wh-${wh.id}-${s}`}
                         onClick={() => upsert(wh.id, { status: s })}
+                        disabled={disabled}
+                        title={disabled ? "Read-only while browsing result history." : undefined}
                         className={`px-2 py-1 transition-colors whitespace-nowrap ${
                           status === s
                             ? s === "forced_open" ? "bg-primary text-white" : s === "inactive" ? "bg-destructive text-white" : "bg-slate-200 text-foreground"
                             : "bg-white text-muted-foreground hover:bg-muted"
-                        }`}
+                        } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         {warehouseStatusPresentation[s].label}
                       </button>

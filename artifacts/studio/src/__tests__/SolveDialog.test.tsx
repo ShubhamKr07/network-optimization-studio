@@ -55,9 +55,13 @@ describe("SolveDialog — R5 distance-band editor", () => {
     expect(screen.getByTestId("solve-dialog-bands-empty")).toBeInTheDocument();
   });
 
-  it("defaults the label unit to 'mi' when distanceUnit is omitted", () => {
+  // chen-bands-units review Minor 2 — was "defaults the label unit to 'mi'".
+  // That default is gone: no fallback unit anywhere. An omitted distanceUnit
+  // renders the bare noun rather than a unit that was never supplied.
+  it("labels distance bands with NO unit when distanceUnit is omitted", () => {
     renderDialog();
-    expect(screen.getByText("Distance bands (mi)")).toBeInTheDocument();
+    expect(screen.getByText("Distance bands")).toBeInTheDocument();
+    expect(screen.queryByText("Distance bands (mi)")).not.toBeInTheDocument();
   });
 
   it("shows the model's real unit (km) when distanceUnit is provided", () => {
