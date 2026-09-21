@@ -1,8 +1,11 @@
 # Worktree Collision Prevention — Design
 
 **Date:** 2026-09-21
-**Status:** Design; written-spec review completed 2026-09-21 — changes requested (see §13)
+**Revision:** Rev 2 — §13 review findings folded into the normative body; §14 maps each finding to its resolution
+**Status:** Design; awaiting re-review against §13.8's six approval conditions
 **Scope:** Agent-team execution hygiene — worktree isolation, git-op guardrails, worktree lifecycle, gate-run hygiene
+
+Sections 1–12 are the normative design. §13 is the Rev-1 review, retained verbatim as the historical record. §14 is the resolution map. Where §13 and §§1–12 appear to disagree, §§1–12 win: they carry the resolved decisions.
 
 ---
 
@@ -28,7 +31,7 @@ A secondary, noisier failure class is resource contention rather than git state:
 
 ### Current state (measured 2026-09-21)
 
-- `git worktree list` reports **54 worktrees**; 50 live under `.claude/worktrees/`, the rest under `/tmp`. `git worktree list --porcelain` reports **0 prunable** — these are real directories holding real branches, so `git worktree prune` is not the remedy.
+- `git worktree list` reported **54 worktrees** at the start of this design session; 50 under `.claude/worktrees/`, the rest under `/tmp`. `--porcelain` reported **0 prunable**, so `git worktree prune` is not the remedy. A later count during the same session read 41/37 after two `worktree add`/`remove` operations triggered git's lazy pruning of stale administrative entries — and 13 directories also disappeared without this session removing them, most plausibly the harness auto-cleaning unchanged `isolation: "worktree"` agent worktrees. **The cause is unconfirmed.** The reaper must therefore not assume it is the only actor that removes worktrees (§7.2, proof 3 re-checks existence immediately before acting).
 - Worktree-per-agent is already the dominant pattern (Bundles 4, 5, 6, 6.1 and SCN Phase 3.2 all dispatched one isolated worktree per task). Bundle 3 — eight agents in ONE worktree — is the outlier that produced the git-index race.
 - The harness already exposes `Agent(isolation: "worktree")` and `EnterWorktree`, so isolation is available by flag today.
 - `.harness/` is gitignored scratch (`.gitignore:66`), already used for the permission ledger.
@@ -40,54 +43,74 @@ The gap is therefore not knowledge of the rule. Nothing *stops* a shared-worktre
 **Goals**
 
 1. Make one-worktree-per-concurrent-writer the path of least resistance, with tooling that creates and registers worktrees.
-2. Detect every collision-class git operation at the moment it is issued, with enough context to name the owner of the affected path.
-3. Start advisory (warn + log, never block), and promote to hard block only on evidence.
-4. Reclaim worktrees automatically once their work is merged, under proof, without weakening the repo's branch-deletion safety rules.
+2. Detect collision-class git operations **issued as direct Claude `Bash`, `Write`, or `Edit` tool calls**, with enough context to name the owner of the affected path, and record them. This goal is deliberately bounded by §4.2's observation boundary: operations reaching git by any other route are out of enforcement reach and are addressed by dispatch design and documentation, not by detection.
+3. Start advisory (warn + log, never block), and promote to hard block only on evidence that includes deliberate negative probes (§6.3).
+4. Reclaim worktrees automatically once their work has demonstrably landed, under proof, using operations that are safer than the ones the repo's branch-discipline rules currently restrict.
 5. Remove the two known resource-contention noise sources (stray dev servers, concurrent pnpm installs).
 
 **Non-goals**
 
 - No daemon, no lock service, no serialization of agent execution. The guard observes; the dispatch tooling prevents.
 - No change to how tasks are reviewed, cherry-picked, or gated.
-- No automated branch deletion outside the proven, registry-scoped reaper path defined in §7.2.1 (D8).
-- No removal of any worktree that fails proof.
+- No `git branch -D`, automated or otherwise, anywhere in this design (§7.2.1).
+- No removal of any worktree or ref that fails proof.
+- No claim of exhaustive git-operation detection (§4.2, §6.2).
 
 ## 3. Decisions
 
-These were settled during the brainstorm and are normative for the implementation plan.
+Normative for the implementation plan.
 
 | ID | Decision |
 |---|---|
 | D1 | Enforcement is delivered as **guardrails in the harness**, not documentation alone. Convention has already failed twice. |
-| D2 | The guard ships **advisory first** — warn and log, never block — and is promoted to hard block only against ledger evidence. |
-| D3 | Both dispatch mechanisms stay legal: the explicit script for multi-task bundles (named branches, ledger, cherry-pick ordering) and harness-native `isolation: "worktree"` for single throwaway tasks. |
-| D4 | Worktrees are cleaned up after their work merges, by a **controller-run reaper** plus a GC sweep at `/harness-retro`. The agent cannot do this itself — it exits before the controller cherry-picks and re-gates. |
-| D5 | Automated removal requires proof (§7). Anything failing proof is reported, never removed. |
-| D6 | The implementation is a `PreToolUse` Bash/Write/Edit hook backed by a run registry, with a git `pre-commit` backstop. Git-native hooks alone were rejected: git has no `pre-reset` or `pre-checkout` hook, so it is structurally blind to the operation that caused I2. |
-| D7 | Scope includes the 54-worktree backlog triage, gate-run process hygiene, pnpm-store serialization, and the `CLAUDE.md` corrections. |
-| D8 | Automated branch deletion uses `git branch -D` gated on a passing `git merge-base --is-ancestor <branch> main` proof, because `git branch -d` validates against the current worktree's HEAD and therefore refuses every reap while `main` is unchecked-out. Outside that proven, registry-scoped path, `-D` stays forbidden. See §7.2.1. |
+| D2 | The guard ships **advisory first** — warn and log, never block — and is promoted to hard block only against ledger evidence including negative probes. |
+| D3 | Both dispatch mechanisms stay legal: the explicit script for multi-task bundles (named branches, registry, cherry-pick ordering) and harness-native `isolation: "worktree"` for single throwaway tasks. |
+| D4 | Worktrees are cleaned up after their work lands, by a **controller-run reaper** plus a GC sweep at `/harness-retro`. The agent cannot do this itself — it exits before the controller cherry-picks and re-gates. |
+| D5 | Automated removal requires proof (§7.2). Anything failing proof is reported, never removed. |
+| D6 | The implementation is a `PreToolUse` `Bash`/`Write`/`Edit` hook backed by a run registry, with a git `pre-commit` backstop. Git-native hooks alone were rejected: git has no `pre-reset` or `pre-checkout` hook, so it is structurally blind to the operation that caused I2. Its enforceable scope is bounded by §4.2. |
+| D7 | Scope includes the worktree backlog triage, gate-run process hygiene, pnpm-store serialization, and the `CLAUDE.md` corrections. |
+| D8 | **(Rev 2, replaces Rev 1's `-D` rule.)** Integration stays cherry-pick-based. Reap proof is patch-equivalence — zero `+` lines from `git cherry -v <integrationRef> <taskTip> <baseSha>` — and branch deletion uses **compare-and-delete**: `git update-ref -d refs/heads/<branch> <taskTip>`. `git branch -d` is HEAD-relative and refuses every reap while the integration branch is unchecked-out; `git branch -D` discards the safety check entirely. `update-ref -d <ref> <oldvalue>` does neither: it deletes only if the ref still points at the proven tip, closing the time-of-check/time-of-use window in the same operation. |
+| D9 | **The registry has exactly one writer: the dispatch/reaper CLI, run by the controller.** Hooks never mutate it. Everything a hook observes — `adhoc` worktree sightings, session binding, rule firings — is appended to the JSONL ledger instead. This removes the concurrent read-modify-write class by construction rather than mitigating it with locks. |
+| D10 | Ownership identity is **the worktree path**, assigned at dispatch. Session and process identifiers are recorded as observations and may inform warnings, but never establish or transfer ownership. |
+| D11 | Reaping requires an **explicit terminal ownership release** recorded in the registry by the controller. Process-liveness and ledger-quiescence checks are supplementary signals, never the gate. |
 
-## 4. Verified platform contracts
+## 4. Verified platform contracts and the observation boundary
 
-Checked against this machine's runtime before designing, not assumed:
+### 4.1 Verified
 
-- **Hook payload.** `.claude/hooks/permission-ledger.mjs` (already live in this repo, registered in `.claude/settings.json` on `PermissionRequest` and `PostToolUse` with matcher `Bash`) reads a JSON payload from stdin carrying `tool_name`, `cwd`, `session_id`, `tool_use_id`, `permission_mode`, and `tool_input.command`.
-- **Hook output.** Claude Code 2.1.278 supports, on `PreToolUse`: `hookSpecificOutput.additionalContext` ("Context injected back to model"), `hookSpecificOutput.permissionDecision` (`allow` | `deny` | `ask`) with `permissionDecisionReason`, and a top-level `systemMessage` displayed to the user. Advisory mode therefore reaches both the agent and the human without blocking, and promotion to blocking is a change of one emitted field — not a rewrite.
-- **Shared `.git`.** All worktrees of this repo share one `.git` directory, so `core.hooksPath` set once applies to every worktree, including a human's terminal. `core.hooksPath` is currently unset and `.githooks/` does not exist.
-- **Existing hook conventions.** Dependency-free ESM, 2-second stdin timeout, whole body wrapped in `try/catch`, `process.exit(0)` on every path including failure. The new hook follows this exactly.
+Checked against this machine's runtime, not assumed:
+
+- **Hook payload.** `.claude/hooks/permission-ledger.mjs` (live in this repo, registered in `.claude/settings.json` on `PermissionRequest` and `PostToolUse`, matcher `Bash`) reads a JSON payload from stdin carrying `tool_name`, `cwd`, `session_id`, `tool_use_id`, `permission_mode`, `hook_event_name`, and `tool_input.command`. The documented input schema for Claude Code 2.1.278 lists only `session_id`, `tool_name`, `tool_input`, and `tool_response`; the additional fields above are observed in the live hook. **`agent_id` / `agent_type` are not verified present on this runtime and this design does not depend on them** — see D10.
+- **Hook output.** On `PreToolUse`, 2.1.278 supports `hookSpecificOutput.additionalContext` ("Context injected back to model"), `hookSpecificOutput.permissionDecision` (`allow` | `deny` | `ask`) with `permissionDecisionReason`, and top-level `systemMessage` shown to the user. Advisory mode therefore reaches agent and human without blocking, and promotion to blocking changes one emitted field.
+- **Shared git directory.** `git rev-parse --git-common-dir` executed inside a linked worktree returns the primary `/Users/shubhamkr/network-optimization-studio/.git`, while `--git-dir` returns the per-worktree subdirectory. The common dir is therefore the canonical anchor for shared scratch state (§5.1).
+- **Compare-and-delete.** Verified in a throwaway repository: `git update-ref -d refs/heads/feat <wrong-sha>` fails with `cannot lock ref 'refs/heads/feat': is at <actual> but expected <wrong>`, while the same command with the correct tip deletes the ref. This is a true atomic compare-and-delete and is the mechanism D8 relies on.
+- **`core.hooksPath`** is currently unset and `.githooks/` does not exist in this repository.
+
+### 4.2 Observation boundary (normative)
+
+`PreToolUse` observes a Claude tool call. For `Bash` it sees the outer `tool_input.command` string; it is **not** a recursive interceptor of child processes. Therefore:
+
+- A git command executed *inside* a script, a `pnpm` task, or a Node/TypeScript process invoked by a Bash tool call is **not** separately observable. The guard sees `pnpm harness:worktree reap --task T3`, not the `update-ref` the reaper runs internally. No self-exemption mechanism is required or provided.
+- Git reached through an alias, a wrapper script, or a human terminal is outside the hook's reach. The `pre-commit` backstop (§5.5) covers commits from those routes and nothing else, and is itself bypassable with `--no-verify` (§6.1, R7).
+- File writes performed through Bash redirection rather than the `Write`/`Edit` tools are not observed as writes; they are observed only if the surrounding command matches a classified pattern.
+
+This boundary is stated in the dispatch preamble and in `CLAUDE.md` so that no operator believes coverage is total.
 
 ## 5. Components
 
-Three new files plus one config change.
+Three new files plus one installed git config.
 
-### 5.1 Run registry — `.harness/worktrees/registry.json`
+### 5.1 Run registry — single-writer, canonical location
 
-Gitignored scratch, alongside the permission ledger.
+Path: `<git-common-dir>/../.harness/worktrees/registry.json`, resolved by every actor through `git rev-parse --git-common-dir` so that linked worktrees and the primary checkout name the same file. A relative `.harness/...` path is never used for shared state.
 
 ```jsonc
 {
+  "schemaVersion": 1,
   "runId": "bundle7-2026-09-21",
   "primaryCheckout": "/Users/shubhamkr/network-optimization-studio",
+  "integrationRef": "refs/heads/main",
+  "integrationRefResolvedAt": "2026-09-21T10:00:00Z",
   "active": true,
   "entries": [
     {
@@ -95,138 +118,159 @@ Gitignored scratch, alongside the permission ledger.
       "branch": "bundle7-T3-work",
       "worktree": "/Users/shubhamkr/network-optimization-studio/.claude/worktrees/bundle7-T3",
       "agent": "frontend-engineer",
-      "sessionId": "",
+      "baseSha": "7406fb2...",
+      "taskTip": null,
+      "landedShas": [],
       "solePaths": ["artifacts/studio/src/components/workspace/tabs/FlowsTab.tsx"],
+      "locked": true,
       "status": "active"
     }
   ]
 }
 ```
 
-`status` is one of `active`, `adhoc`, `merged`, `reaped`. `sessionId` is bound on the first Bash call observed from that worktree's cwd.
+`status` ∈ `active` | `adhoc` | `released` | `landed` | `reaped`. `baseSha` is the immutable dispatch base. `taskTip` and `landedShas` are recorded by the controller at release and integration time respectively.
 
-The registry is what makes ownership checkable. Without it, a hook can only say "this looks risky." With it, the hook can say *"`openapi.yaml` is T1's sole-writer path; you are T3."* Sole-writer declaration is already proven practice in this repo — the Phase 3.2 and Bundle 2.2 plans assigned exactly one owner per hot file (`templates.ts`, `import.ts`, `routes/scenarios.ts`, `openapi.yaml`) and recorded zero content conflicts on them. The registry moves that from prose in a plan to data a hook can read.
+**Writer discipline (D9).** The CLI is the only writer. Every mutation is a read-modify-write under an advisory lock held by that single process, written through a same-filesystem temporary file plus `rename()`. Concurrent runs are refused: `start` fails if `active` is true for a different `runId`, printing the holder. Hooks open the registry **read-only**.
+
+**Integration ref.** `start --run <id> [--integration <ref>]` resolves and stores `integrationRef` (default `refs/heads/main`) and records `integrationRefResolvedAt`. Waves within a run share it; changing it requires an explicit `start --force` that rewrites the registry and is ledgered.
 
 ### 5.2 Guard hook — `.claude/hooks/worktree-guard.mjs`
 
-Registered on `PreToolUse` with two matchers: `Bash` (git commands) and `Write|Edit` (file writes into a foreign path or the primary checkout).
+Registered on `PreToolUse` with matchers `Bash` and `Write|Edit`. Reads payload → resolves the acting worktree from `cwd` (or `tool_input.file_path`) against `git worktree list --porcelain` → reads the registry → classifies (§6) → appends one ledger line → in advisory mode emits `additionalContext` plus `systemMessage` and exits 0.
 
-Behaviour: read payload → resolve `cwd` (or `tool_input.file_path`) to a worktree via `git worktree list --porcelain` output cached per invocation → load registry → classify against the rule table (§6) → append a ledger record → in advisory mode emit `additionalContext` plus `systemMessage` and exit 0.
+Invariants, matching the existing ledger hook: dependency-free ESM, 2-second stdin timeout, whole body in `try/catch`, exits 0 on every path in advisory mode, emits nothing for unclassified commands, and **never writes the registry**.
 
-Invariants, matching the existing ledger hook: never throws, never hangs (2s stdin timeout), exits 0 on every path in advisory mode, and emits nothing at all for unclassified commands.
+### 5.3 Guard ledger — append-only JSONL
 
-### 5.3 Guard ledger — `.harness/worktrees/guard-ledger.jsonl`
-
-One record per classified operation:
+Path: `<git-common-dir>/../.harness/worktrees/guard-ledger.jsonl`. One line per classified operation or observation:
 
 ```jsonc
-{"at":"...","sessionId":"...","cwd":"...","worktree":"...","taskId":"T3","verb":"reset","rule":"rewrite_op","severity":"high","wouldBlock":true,"override":false,"command":"git reset HEAD~1"}
+{"at":"...","sessionId":"...","toolUseId":"...","cwd":"...","worktree":"...","taskId":"T3","verb":"reset","rule":"rewrite_op","severity":"high","wouldBlock":true,"override":false,"command":"git reset HEAD~1"}
+{"at":"...","event":"adhoc_sighting","worktree":"/private/tmp/x","sessionId":"..."}
 ```
 
-This is the evidence base for promotion (§6.3) and the input to a retro's near-miss count.
+Single-line appends under `PIPE_BUF` are the same atomicity assumption the existing permission ledger already relies on. This file is the evidence base for promotion (§6.3) and the input to a retro's near-miss count.
 
-### 5.4 Harness command — `scripts/src/harness/worktree.ts`
+### 5.4 Harness CLI — `scripts/src/harness/worktree.ts`
 
-Run via a root `pnpm harness:worktree` alias, matching the existing `harness:record` / `harness:permissions` / `harness:report` pattern. Subcommands: `start`, `add`, `reap`, `gc`, `report`.
+Root alias `pnpm harness:worktree`, matching the existing `harness:record` / `harness:permissions` / `harness:report` pattern. Subcommands: `install`, `start`, `add`, `release`, `land`, `reap`, `gc`, `report`.
 
-### 5.5 Git backstop — `.githooks/pre-commit` + `core.hooksPath=.githooks`
+### 5.5 Git backstop — `pre-commit`
 
-Catches commits that never pass through the Bash tool (a human terminal, a script). It does the one check git can perform at commit time: refuse a commit whose staged set contains a path owned by a *different* `active` registry entry. It is blind to `reset`, `checkout`, and `stash` by git's design — that blindness is precisely why the Bash hook is the primary layer (D6).
+`pnpm harness:worktree install` sets `core.hooksPath` to a tracked `.githooks/` directory. The step is **idempotent and non-destructive**: if `core.hooksPath` is already set to something else, it refuses and reports rather than replacing; if it is already correct, it verifies the hook file is present and executable. `start` fails if the backstop is expected but inactive.
+
+The hook resolves registry and ledger paths through `git rev-parse --git-common-dir` (never a relative path) and performs the one check git can make at commit time: refuse a commit whose staged set contains a path owned by a different `active` registry entry. It is blind to `reset`, `checkout`, and `stash` by git's design, and is bypassable with `git commit --no-verify` — both limits are documented rather than papered over.
 
 ## 6. Detection rules
 
 ### 6.1 Rule table
 
-`wouldBlock` marks the rules that will deny once the guard is promoted (§6.3). In advisory mode nothing blocks.
+`wouldBlock` marks rules that deny once promoted (§6.3). In advisory mode nothing blocks.
 
 | # | Rule | Fires when | Severity | wouldBlock |
 |---|---|---|---|---|
-| R1 | `rewrite_op` | `git reset`, `rebase`, `stash*`, `commit --amend`, `checkout <branch>`, `switch`, `checkout --`, `restore`, `clean`, `push --force*`, `branch -D` — in **any** worktree, registry active or not | high | yes |
+| R1 | `rewrite_op` | `git reset`, `rebase`, `stash*`, `commit --amend`, `checkout <branch>`, `switch`, `checkout --`, `restore`, `clean`, `push --force*`, `branch -D`, `update-ref -d` without an expected-oldvalue argument — in **any** worktree, registry active or not | high | yes |
 | R2 | `shared_checkout_write` | cwd is `primaryCheckout` and a run is active, and the command is `git commit` / `add` / `merge` / `cherry-pick`; or a `Write`/`Edit` targets a file under `primaryCheckout` | high | yes |
 | R3 | `foreign_path` | the command or edit touches a path in another active entry's `solePaths`, or cwd is another entry's worktree | high | yes |
 | R4 | `cohabited_commit` | `git commit` in a worktree where a second entry is also `active` — with or without a pathspec | high | yes |
 | R5 | `unregistered_worktree` | cwd is a worktree absent from the registry while a run is active | medium | no |
 | R6 | `chained_suites` | one Bash command chains two or more test-suite invocations (`vitest`, `pytest`, `playwright`) with `&&` | low | no |
+| R7 | `verify_bypass` | `git commit --no-verify` / `-n`, i.e. an explicit request to skip the §5.5 backstop | high | yes |
+| R8 | `unsanctioned_install` | a direct `pnpm install` during an active run that does not hold the §8.3 lock | medium | no |
+| R9 | `opaque_git_context` | a git command whose acting worktree cannot be resolved — `git -C <path>`, a set `GIT_WORK_TREE`/`GIT_DIR`, a shell chain or newline-joined command, or an alias the classifier cannot expand | medium | no |
 
-Never classified, never warned: read-only git (`status`, `log`, `diff`, `show`, `cherry`, `worktree list`), and any operation inside an agent's own registered worktree touching only its own paths. The guard must be invisible on the happy path, or agents will route around it.
+Never classified, never warned: read-only git (`status`, `log`, `diff`, `show`, `cherry`, `worktree list`, `rev-parse`), and any operation inside an agent's own registered worktree touching only its own paths. The guard must be invisible on the happy path, or agents will route around it.
 
 ### 6.2 Rule notes
 
-**R1 is armed unconditionally.** History rewriting was never safe in a shared worktree and is a poor recovery tool even in a private one — I2 destroyed a commit while an agent tried to tidy up after itself. The emitted guidance is *escalate, do not self-recover*: report the bad commit to the controller and stop.
+**R1 is armed unconditionally.** History rewriting was never safe in a shared worktree and is a poor recovery tool even in a private one — I2 destroyed a commit while an agent tried to tidy up after itself. The emitted guidance is *escalate, do not self-recover*. No exemption exists for the reaper: per §4.2 its internal ref deletion is not a separate tool call, and per D8 it uses compare-and-delete rather than `branch -D` in any case.
 
 **R4 does not recommend a pathspec.** Per §1, both commit forms leak. The guidance is "another writer is active in this worktree — stop and escalate," never "use `git commit -- <paths>`."
 
-**R5 does not nag.** Harness-native `isolation: "worktree"` (D3) produces worktrees the registry never saw. The hook auto-registers those as `status: "adhoc"` on first sight and records a medium-severity ledger line. R5 exists to notice drift, not to punish a legitimate shortcut.
+**R5 does not nag.** Harness-native `isolation: "worktree"` (D3) produces worktrees the registry never saw. The hook records an `adhoc_sighting` in the ledger; promotion of that sighting into a registry entry is the CLI's job at the next `start`/`report`, never the hook's (D9).
 
-**Escape hatch, visible by construction.** `WORKTREE_GUARD=off <command>` suppresses the warning and writes an `override: true` ledger record carrying the full command. Escapes stay possible and stay countable; a guard that can be bypassed silently rots.
+**R9 replaces a false claim.** Rev 1 implied exhaustive git-op detection. It is not achievable within §4.2's boundary, so an unresolvable context is classified honestly at medium severity and never silently treated as safe.
+
+**Path matching for `solePaths`** is normative: patterns are repository-relative, matched with POSIX glob semantics (`*` does not cross `/`, `**` does), compared after `realpath` resolution so a symlink cannot smuggle a write outside the owner's tree, and applied to non-existent targets by normalizing the intended path rather than failing. For `git commit`, the inspected set is the staged set; for `git commit -a`, the staged set **union** the modified tracked set; for a pathspec commit, the expansion of that pathspec against the working tree.
+
+**Escape hatch, visible by construction.** `WORKTREE_GUARD=off <command>` suppresses the warning and writes an `override: true` ledger record carrying the full command. Escapes stay possible and stay countable; a guard that can be bypassed silently rots. There is no privileged bypass for any tool or script — an environment value a human can type is not proof of caller identity.
 
 ### 6.3 Promotion from advisory to blocking
 
-Mode lives in `.harness/worktrees/config.json` as `{"mode": "advisory" | "block"}`, read by the hook on every invocation.
+Mode lives in `<git-common-dir>/../.harness/worktrees/config.json` as `{"mode": "advisory" | "block"}`, read by the hook on every invocation.
 
-Promote to `block` when, across **at least two completed bundles**, the guard ledger shows both:
+Promotion requires **all** of:
 
-1. every high-severity firing was a true positive, and
-2. zero high-severity overrides were used.
+1. at least two completed bundles of advisory soak;
+2. a deliberate negative probe executed and ledgered for **every** `wouldBlock` rule (R1, R2, R3, R4, R7) — a rule that has never fired has not been validated, and a silent soak is a vacuous sample;
+3. every high-severity firing in the soak window classified as true positive or explicitly dispositioned;
+4. zero unexplained high-severity overrides.
 
-This is the repo's existing second-occurrence gate logic pointed at the guard itself. On promotion, high-severity hits emit `permissionDecision: "deny"` with the rule's reason; medium and low severity stay advisory permanently.
+On promotion, high-severity hits emit `permissionDecision: "deny"` with the rule's reason; medium and low severity stay advisory permanently.
 
 ## 7. Worktree lifecycle
 
 ### 7.1 Dispatch
 
 ```
-pnpm harness:worktree start --run bundle7
+pnpm harness:worktree install                 # idempotent core.hooksPath + backstop verification
+pnpm harness:worktree start --run bundle7 [--integration refs/heads/main]
 pnpm harness:worktree add --task T3 --agent frontend-engineer --paths <globs>
 ```
 
-`start` writes the registry and sets `active: true`. `add` creates branch `<run>-<task>-work` off the integration branch, adds the worktree under `.claude/worktrees/<run>-<task>`, writes the entry, and prints the prompt preamble to paste into the dispatch. The preamble carries:
+`start` writes the registry, resolves and stores `integrationRef`, and sets `active: true`; it refuses if another run is active. `add` creates branch `<run>-<task>-work` off the integration ref, records `baseSha`, adds the worktree under `.claude/worktrees/<run>-<task>`, applies `git worktree lock` (matching the repo's standing protection rule), writes the entry, and prints the dispatch preamble:
 
 - the agent's worktree path and branch, stated as the only place it may write;
-- the base guard already learned during the JADE bundle — `git merge-base --is-ancestor <target-tip> HEAD` before starting, reporting `BASE_OK` — which exists because two agents there forked off a stale base 61 commits behind merged `main`;
+- the base guard already learned during the JADE bundle — `git merge-base --is-ancestor <integration-tip> HEAD` before starting, reporting `BASE_OK` — which exists because two agents there forked off a stale base 61 commits behind merged `main`;
 - its `solePaths` list;
 - the rewrite ban with *escalate, do not self-recover*;
-- "run your gate one suite per command."
+- the §4.2 boundary, stated plainly: the guard sees direct tool calls only, so the rules are the agent's responsibility, not the hook's guarantee;
+- "run your gate one suite per command", and "install dependencies only via `pnpm harness:worktree install-deps`" (§8.3).
 
-### 7.2 Reaper
+### 7.2 Release, land, reap
 
-`pnpm harness:worktree reap --task T3`, run by the controller immediately after its cherry-pick and re-gate. Removal proceeds only if all five proofs pass:
+Three explicit transitions replace Rev 1's implicit one.
 
-1. `git -C <worktree> status --porcelain` is empty;
-2. `git merge-base --is-ancestor <branch> main` exits 0 — the branch tip is contained in `main`. `git cherry -v main <branch>` is also recorded (any `+` line is unmerged work and fails the proof), but the exit-code check is the gate, because it is unambiguous and cheap;
-3. the path resolves (realpath) inside an allowed root and is not `primaryCheckout`;
-4. no live process has that path as its cwd;
-5. no other `sessionId` wrote to that worktree in the guard ledger within the last 10 minutes.
+1. **`release --task T3 --tip <sha>`** — the controller records that the agent has finished and the branch is frozen at `taskTip`. Status → `released`. This is the ownership-release gate (D11).
+2. **`land --task T3 --commits <sha>...`** — after cherry-picking and re-gating, the controller records the commit SHAs that actually landed on the integration ref. Status → `landed`.
+3. **`reap --task T3`** — removal, only if all five gating proofs pass. A sixth item is recorded as a supplementary signal and never gates:
 
-On success: `git worktree remove <path>`, then branch deletion per D8 below. Never `rm -rf`. Any proof failure prints the failing check and removes nothing.
+   1. the entry's status is `landed` (explicit release and integration both recorded);
+   2. `git cherry -v <integrationRef> <taskTip> <baseSha>` emits **zero `+` lines** — every commit the task introduced after its base has a patch-equivalent on the integration ref. This is the cherry-pick-correct proof; `--is-ancestor` is *not* used, because a cherry-pick necessarily produces different SHAs and ancestry never holds;
+   3. the branch ref still resolves to exactly the recorded `taskTip`, and the worktree path still exists (§1 notes another actor may already have removed it);
+   4. `git -C <worktree> status --porcelain` is empty;
+   5. the path resolves (realpath) inside an allowed root and is not `primaryCheckout`;
+   *(supplementary, recorded but never gating)* no live process has that path as its cwd, and no other `sessionId` appears in the ledger for that worktree within 10 minutes. Per D11 these inform the printed report; they cannot block or authorize a reap.
 
-### 7.2.1 Branch deletion — why `-d` alone cannot be the rule (D8)
+   On success, in order: `git worktree unlock <path>` → `git worktree remove <path>` → `git update-ref -d refs/heads/<branch> <taskTip>`. Never `rm -rf`. Any proof failure prints the failing check and removes nothing.
 
-Found by dogfooding this design's own reaper on the worktree that produced this spec: `git branch -d` validates merged-ness against **the current worktree's HEAD**, not against `main`. With the branch fully contained in `main` and proof 2 passing, `-d` still refused:
+### 7.2.1 Branch deletion — why neither `-d` nor `-D` is used (D8)
+
+Found by dogfooding Rev 1's reaper: `git branch -d` validates merged-ness against **the current worktree's HEAD**, not against the integration branch. With the branch fully contained in `main` and the integration proof passing, `-d` still refused:
 
 ```
 error: the branch 'worktree-collision-prevention' is not fully merged
 ```
 
-because the primary checkout's HEAD was an unrelated branch. Since `main` is normally not checked out in any worktree in this repo, a `-d`-only rule would fail on *every* reap — a permanently deadlocked cleanup path that guarantees the 54-worktree backlog recurs.
+because the acting checkout's HEAD was an unrelated branch. Since the integration branch is normally not checked out in any worktree here, a `-d`-only rule fails on *every* reap. Rev 1's response — escalate to `-D` — was wrong for a different reason: it discards git's check without replacing it, and it opens a time-of-check/time-of-use window between proving the tip and deleting the ref.
 
-**D8 — resolution.** The reaper deletes with `git branch -D <branch>`, permitted **only** when proof 2 (`git merge-base --is-ancestor <branch> main`) has passed in the same invocation and the branch is registry-scoped. `--is-ancestor` is a strictly stronger containment check than `-d` performs, so this is not a weakening of the safety rule — it replaces a HEAD-relative heuristic with an explicit `main`-relative proof. Every automated deletion writes a ledger record carrying the branch, its tip SHA, and the passing proof output.
+Rev 1's dogfood also could not have caught this, because that integration was a fast-forward `git push . <branch>:main` — the one shape where ancestry holds. The repo's real workflow is cherry-pick, where it never does.
 
-`git branch -D` remains **forbidden** outside this path: any branch that is not registry-scoped, or whose `--is-ancestor` proof fails, is reported and left for a human under the existing second-approval rule. `CLAUDE.md`'s branch-discipline amendment (§9, item 3) states this exception explicitly rather than leaving the two rules in silent conflict.
-
-R1 lists `branch -D` as a high-severity rewrite op, so the reaper's own deletion would self-trip the guard. The reaper therefore sets `WORKTREE_GUARD=reaper` on that one invocation; the hook classifies it as `reaper_delete` — ledgered with the proof, never warned, never blocked. This is a *narrow* exemption keyed to the script, not a general escape: a hand-typed `git branch -D` still fires R1.
+**Resolution.** Deletion is `git update-ref -d refs/heads/<branch> <taskTip>`, verified on this machine to delete only when the ref still points at the expected SHA and to fail loudly otherwise. It is strictly safer than `-D` (which checks nothing) and strictly more applicable than `-d` (which checks the wrong base), and it closes the TOCTOU window in the same operation. `git branch -D` appears nowhere in this design, so `CLAUDE.md`'s existing second-approval rule for it needs no exception.
 
 ### 7.3 GC sweep
 
-`pnpm harness:worktree gc` applies the same five proofs to every registry entry and every path in `git worktree list`. **Dry-run by default**; `--apply` removes only proof-passing entries. Wired into `/harness-retro` as the straggler sweep, so a bundle that forgets a `reap` self-corrects at retro time.
+`pnpm harness:worktree gc` applies the §7.2 proofs to registry entries. **Dry-run by default.** `--apply` is **registry-scoped**: it may remove only entries whose status is `landed` and whose proofs pass. Unregistered worktrees and `adhoc` sightings are *reported only* and never removed automatically, since nothing establishes what work they hold. Wired into `/harness-retro` as the straggler sweep.
 
-### 7.4 Backlog triage of the existing 54
+### 7.4 Backlog triage of existing worktrees
 
-`pnpm harness:worktree report` classifies every existing worktree into four buckets and writes `.harness/worktrees/report-<date>.md`:
+`pnpm harness:worktree report` classifies every existing worktree and writes `.harness/worktrees/report-<date>.md`:
 
-- **reapable** — all five proofs pass;
-- **unmerged with unique commits** — lists the commits (`git cherry -v main <branch>`) so a human can decide;
-- **dirty working tree** — lists the modified files;
+- **reapable** — registry-scoped, `landed`, all proofs pass;
+- **patch-equivalent but unregistered** — `git cherry` shows no `+` lines against the integration ref, but no registry entry exists; listed for human decision, never auto-removed;
+- **unmerged with unique commits** — lists the `+` commits;
+- **dirty working tree** — lists modified files;
 - **broken** — missing branch, missing directory, or unreadable.
 
 The report removes nothing. It lives in `.harness/` rather than `docs/superpowers/metrics/`: the metrics store is a six-CSV append-only ledger with a documented contract, and a one-off triage artifact does not warrant a seventh CSV.
@@ -235,56 +279,69 @@ The report removes nothing. It lives in `.harness/` rather than `docs/superpower
 
 ### 8.1 Foreign processes
 
-`pnpm harness:gate` preflights by listing `vite`, `vitest`, `playwright`, and `pnpm dev` processes whose cwd resolves under any repo worktree and which do not belong to the current session. Default behaviour is **warn and abort, not kill** — auto-killing would terminate a teammate's live Playwright run and become its own collision class. `--force` kills the listed processes after printing them.
+`pnpm harness:gate` preflights by listing `vite`, `vitest`, `playwright`, and `pnpm dev` processes whose cwd resolves under any repo worktree. **A process cwd does not establish session ownership**, so the default is *abort and report*, never kill. Processes started through the harness record `{pid, startTime, worktree, sessionId}` in the ledger; attribution is claimed only for those, and PID reuse is guarded by comparing recorded process start time.
+
+`--force` is a human-approval boundary, not an agent convenience: it terminates the listed processes with `TERM`, waits a bounded interval, and escalates to `KILL` only for processes that recorded attribution. Unattributed processes are never killed.
 
 This targets the flake class already documented in `CLAUDE.md`: `resultEnvelope.test.ts` and `cors` failures under CPU contention, twice root-caused to orphaned dev servers rather than code.
 
 ### 8.2 One suite per command
 
-The gate runs each suite as its own invocation rather than chaining them with `&&`, so a failure is attributable to a suite and a flake is attributable to a run. R6 flags chained invocations advisorily.
+The gate runs each suite as its own invocation rather than chaining them with `&&`, so a failure is attributable to a suite and a flake to a run. R6 flags chained invocations advisorily.
 
 ### 8.3 pnpm store serialization
 
-A mutex wrapper serializes `pnpm install` across worktrees using a `mkdir`-based lock at `.harness/locks/pnpm-install.lock` (portable on macOS, which lacks `flock`). The gate preflight refuses to trust a red result while the lock is held. This targets the Bundle 4 incident where four agents' concurrent installs churned the shared store mid-test and produced transient unresolvable-import failures across 11 test files.
+Installs run through `pnpm harness:worktree install-deps`, which acquires a lock at `<git-common-dir>/../.harness/locks/pnpm-install.lock` (a `mkdir`-based lock, portable on macOS, which lacks `flock`) and holds it for the install's full duration. The lock directory contains `{pid, processStartTime, owner, worktree, acquiredAt}`; a lock whose PID is dead **or** whose recorded start time no longer matches that PID is recoverable, and recovery is ledgered.
+
+The gate **acquires the same lock for its own duration** rather than checking once, which is what closes the race in which an install starts immediately after a preflight check. A direct `pnpm install` during an active run bypasses this and is classified as R8 — advisory, because a blanket block on `pnpm install` would be more disruptive than the failure it prevents, and because the gate's own lock already protects the result being trusted.
+
+This targets the Bundle 4 incident where four agents' concurrent installs churned the shared store mid-test and produced transient unresolvable-import failures across 11 test files.
 
 ## 9. Documentation changes
 
-Three edits to `CLAUDE.md`:
+Three edits to `CLAUDE.md`, **all landed in P1** (§11) — known-unsafe guidance must not stay authoritative through an advisory soak:
 
 1. **Replace the incorrect lesson at line 292.** The current text instructs agents in a shared worktree to commit with an explicit pathspec. Replacement states that no commit form is safe alongside another writer, and that the rule is one worktree per concurrent writer.
 2. **Add to Hard rules:** one worktree per concurrent writer; the controller is a writer too — "sequential dispatch" does not exempt the controller from the rule while an agent is running.
-3. **Amend Branch discipline** to permit proof-gated automated removal for registry-scoped worktrees (§7.2), and to state the D8 exception explicitly: `git branch -D` is permitted by the reaper only after a passing `git merge-base --is-ancestor <branch> main` proof on a registry-scoped branch. Every other branch deletion — and every worktree removal that fails proof — remains human-approved under the existing second-approval rule. Without this amendment the two rules sit in silent conflict and the cleanup path deadlocks.
+3. **Amend Branch discipline** to record the proof-gated automated path: registry-scoped worktrees may be removed automatically when the §7.2 proofs pass, and task branch refs are deleted with compare-and-delete against the proven tip. `git branch -D` remains forbidden without second approval, unchanged — this design does not use it. Also state the §4.2 observation boundary so no one reads the guard as total coverage.
 
 ## 10. Testing
 
 | Layer | What |
 |---|---|
-| Classifier | Pure-function tests in the `scripts` package: command string + registry state → `{rule, severity, wouldBlock}`, covering each rule and the read-only allowlist. |
-| Hook | Smoke tests piping real payload JSON to `worktree-guard.mjs`, asserting exit 0, the expected `additionalContext`, and a well-formed ledger line; plus malformed-payload and missing-registry cases asserting exit 0 with no output. |
-| Reaper | Temp-repo tests exercising each of the five proofs' failure branches independently, asserting nothing is removed and the failing check is named. |
-| Negative | A deliberate reproduction: bare `git commit` in the primary checkout with a run active must fire R2 and R4. |
-| Backstop | `pre-commit` test: staged path owned by another active entry is refused; own path is allowed. |
+| Classifier | Pure-function tests: `(command, registry state, cwd)` → `{rule, severity, wouldBlock}`, covering every rule, the read-only allowlist, `solePaths` glob/realpath/non-existent-target semantics, `commit` vs `commit -a` vs pathspec set selection, and R9's unresolvable contexts (`git -C`, `GIT_WORK_TREE`, chains, aliases). |
+| Registry | Single-writer concurrency tests: two CLI invocations racing a mutation lose nothing; an interrupted write leaves the previous file intact (temp + rename); `start` refuses a second active run; hooks opening the registry never mutate it. |
+| Hook | Smoke tests piping real payload JSON, asserting exit 0, expected `additionalContext`, and a well-formed ledger line; malformed-payload, missing-registry, and unreadable-registry cases assert exit 0 with no output and no mutation. |
+| Reaper | Temp-repo matrix: **a cherry-pick that deliberately produces a different SHA from the task commit must reap successfully**; each of the five gating proofs fails independently and removes nothing; an idle-but-unreleased owner blocks reaping; a branch ref advanced between proof and deletion causes `update-ref -d` to fail and the worktree to survive; an already-removed worktree directory is handled without error. |
+| Backstop | `pre-commit` refuses a staged path owned by another active entry and allows the owner's own path; `install` refuses to overwrite a pre-existing different `core.hooksPath`; `start` fails when the backstop is inactive; `--no-verify` is classified as R7. |
+| Negative probes | One deliberate reproduction per `wouldBlock` rule, retained as the promotion evidence required by §6.3 — including a bare `git commit` in `primaryCheckout` with a run active. |
+| Gate hygiene | Stale-lock recovery (dead PID, and live PID with mismatched start time); gate holding the lock for its duration; unattributed process never killed under `--force`. |
 
 ## 11. Phasing
 
 | Phase | Contents |
 |---|---|
-| P1 | Registry, guard hook in advisory mode, `start` / `add` dispatch script, classifier tests. |
-| P2 | `reap`, `gc`, `report`; backlog triage run against the existing 54. |
-| P3 | Gate hygiene wrapper and pnpm-store lock. |
-| P4 | `CLAUDE.md` corrections; promotion review against the ledger after two bundles. |
+| P1 | `CLAUDE.md` corrections (§9, all three); registry + single-writer CLI (`install`, `start`, `add`); guard hook in advisory mode; classifier and registry tests. |
+| P2 | `release` / `land` / `reap` / `gc` / `report`; backstop install; backlog triage run. |
+| P3 | Gate hygiene wrapper, `install-deps` lock, process attribution. |
+| P4 | Negative probes executed and ledgered; promotion review against §6.3. |
 
 ## 12. Acceptance criteria
 
-1. Dispatching a bundle task through `pnpm harness:worktree add` produces a registered worktree, a named branch, and a prompt preamble, with no manual `git worktree add`.
-2. `git reset HEAD~1` issued in any worktree produces a guard warning naming the rule and instructing escalation, and a ledger record — without blocking, in advisory mode.
-3. A bare `git commit` in the primary checkout while a run is active fires R2 and R4 and names the conflicting owner.
-4. `reap` removes a merged task's worktree and branch when all five proofs pass — including the D8 branch-deletion path exercised against a branch whose commits are in `main` while `main` is not checked out anywhere — and removes nothing while any proof fails, naming the failing check.
-5. `report` classifies all existing worktrees into the four buckets without removing anything.
-6. A gate run warns about foreign dev-server processes before executing suites, and refuses to report a red result while the pnpm install lock is held.
-7. `CLAUDE.md:292`'s pathspec guidance is gone, replaced per §9.
+1. Dispatching a bundle task through `pnpm harness:worktree add` produces a locked, registered worktree, a named branch, a recorded `baseSha`, and a dispatch preamble — with no manual `git worktree add`.
+2. `git reset HEAD~1` issued in any worktree produces a guard warning naming R1 and instructing escalation, plus a ledger record — without blocking, in advisory mode.
+3. A bare `git commit` in `primaryCheckout` while a run is active fires **R2**. It fires R4 **additionally** only in the registry state where a second entry is `active` in that same worktree; both cases are asserted separately.
+4. `reap` removes a task's worktree and branch after `release` + `land`, where the landed commit SHA **differs** from the task commit SHA (the normal cherry-pick case), and removes nothing when any of the five gating proofs fails, naming the failing check.
+5. `report` classifies all existing worktrees into the five buckets without removing anything; `gc --apply` removes only registry-scoped `landed` entries.
+6. A gate run reports foreign dev-server processes and aborts by default, and holds the install lock for its full duration.
+7. `CLAUDE.md:292`'s pathspec guidance is gone in P1, replaced per §9.
+8. The §4.2 observation boundary is stated in the dispatch preamble and `CLAUDE.md`, and no rule or document claims exhaustive git-operation detection.
+
+---
 
 ## 13. Written-spec review (Codex, 2026-09-21)
+
+*Retained verbatim as the Rev-1 review record. Resolutions are folded into §§1–12; see §14 for the mapping.*
 
 **Decision: changes requested; not approved for implementation yet.** The root-cause analysis and one-worktree-per-concurrent-writer direction are sound. The advisory-first rollout is also appropriate. The following correctness gaps must be resolved in the design before implementation.
 
@@ -351,3 +408,22 @@ This design is ready for re-review when:
 4. reaping requires explicit ownership release and atomic expected-tip deletion;
 5. the Git-hook installation, pnpm lock, process attribution, R2/R4 expectation, GC scope, and promotion criteria above are specified; and
 6. the unsafe `CLAUDE.md` guidance is corrected in P1.
+
+---
+
+## 14. Review resolution (Rev 2, 2026-09-21)
+
+Every §13 finding is accepted on substance. Two are resolved by a mechanism stronger than the one proposed; one sub-recommendation is rejected as unverifiable on this runtime and replaced. Nothing is deferred.
+
+| Finding | Resolution | Where |
+|---|---|---|
+| 13.1 cherry-pick vs ancestry | Accepted, option 2. Proof is zero `+` from `git cherry -v <integrationRef> <taskTip> <baseSha>`; `baseSha`/`taskTip`/`integrationRef`/`landedShas` are registry fields; deletion is compare-and-delete. Rev 1's dogfood is explained: it integrated by fast-forward, the only shape where ancestry holds. | D8, §5.1, §7.2, §7.2.1, §10 (different-SHA cherry-pick test), §12.4 |
+| 13.2 registry concurrency | Accepted, resolved more strongly: the registry has **one writer** (the CLI); hooks are read-only and append observations to the JSONL ledger instead, removing the read-modify-write race by construction. Canonical path via `git rev-parse --git-common-dir` (verified). Temp-file + rename, single active run enforced. | D9, §5.1, §5.3, §10 (registry tests) |
+| 13.2 sub-point: use `agent_id`/`agent_type` | **Rejected as unverifiable.** Those fields are not confirmed present on 2.1.278; the documented input schema lists only `session_id`, `tool_name`, `tool_input`, `tool_response`. Ownership is instead keyed on **worktree path**, assigned at dispatch; session identifiers are observations only. | D10, §4.1 |
+| 13.3 observation boundary | Accepted. Goal 2 and D6 narrowed to direct `Bash`/`Write`/`Edit` calls; the boundary is written out and repeated in the dispatch preamble and `CLAUDE.md`. `WORKTREE_GUARD=reaper` removed — it was unnecessary, and moot once `branch -D` left the design. | Goal 2, D6, §4.2, §6.2, §7.1, §9.3 |
+| 13.4 ownership release | Accepted. Explicit `release` → `land` → `reap` transitions; process and ledger checks demoted to supplementary; worktrees locked at dispatch and unlocked immediately before removal; TOCTOU closed by compare-and-delete. | D11, §7.1, §7.2, §10 (idle-owner and advanced-ref tests) |
+| 13.5 guard/backstop | Accepted, all five. Idempotent non-destructive `install`; R7 classifies `--no-verify` with the residual limit stated; canonical paths from `--git-common-dir`; full `solePaths` matching semantics; R9 replaces the exhaustiveness claim. | §5.5, §6.1 (R7, R9), §6.2, §10 |
+| 13.6 lifecycle/acceptance | Accepted, all five. Criterion 3 split into R2-only and R2+R4 cases; `baseSha`/`integrationRef` stored; `gc --apply` registry-scoped; `CLAUDE.md` moved to P1; promotion requires negative probes per blocking rule. | §5.1, §6.3, §7.3, §9, §11, §12.3 |
+| 13.7 gate hygiene | Accepted. Installs go through a lock the gate also holds for its full duration; stale-lock recovery keyed on PID **and** process start time; direct installs classified R8; process attribution registered at spawn, abort-and-report by default, `--force` a human boundary that never kills unattributed processes. | §8.1, §8.3, §6.1 (R8), §10 |
+
+**§13.8 conditions:** 1 → D8/§7.2/§10; 2 → D9/D10/§5.1; 3 → §4.2; 4 → D11/§7.2; 5 → §5.5/§8.3/§8.1/§12.3/§7.3/§6.3; 6 → §9/§11.
