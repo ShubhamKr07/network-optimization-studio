@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import type { SolveResult } from "@workspace/api-client-react";
 import { ObjectiveBar } from "@/components/ObjectiveBar";
 // Vite raw-import (not fs.readFileSync) — reading via node:fs + import.meta.url
@@ -7,6 +8,14 @@ import { ObjectiveBar } from "@/components/ObjectiveBar";
 // resolve to a file:// URL there); a `?raw` import is handled by Vite's own
 // transform instead, so it works under both jsdom and node.
 import objectiveBarSource from "@/components/ObjectiveBar?raw";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// ObjectiveBar now calls useDisplayUnit() unconditionally — every render
+// needs a UnitProvider ancestor. Shadowing `render` keeps every existing
+// call site byte-identical, same pattern as AppShell.test.tsx's renderShell.
+function render(ui: ReactElement) {
+  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+}
 
 const optimalResult: SolveResult = {
   status: "optimal",
@@ -123,11 +132,23 @@ describe("ObjectiveBar — solve stats", () => {
   });
 
   it("shows objective, avg distance, and run time when a result is present", () => {
-    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="p-median-us" />);
+    // chen-bands-units, Part D — a real caller always resolves the canonical
+    // unit before rendering; explicit here so this test keeps asserting a
+    // rendered avg-distance value under the new no-fallback contract.
+    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="p-median-us" distanceUnit="mi" />);
     expect(screen.getByText(/objective 1,000,000/)).toBeInTheDocument();
     expect(screen.getByText(/avg distance 340 mi/)).toBeInTheDocument();
     expect(screen.getByText(/run 0\.50s/)).toBeInTheDocument();
     expect(screen.queryByText("Not yet solved")).not.toBeInTheDocument();
+  });
+
+  // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
+  // passed means the canonical unit is unresolved — the avg-distance stat
+  // must show a loading placeholder, never a guessed "mi".
+  it("shows an avg-distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
+    render(<ObjectiveBar result={optimalResult} scenarioId={5} modelId="p-median-us" />);
+    expect(screen.queryByText(/avg distance 340 mi/)).not.toBeInTheDocument();
+    expect(screen.getByText(/avg distance —/)).toBeInTheDocument();
   });
 
   // C4.11 — the avg-distance stat follows the active model's unit.
@@ -168,13 +189,20 @@ describe("ObjectiveBar — solve stats", () => {
     expect(screen.getByText(/objective 66\.67 %/)).toBeInTheDocument();
   });
 
+  // chen-bands-units, Part D decision 6 — with BOTH modelId and the
+  // canonical unit resolved, this call site now routes through the shared
+  // `formatObjective` (six-model contract) instead of `formatChenObjective`,
+  // which locale-formats the converted value rather than using
+  // `.toExponential(2)` — an intentional format change from "1.32e+8" to
+  // "131,645,389", since every other objective-displaying surface
+  // (CostSummaryTab, Landing) shares this exact same formatter.
   it("renders a Chen min-distance objective as demand-km", () => {
     const minDist: SolveResult = {
       ...optimalResult, objective: 131645389,
       details: { objective: "min_distance" },
     };
     render(<ObjectiveBar result={minDist} scenarioId={41} modelId="chens-cosmetics-cn" distanceUnit="km" />);
-    expect(screen.getByText(/objective 1\.32e\+8 demand-km/)).toBeInTheDocument();
+    expect(screen.getByText(/objective 131,645,389 demand-km/)).toBeInTheDocument();
   });
 
   it("keeps the plain integer objective for a non-Chen model (no details.objective)", () => {
