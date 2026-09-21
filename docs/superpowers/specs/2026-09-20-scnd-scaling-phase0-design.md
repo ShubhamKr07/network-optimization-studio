@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §30 findings resolved (Q58–Q64 answered 2026-09-22, see §31). P0R.1 HOLD.** §28 received the §29 response, but the deep re-review found unresolved authority, schema/persistence, failure, limit, protocol, and rollout contradictions. **P0R.1 remains on HOLD / not authorized to start**; P0R.2 attainable-CBC fixture capture retains evidence-only approval; P0R.3/P0R.4 require P0R.1 evidence, a post-spike design update, and another approval review. §§0–12 are the original audit trail; §13 is the split map; §14–§30 record successive reviews/resolutions, with §30 controlling. **DEC-2026-09-21-01 remains authorized only for its narrow evidence-driven status/termination assertion correction** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19); it authorizes no solver behavioral change. Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §32 scoped findings resolved (Q65–Q72 answered 2026-09-22, see §33). P0R.1 HOLD.** §31 answered Q58–Q64, but the scoped re-review found that several decisions were not propagated into the normative schemas, lifecycle, persistence, task list, and rollout contract. **P0R.1 remains on HOLD / not authorized to start**; P0R.2 attainable-CBC fixture capture retains evidence-only approval; P0R.3/P0R.4 require P0R.1 evidence, a post-spike design update, and another approval review. §§0–12 are the original audit trail; §13 is the split map; §14–§32 record successive reviews/resolutions, with §32 controlling only its declared scope. **DEC-2026-09-21-01 remains authorized only for its narrow evidence-driven status/termination assertion correction** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19); it authorizes no solver behavioral change. Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -1955,3 +1955,187 @@ Until then, §29's statement that §28 is fully resolved is historical rather th
 | **Q64** bounded diagnostics | fd3 exact bytes (one newline-terminated JSON, 1,048,576-byte cap, incremental abort, extra-line/EOF/partial → internal_error, **close-on-exec** so CBC can't inherit); bounded stdout/stderr capture; Sentry = operator allowlist, distinct from public-leakage tests. | Successor §2.11. |
 
 §30 fully resolved. **P0R.1 remains on HOLD** — a new explicit approval lifts it once the post-spike design update closes Q35/Q41. The correctness successor and this ledger now carry one controlling state (HOLD).
+
+---
+
+## 32. Scoped deep approval review after §31 (2026-09-22)
+
+### 32.1 Scope and decision
+
+Per product-owner direction, this review **excludes** and makes **no new finding or approval decision** about:
+
+- Measurement/B2 scaling and cost;
+- the P0R.1 evidence spike; and
+- P0R.2 parser tests.
+
+Existing recorded states for those excluded scopes are unchanged by §32. This review covers the remaining correctness-contract surface, especially the v2 result schemas, failure/public-error contract, database persistence, staged rollout, P0R.3 work package, and normative provenance.
+
+**Decision for the included scope: REQUEST CHANGES / NOT APPROVED.** The §31 response makes good decisions, but several are present only in the new paragraphs and not propagated through the canonical schema definitions, lifecycle table, work package, or rollout acceptance. An implementer following the normative task list can still build a contract that violates Q59–Q64.
+
+| Included scope | Approval decision | Reason |
+|---|---|---|
+| Ledger as resolved/authoritative for the included correctness scope | **NOT APPROVED** | §31 claims full resolution while the successor retains contradictory normative clauses. |
+| P0R.2 fixture capture only | **APPROVED, EVIDENCE-ONLY** | This is fixture capture only; parser-test approval is explicitly outside §32. |
+| P0R.3 contract/schema/API/frontend/rollout work | **NOT APPROVED** | Schema topology, failure mapping, safe transition, rollout, and task ownership remain incomplete or contradictory. |
+| P0R.4 sacred-test correction/integration work | **NOT APPROVED FOR EXECUTION** | DEC-2026-09-21-01 remains valid, but the dependent public contract and integration work are not approved. |
+| DEC-2026-09-21-01 authorization artifact | **VALIDATED FOR ITS NARROW SCOPE** | GitHub issue #19 still contains the exact evidence-driven status/termination authorization with zero golden-objective changes. |
+
+### 32.2 Blocking findings
+
+#### 32.2.1 HIGH — Q59's distinct cacheable and published schemas were not propagated into §2.6
+
+Successor §2.12 correctly decides that request-specific values live on the job, effective values live in the cacheable solver result, and a distinct published/stored scenario result is composed for the current job. But canonical §2.6 still defines only three schemas and contradicts that decision:
+
+- `SolverEnvelopeV2Schema` is described as raw `solve.py` **stdout** and every new cache write, although the structured process message moved to fd3;
+- one `StoredResultSchema` covers both `scenarios.result` and `result_cache`, even though those stores now intentionally have different fields;
+- `NormalizedSolveResultSchema` describes v2 as "as-is," with no named request-specific published schema; and
+- §2.7 requires a complete v2 field set including requested values that the raw/cacheable solver envelope deliberately does not contain.
+
+The schema topology needs at least these distinct conceptual types (a type alias is acceptable where two are byte-identical):
+
+1. `SolverSuccessEnvelopeV2Schema` — success/math outcomes received on fd3; configured/effective values only;
+2. `ResultCacheEntryV2Schema` — the exact cache value, normally the same shape as the solver success envelope;
+3. `PublishedSolveResultV2Schema` — cacheable result plus the current job's requested values/sources and public-read markers;
+4. `StoredScenarioResultSchema` — published v2 or the known raw unversioned legacy shape; and
+5. `NormalizedSolveResultSchema` — published v2 or normalized legacy-v1 for API/UI reads.
+
+**Required correction:** rewrite §2.6/§2.7, the OpenAPI ownership, `StoredResultSchema` call sites, P0R.3 T-api/T-zod/T-runner/T-limits, and the summary so `result_cache` and `scenarios.result` cannot be implemented with one incompatible v2 shape. Define the exact fresh-solve and cache-hit composition function and assert that only the published shape reaches `scenarios.result` or public APIs.
+
+#### 32.2.2 HIGH — Q60's removal of error envelopes is contradicted by remaining normative clauses
+
+The successor's canonical outcome enum and invariant matrix now correctly remove `error`, but three implementation-driving clauses still retain it:
+
+- §2.3 projects `error→"error"` as a v2 status;
+- §2.8 contains an `error→failed/no cache/no publish` envelope branch; and
+- the current task list does not explicitly migrate every `_load_error_envelope` / `_envelope("error", …)` exit in `solve.py` to the sole private failure branch.
+
+Historical stored rows may still have raw `status:"error"`; that belongs only in the legacy stored schema and `legacyStatus`, not any v2 projection or lifecycle.
+
+**Required correction:** remove `error` from every v2 projection and envelope lifecycle. Replace the §2.8 branch with a separate failure-message lifecycle (`failure → failed job / no cache / no scenario publish`). Make T-solve/T-msg enumerate and migrate every current Python error-envelope return. Add a negative schema test proving that no execution failure can validate as a solver, cacheable, stored-v2, normalized-v2, or published result.
+
+#### 32.2.3 HIGH — the "exhaustive" failure taxonomy and mapping are not exhaustive or truthful
+
+Successor §2.11 retains the old four-value `failureReason` block immediately before the new six-value block, leaving two competing enums. The new `failureStage` enum cannot represent protocol, schema-validation, nonzero-exit, cleanup, cancellation, or restart-reaper stages even though those paths are later claimed to be exhaustively mapped.
+
+The public mapping also classifies `interrupted`/cancel/kill as `TIMEOUT` with the safe message `"Solve timed out"`. Cancellation, deploy interruption, server restart, or an external kill did not necessarily time out, so that public statement is not truthful. The table also does not explicitly name the spawn-error/reaper paths or define precedence when a process produces a message and then exits nonzero, times out while a late message arrives, or solves successfully but cleanup fails.
+
+**Required correction:**
+
+- delete the duplicate old taxonomy;
+- define one exhaustive internal Node/Python failure class and stage table, including spawn, protocol, validate, exit, timeout, cancel/interrupted, cleanup, and restart recovery;
+- map interruption to a truthful public code/message (a distinct `INTERRUPTED`/`CANCELLED`, or `SOLVE_FAILED` + `"Solve interrupted"`), not `TIMEOUT`;
+- define once-only precedence for message/exit/timeout/cleanup races; and
+- state the complete async `errorCode` enum after removing `INPUT_INVALID`.
+
+#### 32.2.4 HIGH — the database contract and P0R.3 schema-push task omit required fields and legacy behavior
+
+Q59/Q61 now require requested-limit values/sources plus `failure_reason`, `failure_stage`, `error_detail`, and `error_code`. P0R.3 T-db still adds only `failure_reason`/`error_detail`; T-limits says merely "requested on job record" and still tests an omitted-field source even though Q62 keeps both fields required.
+
+The design also does not give the exact PostgreSQL/Drizzle types, nullability, constraints, or historical-row behavior. Historical jobs cannot be truthfully backfilled with requested limits from the scenario's current inputs because those inputs may have changed after the job ran. Those columns therefore need an explicit nullable-forever legacy policy or another evidence-backed backfill source.
+
+**Required correction:** enumerate every column in one schema-push task with exact SQL/Drizzle type and nullability. New enqueues must write requested values/sources atomically; historical unknown values remain null unless a reliable immutable source exists. Define whether `failure_reason`, `failure_stage`, and `error_code` are checked enums/varchars and how safe messages are deterministically derived. Update route/history tests and rule-#3 rollout acceptance accordingly.
+
+#### 32.2.5 HIGH — the additive `SolveJob.error` transition can expose existing raw diagnostics
+
+R2 keeps `errorCode` alongside legacy `error` for a compatibility window. Today `markFailed` persists raw spawn errors, stderr fragments, stdout parse context, and schema messages in `solve_jobs.error`, and job polling returns that column directly. Returning the old column during the compatibility window violates the new negative-leakage guarantee.
+
+**Required correction:** during the additive window, public `error` must be a **derived fixed safe message** for the mapped `errorCode`, never the stored legacy diagnostic. Define treatment of historical failed rows: derive a conservative `SOLVE_FAILED` + safe message at read time or perform a reviewed redaction/backfill. Keep the raw legacy column internal and remove it only under the cleanup step. Add tests using historical rows containing paths, stdout/stderr, payload fragments, and secret-like strings.
+
+#### 32.2.6 HIGH — Q63 remains a rollout checklist, and legacy-reader cleanup is impossible as written
+
+Successor §2.13 still ends with `Specify:` and leaves the drain-proof source, compatibility-window duration/exit criteria, exact API/static-site ordering, and existing-v2-row rollback behavior unresolved. It names `v2_write` and its owner/default, then redundantly asks the implementation to specify the flag name/owner/default.
+
+R1 says public responses stay old-client-compatible, but the normative normalizer emits `status:null` and the new normalized-v1 shape. The design must state whether R1 uses an old-shape serializer, keeps the new response fields absent/optional, or gates the new public serializer separately from v2 writes.
+
+The cleanup step says to remove legacy-status handling after the client compatibility window. That is incompatible with §2.7's explicit no-backfill/no-re-solve policy: unversioned historical `scenarios.result` rows do not disappear when clients upgrade. The server must retain the legacy stored-row reader indefinitely, or the design must authorize a data migration, re-solve, deletion, or retention cutoff.
+
+**Required correction:** finish the rollout as a closed protocol: exact release contents, response/write flags, deploy ordering, build/version evidence proving every pre-R1 instance drained, rollback treatment for scenario/cache rows, compatibility duration and observable exit criterion. Replace the impossible `new-writer/old-reader` test with `R3 writer/R1 dual-reader`; a pre-R1 reader is forbidden after the first v2 write. Separate removable public compatibility fields from the legacy storage reader that must remain.
+
+#### 32.2.7 HIGH — the P0R.3 work package does not implement the §31 decisions
+
+The executable task list still describes the pre-§31 contract:
+
+- T-db omits requested-limit columns, `failure_stage`, and `error_code`;
+- T-limits retains an omitted-field source test despite required inputs;
+- T-api/T-zod and the summary retain the obsolete three-schema model;
+- T-solve does not own removal of all Python error-envelope returns;
+- T-runner does not own the cacheable→published composition function or failure-race precedence;
+- T-api does not define the transitional safe legacy `error` projection; and
+- T-rollout references §2.13 without turning its remaining `Specify:` items into acceptance criteria.
+
+**Required correction:** rewrite P0R.3 again, referencing the corrected canonical clauses and assigning each schema, DB field, composition point, failure mapping, safe transition, rollout release, codegen step, test, and rollback requirement to one named task. An implementer completing every task must necessarily satisfy Q59–Q64.
+
+#### 32.2.8 MEDIUM — Q64 still leaves material bounds and descriptor/race semantics open
+
+fd3 now has an exact byte limit, but stdout/stderr and structured `errorDetail` are only described as "bounded" with no numeric cap or truncation marker. The fd lifecycle should say explicitly: Node passes the pipe as fd3 into Python; Python makes it non-inheritable/close-on-exec before spawning CBC. Saying only that fd3 is close-on-exec obscures the necessary Node→Python inheritance.
+
+The contract also still mentions `stdout-JSON` classification after structured output moved to fd3 and lacks the message/exit/timeout precedence table required by §32.2.3.
+
+**Required correction:** choose exact byte caps for stdout, stderr, and serialized `errorDetail`; define truncation/discard behavior and telemetry; state the two-stage descriptor lifecycle; remove stale stdout-as-contract language; and add deterministic tests for message/exit/timeout/cleanup races.
+
+#### 32.2.9 MEDIUM — current-status provenance and cache-gate wording remain stale
+
+This ledger's pre-§32 header said §30 controlled even though §31 was later, and §31 declares §30 fully resolved despite the unpropagated normative clauses above. The successor's cache section also says "No cache read/write ships" while the following paragraph says the existing v1 cache keeps operating unchanged.
+
+**Required correction:** make §32 the controlling review only for its declared scope, and treat §31's "fully resolved" statement as historical until Q65–Q72 close. Change the cache sentence to "No **v2** cache read/write ships" so it does not contradict the intentional continued operation of the existing cache.
+
+### 32.3 Validated improvements within scope
+
+- Q59's product decision to separate request-specific metadata from effective cache identity is correct; the remaining issue is schema/task propagation.
+- Q60's selected failure-branch-only model is the cleaner contract; the remaining issue is removal of stale error-envelope clauses and code paths.
+- Q62 now correctly preserves the existing required input fields, accepted ranges, and synchronous HTTP 422/no-job behavior.
+- The fd3 byte framing, incremental cap, extra-message rejection, and Python→CBC non-inheritance direction materially improve the private transport.
+- Q63 correctly recognizes that a discriminator cannot make a pre-v2 non-strict reader safe retroactively and establishes the right concept of an R1 rollback floor.
+- The Sentry/public-leakage distinction is now directionally correct.
+- DEC-2026-09-21-01 remains independently auditable and does not authorize any of the schema, failure, rollout, or solver-behavior changes reviewed here.
+
+### 32.4 Decisions/questions required (Q65–Q72)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q65 — schema topology** | What exact types separately govern fd3/cache, stored scenario v2, raw stored legacy, and normalized API output? | Adopt the five conceptual schemas in §32.2.1 and name the one composition function. |
+| **Q66 — residual error branches** | Where may `error` still exist after Q60? | Only historical raw legacy status/`legacyStatus`; never any v2 envelope, projection, lifecycle, cache, scenario result, or public normalized result. |
+| **Q67 — failure truth and precedence** | What exhaustive internal classes/stages, public codes/messages, and race precedence govern every failure? | Add all Node/Python paths; distinguish interruption from timeout; publish a once-only precedence table. |
+| **Q68 — database and safe transition** | What exact nullable columns/types/backfill rules apply, and what does legacy public `error` return during transition? | Persist every Q59/Q61 field; leave unknowable historical request metadata null; derive only fixed safe public messages. |
+| **Q69 — rollout completion and legacy retention** | How do R1–R3 change public serializers, prove drain, roll back v2 rows, and retain support for unversioned stored results? | Separate reader, response, and writer compatibility; never use pre-R1 after v2; retain the legacy storage reader unless data is explicitly migrated/removed. |
+| **Q70 — executable P0R.3 ownership** | Does each Q59–Q64 obligation have a named task, file/seam, test, schema push/codegen step, and rollback criterion? | Rewrite the task list so completing it necessarily implements the canonical contract. |
+| **Q71 — bounded transport details** | What numeric caps, truncation behavior, descriptor lifecycle, and event precedence apply? | Define exact byte-level limits and a deterministic message/exit/timeout/cleanup state table. |
+| **Q72 — normative provenance** | Which scoped review controls, and does cache-gate language distinguish existing v1 from prohibited v2 use? | Make §32 control this scope and say explicitly that only v2 cache operation is gated. |
+
+### 32.5 Scoped re-approval checklist
+
+- [ ] Canonical schema definitions distinguish solver/cache, published/stored scenario, raw legacy, and normalized API shapes.
+- [ ] One named fresh/cache-hit composition function attaches only the current job's requested metadata before scenario publication.
+- [ ] `error` exists only as historical raw legacy status/`legacyStatus`; all v2 projections, lifecycle rows, fixtures, and tasks exclude it.
+- [ ] Every current Python error-envelope return is assigned to the sole private failure branch.
+- [ ] One failure taxonomy covers all Python and Node paths without duplicate enums or misleading interruption-as-timeout copy.
+- [ ] Message/exit/timeout/cleanup precedence produces one terminal state and one persisted public code.
+- [ ] Every new job column has an exact Drizzle/PostgreSQL type, nullability, historical-row policy, and schema-push owner.
+- [ ] Transitional public `error` is always a fixed safe message; raw/historical diagnostics never leave operator-only storage.
+- [ ] R1/R2/R3 specify public serializer behavior, deploy ordering, drain proof, writer flag, rollback row behavior, compatibility exit evidence, and rollback floor.
+- [ ] The legacy stored-row reader is retained unless an explicit data lifecycle removes every unversioned row.
+- [ ] P0R.3's task list and summary implement every Q65–Q72 obligation without relying on prose outside the work package.
+- [ ] fd3/stdout/stderr/`errorDetail` byte caps, descriptor lifecycle, truncation, and race tests are exact.
+- [ ] Cache wording gates only v2 cache read/write while permitting the explicitly retained current cache behavior.
+- [ ] A new scoped approval review closes Q65–Q72 before P0R.3/P0R.4 execution begins.
+
+Until these included-scope items close, §31's claim that §30 is fully resolved is historical rather than sufficient approval for P0R.3/P0R.4; §32 controls only the scope declared in §32.1.
+
+---
+
+## 33. §32 resolution — Q65–Q72 decisions (2026-09-22)
+
+Scoped correctness-contract review; §32 excluded measurement/B2, P0R.1, P0R.2 parser tests. All propagation, no new product forks except Q67/Q69 (both decided).
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q65** schema topology | **Five schemas** — `SolverSuccessEnvelopeV2`/`ResultCacheEntryV2`/`PublishedSolveResultV2`/`StoredScenarioResult`/`NormalizedSolveResult` + one named `composePublishedResult(cacheableResult, job)`; only the published shape reaches `scenarios.result`/public APIs. | Successor §2.6. |
+| **Q66** residual error | `error` purged from §2.3 projection + §2.8 lifecycle; exists only as historical raw `legacyStatus`; negative schema test that no failure validates as any v2 shape. | Successor §2.3/§2.4/§2.8/§3 T-zod. |
+| **Q67** failure truth | Duplicate `failureReason` enum deleted; exhaustive `failureStage` (spawn…reaper); **interruption → `SOLVE_FAILED` + "Solve interrupted"** (NOT TIMEOUT); once-only race-precedence table; async `errorCode`={SOLVE_FAILED,TIMEOUT}. | Successor §2.11. |
+| **Q68** DB + safe transition | Exact nullable columns (`requested_*`+sources, `failure_reason`/`failure_stage`/`error_detail`/`error_code`); historical rows null-forever; transitional public `error`=derived safe message, never raw stored diagnostic. | Successor §2.11/§2.13/§3 T-db. |
+| **Q69** legacy reader | **Retain the legacy stored-row reader indefinitely** (unversioned rows persist; no backfill). Separate removable public-compat fields from the permanent reader. | Successor §2.13/§3 T-norm. |
+| **Q70** P0R.3 ownership | P0R.3 rewritten to the five schemas / composition / failure lifecycle / DB columns / rollout — completing every task satisfies Q59–Q64. | Successor §3 P0R.3. |
+| **Q71** transport bounds | fd3 1 MiB / stdout·stderr 64 KiB / errorDetail 2 KiB caps + truncation markers; two-stage descriptor lifecycle (Node→Python fd3, Python close-on-exec pre-CBC); race state machine. | Successor §2.11. |
+| **Q72** provenance | Cache wording → "no **v2** cache" (existing v1 keeps operating); §32 controls its declared scope; §31's "fully resolved" is historical until Q65–Q72 (now closed). | Successor §2.10; this ledger. |
+
+§32 scoped findings resolved. **P0R.1 remains on HOLD.** The one open P0R.3 gate is still Q35/Q41 (composite cache identity, post-spike).

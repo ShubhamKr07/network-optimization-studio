@@ -43,7 +43,7 @@ Verified facts driving the contract:
 - `errorCode` (public `SolveJob`): stable enum (§2.11); the granular `failureReason`/`errorDetail` are **internal-only**, never in this envelope.
 
 ### 2.3 `status` v2 projection (Q9)
-`optimal→"optimal"`, `feasible→"feasible"`, `infeasible→"infeasible"`, `no_solution→"no_solution"`, `unbounded→"unbounded"`, `error→"error"`. Compatibility guarantee = **golden objectives unchanged + protected-suite invariants preserved**, not byte-identical.
+`optimal→"optimal"`, `feasible→"feasible"`, `infeasible→"infeasible"`, `no_solution→"no_solution"`, `unbounded→"unbounded"`. (**No `error` projection** — §30.2.3/§32.2.2/Q66: `error` is not a v2 status; it exists only as a historical raw `legacyStatus`, never in any v2 projection/lifecycle/cache/result.) Compatibility guarantee = **golden objectives unchanged + protected-suite invariants preserved**, not byte-identical.
 
 ### 2.4 Invariant matrix (§14.4, corrected per §18.2)
 
@@ -61,12 +61,15 @@ Verified facts driving the contract:
 ### 2.5 `quality` strings (exact)
 `optimal/optimality_proven`→"Proven optimal" · `feasible/gap_limit`→"Feasible — stopped at gap limit" · `feasible/time_limit`→"Feasible — time limit reached" · `feasible/node_limit`→"Feasible — node limit reached" · `feasible/interrupted`→"Feasible — interrupted" · `infeasible/infeasible`→"Infeasible" · `unbounded/unbounded`→"Unbounded" · `no_solution/*`→"No solution found". (No `error` quality — failures aren't envelope outcomes; the failed job's public safe message per `errorCode` is defined in §2.11.)
 
-### 2.6 Three schemas (§16.4/§18.3/Q13/Q19)
-1. **`SolverEnvelopeV2Schema`** — raw `solve.py` stdout + all new cache writes; v2 only; rejects `solutionStatus:null`; enforces §2.4. Raw solver output never accepted as legacy.
-2. **`StoredResultSchema`** — persisted `scenarios.result`/`result_cache` in stored form. **Known legacy generation = the nested unversioned `_envelope` shape** (`{status,objective,runTimeSec,quality,edges,metrics,details,solverUsed,infeasibilityReason}` with **no** `envelopeVersion`), verified as what `jobRunner` currently writes — **not** a flat shape (§20.2.2/Q23; `_envelope_compat.flatten_envelope` is a test shim, not the DB shape). An older flat generation is supported **only if** P0R.3's stored-row inventory finds it. Accepts legacy-nested **and** raw v2.
-3. **`NormalizedSolveResultSchema`** — read/API/UI union: v2 as-is, or normalized-legacy (see §2.7).
+### 2.6 Five schemas (§16.4/§18.3/§32.2.1/Q13/Q19/Q65)
+The `result_cache` value and the `scenarios.result` value now intentionally differ (effective-only vs request-composed), so one shape can't serve both. Five conceptual types (a type alias is fine where two are byte-identical):
+1. **`SolverSuccessEnvelopeV2Schema`** — success/math outcomes received on **fd3** (not stdout); v2, `solutionStatus` non-null (no `error`); configured/effective limit values only; enforces §2.4.
+2. **`ResultCacheEntryV2Schema`** — the exact `result_cache` value; normally an alias of #1 (effective values only, **no** request-specific fields).
+3. **`PublishedSolveResultV2Schema`** — #2 **plus** the current job's `requestedGap`/`requestedGapSource`/`requestedTimeLimitSec`/`requestedTimeLimitSource` + public-read markers (`legacyUnverified:false`). This is the only shape that reaches `scenarios.result`/public APIs.
+4. **`StoredScenarioResultSchema`** — published v2 (#3) **or** the known raw unversioned legacy `_envelope` shape (`{status,objective,runTimeSec,quality,edges,metrics,details,solverUsed,infeasibilityReason}`, no `envelopeVersion` — verified as what `jobRunner` writes; `_envelope_compat.flatten_envelope` is a test shim, not the DB shape). An older flat generation is supported only if P0R.3's stored-row inventory finds it.
+5. **`NormalizedSolveResultSchema`** — read/API/UI union: published v2 (#3) or normalized-legacy v1 (§2.7).
 
-A **normalizer** converts a stored legacy row → normalized v1. Historical `status:"optimal"` never promoted to proven.
+**Composition function (§32.2.1/Q59):** one named `composePublishedResult(cacheableResult, job)` attaches the current job's requested values/sources onto #2 → #3, on **both** fresh-solve and cache-hit paths. Assert **only** #3 (or normalized legacy) reaches `scenarios.result`/public APIs — never #1/#2. A **normalizer** converts a stored legacy row → normalized v1; historical `status:"optimal"` is never promoted to proven.
 
 ### 2.7 Legacy representation (Q5/Q19/Q23) — complete normalized-v1 output
 Read-time only, no backfill/re-solve. Normalized v1 from a stored legacy-nested row:
@@ -110,8 +113,10 @@ Named releases:
 2. **R2 (frontend):** deploy a frontend treating all new fields as optional, working against the old API; additive job-error transition (`errorCode` **alongside** old `error` for the window).
 3. **R3 (writer, flagged):** after **every pre-dual-reader API instance drains** (proven from Render deploy/health evidence), enable the **default-off** `v2_write` server flag (owner: API); v2 writes begin.
 4. **Rollback floor:** once any v2 row exists, rollback is allowed **only to R1 (dual reader)** — never below it. Disable `v2_write` **before** any rollback; define treatment of existing v2 `scenarios.result` + cache rows on rollback.
-5. **Cleanup:** remove deprecated fields (`error`, legacy status handling) only after a named compatibility window + observed client/version criteria.
-Specify: flag name/owner/default, drain-proof source, old-writer/new-reader **and** new-writer/old-reader tests, and `nos-api`→`nos-studio` deploy ordering.
+5. **Cleanup:** remove the **removable public-compatibility fields** (the transitional public `SolveJob.error` alias, old response fields) only after a named window + observed client/version criteria. **The legacy STORED-row reader + normalizer is NOT removed (§32.2.6/Q69=retain)** — unversioned `scenarios.result` rows persist forever (no backfill/re-solve, §2.7), so the reader stays **indefinitely**. Separate "removable public-compat field" from "permanent legacy storage reader" explicitly.
+
+**During R1 (§32.2.6):** the new public serializer is **gated separately from v2 writes** — R1 responses stay old-client-compatible (new fields absent/optional) while internal readers already discriminate legacy/v2. **Transitional public `error`** during the window is always a **derived fixed safe message** for the mapped `errorCode` (§2.11) — **never** the raw stored `solve_jobs.error` diagnostic (which currently holds spawn/stderr/stdout/schema text); historical failed rows read as a conservative `SOLVE_FAILED` + safe message. **Rollback floor:** once any v2 row exists, rollback only to R1; disable the `v2_write` flag before rollback.
+Closed items: flag = `v2_write` (owner: API, default off); drain-proof = Render deploy/health showing zero pre-R1 instances; tests = **R3-writer/R1-dual-reader** (a pre-R1 reader is forbidden after the first v2 write — the old `new-writer/old-reader` test is invalid); deploy order `nos-api`→`nos-studio`; compatibility-window exit = observed client versions past the cutoff.
 
 ### 2.10 Composite solver-contract / cache version (§20.2.5/§22.2.6/Q26/Q35)
 Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace with a **composite version**. The **post-spike design update** must define it **deterministically** (§22.2.6/Q35):
@@ -122,32 +127,31 @@ Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace wi
 - an explicit **`SOLVER_CONTRACT_VERSION`** constant for semantic changes not represented by file bytes;
 - tests proving a change to the parser, wrapper, dependency/build identifier, **or** the contract constant each invalidates the cache, while identical artifacts stay stable.
 
-**Q35 is an OPEN, mandatory P0R.3 gate (§24.2.5/Q41)** — not resolved yet. No cache read/write ships until the exact manifest, byte framing, PuLP/CBC identities, example hash vectors, fail-closed behavior, and invalidation/stability tests are in the post-spike design update and approved.
+**Q35 is an OPEN, mandatory P0R.3 gate (§24.2.5/Q41)** — not resolved yet. No **v2** cache read/write ships (§32.2.9/Q72 — the existing v1 cache keeps operating unchanged) until the exact manifest, byte framing, PuLP/CBC identities, example hash vectors, fail-closed behavior, and invalidation/stability tests are in the post-spike design update and approved.
 
 **Cache transition (§26.2.5/Q47):** **P0R.1/P0R.2 artifacts are evidence-only** — not merged into a release/deploy path before approved P0R.3. The current `solve.py`-only cache hash keeps operating unchanged until the composite version lands with P0R.3; a wrapper/parser file must not deploy against the old hash. Define existing-unversioned-cache-row behavior (cache miss), release rollback, and mixed rolling instances so **no old instance can write an entry a new instance mistakes for v2** (the composite version discriminates).
 
 ### 2.11 Internal failure record + private transport (§24.2.3/§26.2.1/Q39/Q43) — NOT in the public envelope
-Granular failure classification is **internal/operator-facing only**:
-- `failureReason` (internal enum): `solver_error` (CBC started then failed/abandoned/numerically errored) | `data_error` (dataset/config load/validate failure) | `model_error` (dispatch/model construction failed before CBC) | `internal_error` (unexpected application exception).
-- `errorDetail` (internal, **sanitized**): bounded diagnostic text.
+Failures are the **sole** failure path (§30.2.3/Q60=A — no error envelope). **One** internal taxonomy (§32.2.3/Q67 — the earlier duplicate 4-value block is deleted):
+- `failureReason` (internal enum): `solver_error` (CBC started, failed/abandoned/numerically errored) | `data_error` (dataset/config load/validate) | `model_error` (dispatch/model construction before CBC) | `internal_error` (unexpected exception) | `timeout` (outer deadline) | `interrupted` (cancel / deploy / server-restart-reaper / external kill).
+- `failureStage` (internal enum, exhaustive): `spawn | load | dispatch | build | solve | serialize | protocol | validate | exit | timeout | cleanup | reaper`.
+- `errorDetail` (internal, **structured allowlist** — §28.2.3): built from `{stage, code, knownMessage}` at each failure site; **never** raw stdout/stderr/exception/paths/payloads; **≤ 2,048 bytes** (truncated with a marker if longer).
 
-Failures are the **sole** failure path (§30.2.3/Q60=A — no error envelope):
-- `failureReason` (internal enum): `solver_error` (CBC started then failed/abandoned/numerically errored) | `data_error` (dataset/config load/validate) | `model_error` (dispatch/model construction before CBC) | `internal_error` (unexpected exception) | **`timeout`** (outer deadline) | **`interrupted`** (cancel/kill). (§30.2.4/Q61 — `timeout` added so the public `TIMEOUT` is reconstructable.)
-- `failureStage`: `load | dispatch | build | solve | serialize | spawn | timeout`.
-- `errorDetail` (internal, **structured allowlist** — §28.2.3): built from `{stage, code, knownMessage}` at each failure site, **never** raw stdout/stderr/exception/paths/payloads; bounded length.
+**Private transport `SolverProcessMessage` (§30.2.7/§32.2.8/Q64/Q71) — exact bytes:** dedicated **fd 3**; **exactly one newline-terminated JSON object**; **max 1,048,576 bytes** (byte count); read incrementally, **abort at the cap** (no buffer-then-check); extra non-empty line / trailing bytes / missing-newline-at-EOF / partial write → `internal_error`. **Descriptor lifecycle (two-stage):** Node creates the pipe and passes its write end **as fd 3 into Python** (`stdio: ['pipe','pipe','pipe','pipe']`); **Python sets fd 3 non-inheritable (close-on-exec) before spawning CBC**, so a CBC descendant cannot hold the transport open after Python exits. Schema `{ envelope: SolverSuccessEnvelopeV2 | null, failure: {failureReason, failureStage, errorDetail} | null }` — exactly one non-null; both/neither → `internal_error`. **stdout/stderr are separately capped at ≤ 64 KiB each** (capped capture, discard beyond cap with a truncation marker) — moving the contract to fd3 does not remove the current unbounded-string memory path.
 
-**Private transport `SolverProcessMessage` (§26.2.1/§28.2.3/§30.2.7/Q64) — exact bytes:** dedicated **fd 3**; **exactly one newline-terminated JSON object**; **max 1,048,576 bytes** (byte count, not chars); read incrementally and **abort at the byte cap** (no buffer-then-check); any extra non-empty line / trailing bytes / missing-newline-at-EOF / partial write → `internal_error`. fd 3 is **close-on-exec (not inherited by CBC)** so a descendant can't hold the transport open after Python exits. Schema `{ envelope: SolverEnvelopeV2(success-only) | null, failure: {failureReason, failureStage, errorDetail} | null }` — exactly one non-null; both/neither → `internal_error`. **stdout/stderr are separately bounded** (capped capture, discard beyond cap) — moving the contract to fd3 does not remove the current unbounded-string memory path. Node classifies pre-spawn/outer-timeout/nonzero-exit/stdout-JSON/schema/cleanup failures itself.
+**Race precedence (§32.2.3 — one terminal state, once-only):** a job reaches exactly one terminal outcome by this precedence, evaluated once: (1) **outer timeout fired** → `timeout`, even if a late fd3 message/exit arrives after; (2) **cancellation/kill** → `interrupted`; (3) otherwise **process exit**: nonzero → classify by fd3 `failure` if present else `solver_error`/`internal_error`; zero exit + valid success envelope → success, **unless cleanup then fails** → the success still publishes (result already valid) and cleanup failure is logged internal-only (never downgrades a valid result). A late message after a terminal decision is dropped.
 
-**Public `errorCode` — exhaustive mapping (§30.2.4/Q61):**
+**Public `errorCode` — exhaustive mapping (§30.2.4/§32.2.3/Q61/Q67):**
 
 | source (internal `failureReason` / Node class) | public `errorCode` | safe message |
 |---|---|---|
-| `solver_error`, `model_error`, `internal_error`, protocol-absent/partial/oversize/invalid, nonzero-exit, serialize/cleanup failure, unexpected exception | `SOLVE_FAILED` | "Solve failed" |
-| `data_error` | `SOLVE_FAILED` | "Solve failed" |
-| `timeout` / `interrupted` (outer deadline/cancel) | `TIMEOUT` | "Solve timed out" |
+| `solver_error`, `data_error`, `model_error`, `internal_error`, protocol-absent/partial/oversize/invalid, `exit` nonzero, `serialize`, unexpected exception | `SOLVE_FAILED` | "Solve failed" |
+| `timeout` (outer deadline) | `TIMEOUT` | "Solve timed out" |
+| `interrupted` (cancel/deploy/reaper/kill) | `SOLVE_FAILED` | **"Solve interrupted"** (§32.2.3/Q67 — truthful, NOT `TIMEOUT`) |
+| `cleanup` failure after a valid success | (no failure — success publishes; cleanup logged internal) | — |
 | pre-enqueue input validation | (no async job — **HTTP 422**, §2.12/Q62) | — |
 
-`INPUT_INVALID` is **not** an async job outcome — invalid input is rejected **synchronously (422/no job)** before enqueue; it stays out of the async `errorCode` set. **Persistence:** `solve_jobs` gains nullable `failure_reason`, `failure_stage`, `error_detail`, **and `error_code`** (persist the derived code, not just the reason, so a restart reconstructs `TIMEOUT` losslessly — rule #3, Drizzle `push`). The public `SolveJob.error` field is replaced by `errorCode` + fixed safe message (transition per §2.13).
+Async `errorCode` enum = `{ SOLVE_FAILED, TIMEOUT }`. `INPUT_INVALID` is **not** an async outcome (invalid input → synchronous 422/no job). **Persistence:** `solve_jobs` gains nullable `failure_reason`, `failure_stage`, `error_detail`, **and `error_code`** (persist the derived code so a restart reconstructs `TIMEOUT` vs `SOLVE_FAILED` losslessly — rule #3). Public `SolveJob.error` is replaced by `errorCode` + fixed safe message (transition per §2.13).
 
 **Leakage / Sentry (§30.2.8):** negative-leakage tests across scenario reads, job polling, history, exports, logs, and **public** telemetry assert no `failureReason`/`failureStage`/`errorDetail`/path/secret/stdout appears in any **public** response. **Sentry is an operator sink, not public** — it receives an explicit **allowlist** (`failureReason`/`failureStage` as bounded tags, the structured `errorDetail`); its tests are operator-observability tests (distinct from public-leakage tests) and still prohibit raw payloads/secrets/paths/stdout/stderr/arbitrary exception text.
 
@@ -158,7 +162,7 @@ Failures are the **sole** failure path (§30.2.3/Q60=A — no error envelope):
 - tests: required-field validation stays 422/no-job; retries/restart/cache-hit reconstruction proves requested values come from the *current* job and survive process loss.
 
 ### 2.8 Lifecycle + cache/publish policy (§14.2/Q6) — branch before cache-write/`markSucceeded`
-`optimal`→succeeded/cache/publish · `feasible`→succeeded/cache **only with full gap-time-version key**/publish-labelled · `infeasible`,`unbounded`→succeeded/cache/publish · `no_solution`→succeeded/**no cache**/publish-no-incumbent · `error`→**failed/no cache/no publish**.
+**Envelope (success/math) outcomes only** — no `error` row (§32.2.2/Q66): `optimal`→succeeded/cache/publish · `feasible`→succeeded/cache **only with full gap-time-version key**/publish-labelled · `infeasible`,`unbounded`→succeeded/cache/publish · `no_solution`→succeeded/**no cache**/publish-no-incumbent. **Execution failure is a separate lifecycle (§2.11):** `failure → failed job / no cache / no scenario publish / public errorCode` — never an envelope outcome.
 
 ### 2.9 Per-model public-objective derivation + canonical `achievedGap` (§18.2/§18.7)
 
@@ -200,19 +204,20 @@ Four **separate** test categories (§20.2.7/Q28), not one CBC-fixture set:
 - **Parser unit tests (after P0R.1's interface):** map each attainable fixture → correct pair + metadata; no live solving; authoritative for time/gap/node-limit branches; include the `achievedGap` domain fixtures from §2.9 (min/max/negative/zero/>1.0).
 
 ### P0R.3 — contract + schemas + OpenAPI + frontend + policy + rollout (CONDITIONAL: after P0R.1 + post-spike review). Every §27/§28 decision has a named task/seam/test (§28.2.4/Q53):
-- **T-solve** `solve.py`: `_envelope` gains `envelopeVersion:2`, two-dim status, raw `solverIncumbentObjective`/`solverBestBound`, canonical `achievedGap` (§2.9), `configuredGap`/`configuredTimeLimitSec` (§2.12); shared `_termination(...)` wraps P0R.1; public `objective` per §2.9 (unchanged); §2.4 asserted. Test: envelope shape per solutionStatus.
-- **T-msg** private `SolverProcessMessage` (fd 3 NDJSON, §2.11): Python emits envelope-or-failure; Node validates/oversize/partial handling. Test: mismatch/partial/oversize → `internal_error`.
-- **T-db** `solve_jobs` migration: nullable `failure_reason`/`error_detail` (Drizzle `push`, rule #3); replace public `error` with `errorCode` enum + safe-message table (§2.11). Test: negative-leakage across job polling.
-- **T-limits** one-point limit normalization (§2.12): effective on result+cache-key, requested on job record, composed on read. Test: cache-hit reconstruction returns current request's requested values; omitted-field `source`.
-- **T-runner** `jobRunner.ts`: §2.8 lifecycle/cache/publish branch before cache-write/`markSucceeded`; failure classification → `errorCode`.
-- **T-api** `openapi.yaml`: the three schemas (§2.6) incl. nullable-`status` union (§2.7/Q44); `status` deprecated; `errorCode`; `legacyUnverified`; typed history marker; **regen `lib/api-zod`+`lib/api-client-react` same commit** (rule #1).
-- **T-zod** `resultEnvelope.ts`: `SolverEnvelopeV2Schema`+`StoredResultSchema`+`NormalizedSolveResultSchema`+normalizer; §2.4 rejection; error excluded from published union (§2.4/Q57).
-- **T-norm** normalizer wired per the §2.7.1 matrix: `toApiScenario()` (`routes/scenarios.ts:131–153`) + list/get → normalize; output exports → `409`/`LEGACY_RESULT_REQUIRES_RESOLVE`; per-row integration tests + mixed v1/v2 + authorization.
-- **T-telemetry** per-site events (§2.7.1/Q56): completed (v2) / failed (`errorCode`) / no legacy-read event; emission-site tests + no-leak.
+Rewritten to the §31/§32 canonical clauses (§32.2.7/Q70) — completing every task necessarily satisfies Q59–Q64:
+- **T-solve** `solve.py`: `_envelope`→v2 success-only (`envelopeVersion:2`, `solutionStatus∈{optimal,feasible,infeasible,unbounded,no_solution}`, raw `solverIncumbentObjective`/`solverBestBound`, canonical `achievedGap` §2.9, `configuredGap`/`configuredTimeLimitSec` §2.12); shared `_termination(...)` wraps P0R.1; public `objective` per §2.9 (unchanged); §2.4 asserted. **Enumerate + migrate every current `_load_error_envelope`/`_envelope("error",…)` exit** to the private failure branch (§2.11). Test: envelope shape per solutionStatus; **no failure path can produce an envelope**.
+- **T-msg** private `SolverProcessMessage` (fd3, §2.11): success-envelope-xor-failure; two-stage descriptor lifecycle (Node passes fd3 → Python sets close-on-exec pre-CBC); byte caps (fd3 1 MiB, stdout/stderr 64 KiB, errorDetail 2 KiB); race-precedence state machine. Test: mismatch/partial/oversize/extra-line/EOF → `internal_error`; inherited-descriptor; timeout-vs-late-message; cleanup-after-success.
+- **T-db** `solve_jobs` migration (rule #3, exact nullable columns): `requested_gap` (real), `requested_gap_source` (enum `request|default`), `requested_time_limit_sec` (real), `requested_time_limit_source` (enum), `failure_reason` (enum), `failure_stage` (enum), `error_detail` (text ≤2 KiB), `error_code` (enum). New enqueues write requested values/sources atomically; **historical rows stay null forever** (no reliable immutable source, §32.2.4). Test: enqueue-atomicity, historical-null, restart reconstruction of `errorCode`.
+- **T-limits** one normalization point (§2.12): required fields preserved (min 0, no max/defaults — Q62=A); effective on cache result+key; requested/sources on job; `composePublishedResult` on fresh + cache-hit. Test: invalid→422/no-job; cache-hit returns **current** job's requested values.
+- **T-runner** `jobRunner.ts`: §2.8 success-only lifecycle before cache/`markSucceeded`; the **separate failure lifecycle** (`failure → failed job / no cache / no publish / errorCode`); race precedence (§2.11); calls `composePublishedResult` so only `PublishedSolveResultV2` reaches `scenarios.result`.
+- **T-api** `openapi.yaml`: the **five schemas** (§2.6) — `SolverSuccessEnvelopeV2`/`ResultCacheEntryV2`/`PublishedSolveResultV2`/`StoredScenarioResult`/`NormalizedSolveResult`; nullable-`status` union (§2.7); async `errorCode∈{SOLVE_FAILED,TIMEOUT}`; `legacyUnverified`; typed history marker; **regen `lib/api-zod`+`lib/api-client-react` same commit** (rule #1).
+- **T-zod** `resultEnvelope.ts`: the five schemas + `composePublishedResult` + legacy normalizer; §2.4 rejection; **negative test: no execution failure validates as any solver/cache/stored-v2/normalized-v2/published shape**.
+- **T-norm** normalizer per §2.7.1: `toApiScenario()` (`routes/scenarios.ts:131–153`) + list/get → normalize; output exports → `409`/`LEGACY_RESULT_REQUIRES_RESOLVE`; **legacy stored-row reader retained indefinitely (Q69)**; per-row integration + mixed v1/v2 + authorization.
+- **T-telemetry** per-site (§2.7.1/Q56): completed (v2) / failed (`errorCode`) / **no legacy-read event**; emission-site tests + no-leak.
 - **T-compat** migrate `_envelope_compat.py` (don't discard `terminationReason`).
-- **T-frontend** render by `(solutionStatus, terminationReason)`; "No incumbent" for null objective (no `?? 0`); `quality` from §2.5; public failure via `errorCode`.
-- **T-rollout** the §2.13 staged reader-first/flag/rollback plan; old-writer-new-reader + new-writer-old-reader tests; `nos-api`→`nos-studio` ordering.
-- **Gate (Q35/Q41):** the composite cache version (§2.10) must land before any v2 cache read/write — its manifest/vectors are their own approved deliverable.
+- **T-frontend** render by `(solutionStatus, terminationReason)`; "No incumbent" for null objective (no `?? 0`); `quality` §2.5; public failure via `errorCode` safe message.
+- **T-rollout** the §2.13 R1/R2/R3 + rollback-floor plan; **R3-writer/R1-dual-reader** test (not the invalid new-writer/old-reader); transitional public `error`=derived safe message (never raw stored diagnostic); `nos-api`→`nos-studio` ordering.
+- **Gate (Q35/Q41):** the composite cache version (§2.10) must land before any **v2** cache read/write — its manifest/vectors are their own approved deliverable.
 
 ### P0R.4 — integration tests + DEC-2026-09-21-01 correction + e2e_journey repair + full gate (CONDITIONAL)
 - `test_result_contract.py`: deterministic optimal + infeasible from real solves; time/gap/node-limit via injectable seam or committed fixture, not a wall-clock race.
