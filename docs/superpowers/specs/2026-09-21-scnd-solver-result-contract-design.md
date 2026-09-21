@@ -56,7 +56,7 @@ Verified facts driving the contract:
 | `no_solution` | `time_limit \| node_limit \| interrupted` | objective null; solverIncumbent null; achievedGap null; **`solverBestBound: number \| null`** (§20.2.3/Q24 — CBC can expose a bound with no incumbent via `Cbc_getBestPossibleObjValue`) |
 | `error` | `solver_error` | all null |
 
-`quality` for `error/solver_error` = **"Solve failed"** (coarse, public); the granular internal classification is §2.11. **No `objective === solverIncumbentObjective` invariant** (§18.2 — units/rounding differ per model). `status` equals §2.3 projection; `quality` equals §2.5. Other combinations schema-**rejected**.
+`quality` for `error/solver_error` = **"Solve failed"**. **NOTE (§28.2.8/Q57):** an `error` outcome is **runner-private** — per §2.8 it fails the job and is **never published** as a `Scenario.result`, so `solutionStatus:error` is **excluded from the published `NormalizedSolveResult` union**; the public failure surface is the job `errorCode` (§2.11). The `error` row here governs the raw runner message + internal classification only. **No `objective === solverIncumbentObjective` invariant** (§18.2 — units/rounding differ per model). `status` equals §2.3 projection; `quality` equals §2.5. Other combinations schema-**rejected**.
 
 ### 2.5 `quality` strings (exact)
 `optimal/optimality_proven`→"Proven optimal" · `feasible/gap_limit`→"Feasible — stopped at gap limit" · `feasible/time_limit`→"Feasible — time limit reached" · `feasible/node_limit`→"Feasible — node limit reached" · `feasible/interrupted`→"Feasible — interrupted" · `infeasible/infeasible`→"Infeasible" · `unbounded/unbounded`→"Unbounded" · `no_solution/*`→"No solution found" · `error/solver_error`→**"Solve failed"** (public copy honest for every failure origin; the granular cause is internal, §2.11).
@@ -128,7 +128,7 @@ Granular failure classification is **internal/operator-facing only**:
 **Requested vs effective pairs** (the reviewer's Q45 rec — retain both because limits clamp):
 - `requestedGap` / `requestedTimeLimitSec` = as submitted (original request).
 - `configuredGap` / `configuredTimeLimitSec` = **effective** values after defaults + clamping = the **actual `PULP_CBC_CMD` arguments**.
-- **Ceilings/defaults (Q45):** `timeLimitSec` — default 60, min 1, **max 60, clamp above** (a value >60 is clamped, not rejected; both requested + configured recorded so the clamp is auditable). `gap` — default 0 (proven), min 0, max 1.0, clamp above.
+- **Ceilings/defaults (Q45 — PENDING Q50 §28.2.1):** the 60s clamp is a **behavioral** change (shipped default 120s; protected `e2e_accuracy.py` uses 120/180s) that collides with DEC-2026-09-21-01's zero-golden-objective scope; **held pending Q50.** Interim: `gap` default **0 (requests zero relative-gap tolerance; the achieved outcome remains evidence-derived, never assumed "proven")**, min 0, max 1.0.
 - types/units: gaps = number (relative, ≥0, finite); time = number (seconds, finite, in `[1,60]` effective).
 - **single normalization point** before CBC invocation **and** cache-key construction; the cache key uses the **effective** values.
 - presence: all four emitted on **every** terminal result incl. `no_solution` and `error` (they describe the attempt).
