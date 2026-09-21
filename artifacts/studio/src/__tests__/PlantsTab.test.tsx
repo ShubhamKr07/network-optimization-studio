@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, waitFor, within } from "@testing-library/react";
-import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
 // SCN chen-bands-units, Task 14b — this tab's export control now calls
 // useExport(), which throws without an ExportProvider (and it already needed
 // UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
@@ -127,7 +127,11 @@ describe("PlantsTab", () => {
 
 describe("PlantsTab — Upload/Download", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<PlantsTab plants={plants} />);
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <PlantsTab plants={plants} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-plants-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-plants-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-plants")).toBeDisabled();
@@ -135,7 +139,14 @@ describe("PlantsTab — Upload/Download", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=plants&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,city\nplant-1,Daggar Hills", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(<PlantsTab plants={plants} scenarioId={7} />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <PlantsTab plants={plants} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
+    );
 
     await userEvent.click(screen.getByTestId("button-export-plants-csv"));
 

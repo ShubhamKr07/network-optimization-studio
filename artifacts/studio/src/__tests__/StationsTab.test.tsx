@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, waitFor, fireEvent } from "@testing-library/react";
-import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
 // SCN chen-bands-units, Task 14b — this tab's export control now calls
 // useExport(), which throws without an ExportProvider (and it already needed
 // UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
@@ -62,7 +62,11 @@ describe("StationsTab", () => {
 
 describe("StationsTab — Upload/Download (A5.1)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<StationsTab stations={stations} overrides={[]} onChange={vi.fn()} />);
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-stations-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-stations-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-stations")).toBeDisabled();
@@ -70,7 +74,14 @@ describe("StationsTab — Upload/Download (A5.1)", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=stations&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,demand\nS1,2000", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(<StationsTab stations={stations} overrides={[]} onChange={vi.fn()} scenarioId={7} />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <StationsTab stations={stations} overrides={[]} onChange={vi.fn()} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
+    );
 
     await userEvent.click(screen.getByTestId("button-export-stations-csv"));
 

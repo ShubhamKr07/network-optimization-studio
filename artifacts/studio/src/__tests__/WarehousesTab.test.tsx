@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
-import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+import { AllProviders, ExportProviderTestWrapper } from "@/__tests__/helpers/renderWithExportProvider";
 // SCN chen-bands-units, Task 14b — this tab's export control now calls
 // useExport(), which throws without an ExportProvider (and it already needed
 // UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
@@ -194,7 +194,15 @@ describe("WarehousesTab — Chapter 9 JADE (T11, capability-driven, no code chan
 
 describe("WarehousesTab — Upload/Download (A1.3)", () => {
   it("Upload/Download are disabled until a scenario is resolved", () => {
-    render(<WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />);
+    // T14b — the export buttons' disabled state now comes from the
+    // ExportProvider context (scenarioId: null -> "Loading…"), not this
+    // component's own scenarioId prop; the Import button still reads the
+    // prop directly (unconverted).
+    rtlRender(
+      <ExportProviderTestWrapper value={{ scenarioId: null }}>
+        <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} />
+      </ExportProviderTestWrapper>,
+    );
     expect(screen.getByTestId("button-export-warehouses-csv")).toBeDisabled();
     expect(screen.getByTestId("button-export-warehouses-json")).toBeDisabled();
     expect(screen.getByTestId("button-import-warehouses")).toBeDisabled();
@@ -202,8 +210,13 @@ describe("WarehousesTab — Upload/Download (A1.3)", () => {
 
   it("Download CSV triggers the export fetch scoped to entity=warehouses&format=csv", async () => {
     fetchMock.mockResolvedValue(new Response("id,status\nCHI,active", { status: 200, headers: { "content-type": "text/csv" } }));
-    renderWithQueryClient(
-      <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} />,
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ExportProviderTestWrapper value={{ scenarioId: 7 }}>
+          <WarehousesTab warehouses={warehouses} overrides={[]} capacityMode="none" onChange={vi.fn()} scenarioId={7} />
+        </ExportProviderTestWrapper>
+      </QueryClientProvider>,
     );
 
     await userEvent.click(screen.getByTestId("button-export-warehouses-csv"));
