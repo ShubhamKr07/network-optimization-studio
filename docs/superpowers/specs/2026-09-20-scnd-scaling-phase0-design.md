@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §22 findings resolved (Q30–Q36 answered 2026-09-21, see §23).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20/§22 successive reviews; §15/§17/§19/§21/§23 resolutions. Execution authorization: **P0R.1 + P0R.2 attainable-CBC fixture capture only**; P0R.2 parser tests depend on P0R.1; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1). Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §24 findings resolved (Q37–Q42 answered 2026-09-21, see §25).** Not implemented as a single unit. §§0–12 audit trail; §13 split map; §14/§16/§18/§20/§22/§24 successive reviews; §15/§17/§19/§21/§23/§25 resolutions. Execution authorization: **P0R.1 + P0R.2 attainable-CBC fixture capture only**; P0R.2 parser tests depend on P0R.1; P0R.3/P0R.4 need a post-spike design update + approval review. **DEC-2026-09-21-01 authorized** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) (§20.2.1). Measurement and B2 remain TBD.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -1338,3 +1338,131 @@ Until every applicable item above is closed, §21's statement that all §20 find
 | **Q36** DEC citation | Every DEC reference cites GitHub issue #19 (header, §4 guardrail, P0R.4, commit); stale in-session Q4/Q10 provenance removed; header note updated to Q4–Q36. | Correctness spec header/§4. |
 
 §22 findings resolved; correctness successor governs implementation (P0R.1 + P0R.2 fixture capture approved). §22.2.7/Q36 (stale guardrail provenance) fixed. Q29's "define later" placeholder replaced by the §2.7.1 normative table (closes §22.2.1).
+
+---
+
+## 24. Deep approval validation — post-§23 consistency and contract review (2026-09-21)
+
+### 24.1 Approval decision
+
+**Decision: NOT APPROVED as a fully resolved implementation contract.** The successor design incorporates several sound §22 decisions, but its normative task list still contradicts those decisions, the timeout design does not assign process-tree cleanup to an actor that is guaranteed to survive, and multiple public-contract details remain unspecified. The existing narrow authorization is unchanged.
+
+| Scope | Decision | Reason |
+|---|---|---|
+| Ledger claim that all findings are resolved | **NOT APPROVED** | Q37–Q42 below remain open; §23 is a historical resolution record, not the current approval state. |
+| P0R.1 wrapper/parser spike | **APPROVED TO PROCEED** | It is needed to obtain real CBC evidence and resolve the process-control and parser unknowns. Its output must satisfy Q38 before later phases. |
+| P0R.2 attainable-CBC fixture capture | **APPROVED TO PROCEED** | Capturing attainable terminal cases is evidence gathering and is within the existing narrow scope. |
+| P0R.2 parser tests beyond attainable fixture capture | **BLOCKED ON P0R.1** | Expected mappings must be derived from the accepted wrapper/parser contract and captured evidence. |
+| P0R.3 and P0R.4 | **NOT APPROVED** | Require the post-spike design update, closure of Q37–Q42, and another approval review. |
+| `DEC-2026-09-21-01` | **AUTHORIZED** | GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) is durable, direct product-owner authorization with the recorded narrow scope. |
+| Measurement plan and B2 topology | **TBD / NOT APPROVED** | Current Render limits validate platform bounds, not the required topology, concurrency, or cost model. |
+
+### 24.2 Findings requiring correction
+
+#### 24.2.1 HIGH — the successor's P0R.2 and P0R.3 tasks contradict its own resolved contract
+
+The successor's normative contract distinguishes `data_error`, `model_error`, `internal_error`, and genuine `solver_error`, but P0R.2 still directs load/model failures to `error/solver_error`. Its §2.7.1 boundary table now makes an explicit legacy decision for each consumer, while P0R.3 still says output exports/templates must "define accept-vs-reject of legacy." A task implementer following the execution section can therefore reintroduce the exact Q30/Q32 defects that §23 says are closed.
+
+**Required correction:** rewrite P0R.2 to reference the canonical taxonomy and invariant table in successor §§2.1/2.4, including separate fixtures for each failure class. Rewrite P0R.3 to implement and test the already-selected §2.7.1 behavior; do not leave the decision open. Add a consistency check that every work-package acceptance criterion points to, rather than restates differently, the normative contract.
+
+#### 24.2.2 HIGH — process-group ownership is not technically coherent across the outer timeout
+
+The successor says the Python wrapper launches CBC in its own process group and "owns" bounded termination, but also correctly notes that the current Node runner sends `SIGKILL` only to Python and that `SIGKILL` bypasses Python cleanup. Once Node kills the wrapper, that wrapper cannot kill CBC or reclaim its temporary directory. The current runner knows only the Python PID and resolves after killing it; merely asserting a no-orphan acceptance test does not specify a mechanism capable of passing it.
+
+**Required correction:** choose and document one viable ownership protocol before P0R.1 is accepted:
+
+1. Node creates or tracks a process group containing Python and CBC, sends bounded TERM/KILL to that entire group, waits for exit, and owns final temp cleanup; or
+2. Python reports the CBC process-group ID and temp path to Node through a defined control channel, so Node can perform the same fallback cleanup; or
+3. Python enforces an internal deadline strictly earlier than the outer Node deadline, with sufficient cleanup budget, while Node remains an explicitly specified janitor fallback for crashes and forced kills.
+
+The design must define process-group creation, PID/PGID handoff, timeout ordering, TERM-to-KILL grace periods, wait/reap behavior, cancellation equivalence, temp ownership, platform assumptions, and the actor that publishes the final result exactly once. The acceptance test must record Python and CBC identifiers, force timeout/cancellation, prove neither process survives, prove temp reclamation, prove once-only completion, and repeat the case to detect leaks. Node's documented child-process behavior does not guarantee that killing a child kills its descendants; see [Node.js `subprocess.kill()`](https://nodejs.org/api/child_process.html#subprocesskillsignal).
+
+#### 24.2.3 HIGH — an allegedly operator-only taxonomy is exposed by the public result contract
+
+The successor adds the detailed failure reasons to public `terminationReason` and returns that result through normalized/OpenAPI responses. Hiding the value in the current UI does not make it operator-only: API clients can observe it. The single student-facing quality string `"Solver error"` is also inaccurate for bad data, unsupported/invalid model construction, and internal application failures. The exact `(status, terminationReason) -> quality` table lists only `error/solver_error`, omitting the other newly legal error pairs. Finally, the design removes diagnostic misuse of `infeasibilityReason` without defining a sanitized replacement for operator diagnostics.
+
+**Required correction:** choose one of these coherent contracts:
+
+- keep public `terminationReason` limited to stable, user-appropriate solve outcomes and put `failureReason` plus sanitized `errorDetail` in an internal/operator record; or
+- explicitly make the expanded taxonomy public, document compatibility and sanitization rules, use a truthful coarse user message such as `"Solve failed"`, and enumerate exact quality strings for every legal pair.
+
+In either case, define where diagnostic detail lives, prohibit secrets/paths/raw solver output in public fields, specify Sentry/telemetry mappings, and add schema and negative-leakage tests.
+
+#### 24.2.4 MEDIUM — the legacy boundary matrix selects policies but not implementable API contracts
+
+The direction of Q30 is now explicit, but several boundary behaviors remain too vague for interoperable implementation: output-export rejection has no HTTP status or stable error code; solve-history's "tagged unverified" result has no named field or OpenAPI schema change; telemetry has no exact event/property; and the smoke requirement does not enumerate the endpoints/call sites that must be exercised.
+
+**Required correction:** define, at minimum:
+
+- the export rejection response, recommended as HTTP `409` with stable code `LEGACY_RESULT_REQUIRES_RESOLVE` and a non-sensitive message;
+- a typed response field such as `legacyUnverified: boolean`, including whether it is always emitted and how new rows are represented;
+- the exact telemetry event/property name, allowed values, cardinality constraints, and prohibition on payload/result contents;
+- the complete scenario-read, history, output-export, input/template-export, and cache call-site inventory; and
+- unit/integration tests for every row of the boundary matrix, including authorization behavior and mixed legacy/v2 collections.
+
+#### 24.2.5 MEDIUM — Q35 defines a future gate, not a resolved cache-key algorithm
+
+Successor §2.10 correctly lists the properties the post-spike design must supply, but it still defers the actual artifact manifest, byte framing, authoritative CBC build identity, and final algorithm. That is acceptable during P0R.1 evidence gathering, but it is not an implementation-ready resolution and must not be represented as one.
+
+**Required correction:** mark Q35 explicitly **open as a mandatory P0R.3 gate**. The post-spike update must contain the exact sorted manifest or generated manifest format, canonical path encoding and byte framing, pinned PuLP identity, authoritative CBC binary/build digest or identifier, fail-closed startup behavior, `SOLVER_CONTRACT_VERSION`, example hash vectors, and stability/invalidation tests. No cache read/write may ship until that update is reviewed and approved.
+
+#### 24.2.6 MEDIUM — requested solver-limit metadata lacks a field-level contract
+
+The successor lists `requestedGap` and `configuredTimeLimitSec` but does not define their types, required/nullable status, finiteness/range constraints, source-of-truth mapping, or behavior for `no_solution` and `error` results. It also does not require proof that the values included in the result and cache identity are the values actually supplied to CBC.
+
+**Required correction:** define both fields in the canonical schema and OpenAPI contract, including:
+
+- exact JSON types and units, requiredness/nullability, finite-number checks, and allowed ranges;
+- exact mapping from request fields (`gap`, `timeLimitSec`) after defaults, clamping, and normalization;
+- whether they are present on every terminal result, including `no_solution` and `error`;
+- invariants tying normalized values to CBC arguments, logs/telemetry, stored results, and cache keys; and
+- tests for defaults, boundaries, invalid numbers, retries, and cache separation when either effective limit changes.
+
+### 24.3 Validated improvements
+
+- Q30 now chooses a direction for every named legacy consumer boundary instead of deferring the policy wholesale.
+- Legacy objective normalization is status/evidence-aware and preserves a legitimate numeric zero on successful rows.
+- The achieved-gap formula and JSON representation are internally consistent: `round(abs(I-B)/max(abs(I), EPS), 6)`, numeric serialization, and separate presentation formatting.
+- GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19) remains valid durable authorization for the narrowly scoped sacred-test change.
+- P0R.1 includes a valuable no-orphan, temp-reclamation, once-only, repeated-timeout acceptance test; the missing item is a coherent mechanism and ownership protocol.
+- Current Render documentation still supports the recorded hard platform bounds: eligible service plans top out at 12 CPU per instance and a service can scale to at most 100 same-plan instances. Sources: [Render compute plans](https://render.com/docs/compute-plans), [Render service scaling](https://render.com/docs/scaling). These limits do not by themselves validate the proposed worker count, runtime, queue policy, or cost.
+
+### 24.4 Decisions/questions required (Q37–Q42)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q37 — task/contract consistency** | Will P0R.2 and P0R.3 implement the already-selected canonical taxonomy and legacy matrix, or are those decisions being reopened? | Do not reopen them implicitly. Replace the stale task text with references to successor §§2.1/2.4/§2.7.1 and acceptance tests for those exact rules. |
+| **Q38 — process-tree owner and protocol** | Which surviving actor owns Python+CBC termination, reaping, temp cleanup, and once-only publication when the outer timeout fires? | Select one complete Node/group, PGID-handoff, or inner-deadline-plus-janitor protocol and document its timing and failure cases before accepting P0R.1. |
+| **Q39 — public versus internal failure taxonomy** | Are `data_error`, `model_error`, and `internal_error` stable public API values, and where does sanitized diagnostic detail live? | Prefer a stable public outcome plus an internal `failureReason`/`errorDetail`; otherwise explicitly version and fully specify the public taxonomy and use truthful user copy. |
+| **Q40 — concrete legacy boundary API** | What exact response fields, status/error code, telemetry dimensions, endpoint inventory, and tests implement each §2.7.1 boundary? | Define HTTP `409` + `LEGACY_RESULT_REQUIRES_RESOLVE`, a typed legacy-verification marker, bounded telemetry properties, and per-boundary integration tests. |
+| **Q41 — cache hash readiness** | Is Q35 considered resolved now, or an open prerequisite for P0R.3? | Record it as an open mandatory P0R.3 gate until the exact manifest, framing, identities, vectors, failure behavior, and tests are approved. |
+| **Q42 — effective solver-limit metadata** | What are the complete contracts for `requestedGap` and `configuredTimeLimitSec`, and how are they proven equal to CBC configuration and cache identity? | Make both typed, validated, effective-value fields with explicit terminal-state behavior and end-to-end invariant tests. |
+
+### 24.5 Re-approval checklist
+
+- [ ] Successor P0R.2 no longer maps load/model/internal failures to generic `solver_error` contrary to the canonical taxonomy.
+- [ ] Successor P0R.3 implements the selected legacy matrix rather than asking implementers to decide accept versus reject.
+- [ ] One process-tree ownership protocol is specified end to end and the P0R.1 no-orphan test demonstrates that protocol under timeout, cancellation, crash, and repeated execution.
+- [ ] Public versus internal termination/failure fields, exact quality strings, diagnostic location, sanitization, and compatibility rules are complete and schema-tested.
+- [ ] Every legacy boundary has an endpoint/call-site inventory, typed response behavior, stable export error contract, bounded telemetry tag, and integration test.
+- [ ] Q35 is visibly open until the deterministic cache algorithm and test vectors are approved; cache use remains gated.
+- [ ] `requestedGap` and `configuredTimeLimitSec` have complete schema, range, effective-value, CBC-argument, persistence, telemetry, and cache-key invariants.
+- [ ] The post-spike design incorporates actual CBC evidence and closes Q37–Q42.
+- [ ] A new approval review authorizes P0R.3/P0R.4 before their implementation begins.
+
+Until every applicable item above is closed, §23's statement that the §22 findings are resolved is historical rather than the current approval state; this §24 decision controls.
+
+---
+
+## 25. §24 resolution — Q37–Q42 decisions (2026-09-21)
+
+| Q | Decision | Landed in |
+|---|---|---|
+| **Q37** task/contract consistency | P0R.2/P0R.3 stale text rewritten to **reference** the canonical §2.1/§2.4/§2.7.1 (not restate/reopen): error boundary points to §2.11; legacy boundaries implement §2.7.1, not "define later". | Correctness spec §3 P0R.2/P0R.3. |
+| **Q38** process-tree owner | **Node owns the process group** (the surviving actor): `jobRunner` spawns Python detached as PG leader, tracks PGID, TERM→KILL the whole group on timeout/cancel, reaps, owns temp cleanup, publishes once. No-orphan go/no-go test incl. forced-kill/crash case. Bounded group-kill; full drain still B2. | Correctness spec §3 P0R.1. |
+| **Q39** public vs internal failure | **Public coarse + internal `failureReason`.** Public envelope = `error`/`solver_error`/`"Solve failed"` only; granular `data_error`/`model_error`/`internal_error`/`solver_error` + sanitized `errorDetail` live in the internal `solve_jobs`/telemetry/Sentry record; negative-leakage tests. (Refines Q32: distinct reasons kept, but internal.) | Correctness spec §2.1/§2.4/§2.5/§2.11. |
+| **Q40** concrete legacy API | Export reject = **HTTP 409 + `LEGACY_RESULT_REQUIRES_RESOLVE`**; typed `legacyUnverified: boolean`; bounded telemetry `resultContract: v2\|legacy`; full call-site inventory + per-row integration tests. | Correctness spec §2.7.1. |
+| **Q41** cache-hash readiness | Q35 marked **explicitly OPEN as a mandatory P0R.3 gate**; no cache read/write ships until the deterministic manifest + test vectors are approved. | Correctness spec §2.10. |
+| **Q42** solver-limit metadata | `requestedGap`/`configuredTimeLimitSec` = typed, validated **effective-value** fields (post defaults/clamping = actual CBC args); present on every terminal incl. `no_solution`/`error`; tied to the cache key; boundary/invalid/retry tests. | Correctness spec §2.12. |
+
+§24 findings resolved; correctness successor governs implementation (P0R.1 + P0R.2 fixture capture approved). Q39 refines Q32 (granular reasons retained but moved off the public contract into an internal record — closes the §24.2.3 leakage). Q38 supersedes §22's "wrapper owns kill" with a surviving-parent (Node) process-group owner.
