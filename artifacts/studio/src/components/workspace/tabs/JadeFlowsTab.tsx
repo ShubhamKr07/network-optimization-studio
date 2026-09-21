@@ -8,6 +8,8 @@ import { bandLabel, bandRangeLabel, DEFAULT_DISTANCE_BANDS } from "@/lib/bands";
 import { formatCityState, plantIdCityState } from "@/lib/formatLocation";
 import { EntityIdCell } from "@/components/tables/EntityIdCell";
 import type { EntityIdentity } from "@/lib/entityIdentity";
+import { useDisplayUnit } from "@/contexts/UnitContext";
+import type { CanonicalUnit } from "@workspace/units";
 
 // B3 (JADE Ch.9 Workspace Bundle, spec §5b) — Chapter 9 JADE's Flows tab.
 // JADE has TWO distinct facility->facility legs (plant_to_warehouse inbound,
@@ -76,9 +78,13 @@ interface JadeFlowsTabProps {
    * display fallback (mirrors `OutputMapTab.tsx`/`JadeAssignmentsTab.tsx`'s
    * own `effectiveBands` pattern) when empty/absent. */
   bands?: number[];
-  /** Mirrors ListModelsResponseItem.distanceUnit; defaults to "mi" (JADE's
-   * only unit). */
-  distanceUnit?: string;
+  /** Mirrors ListModelsResponseItem.distanceUnit (JADE's own canonical unit
+   * is always "mi", but this is still threaded rather than defaulted — Part
+   * D's toggle applies here too, and `undefined`/`null` means the manifest
+   * hasn't resolved yet, in which case every distance-bearing cell/filter
+   * option/CSV export shows a loading placeholder instead of a guessed
+   * unit). */
+  distanceUnit?: CanonicalUnit | null;
   /** Optional — reserved for a future server-backed export affordance on
    * this tab (parity with every other Jade output tab's props contract).
    * The per-leg CSVs below are client-side only and need no scenario
@@ -200,13 +206,19 @@ export function JadeFlowsTab({
   result = null,
   dataset = null,
   bands = [],
-  distanceUnit = "mi",
+  distanceUnit,
   effectivePlants,
   identityById,
 }: JadeFlowsTabProps) {
   const [innerTab, setInnerTab] = useState<InnerTab>("plant-warehouse");
+  const unit = useDisplayUnit();
+  const canonicalResolved = distanceUnit != null;
+  const resolvedUnitLabel = canonicalResolved ? unit.effectiveUnit(distanceUnit) : null;
+  const formatRowDistance = (raw: number): string =>
+    canonicalResolved ? `${unit.toDisplay(raw, distanceUnit).toFixed(1)} ${resolvedUnitLabel}` : "—";
 
   const effectiveBands = bands.length > 0 ? bands : DEFAULT_DISTANCE_BANDS;
+  const displayBands = canonicalResolved ? effectiveBands.map(b => unit.toDisplay(b, distanceUnit)) : effectiveBands;
 
   // Workspace fixups bundle (T6, item 2) — the plant list used to resolve
   // the P->W Plant column. A signature over id+city+state (not just id) is
@@ -264,11 +276,14 @@ export function JadeFlowsTab({
         key: "band",
         label: "Distance Band",
         type: "select",
-        accessor: r => bandRangeLabel(r.distance, effectiveBands, distanceUnit),
+        accessor: r =>
+          canonicalResolved
+            ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!)
+            : "—",
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [effectiveBands.join(","), distanceUnit],
+    [effectiveBands.join(","), distanceUnit, unit.pref],
   );
 
   const wcDescriptors: ColumnFilterDescriptor<WarehouseCustomerRow>[] = useMemo(
@@ -281,11 +296,14 @@ export function JadeFlowsTab({
         key: "band",
         label: "Distance Band",
         type: "select",
-        accessor: r => bandRangeLabel(r.distance, effectiveBands, distanceUnit),
+        accessor: r =>
+          canonicalResolved
+            ? bandRangeLabel(unit.toDisplay(r.distance, distanceUnit), displayBands, resolvedUnitLabel!)
+            : "—",
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [effectiveBands.join(","), distanceUnit],
+    [effectiveBands.join(","), distanceUnit, unit.pref],
   );
 
   // Both hooks are called unconditionally regardless of which inner tab is
@@ -308,18 +326,18 @@ export function JadeFlowsTab({
   useEffect(() => {
     pwFilters.setFilter("band", undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveBands.join(","), distanceUnit]);
+  }, [effectiveBands.join(","), distanceUnit, unit.pref]);
 
   useEffect(() => {
     wcFilters.setFilter("band", undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveBands.join(","), distanceUnit]);
+  }, [effectiveBands.join(","), distanceUnit, unit.pref]);
 
   function handleDownloadPw() {
     downloadClientCsv(
       "plant-to-warehouse-flows.csv",
       ["Plant", "Warehouse", "Distance", "Flow", "Distance Band"],
-      pwRows.map(r => [r.plantLabel, r.warehouseLabel, `${r.distance.toFixed(1)} ${distanceUnit}`, r.flow, r.band]),
+      pwRows.map(r => [r.plantLabel, r.warehouseLabel, formatRowDistance(r.distance), r.flow, r.band]),
     );
   }
 
@@ -327,7 +345,7 @@ export function JadeFlowsTab({
     downloadClientCsv(
       "warehouse-to-customer-flows.csv",
       ["Warehouse", "Customer", "Distance", "Flows", "Distance Band"],
-      wcRows.map(r => [r.warehouseLabel, r.customerLabel, `${r.distance.toFixed(1)} ${distanceUnit}`, r.flow, r.band]),
+      wcRows.map(r => [r.warehouseLabel, r.customerLabel, formatRowDistance(r.distance), r.flow, r.band]),
     );
   }
 
@@ -435,7 +453,7 @@ export function JadeFlowsTab({
                     {renderJadeEntityCell(r.warehouseId, r.warehouseLabel, identityById, pwRows.length > 10)}
                   </TableCell>
                   <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-pw-distance-${r.key}`}>
-                    {r.distance.toFixed(1)} {distanceUnit}
+                    {formatRowDistance(r.distance)}
                   </TableCell>
                   <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-pw-flow-${r.key}`}>
                     {r.flow.toLocaleString()}
@@ -475,7 +493,7 @@ export function JadeFlowsTab({
                     {renderJadeEntityCell(r.customerId, r.customerLabel, identityById, wcRows.length > 10)}
                   </TableCell>
                   <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-wc-distance-${r.key}`}>
-                    {r.distance.toFixed(1)} {distanceUnit}
+                    {formatRowDistance(r.distance)}
                   </TableCell>
                   <TableCell className="text-right font-mono" data-testid={`cell-jade-flow-wc-flow-${r.key}`}>
                     {r.flow.toLocaleString()}

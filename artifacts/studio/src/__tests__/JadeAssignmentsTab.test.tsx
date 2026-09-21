@@ -1,9 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeAssignmentsTab } from "@/components/workspace/tabs/JadeAssignmentsTab";
 import * as exportEntity from "@/lib/exportEntity";
 import { bandLabel } from "@/lib/bands";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// JadeAssignmentsTab now calls useDisplayUnit() unconditionally — every
+// render needs a UnitProvider ancestor. Shadowing `render` keeps every
+// existing call site (incl. `rerender`, which reuses the same tree) byte-
+// identical, same pattern as AppShell.test.tsx's renderShell.
+function render(ui: ReactElement) {
+  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+}
 
 // B2 (JADE Ch.9 Workspace Bundle, spec §5a) — Chapter 9 JADE's product-level
 // Customer Assignments table. Separate component from the shared
@@ -124,6 +134,19 @@ describe("JadeAssignmentsTab", () => {
     expect(row).toHaveTextContent("42.1 mi");
   });
 
+  // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
+  // passed means the canonical unit is unresolved — the Distance cell must
+  // show a loading placeholder, never a guessed "mi" (JADE's own canonical
+  // unit is genuinely "mi", but the value must still be threaded, not
+  // defaulted).
+  it("shows a Distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
+    render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
+    const row = screen.getByTestId("row-jadeassignment-product-1|customer-1");
+    expect(row).not.toHaveTextContent("42.1 mi");
+    expect(row).not.toHaveTextContent("42.1");
+    expect(row).toHaveTextContent("—");
+  });
+
   it("Distance Band matches the shared bandLabel helper exactly, for both an in-range and an overflow distance", () => {
     render(<JadeAssignmentsTab result={twoRowsResult} dataset={dataset} bands={bands} scenarioId={1} />);
     const inRangeRow = screen.getByTestId("row-jadeassignment-product-1|customer-1"); // 42.1 mi
@@ -235,7 +258,7 @@ describe("JadeAssignmentsTab", () => {
 
       fetchSpy.mockClear();
       rerender(
-        <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
+        <UnitProvider><JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} /></UnitProvider>,
       );
 
       expect(within(popover).getByTestId("option-filter-band-Band 1: 0 mi - 500 mi")).toBeInTheDocument();
@@ -262,7 +285,7 @@ describe("JadeAssignmentsTab", () => {
       // Edit the live distance bands — simulates the band editor changing
       // boundaries out from under an already-mounted table.
       rerender(
-        <JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} />,
+        <UnitProvider><JadeAssignmentsTab result={variedRowsResult()} dataset={dataset} bands={[500]} distanceUnit="mi" scenarioId={1} /></UnitProvider>,
       );
 
       // Band filter cleared (its checkbox unchecked, count reflects only the

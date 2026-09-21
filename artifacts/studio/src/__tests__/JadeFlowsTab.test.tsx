@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { JadeFlowsTab } from "@/components/workspace/tabs/JadeFlowsTab";
 import { bandLabel, bandRangeLabel } from "@/lib/bands";
+import { UnitProvider } from "@/contexts/UnitContext";
+
+// JadeFlowsTab now calls useDisplayUnit() unconditionally — every render
+// needs a UnitProvider ancestor. Shadowing `render` keeps every existing
+// call site (incl. `rerender`, which reuses the same tree) byte-identical,
+// same pattern as AppShell.test.tsx's renderShell.
+function render(ui: ReactElement) {
+  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+}
 
 // jsdom does not implement URL.createObjectURL/revokeObjectURL at all, so
 // vi.spyOn (which requires the property to already exist as a function)
@@ -136,6 +146,17 @@ describe("JadeFlowsTab", () => {
       render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} distanceUnit="mi" />);
       const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
       expect(row).toHaveTextContent("293.7 mi");
+    });
+
+    // chen-bands-units, Part D "No fallback unit — reads": no `distanceUnit`
+    // passed means the canonical unit is unresolved — the Distance cell must
+    // show a loading placeholder, never a guessed "mi".
+    it("shows a Distance placeholder — never a value or a guessed 'mi' — when distanceUnit is not resolved", () => {
+      render(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} />);
+      const row = screen.getByTestId("jade-flow-pw-row-plant-1-wh-11");
+      expect(row).not.toHaveTextContent("293.7 mi");
+      expect(row).not.toHaveTextContent("293.7");
+      expect(row).toHaveTextContent("—");
     });
 
     it("Distance Band matches the shared bandLabel helper, for both an in-range and an overflow distance", () => {
@@ -356,7 +377,7 @@ describe("JadeFlowsTab", () => {
         { id: "plant-1", city: "Reading", state: "PA", lat: 1, lng: 1 },
         { id: "plant-2", city: "Houston", state: "TX", lat: 2, lng: 2 },
       ];
-      rerender(<JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} effectivePlants={movedPlants} />);
+      rerender(<UnitProvider><JadeFlowsTab result={jadeResult} dataset={dataset} bands={bands} effectivePlants={movedPlants} /></UnitProvider>);
       expect(screen.getByTestId("jade-flow-pw-row-plant-1-wh-11")).toHaveTextContent("plant-1 — Reading, PA");
     });
   });
@@ -432,7 +453,7 @@ describe("JadeFlowsTab", () => {
       // JadeFlowsTab performs no data fetching at all (pure-props component)
       // — there is nothing to spy on for "no network call"; the memo-deps fix
       // is proven by the options actually changing on a plain prop rerender.
-      rerender(<JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" />);
+      rerender(<UnitProvider><JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" /></UnitProvider>);
 
       await user.click(screen.getByTestId("button-filter-menu-trigger"));
       const popover = screen.getByTestId("filter-menu-popover");
@@ -471,7 +492,7 @@ describe("JadeFlowsTab", () => {
       await user.keyboard("{Escape}");
 
       // Change bands — both tables' own "band" filter should clear.
-      rerender(<JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" />);
+      rerender(<UnitProvider><JadeFlowsTab result={spreadResult} bands={[1000]} distanceUnit="mi" /></UnitProvider>);
 
       // Still on the Warehouse -> Customer tab: band cleared, customer filter survives.
       await user.click(screen.getByTestId("button-filter-menu-trigger"));
