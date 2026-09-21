@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { render, type RenderOptions, type RenderResult } from "@testing-library/react";
 import { ExportProvider, type ExportProviderValue } from "@/contexts/ExportContext";
+import { UnitProvider } from "@/contexts/UnitContext";
 
 // SCN chen-bands-units, Task 11b — shared test helper. Task 14b's 26
 // converted export controls (and Task 14's own provider-derivation tests)
@@ -14,6 +15,28 @@ const DEFAULT_EXPORT_PROVIDER_VALUE: ExportProviderValue = {
 
 export function makeExportProviderValue(overrides: Partial<ExportProviderValue> = {}): ExportProviderValue {
   return { ...DEFAULT_EXPORT_PROVIDER_VALUE, ...overrides };
+}
+
+/**
+ * Both providers a converted export control needs, composed once.
+ *
+ * Task 14b's tabs call `useExport()` AND (via T11-T13) `useDisplayUnit()`, and
+ * both hooks throw without their provider. Pass as RTL's `wrapper` **option**,
+ * never as a wrapping JSX element — an element is silently dropped by
+ * `rerender(...)`, which fails intermittently and confusingly.
+ *
+ *   rtlRender(ui, { wrapper: AllProviders, ...options })
+ *
+ * Tests needing a non-default export value (a disabled reason, a runId, an
+ * unresolved unit) should wrap explicitly with `ExportProviderTestWrapper`
+ * instead of using this default.
+ */
+export function AllProviders({ children }: { children: ReactNode }) {
+  return (
+    <UnitProvider>
+      <ExportProvider value={makeExportProviderValue()}>{children}</ExportProvider>
+    </UnitProvider>
+  );
 }
 
 /** For `renderHook(fn, { wrapper: exportProviderWrapper({...}) })`. */

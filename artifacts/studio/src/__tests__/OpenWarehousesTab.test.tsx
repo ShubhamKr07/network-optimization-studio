@@ -1,8 +1,20 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { OpenWarehousesTab } from "@/components/workspace/tabs/OpenWarehousesTab";
 import * as exportEntity from "@/lib/exportEntity";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { exportProviderWrapper, makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+
+// SCN chen-bands-units, Task 14b — OpenWarehousesTab now calls useExport()
+// unconditionally, needing an ExportProvider ancestor for every render.
+// Shadowing `render` (RTL's `wrapper` OPTION, not a JSX-wrapping element —
+// see this repo's own documented rerender gotcha) keeps every pre-existing
+// bare `render(<OpenWarehousesTab .../>)` call site byte-identical.
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: exportProviderWrapper() });
+}
 
 const result = {
   status: "optimal" as const, objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
@@ -36,7 +48,44 @@ describe("OpenWarehousesTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<OpenWarehousesTab result={result} scenarioId={1} />);
     fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv");
+    // scenarioId/unit come from the ExportProvider context (default {scenarioId:1, unit:"mi"}),
+    // NOT from this component's own `scenarioId` prop — toHaveBeenCalledWith
+    // ignores the undefined `runId` key (vitest/jest equality semantics).
+    expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions the context-only ExportContext
+  // tests (Task 11b) deliberately left to the real consumers.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced when the displayed result has no runId (resultDisabledReason)", () => {
+      rtlRender(
+        <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "This result predates run history — export the latest result instead." })}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      const button = screen.getByTestId("button-download-open-warehouses-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "This result predates run history — export the latest result instead.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <ExportProvider value={makeExportProviderValue({ runId: 42 })}>
+          <OpenWarehousesTab result={result} scenarioId={1} />
+        </ExportProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "openWarehouses", "csv", { unit: "mi", runId: 42 });
+    });
+
+    it("omits runId (undefined) when the latest result is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      render(<OpenWarehousesTab result={result} scenarioId={1} />);
+      fireEvent.click(screen.getByTestId("button-download-open-warehouses-csv"));
+      const call = spy.mock.calls[0];
+      expect(call[3]).toEqual({ unit: "mi", runId: undefined });
+    });
   });
 
   // B2.2-T6 — B1: utilization column gate

@@ -1,10 +1,23 @@
 import { cloneElement, useState, type ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
+// SCN chen-bands-units, Task 14b — this tab's export control now calls
+// useExport(), which throws without an ExportProvider (and it already needed
+// UnitProvider). AllProviders composes both. Passed as RTL's `wrapper`
+// OPTION, never a wrapping element: an element is dropped by `rerender`.
+function render(
+  ui: Parameters<typeof rtlRender>[0],
+  options?: Parameters<typeof rtlRender>[1],
+) {
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
+}
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { JadeDistancesTab } from "@/components/workspace/tabs/JadeDistancesTab";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer), a visible Leg column,
@@ -106,7 +119,7 @@ function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient
     queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const Providers = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={client}>
-      <UnitProvider>{children}</UnitProvider>
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}>{children}</ExportProvider></UnitProvider>
     </QueryClientProvider>
   );
   return render(withDefaultUnit(ui), { wrapper: Providers });
@@ -1139,12 +1152,12 @@ function renderWithToggle(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <UnitProvider>
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}>
         <ToggleUnitButton to="km" />
         <ToggleUnitButton to="mi" />
         <ToggleUnitButton to="auto" />
         {ui}
-      </UnitProvider>
+      </ExportProvider></UnitProvider>
     </QueryClientProvider>,
   );
 }

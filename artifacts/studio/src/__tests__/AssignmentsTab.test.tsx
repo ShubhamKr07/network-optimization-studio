@@ -4,13 +4,20 @@ import { describe, it, expect, vi } from "vitest";
 import { AssignmentsTab } from "@/components/workspace/tabs/AssignmentsTab";
 import * as exportEntity from "@/lib/exportEntity";
 import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 
 // AssignmentsTab now calls useDisplayUnit() unconditionally — every render
 // needs a UnitProvider ancestor. Shadowing `render` (rather than wrapping
 // each of this file's many call sites individually) keeps every existing
 // call site byte-identical, same pattern as AppShell.test.tsx's renderShell.
+//
+// SCN chen-bands-units, Task 14b — AssignmentsTab now ALSO calls useExport()
+// unconditionally, so this shadow additionally wraps ExportProvider with
+// Task 11b's default value ({scenarioId: 1, unit: "mi"}, matching every
+// existing test's own scenarioId={1} prop).
 function render(ui: ReactElement) {
-  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+  return rtlRender(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
 }
 
 const result = {
@@ -63,7 +70,36 @@ describe("AssignmentsTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<AssignmentsTab result={result} scenarioId={1} />);
     fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "assignments", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <AssignmentsTab result={result} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-assignments-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed, omits it for the latest", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 9 })}>
+            <AssignmentsTab result={result} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-assignments-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "assignments", "csv", { unit: "mi", runId: 9 });
+    });
   });
 
   // B2.2-T6 — B6: added-entity display ID

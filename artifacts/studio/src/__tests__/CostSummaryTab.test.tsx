@@ -1,8 +1,21 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
 import type { Scenario } from "@workspace/api-client-react";
 import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+
+// SCN chen-bands-units, Task 14b — CostSummaryTab now calls useExport()
+// unconditionally. This file's every call site already inlines its own
+// `<UnitProvider><ExportProvider value={makeExportProviderValue()}>` wrap (no shadowed local `render`, no `rerender()` calls
+// anywhere in this file) — shadowing RTL's own `render` here wraps every one
+// of those ~35 call sites in an ExportProvider too, with zero edits to each
+// individual call.
+function render(ui: ReactElement) {
+  return rtlRender(<ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider>);
+}
 
 // R6+R8 — distanceUnit + the supportsP capability flag are both sourced from
 // GET /api/models (via useListModels), same pattern ServiceStatsTab.test.tsx
@@ -97,7 +110,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
     // on the now-removed `?? "mi"` fallback; a real caller (Workspace.tsx)
     // always passes `modelId`, so this test does too to keep asserting the
     // SAME rendered text under the new no-fallback contract.
-    render(<UnitProvider><CostSummaryTab result={result} scenarioId={1} modelId="p-median-us" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("29,873,735,731");
     expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("382.9 mi");
     expect(screen.getByTestId("cost-summary-value-quality")).toHaveTextContent("Proven optimal");
@@ -107,7 +120,7 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   // the canonical distance unit can never resolve — the cell must show a
   // loading placeholder, NEVER a value guessed under "mi".
   it("shows a distance placeholder — never a value or a guessed 'mi' label — when modelId/canonical unit hasn't resolved", () => {
-    render(<UnitProvider><CostSummaryTab result={result} scenarioId={1} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
     const cell = screen.getByTestId("cost-summary-value-weighted-avg-distance");
     expect(cell).toHaveTextContent("—");
     expect(cell).not.toHaveTextContent("mi");
@@ -115,26 +128,26 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   });
 
   it("shows empty state when result is null", () => {
-    render(<UnitProvider><CostSummaryTab result={null} scenarioId={1} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={null} scenarioId={1} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-empty")).toBeInTheDocument();
   });
 
   it("calls downloadEntityExport with entity=costSummary on Download click", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
-    render(<UnitProvider><CostSummaryTab result={result} scenarioId={1} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("button-download-cost-summary-csv"));
     expect(spy).toHaveBeenCalledWith(1, "costSummary", "csv");
   });
 
   it("uses the model's distanceUnit ('mi') for a two-echelon-gold-au render", () => {
-    render(<UnitProvider><CostSummaryTab result={result} scenarioId={1} modelId="two-echelon-gold-au" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} modelId="two-echelon-gold-au" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveTextContent("382.9 mi");
   });
 
   // Bundle 3, T9 — mono-numbers pass: the numeric objective/distance stats
   // render in the monospace font; the text-valued Quality row doesn't.
   it("renders numeric stats with font-mono, text stats without (Bundle 3, T9)", () => {
-    render(<UnitProvider><CostSummaryTab result={result} scenarioId={1} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveClass("font-mono");
     expect(screen.getByTestId("cost-summary-value-weighted-avg-distance")).toHaveClass("font-mono");
     expect(screen.getByTestId("cost-summary-value-quality")).not.toHaveClass("font-mono");
@@ -151,20 +164,20 @@ describe("CostSummaryTab — Chapter 9 JADE inbound/outbound cost split", () => 
   };
 
   it("shows Inbound cost and Outbound cost rows when the metrics carry them", () => {
-    render(<UnitProvider><CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-inbound-cost")).toHaveTextContent("100,000,000");
     expect(screen.getByTestId("cost-summary-value-outbound-cost")).toHaveTextContent("154,060,828");
   });
 
   it("places Inbound/Outbound cost rows between Objective and Weighted avg. distance", () => {
-    render(<UnitProvider><CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={jadeResult} scenarioId={1} modelId="two-echelon-jade-us" /></ExportProvider></UnitProvider>);
     const list = screen.getByTestId("cost-summary-list");
     const labels = [...list.querySelectorAll("dt")].map(dt => dt.textContent);
     expect(labels).toEqual(["Objective", "Inbound cost", "Outbound cost", "Weighted avg. distance", "Runtime", "Quality", "Solver"]);
   });
 
   it("does not show Inbound/Outbound cost rows for a model whose envelope omits them (no regression)", () => {
-    render(<UnitProvider><CostSummaryTab result={result} scenarioId={1} modelId="p-median-us" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={result} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
     expect(screen.queryByTestId("cost-summary-value-inbound-cost")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-value-outbound-cost")).not.toBeInTheDocument();
   });
@@ -184,7 +197,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   const otherModel = scenario({ id: 5, name: "Other model scenario", modelId: "transport-coal", result: { ...result } });
 
   it("only enables solved + non-stale scenarios for compare, others show a solve-first hint", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2, unsolved, stale]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2, unsolved, stale]} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-compare-toggle-3").querySelector("input")).toBeDisabled();
     expect(screen.getByTestId("cost-summary-compare-hint-3")).toHaveTextContent("(solve first)");
     expect(screen.getByTestId("cost-summary-compare-toggle-4").querySelector("input")).toBeDisabled();
@@ -193,12 +206,12 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   });
 
   it("cross-model selection is impossible — scenarios from another model never appear as toggles", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2, otherModel]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2, otherModel]} /></ExportProvider></UnitProvider>);
     expect(screen.queryByTestId("cost-summary-compare-toggle-5")).not.toBeInTheDocument();
   });
 
   it("selecting 2 scenarios shows scalar rows (objective/distance/runtime/quality) per column", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-table")).toBeInTheDocument();
     expect(screen.getByTestId("cost-summary-compare-objective-1")).toHaveTextContent("100");
@@ -221,7 +234,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     try {
       const twoEchelonS1 = withModel(s1, "two-echelon-gold-au");
       const twoEchelonS2 = withModel(s2, "two-echelon-gold-au");
-      render(<UnitProvider><CostSummaryTab result={twoEchelonS1.result} scenarioId={1} modelId="two-echelon-gold-au" scenarios={[twoEchelonS1, twoEchelonS2]} /></UnitProvider>);
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={twoEchelonS1.result} scenarioId={1} modelId="two-echelon-gold-au" scenarios={[twoEchelonS1, twoEchelonS2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
       expect(screen.getByText("Weighted avg. distance (km)")).toBeInTheDocument();
     } finally {
@@ -231,7 +244,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   });
 
   it("no aggregate-utilization cell is rendered in compare mode (removed, T3)", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.queryByTestId("cost-summary-compare-utilization-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-utilization-2")).not.toBeInTheDocument();
@@ -241,7 +254,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   // ── T5 (B5) — open-facility set by city ──────────────────────────────
 
   it("the city-list row appears immediately after Weighted avg. distance, and the old count row is gone (not duplicated)", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     const table = screen.getByTestId("cost-summary-compare-table");
     const rowLabels = [...table.querySelectorAll("tbody tr")].map(tr => tr.querySelector("td")?.textContent);
@@ -255,7 +268,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   });
 
   it("resolves base facility ids to their dataset city names, hyphen-separated from state (T3)", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     // s1 opens WH1 (Chicago - IL) + WH2 (Dallas - TX); s2 opens WH1 only.
     expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("Chicago - IL");
@@ -267,7 +280,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   it("gates the city-list row independently on supportsFacilityStatus, not supportsP (absent for transport-coal)", () => {
     const t1 = withModel(s1, "transport-coal");
     const t2 = withModel(s2, "transport-coal");
-    render(<UnitProvider><CostSummaryTab result={t1.result} scenarioId={1} modelId="transport-coal" scenarios={[t1, t2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={t1.result} scenarioId={1} modelId="transport-coal" scenarios={[t1, t2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.queryByTestId("cost-summary-compare-open-facilities-cities-1")).not.toBeInTheDocument();
   });
@@ -278,7 +291,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       inputs: { addedWarehouses: [{ id: "aw-1", city: "Newtown", state: "PA", lat: 0, lng: 0, status: "active", displayCode: "AW1" }] },
       result: { ...result, edges: [{ fromId: "aw-1", toId: "C9", flow: 1, distance: 10 }] },
     });
-    render(<UnitProvider><CostSummaryTab result={added.result} scenarioId={20} modelId="p-median-us" scenarios={[added, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={added.result} scenarioId={20} modelId="p-median-us" scenarios={[added, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-20")).toHaveTextContent("Newtown - PA");
   });
@@ -288,7 +301,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       id: 40, name: "Unknown facility", modelId: "p-median-us",
       result: { ...result, edges: [{ fromId: "WH-GHOST", toId: "C1", flow: 1, distance: 5 }] },
     });
-    render(<UnitProvider><CostSummaryTab result={unknownFacility.result} scenarioId={40} modelId="p-median-us" scenarios={[unknownFacility, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={unknownFacility.result} scenarioId={40} modelId="p-median-us" scenarios={[unknownFacility, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-40")).toHaveTextContent("WH-GHOST");
   });
@@ -299,7 +312,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     // "dataset not loaded yet" — the row must still render ids, never blank.
     const brazilS1 = withModel(s1, "p-median-brazil");
     const brazilS2 = withModel(s2, "p-median-brazil");
-    render(<UnitProvider><CostSummaryTab result={brazilS1.result} scenarioId={1} modelId="p-median-brazil" scenarios={[brazilS1, brazilS2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={brazilS1.result} scenarioId={1} modelId="p-median-brazil" scenarios={[brazilS1, brazilS2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-1")).toHaveTextContent("WH1");
   });
@@ -331,7 +344,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     });
 
     it("gets exactly one city-list row (fixed mine excluded) and no aggregate-utilization row", () => {
-      render(<UnitProvider><CostSummaryTab result={g1.result} scenarioId={10} modelId="two-echelon-gold-au" scenarios={[g1, g2]} /></UnitProvider>);
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={g1.result} scenarioId={10} modelId="two-echelon-gold-au" scenarios={[g1, g2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
       expect(screen.queryAllByText("Open facilities")).toHaveLength(1);
       expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-10")).toHaveTextContent("Daggar Hills - QLD");
@@ -351,7 +364,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
           ],
         },
       });
-      render(<UnitProvider><CostSummaryTab result={addedRef.result} scenarioId={30} modelId="two-echelon-gold-au" scenarios={[addedRef, g2]} /></UnitProvider>);
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={addedRef.result} scenarioId={30} modelId="two-echelon-gold-au" scenarios={[addedRef, g2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-11").querySelector("input")!);
       expect(screen.getByTestId("cost-summary-compare-open-facilities-cities-30")).toHaveTextContent("Toowoomba - QLD");
     });
@@ -380,7 +393,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     });
 
     it("uses metrics.openFacilityIds (not derived edges), including a zero-flow open warehouse, and excludes the plant", () => {
-      render(<UnitProvider><CostSummaryTab result={j1.result} scenarioId={50} modelId="two-echelon-jade-us" scenarios={[j1, j2]} /></UnitProvider>);
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={j1.result} scenarioId={50} modelId="two-echelon-jade-us" scenarios={[j1, j2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
       const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
       expect(cities).not.toHaveTextContent("plant-1");
@@ -400,7 +413,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     // one column's data in another column's cell.
     it("resolves the identity-chip layout's values from each column's OWN dataset/inputs, not from locationById's own values", () => {
       render(
-        <UnitProvider><CostSummaryTab
+        <UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab
           result={j1.result}
           scenarioId={50}
           modelId="two-echelon-jade-us"
@@ -408,7 +421,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
           // Deliberately WRONG values — if the component still read this
           // map's contents, the assertions below would see these instead.
           locationById={{ "wh-11": { city: "WRONG-FROM-PROP", state: "XX" }, "wh-14": { city: "ALSO-WRONG", state: "XX" } }}
-        /></UnitProvider>,
+        /></ExportProvider></UnitProvider>,
       );
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
       const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
@@ -439,13 +452,13 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
         result: { ...result, metrics: { weightedAvgDistance: 520, openFacilityIds: ["aw-shared"] }, edges: [] },
       });
       render(
-        <UnitProvider><CostSummaryTab
+        <UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab
           result={jadeA.result}
           scenarioId={70}
           modelId="two-echelon-jade-us"
           scenarios={[jadeA, jadeB]}
           locationById={{}}
-        /></UnitProvider>,
+        /></ExportProvider></UnitProvider>,
       );
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-71").querySelector("input")!);
       const colA = screen.getByTestId("cost-summary-compare-open-facilities-cities-70");
@@ -459,7 +472,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
     });
 
     it("falls back to the pre-existing city-resolution rendering when locationById is absent (other-model default, no regression)", () => {
-      render(<UnitProvider><CostSummaryTab result={j1.result} scenarioId={50} modelId="two-echelon-jade-us" scenarios={[j1, j2]} /></UnitProvider>);
+      render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={j1.result} scenarioId={50} modelId="two-echelon-jade-us" scenarios={[j1, j2]} /></ExportProvider></UnitProvider>);
       fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-51").querySelector("input")!);
       const cities = screen.getByTestId("cost-summary-compare-open-facilities-cities-50");
       expect(cities).toHaveTextContent("wh-11");
@@ -468,7 +481,7 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
   });
 
   it("shows per-band coverage rows when all selected scenarios share identical bands", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-band-200-1")).toHaveTextContent("40%");
     expect(screen.getByTestId("cost-summary-compare-band-200-2")).toHaveTextContent("60%");
@@ -480,27 +493,27 @@ describe("CostSummaryTab — R6+R8 multi-scenario compare", () => {
       ...s2,
       result: { ...s2.result!, metrics: { ...s2.result!.metrics, bandCoverage: [{ band: 500, percent: 60 }] } },
     };
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2DifferentBands]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2DifferentBands]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.queryByTestId("cost-summary-compare-band-200-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("cost-summary-compare-bands-note")).toBeInTheDocument();
   });
 
   it("disables all toggles with a return-to-latest hint while browsing result history", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} isBrowsingHistory /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} isBrowsingHistory /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-history-hint")).toBeInTheDocument();
     expect(screen.getByTestId("cost-summary-compare-toggle-1").querySelector("input")).toBeDisabled();
     expect(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")).toBeDisabled();
   });
 
   it("hides Download CSV in compare mode", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-2").querySelector("input")!);
     expect(screen.queryByTestId("button-download-cost-summary-csv")).not.toBeInTheDocument();
   });
 
   it("1 selected renders the normal single-scenario summary, including Download CSV", () => {
-    render(<UnitProvider><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={s1.result} scenarioId={1} modelId="p-median-us" scenarios={[s1, s2]} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-list")).toBeInTheDocument();
     expect(screen.getByTestId("button-download-cost-summary-csv")).toBeInTheDocument();
     expect(screen.queryByTestId("cost-summary-compare-table")).not.toBeInTheDocument();
@@ -524,17 +537,17 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
   const minDist = scenario({ id: 62, name: "Min-Dist", modelId: "chens-cosmetics-cn", result: minDistanceResult });
 
   it("single-scenario: a coverage solve shows a % objective", () => {
-    render(<UnitProvider><CostSummaryTab result={coverageResult} scenarioId={60} modelId="chens-cosmetics-cn" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageResult} scenarioId={60} modelId="chens-cosmetics-cn" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("66.67 %");
   });
 
   it("single-scenario: a min-distance solve shows a demand-km objective", () => {
-    render(<UnitProvider><CostSummaryTab result={minDistanceResult} scenarioId={62} modelId="chens-cosmetics-cn" /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDistanceResult} scenarioId={62} modelId="chens-cosmetics-cn" /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-value-objective")).toHaveTextContent("demand-km");
   });
 
   it("with a coverage anchor selected, a different-mode (min-distance) scenario is DISABLED with a hint; a same-mode one is enabled", () => {
-    render(<UnitProvider><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
     // Same mode (coverage) — selectable.
     expect(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")).not.toBeDisabled();
     // Different mode (min_distance) — blocked with a mode hint (NOT a solve-first hint; it IS solved).
@@ -544,7 +557,7 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
   });
 
   it("two SAME-mode coverage scenarios compare together (mode-aware % in each column)", () => {
-    render(<UnitProvider><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={coverageA.result} scenarioId={60} modelId="chens-cosmetics-cn" scenarios={[coverageA, coverageB, minDist]} /></ExportProvider></UnitProvider>);
     fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-61").querySelector("input")!);
     expect(screen.getByTestId("cost-summary-compare-table")).toBeInTheDocument();
     expect(screen.getByTestId("cost-summary-compare-objective-60")).toHaveTextContent("66.67 %");
@@ -552,7 +565,7 @@ describe("CostSummaryTab — Chen mode-aware objective + compare restriction (C4
   });
 
   it("with a min-distance anchor, coverage scenarios are the ones blocked (symmetry)", () => {
-    render(<UnitProvider><CostSummaryTab result={minDist.result} scenarioId={62} modelId="chens-cosmetics-cn" scenarios={[minDist, coverageA, coverageB]} /></UnitProvider>);
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={minDist.result} scenarioId={62} modelId="chens-cosmetics-cn" scenarios={[minDist, coverageA, coverageB]} /></ExportProvider></UnitProvider>);
     expect(screen.getByTestId("cost-summary-compare-toggle-60").querySelector("input")).toBeDisabled();
     expect(screen.getByTestId("cost-summary-compare-mode-hint-60")).toHaveTextContent("different objective");
   });

@@ -4,12 +4,17 @@ import { describe, it, expect, vi } from "vitest";
 import { FlowsTab } from "@/components/workspace/tabs/FlowsTab";
 import * as exportEntity from "@/lib/exportEntity";
 import { UnitProvider } from "@/contexts/UnitContext";
+import { ExportProvider } from "@/contexts/ExportContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
 
 // FlowsTab now calls useDisplayUnit() unconditionally — every render needs a
 // UnitProvider ancestor. Shadowing `render` keeps every existing call site
 // byte-identical, same pattern as AppShell.test.tsx's renderShell.
+//
+// SCN chen-bands-units, Task 14b — FlowsTab now ALSO calls useExport()
+// unconditionally.
 function render(ui: ReactElement) {
-  return rtlRender(<UnitProvider>{ui}</UnitProvider>);
+  return rtlRender(<UnitProvider><ExportProvider value={makeExportProviderValue()}>{ui}</ExportProvider></UnitProvider>);
 }
 
 const transportResult = {
@@ -120,7 +125,36 @@ describe("FlowsTab", () => {
     const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
     render(<FlowsTab result={transportResult} scenarioId={1} />);
     fireEvent.click(screen.getByTestId("button-download-flows-csv"));
-    expect(spy).toHaveBeenCalledWith(1, "flows", "csv");
+    expect(spy).toHaveBeenCalledWith(1, "flows", "csv", { unit: "mi" });
+  });
+
+  // Task 14b — production-control assertions.
+  describe("useExport() disabled-reason wiring (Task 14b)", () => {
+    it("is disabled with the reason surfaced for a result entity when the displayed entry has no runId", () => {
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ resultDisabledReason: "No run recorded for this entry." })}>
+            <FlowsTab result={transportResult} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      const button = screen.getByTestId("button-download-flows-csv");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "No run recorded for this entry.");
+    });
+
+    it("forwards runId when an older history entry is displayed", () => {
+      const spy = vi.spyOn(exportEntity, "downloadEntityExport").mockResolvedValue();
+      rtlRender(
+        <UnitProvider>
+          <ExportProvider value={makeExportProviderValue({ runId: 3 })}>
+            <FlowsTab result={transportResult} scenarioId={1} />
+          </ExportProvider>
+        </UnitProvider>,
+      );
+      fireEvent.click(screen.getByTestId("button-download-flows-csv"));
+      expect(spy).toHaveBeenCalledWith(1, "flows", "csv", { unit: "mi", runId: 3 });
+    });
   });
 
   // JADE — "City, ST" primary label + id mono sub-label

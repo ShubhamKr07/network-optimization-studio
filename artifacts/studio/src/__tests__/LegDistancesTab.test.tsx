@@ -1,10 +1,13 @@
 import { cloneElement, type ReactElement } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LegDistancesTab } from "@/components/workspace/tabs/LegDistancesTab";
 import { UnitProvider, useDisplayUnit } from "@/contexts/UnitContext";
+import { makeExportProviderValue } from "@/__tests__/helpers/renderWithExportProvider";
+import { ExportProvider } from "@/contexts/ExportContext";
 
 // chen-bands-units, Task 12 — every render now needs a UnitProvider ancestor
 // (useDistanceDraft/useDisplayUnit throw without one). Rather than touching
@@ -18,7 +21,7 @@ function withDefaultUnit(ui: ReactElement): ReactElement {
   return cloneElement(ui, { canonicalUnit: existing !== undefined ? existing : "mi" } as Record<string, unknown>);
 }
 function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
-  return rtlRender(withDefaultUnit(ui), { wrapper: UnitProvider, ...options });
+  return rtlRender(withDefaultUnit(ui), { wrapper: AllProviders, ...options });
 }
 
 // B6.2 stage 4 — Leg distances grid tab: long-format `{fromId, toId,
@@ -563,12 +566,12 @@ function ToggleUnitButton({ to }: { to: "auto" | "km" | "mi" }) {
 }
 function renderWithToggle(ui: React.ReactElement) {
   return rtlRender(
-    <UnitProvider>
+    <UnitProvider><ExportProvider value={makeExportProviderValue()}>
       <ToggleUnitButton to="km" />
       <ToggleUnitButton to="mi" />
       <ToggleUnitButton to="auto" />
       {ui}
-    </UnitProvider>,
+    </ExportProvider></UnitProvider>,
   );
 }
 

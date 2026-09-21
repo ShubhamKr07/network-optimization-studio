@@ -1,4 +1,5 @@
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as exportEntity from "@/lib/exportEntity";
@@ -14,7 +15,7 @@ function render(
   ui: Parameters<typeof rtlRender>[0],
   options?: Parameters<typeof rtlRender>[1],
 ) {
-  return rtlRender(ui, { wrapper: UnitProvider, ...options });
+  return rtlRender(ui, { wrapper: AllProviders, ...options });
 }
 
 beforeEach(() => {
