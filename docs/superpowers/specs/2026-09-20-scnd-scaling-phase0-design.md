@@ -1,7 +1,7 @@
 # SCND Scaling — Phase 0 + 0.5 Spec (Correctness, Reliability Slice, Measurement, Pilot Gate)
 
 **Date:** 2026-09-20
-**Status:** **SUPERSEDED — audit/split ledger; §32 resolved (Q65–Q72, §33). P0R.1 EXECUTED — GO (2026-09-22); P0R.2 DONE. Post-spike design update folded into the correctness successor. P0R.3/P0R.4 await a consolidated approval review. Work now on branch `scnd-scaling` (off `main`, pushed to origin).** §31 answered Q58–Q64, but the scoped re-review found that several decisions were not propagated into the normative schemas, lifecycle, persistence, task list, and rollout contract. **P0R.1 remains on HOLD / not authorized to start**; P0R.2 attainable-CBC fixture capture retains evidence-only approval; P0R.3/P0R.4 require P0R.1 evidence, a post-spike design update, and another approval review. §§0–12 are the original audit trail; §13 is the split map; §14–§32 record successive reviews/resolutions, with §32 controlling only its declared scope. **DEC-2026-09-21-01 remains authorized only for its narrow evidence-driven status/termination assertion correction** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19); it authorizes no solver behavioral change. Measurement and B2 remain TBD.
+**Status:** **SUPERSEDED — audit/split ledger; §34 is the controlling consolidated post-spike approval review. REQUEST CHANGES / NOT APPROVED for P0R.3 or P0R.4.** The Python CBC capture/parser evidence is validated as GO and its parser/fixture tests pass, but the full P0R.1 acceptance and the whole P0R.2 package are not complete: the mandatory real Linux process-group/no-orphan proof and process-level `jobRunner` tests remain open. Q35/Q41 (composite cache identity) also remains an open mandatory P0R.3 gate. §§0–12 are the original audit trail; §13 is the split map; §§14–§33 record successive reviews/resolutions; §34 supersedes their approval/status conclusions where they conflict. **DEC-2026-09-21-01 remains authorized only for its narrow evidence-driven status/termination assertion correction** at GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19); it authorizes no solver behavioral change. Measurement and B2 remain TBD/split out and are not approved by this ledger.
 **Parent design:** `docs/superpowers/specs/2026-09-19-scnd-scaling-design.md` (the reviewed B2 design). This spec implements that design's **Phase 0 (correctness + measurement)**, the **minimal durable-payload reliability slice** of Phase 1 (pulled forward per decision L9), and **Phase 0.5 (pilot gate)**. It does **not** build the solver worker split, scheduler, horizontal scaling, single-flight/coalescing, retention, or Quick-mode UI — those remain in a separate B2 spec.
 
 **Goal:** Ship the truthful-result contract and restart-safe queued work now, produce the evidence the B2 sizing/scheduling decisions need, and define the two independent gates that decide what (if any) of the remaining B2 work is justified.
@@ -2139,3 +2139,143 @@ Scoped correctness-contract review; §32 excluded measurement/B2, P0R.1, P0R.2 p
 | **Q72** provenance | Cache wording → "no **v2** cache" (existing v1 keeps operating); §32 controls its declared scope; §31's "fully resolved" is historical until Q65–Q72 (now closed). | Successor §2.10; this ledger. |
 
 §32 scoped findings resolved. **P0R.1 remains on HOLD.** The one open P0R.3 gate is still Q35/Q41 (composite cache identity, post-spike).
+
+---
+
+## 34. Consolidated post-spike deep approval review (2026-09-22)
+
+### 34.1 Scope, evidence, and decision
+
+This review assesses this audit ledger together with the normative correctness successor, `2026-09-21-scnd-solver-result-contract-design.md`, after the P0R.1 capture/parser spike landed at commit `8e32087` and the post-spike design update landed at `e7ee966`. Measurement/B2 cannot be approved from these documents because the successor explicitly splits those concerns out and this ledger still marks them TBD.
+
+Independent verification performed in the `scnd-scaling` worktree:
+
+- `python3 -m pytest artifacts/api-server/src/solver/tests/test_cbc_termination.py -q` → **32/32 passed**;
+- `python3 artifacts/api-server/src/solver/tests/e2e_accuracy.py` → **99/99 passed**;
+- the P0R.1 commit adds the wrapper/parser, fixtures, and tests without modifying `e2e_accuracy.py`; and
+- a direct contradiction probe demonstrated that the parser currently accepts both an optimal log with an unbounded `.sol` and an unbounded log with an optimal `.sol`, returning `unbounded` rather than rejecting the conflicting evidence.
+
+**Decision: REQUEST CHANGES / NOT APPROVED for P0R.3 or P0R.4 execution.** The Python evidence spike establishes that the primary capture/parser direction is viable, but the documents overstate completion, retain implementation-driving contradictions, and leave an explicitly mandatory cache-identity gate open.
+
+| Scope | Approval decision | Reason |
+|---|---|---|
+| Python CBC capture/parser evidence | **VALIDATED AS GO, subject to parser hardening** | The 32-test suite and protected 99/99 run pass; the primary evidence-capture direction is viable. |
+| Full P0R.1 acceptance | **NOT COMPLETE** | The mandatory real Linux process-group/SIGKILL/no-orphan proof was not performed. |
+| P0R.2 fixture/parser portion | **VALIDATED** | Attainable fixtures, malformed parser cases, and Python wrapper tests pass. |
+| P0R.2 overall | **NOT DONE** | Required process-level `jobRunner` tests remain open. |
+| P0R.3 | **NOT APPROVED** | Circular process-supervision gate, open Q35/Q41, residual error-envelope text, incomplete terminal matrix, DB/rollout/API gaps. |
+| P0R.4 | **NOT APPROVED FOR EXECUTION** | Depends on an approved and implemented P0R.3 contract. |
+| DEC-2026-09-21-01 | **VALIDATED FOR ITS NARROW SCOPE** | Issue #19 continues to authorize evidence-driven status/termination assertion correction with zero golden-objective changes. |
+| Measurement/B2 | **NOT APPROVABLE FROM THESE DOCUMENTS** | Split out/TBD; no current executable contract here. |
+
+### 34.2 Blocking findings
+
+#### 34.2.1 CRITICAL — the controlling state contradicts itself
+
+Before this review, the ledger header simultaneously said P0R.1 was executed/GO and remained on HOLD/not authorized; §33 still ends with P0R.1 on HOLD. The successor header says P0R.1 executed and P0R.2 done, while its summary still says P0R.1 is on HOLD, P0R.2 is pending, and P0R.3 uses three schemas.
+
+**Required correction:** propagate one current state through both headers, the P0R headings, the summary, and the final ledger resolution. The correct reviewed state is: Python capture/parser evidence GO; full P0R.1 acceptance incomplete; P0R.2 parser/fixture portion validated but process-test portion open; P0R.3/P0R.4 not approved.
+
+#### 34.2.2 CRITICAL — P0R.1's unmet no-orphan acceptance creates a circular P0R.3 gate
+
+Successor §3 declares P0R.1 GO but explicitly says the real Linux SIGKILL/process-group/no-orphan proof was not re-proven. The original acceptance says P0R.3 is blocked until that proof passes, while the Node process-group implementation needed to run it is T-msg inside P0R.3. P0R.3 therefore cannot start until a test passes that cannot be implemented until P0R.3 starts.
+
+**Required correction:** scope the P0R.1 GO to the Python capture/parser evidence. Authorize T-msg/Node-supervisor implementation as the first P0R.3 subphase while `v2_write` remains disabled. Make the real Linux no-orphan proof gate enabling R3/v2 writes, not starting P0R.3.
+
+#### 34.2.3 CRITICAL — Q35/Q41 remains an open mandatory P0R.3 gate
+
+Successor §2.10 still leaves the exact composite manifest, byte framing, example vectors, authoritative deployed CBC identity, and fail-closed behavior open. A one-time banner smoke check identifies the current deployment but is not itself a deterministic per-instance cache identity.
+
+**Required correction:** define the exact sorted manifest and framing; derive PuLP and CBC identifiers from the artifacts actually used by each instance; include those identifiers plus `SOLVER_CONTRACT_VERSION` in deterministic example vectors; fail startup closed when any component cannot be obtained; and test stability/invalidation. No v2 cache path may ship before this design is reviewed and approved.
+
+#### 34.2.4 HIGH — P0R.2 is incorrectly marked completely done
+
+The 32-test suite covers fixture classification, malformed parser evidence, and Python wrapper behavior. P0R.2 category 4 also requires process-level `jobRunner` tests for a missing executable, nonzero exit, malformed structured message, parser exception, cleanup failure, and outer timeout. Those were not delivered by the parser suite.
+
+**Required correction:** mark the completed P0R.2 categories individually and keep category 4 open under T-msg/T-runner. Replace the stale `malformed stdout` case with missing/partial/oversized/invalid fd3 protocol cases.
+
+#### 34.2.5 HIGH — the supposedly removed public error envelope remains normative
+
+Successor P0R.2 still says an error envelope is public `solutionStatus:error` + `terminationReason:solver_error` + `quality:"Solve failed"`. That directly contradicts §§2.1, 2.4, 2.8 and Q66's failure-branch-only decision.
+
+**Required correction:** replace the clause with `failure → failed job + errorCode + safe message + no cache/no scenario publish`. No execution failure may validate as any solver/cache/published/stored-v2/normalized-v2 result.
+
+#### 34.2.6 HIGH — Node/Python temporary-directory ownership is not integrated
+
+The target contract says Node creates and owns the exact solve directory so it can reclaim it after Python is killed. The delivered `solve_with_capture` creates its own directory inside Python. Reusing that wrapper unchanged would leave Node without authoritative ownership of the actual evidence directory after a Python SIGKILL.
+
+**Required correction:** add a production adapter that accepts an exact, validated Node-created directory; do not create an undisclosed nested ownership boundary. Node must wait for direct-child close, prove process-group death, and then perform verified idempotent removal. Add Linux integration tests for killed Python with a surviving CBC descendant and repeated timeout/cancel loops.
+
+#### 34.2.7 HIGH — terminal race precedence is not exhaustive
+
+Successor §2.11 specifies timeout, cancellation, nonzero exit with an optional failure, and zero exit with success, but omits zero exit + valid failure, nonzero exit + success envelope, and zero/nonzero exits with missing/invalid/both/neither messages.
+
+**Required correction:** publish a complete deterministic table over timeout, cancellation, exit code, message validity/kind, and cleanup outcome. Timeout/cancellation dominate; otherwise only exit zero plus a valid success message may publish. A valid failure message fails regardless of exit zero; a success envelope with nonzero exit never publishes.
+
+#### 34.2.8 HIGH — the database types do not match the exact request contract
+
+T-db still uses PostgreSQL `real` for both requested values and permits `request|default` sources even though `timeLimitSec` is an integer and the contract forbids defaults.
+
+**Required correction:** use `double precision` (or an explicitly scaled `numeric`) for `requested_gap`, `integer` for `requested_time_limit_sec`, and a checked literal `request` for current-version source fields. Enforce the 2,048-byte `error_detail` bound before persistence and state whether any DB check mirrors it.
+
+#### 34.2.9 HIGH — rollout and permanent failure response remain incomplete
+
+The rollout still lacks the public-serializer flag name and activation release, exact transitional OpenAPI schema, observable client-version signal, compatibility cutoff/duration, and concrete handling of already-written v2 scenario/cache rows during rollback. `SolveJob.error` is removed at cleanup, but the permanent safe-message field is unnamed.
+
+**Required correction:** define each release's reader/writer/serializer state; add an observable client build/contract version; name the cutoff and window; specify rollback treatment; and choose either permanent `errorMessage` plus transitional `error` alias, or `errorCode` only with a canonical client-side mapping.
+
+#### 34.2.10 HIGH — the parser accepts contradictory unbounded evidence
+
+`classify_cbc_termination` returns unbounded whenever either source says unbounded, without cross-checking the other source. Direct review reproduced acceptance of optimal-log/unbounded-sol and unbounded-log/optimal-sol contradictions.
+
+**Required correction:** when both sources are present, require agreement for unbounded just as for infeasible/gap evidence. Add both negative tests and make any disagreement an internal parse failure.
+
+### 34.3 Important gaps and recommendations
+
+1. **Fail closed on unsupported PuLP.** `cbc_termination.py` only warns when the PuLP version differs even though its capture hook depends on PuLP internals. Production startup/integration must fail closed until revalidated.
+2. **Bound evidence files and reads.** The parser reads the complete CBC log and `.sol`; define maximum on-disk sizes, incremental/bounded reading, oversize disposition, and cleanup/telemetry so a long solve cannot exhaust disk or memory.
+3. **Do not hide cleanup failure.** `shutil.rmtree(..., ignore_errors=True)` makes cleanup failure invisible. Node's authoritative cleanup must verify removal and record the bounded internal `cleanup` failure without leaking it publicly.
+4. **Align parser enums.** The Python `TERMINATION_REASONS` set still contains `interrupted` and `unknown`, although neither may be emitted by a new solver envelope. Keep `unknown` only in normalized legacy reads and `interrupted` only in the Node failure taxonomy.
+5. **Complete normalized-v1 fields and names.** Add `requestedGapSource` and `requestedTimeLimitSource` to the explicit null set; replace stale `SolverEnvelopeV2Schema` references with `SolverSuccessEnvelopeV2Schema`.
+6. **Define solve-history placement.** The current public history response is flattened, so specify a top-level `legacyUnverified` field or intentionally introduce a nested summary. Define its value for v2 success, legacy success, failure, and missing/malformed historical summaries.
+7. **Choose schema authority.** Public response schemas belong in OpenAPI; fd3/cache/raw-storage schemas are private server contracts unless an explicit one-way generation mechanism makes OpenAPI their authority too. Avoid two hand-maintained authorities.
+8. **Preserve atomic publication.** The current `markSucceeded` implementation correctly updates job result/summary and scenario result/run pointer in one transaction. T-runner must name and test that invariant so P0R.3 cannot regress it; completion telemetry occurs only after commit.
+9. **Correct stale summaries/provenance.** The successor summary still says HOLD/pending/three schemas, and the fixture README refers to eight cases despite listing nine. Update all current-state summaries after the decisions above.
+
+### 34.4 Required decisions/questions (Q73–Q84)
+
+| # | Required decision | Recommendation |
+|---|---|---|
+| **Q73 — controlling status** | What single state replaces the contradictory HOLD/GO/DONE claims? | Python evidence GO; full P0R.1 incomplete; P0R.2 parser portion complete/process portion open; P0R.3/P0R.4 not approved. |
+| **Q74 — no-orphan gate placement** | Does the Linux process-group proof gate starting P0R.3 or enabling the writer? | Permit T-msg first; gate R3/`v2_write` on the proof. |
+| **Q75 — composite identity** | What exact manifest, framing, artifact identities, vectors, and startup behavior close Q35/Q41? | Runtime-derived actual identities, deterministic vectors, fail-closed startup. |
+| **Q76 — P0R.2 completion** | Which categories are actually done? | Mark parser/fixture/Python-wrapper categories separately; leave jobRunner process tests open. |
+| **Q77 — temp ownership** | How does the delivered Python wrapper accept the Node-owned directory? | Exact validated directory parameter; Node owns lifecycle and verified deletion. |
+| **Q78 — terminal matrix** | What happens for every exit/message/timeout/cancel combination? | Only zero+valid-success publishes; publish a full truth table. |
+| **Q79 — database types** | What exact Drizzle/PostgreSQL types and checks apply? | Gap double precision/numeric; time integer; current source literal request; bounded diagnostic validation. |
+| **Q80 — permanent failure API** | Where does the safe message live after transitional `error` removal? | Permanent `errorMessage`, or explicitly client-mapped `errorCode`; choose one. |
+| **Q81 — rollout observability** | How is client compatibility objectively measured and exited? | Version signal, named cutoff/window, release-state matrix, explicit rollback row treatment. |
+| **Q82 — parser hardening** | How are contradictory sources, unsupported PuLP, oversized evidence, and cleanup errors handled? | Reject contradictions; fail closed; bound reads/files; verify and record cleanup. |
+| **Q83 — history/schema authority** | Where is `legacyUnverified`, and which layer owns private schemas? | Exact history field semantics; OpenAPI public, server Zod private unless generated one-way. |
+| **Q84 — atomic publication** | Is job/scenario success one durable unit? | Preserve the existing DB transaction and emit completion only after commit. |
+
+### 34.5 Re-approval checklist
+
+- [ ] Headers, task headings, summary, and final ledger section state one current status.
+- [ ] P0R.1 Python evidence GO is separated from the open Node no-orphan acceptance.
+- [ ] T-msg may run with writer disabled; Linux process-group/no-orphan evidence gates R3 activation.
+- [ ] Q35/Q41 has an exact approved composite identity, vectors, and fail-closed behavior.
+- [ ] P0R.2 completion is category-accurate; process-level jobRunner tests remain owned and executable.
+- [ ] No public/v2 error envelope remains anywhere.
+- [ ] Node owns the exact temp directory and proves group death before verified cleanup.
+- [ ] The complete terminal race table is normative and deterministically tested.
+- [ ] Database types, nullability, constraints, and legacy behavior match the request contract.
+- [ ] Rollout has exact release/flag/serializer/client-version/window/rollback semantics.
+- [ ] Permanent public failure message semantics are exact.
+- [ ] Contradictory unbounded evidence is rejected and covered by negative tests.
+- [ ] PuLP/version handling, evidence-file bounds, and cleanup errors fail safely.
+- [ ] Normalized-v1 sources, history marker placement, schema ownership, and stale names are corrected.
+- [ ] Atomic job/scenario publication remains transactional and telemetry follows commit.
+- [ ] A new consolidated review explicitly approves P0R.3 before implementation beyond the gated T-msg preparatory slice, and separately approves P0R.4 after P0R.3 evidence.
+
+Until Q73–Q84 and this checklist close, neither P0R.3 nor P0R.4 is approved for execution. The only implementation slice permitted by this review is the preparatory Node T-msg/process-supervisor work needed to produce the Linux no-orphan evidence, with `v2_write` disabled and no v2 cache/read/write/public-contract activation.
