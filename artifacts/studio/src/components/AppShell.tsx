@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogoutUser, getGetCurrentAuthUserQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { UnitToggle } from "@/components/UnitToggle";
 import { AppFooter } from "@/components/AppFooter";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
@@ -52,8 +51,12 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
                 Build a scenario on the map, solve it with a real optimizer, compare the results.
               </div>
             </div>
+            {/* ch4-fixes item 1 — no UnitToggle on the homepage. The toggle
+                lives only where distances are actually edited/compared
+                (Workspace's own header); Landing's Recent Solves render in
+                whatever preference was last persisted (default "auto" = each
+                model's own canonical unit). */}
             <div className="flex items-center gap-2.5 flex-shrink-0">
-              <UnitToggle />
               <span className="text-sm" style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
               <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout"
                 className="hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]"
@@ -69,7 +72,6 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
               ? <div className="scnd-display text-lg font-semibold" style={{ color: "var(--green-400)" }}>{heroTitle}</div>
               : <div className="scnd-display text-sm font-semibold" style={{ color: "var(--surface-band-fg)" }}>SCND Optimization Studio</div>}
           </div>
-          <UnitToggle />
           <span className="text-sm" style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
           <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout"
             className="hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]"

@@ -195,3 +195,71 @@ describe("useDistanceDraft", () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 });
+
+// ch4-fixes item 4 — opt-in grouped presentation for the Distances tabs.
+// The DEFAULT ("raw") must stay byte-identical, because five non-Distances
+// consumers (SolveDialog, OptimizationParametersTab, WarehouseTable,
+// CustomerTable, BandChipEditor) share this hook.
+describe("presentation: grouped (ch4-fixes item 4)", () => {
+  it("defaults to raw — idle text carries no separator and keeps 4 dp", () => {
+    const { result } = renderDraft({
+      canonicalUnit: "mi",
+      value: 11998.2461,
+      onCommit: vi.fn(),
+    });
+    expect(result.current.draft.text).toBe("11998.2461");
+  });
+
+  it("groups and 2-dp-rounds the idle text when opted in", () => {
+    const { result } = renderDraft({
+      canonicalUnit: "mi",
+      value: 11998.2461,
+      onCommit: vi.fn(),
+      presentation: "grouped",
+    });
+    expect(result.current.draft.text).toBe("11,998.25");
+  });
+
+  // The safety property: the formatted text must never become the commit
+  // anchor. Focusing reveals full precision, so an edit-then-commit can't
+  // silently truncate a stored 4-dp override to the 2 dp shown while idle.
+  it("reverts to full-precision raw text on focus", () => {
+    const { result } = renderDraft({
+      canonicalUnit: "mi",
+      value: 11998.2461,
+      onCommit: vi.fn(),
+      presentation: "grouped",
+    });
+    expect(result.current.draft.text).toBe("11,998.25");
+    act(() => result.current.draft.onFocus());
+    expect(result.current.draft.text).toBe("11998.2461");
+  });
+
+  it("re-groups after blur/commit of an untouched field, committing nothing", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({
+      canonicalUnit: "mi",
+      value: 11998.2461,
+      onCommit,
+      presentation: "grouped",
+    });
+    act(() => result.current.draft.onFocus());
+    act(() => result.current.draft.commit());
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(result.current.draft.text).toBe("11,998.25");
+  });
+
+  it("accepts a typed/pasted grouped value — separators are stripped before parsing", () => {
+    const onCommit = vi.fn();
+    const { result } = renderDraft({
+      canonicalUnit: "mi",
+      value: 100,
+      onCommit,
+      presentation: "grouped",
+    });
+    act(() => result.current.draft.onChange("1,234.5"));
+    expect(result.current.draft.text).toBe("1234.5");
+    act(() => result.current.draft.commit());
+    expect(onCommit).toHaveBeenCalledWith(1234.5);
+  });
+});

@@ -383,8 +383,13 @@ test.describe("chen-bands-units QA — distance-edit commit correctness", () => 
       // ── Toggle to mi: displays the converted value ──────────────────────
       await page.getByTestId("unit-toggle-mi").click();
       const miText1 = await page.getByTestId("input-distance-wh-40-cs-4").inputValue();
-      // roundForFile(toDisplay(500, "km"->"mi")) = round(500/1.609344, 4dp)
-      expect(Number(miText1)).toBeCloseTo(500 / 1.609344, 3);
+      // ch4-fixes item 4 — the IDLE override cell is now grouped at max 2 dp
+      // (formatDistanceDisplay), not `roundForFile`'s 4 dp: 500/1.609344 =
+      // 310.6856 renders "310.69". Full precision is still there — it is
+      // revealed on focus — so this asserts the DISPLAY contract at 2 dp and
+      // the focused round-trip below still proves no precision was lost.
+      expect(miText1).toBe("310.69");
+      expect(Number(miText1.replace(/,/g, ""))).toBeCloseTo(500 / 1.609344, 1);
 
       // ── Repeated toggles introduce no drift ─────────────────────────────
       await page.getByTestId("unit-toggle-auto").click();

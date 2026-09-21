@@ -99,6 +99,7 @@ function LegDistanceValueCell({
     canonicalUnit,
     value: currentValue,
     resetKey,
+    presentation: "grouped",
     onCommit: v => {
       if (Number.isFinite(v) && v > 0) onCommitValid(v);
     },
@@ -111,6 +112,7 @@ function LegDistanceValueCell({
       value={draft.text}
       disabled={draft.disabled}
       onChange={e => draft.onChange(e.target.value)}
+      onFocus={draft.onFocus}
       onBlur={draft.commit}
       onKeyDown={e => {
         if (e.key === "Enter") draft.commit();

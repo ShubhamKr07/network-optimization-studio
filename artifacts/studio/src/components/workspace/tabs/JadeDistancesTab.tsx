@@ -16,6 +16,7 @@ import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters, type ColumnFilterDescriptor, type FilterValue } from "@/lib/useTableFilters";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
+import { formatDistanceDisplay, stripGrouping } from "@/lib/formatDistanceDisplay";
 
 // jade-T15 — Chapter 9 JADE's Distances tab: single `distances.json` covering
 // BOTH legs (plant->warehouse, warehouse->customer) in one flat array, keyed
@@ -164,6 +165,7 @@ function JadeDistanceOverrideCell({
     canonicalUnit,
     value: currentValue ?? 0,
     resetKey,
+    presentation: "grouped",
     onCommit: v => {
       if (Number.isFinite(v) && v > 0) onCommitValid(v);
     },
@@ -173,7 +175,10 @@ function JadeDistanceOverrideCell({
   // Live, as-you-type domain validation — deliberately independent of the
   // unit-toggle grammar's own notion of "complete" (mirrors DistancesTab's
   // own `DistanceOverrideCell`, this component's non-triple-keyed sibling).
-  const trimmed = text.trim();
+  // ch4-fixes item 4 — see DistancesTab.tsx: the idle text is now grouped
+  // ("1,234.57") and `Number()` rejects the separator, so strip first or a
+  // valid committed override renders a false validation error.
+  const trimmed = stripGrouping(text).trim();
   const numeric = trimmed === "" ? null : Number(trimmed);
   const error =
     trimmed !== "" && (numeric === null || Number.isNaN(numeric) || numeric <= 0)
@@ -191,6 +196,7 @@ function JadeDistanceOverrideCell({
         value={text}
         disabled={draft.disabled}
         onChange={e => draft.onChange(e.target.value)}
+        onFocus={draft.onFocus}
         onBlur={draft.commit}
         onKeyDown={e => {
           if (e.key === "Enter") draft.commit();
@@ -553,7 +559,9 @@ export function JadeDistancesTab({
       if (referenceQuery.isError) return "unavailable";
     }
     if (r.base == null) return "—";
-    return String(roundForFile(toDisplay(r.base, canonicalUnit)));
+    // ch4-fixes item 4 — grouped, max 2 dp. `roundForFile` (4 dp, ungrouped)
+    // stays the EXPORT contract and is untouched; this is display only.
+    return formatDistanceDisplay(toDisplay(r.base, canonicalUnit));
   }
 
   function fromRoleId(leg: JadeLeg): Set<string> {
