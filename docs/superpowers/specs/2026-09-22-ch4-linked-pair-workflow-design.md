@@ -303,6 +303,13 @@ It sits in the Workspace content header so it is visible from any tab.
 `CostSummaryTab` gains a Chen-only branch with exactly two states. The manual scenario toggle list is
 hidden for Chen (D9).
 
+**This is cheaper than it was when the wireframes were drawn.** The `ch4-fixes` bundle (`917bc88`,
+landed on main 2026-09-22) unified the single-scenario path onto the *same* `<table>` shell compare
+mode uses — metric column plus one column per scenario — so adding a second scenario now adds a
+column rather than swapping a `<dl>` for a table. The pair view is therefore a two-column instance
+of a shell that already exists, not a new layout. The gated placeholder remains a genuinely distinct
+third rendering, since it shows no table at all.
+
 **Gated state** — progress dots, "N of 2 models solved", and one context-dependent CTA:
 
 | Situation | CTA |
@@ -384,6 +391,12 @@ design is a site that will silently fall through to the wrong behavior rather th
 Mitigation within the accepted decision: confine the model check to **one exported predicate**
 (e.g. `isLinkedPairModel(modelId)`) called from every gate site, so converting to a capability later
 is a one-line change rather than a hunt. The deviation is recorded here so it is discoverable.
+
+Worth noting for whoever picks this up: the `ch4-fixes` bundle that landed the same day
+(`917bc88`) added JADE's Inbound/Outbound cost rows to compare mode and gated them **on metric
+presence across the selection, explicitly never on `modelId`** — the surrounding code is actively
+moving away from the pattern D1 adopts. The predicate above is what keeps this feature's divergence
+to a single, greppable line.
 
 ## 11. Testing
 
