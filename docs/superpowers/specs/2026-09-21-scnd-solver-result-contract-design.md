@@ -1,7 +1,7 @@
 # SCND Solver Result Contract — Spec
 
 **Date:** 2026-09-21
-**Status (updated 2026-09-22):** **P0R.1 is AUTHORIZED TO EXECUTE** — explicit product-owner approval on 2026-09-22, lifting the §30.2.1/Q58 HOLD after §30/§32 (Q58–Q72) closed. This is the new explicit approval Q58 required (not a silent reinterpretation). P0R.1 runs as a **go/no-go evidence spike**; P0R.2 attainable-CBC fixture capture proceeds alongside. **P0R.3/P0R.4 remain NOT approved** — they need P0R.1's evidence + a post-spike design update + a new approval review; the **Q35/Q41 composite cache identity** stays a mandatory P0R.3 gate. Incorporates reviews §14–§32 and decisions Q4–Q72.
+**Status (updated 2026-09-22):** **P0R.1 EXECUTED — GO; P0R.2 DONE** (§3: `cbc_termination.py` + 9 fixtures + 32 tests; `e2e_accuracy.py` 99/99 unmodified). The post-spike design update is folded in (§2.4/§2.9/§2.10/§3 — CBC-log capture, time-vs-node needs the log line, LP-relaxation discarded, two infeasibility shapes, `interrupted` dropped from the envelope contract, CBC build differs by arch 2.10.3/2.10.10). **P0R.3/P0R.4 remain NOT approved** — they need a **consolidated approval review** of this post-spike contract; the **Q35/Q41 composite cache identity** stays a mandatory P0R.3 gate, and its authoritative CBC build id awaits the deploy smoke check (§2.10). Branch: `scnd-scaling` (off `main`, pushed to `origin`). Incorporates reviews §14–§32 and decisions Q4–Q72.
 **Sacred-test authorization — DEC-2026-09-21-01:** durable, independently-auditable product-owner approval at **GitHub issue [#19](https://github.com/ShubhamKr07/network-optimization-studio/issues/19)** — verbatim: *"I approve DEC-2026-09-21-01: update e2e_accuracy.py status/termination assertions based on committed CBC evidence, with zero changes to golden objective values."* (resolves §20.2.1). Scope: a narrow, **evidence-driven** correction to `e2e_accuracy.py` approximate-case assertions with **zero golden-objective changes**. Referenced by §3 P0R.4 and §4.
 **Program context:** Carved from `2026-09-20-scnd-scaling-phase0-design.md` (§13 ledger) per Q1=Split. Standalone.
 
@@ -27,7 +27,7 @@ Verified facts driving the contract:
 
 ### 2.1 Two dimensions
 - `solutionStatus` (**success/math outcomes only**, §30.2.3/Q60=A): `optimal | feasible | infeasible | unbounded | no_solution`. **`error` is NOT a solutionStatus** — every execution failure travels the private failure branch (§2.11) → a **failed job + public `errorCode`**, never a published/cacheable/normalized result. This removes the prior contradiction (error was called both public and runner-private).
-- `terminationReason` (**public, closed**): `optimality_proven | gap_limit | time_limit | node_limit | infeasible | unbounded | interrupted | unknown`. (No `solver_error` — failures aren't envelope outcomes.)
+- `terminationReason` (**public, closed**): `optimality_proven | gap_limit | time_limit | node_limit | infeasible | unbounded | unknown`. (No `solver_error` — failures aren't envelope outcomes. **No `interrupted`** — P0R.1 proved a killed/cancelled process leaves no CBC evidence, so interruption is Node-only, §2.11, never a parser-emitted envelope reason.)
 - **Failure UX:** a failed solve surfaces as a failed `SolveJob` with a coarse public `errorCode` + safe message (§2.11); the granular `failureReason` is internal-only.
 
 ### 2.2 Fields
@@ -51,15 +51,15 @@ Verified facts driving the contract:
 |---|---|---|
 | `optimal` | `optimality_proven` | objective non-null; solverIncumbent non-null; solverBestBound present when available |
 | `feasible` | `gap_limit` | objective + solverIncumbent non-null; **solverBestBound + achievedGap required** (§20.2.3 — a gap-limit stop is not auditable without them) |
-| `feasible` | `time_limit \| node_limit \| interrupted` | objective + solverIncumbent non-null; bound + achievedGap nullable when CBC evidence exposes none |
+| `feasible` | `time_limit \| node_limit` | objective + solverIncumbent non-null; bound + achievedGap nullable when CBC evidence exposes none. **P0R.1: `time_limit` vs `node_limit` need the CBC LOG `Result -` line — the `.sol` header alone cannot distinguish them.** |
 | `infeasible` | `infeasible` | all null |
 | `unbounded` | `unbounded` | all null |
-| `no_solution` | `time_limit \| node_limit \| interrupted` | objective null; solverIncumbent null; achievedGap null; **`solverBestBound: number \| null`** (§20.2.3/Q24 — CBC can expose a bound with no incumbent via `Cbc_getBestPossibleObjValue`) |
+| `no_solution` | `time_limit \| node_limit` | objective null; solverIncumbent null; achievedGap null; **`solverBestBound: number \| null`** (§20.2.3/Q24). **P0R.1: the `.sol` value on a no-incumbent time-limit stop is CBC's LP relaxation, NOT an incumbent — the parser discards it (never reports it as `solverIncumbentObjective`).** |
 
 **No `error` row (§30.2.3/Q60=A)** — execution failures are not envelope outcomes; they are a failed job + public `errorCode` (§2.11). **No `objective === solverIncumbentObjective` invariant** (§18.2 — units/rounding differ per model). `status` equals §2.3 projection; `quality` equals §2.5. Other combinations schema-**rejected**.
 
 ### 2.5 `quality` strings (exact)
-`optimal/optimality_proven`→"Proven optimal" · `feasible/gap_limit`→"Feasible — stopped at gap limit" · `feasible/time_limit`→"Feasible — time limit reached" · `feasible/node_limit`→"Feasible — node limit reached" · `feasible/interrupted`→"Feasible — interrupted" · `infeasible/infeasible`→"Infeasible" · `unbounded/unbounded`→"Unbounded" · `no_solution/*`→"No solution found". (No `error` quality — failures aren't envelope outcomes; the failed job's public safe message per `errorCode` is defined in §2.11.)
+`optimal/optimality_proven`→"Proven optimal" · `feasible/gap_limit`→"Feasible — stopped at gap limit" · `feasible/time_limit`→"Feasible — time limit reached" · `feasible/node_limit`→"Feasible — node limit reached" · `infeasible/infeasible`→"Infeasible" · `unbounded/unbounded`→"Unbounded" · `no_solution/*`→"No solution found". (No `error`/`interrupted` quality — those aren't envelope outcomes; the failed job's public safe message per `errorCode` is in §2.11.)
 
 ### 2.6 Five schemas (§16.4/§18.3/§32.2.1/Q13/Q19/Q65)
 The `result_cache` value and the `scenarios.result` value now intentionally differ (effective-only vs request-composed), so one shape can't serve both. Five conceptual types (a type alias is fine where two are byte-identical):
@@ -129,6 +129,8 @@ Today `jobRunner.SOLVER_CODE_HASH` hashes only `solve.py` (verified). Replace wi
 
 **Q35 is an OPEN, mandatory P0R.3 gate (§24.2.5/Q41)** — not resolved yet. No **v2** cache read/write ships (§32.2.9/Q72 — the existing v1 cache keeps operating unchanged) until the exact manifest, byte framing, PuLP/CBC identities, example hash vectors, fail-closed behavior, and invalidation/stability tests are in the post-spike design update and approved.
 
+**P0R.1 evidence (2026-09-22):** the CBC binary build **differs by arch** — `2.10.3` (Build Dec 15 2019) on x64 (macOS + Linux, via `strings`) vs **`2.10.10`** on Linux arm64. The composite version's "authoritative CBC binary version/build identifier" must therefore be the **actual deployed build**, not a hardcoded string. **Action for P0R.3:** a one-line deploy smoke check (grep the `cbc` banner in the live container) confirms which build runs on Render before the cache identity is locked. Also: production currently sends the CBC log to `/dev/null` (`msg=False`, no `logPath`) — the v2 solver **must pass a unique `logPath`** to capture terminal evidence at all.
+
 **Cache transition (§26.2.5/Q47):** **P0R.1/P0R.2 artifacts are evidence-only** — not merged into a release/deploy path before approved P0R.3. The current `solve.py`-only cache hash keeps operating unchanged until the composite version lands with P0R.3; a wrapper/parser file must not deploy against the old hash. Define existing-unversioned-cache-row behavior (cache miss), release rollback, and mixed rolling instances so **no old instance can write an entry a new instance mistakes for v2** (the composite version discriminates).
 
 ### 2.11 Internal failure record + private transport (§24.2.3/§26.2.1/Q39/Q43) — NOT in the public envelope
@@ -182,7 +184,17 @@ Canonical `achievedGap` (one authority, §18.7/§20.2.4/§22.2.5/Q25/Q34): a **n
 
 ## 3. Tasks
 
-### P0R.1 — CBC termination-evidence spike (**go/no-go; gates P0R.3**) — AUTHORIZED TO EXECUTE (product owner, 2026-09-22)
+### P0R.1 — CBC termination-evidence spike — ✅ EXECUTED: GO (2026-09-22)
+
+**Result: GO on the primary wrapper approach; no fallback needed.** Delivered on this branch: `artifacts/api-server/src/solver/cbc_termination.py` (`parse_cbc_termination(log_path, sol_path) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})`, `CapturingCBCSolver`, `solve_with_capture`), 9 committed sanitized log/`.sol` fixtures, `tests/test_cbc_termination.py` (32 tests). Verified on this branch: 32/32 cbc tests, `e2e_accuracy.py` 99/99 (sacred, unmodified). Evidence folded into §2.4/§2.9/§2.10:
+- Confirmed the defect: PuLP `get_status()` promotes a `"Stopped … objective"` `.sol` header to `LpStatusOptimal`; production discards the CBC log (`/dev/null`) → v2 must pass a unique `logPath`.
+- `time_limit` vs `node_limit` need the LOG `Result -` line (`.sol` alone insufficient).
+- No-incumbent time-limit `.sol` value = LP relaxation → discarded, not reported as an incumbent.
+- **Two infeasibility log shapes**: MIP-presolve prints a standalone `Problem is infeasible - N seconds` (no `Result -` line); pure LP-relaxation prints `Result - Linear relaxation infeasible` — parser handles both (fixtures `infeasible`, `infeasible_lp_relaxation`).
+- `Lower bound:`/`Upper bound:` by sense; a genuinely proven optimum prints no bound line → `solverBestBound` null (never synthesized `== incumbent`).
+- **`interrupted` is unattainable from CBC evidence** (a killed process leaves no log state) → removed from the envelope contract; it stays a Node-set failure reason (§2.11).
+- Concurrency/cleanup proven: identical-problem-name concurrent solves get distinct temp dirs; cleanup on success/parser-error/(simulated)timeout/kill; path-traversal-safe by construction; no repo artifacts. Real OS-level SIGKILL/process-group ownership is the **paired Node task (Q38/Q46)** — not re-proven here.
+- Observed: **PuLP 3.3.2**; CBC **2.10.3** x64 / **2.10.10** arm64 (see §2.10).
 PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally before returning; `keepFiles=True` names collide under concurrency. **Primary approved approach (Q8):** a custom `PULP_CBC_CMD`/`COIN_CMD` wrapper exposing unique temp paths + **per-solve unique temp dir + unique problem name**, parsing before deletion. **Fallback:** a controlled direct CBC subprocess preserving PuLP name mapping — permitted **only** after a recorded P0R.1 no-go on the primary + a design-update approval (§18.8). Deliver `parse_cbc_termination(...) -> (solutionStatus, terminationReason, {achievedGap, solverIncumbentObjective, solverBestBound})` + authoritative-record note.
 
 **Process-tree ownership = Node owns the process group (§24.2.2/§26.2.4/Q38/Q46 — the surviving actor).** A dead Python wrapper (SIGKILL) cannot kill CBC or clean its temp dir, so the surviving parent owns it. Exact protocol:
@@ -194,9 +206,9 @@ PuLP 3.3.2 `COIN_CMD.solve_CBC()` creates/reads/deletes the `.sol` internally be
 
 **Go/no-go acceptance:** concurrent same-name solves don't collide; cleanup on success/parser-error/timeout/kill; path-traversal-safe; no repo artifacts; never classify by wall-clock; **no-orphan test on the production OS (Linux) — record Python + CBC PIDs/PGID, force timeout/cancel AND a forced-kill/crash case (incl. a killed Python parent with CBC still alive holding inherited descriptors), prove within a bounded interval that neither process survives, temp is reclaimed, completion is once-only, and repeated timeouts accumulate no processes/artifacts.** **P0R.3 blocked until this passes + post-spike review.**
 
-### P0R.2 — fixtures (capture APPROVED now) + parser tests (after P0R.1)
+### P0R.2 — fixtures + parser tests — ✅ DONE (delivered with P0R.1, 32 tests pass)
 Four **separate** test categories (§20.2.7/Q28), not one CBC-fixture set:
-1. **Attainable CBC terminal-record fixtures** (capture may proceed): committed sanitized CBC log/`.sol` for every retained pair CBC can actually emit — optimal/optimality_proven, feasible/gap_limit, feasible/time_limit, **feasible/node_limit** (+ no_solution/node_limit if CBC emits both), feasible/interrupted, no_solution/{time_limit,node_limit,interrupted} (incl. **bound-without-incumbent**, Q24), infeasible, unbounded. Any pair CBC cannot produce is **removed from the v2 contract**, not left untested. `unknown` reserved for normalized legacy.
+1. **Attainable CBC terminal-record fixtures** — ✅ **DONE (P0R.1):** 9 committed sanitized log/`.sol` fixtures for the pairs CBC actually emits — optimal/optimality_proven, feasible/gap_limit, feasible/time_limit, feasible/node_limit, no_solution/{time_limit,node_limit} (incl. **bound-without-incumbent**, Q24), infeasible, **infeasible_lp_relaxation** (second shape), unbounded. **`*/interrupted` pairs removed from the v2 contract** — CBC emits no evidence for a killed process (interruption is Node-only, §2.11). `unknown` reserved for normalized legacy.
 2. **Synthetic malformed/contradictory parser fixtures** — hand-authored bad logs asserting the parser's error handling.
 3. **Wrapper cleanup / concurrency / path-safety tests** — from P0R.1's wrapper.
 4. **Process-level `jobRunner` failure tests** — missing exe, nonzero exit, malformed stdout, parser exception, cleanup failure, outer timeout.
