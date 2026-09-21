@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-21
 **Revision:** Rev 3 — §15 re-review findings folded into the normative body; §16 maps each finding to its resolution
-**Status:** Design; awaiting re-review against §15.9's six conditions
+**Status:** Design; Rev 3 re-review completed 2026-09-22 — changes requested (see §17)
 **Scope:** Agent-team execution hygiene — worktree isolation, git-op guardrails, worktree lifecycle, gate-run hygiene
 
 Sections 1–12 are the normative design. §13 (Rev-1 review) and §15 (Rev-2 re-review) are retained verbatim as the historical record; §14 and §16 are their resolution maps. Where a review section and §§1–12 appear to disagree, §§1–12 win: they carry the resolved decisions. Where §14 and §16 disagree, §16 wins.
@@ -622,3 +622,111 @@ All seven §15 findings are accepted on substance. One Rev-2 decision is reverse
 | 15.7 phasing contradicts the backstop invariant | Accepted. Backstop implementation **and** activation move entirely into P1, ahead of the first `start`. A new P0 carries the payload probe, since D10's branch must be settled before rules are written. | §11 |
 
 **§15.9 conditions:** 1 → D12/§7.2/§12.9; 2 → D13/§7.2.2/§12.10; 3 → D10/§4.1/§11 P0; 4 → §8.3/§12.11; 5 → §5.1/§5.3/§12.12; 6 → §11.
+
+---
+
+## 17. Rev 3 written-spec re-review (Codex, 2026-09-22)
+
+**Decision: changes requested; Rev 3 is not yet approved for implementation.** Rev 3 resolves all seven §15 findings individually: it gives the controller an integration worktree, adopts detach-first reaping, makes actor identity conditional on a measured runtime probe, invalidates gates on observed install overlap, replaces shared JSONL appends with immutable event files, adds registry-lock recovery, and makes the P1 backstop invariant coherent. Their combined behavior exposes four new blockers and two important gaps.
+
+### 17.1 Blocker: the integration entry reserves every task path
+
+The integration entry is active for the run and declares `solePaths: ["**"]` (§5.1). R3 classifies a command or edit that touches another active entry's `solePaths` as `foreign_path` (§6.1). The pre-commit backstop likewise refuses a staged path owned by a different active entry (§5.5).
+
+Taken literally, every task edit and every task commit touches a path owned by the active integration entry. The role intended to make controller integration safe therefore blocks all task work before integration begins.
+
+**Required resolution:** make ownership checks role- and state-aware. The integration entry must not reserve task paths against task owners. A workable rule is:
+
+- `task` entries own their `solePaths` while `active`;
+- the `integration` entry owns the integration worktree, not every repository path;
+- the controller may touch a task entry's paths only after that task is `released`, and only from the registered integration worktree; and
+- the pre-commit backstop uses the same role/state predicate as R3.
+
+Add tests proving an active task may edit and commit its own path while the integration entry exists, the controller is denied before release, and the controller is allowed after release.
+
+### 17.2 Blocker: the run-integration branch and `integrationRef` are different refs but the lifecycle treats them as one
+
+`start` stores the real `integrationRef` (default `refs/heads/main`) and creates `<run>-integration` from it. `land` cherry-picks task work into `<run>-integration`, while the real ref is advanced only at run end. However:
+
+- `add` continues to create every task branch from the original `integrationRef`, so later waves do not include work already landed on `<run>-integration`;
+- reap proof 2 runs `git cherry` against the original `integrationRef`, where the newly landed patch is absent until run end; and
+- the CLI exposes no `finish` transition even though §7.2 says the run branch is fast-forwarded into the real ref "at run end, when `active` is false."
+
+The current design therefore cannot support dependent waves or reap a newly landed task during an active run. It also does not define how the real destination ref is safely advanced if it moved independently or is checked out in another worktree.
+
+**Required resolution:** store separate fields such as `targetRef`, `targetBaseSha`, and `runIntegrationRef`. `add` must base new-wave tasks on the current `runIntegrationRef` tip, and reap must prove patch-equivalence against `runIntegrationRef`. Add a `finish` transition that:
+
+1. requires all task entries to be terminal;
+2. verifies the target still points to `targetBaseSha` or otherwise applies an explicitly designed reconciliation rule;
+3. advances the target using compare-and-update semantics without desynchronizing a worktree that has that target checked out;
+4. sets `active: false`; and
+5. safely removes the integration worktree and its temporary ref.
+
+Tests must cover at least two dependent waves, a concurrently advanced target ref, and a target ref checked out in another worktree.
+
+### 17.3 Blocker: no transition can bind the generated `agent_id`
+
+The registry requires `actorId` to be bound at dispatch, but `add` must create the worktree and print the preamble before the subagent is spawned. The subagent's generated `agent_id` is therefore not available when `add` writes the entry. Hooks cannot fill it because D9 makes them read-only, and the CLI exposes no binding subcommand.
+
+**Required resolution:** add an explicit controller-run transition such as `bind --task T3 --actor <agent_id>` after spawn. A task entry remains non-writable until bound; the controller records the ID returned by the spawn operation, and subsequent hook calls compare against it. Define equivalent binding for the main-session controller (using whichever field P0 proves stable). Add negative tests for an unbound task, a mismatched actor, and a correctly bound actor.
+
+### 17.4 Blocker: detach-first reaping still has an unhandled post-delete partial failure
+
+D13 correctly fixes the advanced-ref race: detach at `taskTip`, compare-delete the ref, then remove the worktree. But `git worktree remove` can fail after the ref was successfully deleted. A new untracked file appearing after proof 4 is sufficient.
+
+This was reproduced in a throwaway repository:
+
+```text
+remove after successful ref delete: failed
+fatal: '<worktree>' contains modified or untracked files, use --force to delete it
+branch present: no
+worktree present: yes
+worktree state: HEAD (no branch), with the late untracked file intact
+```
+
+The commit remains reachable from the detached worktree, so this is recoverable, but it violates the design's proof-gated all-or-nothing lifecycle and leaves the worktree unlocked and the named branch absent. Detach or compare-delete failure similarly leaves the worktree unlocked unless the CLI explicitly relocks it.
+
+**Required resolution:** specify the state machine and rollback for every step after unlock:
+
+- on detach failure: relock and leave the branch untouched;
+- on compare-delete failure: reattach to the surviving branch, relock, and leave the entry `landed`;
+- on worktree-remove failure after ref deletion: recreate the ref at `taskTip` with an expected-absent compare, reattach, relock, and leave the entry `landed`; and
+- if any rollback step fails, record a loud `reap_partial_failure` state with exact recovery commands and never report success.
+
+Add tests that inject failure at each step, including a late untracked file and a ref-name collision during rollback.
+
+### 17.5 Important: event-file naming does not provide the stated retry deduplication
+
+Event filenames are `<ISO-timestamp>-<tool_use_id>.json`. A retry of the same `tool_use_id` at a later time receives a different filename because the timestamp changed, so `wx` does not prevent a duplicate record. Conversely, a crash that leaves a truncated final file can permanently occupy that exact name without a defined retry or fail-closed promotion rule.
+
+The event schema also contains a singular `rule`, while acceptance criterion 3 expects one call to fire both R2 and R4.
+
+**Required resolution:** use a stable final identity derived from `tool_use_id` plus the hook event, keep the timestamp inside the payload, and write through a temporary file into an exclusively-created final record. Define whether one tool call contains a `matches[]` array or one event per matched rule. Promotion must fail closed while any malformed/truncated event in the soak window is unresolved.
+
+### 17.6 Important: the final process-table check cannot observe a completed unattributed install
+
+§8.3 detects direct Claude installs through R8 event files. For unattributed processes it checks the process table at gate completion. A human-terminal or nested-script install that starts and finishes entirely during the gate leaves neither an R8 event nor a live process at completion, so it remains invisible.
+
+**Required resolution:** either monitor the process table throughout the gate interval and retain observations, or narrow the guarantee explicitly to direct observed Claude calls plus install processes still alive when sampled. The design must not claim that a completion-time process snapshot proves no unattributed install ran earlier in the interval.
+
+### 17.7 Rev 3 approval result
+
+| Prior condition | Result | Reason |
+|---|---|---|
+| §15.9.1 non-overridden controller landing | **Partial** | The dedicated worktree removes R2, but its `**` ownership conflicts with every task and the run has no complete finish lifecycle. |
+| §15.9.2 consistent advanced-ref reaping | **Partial** | Detach-first fixes the named race; failure after ref deletion remains unhandled. |
+| §15.9.3 enforceable R3 identity | **Partial** | Runtime probing and fallback are sound, but no transition can bind the generated actor ID. |
+| §15.9.4 no trusted gate during direct install | **Pass for observed direct calls** | R8 interval invalidation covers direct Claude tool calls; the unattributed-process guarantee remains overstated. |
+| §15.9.5 crash-safe ledger and registry lock | **Pass with one event-identity correction required** | Registry recovery is specified and per-event files remove interleaving; retry identity/fail-closed folding needs clarification. |
+| §15.9.6 coherent backstop phase | **Pass** | P0/P1 ordering now satisfies the invariant. |
+
+### 17.8 Conditions for the next approval pass
+
+Rev 3 is ready for another approval review when:
+
+1. integration ownership no longer conflicts with active task ownership;
+2. the run-integration ref has a complete multi-wave, proof, finish, and cleanup lifecycle distinct from the target ref;
+3. actor IDs have an explicit post-spawn binding transition;
+4. every detach/delete/remove failure has tested rollback or an explicit recoverable partial-failure state;
+5. event identity supports retry/multi-rule semantics and malformed events block promotion; and
+6. gate process-history claims match what the implementation can actually observe.
