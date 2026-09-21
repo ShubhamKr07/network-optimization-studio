@@ -215,6 +215,16 @@ beforeEach(() => {
   mockUseSearch.mockReturnValue("?scenario=1");
 });
 
+describe("Workspace — Added Entities removed (workspace-fixups-2 item 1, review Minor-2)", () => {
+  it("no model exposes an 'Added Entities' sidebar entry (the tab was removed; add is inline in each base tab)", () => {
+    renderWorkspace();
+    // The Warehouses base tab still exists (add-section is now inline there)...
+    expect(screen.getByTestId("sidebar-input-warehouses")).toBeInTheDocument();
+    // ...but there is no separate Added Entities sidebar entry.
+    expect(screen.queryByTestId("sidebar-input-added-entities")).not.toBeInTheDocument();
+  });
+});
+
 describe("Workspace — Warehouses tab", () => {
   it("opening the Warehouses sidebar entry renders the real WarehouseTable with the scenario's warehouse data, not a placeholder", () => {
     renderWorkspace();
