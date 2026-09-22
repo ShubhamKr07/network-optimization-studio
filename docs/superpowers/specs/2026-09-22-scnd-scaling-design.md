@@ -42,7 +42,7 @@
 
 Frame per the original brainstorm (Render per-second billing; ~20 class-days × 3 hr = 60 peak-hr/month; shared Postgres ~$7–19/mo):
 `total ≈ API(always-on) + base-worker(always-on) + Σ(burst-workers × 60hr) + Postgres + scheduler`.
-The brainstorm's Option-B estimate was ≈ **$70/mo** (API Standard + 1 base worker + ~6 burst cores × 60 hr). **Recompute from measured p95 service time + the selected topology.** Report cost-per-successful-solve, peak-window cost, idle cost, and sensitivity to cache-hit rate + free-choice frequency. If measurement shows a single vertical box clears the load, the honest answer may be **"bump the instance + keep 24/7"** at lower operational cost than an autoscaled fleet.
+The brainstorm's Option-B estimate was ≈ **$70/mo** (API Standard + 1 base worker + ~6 burst cores × 60 hr). **Recompute from measured mean CPU service demand + the selected topology** — **not from p95 service time** (measurement review M-R8: queue stability depends on `arrival rate × mean service demand`; sizing every request as a p95 case over-provisions, while a regime beyond p95 can dominate total compute and be missed). p95 validates the SLO, it does not size the tier. **Report both cost denominators** (per successful submitted job, and per successful CBC execution) per the Measurement spec §4. Report cost-per-successful-solve, peak-window cost, idle cost, and sensitivity to cache-hit rate + free-choice frequency. If measurement shows a single vertical box clears the load, the honest answer may be **"bump the instance + keep 24/7"** at lower operational cost than an autoscaled fleet.
 
 ## 5. Two-gate pilot verification (before real cohort)
 

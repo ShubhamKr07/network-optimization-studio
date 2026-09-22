@@ -22,7 +22,7 @@ The round-3 phrasing was circular: a single "all gates close before any non-A3 t
 | **G-baseline** — post-B inventory + canonical-source consistency pass | A4, A5, A7, A8, A9, A11 (every representation/rollout consumer) | **A0 itself** | A0 committed |
 | **G-cache** — composite identity artifact (Q35/Q41/Q75) | **A6 and A6's consumers only** — A7's v2 cache paths and R3 activation. It does **not** block A0/A1/A2/A3/A4/A5/A14a | Authoring and reviewing the artifact | Artifact separately reviewed and **approved** |
 | **G-review** — consolidated approval of this revision | All non-preparatory execution | This fold, and the next review | An explicit recorded approval decision — **ask AP-1** |
-| **Cohort gate** — reliability pain not yet demonstrated | Speculative execution of the reliability layer | — | Real or synthetic-load-proven cohort evidence — **ask AP-4** to waive or extend |
+| **Cohort gate** — reliability pain not yet demonstrated | ~~Speculative execution of the reliability layer~~ — **WAIVED for A4–A13 on 2026-09-22** (see the AP-4 waiver); still binds Scaling | — | Waived by explicit product-owner decision, not by evidence |
 
 **Cohort-gate exceptions, stated (A-R31.5):** **A3** and **A14** are exempt because §34's preparatory authorization is independent of cohort evidence — it exists precisely to *produce* evidence. **A1+A2** are exempt because they fix a defect live in production today (see A2). No other task is exempt.
 
@@ -39,7 +39,7 @@ Unless stated otherwise the decider is the **product owner** (the authority that
 | **AP-1** | Before any non-preparatory task starts (closes **G-review**) | "Seven reviews returned REQUEST CHANGES; A-R57/A-R58 are folded and the final review expects approvability. Do you approve this plan revision for execution?" | Approve as-is · Approve with named exceptions · Request another review round |
 | **AP-2** | While closing **G-Q73**, if any of Q73–Q84 turns out to be a *product* decision rather than a technical one | "Q\<n\> is a product decision, not a technical one: \<restate it\>. Which option?" | (enumerate the real options for that Q) |
 | **AP-3** | The G-cache composite-identity artifact is written and needs its own review (blocks **A6** and its consumers) | "The composite cache-identity artifact is ready: manifest, framing, runtime PuLP/CBC identities, worked hash vectors, fail-closed behaviour. Approve it for A6?" | Approve · Approve with changes · Reject with reasons |
-| **AP-4** | Before executing the reliability layer beyond the cohort-exempt slice (A1+A2, A3, A14a) | "The cohort gate needs real or synthetic-load-proven evidence of reliability pain. Measurement has not run. Proceed anyway, wait for Measurement, or extend the exemption?" | Wait for Measurement · Extend the exemption to \<tasks\> with reasons · Proceed without evidence (records an explicit risk acceptance) |
+| **AP-4** | ~~Before executing the reliability layer beyond the cohort-exempt slice~~ — **ANSWERED 2026-09-22, see the waiver below. Do not re-ask.** | — | — |
 | **AP-5** | A2 and A3 are both complete, making **A14b** executable | "A14b (over-deadline drain integration proof) is now unblocked. Authorize it?" | Authorize · Keep gated |
 | **AP-6** | Every item in A11's R3 prerequisite list is satisfied | "R3 activation: all prerequisites are met \<list with commit SHAs\>. Authorize flipping `SOLVER_V2_WRITE_ENABLED` to true on `nos-api`?" | Authorize · Authorize after \<named condition\> · Hold |
 | **AP-7** | Immediately before the A11 activation window | "Activation needs `autoDeployTrigger: off` on `nos-api`, then restoration afterwards. Both are themselves deploys. Approve the suppression window and its restoration?" | Approve the full sequence · Approve with a different control · Hold |
@@ -48,6 +48,18 @@ Unless stated otherwise the decider is the **product owner** (the authority that
 | **AP-10** | A genuinely ambiguous **product** decision surfaces mid-task (**hard rule #8**) | "\<Restate the ambiguity\>. The readings lead to materially different behaviour: \<A\> vs \<B\>. Which?" | (the real options) |
 | **AP-11** | A single task accumulates findings across **three or more** consecutive review rounds (the round-6 scope rule) | "Task \<X\> has produced findings in \<n\> consecutive rounds at a rising rate — the A10 pattern. Scope review, or another fold?" | Scope review — consider moving it out of A · Another fold · Accept as-is with reasons |
 | **AP-12** | Any branch or worktree deletion (**CLAUDE.md branch discipline**) | "\<branch/worktree\> is proposed for deletion. `git cherry main <branch>` shows \<result\>, status clean, no session owns it. Approve?" | Approve · Approve with backup first · Keep |
+
+### AP-4 cohort-gate waiver — granted 2026-09-22 (measurement review M-R7)
+
+**Decision: the full A rollout runs BEFORE Measurement. The cohort gate is waived for A4–A13.** Recorded as a deliberate waiver, not an implied closure.
+
+**Why this was forced.** AP-4 previously offered *"Wait for Measurement"* while `2026-09-22-scnd-measurement-design.md` stated *"nothing in this spec is executable until A ships"* — A waiting on Measurement, Measurement waiting on A. That is the round-1 topology circularity relocated to the programme sequence, not removed. One side had to give, and the product owner chose to keep the strict order **all of A → Measurement → Scaling** rather than start Measurement from a narrower A seam.
+
+**What the waiver costs, stated so it is not discovered later.** A4–A13 are built without load evidence. If Measurement later shows the load is trivial, some of that machinery will have been heavier than the cohort needed. Accepted deliberately: A is **correctness** work, every item of it addresses a defect reachable today, and the owner lease/heartbeat is required for rolling deploys at *any* instance count — so the waived risk is over-engineering, never incorrectness.
+
+**What the waiver does NOT cover.** It is not a general cohort-evidence waiver. Scaling remains cohort-gated and evidence-gated on Measurement. Nothing here authorises building the solver tier, the scheduler, or any capacity work without the evidence those decisions require.
+
+**Standing rule this produced (M-R7):** *every cross-document dependency edge must be checked in both directions against the depended-on document's own gates.* A textual sequence is invalid if the predecessor names the successor as its own evidence source. Apply this at every review, in both this plan and the specs it references.
 
 **Already granted — do not re-ask, and do not widen.** A3's preparatory authorization (§34) · A3's single public behaviour change, the error envelope becoming a failed job (2026-09-22) · A14a (2026-09-22) · DEC-2026-09-21-01, `e2e_accuracy.py` assertion corrections with zero golden-objective changes (issue #19) · the A10-to-Scaling scope move (2026-09-22) · the no-automatic-retry delivery contract (2026-09-22) · the recovery-identity scoping to recovery-only (2026-09-22).
 
