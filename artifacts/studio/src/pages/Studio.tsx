@@ -32,6 +32,7 @@ import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { chapterForModelId } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
+import { classifyResultOutcome, hasIncumbent, type ResultOutcome } from "@/lib/resultOutcome";
 import { computeBandCoverage, computeAutoBands } from "@/lib/bands";
 import { getBandColor } from "@/lib/bandPalette";
 import { Slider } from "@/components/ui/slider";
@@ -206,40 +207,13 @@ function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, u
   };
 }
 
-// B4 — truthful solve-outcome classification for rendering. `solutionStatus`
-// (B2/B3) is the real CBC-derived classification; a stored result that
-// predates B2 has `solutionStatus: null` (stamped by the api-server read-path
-// guard) and must never be rendered as a verified "optimal"/"proven" claim.
-// For such legacy rows, the pre-B2 `status` field is still trustworthy for
-// infeasible/error (those were never mislabeled — only "optimal" was
-// hardcoded regardless of gap/time-limit outcome), so we fall back to it for
-// those two cases only; anything else legacy becomes a neutral "unverified"
-// outcome rather than a guessed-at optimal/feasible claim.
-export type ResultOutcome =
-  | "optimal"
-  | "feasible"
-  | "infeasible"
-  | "no_solution"
-  | "unbounded"
-  | "error"
-  | "legacy_unverified";
-
-export function classifyResultOutcome(result: SolveResult): ResultOutcome {
-  if (result.solutionStatus != null) return result.solutionStatus;
-  if (result.status === "infeasible") return "infeasible";
-  if (result.status === "error") return "error";
-  return "legacy_unverified";
-}
-
-// A real incumbent objective/edges/metrics exist to render only for these
-// three outcomes — infeasible/no_solution/unbounded/error all carry a
-// meaningless `objective: 0` sentinel from solve.py (hard rule 6 — solver
-// changes enter as data, not branches — so the sentinel itself isn't going
-// away; the frontend's job is to stop presenting it as a real number).
-function hasIncumbent(outcome: ResultOutcome): boolean {
-  return outcome === "optimal" || outcome === "feasible" || outcome === "legacy_unverified";
-}
-
+// B4/B4.1 — truthful solve-outcome classification for rendering.
+// `classifyResultOutcome`/`hasIncumbent` moved to `@/lib/resultOutcome` in
+// B4.1 so Workspace's CostSummaryTab.tsx (the actually-reachable live
+// rendering path — every chapter routes through Workspace.tsx, never this
+// file) can reuse the exact same logic instead of duplicating it. Only the
+// colored-badge presentation stays local to this (dead-route, but still
+// tested) page.
 const RESULT_BADGE: Record<ResultOutcome, { label: string; classes: string; dot: string }> = {
   optimal: { label: "Optimal", classes: "text-green-700 bg-green-50 border-green-200", dot: "#16A34A" },
   feasible: { label: "Feasible", classes: "text-blue-700 bg-blue-50 border-blue-200", dot: "#2563EB" },

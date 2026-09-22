@@ -1,12 +1,13 @@
 /**
- * Browser E2E — QA gate for the SCND Correctness Option-B slice (task B5).
+ * Browser E2E — QA gate for the SCND Correctness Option-B slice (tasks B5 +
+ * B4.1).
  *
  * B1-B4 built a truthful solve-outcome contract end to end: solve.py's
  * captured-CBC-log classifier (B1/B2) emits real `solutionStatus`/
  * `terminationReason`/`achievedGap` instead of a hardcoded "optimal";
  * OpenAPI/Zod carry it plus a legacy-unverified read-path guard (B3);
- * `quality.ts`'s `qualityStatement()` + `Studio.tsx`'s `classifyResultOutcome()`
- * render it as 7 distinct outcomes (B4).
+ * `quality.ts`'s `qualityStatement()` + `@/lib/resultOutcome`'s
+ * `classifyResultOutcome()` render it as 7 distinct outcomes (B4).
  *
  * This file has two independent halves:
  *
@@ -16,42 +17,24 @@
  *     fields genuinely differ between a gap-limited feasible stop and a
  *     proven-optimal one. This is real, currently-passing coverage of B1-B3.
  *
- *  2. "Workspace UI rendering" - attempts the literal B5 DoD (a real user,
- *     looking at the live app, sees the distinction) and finds a REAL,
- *     CONFIRMED, still-open gap: every chapter route is `workspace: true`
- *     (chapters.ts / App.tsx's `Gate()`), so `Studio.tsx` - the only file
- *     B4 actually wired `classifyResultOutcome()`/`qualityStatement()` into
- *     - is dead code, unreachable from any route. The live Workspace app's
- *     ONLY quality-indicator text is `CostSummaryTab.tsx`'s "Quality" row
- *     (`data-testid="cost-summary-value-quality"`), which still renders
- *     `result.quality` verbatim - solve.py's raw, UNCHANGED-by-B1-B4 PuLP
- *     `cbc.lpStatus` string ("Optimal" whenever CBC returns a feasible
- *     incumbent, gap-limited or truly proven, no distinction possible; see
- *     cbc_termination.py's own module docstring, which names this exact
- *     conflation as the historical defect). Confirmed empirically against
- *     real local dev servers before this file was written: a Brazil
- *     P=5/cap=20M/gap=0.05 solve (solutionStatus="feasible",
- *     terminationReason="gap_limit", achievedGap=0.0019 - a genuine
- *     gap-limited stop per DEC-2026-09-21-01/test_truthful_status.py's own
- *     golden) still shows "Optimal" in the live Solution Summary tab -
- *     textually IDENTICAL to a genuinely proven solve. B4's own commit
- *     message asserted "Workspace's output tabs render no status/quality UI
- *     to update" - that premise is factually wrong; the UI exists, it is
- *     just still wired to the old field.
- *
- *     This second describe block is marked `test.fail()` (Playwright's
- *     "expected to fail" annotation, NOT `.skip()`): it runs for real every
- *     time, is reported as a pass while it fails for the documented reason
- *     above, and - critically - Playwright will flag it as an UNEXPECTED
- *     PASS the moment someone wires `qualityStatement()` (or equivalent)
- *     into `CostSummaryTab.tsx`, forcing the `test.fail()` marker to be
- *     removed rather than silently rotting. This is a deliberate choice NOT
- *     to weaken the assertions to match today's wrong behavior (this repo's
- *     "never quiet a failing test to make a gate green" rule) and NOT to
- *     hide the gap behind `.skip()` (which would report nothing at all).
- *     Fixing `CostSummaryTab.tsx` is out of scope for this QA task (frontend
- *     product code, not an e2e spec) - see the B5 QA report for the full
- *     write-up and recommended follow-up.
+ *  2. "Workspace UI rendering" - the literal B5 DoD (a real user, looking at
+ *     the live app, sees the distinction). B5's original QA pass found a
+ *     REAL, CONFIRMED gap here: every chapter route is `workspace: true`
+ *     (chapters.ts / App.tsx's `Gate()`), so B4's original
+ *     `classifyResultOutcome()`/`qualityStatement()` wiring — built only
+ *     into `Studio.tsx` — was dead code, unreachable from any route. The
+ *     live Workspace app's ONLY quality-indicator text,
+ *     `CostSummaryTab.tsx`'s "Quality" row
+ *     (`data-testid="cost-summary-value-quality"`), still rendered
+ *     `result.quality` verbatim — solve.py's raw PuLP `cbc.lpStatus` string
+ *     ("Optimal" whenever CBC returns a feasible incumbent, gap-limited or
+ *     truly proven, no distinction possible). B4.1 fixed this: the same
+ *     `classifyResultOutcome()`/`qualityStatement()` logic was extracted to
+ *     the shared `@/lib/resultOutcome` module and wired into
+ *     `CostSummaryTab.tsx` (both the single-result "Quality" row and the
+ *     compare-mode per-column "Quality" row) via a new `resultQualityText()`
+ *     helper. This describe block's `test.fail()` marker has been removed —
+ *     it now asserts the real, live, truthful distinction.
  *
  * Each test registers its own disposable account and cleans up its own
  * scenario(s) in a `finally` block, matching this repo's established e2e
@@ -206,24 +189,9 @@ test.describe("B5 truthful-status QA — backend contract (real browser, real CB
   });
 });
 
-test.describe("B5 truthful-status QA — Workspace UI rendering (KNOWN GAP, tracked via test.fail)", () => {
+test.describe("B4.1 truthful-status QA — Workspace UI rendering (live, fixed)", () => {
   test("Solution Summary 'Quality' distinguishes a gap-limited feasible outcome from a proven-optimal one", async ({ page }) => {
     test.setTimeout(300_000);
-    // KNOWN, CONFIRMED-LIVE GAP (not environmental flake, not a guess): B4
-    // wired `classifyResultOutcome()`/`qualityStatement()` into `Studio.tsx`
-    // only, which is unreachable in production (every chapter is
-    // `workspace: true` in chapters.ts -> App.tsx's Gate() always renders
-    // Workspace). Workspace's only quality-indicator text,
-    // `CostSummaryTab.tsx`'s "Quality" row, still renders `result.quality`
-    // (solve.py's raw PuLP `cbc.lpStatus`, unchanged since before B1) -
-    // "Optimal" for BOTH a gap-limited and a proven solve, with zero
-    // distinction. See this file's header comment + the B5 QA report for
-    // the full write-up. Remove this `test.fail()` once CostSummaryTab.tsx
-    // (or equivalent) is wired to the truthful `terminationReason`/
-    // `achievedGap` fields already correctly carried by the API (proven by
-    // the sibling describe block above) - at that point this test will
-    // start passing for real.
-    test.fail(true, "CostSummaryTab.tsx's Quality row still renders solve.py's raw PuLP status, not the truthful terminationReason/achievedGap B1-B4 built — see file header + B5 QA report");
 
     await registerAndGoHome(page);
 

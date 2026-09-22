@@ -75,8 +75,14 @@ vi.mock("@workspace/api-client-react", () => ({
 
 import { CostSummaryTab } from "@/components/workspace/tabs/CostSummaryTab";
 
+// B4.1 — a modern (post-B2) solved result carries `solutionStatus`/
+// `terminationReason`; the Quality row now derives its text from those
+// fields via `resultQualityText()`, not the raw `quality` string. Every
+// fixture below that expects "Proven optimal" text needs these present, or
+// it falls into the (correct, but different) legacy-unverified branch.
 const result = {
   status: "optimal" as const, objective: 29873735731, runTimeSec: 0.45, quality: "Proven optimal",
+  solutionStatus: "optimal" as const, terminationReason: "optimality_proven" as const, achievedGap: null,
   edges: [], metrics: { weightedAvgDistance: 382.9 }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
 };
 
@@ -181,10 +187,91 @@ describe("CostSummaryTab — single-scenario view (unchanged)", () => {
   });
 });
 
+// B4.1 — the "Quality" row (single-result AND compare-mode) now derives its
+// text from `resultQualityText()` (`@/lib/resultOutcome`), never the raw
+// `result.quality` string solve.py emits — this is the actual live,
+// reachable rendering path (every chapter routes through Workspace.tsx,
+// never the dead `Studio.tsx`). The exact production defect this closes: a
+// Brazil P=5/cap=20M/gap=0.05 gap-limited solve (`solutionStatus:"feasible"`,
+// `terminationReason:"gap_limit"`) used to show "Optimal" here — textually
+// identical to a genuinely proven solve.
+describe("CostSummaryTab — B4.1 truthful Quality rendering", () => {
+  const baseFields = {
+    objective: 100, runTimeSec: 0.1, edges: [], metrics: { weightedAvgDistance: 50 },
+    details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+  };
+
+  it("optimality_proven shows 'Proven optimal'", () => {
+    const provenResult = {
+      ...baseFields, status: "optimal" as const, quality: "Optimal",
+      solutionStatus: "optimal" as const, terminationReason: "optimality_proven" as const, achievedGap: null,
+    };
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={provenResult} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
+    expect(screen.getByTestId("cost-summary-value-quality")).toHaveTextContent("Proven optimal");
+  });
+
+  it("a gap-limited feasible stop shows the truthful feasible statement, NOT 'Optimal' — the exact production defect B4.1 fixes", () => {
+    const gapLimitedResult = {
+      ...baseFields, status: "feasible" as const, quality: "Optimal", // solve.py's raw string was ALWAYS "Optimal" for a feasible CBC stop
+      solutionStatus: "feasible" as const, terminationReason: "gap_limit" as const, achievedGap: 0.0019,
+    };
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={gapLimitedResult} scenarioId={1} modelId="p-median-brazil" /></ExportProvider></UnitProvider>);
+    const cell = screen.getByTestId("cost-summary-value-quality");
+    expect(cell).not.toHaveTextContent("Optimal");
+    expect(cell.textContent?.toLowerCase()).toContain("feasible");
+  });
+
+  it("a no-incumbent outcome (no_solution) shows 'No incumbent' — never a raw solver string or the objective:0 sentinel", () => {
+    const noSolutionResult = {
+      ...baseFields, objective: 0, status: "no_solution" as const, quality: "Stopped on time",
+      solutionStatus: "no_solution" as const, terminationReason: "time_limit" as const, achievedGap: null,
+    };
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={noSolutionResult} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
+    const cell = screen.getByTestId("cost-summary-value-quality");
+    expect(cell).toHaveTextContent("No incumbent");
+    expect(cell).not.toHaveTextContent("Stopped on time");
+    expect(cell).not.toHaveTextContent("0");
+  });
+
+  it("a legacy result (no solutionStatus at all) shows a neutral 'Unverified' text — NEVER 'Proven optimal'/'Optimal'", () => {
+    // Genuinely pre-B2 shape: no solutionStatus/terminationReason/achievedGap
+    // keys at all (not even explicit null) — matches what a real stored row
+    // from before B2 actually looks like on the wire.
+    const legacyResult = { ...baseFields, status: "optimal" as const, quality: "Optimal" };
+    render(<UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab result={legacyResult} scenarioId={1} modelId="p-median-us" /></ExportProvider></UnitProvider>);
+    const cell = screen.getByTestId("cost-summary-value-quality");
+    expect(cell).toHaveTextContent("Unverified");
+    expect(cell).not.toHaveTextContent("Proven optimal");
+    expect(cell).not.toHaveTextContent("Optimal");
+  });
+
+  it("the compare-mode 'Quality' column also uses the truthful outcome per column, not raw result.quality", () => {
+    const provenColumn = scenario({ id: 100, name: "Proven", modelId: "p-median-us", result: { ...result } });
+    const gapLimitedColumn = scenario({
+      id: 101, name: "Gap-limited", modelId: "p-median-us",
+      result: {
+        ...result, quality: "Optimal",
+        solutionStatus: "feasible" as const, terminationReason: "gap_limit" as const, achievedGap: 0.02,
+      },
+    });
+    render(
+      <UnitProvider><ExportProvider value={makeExportProviderValue()}><CostSummaryTab
+        result={provenColumn.result} scenarioId={100} modelId="p-median-us" scenarios={[provenColumn, gapLimitedColumn]}
+      /></ExportProvider></UnitProvider>,
+    );
+    fireEvent.click(screen.getByTestId("cost-summary-compare-toggle-101").querySelector("input")!);
+    expect(screen.getByTestId("cost-summary-compare-quality-100")).toHaveTextContent("Proven optimal");
+    const gapCell = screen.getByTestId("cost-summary-compare-quality-101");
+    expect(gapCell).not.toHaveTextContent("Optimal");
+    expect(gapCell.textContent?.toLowerCase()).toContain("feasible");
+  });
+});
+
 // jade-T14 — Chapter 9 JADE inbound/outbound cost split (single-scenario view)
 describe("CostSummaryTab — Chapter 9 JADE inbound/outbound cost split", () => {
   const jadeResult = {
     status: "optimal" as const, objective: 254060828.6157, runTimeSec: 1.2, quality: "Proven optimal",
+    solutionStatus: "optimal" as const, terminationReason: "optimality_proven" as const, achievedGap: null,
     edges: [],
     metrics: { weightedAvgDistance: 500, inboundCost: 100000000, outboundCost: 154060828 },
     details: {}, solverUsed: "CBC", infeasibilityReason: null,

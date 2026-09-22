@@ -13,9 +13,12 @@
 // "optimal"/"feasible", or a legacy-unverified result assumed to have one) —
 // it has no opinion on infeasible/no_solution/unbounded/error outcomes,
 // which the caller renders as a distinct "No incumbent" state instead (see
-// Studio.tsx's `classifyResultOutcome`). A null/undefined/"unknown"
-// `terminationReason` (legacy rows, or solutionStatus "error") returns null —
-// no unverifiable claim is ever printed.
+// `@/lib/resultOutcome`'s `classifyResultOutcome`/`resultQualityText`, shared
+// by Studio.tsx and Workspace's CostSummaryTab.tsx — the latter is the
+// actually-reachable live path, since every chapter routes through
+// Workspace.tsx). A null/undefined/"unknown" `terminationReason` (legacy
+// rows, or solutionStatus "error") returns null — no unverifiable claim is
+// ever printed.
 export function qualityStatement(
   terminationReason: string | null | undefined,
   achievedGap: number | null | undefined,
