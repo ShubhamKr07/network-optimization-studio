@@ -31,7 +31,11 @@ Same contract as the A plan's AP checkpoints: stop, ask verbatim, wait, record t
 
 ### 1.1 Solver microbenchmark (per-model, in-process)
 
-A Python harness (`artifacts/api-server/src/solver/tests/benchmark/`) running each live model at `gap ∈ {0, 0.005, 0.01, 0.02}`. Records per run: wall + CPU time; **build-time vs inside-`prob.solve()`** split; peak RSS; objective; termination evidence.
+A Python harness (`artifacts/api-server/src/solver/tests/benchmark/`) running each live model at `gap ∈ {0, 0.005, 0.01, 0.02}`. Records per run: wall time; **total process-tree CPU (Python + CBC, user + system)**; Python and CBC peak RSS **separately**; objective; termination evidence.
+
+> **Revised 2026-09-23 (plan review L-R1) — the build-vs-`prob.solve()` split is withdrawn as a requirement.** It previously read "build-time vs inside-`prob.solve()` split". Obtaining it accurately needs unrounded timing hooks threaded through every solver path — `solve.py`'s `runTimeSec` is `round(run_time, 2)`, so deriving the split by subtraction is noise-dominated and can go negative for the ~0.2 s teaching models. **Capacity sizing needs total process-tree CPU and wall time, neither of which requires the split**, and spawn/import/dataset-load cost is measured where it actually matters — the paired **§1.3 persistent-worker experiment**. Revised explicitly here rather than honoured with invasive production instrumentation.
+>
+> **Aggregate RSS likewise:** the local benchmark reports Python peak and CBC peak **separately and labelled as such** — `max(self, child)` is not simultaneous tree RSS and must not be called that. **Memory sizing uses aggregate instance RSS from the authoritative load run (§1.2)**, where it is measured directly.
 
 **Statistical design (M-R4) — the round-1 `N≥30` could not support its own claims.** A sample p95 from 30 observations is roughly the 29th value: a single tail draw, with no stability. Worse, repeating one scenario measures *runtime noise*, not **how often** the JADE free-choice slow regime occurs in the scenario population — two different quantities the round-1 spec conflated.
 

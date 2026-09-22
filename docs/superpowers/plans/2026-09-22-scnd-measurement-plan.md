@@ -139,6 +139,12 @@ class Case:
     inputs: dict
     generator_seed: int | None = None
 
+    def case_key(self, cell) -> str:
+        """L-R4: case_id is unique only WITHIN a cell, but objective deltas
+        pair the same case ACROSS gaps. The pairing key therefore excludes
+        gap and includes the stratum identity."""
+        return f"{cell.model_id}|{cell.regime}|{cell.edit_family or '-'}|{self.case_id}"
+
 @dataclass(frozen=True)
 class Cell:
     model_id: str
@@ -158,8 +164,28 @@ class Manifest:
     strata: list
     gaps: list
 
-    def weights_sum_to_one(self) -> bool:
-        return abs(sum(s["weight"] for s in self.strata) - 1.0) < 1e-9
+    def validate(self, min_cases_per_cell: int) -> None:
+        """L-R1: a weights-only check is insufficient for an authoritative
+        corpus. Full validation, all failures raising ManifestError."""
+        if abs(sum(s["weight"] for s in self.strata) - 1.0) >= 1e-9:
+            raise ManifestError("stratum weights must sum to 1")
+        if any(s["weight"] < 0 for s in self.strata):
+            raise ManifestError("weights must be non-negative")
+        for s in self.strata:
+            if s["regime"] not in ("forced_open", "free_choice"):
+                raise ManifestError(f"bad regime: {s['regime']}")
+            if s.get("edit_family") not in (None, "demand", "capacity", "force", "distance"):
+                raise ManifestError(f"bad edit_family: {s.get('edit_family')}")
+            ids = [c["case_id"] for c in s["cases"]]
+            if len(ids) != len(set(ids)):
+                raise ManifestError(f"duplicate case_id in {s['model_id']}")
+            if len(ids) < min_cases_per_cell:
+                raise ManifestError(
+                    f"{s['model_id']} has {len(ids)} cases; need at least "
+                    f"{min_cases_per_cell} distinct cases")
+        keys = [c.key for c in self.cells()]
+        if len(keys) != len(set(keys)):
+            raise ManifestError("duplicate cell key")
 
     def cells(self) -> list:
         return [
@@ -169,11 +195,10 @@ class Manifest:
             for s in self.strata for g in self.gaps
         ]
 
-def load_manifest(path: str) -> Manifest:
+def load_manifest(path: str, min_cases_per_cell: int = 1) -> Manifest:
     raw = json.loads(open(path).read())
     m = Manifest(raw["version"], raw["strata"], raw["gaps"])
-    if not m.weights_sum_to_one():
-        raise ManifestError("stratum weights must sum to 1")
+    m.validate(min_cases_per_cell)
     return m
 ```
 
@@ -201,15 +226,17 @@ git commit -m "[M1.1] benchmark corpus manifest: schema, loader, cell enumeratio
 
 **Interfaces:**
 - Consumes: `Cell`, `Case` from M1.1.
-- Produces: `measure_once(cell, case, solve_fn=None) -> Observation`; `Observation` with `cell_key, case_id, wall_sec, cpu_tree_sec, build_sec, solve_sec, harness_overhead_sec, peak_rss_tree_bytes, objective, solution_status, termination_reason, ok, error, kind`.
+- Produces: `measure_once(cell, case, solve_fn=None) -> Observation`; `Observation` with `cell_key, case_key, wall_sec, cpu_tree_sec, harness_overhead_sec, python_peak_rss, cbc_peak_rss, objective, solution_status, termination_reason, ok, error, kind`. *(No `build_sec`/`solve_sec` — the split is withdrawn per L-R1; no `peak_rss_tree_bytes` — the two peaks stay separate and labelled.)*
 
 > **MP-R2 — three defects in the round-1 primitive, each of which corrupts the capacity model downstream.**
 >
 > **1. CBC's CPU was excluded entirely.** `time.process_time()` measures the *Python* process only, and PuLP launches CBC as an **external subprocess** — so the dominant solver CPU never entered `cpu_sec`. M2.1's mean service demand would have been far too small, and every worker count derived from it too low. **Correction:** measure the whole **Python + CBC process tree**, user *and* system time, by having the child report `resource.getrusage(RUSAGE_SELF)` **plus** `RUSAGE_CHILDREN` at exit (CBC is the child's child). `process_time()` alone is insufficient and is removed.
 >
-> **2. The RSS "delta" could not work.** `RUSAGE_CHILDREN.ru_maxrss` is a **historical high-water mark, not a cumulative counter**, so it cannot be differenced; and `max(after - before, after)` always selects `after` for non-negative values, so the round-1 "fix" was a no-op that silently reported the largest RSS ever seen by any prior observation. **Correction:** the **child itself** reports its own tree peak (`RUSAGE_SELF` + `RUSAGE_CHILDREN` at exit) and the parent never subtracts high-water marks. Aggregate *instance* RSS is a separate concern, measured only during load tests (M3.4). `ru_maxrss` is still **KB on Linux, bytes on macOS** — normalise or be wrong by 1024×.
+> **2. The RSS "delta" could not work.** `RUSAGE_CHILDREN.ru_maxrss` is a **historical high-water mark, not a cumulative counter**, so it cannot be differenced; and `max(after - before, after)` always selects `after` for non-negative values, so the round-1 "fix" was a no-op that silently reported the largest RSS ever seen by any prior observation. **Correction (scoped down by L-R1):** the child reports **`python_peak_rss` and `cbc_peak_rss` separately and labelled accurately** — `RUSAGE_SELF` and `RUSAGE_CHILDREN` at exit. **`max(self, child)` is NOT aggregate tree RSS and must never be labelled as such**; true simultaneous tree RSS would need a sampler this plan deliberately does not build. **Memory sizing uses aggregate *instance* RSS from the authoritative load run** (M3.4b), where it is measured directly. `ru_maxrss` is **KB on Linux, bytes on macOS** — normalise or be wrong by 1024×.
 >
-> **3. `build_sec = wall - runTimeSec` is not the required split.** `solve.py:214` returns `round(run_time, 2)` — **quantised to 10 ms** — while `wall_sec` also carries fork, import, temp-file, pickle and IPC overhead. For the ~0.2 s teaching solves the subtraction is noise-dominated and can go **negative**. **Correction:** add a **benchmark-only timing seam** — an optional callback invoked with unrounded `time.monotonic()` timestamps immediately around model construction and around `prob.solve()`. It is off by default, changes no solver mathematics, and is the only production-file touch in this plan. Harness/bootstrap cost is recorded separately as `harness_overhead_sec` and is **never** called build time.
+> **3. `build_sec = wall - runTimeSec` was not the required split — and the split itself is now out of scope (L-R1).** `solve.py:214` returns `round(run_time, 2)`, quantised to 10 ms, while `wall_sec` also carries fork, import, temp-file, pickle and IPC overhead; for ~0.2 s teaching solves that subtraction is noise-dominated and can go **negative**. My last fold proposed an `on_phase` callback threaded through every solver path to fix it. **That is rejected as disproportionate:** capacity needs **total process-tree CPU and wall time**, neither of which requires a build/solve split. Spawn/import/dataset-load cost is measured where it actually matters — the **paired M4.2 persistent-worker experiment**. No production timing hooks are added. `harness_overhead_sec` still records harness/bootstrap cost separately and is **never** called build time.
+>
+> **Parent-spec consequence, applied not implied.** The measurement spec §1.1 required a "build-time vs inside-`prob.solve()` split". That requirement is **revised in the spec itself** rather than honoured with invasive hooks — see the spec's §1.1 note.
 
 **Temp files (review recommendation).** `tempfile.mktemp()` is removed — it is deprecated and racy. Use `tempfile.TemporaryDirectory()`, handle child exit status and missing/corrupt output explicitly, and clean up in `finally`.
 
@@ -220,27 +247,41 @@ git commit -m "[M1.1] benchmark corpus manifest: schema, loader, cell enumeratio
 from benchmark.corpus import Cell
 from benchmark.measure import measure_once, normalize_maxrss
 
-def _fake_solve(inp):
-    return {"runTimeSec": 0.25, "objective": 1234.0,
-            "solutionStatus": "optimal", "terminationReason": "optimality_proven"}
+from benchmark.corpus import Cell, Case
 
-def test_measure_once_splits_build_and_solve():
-    cell = Cell("p-median-us", "forced_open", None, 0.0, 1.0, {"modelType": "p_median"})
-    obs = measure_once(cell, solve_fn=_fake_solve)
+def _cell(gap=0.0):
+    return Cell("p-median-us", "forced_open", None, gap, 1.0,
+                (Case("c1", {"modelType": "p_median"}),))
+
+def _fake_solve(inp):
+    return {"objective": 1234.0, "solutionStatus": "optimal",
+            "terminationReason": "optimality_proven"}
+
+def test_measure_once_captures_tree_cpu_and_separate_peaks():
+    cell = _cell()
+    obs = measure_once(cell, cell.cases[0], solve_fn=_fake_solve)
     assert obs.ok is True
-    assert obs.solve_sec == 0.25
-    assert obs.build_sec == obs.wall_sec - 0.25
-    assert obs.build_sec >= 0
-    assert obs.peak_rss_bytes > 0
+    assert obs.cpu_tree_sec > 0            # user+sys across Python AND CBC
+    assert obs.python_peak_rss > 0
+    assert obs.cbc_peak_rss >= 0           # 0 when no child was spawned
+    assert obs.harness_overhead_sec >= 0
     assert obs.cell_key == cell.key
+    assert obs.case_key == "p-median-us|forced_open|-|c1"
+
+def test_case_key_is_stable_across_gaps():
+    # L-R4: objective deltas pair the same case across gaps, so the key must
+    # NOT include gap.
+    a, b = _cell(0.0), _cell(0.02)
+    assert a.cases[0].case_key(a) == b.cases[0].case_key(b)
 
 def test_measure_once_records_failure_without_raising():
     def boom(inp): raise RuntimeError("cbc exploded")
-    cell = Cell("p-median-us", "forced_open", None, 0.0, 1.0, {})
-    obs = measure_once(cell, solve_fn=boom)
+    cell = _cell()
+    obs = measure_once(cell, cell.cases[0], solve_fn=boom)
     assert obs.ok is False
     assert "cbc exploded" in obs.error
     assert obs.objective is None
+    assert obs.cpu_tree_sec >= 0           # resources still recorded on failure
 
 def test_normalize_maxrss_units():
     assert normalize_maxrss(1024, "Linux") == 1024 * 1024   # KB -> bytes
@@ -262,16 +303,18 @@ from dataclasses import dataclass
 @dataclass
 class Observation:
     cell_key: str
+    case_key: str                 # L-R4: (model, regime, edit_family, case_id)
     wall_sec: float
-    cpu_sec: float
-    build_sec: float
-    solve_sec: float
-    peak_rss_bytes: int
+    cpu_tree_sec: float           # MP-R2: Python + CBC, user + sys
+    harness_overhead_sec: float
+    python_peak_rss: int          # L-R1: kept separate, never summed
+    cbc_peak_rss: int
     objective: float | None
     solution_status: str | None
     termination_reason: str | None
     ok: bool
     error: str | None = None
+    kind: str = "campaign"
 
 def normalize_maxrss(value: int, system: str | None = None) -> int:
     system = system or platform.system()
@@ -284,18 +327,21 @@ def _default_solve(inp):
     return solve_mod.solve(inp)
 
 def _tree_cpu_and_rss():
-    """Whole Python+CBC process tree: user+sys CPU, and peak RSS.
+    """Whole Python+CBC process tree CPU (user+sys), and the two peaks kept
+    SEPARATE.
 
-    MP-R2: process_time() would count only this Python process, excluding the
-    CBC subprocess that dominates solver CPU. RUSAGE_CHILDREN covers CBC
-    because CBC is *this* child's child. The child reports its own tree peak;
-    the parent never subtracts high-water marks, which cannot be differenced.
+    MP-R2: process_time() counted only this Python process, excluding the CBC
+    subprocess that dominates solver CPU. RUSAGE_CHILDREN covers CBC because
+    CBC is *this* child's child.
+
+    L-R1: python_peak and cbc_peak are returned separately and labelled as
+    such. max(self, child) is NOT simultaneous tree RSS -- do not label it
+    that way. Memory sizing uses aggregate instance RSS from the load run.
     """
     me = resource.getrusage(resource.RUSAGE_SELF)
     kids = resource.getrusage(resource.RUSAGE_CHILDREN)
     cpu = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
-    peak = normalize_maxrss(max(me.ru_maxrss, kids.ru_maxrss))
-    return cpu, peak
+    return cpu, normalize_maxrss(me.ru_maxrss), normalize_maxrss(kids.ru_maxrss)
 
 def measure_once(cell, case, solve_fn=None) -> Observation:
     solve_fn = solve_fn or _default_solve
@@ -307,21 +353,19 @@ def measure_once(cell, case, solve_fn=None) -> Observation:
         if pid == 0:
             rec = {}
             try:
-                marks = {}
-                # Benchmark-only timing seam: unrounded monotonic marks around
-                # model construction and prob.solve(). Off by default in prod.
-                env = solve_fn({**case.inputs, "gap": cell.gap},
-                               on_phase=lambda name: marks.__setitem__(name, time.monotonic()))
-                cpu, peak = _tree_cpu_and_rss()
-                rec = {"ok": True, "cpu_tree": cpu, "peak": peak,
-                       "build": marks["build_end"] - marks["build_start"],
-                       "solve": marks["solve_end"] - marks["solve_start"],
+                # L-R1: no on_phase hook. Capacity needs total tree CPU and
+                # wall time; spawn/import cost is M4.2's paired experiment.
+                env = solve_fn({**case.inputs, "gap": cell.gap})
+                cpu, py_peak, cbc_peak = _tree_cpu_and_rss()
+                rec = {"ok": True, "cpu_tree": cpu,
+                       "python_peak": py_peak, "cbc_peak": cbc_peak,
                        "objective": env.get("objective"),
                        "status": env.get("solutionStatus"),
                        "reason": env.get("terminationReason")}
             except Exception as e:
-                cpu, peak = _tree_cpu_and_rss()
-                rec = {"ok": False, "error": str(e), "cpu_tree": cpu, "peak": peak}
+                cpu, py_peak, cbc_peak = _tree_cpu_and_rss()
+                rec = {"ok": False, "error": str(e), "cpu_tree": cpu,
+                       "python_peak": py_peak, "cbc_peak": cbc_peak}
             try:
                 with open(out_path, "wb") as f:
                     pickle.dump(rec, f)
@@ -330,19 +374,26 @@ def measure_once(cell, case, solve_fn=None) -> Observation:
         _, status = os.waitpid(pid, 0)
         wall = time.monotonic() - t0
         if not os.path.exists(out_path):
-            return Observation(cell.key, case.case_id, wall, 0.0, 0.0, 0.0, 0.0, 0,
+            return Observation(cell.key, case.case_key(cell), wall, 0.0, 0.0, 0, 0,
                                None, None, None, False,
                                f"child produced no output (exit status {status})")
         with open(out_path, "rb") as f:
             rec = pickle.load(f)
     overhead = (time.monotonic() - t_start) - wall
-    if not rec.get("ok"):
-        return Observation(cell.key, case.case_id, wall, rec.get("cpu_tree", 0.0),
-                           0.0, 0.0, overhead, rec.get("peak", 0),
-                           None, None, None, False, rec.get("error"))
-    return Observation(cell.key, case.case_id, wall, rec["cpu_tree"],
-                       rec["build"], rec["solve"], overhead, rec["peak"],
-                       rec["objective"], rec["status"], rec["reason"], True)
+    return Observation(
+        cell_key=cell.key,
+        case_key=case.case_key(cell),        # L-R4: stable across gaps
+        wall_sec=wall,
+        cpu_tree_sec=rec.get("cpu_tree", 0.0),
+        harness_overhead_sec=overhead,
+        python_peak_rss=rec.get("python_peak", 0),
+        cbc_peak_rss=rec.get("cbc_peak", 0),
+        objective=rec.get("objective"),
+        solution_status=rec.get("status"),
+        termination_reason=rec.get("reason"),
+        ok=bool(rec.get("ok")),
+        error=rec.get("error"),
+    )
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -365,7 +416,7 @@ git commit -m "[M1.2] benchmark: forked single-observation primitive with normal
 
 **Interfaces:**
 - Consumes: `Manifest`, `Cell`, `Case` (M1.1); `measure_once`, `Observation` (M1.2).
-- Produces: `run_campaign(manifest, min_cases_per_cell=200, warmup=3, seed=0, measure=measure_once) -> list[Observation]`; `run_determinism(cell, case, reps=30, measure=...) -> list[Observation]`.
+- Produces: `run_campaign(manifest, min_cases=30, max_cases=200, ci_width=0.10, warmup=3, seed=0, measure=measure_once) -> list[Observation]`; `run_determinism(cell, case, reps=30, measure=...) -> list[Observation]`.
 
 **Declared design (M-R4, corrected by MP-R1):** **200 distinct `case_id`s per sizing cell** — not 200 trials of one case. Warm-ups are **executed and discarded BEFORE the measured schedule is randomized**, not shuffled into it: the round-1 code appended warm-up and measured entries to one list and then shuffled, so a row flagged `warmup` could execute *after* measured observations, which is not a warm-up policy. Warm-up scope is declared as **per cell** (3 per cell). Measured order is randomized across all cells with a recorded seed. Determinism runs are a separate campaign, tagged `kind="determinism"`, and are **excluded from every sizing, frequency and uncertainty aggregate**.
 
@@ -426,25 +477,42 @@ In `measure.py`, add `kind: str = "campaign"` as the last field of `Observation`
 import random
 from benchmark.measure import measure_once
 
-def run_campaign(manifest, n_per_cell=200, warmup=3, seed=0, measure=measure_once):
+def run_campaign(manifest, min_cases=30, max_cases=200, ci_width=0.10,
+                 warmup=3, seed=0, measure=measure_once):
+    """L-R1: warm-ups run and are DISCARDED BEFORE the measured schedule is
+    randomized -- the round-1 code shuffled them together, so a 'warm-up'
+    could execute after measured rows. Each observation uses a DISTINCT Case
+    (MP-R1). Stopping is sequential: at least `min_cases`, stop when the
+    bootstrap CI half-width on mean CPU demand is within `ci_width` relative,
+    cap at `max_cases` -- 200 is a ceiling, not a quota."""
+    from benchmark.stats import bootstrap_ci, relative_half_width
     rng = random.Random(seed)
-    schedule = []
-    for cell in manifest.cells():
-        for i in range(warmup + n_per_cell):
-            schedule.append((cell, i < warmup))
-    rng.shuffle(schedule)
     kept = []
-    for cell, is_warmup in schedule:
-        obs = measure(cell)
-        if not is_warmup:
+    for cell in manifest.cells():
+        for case in list(cell.cases)[:warmup]:          # warm-up FIRST, discarded
+            measure(cell, case)
+        cases = list(cell.cases)
+        rng.shuffle(cases)                              # randomized measured order
+        cell_rows = []
+        for case in cases[:max_cases]:
+            obs = measure(cell, case)
             obs.kind = "campaign"
-            kept.append(obs)
+            cell_rows.append(obs)
+            if len(cell_rows) >= min_cases:
+                cpus = [o.cpu_tree_sec for o in cell_rows if o.ok]
+                if cpus and relative_half_width(bootstrap_ci(cpus, _mean)) <= ci_width:
+                    break
+        kept.extend(cell_rows)
     return kept
 
-def run_determinism(cell, reps=30, measure=measure_once):
+def _mean(xs):
+    return sum(xs) / len(xs)
+
+def run_determinism(cell, case, reps=30, measure=measure_once):
+    """The ONLY place a fixed case_id is executed repeatedly."""
     rows = []
     for _ in range(reps):
-        obs = measure(cell)
+        obs = measure(cell, case)
         obs.kind = "determinism"
         rows.append(obs)
     return rows
@@ -488,9 +556,12 @@ git commit -m "[M1.3] benchmark runner: randomized order, warm-up discard, deter
 from benchmark.measure import Observation
 from benchmark.stats import percentile, bootstrap_ci, aggregate
 
-def _obs(key, wall, cpu, ok=True, kind="campaign"):
-    return Observation(key, wall, cpu, 0.1, wall - 0.1, 1000, 1.0,
-                       "optimal", "optimality_proven", ok, None, kind)
+def _obs(key, wall, cpu, case="c0", ok=True, kind="campaign"):
+    return Observation(cell_key=key, case_key=f"{key}|{case}", wall_sec=wall,
+                       cpu_tree_sec=cpu, harness_overhead_sec=0.01,
+                       python_peak_rss=1000, cbc_peak_rss=2000, objective=1.0,
+                       solution_status="optimal", termination_reason="optimality_proven",
+                       ok=ok, error=None, kind=kind)
 
 def test_percentile_linear_interpolation():
     assert percentile([1, 2, 3, 4], 0.5) == 2.5
@@ -502,15 +573,28 @@ def test_bootstrap_ci_brackets_the_point_estimate():
     assert lo <= percentile(xs, 0.95) <= hi
 
 def test_aggregate_excludes_determinism_rows():
-    rows = [_obs("k", 1.0, 0.5) for _ in range(10)]
-    rows += [_obs("k", 99.0, 99.0, kind="determinism") for _ in range(10)]
-    stats = aggregate(rows)
-    assert stats["k"].n == 10
+    rows = [_obs("k", 1.0, 0.5, case=f"c{i}") for i in range(10)]
+    rows += [_obs("k", 99.0, 99.0, case="c0", kind="determinism") for _ in range(10)]
+    stats = aggregate(rows, min_cases=1)
+    assert stats["k"].n_obs == 10
+    assert stats["k"].n_cases == 10           # 10 DISTINCT cases, not 10 repeats
     assert stats["k"].p95_wall < 2.0          # determinism outliers not included
 
 def test_aggregate_reports_failure_rate():
-    rows = [_obs("k", 1.0, 0.5) for _ in range(9)] + [_obs("k", 0.0, 0.0, ok=False)]
-    assert aggregate(rows)["k"].failure_rate == 0.1
+    rows = [_obs("k", 1.0, 0.5, case=f"c{i}") for i in range(9)]
+    rows += [_obs("k", 0.0, 0.0, case="c9", ok=False)]
+    assert aggregate(rows, min_cases=1)["k"].failure_rate == 0.1
+
+def test_all_failure_cell_is_unusable_not_a_crash():
+    # L-R1: round 1 indexed walls[0] on an empty list here.
+    rows = [_obs("k", 0.0, 0.0, case=f"c{i}", ok=False) for i in range(5)]
+    cs = aggregate(rows, min_cases=1)["k"]
+    assert cs.usable is False and "no successes" in cs.unusable_reason
+
+def test_under_sampled_cell_is_unusable():
+    rows = [_obs("k", 1.0, 0.5, case=f"c{i}") for i in range(3)]
+    cs = aggregate(rows, min_cases=30)["k"]
+    assert cs.usable is False and "distinct cases" in cs.unusable_reason
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -527,14 +611,22 @@ from dataclasses import dataclass
 
 @dataclass
 class CellStats:
-    n: int
-    mean_cpu_sec: float
-    p50_wall: float
-    p95_wall: float
-    p95_ci_low: float
-    p95_ci_high: float
-    mean_peak_rss: float
-    failure_rate: float
+    n_cases: int
+    n_obs: int
+    n_success: int
+    usable: bool
+    unusable_reason: str | None = None
+    # decision metrics -- these carry uncertainty (L-R1)
+    mean_cpu_tree_sec: float = 0.0
+    mean_cpu_ci: tuple = (0.0, 0.0)
+    p95_wall: float = 0.0
+    p95_wall_ci: tuple = (0.0, 0.0)
+    failure_rate: float = 0.0
+    failure_rate_ci: tuple = (0.0, 0.0)
+    # descriptive -- point estimates, backed by raw rows
+    p50_wall: float = 0.0
+    mean_python_peak_rss: float = 0.0
+    mean_cbc_peak_rss: float = 0.0
 
 def percentile(xs, q):
     s = sorted(xs)
@@ -561,16 +653,31 @@ def aggregate(observations):
     out = {}
     for key, rows in by_cell.items():
         ok = [r for r in rows if r.ok]
+        n_cases = len({r.case_key for r in rows})
+        # L-R1: an all-failure or under-sampled cell is reported as UNUSABLE,
+        # never crashed on (round 1 indexed walls[0] on an empty list) and
+        # never returned as zero demand (which would shrink sizing silently).
+        if not ok or n_cases < min_cases:
+            out[key] = CellStats(n_cases=n_cases, n_obs=len(rows), n_success=len(ok),
+                                 usable=False,
+                                 unusable_reason="no successes" if not ok
+                                 else f"only {n_cases} distinct cases")
+            continue
         walls = [r.wall_sec for r in ok]
-        lo, hi = bootstrap_ci(walls, lambda s: percentile(s, 0.95)) if len(walls) > 1 else (walls[0], walls[0])
+        cpus = [r.cpu_tree_sec for r in ok]
+        # L-R1: uncertainty ONLY on decision metrics. p50, RSS and corpus
+        # frequency are descriptive -- point estimates plus raw rows suffice.
         out[key] = CellStats(
-            n=len(rows),
-            mean_cpu_sec=sum(r.cpu_sec for r in ok) / len(ok) if ok else 0.0,
-            p50_wall=percentile(walls, 0.5),
+            n_cases=n_cases, n_obs=len(rows), n_success=len(ok), usable=True,
+            mean_cpu_tree_sec=_mean(cpus),
+            mean_cpu_ci=bootstrap_ci(cpus, _mean),
             p95_wall=percentile(walls, 0.95),
-            p95_ci_low=lo, p95_ci_high=hi,
-            mean_peak_rss=sum(r.peak_rss_bytes for r in ok) / len(ok) if ok else 0.0,
+            p95_wall_ci=bootstrap_ci(walls, lambda s: percentile(s, 0.95)),
             failure_rate=1 - len(ok) / len(rows),
+            failure_rate_ci=bootstrap_ci([0.0 if r.ok else 1.0 for r in rows], _mean),
+            p50_wall=percentile(walls, 0.5),                       # descriptive
+            mean_python_peak_rss=_mean([r.python_peak_rss for r in ok]),   # descriptive
+            mean_cbc_peak_rss=_mean([r.cbc_peak_rss for r in ok]),         # descriptive
         )
     return out
 ```
@@ -599,8 +706,13 @@ git commit -m "[M1.4] benchmark stats: percentiles, bootstrap CI, determinism-ex
 - Consumes: `Observation` (M1.2), `CellStats` (M1.4).
 - Produces: `write_raw(observations, path)`, `write_aggregates(stats, manifest, path)`; CSVs `docs/superpowers/metrics/benchmark-raw.csv` and `benchmark-aggregates.csv`.
 
-**Raw columns:** `run_id,timestamp,cell_key,model_id,regime,edit_family,gap,kind,wall_sec,cpu_sec,build_sec,solve_sec,peak_rss_bytes,objective,solution_status,termination_reason,ok,error`
-**Aggregate columns:** `run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,n,mean_cpu_sec,p50_wall,p95_wall,p95_ci_low,p95_ci_high,mean_peak_rss,failure_rate,corpus_frequency`
+**Raw columns (L-R1 — `case_key` is mandatory or the advertised paired re-analysis is impossible from the artifact):**
+`run_id,timestamp,cell_key,case_key,case_id,model_id,regime,edit_family,gap,kind,wall_sec,cpu_tree_sec,harness_overhead_sec,python_peak_rss,cbc_peak_rss,objective,solution_status,termination_reason,ok,error`
+
+**Aggregate columns:**
+`run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,n_cases,n_obs,n_success,usable,unusable_reason,mean_cpu_tree_sec,mean_cpu_ci_low,mean_cpu_ci_high,p95_wall,p95_wall_ci_low,p95_wall_ci_high,failure_rate,failure_rate_ci_low,failure_rate_ci_high,p50_wall,mean_python_peak_rss,mean_cbc_peak_rss,corpus_frequency`
+
+Confidence intervals appear only on the four decision metrics (mean CPU demand, p95 wall, failure rate, and the paired objective delta reported alongside); `p50_wall`, the two RSS columns and `corpus_frequency` are descriptive point estimates backed by the raw rows (L-R1).
 
 - [ ] **Step 1: Write the failing test** — assert the header row matches the two lists above exactly, that a determinism row appears in raw with `kind=determinism`, and that `corpus_frequency` is present in aggregates.
 - [ ] **Step 2: Run it** — `python3 -m pytest benchmark/test_report.py -v` → FAIL.
@@ -645,7 +757,13 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 >
 > **3. `parallel_efficiency` must be measured, not passed in.** The spec requires measured per-solve CPU utilisation and parallel efficiency, and local CPU-seconds are **not transferable** to a different Render plan without calibration on that plan. **Correction:** add a **concurrency sweep** (below) on each candidate target plan; store the derived efficiency keyed by **plan ID + application SHA**, and have `required_cores` consume that stored value rather than a caller's guess.
 
-**New sub-task M2.1b — concurrency sweep.** On each candidate target plan, run 1…N concurrent solves drawn from the corpus and measure CPU utilisation, wall-time degradation, peak RSS and derived parallel efficiency at each level. Output: `docs/superpowers/metrics/parallel-efficiency.csv`, keyed by `plan_id, app_sha, concurrency`. This is the only legitimate source for the efficiency term.
+**M2.1b — calibration, and it does NOT live in Phase 2 (L-R3).** The last fold put a concurrency sweep requiring real Render runs inside a phase labelled *pure computation, no infrastructure*, ahead of MP-2 and MP-3 — so Phase 2 promised an artifact its own position made unobtainable. Corrected ordering:
+
+1. **Phase 2 produces uncalibrated distributions only** — the analytical code, its tests, and candidate counts *parameterised* by efficiency and headroom. No infrastructure, no real runs, no final numbers.
+2. **After MP-1 (headroom ratified) and MP-2 (environment approved)**, run a **short calibration** on the shortlisted plans at a **geometric concurrency set — 1, 2, 4, 8** — stopping early when throughput flattens or headroom fails. **Not** every integer on every plan; the sweep exists to find the efficiency knee, not to chart it.
+3. **Final candidate counts are produced only after** calibration exists **and** headroom is ratified — they consume both.
+
+Output: `docs/superpowers/metrics/parallel-efficiency.csv`, keyed by `plan_id, app_sha, concurrency`. This is the only legitimate source for the efficiency term.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -692,16 +810,30 @@ def test_rare_slow_stratum_beyond_p95_still_enters_the_mean():
 
 ```python
 # capacity.py
-def weighted_mean_service_demand(stats, manifest):
+class SizingError(ValueError):
+    pass
+
+def weighted_mean_service_demand(stats, manifest, gap):
+    """L-R2: ONE gap at a time. gap=0 is the mandatory baseline; relaxed gaps
+    are separate alternatives, never averaged together. Fails closed on any
+    missing or unusable stratum -- silently skipping shrank the estimate."""
     total = 0.0
     for cell in manifest.cells():
+        if cell.gap != gap:
+            continue
         cs = stats.get(cell.key)
         if cs is None:
-            continue
-        total += cell.weight * cs.mean_cpu_sec / len(manifest.gaps)
+            raise SizingError(f"required stratum missing: {cell.key}")
+        if not cs.usable:
+            raise SizingError(f"stratum unusable ({cs.unusable_reason}): {cell.key}")
+        total += cell.weight * cs.mean_cpu_tree_sec
     return total
 
-def required_cores(demand_sec, arrival_rate_per_sec, parallel_efficiency, headroom):
+def required_solver_slots(demand_sec, arrival_rate_per_sec, parallel_efficiency, headroom):
+    """Returns SLOTS, not instances. L-R2: topology is
+    instances x solver_slots_per_instance; Render's 100-instance ceiling is
+    not a 100-slot ceiling. parallel_efficiency comes from M2.1b calibration
+    keyed by plan_id + app_sha -- never a caller's guess."""
     if not (0 < parallel_efficiency <= 1):
         raise ValueError("parallel_efficiency must be in (0, 1]")
     if not (0 <= headroom < 1):
@@ -755,31 +887,36 @@ def required_cores(demand_sec, arrival_rate_per_sec, parallel_efficiency, headro
 from benchmark.simulate import simulate, candidate_worker_counts
 
 def test_single_server_queue_grows_when_overloaded():
-    trace = [i * 1.0 for i in range(100)]      # 1 job/s
-    r = simulate(trace, service_samples=[2.0], workers=1, seed=0)   # 2 s each
+    trace = [i * 1.0 for i in range(100)]                       # 1 job/s
+    r = simulate(trace, {"only": ([2.0], 1.0)}, workers=1, seed=0)   # 2 s each
     assert r.p95_wait > 50                      # unstable, queue grows without bound
     assert r.utilization > 0.99
 
 def test_enough_servers_keeps_wait_near_zero():
     trace = [i * 1.0 for i in range(100)]
-    r = simulate(trace, service_samples=[2.0], workers=4, seed=0)
+    r = simulate(trace, {"only": ([2.0], 1.0)}, workers=4, seed=0)
     assert r.p95_wait < 1.0
 
-def test_candidate_worker_counts_returns_smallest_meeting_slo():
-    # MP-R3: the round-1 version of this test was IMPOSSIBLE. With every service
-    # time at 2.0 s, end-to-end is >= 2.0 s by construction, so no worker count
-    # can ever put end-to-end p95 below a 1.0 s SLO -- yet it asserted 3 workers
-    # would. Corrected to an SLO above the service time.
+def test_candidate_worker_counts_returns_all_counts_and_flags_passers():
+    # This test has now been wrong TWICE. Round 1 was impossible (SLO 1.0 s
+    # below a 2.0 s service time). Round 2 was merely false: at 1 arrival/s
+    # with deterministic 2 s service, offered work is exactly 2 server-seconds
+    # per second, so TWO workers already give zero wait and 2.0 s end-to-end.
+    # The smallest passer is 2, not 3. Both errors came from asserting a
+    # number instead of deriving it -- so assert the property, not the digit.
     trace = [i * 1.0 for i in range(200)]
     cands = candidate_worker_counts(trace, {"only": ([2.0], 1.0)},
-                                    slo_p95_end_to_end_sec=2.5, max_workers=8)
-    assert cands[0][0] == 3       # smallest n whose p95 end-to-end <= 2.5 s
+                                    slo_p95_end_to_end_sec=2.5, max_instances=8)
+    assert [c.workers for c in cands] == list(range(1, 9))   # ALL counts, ascending
+    first_pass = next(c for c in cands if c.passes)
+    assert first_pass.workers == 2
+    assert not cands[0].passes                               # 1 worker is overloaded
 
 def test_queue_wait_slo_variant_is_also_available():
     trace = [i * 1.0 for i in range(200)]
     cands = candidate_worker_counts(trace, {"only": ([2.0], 1.0)},
-                                    slo_p95_queue_wait_sec=0.5, max_workers=8)
-    assert cands[0][1].p95_wait <= 0.5
+                                    slo_p95_queue_wait_sec=0.5, max_instances=8)
+    assert next(c for c in cands if c.passes).result.p95_wait <= 0.5
 
 def test_stratified_replay_respects_declared_weights():
     # MP-R3: a flat sample list silently substitutes equal population weights
@@ -791,7 +928,7 @@ def test_stratified_replay_respects_declared_weights():
 ```
 
 - [ ] **Step 2: Run it** → FAIL.
-- [ ] **Step 3: Implement** a heap-based event loop: push arrivals, maintain `workers` free-at timestamps, service time drawn via `rng.choice(service_samples)`; record wait and end-to-end per job.
+- [ ] **Step 3: Implement** a heap-based event loop: push arrivals, maintain `workers` free-at timestamps. **Per event, draw a stratum from the declared weights first, then draw the service time from that stratum's empirical samples** (L-R2 — never `rng.choice` over a flat list, which substitutes uniform weights for the declared mix). Cache-hit events consume no solver slot. Record wait and end-to-end per job, plus `observed_stratum_mix`. `candidate_worker_counts` returns `CandidateResult(workers, result, passes)` for **every** explored count in ascending order — callers select the first `passes`, so a near-miss stays visible.
 - [ ] **Step 4: Run it** → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "[M2.3] queue simulator: empirical-distribution replay to candidate worker counts"`
 
@@ -861,8 +998,14 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 
 > **MP-R7 — round 1 named metrics with no emitter.** Event-loop lag, CPU throttling, active Python/CBC process count, pool checked-out/waiting, internal queue depth, admissions-past-limit and load-generator saturation are **process-internal values the API and Render do not currently expose**. A collector script cannot reconstruct them after the fact, and the global `unknown` rule would have left the promised "exact bottleneck" conclusion formally unsupported while looking complete.
 
+**Mandatory core (L-R5 — this is the whole list, and it is sufficient to tell whether the binding constraint is solver CPU/memory, API responsiveness, queue admission or Postgres):** offered/achieved rate · enqueue, queue-wait and end-to-end latency · rejection/failure/timeout · queue depth · active solve count · instance CPU · **aggregate instance RSS** / OOM / restarts · event-loop lag · database pool wait · query latency · lock delay.
+
+**Explicitly optional, and never a blocker (L-R5):** **CPU-throttled time is not a new instrumentation project** — Render's service metrics expose CPU time/limit and memory but no direct throttled-time metric. Collect it only if cgroup data is already cheaply available; otherwise record it **unavailable** and do **not** block the capacity verdict when the core CPU/throughput evidence is complete. Network errors and three-hour storage growth are **supporting diagnostics**, not independent pass/fail gates, unless an exploratory run shows them material.
+
+**Files (L-R3 — named):** `artifacts/api-server/src/lib/measurementTelemetry.ts` (default-off, isolated-env only), its `__tests__` sibling, and `scripts/measurement/collect-telemetry.mjs`.
+
 - [ ] **Step 1. Source map, one row per metric:** emitting component · query/log/endpoint · unit · sampling cadence · clock · labels · retention · join key (`run_id`). A metric with no named source is not collected and not claimed.
-- [ ] **Step 2. Application instrumentation — default-off, isolated-environment-only:** event-loop lag, pool checked-out/waiting, queue depth and admissions-past-limit, process-tree counts. Tests assert **no production secrets and no user payloads are ever emitted**.
+- [ ] **Step 2. Application instrumentation — default-off, isolated-environment-only, core list only:** event-loop lag, pool checked-out/waiting, queue depth and admissions-past-limit, active solve count. Tests assert **no production secrets and no user payloads are ever emitted**.
 - [ ] **Step 3. Platform sources named:** Render metrics/export for instance CPU, memory, throttling, OOM, restarts; Postgres for CPU/memory/connections/query latency/locks/storage growth.
 - [ ] **Step 4. Time synchronisation** across load generator, application and database sufficient to correlate a latency interval with its resource condition — otherwise the bottleneck claim is a coincidence of timestamps.
 - [ ] **Step 5. Missing mandatory telemetry INVALIDATES a bottleneck verdict** — it does not silently write `unknown` and continue. The `unknown` rule governs reporting a value, never claiming a conclusion without one.
@@ -904,7 +1047,11 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 
 > **MP-R8 — without this, two of the three topology candidates measure the wrong thing.** Option A deliberately ships a **recurring dispatcher inside the API** (A2). A prototype worker consuming the same durable `solve_jobs` queue therefore **races the API for the same jobs**: some solves run on API compute, silently contaminating the dedicated-worker and horizontal-fleet throughput, resource and cost attribution. The numbers would look plausible and be wrong.
 
-- [ ] **Step 1. Execution-mode seam, default-preserving.** For dedicated-worker and fleet measurements the API is **enqueue/poll-only and cannot claim**; the named worker command is the **sole claimant**. The vertical tune-in-place comparator keeps API dispatch **enabled** — that is the whole point of that candidate.
+> **Ordering corrected (L-R3).** MP-3 fired *before* M5.1, yet the MP-3 request must name the dispatcher-mode configuration that M5.1 implements — the authorization could not be written before the thing it authorizes existed. **The seam is built and tested first; it creates no external worker.** Sequence: implement + test the seam → prepare the exact image/command/configuration/teardown artifact → **ask and record MP-3** → provision the disposable worker → calibrate on the worker plan.
+
+**Files (L-R3 — named, not "the API"):** `artifacts/api-server/src/solver/jobRunner.ts` (claim guard), `artifacts/api-server/src/config/featureFlags.ts` (mode resolution), `artifacts/api-server/src/config/__tests__/featureFlags.test.ts`, `artifacts/api-server/src/solver/__tests__/dispatcherMode.test.ts`. One commit for the seam, a separate commit for the prototype.
+
+- [ ] **Step 1. Execution-mode seam, default-preserving — built BEFORE MP-3.** For dedicated-worker and fleet measurements the API is **enqueue/poll-only and cannot claim**; the named worker command is the **sole claimant**. The vertical tune-in-place comparator keeps API dispatch **enabled** — that is the whole point of that candidate.
 - [ ] **Step 2. Fail closed and observable.** The mode is resolved at startup, logged, and recorded in the run manifest. A **pre-run assertion proves the API's active-solver count stays zero** for worker-only candidates; a non-zero count aborts the run rather than footnoting it.
 - [ ] **Step 3. MP-3 request contents.** Exact image SHA, command, queue namespace, plan IDs, **dispatcher-mode configuration**, owner, and teardown/restoration steps — all present *before* asking for authorization, not after.
 - [ ] **Step 4. Prove isolation between candidates:** every topology uses an isolated queue/database, and no candidate's run overlaps another candidate's jobs.
@@ -914,6 +1061,16 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 - [ ] Run the same corpus + burst against: high-core vertical (≤ **12 CPU**, `12c-96g` ceiling), one dedicated worker, horizontal fleet (≤ **100 instances**, uniform plan).
 - [ ] **Never validate autoscaling in a preview environment** — previews run at the autoscaling minimum. Manual fixed-instance comparisons in previews are valid when explicitly configured.
 - [ ] Compare on end-to-end SLO, safe CPU/RSS headroom, restart behaviour, scale-window billing, idle cost, operational complexity.
+
+**Minimum decision matrix (L-R4) — not a Cartesian product.** Round 1 defined four profiles in M3.3 and never said which topology runs which, so a candidate could have inherited an unexecuted profile by inference.
+
+| Scope | Profiles executed |
+|---|---|
+| **Every candidate topology** | Representative sustained **+** synchronized cold-identical burst |
+| **Top one or two candidates** | **+** sustained all-JADE cold-miss guarantee |
+| **Selected candidate only** | **+** UI-faithful profile **+** restart/recovery probe |
+
+Repeat only the runs used for the **final** pass/fail decision, per the MP-1 repetition rule; exploratory and calibration runs stay excluded from the decision dataset. **The final report cites run IDs for every required cell of this matrix** — an empty cell is a missing verdict, never an inferred pass.
 
 ### Task M5.3: Cost model
 - [ ] Report **both** denominators: cost per successful **submitted job** (cache hits in — budgeting) and per successful **CBC execution** (cache hits out — topology comparison). Marginal burst-worker cost and cache-hit mix beside both. Rejected/failed/timed-out in neither.
@@ -971,6 +1128,20 @@ All 9 findings accepted, plus all 5 execution recommendations. Verbatim review t
 
 **Recommendations, all folded:** sentinel-based isolation proof without touching production identities (M3.1) · full manifest validation (M1.1) · `tempfile.mktemp()` removed (M1.2) · experiment comparability (M4.3) · per-profile evidence artifacts (M5.4).
 
+## Review disposition — round 2, lean scope (2026-09-23)
+
+All 5 findings accepted; every scope reduction applied. Verbatim review text: committed at `7b763c0`. **MP-R9 is closed and is not reopened.**
+
+| Finding | Disposition | Landed in |
+|---|---|---|
+| L-R1 M1 code blocks still showed rejected round-1 code | Accepted; manifest loader, `Observation`, runner, stats and CSV headers all rewritten to one coherent interface | M1.1–M1.5 |
+| L-R2 M2 algorithms stale; candidate test still false | Accepted; per-gap fail-closed sizing, stratified replay, `CandidateResult(workers, result, passes)`, `instances × slots`, test asserts a **property** not a digit | M2.1, M2.3 |
+| L-R3 calibration and checkpoint order unrunnable | Accepted; Phase 2 yields uncalibrated distributions, calibration moves after MP-1/MP-2 at a geometric 1/2/4/8 set, dispatcher seam built **before** MP-3, files named | M2.1b, M5.1, M3.4a |
+| L-R4 case join and run matrix implicit | Accepted; `(model_id, regime, edit_family, case_id)` key excluding gap; minimum decision matrix with per-cell run IDs | M1.1, M1.2, M5.2 |
+| L-R5 telemetry beyond the decision's needs | Accepted; mandatory core named, throttling/network/storage demoted to optional diagnostics that never block a verdict | M3.4a |
+
+**Scope reductions applied (work removed, not added):** no `on_phase` production hooks · no aggregate-tree-RSS sampler · CIs only on the four decision metrics · sequential stopping with a 200 **cap** rather than a 200 **quota** · geometric calibration set · no topology×profile Cartesian product · no mandatory cgroup throttling telemetry. **Parent-spec consequence applied:** the measurement spec's §1.1 build-vs-`prob.solve()` split requirement is explicitly withdrawn there.
+
 ## Author responses (kept for later review)
 
 - **MP-R1 — accepted; I rebuilt in code the exact conflation the spec was written to prevent.** M-R4 made the spec say, in plain words, that repeating one scenario measures runtime noise and not regime frequency — and then my `Cell` carried a single `inputs: dict` that M1.3 executed 200 times. Every "campaign" row in a cell would have been the same scenario, so the capacity model would have rested on 200 repetitions of one case per cell, with `kind="campaign"` doing the work of making it look otherwise. The warm-up defect is the same carelessness one layer down: appending warm-up and measured entries to one list and then shuffling means a "warm-up" can execute after measured rows, which is not a warm-up at all.
@@ -983,91 +1154,16 @@ All 9 findings accepted, plus all 5 execution recommendations. Verbatim review t
 - **MP-R8 — accepted, and it is a genuine experimental-design fault.** A ships a recurring dispatcher **inside the API**. Adding a prototype worker on the same queue means both claim the same jobs, so dedicated-worker and fleet numbers silently include work done on API compute — plausible-looking figures attributing throughput, RSS and cost to the wrong machine. Fixing it requires an execution-mode seam that fails closed and is asserted before the run, not a note in the report.
 - **MP-R9 — accepted; the audit trail pointed at a file that did not exist.** Three documents instruct agents to record checkpoint answers in `docs/CHANGELOG-implementation.md`. On this branch that file was **absent** — it reached `main` via `ch4-fixes` after `scnd-scaling` was cut. So the A plan asserted AP-4 was granted while the designated independent record was missing, leaving the plan as both the request and its own evidence. Restored from `main` and the real decisions written with dates, scopes and decider; no approval was re-asked, because each one was genuinely made.
 
-**Cross-cutting note.** Against the taxonomy built across the A-plan rounds, this review is dominated by a class those rounds never hit: **plausible code that silently produces wrong numbers.** MP-R1, MP-R2 and MP-R3 all pass review-by-reading and all yield evidence that looks fine and is not — repeated cases counted as independent, CBC's CPU missing from a CPU metric, gap averaged into a baseline. A prose plan can be audited by reading it; a measurement plan cannot, because its errors surface as numbers rather than contradictions. **Standing rule for measurement work specifically: for every reported metric, name what it excludes.** "CPU time" that omits a subprocess, "peak RSS" that is a stale high-water mark, and "200 observations" that are 200 trials of one case are all the same failure — a correct-sounding label over a quantity that does not match it.
+### Round 2 — lean scope (2026-09-23)
 
----
+- **L-R1 and L-R2 — accepted, and together they are the round-5 failure repeating.** I wrote each correction as an explanatory blockquote and left the executable block beneath it showing the rejected round-1 code. So M1.1's test called `load_manifest(..., min_cases_per_cell=200)` against an implementation taking only `path`; M1.2 declared `Case`/`cpu_tree_sec` while its tests built the old `Cell` and asserted old fields; M1.3 still shuffled warm-ups in with measured rows; M1.4 still had p95-only stats and the empty-`walls` crash; M1.5's headers omitted `case_key`, making the paired re-analysis the plan advertises impossible from its own artifact. This is exactly the class round 5 named — **claimed-but-unfinished propagation** — and I had even written the rule to grep for old wording before committing. I ran that grep, found the stale blocks, fixed **one** of them (M1.2's implementation), and shipped the rest. Finding a problem and fixing part of it is worse than missing it, because the fold's prose then asserts completion.
+- **L-R2's test catch — wrong twice on the same three lines.** Round 1 was *impossible* (a 1.0 s SLO under a 2.0 s service time). My correction made it merely *false*: at 1 arrival/s with deterministic 2 s service, offered work is exactly 2 server-seconds per second, so **two** workers give zero wait and 2.0 s end-to-end — the smallest passer is 2, not 3. Both errors share one cause: I asserted a **number** I had reasoned about loosely instead of the **property** I actually wanted. The test now asserts the property (all counts returned ascending, first passer identified) and the digit falls out of it. The same block also contradicted its own prose — prose said "returns all explored counts", the test indexed `cands[0]` as the first passer.
+- **L-R3 — accepted; the third circular-ordering defect in this programme.** M2.1b needed real Render runs while sitting inside a phase labelled *pure computation, no infrastructure*, ahead of the very checkpoints that authorize infrastructure — so Phase 2 promised an artifact its own position forbade. M5.1 had the mirror image: MP-3 fired before the task that builds the thing MP-3 must describe. A-R31 was a circular gate matrix, M-R7 a circular programme sequence, and this is circular task ordering. Same shape, third document. I also deleted the false claim that M1.2's timing seam was "the only production-file touch" — observability and dispatcher mode both touch application code, so the sentence was wrong when written.
+- **L-R4 — accepted.** `case_id` was unique only *within* a cell while objective deltas pair the same case *across* gaps, so the join would have silently mismatched cases between strata. Key is now `(model_id, regime, edit_family, case_id)`, deliberately excluding gap, carried on every raw row. The run matrix is the same omission one level up: four profiles defined, no statement of which topology executes which, leaving a candidate free to inherit an unexecuted profile by inference.
+- **L-R5 and the scope reductions — accepted gratefully, and they correct real overreach on my part.** Dropping the `on_phase` hooks, the aggregate-tree-RSS sampler, CIs on every descriptive field, every-integer sweeps, the topology×profile Cartesian product and mandatory throttling telemetry removes work I added because the previous review's findings were valid, not because the *decision* needed it. That is the failure mode of folding review comments mechanically: each individual addition defensible, the aggregate disproportionate to a sizing question. The review's framing is the right one — **the objective is trustworthy sizing, not a benchmarking framework**. I applied the parent-spec consequence rather than leaving it implied: the measurement spec's §1.1 build/solve-split requirement is now explicitly withdrawn in the spec itself.
 
-## Review — approval validation round 2, lean scope (2026-09-23)
+**Cross-cutting note, updated after round 2.** Two rules, both earned here. **(1) Fix every instance or state which you did not** — a partial fix under a completion claim is worse than an untouched defect, because the prose vouches for the code. **(2) Assert properties, not digits** — both versions of the candidate-worker test failed because a hand-reasoned number looked right; a property assertion would have failed on the first run and cost nothing. And a scope note: when a review is valid, folding *everything* it implies is not automatically correct — ask what the decision needs, because rigor that cannot change the outcome is cost without evidence.
 
-**Verdict: REQUEST CHANGES — not yet approved.** MP-R1…MP-R9 are directionally resolved, and MP-R9 is closed: the canonical changelog exists and records AP-4. The remaining blocker is narrower than the round-1 review disposition suggests: several corrected contracts live only in explanatory prose while the executable test/implementation blocks still prescribe the rejected round-1 code.
-
-This review deliberately removes rigor that does not change the topology or cost decision. The objective is trustworthy sizing, not a general benchmarking framework or a new observability platform.
-
-### L-R1 — CRITICAL: make the prescribed M1 code internally executable
-
-The following are one composition defect, not separate requests for more functionality:
-
-- M1.1 tests `load_manifest(..., min_cases_per_cell=200)`, but the implementation accepts only `path`, validates only weights, and says two tests pass when three are present.
-- M1.2 declares `Case`, `case_id`, `cpu_tree_sec`, `harness_overhead_sec` and `peak_rss_tree_bytes`, but its tests still construct the old `Cell`, omit `Case`, call the old `measure_once` signature and assert old fields. Its `Observation` dataclass is still the old layout while `measure_once` returns the new positional layout.
-- M1.3's implementation still appends warm-ups and measured rows to one list, shuffles both together, and calls `measure(cell)` without selecting a distinct `Case`.
-- M1.4's implementation still has the old p95-only `CellStats`, the empty-`walls` crash, and no objective-delta or `corpus_frequency()` implementation.
-- M1.5's CSV headers omit `case_id`/case key and still name the old CPU/RSS fields, so the advertised paired re-analysis cannot be performed from the raw artifact.
-
-**Required, lean correction:** update those tests, dataclasses, snippets, expected counts and CSV headers so each task has one coherent interface and its shown code can pass its shown tests. Do not add functionality beyond the contracts already claimed in the disposition table.
-
-**Scope reduction from the prior review:**
-
-- Do **not** add a cgroup or high-frequency process-tree RSS sampler solely for the local benchmark. Record Python peak and CBC-child peak separately and label them accurately; use aggregate **instance** RSS from the authoritative load run for memory sizing. `max(self, child)` may not be labelled aggregate tree RSS.
-- Do **not** add production-wide `on_phase` callbacks merely to split build from CBC. Capacity needs total process-tree CPU and wall time. Measure spawn/import/dataset-load savings as the paired M4.2 persistent-worker experiment. If the parent spec still requires an exact build/`prob.solve()` split, revise that requirement explicitly rather than inserting invasive timing hooks into every solver path.
-- Do **not** force 200 cases when a predeclared sequential stopping rule reaches the required precision earlier. Require independence, a sensible minimum, a declared CI-width stop, and a 200-case cap.
-- Require uncertainty for the decision metrics — mean CPU demand, end-to-end p95, failure/rejection rate and paired objective delta. Raw rows and descriptive summaries are sufficient for p50, RSS and corpus frequencies; bootstrap intervals on every field are not required.
-
-### L-R2 — CRITICAL: replace the stale M2 algorithms and fix the simulator contract
-
-M2.1's shown implementation still skips missing cells and averages all gaps via `len(manifest.gaps)`, directly contradicting the accepted per-gap/fail-closed correction. M2.3 declares stratified replay but two tests still call `service_samples=`, and its implementation step still says to sample the flat `service_samples` list.
-
-The revised candidate test is also still false: with one arrival per second and a deterministic two-second service time, **two** workers already yield zero queue wait and two-second end-to-end latency, so three is not the smallest count meeting a 2.5-second SLO. Separately, prose says the function returns **all** explored counts, in which case entry zero is the one-worker result, not the first passer.
-
-**Required, lean correction:**
-
-- Add an explicit `gap` argument/filter and fail on every missing or unusable required stratum.
-- Replay declared stratum weights and draw service from the selected stratum's empirical samples.
-- Define `CandidateResult(workers, result, passes)`; return all explored counts in ascending order and test the first result whose `passes` is true.
-- Model topology as `instances × solver_slots_per_instance`; Render's 100-instance ceiling is not a 100-solver-slot ceiling.
-
-### L-R3 — HIGH: repair the calibration and approval sequence without an exhaustive sweep
-
-M2.1b requires real runs on candidate Render plans while Phase 2 is labelled pure computation/no infrastructure and precedes MP-2/MP-3. Authoritative worker counts also consume the headroom ratified later at MP-1. The current sequence therefore cannot produce the artifact Phase 2 promises.
-
-M5.1 has the inverse ordering problem: MP-3 fires before M5.1, but the MP-3 request must name the dispatcher-mode configuration that M5.1 has not yet implemented or proven.
-
-**Required, lean correction:**
-
-1. Phase 2 builds the analytical code and produces uncalibrated distributions only.
-2. After MP-1 and MP-2, run a short calibration on shortlisted plans at a small geometric concurrency set such as 1, 2, 4, 8, stopping when throughput flattens or headroom fails. Do **not** sweep every integer on every plan.
-3. Implement and test the default-preserving API enqueue-only/worker-claim seam before MP-3. This preparation creates no external worker.
-4. Prepare the exact image/command/configuration/teardown artifact, ask and record MP-3, then provision the disposable worker and perform worker-plan calibration.
-5. Produce final candidate counts only after the required calibration and ratified headroom exist.
-
-M3.4a and the dispatcher seam must name their actual application files, tests and commit boundaries. Delete M1.2's statement that its timing seam is the plan's only production-file touch, because observability and dispatcher mode necessarily touch application code.
-
-### L-R4 — HIGH: make case joins and the authoritative run matrix explicit
-
-`case_id` is only unique within a cell, while objective pairing is described as grouping by `case_id`. Use a stable key such as `(model_id, regime, edit_family, case_id)` and intentionally pair that key across gaps. Carry it in every raw row along with the run/profile ID.
-
-The four profiles are defined in M3.3 but no later task says exactly which are executed for which topology. A full Cartesian product would be unnecessary. Use this minimum decision matrix:
-
-- **Every candidate topology:** representative sustained profile + synchronized cold-identical burst.
-- **Top one or two candidates:** sustained all-JADE cold-miss guarantee.
-- **Selected candidate:** UI-faithful profile + restart/recovery probe.
-- Repeat only runs used for the final pass/fail decision according to the MP-1 rule; exploratory calibration runs remain excluded.
-
-The final report cites the run IDs for each required cell in that matrix. A candidate cannot inherit an unexecuted profile by inference.
-
-### L-R5 — MEDIUM: reduce telemetry to what the decision needs
-
-The mandatory core is: offered/achieved rate, enqueue/queue/end-to-end latency, rejection/failure/timeout, queue depth, active solve count, instance CPU, aggregate instance RSS/OOM/restarts, event-loop lag, database pool wait, query latency and lock delay. These are sufficient to identify whether the binding constraint is solver CPU/memory, API responsiveness, queue admission or Postgres.
-
-CPU-throttled time is **not** a mandatory new instrumentation project. Render's documented service metrics expose CPU time/limit and memory but not a direct throttled-time metric. If cgroup throttling data is already cheaply available, collect it; otherwise record it as unavailable and do not block the capacity verdict when the core CPU/throughput evidence is complete. Network errors and three-hour storage growth are supporting diagnostics, not independent pass/fail gates unless an exploratory run shows them material.
-
-### Explicitly closed or demoted
-
-- **MP-R9 is closed.** Do not re-ask AP-4 and do not reopen approval provenance in the next round.
-- Exact local aggregate process-tree RSS, CIs on every descriptive metric, every-integer concurrency sweeps, a full topology×profile Cartesian product, mandatory cgroup throttling telemetry, and production timing hooks in every solver are **not approval requirements**.
-- The existing architectural decisions remain closed: open-loop authoritative load, mean CPU demand for sizing, p95 for SLO validation, separate capacity/reliability gates, two cost denominators, isolated infrastructure and the current Render platform limits.
-
-### Lean approval exit criteria
-
-Approve when L-R1 and L-R2 are reflected in the actual executable snippets/tests, L-R3's calibration/checkpoint order is runnable, and L-R4's case key plus minimum run matrix are explicit. L-R5 is satisfied by naming sources for the core metrics and marking the rest optional. No broader measurement or observability framework is required.
+**Prior note, retained.** Against the taxonomy built across the A-plan rounds, round 1 of this review was dominated by a class those rounds never hit: **plausible code that silently produces wrong numbers.** MP-R1, MP-R2 and MP-R3 all pass review-by-reading and all yield evidence that looks fine and is not — repeated cases counted as independent, CBC's CPU missing from a CPU metric, gap averaged into a baseline. A prose plan can be audited by reading it; a measurement plan cannot, because its errors surface as numbers rather than contradictions. **Standing rule for measurement work specifically: for every reported metric, name what it excludes.** "CPU time" that omits a subprocess, "peak RSS" that is a stale high-water mark, and "200 observations" that are 200 trials of one case are all the same failure — a correct-sounding label over a quantity that does not match it.
 
 ---
