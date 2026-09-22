@@ -807,3 +807,137 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 | MP-1…MP-4 | Phase 3 preamble, Phase 5 preamble, M5.4 |
 
 **Type consistency:** `Cell.key` (M1.1) is the join key through `Observation.cell_key` (M1.2), `aggregate()`'s dict keys (M1.4), and `weighted_mean_service_demand`'s lookup (M2.1). `Observation.kind` is added in M1.3 and consumed in M1.4 and M1.5.
+
+---
+
+## Review — approval validation (2026-09-23)
+
+**Verdict: REQUEST CHANGES — not approved for execution.** The three-layer architecture is sound: local microbenchmark → pure capacity analysis → isolated HTTP validation is the right separation, and keeping raw evidence independent of later analysis is particularly good. The plan also correctly preserves the design's open-loop requirement, two cost denominators, isolated-environment rule, and separation of p95 SLO validation from mean-service-demand sizing. The current Render facts used by M5.2 remain valid as of this review: service plans top out at 12 CPU, a service can scale to 100 uniform-plan instances, autoscaling requires Pro or higher, scaled compute is prorated by the second, and a preview environment uses the autoscaling minimum rather than exercising the policy.
+
+The findings below are approval-blocking because the current tasks would either produce non-independent evidence, under-measure CBC resource demand, mis-size capacity, or run the authoritative experiment before its gate is fixed. They require targeted corrections, not an architectural rewrite.
+
+### MP-R1 — CRITICAL: the campaign's 200 observations are repeated executions of one input, not independent observations
+
+M1.1 gives each `Cell` one `inputs: dict`. M1.3 then schedules that same cell `warmup + n_per_cell` times. Therefore the nominal 200 campaign rows quantify runtime variation for one scenario — the exact evidence the spec classifies as a determinism run — rather than variation across 200 independent scenario inputs in the sizing cell. Labelling those repetitions `kind="campaign"` does not make them independent.
+
+The warm-up implementation has a second ordering defect: warm-up and measured entries are added to one schedule and then shuffled together, so a row marked as warm-up can execute after measured observations. That is not a warm-up policy.
+
+**Required correction:**
+
+- Change a stratum/cell to reference a declared set of distinct corpus cases or a deterministic case generator, with a stable `case_id` and generator seed recorded in every raw row.
+- Require at least 200 distinct case observations per sizing cell, or implement the spec's predeclared sequential stopping rule. Do not count repeated trials of one case toward this total.
+- Keep repeated executions of a fixed `case_id` only in `run_determinism()`.
+- Execute and discard warm-ups before randomizing the measured schedule. State whether warm-up is per model/cell, per process image, or global.
+- Add tests proving campaign case IDs are distinct, determinism case IDs are identical, and no measured observation precedes its required warm-up.
+
+### MP-R2 — CRITICAL: the measurement primitive excludes CBC CPU and cannot produce per-observation RSS
+
+`time.process_time()` in the forked Python child measures CPU consumed by that Python process. PuLP launches CBC as an external subprocess, so the dominant solver CPU is excluded from `cpu_sec`; the mean CPU service demand used by M2.1 would consequently be too small.
+
+`RUSAGE_CHILDREN.ru_maxrss` in the parent is a historical maximum, not a cumulative counter that can be differenced. After a large child has run, later observations can inherit its high-water mark. The proposed `max(after - before, after)` always effectively selects `after` for non-negative values, so it does not repair this. It also does not measure the simultaneous aggregate RSS of the Python+CBC process tree.
+
+Finally, `build_sec = wall_sec - runTimeSec` is not the required build-versus-`prob.solve()` split. Production `runTimeSec` is rounded to two decimals, while `wall_sec` also includes fork, import, temporary-file, pickle and IPC overhead; the subtraction can be imprecise, negative for very short solves, and materially misleading for the approximately one-second models.
+
+**Required correction:**
+
+- Measure CPU for the complete Python+CBC process tree, including user and system time. The child can report process-tree resource data, or the harness can use an explicit process/cgroup monitor; Python `process_time()` alone is insufficient.
+- Measure per-process-tree peak RSS and, separately during load tests, aggregate instance RSS. Do not subtract `ru_maxrss` high-water marks.
+- Add a benchmark-only timing seam that records unrounded monotonic timestamps immediately around model construction and CBC execution. It may be an optional callback/adapter, but it must not alter solver mathematics.
+- Record harness/bootstrap overhead separately instead of naming it build time.
+- Cover a CBC-spawning test double or controlled real smoke fixture that proves child CPU and memory are captured, while keeping the default unit-test gate free of full real solves.
+
+### MP-R3 — CRITICAL: the capacity model averages configuration alternatives and replays an unweighted workload
+
+`weighted_mean_service_demand()` iterates every gap cell and divides by `len(manifest.gaps)`. That treats `gap ∈ {0, 0.005, 0.01, 0.02}` as an equal-probability production mix. Gap is an experimental/configuration alternative, not a workload-frequency dimension. Averaging faster relaxed-gap runs into the mandatory `gap=0` baseline can understate required capacity. The function also silently skips a missing cell, reducing the estimate instead of invalidating it.
+
+M2.3 accepts one flat `service_samples` list and draws with `rng.choice`. A flat sample loses the declared model/regime/edit-family weights, cache class, gap, and case identity. If the stratified corpus contains equal counts per cell, uniform replay silently substitutes equal population weights for the declared sensitivity mix.
+
+The proposed M2.3 acceptance test is impossible as written: when every service time is two seconds, no worker count can produce end-to-end p95 below a one-second SLO. The test expects three workers to do so.
+
+The formula also accepts `parallel_efficiency` as an unexplained caller value, although the design explicitly requires measured per-solve CPU utilization and parallel efficiency. Local CPU seconds are not directly transferable to a different Render plan or architecture without target-plan calibration.
+
+**Required correction:**
+
+- Compute capacity separately per gap; `gap=0` is the mandatory baseline. Present relaxed gaps as explicit alternatives with their objective-quality effects, never as an averaged workload.
+- Fail closed when any required sizing cell is absent, has insufficient independent observations, or has unusable resource data.
+- Replay tagged events drawn from declared workload-profile weights, then draw service time from the matching cell's empirical distribution. Cache hits must bypass CBC service while retaining their measured API cost.
+- Add a controlled concurrency sweep on each candidate target plan to measure CPU utilization, wall-time degradation, RSS and parallel efficiency at 1…N concurrent solves. Store the derived efficiency with the plan ID and application SHA.
+- Correct the impossible test by either validating queue-wait p95 below one second or choosing an end-to-end SLO greater than the two-second service time. Define whether `candidate_worker_counts()` returns all candidates or only passing candidates.
+- Remove the arbitrary `max_workers=24` ceiling or derive the explored range from the candidate topology and Render's 100-instance service limit.
+
+### MP-R4 — HIGH: the statistical outputs do not satisfy the spec's uncertainty and objective-quality contract
+
+M1.4 calculates a confidence interval only for p95. The design requires raw rows plus uncertainty for p50, p95, mean service demand, slow-regime frequency, failure/rejection rates, RSS and objective delta. `CellStats` has no objective-delta field, no uncertainty for the other estimates, and no success count. The plan declares `corpus_frequency()` as an interface but the proposed implementation does not define it or test it. It also never declares the required outlier policy.
+
+The gap experiment cannot be approved without objective deltas relative to the same case at `gap=0`; otherwise a faster relaxed solve has no paired quality evidence. An all-failure cell also causes the proposed aggregation branch to index `walls[0]` and crash rather than emitting an explicit unusable-cell result.
+
+**Required correction:**
+
+- Add the complete predeclared summary schema and uncertainty method for every metric required by the design.
+- Compute paired objective deltas by `case_id` against that case's `gap=0` result, with an explicit rule for infeasible/no-incumbent/failed outcomes.
+- Implement and test `corpus_frequency()` while labelling it generator/corpus frequency, never student prevalence.
+- Declare the outlier policy before measurements. Preserve raw rows; do not silently delete tail observations.
+- Represent zero-success and insufficient-sample cells explicitly and make them fail sizing rather than returning zero demand or crashing.
+
+### MP-R5 — HIGH: the authoritative workload matrix and per-user behavior are incomplete
+
+M3.2 prepares cache populations, but M3.3 consumes only an arrival trace; no task binds each scheduled event to the audited 20/60/20 population manifest. The driver also does not define how events are assigned across the 50 authenticated students, whether one student can have multiple jobs outstanding, or the required UI-faithful one-at-a-time profile.
+
+The plan omits the declared warm-up and measurement windows, repetition count, and pass rule across repetitions. It prepares a cold-identical set but never explicitly schedules its separate 50-request run. It also omits the sustained all-JADE, 2,500 cold-miss/hour profile required to validate the guarantee. Registering 50 accounts is insufficient by itself: the current API solves an existing persisted scenario, so cohort provisioning must also create and save the scenario/input fixtures and retain their IDs for submission.
+
+**Required correction:**
+
+- Define a versioned run-manifest schema covering profile ID, seed, users, case/cache-class assignment, intended offsets, outstanding-job policy, warm-up, measurement window, duration and repetition number.
+- Implement at least these separate profiles: representative 20/60/20 sustained load; UI-faithful one-in-flight sustained load; 50-request synchronized cold-identical burst; and sustained all-JADE 2,500 verified cold misses/hour.
+- State how the aggregate trace is distributed across exactly 50 users and verify each user receives the intended rate/share.
+- Seed valid per-user scenarios and saved inputs through the real `/api` contracts; record scenario IDs without committing cookies or credentials. Store session material only in ignored, permission-restricted temporary storage.
+- Apply the MP-1 aggregation and repetition pass rule to the results; one exploratory run cannot become the authoritative verdict retroactively.
+
+### MP-R6 — HIGH: MP-1 fires after M3.4 already performs the authoritative run
+
+M3.4 instructs execution of the restart probe, three-hour sustained soak and separate burst. MP-1 is placed later, immediately before M5.2. That permits the main load evidence to be observed before the SLO thresholds, aggregation rules, headroom limits and repetition pass rule are ratified — exactly the post-hoc gate movement M-R5 prohibited.
+
+**Required correction:** separate harness implementation from experiment execution. Code, unit tests, environment provisioning and exploratory shakedowns may precede MP-1 if clearly labelled non-authoritative and excluded from the decision dataset. The ratified MP-1 artifact must exist before the first authoritative representative, all-JADE, burst, restart or topology run. Record the answer, date and decider before execution.
+
+### MP-R7 — HIGH: the telemetry collector has no source for several metrics needed to identify the bottleneck
+
+M3.4 names event-loop lag, CPU throttling, active Python/CBC process count, pool checked-out/waiting counts, internal queue depth, admissions-past-limit and load-generator saturation, but lists only a new external `collect-telemetry.mjs`. Those process-internal values are not currently exposed by the API or Render metrics. A collector cannot reconstruct them after the fact, and the global `unknown` rule would leave the promised exact-bottleneck conclusion unsupported.
+
+**Required correction:**
+
+- Add an observability source map: for every metric, name the emitting component, query/log/endpoint, unit, sampling cadence, clock, labels, retention and join key/run ID.
+- Add the required default-off, isolated-environment-only application instrumentation for event-loop, pool, queue/admission and process-tree metrics, with tests that production secrets and user payloads are never emitted.
+- Define the Render metric/export source for instance CPU, memory, throttling, OOM and restarts, and the Postgres source for CPU/memory/connections/query latency/locks/storage.
+- Time-synchronize the load generator, application and database evidence sufficiently to correlate a latency interval with its resource condition.
+- Make missing mandatory telemetry invalidate a bottleneck verdict rather than silently writing `unknown` and continuing.
+
+### MP-R8 — HIGH: the dedicated-worker and fleet comparisons are contaminated by A's API dispatcher
+
+Option A deliberately ships a recurring dispatcher in the API. M5.1 adds another consumer of the same durable `solve_jobs` queue but defines no way to stop API instances from claiming jobs. In the dedicated-worker and horizontal-fleet candidates, the API and prototype can therefore race for the same queue; some solves will run on API compute, contaminating throughput, resource and cost attribution.
+
+**Required correction:**
+
+- Add a default-preserving execution-mode seam: for dedicated-worker/fleet measurements the API is enqueue/poll-only and cannot claim, while the named worker command is the sole claimant. The vertical tune-in-place comparator keeps API dispatch enabled.
+- Make the mode fail closed and observable at startup. The run manifest must record it, and a pre-run assertion must prove API active-solver count remains zero for worker-only candidates.
+- Include the exact image SHA, command, queue namespace, plan IDs, dispatcher-mode configuration, owner and teardown/restoration steps in the MP-3 request before asking for authorization.
+- Prove every topology uses an isolated queue/database and that no candidate overlaps another candidate's jobs.
+
+### MP-R9 — BLOCKING PREREQUISITE: the approval/audit artifact required by the plan is absent
+
+P4 and the parent spec require checkpoint answers and preflight verification to be recorded in `docs/CHANGELOG-implementation.md`, with approval answers carrying a date and decider. That file does not exist in this worktree. The A plan asserts that AP-4 was granted, but the designated independent record is still absent.
+
+This does **not** require asking AP-4 again if the product owner actually made the recorded choice. It requires creating/restoring the canonical audit artifact and recording the real decision, date and decider there. If no explicit decision can be evidenced, AP-4 must return to pending. The A plan or this plan cannot act as both the approval request and the independent evidence that it was approved.
+
+Every MP-1…MP-4 task must include an explicit post-answer step that writes the exact scoped answer, UTC timestamp, decider and referenced artifact/run IDs to the same canonical record before proceeding.
+
+### Additional execution recommendations
+
+- M3.1's isolation proof should verify distinct Render environment/service/database identifiers and perform a sentinel write/read confined to the measurement database. Do not fetch or copy production user identities merely to prove no IDs overlap.
+- The manifest loader should validate version, allowed model/regime/edit-family values, finite non-negative weights, allowed gaps, unique cell/case keys, required input fields and exact coverage. A weights-only check is insufficient for an authoritative corpus.
+- `tempfile.mktemp()` should not be used. Use a safely created private temporary directory/file, handle child exit and missing/corrupt output explicitly, and always clean up in `finally`.
+- The MIP-start and persistent-worker experiments need the same case IDs, raw-row schema, repetitions and objective-validity rules as the main benchmark so their decision records are comparable rather than anecdotal.
+- M5.4 must name the evidence artifact for both the representative profile and the guaranteed all-JADE cold-miss profile. A topology cannot pass on one and inherit the other by inference.
+
+### Approval exit criteria
+
+This plan becomes approval-ready when MP-R1…MP-R8 are folded into executable tasks and tests, and MP-R9's canonical approval record exists. The next review should verify the corrected contracts rather than reopen the already-settled architecture, Render platform limits, two cost denominators, or p95-versus-mean sizing decision.
