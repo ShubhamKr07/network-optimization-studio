@@ -1167,3 +1167,75 @@ All 5 findings accepted; every scope reduction applied. Verbatim review text: co
 **Prior note, retained.** Against the taxonomy built across the A-plan rounds, round 1 of this review was dominated by a class those rounds never hit: **plausible code that silently produces wrong numbers.** MP-R1, MP-R2 and MP-R3 all pass review-by-reading and all yield evidence that looks fine and is not — repeated cases counted as independent, CBC's CPU missing from a CPU metric, gap averaged into a baseline. A prose plan can be audited by reading it; a measurement plan cannot, because its errors surface as numbers rather than contradictions. **Standing rule for measurement work specifically: for every reported metric, name what it excludes.** "CPU time" that omits a subprocess, "peak RSS" that is a stale high-water mark, and "200 observations" that are 200 trials of one case are all the same failure — a correct-sounding label over a quantity that does not match it.
 
 ---
+
+## Review — approval validation round 3 (2026-09-23)
+
+**Verdict: REQUEST CHANGES — not yet approved.** The measurement architecture is directionally sound and the round-2 scope reductions should remain. The remaining problems are not requests for more instrumentation or a larger experiment: they are executable-contract errors that can either stop implementation or produce the wrong capacity number while appearing valid.
+
+### R3-R1 — CRITICAL: the prescribed tests and implementations still do not compose
+
+The round-2 disposition says M1 and M2 now form coherent interfaces, but the shown code does not satisfy that claim:
+
+- **M1.3:** its tests still construct strata with `inputs` instead of `cases`, call the removed `n_per_cell` argument, build `Observation` with an invalid positional layout, and call `run_determinism` without its required `case`. The fake measurement function also has the old signature. The shown tests cannot reach their assertions.
+- **M1.4:** tests call `aggregate(..., min_cases=...)`, while the implementation accepts only `observations` and then references undefined `min_cases`. `_mean` is undefined in this module, and M1.3 imports an undefined `relative_half_width`. The declared `objective_deltas()` and `corpus_frequency()` are absent. The aggregate CSV schema also omits the claimed paired-objective-delta value and interval.
+- **M2.1:** tests import `required_cores`, while the implementation defines `required_solver_slots`; tests omit the now-required `gap`; their manifests still use `inputs` instead of `cases`; and their positional `CellStats(...)` construction no longer matches the dataclass.
+- **M1.1:** the validation contract names version, allowed model IDs, allowed/finite gaps, finite weights and model-specific required inputs, but the shown implementation checks only a subset. A malformed authoritative corpus can therefore pass the code advertised as full validation.
+- **M1.2:** the task requires corrupt-output and child-status handling, but `pickle.load()` can still escape, the child exits `0` even if serialization fails, and the parent has no deadline/kill path if a solve does not return.
+- The expected pass counts in M1.1, M1.2 and M1.4 do not match the number of shown tests. This is minor by itself, but further evidence that the snippets were not executed together.
+
+**Required correction:** make each shown test compile against the immediately preceding interfaces, provide every helper/function the task declares, and run the complete benchmark unit-test gate before claiming the fold complete. Do not add new features beyond the existing contract.
+
+### R3-R2 — CRITICAL: the capacity formula returns cores, not solver slots
+
+`lambda × mean CPU-seconds / (parallel efficiency × (1 - headroom))` has units of **CPU cores**. Renaming that result `required_solver_slots()` does not turn it into concurrent solver slots. A slot may occupy less than, equal to, or more than one effective core depending on the measured plan/concurrency point; memory can also cap slots before CPU does.
+
+Keep the stages and units explicit:
+
+1. `required_cores(...) -> float` from mean process-tree CPU demand.
+2. Calibrate safe `solver_slots_per_instance` for each plan from concurrency throughput, CPU and aggregate RSS.
+3. Map cores and memory to `instances × slots_per_instance`, rounding instances up.
+4. Validate the candidate with the wall-time distribution replay and authoritative load run.
+
+The queue simulator's worker count is a count of concurrent service slots; it is not interchangeable with the analytical core result. Until these units are separated, the central output of the plan can be wrong.
+
+### R3-R3 — HIGH: the sampling schedule does not preserve randomization or cross-gap pairs
+
+The declared policy says measured order is randomized across all cells. The implementation instead iterates one cell to completion and only shuffles cases *inside* that cell. Runtime drift, thermal state or background load can therefore align with a model/gap cell.
+
+Early stopping introduces a second issue: each gap is shuffled and stopped independently, so `gap=0` and relaxed gaps can retain different case subsets. The paired objective-delta calculation may then have little or biased overlap even though `case_key` is correct.
+
+**Required correction:** build one globally interleaved measured schedule, and select the same cases across the compared gaps. The sequential rule must preserve enough paired cases and tail evidence for the decisions it feeds; a narrow CI on mean CPU alone is not evidence that empirical p95 or the paired objective delta is stable. This does not require returning to a mandatory 200-case quota.
+
+### R3-R4 — HIGH: the simulator has no executable cache-hit or service-time contract
+
+M2.3 consumes raw `Observation` samples but never states which quantity is the server service time. The queue simulator needs **wall-time slot occupancy**; `cpu_tree_sec` belongs in the core-demand calculation. Choosing the wrong field changes the predicted queue and worker count.
+
+The plan also says a cache hit consumes no solver slot but retains measured API cost. No simulator input type, field or upstream artifact supplies that API cost, and `{stratum: (samples, weight)}` has no representation for cache class or slot consumption. Consequently the representative 20/60/20 profile cannot be replayed as declared.
+
+**Required correction:** define a small event-sample contract carrying at least `cache_class`, `solver_wall_sec`, measured/non-zero API overhead and `consumes_solver_slot`. Keep solver CPU demand as a separate capacity input. Add one test proving cache hits affect end-to-end latency and offered API load while consuming zero solver slots.
+
+### R3-R5 — HIGH: calibration, MP-3 ordering and the all-JADE population are still not runnable
+
+- The Phase 5 preamble still says **MP-3 fires before M5.1**, while M5.1 correctly says the dispatcher seam is implemented and tested before MP-3. There must be one ordering statement.
+- M2.1b remains prose rather than a task: it names no calibration runner, command, input corpus/profile, derivation of efficiency, pass/fail validation or step that consumes `parallel-efficiency.csv` to produce final candidates. “Shortlisted plans” is also not defined before calibration uses it.
+- The all-JADE profile requires **2,500 verified cold misses/hour for three hours**. M3.2 prepares the representative 20/60/20 populations and one cold-identical burst hash, but no task creates and verifies the 7,500 distinct cold JADE hashes needed per authoritative run or prevents a previous repetition from warming them.
+
+**Required correction:** make calibration a named task after MP-1/MP-2, with a small geometric `1,2,4,8` sweep and a concrete output consumer. Keep seam implementation/test as pre-MP-3 preparation, then record MP-3 before creating external worker infrastructure. Add an all-JADE input generator and pre-run cache-absence/uniqueness assertion, with fresh namespace or cleanup between authoritative repetitions.
+
+### Lean approval bar
+
+Approve when all five conditions are true:
+
+1. The M1/M2 snippets and shown tests use one set of names, signatures and schemas and the full unit-test gate is runnable.
+2. Core demand, solver slots and instances are separate quantities with an explicit calibrated mapping.
+3. The campaign is globally interleaved and compares the same case cohort across gaps.
+4. The simulator explicitly models wall-time slot occupancy and cache-hit API overhead.
+5. Calibration/MP-3 has one runnable sequence and the all-JADE profile has a verified cold-input source.
+
+### Confirmed non-blockers — do not expand scope
+
+- Do not add production-wide solver phase hooks, a local aggregate-tree-RSS sampler, mandatory cgroup throttling telemetry, an every-integer concurrency sweep, a 200-case quota or a topology-by-profile Cartesian product.
+- MP-R9 remains closed; do not ask for the sacred-test/AP-4 authorization again.
+- The Render topology bounds used by the plan remain valid as of this review: `12c-96g` is the largest listed web/private/background-worker compute plan, services scale to at most 100 uniform-plan instances, autoscaling requires Pro or higher, and scaled compute is billed by usage. Recheck the dated price snapshot at execution time, as the plan already requires.
+
+---
