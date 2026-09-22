@@ -24,7 +24,7 @@ Same contract as the A plan's AP checkpoints: stop, ask verbatim, wait, record t
 |---|---|---|---|
 | **MP-1** | Before the authoritative load run (M-R5) | "These are the exact SLO thresholds, aggregation rules and headroom limits the topology decision will be judged against: \<table\>. Ratify them as the predeclared gate?" | Ratify · Ratify with changes · Defer the run |
 | **MP-2** | Before provisioning the isolated measurement environment (M-R6) | "Measurement needs an isolated Render environment — separate database, separate cache namespace, synthetic identities, analytics/alerts disabled, named teardown owner, dated cost snapshot. Approve provisioning and its teardown plan?" | Approve · Approve with a different environment · Hold |
-| **MP-3** | Before the disposable worker prototype (M-R1) | "The worker prototype consumes A's durable queue: \<named image/command, queue seam, plan IDs, provisioning owner, teardown procedure\>. Authorize it as disposable, non-production scaffolding?" | Authorize · Authorize with changes · Analytical sizing only |
+| **MP-3** | Before the disposable worker prototype (M-R1) | "The worker prototype consumes A's durable queue: \<named image/command, queue seam, plan IDs, **dispatcher-mode configuration**, provisioning owner, teardown procedure\>. Authorize it as disposable, non-production scaffolding?" | Authorize · Authorize with changes · Analytical sizing only |
 | **MP-4** | When both gates have verdicts (M-R2) | "Capacity gate: \<verdict\>. Reliability/isolation gate: \<verdict\>. What is built?" | Build Scaling as sized · Capacity work only · Reliability work only · Neither — record and stop |
 
 ## 1. Components

@@ -126,7 +126,7 @@ def simulate(trace, strata: dict[str, tuple[list[EventSample], float]],
              workers: int, seed: int) -> SimResult: ...
 def candidate_worker_counts(trace, strata, *, slo_p95_end_to_end_sec=None,
                             slo_p95_queue_wait_sec=None,
-                            max_instances=100) -> list[CandidateResult]: ...
+                            max_workers: int) -> list[CandidateResult]: ...
 ```
 
 **Units, stated once (R3-R2).** `required_cores` returns **CPU cores**. `simulate(workers=…)` takes **concurrent solver slots**. These are *not* interchangeable: a slot may consume less than, equal to, or more than one effective core at the measured concurrency point, and **memory can cap slots before CPU does**. `map_to_instances` is the only place the two meet, and it needs calibrated `cores_per_slot` and `rss_per_slot_bytes` from M2.1b.
@@ -266,7 +266,26 @@ class Manifest:
             raise ManifestError("stratum weights must sum to 1")
         if any(s["weight"] < 0 for s in self.strata):
             raise ManifestError("weights must be non-negative")
+        if self.version != 1:
+            raise ManifestError(f"unsupported manifest version: {self.version}")
+        live = {"p-median-us", "p-median-brazil", "transport-coal",
+                "two-echelon-gold-au", "two-echelon-jade-us", "chens-cosmetics-cn"}
+        if any(g not in (0, 0.005, 0.01, 0.02) for g in self.gaps):
+            raise ManifestError(f"gap outside the allowed set: {self.gaps}")
         for s in self.strata:
+            if s["model_id"] not in live:
+                raise ManifestError(f"unknown model_id: {s['model_id']}")
+            # F-R19: solve.py:1341 reads inp["timeLimitSec"] UNCONDITIONALLY for
+            # chens. A case missing it raises KeyError in the child and becomes
+            # an ok=False row -- an entire stratum reported as 100% failure, a
+            # measurement result rather than the manifest error it actually is.
+            required = {"modelType"} | ({"timeLimitSec"}
+                                        if s["model_id"] == "chens-cosmetics-cn" else set())
+            for c in s["cases"]:
+                missing = required - set(c["inputs"])
+                if missing:
+                    raise ManifestError(
+                        f"{s['model_id']} case {c['case_id']} missing {sorted(missing)}")
             if s["regime"] not in ("forced_open", "free_choice"):
                 raise ManifestError(f"bad regime: {s['regime']}")
             if s.get("edit_family") not in (None, "demand", "capacity", "force", "distance"):
@@ -284,7 +303,11 @@ class Manifest:
 
     def cells(self) -> list:
         return [
-            Cell(s["model_id"], s["regime"], s.get("edit_family"), g, s["weight"],
+            # F-R14: float(g). A manifest written `gaps: [0, ...]` would
+            # otherwise key the mandatory baseline as `...|0` while every
+            # consumer looks up `...|0.0`, surfacing as "required stratum
+            # missing" that reads like a corpus defect after a CSV round-trip.
+            Cell(s["model_id"], s["regime"], s.get("edit_family"), float(g), s["weight"],
                  tuple(Case(c["case_id"], c["inputs"], c.get("generator_seed"))
                        for c in s["cases"]))
             for s in self.strata for g in self.gaps
@@ -399,6 +422,12 @@ from dataclasses import dataclass
 class Observation:
     cell_key: str
     case_key: str                 # L-R4: (model, regime, edit_family, case_id)
+    gap: float                    # F-R1: MUST match the Canonical API. Omitting
+                                  # it shifted every positional constructor by
+                                  # one field, silently tagging a timeout row
+                                  # kind="timeout" -- which aggregate() then
+                                  # DROPS, erasing the exact tail the capacity
+                                  # model most needs from the failure rate.
     wall_sec: float
     cpu_tree_sec: float           # MP-R2: Python + CBC, user + sys
     harness_overhead_sec: float
@@ -446,6 +475,7 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
         t0 = time.monotonic()
         pid = os.fork()
         if pid == 0:
+            os.setsid()          # F-R15: own process group, so CBC dies with us
             rec = {}
             try:
                 # L-R1: no on_phase hook. Capacity needs total tree CPU and
@@ -478,25 +508,37 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
                 break
             time.sleep(0.05)
         else:
-            os.kill(pid, signal.SIGKILL)
+            # F-R15: kill the GROUP. SIGKILL on the forked child leaves CBC --
+            # the child's child -- burning a core through every subsequent
+            # observation, contaminating exactly the tail measurements the
+            # interleaved schedule exists to protect.
+            os.killpg(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
-            return Observation(cell.key, case.case_key(cell), cell.gap,
-                               time.monotonic() - t0, 0.0, 0.0, 0, 0,
-                               None, None, None, False, "timeout")
+            return Observation(cell_key=cell.key, case_key=case.case_key(cell),
+                               gap=cell.gap, wall_sec=time.monotonic() - t0,
+                               cpu_tree_sec=0.0, harness_overhead_sec=0.0,
+                               python_peak_rss=0, cbc_peak_rss=0, objective=None,
+                               solution_status=None, termination_reason=None,
+                               ok=False, error="timeout")
         wall = time.monotonic() - t0
         try:
             with open(out_path, "rb") as f:
                 rec = pickle.load(f)
         except (OSError, EOFError, pickle.UnpicklingError) as e:
-            return Observation(cell.key, case.case_key(cell), cell.gap, wall,
-                               0.0, 0.0, 0, 0, None, None, None, False,
-                               f"unreadable child output (status {status}): {e}")
+            return Observation(cell_key=cell.key, case_key=case.case_key(cell),
+                               gap=cell.gap, wall_sec=wall, cpu_tree_sec=0.0,
+                               harness_overhead_sec=0.0, python_peak_rss=0,
+                               cbc_peak_rss=0, objective=None,
+                               solution_status=None, termination_reason=None,
+                               ok=False,
+                               error=f"unreadable child output (status {status}): {e}")
         if status != 0:
             rec = {"ok": False, "error": f"child exited {status}", **rec}
     overhead = (time.monotonic() - t_start) - wall
     return Observation(
         cell_key=cell.key,
         case_key=case.case_key(cell),        # L-R4: stable across gaps
+        gap=cell.gap,                        # F-R1
         wall_sec=wall,
         cpu_tree_sec=rec.get("cpu_tree", 0.0),
         harness_overhead_sec=overhead,
@@ -522,7 +564,9 @@ git add artifacts/api-server/src/solver/tests/benchmark/measure.py artifacts/api
 git commit -m "[M1.2] benchmark: forked single-observation primitive with normalized peak RSS"
 ```
 
-### Task M1.3: Runner — randomized order, warm-up, stopping rule, determinism separation
+> **Task order: M1.4 (`stats.py`) is implemented BEFORE M1.3 (`runner.py`) — F-R5.** `run_campaign` imports `bootstrap_ci`, `relative_half_width` and `mean` from `benchmark.stats` at function-body top, so in the previous order **every** `run_campaign` call raised `ModuleNotFoundError` and M1.3's commit would have landed a red suite. `stats.py` has no dependency on the runner, so swapping is the honest fix — the fourth task-ordering circularity found in this programme. **Execute M1.4 first; commit tags are unchanged.**
+
+### Task M1.3: Runner — randomized order, warm-up, stopping rule, determinism separation *(execute after M1.4)*
 
 **Files:**
 - Create: `artifacts/api-server/src/solver/tests/benchmark/runner.py`
@@ -532,7 +576,7 @@ git commit -m "[M1.2] benchmark: forked single-observation primitive with normal
 - Consumes: `Manifest`, `Cell`, `Case` (M1.1); `measure_once`, `Observation` (M1.2).
 - Produces: `run_campaign`, `run_determinism` — **signatures in the Canonical API; not restated here** (R3-R1).
 
-**Stopping rule must protect what it feeds (R3-R3).** A narrow CI on **mean CPU** is not evidence that **empirical p95** or the **paired objective delta** is stable — different estimators, different convergence. The rule therefore requires *all three* before a cell stops: the mean-CPU CI width, a minimum retained **paired** case count shared with every compared gap, and a minimum count of observations in the upper tail. Still a cap of `max_cases=200`, not a quota.
+**Stopping rule must protect what it feeds (R3-R3, corrected by F-R6).** A cell never stops alone: **every gap cell of its stratum must be ready, and they all stop together**, each having `≥ min_cases` retained **and** meeting `ci_width` on mean CPU. Otherwise `gap=0` can stop early while a relaxed gap runs on, and the paired objective delta quietly thins. Still a cap of `max_cases=200`, not a quota. *(Round 3's prose also named an "upper tail count" criterion that was never implemented. **Deleted rather than left as a sentence** — a rule that exists only in prose is not a rule. If tail stability later proves to need its own criterion, it gets added with its own test.)*
 
 **Declared design (M-R4, corrected by MP-R1):** **200 distinct `case_id`s per sizing cell** — not 200 trials of one case. Warm-ups are **executed and discarded BEFORE the measured schedule is randomized**, not shuffled into it: the round-1 code appended warm-up and measured entries to one list and then shuffled, so a row flagged `warmup` could execute *after* measured observations, which is not a warm-up policy. Warm-up scope is declared as **per cell** (3 per cell). Measured order is randomized across all cells with a recorded seed. Determinism runs are a separate campaign, tagged `kind="determinism"`, and are **excluded from every sizing, frequency and uncertainty aggregate**.
 
@@ -584,6 +628,15 @@ def test_measured_schedule_is_globally_interleaved():
     cells = [c for c, _ in log]
     assert cells != sorted(cells)                  # not grouped by cell
 
+def test_all_gaps_of_a_stratum_stop_together():
+    # F-R6: constant cpu_tree_sec -> CI width 0 -> immediate readiness. If a
+    # cell could stop alone, the retained sets would diverge. They must not.
+    log = []
+    obs = run_campaign(_manifest(gaps=(0.0, 0.02)), min_cases=2, max_cases=6,
+                       warmup=0, seed=11, measure=_fake_measure_factory(log))
+    ret = lambda g: {o.case_key for o in obs if o.gap == g and o.cell_key.startswith("a|")}
+    assert ret(0.0) == ret(0.02)
+
 def test_same_case_cohort_across_gaps():
     # R3-R3: paired objective deltas need full overlap between gaps.
     log = []
@@ -611,9 +664,9 @@ def test_determinism_rows_are_tagged_and_separate():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_runner.py -v`
-Expected: FAIL — `No module named 'benchmark.runner'` (and `Observation` has no `kind`)
+Expected: FAIL — `No module named 'benchmark.runner'`
 
-- [ ] **Step 3: Add `kind` to `Observation` and implement the runner**
+- [ ] **Step 3: Implement the runner** *(F-R18: the round-2 instruction here said to add `kind` to `Observation` — M1.2 and the Canonical API already define it, so following the step would have produced a duplicate field.)*
 
 In `measure.py`, add `kind: str = "campaign"` as the last field of `Observation`.
 
@@ -656,6 +709,17 @@ def run_campaign(manifest, *, min_cases=30, max_cases=200, ci_width=0.10,
                 for case in cohort[(cell.model_id, cell.regime, cell.edit_family)]]
     rng.shuffle(schedule)
 
+    # F-R6: stop per STRATUM, not per cell. Round 3's code added only
+    # cell.key and checked CI width alone, so gap=0 could stop at 40 retained
+    # cases while gap=0.02 ran to 200 -- and the paired objective delta, the
+    # gap alternative's ONLY quality evidence, would thin to 40 pairs
+    # silently. The shared cohort fixes which cases are SCHEDULED; this fixes
+    # which are RETAINED.
+    strat_of = lambda c: (c.model_id, c.regime, c.edit_family)
+    gaps_of = {}
+    for cell in manifest.cells():
+        gaps_of.setdefault(strat_of(cell), []).append(cell.key)
+
     kept, by_cell, stopped = [], {}, set()
     for cell, case in schedule:
         if cell.key in stopped:
@@ -663,14 +727,19 @@ def run_campaign(manifest, *, min_cases=30, max_cases=200, ci_width=0.10,
         obs = measure(cell, case)
         obs.kind = "campaign"
         kept.append(obs)
-        rows = by_cell.setdefault(cell.key, [])
-        rows.append(obs)
-        # Stopping needs the SAME cases retained across compared gaps, so a
-        # cell stops only once every gap sharing its stratum is also ready.
-        if len(rows) >= min_cases:
+        by_cell.setdefault(cell.key, []).append(obs)
+
+        def ready(key):
+            rows = by_cell.get(key, [])
+            if len(rows) < min_cases:
+                return False
             cpus = [o.cpu_tree_sec for o in rows if o.ok]
-            if cpus and relative_half_width(bootstrap_ci(cpus, mean), mean(cpus)) <= ci_width:
-                stopped.add(cell.key)
+            return bool(cpus) and relative_half_width(
+                bootstrap_ci(cpus, mean), mean(cpus)) <= ci_width
+
+        sibling_keys = gaps_of[strat_of(cell)]
+        if all(ready(k) for k in sibling_keys):
+            stopped.update(sibling_keys)        # all gaps stop TOGETHER
     return kept
 
 def run_determinism(cell, case, *, reps=30, measure=measure_once):
@@ -686,7 +755,7 @@ def run_determinism(cell, case, *, reps=30, measure=measure_once):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_runner.py -v`
-Expected: PASS (5 passed)
+Expected: PASS (6 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -707,22 +776,27 @@ git commit -m "[M1.3] benchmark runner: randomized order, warm-up discard, deter
 
 > **MP-R4 — the round-1 summary did not satisfy the spec's uncertainty contract.** It computed a CI for **p95 only**, while the spec requires raw rows **plus uncertainty** for p50, p95, mean service demand, slow-regime frequency, failure/rejection rates, RSS **and objective delta**. Three further defects: `corpus_frequency()` was declared in the Interfaces block and **never implemented or tested**; no outlier policy was declared; and an all-failure cell hits `walls[0]` on an empty list and **crashes** instead of reporting an unusable cell.
 
-**`CellStats` — the complete predeclared schema.** `n_cases, n_obs, n_success, failure_rate (+CI), mean_cpu_tree_sec (+CI), p50_wall (+CI), p95_wall (+CI), mean_peak_rss_tree (+CI), objective_delta_vs_gap0 (+CI), usable: bool, unusable_reason: str | None`. Every `(+CI)` is a bootstrap interval by the same method and recorded `alpha`.
+**`CellStats` — schema is in the Canonical API, not restated here (F-R7).** This sentence previously listed `p50_wall (+CI)` and a single `mean_peak_rss_tree (+CI)`, both of which L-R1 withdrew — a third copy of the schema, drifting exactly as the other copies did. CIs are carried on the **four decision metrics only**: mean CPU, p95 wall, failure rate, paired objective delta. Each is a bootstrap interval by the same method and recorded `alpha`.
 
 - **Objective deltas (MP-R4):** computed **paired by `case_id`** against that same case's `gap=0` result. Explicit rule for infeasible / no-incumbent / failed outcomes: the pair is **excluded and counted**, never imputed. Without this, a faster relaxed-gap solve has no quality evidence and the gap experiment cannot be approved.
-- **Outlier policy, declared before any measurement:** none are deleted. Raw rows are preserved in full; aggregates report both the raw estimate and a trimmed estimate (5% each tail) side by side, so a trimming choice can never be made after seeing results.
+- **Outlier policy, declared before any measurement:** none are deleted, and **raw rows are preserved in full** — which is the whole policy. *(The round-2 wording also promised a trimmed estimate beside every raw one; no field for it exists anywhere in the schema or CSV, so the promise is **withdrawn** rather than left dangling — F-R7. Preserved raw rows already allow any trimming to be computed later, in the open.)*
 - **Unusable cells fail loudly:** zero successes, or fewer than the declared minimum distinct cases, sets `usable=False` with a reason. M2.1 **fails closed** on any unusable cell rather than treating it as zero demand.
-- **`corpus_frequency()` is implemented and tested here**, returning the declared generator weights actually realised by the campaign, labelled corpus/generator frequency — **never** student prevalence (M-R9).
+- **`objective_deltas()` and `corpus_frequency()` are implemented and tested HERE, with steps (F-R7).** MP-R4 found them declared-but-absent; round 3 marked that fixed and they were still absent — the same finding twice. Concretely:
+  - `objective_deltas(observations)` keys by `case_key` and compares each non-zero-gap row against the **same `case_key`'s `gap==0`** row. A pair where either side is `ok=False` or `objective is None` is **excluded and counted** (`objective_pairs_excluded`), never imputed. `aggregate()` populates `objective_delta_vs_gap0`/`_ci` for non-zero-gap cells.
+  - `corpus_frequency(observations, manifest)` returns the realised `n_obs`-weighted share per stratum — labelled corpus/generator frequency, **never** student prevalence (M-R9).
+  - Tests: three cases at gaps 0/0.02 with one failure at 0.02 → two deltas and `excluded == 1`; realised corpus frequency equals the weighted proportion.
+  **Without the delta columns the gap decision cannot be made from the deliverable at all** — MP-R3 requires relaxed gaps to be presented with their paired objective-quality effects, and an artifact with no delta column cannot carry that.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # test_stats.py
+import pytest
 from benchmark.measure import Observation
 from benchmark.stats import percentile, bootstrap_ci, aggregate
 
-def _obs(key, wall, cpu, case="c0", ok=True, kind="campaign"):
-    return Observation(cell_key=key, case_key=f"{key}|{case}", wall_sec=wall,
+def _obs(key, wall, cpu, case="c0", ok=True, kind="campaign", gap=0.0):
+    return Observation(cell_key=key, case_key=f"{key}|{case}", gap=gap, wall_sec=wall,
                        cpu_tree_sec=cpu, harness_overhead_sec=0.01,
                        python_peak_rss=1000, cbc_peak_rss=2000, objective=1.0,
                        solution_status="optimal", termination_reason="optimality_proven",
@@ -748,7 +822,7 @@ def test_aggregate_excludes_determinism_rows():
 def test_aggregate_reports_failure_rate():
     rows = [_obs("k", 1.0, 0.5, case=f"c{i}") for i in range(9)]
     rows += [_obs("k", 0.0, 0.0, case="c9", ok=False)]
-    assert aggregate(rows, min_cases=1)["k"].failure_rate == 0.1
+    assert aggregate(rows, min_cases=1)["k"].failure_rate == pytest.approx(0.1)
 
 def test_all_failure_cell_is_unusable_not_a_crash():
     # L-R1: round 1 indexed walls[0] on an empty list here.
@@ -841,15 +915,17 @@ def aggregate(observations, *, min_cases):
         # frequency are descriptive -- point estimates plus raw rows suffice.
         out[key] = CellStats(
             n_cases=n_cases, n_obs=len(rows), n_success=len(ok), usable=True,
-            mean_cpu_tree_sec=_mean(cpus),
+            mean_cpu_tree_sec=mean(cpus),
             mean_cpu_ci=bootstrap_ci(cpus, _mean),
             p95_wall=percentile(walls, 0.95),
             p95_wall_ci=bootstrap_ci(walls, lambda s: percentile(s, 0.95)),
-            failure_rate=1 - len(ok) / len(rows),
+            # F-R4: (n - ok)/n is EXACTLY 0.1 for 9/10; 1 - ok/n gives
+            # 0.09999999999999998 and fails an equality assertion on first run.
+            failure_rate=(len(rows) - len(ok)) / len(rows),
             failure_rate_ci=bootstrap_ci([0.0 if r.ok else 1.0 for r in rows], _mean),
             p50_wall=percentile(walls, 0.5),                       # descriptive
-            mean_python_peak_rss=_mean([r.python_peak_rss for r in ok]),   # descriptive
-            mean_cbc_peak_rss=_mean([r.cbc_peak_rss for r in ok]),         # descriptive
+            mean_python_peak_rss=mean([r.python_peak_rss for r in ok]),   # descriptive
+            mean_cbc_peak_rss=mean([r.cbc_peak_rss for r in ok]),         # descriptive
         )
     return out
 ```
@@ -882,7 +958,9 @@ git commit -m "[M1.4] benchmark stats: percentiles, bootstrap CI, determinism-ex
 `run_id,timestamp,cell_key,case_key,case_id,model_id,regime,edit_family,gap,kind,wall_sec,cpu_tree_sec,harness_overhead_sec,python_peak_rss,cbc_peak_rss,objective,solution_status,termination_reason,ok,error`
 
 **Aggregate columns:**
-`run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,n_cases,n_obs,n_success,usable,unusable_reason,mean_cpu_tree_sec,mean_cpu_ci_low,mean_cpu_ci_high,p95_wall,p95_wall_ci_low,p95_wall_ci_high,failure_rate,failure_rate_ci_low,failure_rate_ci_high,p50_wall,mean_python_peak_rss,mean_cbc_peak_rss,corpus_frequency`
+`run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,n_cases,n_obs,n_success,usable,unusable_reason,mean_cpu_tree_sec,mean_cpu_ci_low,mean_cpu_ci_high,p95_wall,p95_wall_ci_low,p95_wall_ci_high,failure_rate,failure_rate_ci_low,failure_rate_ci_high,objective_delta_vs_gap0,objective_delta_ci_low,objective_delta_ci_high,objective_pairs_excluded,p50_wall,mean_python_peak_rss,mean_cbc_peak_rss,corpus_frequency`
+
+The four `objective_delta_*` columns are **mandatory, not optional** (F-R7): without them the relaxed-gap alternatives have no paired quality evidence in the artifact, and the gap decision MP-R3 requires cannot be made from the deliverable. The M1.5 header test asserts them.
 
 Confidence intervals appear only on the four decision metrics (mean CPU demand, p95 wall, failure rate, and the paired objective delta reported alongside); `p50_wall`, the two RSS columns and `corpus_frequency` are descriptive point estimates backed by the raw rows (L-R1).
 
@@ -891,6 +969,7 @@ Confidence intervals appear only on the four decision metrics (mean CPU demand, 
 - [ ] **Step 3: Implement** `write_raw`/`write_aggregates` with `csv.DictWriter` and the exact headers; `cli.py` wires `load_manifest → run_campaign → aggregate → write_*` behind `argparse` (`--manifest`, `--n`, `--warmup`, `--seed`, `--out-dir`, `--determinism-cell`).
 - [ ] **Step 4: Run it** → PASS.
 - [ ] **Step 5: Document the columns** in `docs/superpowers/metrics/README.md`, including the sentence that `corpus_frequency` is **generator frequency, not student prevalence** (M-R9).
+- [ ] **Step 5b: The JADE re-measure deliverable (F-R20).** Spec §1.1 requires re-measuring the forced-open JADE regime at `gap=0` against the spike's **0.6–3.5 s** and the parent design's **~13 s** claim; the corpus contains the cell but nothing surfaced the comparison. Report `two-echelon-jade-us|forced_open|*|0.0` p50/p95 wall **beside both prior claims** in the benchmark report, stating explicitly which (if either) the measurement supports.
 - [ ] **Step 6: Full gate**
 
 Run: `cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x`
@@ -935,13 +1014,16 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 2. **After MP-1 (headroom ratified) and MP-2 (environment approved)**, run a **short calibration** on the shortlisted plans at a **geometric concurrency set — 1, 2, 4, 8** — stopping early when throughput flattens or headroom fails. **Not** every integer on every plan; the sweep exists to find the efficiency knee, not to chart it.
 3. **Final candidate counts are produced only after** calibration exists **and** headroom is ratified — they consume both.
 
+> **M2.1b EXECUTES IN PHASE 5, immediately before M5.2 — it is only documented here (F-R9).** The block previously sat physically inside "Phase 2 — pure computation, no infra" while its Step 2 runs a Render calibration, so an agent walking checkboxes top-down would reach it before M3.1's environment exists. Worse, two of its three shortlisted plans are **worker** plans, which do not exist until MP-3 provisions the prototype in Phase 5 — "after MP-1 and MP-2" was necessary but not sufficient. **Calibration targets, named:** the vertical comparator is calibrated on the **isolated API service**; worker plans on the **MP-3 prototype**.
+
 **M2.1b is a task, not prose (R3-R5).** It previously named no runner, command, corpus, derivation or consumer — unexecutable by construction.
 
 **Files:** Create `scripts/measurement/calibrate-concurrency.mjs`; output `docs/superpowers/metrics/parallel-efficiency.csv`.
 
 - [ ] **Step 1. Define "shortlisted plans" before anything uses the phrase:** the vertical comparator's current plan, plus at most two worker plans whose core/memory ratio brackets `required_cores` from Phase 2's uncalibrated run. Recorded in the run manifest.
-- [ ] **Step 2. Run** `node scripts/measurement/calibrate-concurrency.mjs --plan <id> --concurrency 1,2,4,8 --corpus representative`, stopping early when throughput flattens (<5% gain) or headroom fails.
-- [ ] **Step 3. Derive per plan:** `parallel_efficiency = (throughput_at_N / N) / throughput_at_1`, `cores_per_slot`, `rss_per_slot_bytes` from aggregate instance RSS ÷ concurrent slots.
+- [ ] **Step 2. Run** `node scripts/measurement/calibrate-concurrency.mjs --plan <id> --service <id> --concurrency 1,2,4,8 --corpus representative`, stopping early when throughput flattens (<5% gain) or headroom fails. `--service` is mandatory (F-R9): the isolated API service for the vertical comparator, the MP-3 prototype for worker plans — `--plan` alone never said which deployed service was being driven.
+- [ ] **Step 3. Derive per plan — three quantities, three formulas, and one anti-double-count rule (F-R10).** `parallel_efficiency = (throughput_at_N / N) / throughput_at_1` · **`cores_per_slot = cpu_util_at_N × plan_cores / N`** at the knee · `rss_per_slot_bytes = aggregate_instance_rss / N`.
+  **`cores_per_slot` already embeds contention loss**, and `required_cores` divides by `parallel_efficiency` too — applying both over-provisions instances by roughly `1/η` with every intermediate number looking arithmetically fine, which is precisely the failure R3-R2 warned about. **Rule: when a calibrated `cores_per_slot` is used, `required_cores` is called with `parallel_efficiency=1.0`.** Exactly one of the two carries the efficiency term; the other is 1.0. The function stays parameterised (L-R3) — only the **final** call reads `parallel-efficiency.csv`.
 - [ ] **Step 4. Emit** `plan_id, app_sha, concurrency, throughput, cpu_util, aggregate_rss, parallel_efficiency, cores_per_slot, rss_per_slot_bytes`.
 - [ ] **Step 5. Consume it:** `map_to_instances()` reads this CSV keyed by `plan_id + app_sha` to produce the **final** candidate counts. Uncalibrated Phase 2 output is never a final answer.
 - [ ] **Step 6. Validation:** a plan with no calibration row **fails closed** — no defaulted efficiency.
@@ -1001,7 +1083,7 @@ def test_memory_caps_slots_before_cpu_does():
     assert slots == 2                 # only 2 slots fit in memory
     assert instances == 4             # 2 x 0.5 = 1 core/instance -> 4 instances
 
-def test_rare_slow_stratum_beyond_p95_still_enters_the_mean():
+def test_rare_slow_stratum_beyond_p95_still_enters_themean():
     # 2% of load at 100 CPU-s sits beyond p95 yet dominates compute
     m = Manifest(1, [_stratum("fast", "forced_open", None, 0.98),
                      _stratum("slow", "free_choice", None, 0.02)], [0.0])
@@ -1108,7 +1190,9 @@ def map_to_instances(required_cores, slots_per_instance, cores_per_slot,
 >
 > **Cache hits bypass CBC.** A cache-hit event consumes **no** solver service time but **retains its measured API cost**, so hit-heavy profiles do not fictitiously free up worker capacity.
 >
-> **Both SLO variants, and no arbitrary ceiling.** `candidate_worker_counts` accepts an end-to-end **or** a queue-wait threshold and returns **all** explored counts with their results, flagging which pass — it does not return only passers, so a near-miss stays visible. The round-1 `max_workers=24` was arbitrary: the explored range now derives from the candidate topology and Render's **100-instance** service limit, defaulting to that bound.
+> **Both SLO variants, and a bound in the right units (F-R11).** `candidate_worker_counts` accepts an end-to-end **or** a queue-wait threshold and returns **all** explored counts with their results, flagging which pass — never only passers, so a near-miss stays visible. The bound is **`max_workers`**, not `max_instances`: `workers` counts **concurrent solver slots**, and naming its ceiling after instances re-created the very conflation R3-R2 closed — a 100-instance fleet at 4 slots each is **400 slots**, so a default of 100 would never explore it. The caller supplies `max_workers = 100 × slots_per_instance`.
+>
+> **How the two Phase-2 numbers meet (F-R11).** `required_cores → map_to_instances → (instances, slots)` is the analytic answer; `simulate` is then run at **`workers = instances × slots`** to produce the predicted queue behaviour *for that same count*, which is what spec §1.4.1 requires. `candidate_worker_counts` is the **sensitivity sweep around** it, not a second, competing answer.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1116,16 +1200,35 @@ def map_to_instances(required_cores, slots_per_instance, cores_per_slot,
 # test_simulate.py
 from benchmark.simulate import simulate, candidate_worker_counts
 
+from benchmark.simulate import EventSample
+
+def _ev(wall, api=0.0, cls="cold_miss", slot=True):
+    # F-R2: the Canonical API takes EventSample, not bare floats. Passing
+    # floats either dies with AttributeError or leaves cache_class /
+    # api_overhead_sec / consumes_solver_slot with no exercised path -- which
+    # IS the "20/60/20 not replayable" defect R3-R4 was recorded as fixing.
+    return EventSample(cache_class=cls, solver_wall_sec=wall,
+                       api_overhead_sec=api, consumes_solver_slot=slot)
+
 def test_single_server_queue_grows_when_overloaded():
     trace = [i * 1.0 for i in range(100)]                       # 1 job/s
-    r = simulate(trace, {"only": ([2.0], 1.0)}, workers=1, seed=0)   # 2 s each
+    r = simulate(trace, {"only": ([_ev(2.0)], 1.0)}, workers=1, seed=0)
     assert r.p95_wait > 50                      # unstable, queue grows without bound
     assert r.utilization > 0.99
 
 def test_enough_servers_keeps_wait_near_zero():
     trace = [i * 1.0 for i in range(100)]
-    r = simulate(trace, {"only": ([2.0], 1.0)}, workers=4, seed=0)
+    r = simulate(trace, {"only": ([_ev(2.0)], 1.0)}, workers=4, seed=0)
     assert r.p95_wait < 1.0
+
+def test_cache_hit_costs_api_time_but_no_solver_slot():
+    # F-R2 / R3-R4's promised-but-absent test.
+    trace = [i * 1.0 for i in range(100)]
+    r = simulate(trace, {"hit": ([_ev(0.0, api=0.3, cls="hit", slot=False)], 1.0)},
+                 workers=1, seed=0)
+    assert r.utilization == 0                   # never enters the server heap
+    assert r.p95_wait == 0
+    assert r.p95_end_to_end == pytest.approx(0.3)   # API cost still counted
 
 def test_candidate_worker_counts_returns_all_counts_and_flags_passers():
     # This test has now been wrong TWICE. Round 1 was impossible (SLO 1.0 s
@@ -1135,8 +1238,8 @@ def test_candidate_worker_counts_returns_all_counts_and_flags_passers():
     # The smallest passer is 2, not 3. Both errors came from asserting a
     # number instead of deriving it -- so assert the property, not the digit.
     trace = [i * 1.0 for i in range(200)]
-    cands = candidate_worker_counts(trace, {"only": ([2.0], 1.0)},
-                                    slo_p95_end_to_end_sec=2.5, max_instances=8)
+    cands = candidate_worker_counts(trace, {"only": ([_ev(2.0)], 1.0)},
+                                    slo_p95_end_to_end_sec=2.5, max_workers=8)
     assert [c.workers for c in cands] == list(range(1, 9))   # ALL counts, ascending
     first_pass = next(c for c in cands if c.passes)
     assert first_pass.workers == 2
@@ -1144,15 +1247,18 @@ def test_candidate_worker_counts_returns_all_counts_and_flags_passers():
 
 def test_queue_wait_slo_variant_is_also_available():
     trace = [i * 1.0 for i in range(200)]
-    cands = candidate_worker_counts(trace, {"only": ([2.0], 1.0)},
-                                    slo_p95_queue_wait_sec=0.5, max_instances=8)
+    cands = candidate_worker_counts(trace, {"only": ([_ev(2.0)], 1.0)},
+                                    slo_p95_queue_wait_sec=0.5, max_workers=8)
     assert next(c for c in cands if c.passes).result.p95_wait <= 0.5
 
 def test_stratified_replay_respects_declared_weights():
     # MP-R3: a flat sample list silently substitutes equal population weights
     # for the declared sensitivity mix.
-    trace = [i * 1.0 for i in range(1000)]
-    strata = {"fast": ([0.1], 0.98), "slow": ([50.0], 0.02)}
+    # F-R16: the round-3 band was +/-5 events on sigma=4.4 -- about +/-1.1
+    # sigma, so roughly one implementation in four fails an assertion that
+    # asserts nothing about correctness. 10k events puts +/-0.005 past 3.5 sigma.
+    trace = [i * 1.0 for i in range(10_000)]
+    strata = {"fast": ([_ev(0.1)], 0.98), "slow": ([_ev(50.0)], 0.02)}
     r = simulate(trace, strata, workers=4, seed=0)
     assert 0.015 < r.observed_stratum_mix["slow"] < 0.025
 ```
@@ -1179,12 +1285,13 @@ def test_stratified_replay_respects_declared_weights():
 - Create: `scripts/measurement/seed-cohort.mjs`
 - Create: `docs/ops/measurement-environment.md` (pinned config + teardown runbook)
 
+- [ ] **Step 0 — ask MP-2 and record it (F-R8).** MP-2 existed only as blockquote prose, so an agent walking the checkbox list would provision without ever asking. Ask MP-2 **verbatim**; write the answer, UTC timestamp, decider and referenced artifacts to `docs/CHANGELOG-implementation.md` **before Step 1**. A checkpoint answered anywhere else is not answered.
 - [ ] **Step 1.** Record the pinned set in `docs/ops/measurement-environment.md` **before** provisioning: application SHA, dataset version, region, exact compute plan IDs, instance count, environment variables, database plan, load-generator location/capacity, **named teardown owner**, and the dated price snapshot.
 - [ ] **Step 2.** `provision-env.sh` creates the isolated service + database. Analytics disabled via `POSTHOG_API_KEY` unset and `SENTRY_DSN` unset — assert both are absent after boot rather than assuming.
 - [ ] **Step 3.** `seed-cohort.mjs` registers **50 distinct synthetic users** through `POST /auth/register` (never one shared account — auth/session cost is part of the load). **MP-R5: registering accounts is not sufficient.** The API solves an **existing persisted scenario** (`POST /scenarios/:id/solve`), so provisioning must also **create and save the scenario/input fixtures per user through the real `/api` contracts** and retain their scenario IDs for submission. A cohort of 50 users with no scenarios cannot submit anything.
 - [ ] **Step 4.** Record scenario IDs in the run manifest. **Never commit cookies or credentials**; session material lives only in ignored, permission-restricted temporary storage.
 - [ ] **Step 5.** Verify isolation **without touching production** (review recommendation): assert distinct Render environment/service/database identifiers, then perform a **sentinel write/read confined to the measurement database**. Do **not** fetch or copy production user identities merely to prove no overlap — that would import the very data the isolation exists to avoid.
-- [ ] **Step 5. Commit** — `git commit -m "[M3.1] isolated measurement environment + 50-session synthetic cohort"`
+- [ ] **Step 6. Commit** — `git commit -m "[M3.1] isolated measurement environment + 50-session synthetic cohort"` *(F-R18: this task had two "Step 5".)*
 
 ### Task M3.2: Cache population preparation and verification
 
@@ -1222,8 +1329,18 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 - [ ] **Step 2.** Poll each job at the real **800 ms** cadence.
 - [ ] **Step 3.** Record per submission: intended offset, actual offset, enqueue latency, queue-wait, end-to-end, terminal status, HTTP status.
 - [ ] **Step 4.** Retry/429 accounting, declared before the run: a `429` is recorded as **rejected**, is **not** retried, and **counts in offered load but not in successful accounting**.
-- [ ] **Step 5.** Emit `intended_rate` and `achieved_rate`; **fail the run** if achieved < 99% of intended — a shortfall invalidates rather than passes.
+- [ ] **Step 5.** Emit `intended_rate` and `achieved_rate`. **For the OPEN-LOOP profiles only** (representative sustained, cold-identical burst, all-JADE sustained), **fail the run** if achieved < 99% of intended — a shortfall invalidates rather than passes.
+  **UI-faithful is exempt, because it is closed-loop by definition (F-R12).** One job in flight per student means a scheduled event for a busy student *cannot* be submitted on time; achieved < intended is the expected outcome, so the 99% rule as previously written would have failed **every** UI-faithful run. Declared collision action: **drop the event and record `deferred_by_policy`**, reported beside the achieved rate and **excluded from both cost denominators**. Step 1's "a closed-loop driver invalidates the run" likewise scopes to the open-loop profiles.
 - [ ] **Step 6. Commit** — `git commit -m "[M3.3] open-loop load driver with intended-vs-achieved rate enforcement"`
+
+### Task M3.3b: Ratify the SLO gate — ask MP-1 (F-R8)
+
+MP-1 also existed only as prose, and **nothing assembled the table it ratifies**. Both gaps close here, before any authoritative run.
+
+- [ ] **Step 1.** Draft the MP-1 table: every item spec §2 requires ratified — cache-hit / fast-miss / JADE free-choice end-to-end thresholds, queue-wait p95, enqueue p95, maximum solve deadline, timeout/no-incumbent rate, rejection and failure rates, zero-stuck-jobs-on-restart, minimum CPU and memory headroom, percentile aggregation scope, inclusion/exclusion rules, and the repetition pass rule — starting from spec §2's carried-forward proposals.
+- [ ] **Step 2.** Ask MP-1 **verbatim**; record answer, UTC timestamp and decider in `docs/CHANGELOG-implementation.md`.
+- [ ] **Step 3.** Commit the ratified gate as the predeclared artifact. **No authoritative representative, all-JADE, burst, restart or topology run may start before this commit exists.**
+- [ ] Commit: `[M3.3b] ratified SLO gate (MP-1)`.
 
 ### Task M3.4a: Observability source map + instrumentation (MP-R7)
 
@@ -1244,11 +1361,13 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 
 ### Task M3.4b: Telemetry collection, restart probe, soak
 
-**Files:** Create `scripts/measurement/collect-telemetry.mjs`, `docs/superpowers/metrics/load-run.csv`
+**Files:** Create `docs/superpowers/metrics/load-run.csv`. *(F-R18: `collect-telemetry.mjs` is created by **M3.4a** and only consumed here — it was previously listed as "Create" in both tasks.)*
 
 - [ ] **Step 1.** Collect the full set defined by M3.4a's source map, joined on `run_id`.
 - [ ] **Step 2.** RSS: one declared method, capturing **both** per-child peak and aggregate instance RSS.
-- [ ] **Step 3.** Restart probe: redeploy mid-load, assert **zero permanently-stuck jobs** afterwards.
+**Whose runs these are (F-R13).** Because MP-1 now precedes this task, its runs are authoritative by the preamble's own definition — so they must be attributed or they duplicate M5.2. **These are the vertical comparator's authoritative representative + burst runs**, cited in M5.2's matrix first row. **The restart probe here is a harness shakedown, explicitly labelled non-authoritative and excluded from the decision dataset** — the authoritative restart/recovery probe is M5.2's *selected-candidate* run, per the matrix. Without this, the plan runs a three-hour soak that either duplicates M5.2 or is silently discarded.
+
+- [ ] **Step 3.** Restart probe (**shakedown, non-authoritative**): redeploy mid-load, assert **zero permanently-stuck jobs** afterwards.
 - [ ] **Step 4.** Three-hour soak at the sustained profile; the 50-request burst runs **separately**.
 - [ ] **Step 5.** Assert the load generator itself was not saturated — otherwise the run measures the driver, not the system.
 - [ ] **Step 6. Commit** — `git commit -m "[M3.4] telemetry collection, restart probe, three-hour soak"`
@@ -1285,6 +1404,7 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 - [ ] **Step 1. Execution-mode seam, default-preserving — built BEFORE MP-3.** For dedicated-worker and fleet measurements the API is **enqueue/poll-only and cannot claim**; the named worker command is the **sole claimant**. The vertical tune-in-place comparator keeps API dispatch **enabled** — that is the whole point of that candidate.
 - [ ] **Step 2. Fail closed and observable.** The mode is resolved at startup, logged, and recorded in the run manifest. A **pre-run assertion proves the API's active-solver count stays zero** for worker-only candidates; a non-zero count aborts the run rather than footnoting it.
 - [ ] **Step 3. MP-3 request contents.** Exact image SHA, command, queue namespace, plan IDs, **dispatcher-mode configuration**, owner, and teardown/restoration steps — all present *before* asking for authorization, not after.
+- [ ] **Step 3b — ask MP-3 and record it (F-R8).** Ask **verbatim**; write answer, UTC timestamp, decider and the request artifact reference to `docs/CHANGELOG-implementation.md`. **No external worker infrastructure is created before this record exists.**
 - [ ] **Step 4. Prove isolation between candidates:** every topology uses an isolated queue/database, and no candidate's run overlaps another candidate's jobs.
 - [ ] **Not committed as production infra.** `render.yaml` is unchanged; the prototype is created and torn down out-of-band.
 
@@ -1331,7 +1451,7 @@ Repeat only the runs used for the **final** pass/fail decision, per the MP-1 rep
 | §1.4 topology comparison + platform constraints | M5.1, M5.2 |
 | §1.4.1 capacity sizing from mean CPU demand | M2.1–M2.3 |
 | §1.5 isolated environment | M3.1 |
-| §2 SLO ratification | MP-1 before M5.2 |
+| §2 SLO ratification | **M3.3b** — MP-1 ratified before M3.4b's first authoritative run (F-R8; this row previously asserted the pre-MP-R6 "before M5.2" ordering, so the document held both) |
 | §3 two gates | M5.4 |
 | §4 cost model, two denominators | M5.3 |
 | §5 deliverables | M1.5, M3.4, M4.x, M5.3, M5.4 |
@@ -1387,6 +1507,33 @@ All 5 findings accepted. No scope added; one structural simplification. Verbatim
 
 **Non-blockers respected — nothing added:** no phase hooks, no local aggregate-RSS sampler, no cgroup throttling, no every-integer sweep, no 200-case quota, no topology×profile Cartesian product. MP-R9 stays closed.
 
+## Review disposition — round 4, independent model pass (2026-09-23)
+
+All 20 findings accepted. No scope added. Verbatim review: `../specs/2026-09-23-measurement-plan-fable-review.md`, committed at `68d77a7` before this fold.
+
+| Finding | Disposition |
+|---|---|
+| F-R1 `Observation` missing `gap`; three disagreeing constructors | Accepted — **CRITICAL and non-obvious**: the positional constructors shifted every field by one, tagging a timeout row `kind="timeout"`, which `aggregate()` **drops**. Field added, all constructors keyword-form |
+| F-R2 tests pass bare floats where `EventSample` required; R3-R4's promised test absent | Accepted; `_ev()` helper, all strata converted, and the cache-hit test actually written |
+| F-R3 `aggregate()` calls undefined `_mean` | Accepted; single name `mean` |
+| F-R4 `failure_rate == 0.1` fails — yields `0.09999999999999998` | Accepted; formula changed to `(n-ok)/n` **and** `pytest.approx` |
+| F-R5 M1.3 imports a module M1.4 creates | Accepted; **M1.4 executes before M1.3** — fourth task-ordering circularity |
+| F-R6 stop rule stops cells independently, thinning paired deltas | Accepted; readiness computed per **stratum**, all gaps stop together; phantom "upper tail" criterion deleted |
+| F-R7 `objective_deltas`/`corpus_frequency` declared-but-absent **again**; stale schema; no delta CSV columns | Accepted; steps + tests written, stale prose deleted, four `objective_delta_*` columns added |
+| F-R8 MP-1/MP-2 have no step that asks them; self-review row contradicts the preamble | Accepted; **M3.0** (MP-2), **M3.3b** (MP-1 + drafts its table), **M5.1 Step 3b** (MP-3); self-review row corrected |
+| F-R9 M2.1b sits in Phase 2 while running Render calibration | Accepted; marked Phase-5-executing, calibration targets named, `--service` added |
+| F-R10 `cores_per_slot` underived; η counted twice | Accepted; formula fixed, and the **exactly-one-carries-η** rule stated |
+| F-R11 `max_instances` bounds slots; no link from `(instances, slots)` to `workers` | Accepted; renamed `max_workers`, and `workers = instances × slots` stated |
+| F-R12 99% rule fails every UI-faithful run | Accepted; scoped to open-loop profiles, collision action declared |
+| F-R13 M3.4b's authoritative runs unattributed | Accepted; assigned to the vertical comparator, restart probe marked shakedown |
+| F-R14 `Cell.key` uses `str(gap)`; `[0]` yields `\|0` not `\|0.0` | Accepted; `float(g)` + loader normalisation |
+| F-R15 timeout kills the child, not CBC | Accepted; `os.setsid()` + `killpg` |
+| F-R16 ±1.1σ band — coin-flip on first run | Accepted; 10 000 events |
+| F-R17 four tests named, two asserted | Accepted |
+| F-R18 stale counts and contradictory instructions | Accepted; counts recomputed from the blocks, duplicate-field instruction and duplicate Step 5 removed, file ownership de-duplicated |
+| F-R19 `validate()` prose ≠ code; `chens` needs `timeLimitSec` | Accepted — **verified `solve.py:1341` reads it unconditionally**; full validation implemented |
+| F-R20 spec coverage: JADE re-measure unreported; MP-3 text divergent | Accepted; deliverable added, spec's MP-3 question reconciled |
+
 ## Author responses (kept for later review)
 
 - **MP-R1 — accepted; I rebuilt in code the exact conflation the spec was written to prevent.** M-R4 made the spec say, in plain words, that repeating one scenario measures runtime noise and not regime frequency — and then my `Cell` carried a single `inputs: dict` that M1.3 executed 200 times. Every "campaign" row in a cell would have been the same scenario, so the capacity model would have rested on 200 repetitions of one case per cell, with `kind="campaign"` doing the work of making it look otherwise. The warm-up defect is the same carelessness one layer down: appending warm-up and measured entries to one list and then shuffling means a "warm-up" can execute after measured rows, which is not a warm-up at all.
@@ -1414,6 +1561,20 @@ All 5 findings accepted. No scope added; one structural simplification. Verbatim
 - **R3-R3 — accepted, both halves, and the second half is subtler than the first.** My loop drained one cell at a time while the declared policy said globally randomized, so thermal state or background drift could align with a model/gap cell and be read as that cell's property. The pairing defect is worse: each gap shuffled and stopped **independently**, so `gap=0` and the relaxed gaps could retain different case subsets — `case_key` would be correct and the paired objective delta would still quietly thin out or bias, which is the only evidence the gap experiment has. Now one shared cohort per stratum, reused across gaps. I also accepted the narrower point that a tight CI on **mean CPU** says nothing about **p95** or the **paired delta** — different estimators, different convergence.
 - **R3-R4 — accepted; I never specified which number the simulator consumes.** A queue slot is held for **wall time**; `cpu_tree_sec` is the capacity input and is a different, smaller quantity. The plan said "raw `Observation` samples" and left the choice to the implementer, where picking the wrong field silently changes the predicted queue and the worker count. Separately I asserted cache hits "consume no slot but retain API cost" while the input type `{stratum: (samples, weight)}` had no field for cache class, API cost or slot consumption — so the representative 20/60/20 profile was **not replayable as written**. `EventSample` makes both executable.
 - **R3-R5 — accepted; the MP-3 item is the partial-fix failure again.** Last round I corrected M5.1's ordering and left the Phase 5 preamble asserting the opposite, so the document contained both orderings simultaneously. The all-JADE gap is the one with teeth: the profile needs **7 500 distinct cold JADE hashes per three-hour run**, no task created them, and nothing stopped a previous repetition from warming them — repetition two would have measured cache hits while reporting a cold-miss guarantee, and the number would have looked *better*. Generator, pre-run absence assertion and inter-repetition cleanup added.
+
+### Round 4 — independent model pass (2026-09-23)
+
+- **F-R1 is the finding I would never have caught by reading.** The `Observation` dataclass omitted `gap` while the Canonical API declared it, and my two positional constructors passed `cell.gap` **as if the field existed**. Against the snippet's own dataclass that does not raise — it shifts every field by one, so a timeout row lands with `ok=None`, `error=False` and **`kind="timeout"`**. `aggregate()` drops every row whose `kind != "campaign"`. A hung solve — the exact tail the capacity model most needs — would have vanished from `failure_rate`, `n_obs` and `p95_wall` **without an error anywhere**. I had added those constructors in the round-3 fold *to improve robustness*, and in doing so built a silent data-loss path. That is the measurement-specific failure class this plan's own notes name: plausible code producing wrong numbers.
+- **F-R4 is the CLAUDE.md float gotcha, and I wrote it into a test after quoting the rule.** `1 - 9/10` is `0.09999999999999998`. The repo's own changelog records this exact class from the `e2e_accuracy` timing bug, and my round-2 response cited it when discussing `runTimeSec` rounding. Then I asserted `== 0.1`.
+- **F-R5 — fourth task-ordering circularity in this programme.** `run_campaign` imports `benchmark.stats` at function-body top; `stats.py` is created by the *next* task. Every call would raise `ModuleNotFoundError`, and M1.3's commit would land a red suite. A-R31, M-R7, L-R3, now this. The shape is always the same: two things each written as if the other already existed.
+- **F-R6 — the fix I shipped addressed scheduling, not retention.** R3-R3 made me share a case cohort across gaps, which fixes which cases are *scheduled*. The stop rule still retired cells independently on CI width, so `gap=0` could retire at 40 retained cases while `gap=0.02` ran to 200 — and the paired objective delta, the gap alternative's only quality evidence, would thin to 40 pairs silently. My own test could not catch it because `min_cases=99 > max_cases=3` meant the stop path never executed. **A test that cannot reach the branch it names is not coverage.**
+- **F-R7 — MP-R4's finding, recurring after I marked it fixed, twice.** `objective_deltas` and `corpus_frequency` were declared in an interface block and never implemented; the disposition table said otherwise. The consequence is concrete rather than cosmetic: with no `objective_delta_*` columns in the aggregate CSV, the relaxed-gap alternatives carry no paired quality evidence, and **the gap decision MP-R3 requires cannot be made from the deliverable at all.**
+- **F-R8 — every checkpoint I wrote was prose.** MP-1 and MP-2 existed only as blockquotes, so an agent walking the checkbox list would provision infrastructure and run a three-hour soak without ever asking. Nothing even *drafted* the table MP-1 ratifies. And the self-review row still asserted the pre-MP-R6 ordering, so the document again held both orderings — the same partial-propagation failure, in a table I never re-read.
+- **F-R19 — verified in the repo, and it is load-bearing.** `solve.py:1341` reads `inp["timeLimitSec"]` unconditionally for Chen's. A case missing that key raises `KeyError` inside the forked child and becomes an `ok=False` row, so an entire stratum reports **100% failure as a measurement result** rather than failing at manifest load with a clear error. My `validate()` prose promised model-specific required-key checks; the code checked none.
+- **F-R10/F-R11 — R3-R2's lesson, half-learned.** I separated cores from slots but then bounded the slot sweep with a parameter named `max_instances`, and gave `cores_per_slot` no derivation while `required_cores` already divided by η — so a calibrated `cores_per_slot` would have applied the same contention loss twice, over-provisioning by ~1/η with every intermediate number arithmetically fine. Separating the *names* was not the same as separating the *quantities*.
+- **F-R12/F-R13 — two profiles I defined and then never reconciled with the rules around them.** The 99% achieved-rate rule would have failed **every** UI-faithful run, because one-job-in-flight is closed-loop by construction. And M3.4b's soak/burst/restart were authoritative by the preamble's own definition while belonging to no candidate in M5.2's matrix.
+
+**Cross-cutting note, added after round 4.** An independent model found twenty defects in a document three prior rounds had passed over, and the two most dangerous — F-R1's silent field shift and F-R10's double-counted efficiency — were both **introduced by my own previous folds**, as robustness and rigour improvements. The durable lesson is narrower than "review more": **a fold is a change, and changes need the same scrutiny as the thing they fix.** I have been treating corrections as automatically safe because they were responses to valid findings. Concretely, two habits for the next fold: (1) **after adding a constructor, dataclass field or parameter, re-check every other call site of that symbol** — F-R1, F-R3 and F-R11 are all one symbol changed in one place; (2) **when a fix targets a mechanism, ask whether the mechanism has a second half** — F-R6's scheduling-vs-retention and F-R10's naming-vs-units are the same mistake, fixing the visible half and declaring the problem closed.
 
 **Cross-cutting note, added after round 3.** The durable lesson is not any individual finding: **when the same class of defect survives three folds, fix the structure, not the instance.** I twice promised to be more careful about snippet drift and twice shipped drift; only removing the duplicate definitions removed the defect. Second lesson, from R3-R2: **a rename is not a fix.** When a review says a quantity is modelled wrongly, changing its name while leaving its formula is the most dangerous possible response — it silences the reviewer's signal while preserving the error, and the next reader sees a confident label over the wrong number.
 
