@@ -88,20 +88,22 @@ Dimensions: **T** outer timeout fired · **C** cancellation fired · **X** proce
 
 **Part 1 — post-B representation inventory (A-R4).** §2.13 was written before the A/B split and assumes R1's writer emits v1. Post-B that is false: B introduces a third representation — truthful `solutionStatus`/`terminationReason` with **no** `envelopeVersion` and no five-schema contract.
 
-- [ ] Inventory and name all five: (1) historical unversioned legacy rows; (2) B's truthful-but-unversioned rows; (3) canonical A v2 published results; (4) existing v1 cache entries; (5) composite-versioned v2 cache entries.
-- [ ] Publish the **release-state matrix** — for R1/R2/R3/rollback/cleanup, state: stored-result reader, writer, public serializer, cache reader, cache writer, frontend behavior, flag state, deploy ordering, drain evidence, compatibility evidence, and treatment of already-written rows.
-- [ ] **Decided baseline:** R1 = a **three-way** stored-result reader (legacy / B-unversioned / v2) that continues **B-format** writes. R2 = a client compatible with both B and A v2. R3 = versioned writes only after drain proof.
-- [ ] **Q80 decided:** the permanent failed-job API is **`errorCode` + a permanent `errorMessage`** (server-owned safe message derived from §2.11's table). `errorMessage` is not transitional; only the *old raw* `SolveJob.error` alias is removed at cleanup.
+**Landed in the design spec's new §2.14** ("Post-B representation inventory + release-state matrix (A0)") — kept there so the inventory sits beside §2.13's rollout narrative and stays discoverable.
+
+- [x] Inventory and name all five: (1) historical unversioned legacy rows; (2) B's truthful-but-unversioned rows; (3) canonical A v2 published results; (4) existing v1 cache entries; (5) composite-versioned v2 cache entries. → §2.14.
+- [x] Publish the **release-state matrix** — for R1/R2/R3/rollback/cleanup, state: stored-result reader, writer, public serializer, cache reader, cache writer, frontend behavior, flag state, deploy ordering, drain evidence, compatibility evidence, and treatment of already-written rows. → §2.14 (recorded transposed: dimensions × release states).
+- [x] **Decided baseline:** R1 = a **three-way** stored-result reader (legacy / B-unversioned / v2) that continues **B-format** writes. R2 = a client compatible with both B and A v2. R3 = versioned writes only after drain proof. → §2.14.
+- [x] **Q80 decided:** the permanent failed-job API is **`errorCode` + a permanent `errorMessage`** (server-owned safe message derived from §2.11's table). `errorMessage` is not transitional; only the *old raw* `SolveJob.error` alias is removed at cleanup. → §2.14 baseline + §5 cleanup row.
 
 **Part 2 — canonical-source consistency pass (A-R19).** The design source currently directs an implementer with two incompatible contracts. Fix **all** of these in one pass, so exactly one state remains:
 
-- [ ] Header/status statement vs §5 summary table `:253`, which still reads *"go/no-go; ON HOLD (Q58); blocks P0R.3"* against the header's *"P0R.1 EXECUTED — GO; P0R.2 DONE"*.
-- [ ] P0R.1 and P0R.2 headings; P0R.2's category-by-category completion status (parser/fixture/Python-wrapper complete; **jobRunner process-level portion open**, owned by A3/A13).
-- [ ] **The stale public error-envelope paragraph at `:217`** — *"an error envelope is always public `solutionStatus:error` + `terminationReason:solver_error`"* — contradicts §2.11 `:139` (*"no error envelope"*, Q60=A) and §2.8. Replace with: failed job + `errorCode`/`errorMessage`, **no result publication**, no error envelope anywhere.
-- [ ] §5 summary table's stale **"3 schemas"** → five, with the §2.6 names.
-- [ ] P0R.3/P0R.4 headings and authorization state per the controlling §34.
-- [ ] **The "Out of scope (other specs)" line**, which routes *"durable queue / restart / … / single-flight"* to **B2**. Reroute **restart/durable queue to A**; **single-flight stays with Scaling** (it was briefly A10 and was moved back — see the A10 removal record), as do worker split / scheduler / topology / retention.
-- [ ] §2.13's superseded-in-part banner is already in place; reconcile its body with Part 1's matrix.
+- [x] Header/status statement vs §5 summary table `:253`, which still read *"go/no-go; ON HOLD (Q58); blocks P0R.3"* against the header's *"P0R.1 EXECUTED — GO; P0R.2 DONE"*. → §5 P0R.1 row now reads **✅ EXECUTED — GO (2026-09-22)**, matching the header.
+- [x] P0R.1 and P0R.2 headings; P0R.2's category-by-category completion status (parser/fixture/Python-wrapper complete; **jobRunner process-level portion open**, owned by A3). → P0R.2 heading + category 4 both mark the jobRunner process-level portion OPEN → A3.
+- [x] **The stale public error-envelope paragraph at `:217`** — *"an error envelope is always public `solutionStatus:error` + `terminationReason:solver_error`"* — contradicted §2.11 (*"no error envelope"*, Q60=A) and §2.8. → replaced with: no error envelope anywhere; failed job + `errorCode`/`errorMessage`, no result publication, nothing cached.
+- [x] §5 summary table's stale **"3 schemas"** → five, with the §2.6 names. → done (all five named in the P0R.3 row).
+- [x] P0R.3/P0R.4 headings and authorization state per the controlling §34. → both now read **NOT approved until Q73–Q84 + the §34 checklist close (§34 controls)**.
+- [x] **The "Out of scope (other specs)" line**, which routed *"durable queue / restart / … / single-flight"* to **B2**. → **restart + durable queue → A** (A1/A2), plus the stale-result CAS → A (A7); **single-flight stays with Scaling** (briefly A10, moved back — see the A10 removal record); worker split / scheduler / topology / retention stay with Scaling; the `(→ B2)` routing is withdrawn.
+- [x] §2.13's superseded-in-part banner reconciled with Part 1's matrix: banner now points to §2.14; the named-releases body (R1) corrected from "dual reader"/"v1" to **three-way reader / B-format writes**; drain-proof reconciled to platform deploy evidence (A-R46).
 - [ ] Commit: `[A0] post-B representation inventory, release-state matrix, canonical-source consistency pass`.
 
 ## Task A1 — `solve_jobs` durable schema (§2.11/§2.12; Q59/Q61/Q68/Q79/Q84; review A-R2, A-R6, A-R17, A-R21)
