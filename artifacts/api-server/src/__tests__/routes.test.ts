@@ -11,7 +11,7 @@ const mockDb = vi.hoisted(() => ({
   transaction: vi.fn(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb)),
 }));
 
-const mockEnqueueSolveJob = vi.hoisted(() => vi.fn());
+const mockEnqueueScenarioSolve = vi.hoisted(() => vi.fn());
 const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
 const mockPool = vi.hoisted(() => ({ query: vi.fn(async () => ({ rows: [{ "?column?": 1 }] })) }));
 // POSTHOG-2 — posthog is null in this test process (no POSTHOG_API_KEY), so
@@ -56,7 +56,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({
-  enqueueSolveJob: mockEnqueueSolveJob,
+  enqueueScenarioSolve: mockEnqueueScenarioSolve,
   getQueueDepth: mockGetQueueDepth,
   QUEUE_DEPTH_LIMIT: 30,
 }));
@@ -2916,72 +2916,88 @@ describe("POST /api/scenarios/:id/clone", () => {
 });
 
 // ── Solve scenario ─────────────────────────────────────────────────────────
+// A1 (SCND Correctness) — the route's own select+validate+precheck logic
+// (previously tested here directly against fabricated scenario rows) moved
+// INTO jobRunner.ts's `enqueueScenarioSolve` — a single atomic
+// lock-then-validate-then-precheck-then-insert transaction (see that
+// function's own header comment for the race it closes). The route is now a
+// thin outcome-to-HTTP-status mapper, so these tests mock
+// `enqueueScenarioSolve`'s return value directly instead of a fake DB row.
+// Per-model precheck MESSAGE-BODY coverage (id_collision etc, for every
+// model) already lives in precheck.test.ts, directly against the precheck
+// functions — this block only proves the route's OWN contract: status-code
+// mapping per outcome kind, the 429 backpressure fast-path (still
+// route-level, before enqueueScenarioSolve is ever called), and the posthog
+// events. Genuine end-to-end atomicity (the real lock/revalidate/precheck
+// behavior enqueueScenarioSolve performs against a REAL Postgres row) is
+// covered by a dedicated real-DB test file (scenarioSolveAtomicity.test.ts),
+// since mocking `enqueueScenarioSolve` here necessarily bypasses its real
+// internals.
 describe("POST /api/scenarios/:id/solve", () => {
-  // G3.1: solve is now async — the route's job is to validate + enqueue and
-  // return 202 {jobId}. Input-translation (buildPayload) and result-shape
-  // translation (envelopeToLegacy) are pure functions covered directly in
-  // pmedian.test.ts; the actual job lifecycle is covered in
-  // jobRunner.test.ts. This block only tests the route's own contract.
-  it("returns 202 with a jobId and enqueues the job with the scenario's modelId/inputs", async () => {
+  it("returns 401 without a session", async () => {
+    expect((await request(app).post("/api/scenarios/1/solve")).status).toBe(401);
+  });
+
+  it("returns 202 with the jobId and calls enqueueScenarioSolve(id, userId)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    mockEnqueueSolveJob.mockResolvedValue(42);
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 42, modelId: "p-median-us" });
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(202);
     expect(res.body.jobId).toBe(42);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(1, OWNER, { modelId: "p-median-us", inputs: pmedianInputs });
+    expect(mockEnqueueScenarioSolve).toHaveBeenCalledWith(1, OWNER);
   });
 
-  it("enqueues transport-coal scenarios with their modelId/inputs", async () => {
+  it("captures 'scenario solve enqueued' with the outcome's modelId/jobId", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockEnqueueSolveJob.mockResolvedValue(7);
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 7, modelId: "transport-coal" });
 
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(8, OWNER, { modelId: "transport-coal", inputs: { ...transportInputs, mineCapacities: {}, stationDemands: {}, addedMines: [], addedStations: [], laneCostOverrides: [] } });
+    await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
+    expect(mockPosthogCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: OWNER,
+        event: "scenario solve enqueued",
+        properties: { scenario_id: 8, model_id: "transport-coal", job_id: 7 },
+      }),
+    );
   });
 
-  it("enqueues p-median-brazil scenarios with their modelId/inputs", async () => {
+  it("returns 404 when the outcome is not_found (unknown or cross-user scenario — never 403)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([brazilRow]));
-    mockEnqueueSolveJob.mockResolvedValue(9);
-
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(10, OWNER, { modelId: "p-median-brazil", inputs: brazilInputs });
-  });
-
-  it("returns 404 when scenario not found", async () => {
-    const cookie = await loginAs(OWNER);
-    // Default: select returns [] → 404
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "not_found" });
     const res = await request(app).post("/api/scenarios/999/solve").set("Cookie", cookie);
     expect(res.status).toBe(404);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
   });
 
-  it("returns 404 (not 403) when solving a scenario owned by a different user", async () => {
-    const cookie = await loginAs("other-user-id");
-    mockDb.select.mockReturnValue(makeChain([]));
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(404);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("returns 422 when the scenario's stored inputs fail model validation", async () => {
+  it("returns 422 with the validation message when the outcome is invalid (locked row's stored inputs fail model validation)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, capacityMode: "bogus" } }]));
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "invalid", error: "capacityMode must be one of ..." });
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(422);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+    expect(res.body.error).toBe("capacityMode must be one of ...");
+  });
+
+  // B2.1 — semantic precheck runs after shape validation, before enqueue.
+  it("returns 422 with structured precheck errors when the outcome is precheck_failed", async () => {
+    const cookie = await loginAs(OWNER);
+    mockEnqueueScenarioSolve.mockResolvedValue({
+      kind: "precheck_failed",
+      errors: [{ code: "id_collision", message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id` }],
+    });
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Network-edit precheck failed");
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
+    });
   });
 
   // P1.1 — backpressure: queue depth at/over the threshold sheds load with
-  // 429 + Retry-After instead of enqueuing.
-  it("returns 429 with a Retry-After header when queue depth is at the limit, and does not enqueue", async () => {
+  // 429 + Retry-After instead of ever calling enqueueScenarioSolve. Unchanged
+  // by A1 — this check stays entirely route-level, before any DB work.
+  it("returns 429 with a Retry-After header when queue depth is at the limit, and does not call enqueueScenarioSolve", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(30); // mocked QUEUE_DEPTH_LIMIT is 30
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
@@ -2990,44 +3006,40 @@ describe("POST /api/scenarios/:id/solve", () => {
     expect(res.headers["retry-after"]).toBeDefined();
     expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
     expect(res.body.error).toBeTypeOf("string");
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+    expect(mockEnqueueScenarioSolve).not.toHaveBeenCalled();
   });
 
   it("returns 429 when queue depth exceeds the limit (not just exactly at it)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(31);
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(429);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+    expect(mockEnqueueScenarioSolve).not.toHaveBeenCalled();
   });
 
   it("still enqueues normally when queue depth is just below the limit", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(29);
-    mockEnqueueSolveJob.mockResolvedValue(55);
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 55, modelId: "p-median-us" });
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(202);
     expect(res.body.jobId).toBe(55);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+    expect(mockEnqueueScenarioSolve).toHaveBeenCalled();
   });
 
-  it("the 429 backpressure check runs before the scenario ownership lookup (fails fast without a DB query)", async () => {
+  it("the 429 backpressure check runs before calling enqueueScenarioSolve at all (fails fast)", async () => {
     const cookie = await loginAs(OWNER);
     mockGetQueueDepth.mockReturnValue(30);
-    // mockDb.select default (from beforeEach) returns [] — if the route queried
-    // the DB before the capacity check, a nonexistent scenario would 404 instead
-    // of 429; asserting 429 here proves the capacity check ran first.
     const res = await request(app).post("/api/scenarios/999999/solve").set("Cookie", cookie);
     expect(res.status).toBe(429);
+    expect(mockEnqueueScenarioSolve).not.toHaveBeenCalled();
   });
 
   // POSTHOG-2 — the 429 backpressure branch captures a "scenario solve
-  // rejected" event. No `model_id`: the queue check runs before the
-  // scenario row is loaded, so it isn't known yet at this point.
+  // rejected" event. No `model_id`: enqueueScenarioSolve is never called on
+  // this path, so it isn't known yet at this point.
   it("captures 'scenario solve rejected' when the queue is at capacity", async () => {
     const cookie = await loginAs(OWNER);
     mockGetQueueDepth.mockReturnValue(30); // mocked QUEUE_DEPTH_LIMIT is 30
@@ -3047,139 +3059,6 @@ describe("POST /api/scenarios/:id/solve", () => {
         },
       }),
     );
-  });
-
-  // B2.1 — semantic precheck runs after shape validation, before enqueue.
-  it("returns 422 with structured precheck errors when a p-median-us scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...pmedianRow,
-      inputs: {
-        ...pmedianInputs,
-        // Reuses a real base-dataset warehouse id — an id-collision finding.
-        addedWarehouses: [{ id: WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a p-median-us scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    mockEnqueueSolveJob.mockResolvedValue(99);
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  it("does not run the p-median-us precheck against non-p-median-us models (transport-coal enqueues with its own trivially-passing precheck)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockEnqueueSolveJob.mockResolvedValue(100);
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  // B6.1 — transport-coal gets its own precheck function (precheckTransportInputs).
-  it("returns 422 with structured precheck errors when a transport-coal scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...transportRow,
-      inputs: {
-        ...transportInputs,
-        // Reuses a real base-dataset mine id — an id-collision finding.
-        addedMines: [{ id: TRANSPORT_COAL_WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0 }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added mine id '${TRANSPORT_COAL_WAREHOUSES[0].id}' collides with an existing base-dataset mine id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a transport-coal scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockEnqueueSolveJob.mockResolvedValue(102);
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  // B6.3 — p-median-brazil fast-follows p-median-us' precheck wiring.
-  it("returns 422 with structured precheck errors when a p-median-brazil scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...brazilRow,
-      inputs: {
-        ...brazilInputs,
-        // Reuses a real Brazil base-dataset warehouse id — an id-collision finding.
-        addedWarehouses: [{ id: BRAZIL_WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added warehouse id '${BRAZIL_WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a p-median-brazil scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([brazilRow]));
-    mockEnqueueSolveJob.mockResolvedValue(101);
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  // B6.2 — two-echelon-gold-au gets its own precheck function (precheckTwoEchelonInputs).
-  it("returns 422 with structured precheck errors when a two-echelon-gold-au scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...twoEchelonRow,
-      inputs: {
-        ...twoEchelonInputs,
-        // Reuses a real base-dataset refinery id — an id-collision finding.
-        addedRefineries: [{ id: GOLD_REFINERIES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/11/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added refinery id '${GOLD_REFINERIES[0].id}' collides with an existing base-dataset refinery id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a two-echelon-gold-au scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
-    mockEnqueueSolveJob.mockResolvedValue(103);
-    const res = await request(app).post("/api/scenarios/11/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
   });
 });
 

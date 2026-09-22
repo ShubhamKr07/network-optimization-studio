@@ -5,8 +5,9 @@ import fsp from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable, resultCacheTable } from "@workspace/db";
+import type { InsertSolveJob } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
 import { ResultEnvelopeSchema } from "./resultEnvelope.js";
 import type { ResultEnvelope } from "./resultEnvelope.js";
@@ -14,6 +15,10 @@ import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { posthog } from "../lib/posthog.js";
+import { validateInputsForModel } from "../validation/inputs/index.js";
+import { runNetworkEditsPrecheckForModel } from "../services/precheck.js";
+import type { PrecheckResult } from "../services/precheck.js";
+import { computeRecoveryContractIdentity } from "./recoveryContractIdentity.js";
 import {
   classifyFd3Message,
   classifyTerminal,
@@ -54,6 +59,25 @@ const SOLVER_CODE_HASH = crypto
   .update(readFileSync(SOLVER_PY))
   .digest("hex")
   .slice(0, 12);
+
+// A1 (SCND Correctness) — RECOVERY_CONTRACT_IDENTITY. See
+// recoveryContractIdentity.ts's own header for the full rationale; this is
+// a SEPARATE, FULLER identity than SOLVER_CODE_HASH above (recovery, not
+// cache-key, scope — the cache key is unchanged until A6). Computed ONCE,
+// eagerly, at module load — same fail-closed pattern as SOLVER_CODE_HASH:
+// an underivable component throws here, crashing this module's import and
+// therefore server boot (jobRunner.ts is imported synchronously via
+// routes/scenarios.ts during app wiring).
+const CBC_TERMINATION_PY = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "cbc_termination.py");
+const RESULT_ENVELOPE_TS = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "resultEnvelope.ts");
+const SOLVER_PROCESS_MESSAGE_TS = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "solverProcessMessage.ts");
+
+export const RECOVERY_CONTRACT_IDENTITY = computeRecoveryContractIdentity({
+  solvePyPath: SOLVER_PY,
+  cbcTerminationPyPath: CBC_TERMINATION_PY,
+  resultEnvelopeTsPath: RESULT_ENVELOPE_TS,
+  solverProcessMessageTsPath: SOLVER_PROCESS_MESSAGE_TS,
+});
 
 // Small in-process worker pool (Phase 3.5, G3.1) — replaces the old
 // blocking spawnSync call. Pilot cohort is assumed <=10 concurrent users
@@ -122,22 +146,145 @@ export function computeInputsHash(input: SolveInput): string {
     .digest("hex");
 }
 
+// A1 (SCND Correctness) — validates `input.inputs` against the model's own
+// Zod schema one more time (defense in depth — every caller has already
+// validated once) before it's allowed into a durable `input_snapshot`. A
+// queued row's snapshot must be independently executable after process loss
+// (A2 consumes it) — persisting a schema-invalid payload would silently
+// create an unrecoverable row. Throws, never silently narrows/coerces.
+function buildValidatedInputSnapshot(input: SolveInput): Record<string, unknown> {
+  const validation = validateInputsForModel(input.modelId, input.inputs);
+  if (!validation.success) {
+    throw new Error(`input_snapshot rejected: ${input.modelId} inputs fail validation (${validation.error})`);
+  }
+  return { modelId: input.modelId, inputs: validation.data };
+}
+
+export interface BuildSolveJobValuesParams {
+  scenarioId: number;
+  userId: string;
+  input: SolveInput;
+  /** Class 1 (nullable) — null for a caller with no locked-scenario context. */
+  enqueuedSolveInputRevision: number | null;
+}
+
+// A1 — the single place a `solve_jobs` insert row is shaped, shared by both
+// the simple `enqueueSolveJob` below and `enqueueScenarioSolve`'s atomic
+// transaction. Q79: requested-limit `source` columns are pinned to the
+// literal 'request' for this contract version — never 'default'.
+export function buildSolveJobValues(params: BuildSolveJobValuesParams): InsertSolveJob {
+  return {
+    scenarioId: params.scenarioId,
+    userId: params.userId,
+    status: "queued",
+    inputsHash: computeInputsHash(params.input),
+    modelId: params.input.modelId,
+    inputSnapshot: buildValidatedInputSnapshot(params.input),
+    enqueuedSolveInputRevision: params.enqueuedSolveInputRevision,
+    requestedGap: params.input.inputs.gap,
+    requestedGapSource: "request",
+    requestedTimeLimitSec: params.input.inputs.timeLimitSec,
+    requestedTimeLimitSource: "request",
+    recoveryContractIdentity: RECOVERY_CONTRACT_IDENTITY,
+  };
+}
+
+// Registers an already-inserted (committed) job with the in-process worker
+// pool and kicks the pump — split out from the DB insert so a caller that
+// inserted the row inside its OWN transaction (enqueueScenarioSolve) only
+// registers for dispatch AFTER that transaction has actually committed.
+export function registerQueuedJob(jobId: number, scenarioId: number, userId: string, input: SolveInput): void {
+  pendingJobs.set(jobId, { scenarioId, userId, input });
+  queue.push(jobId);
+  pump();
+}
+
 // Enqueues a solve job: inserts the solve_jobs row synchronously (so the
 // route can return 202 {jobId} immediately) and kicks off the in-process
-// worker pool without awaiting it — the job runs in the background.
+// worker pool without awaiting it — the job runs in the background. This is
+// the SIMPLE, non-locking primitive — used directly by tests and any other
+// programmatic caller that already holds a validated `input`. The
+// PRODUCTION route path goes through `enqueueScenarioSolve` below instead,
+// which additionally closes the TOCTOU race between reading a scenario's
+// inputs and enqueueing a job for them.
 export async function enqueueSolveJob(scenarioId: number, userId: string, input: SolveInput): Promise<number> {
-  const inputsHash = computeInputsHash(input);
-  const [job] = await db.insert(solveJobsTable).values({
-    scenarioId,
-    userId,
-    status: "queued",
-    inputsHash,
-  }).returning();
-
-  pendingJobs.set(job.id, { scenarioId, userId, input });
-  queue.push(job.id);
-  pump();
+  const values = buildSolveJobValues({ scenarioId, userId, input, enqueuedSolveInputRevision: null });
+  const [job] = await db.insert(solveJobsTable).values(values).returning();
+  registerQueuedJob(job.id, scenarioId, userId, input);
   return job.id;
+}
+
+// A1 — the enqueue AUTHORITY transaction (review A-R39/A-R55). The route
+// used to read+validate the scenario BEFORE calling enqueueSolveJob, so an
+// edit could land in the window between that read and the insert, and the
+// persisted snapshot could silently diverge from the scenario's actual
+// current state. This closes that race: in ONE transaction, lock the owned
+// scenario row (SELECT ... FOR UPDATE), re-run shape validation AND the
+// semantic precheck against the FRESHLY LOCKED row (never the caller's
+// possibly-stale belief about what the inputs are), capture the locked
+// inputs + solve_input_revision, insert the job (persisting the captured
+// revision as `enqueuedSolveInputRevision`), and update
+// `latestSolveJobId` ONLY IF the new job id is greater than the stored one
+// (so two concurrent enqueues committing in inverted order can't let the
+// older job become "latest" — A-R32).
+//
+// Error mapping is the caller's job (routes/scenarios.ts): a revalidation
+// failure on the locked row must produce the SAME synchronous 422/no-job
+// response the pre-lock path always gave — never a queued job that can
+// never run.
+export type EnqueueScenarioSolveOutcome =
+  | { kind: "not_found" }
+  | { kind: "invalid"; error: string }
+  | { kind: "precheck_failed"; errors: PrecheckResult["errors"] }
+  | { kind: "queued"; jobId: number; modelId: string };
+
+export async function enqueueScenarioSolve(scenarioId: number, userId: string): Promise<EnqueueScenarioSolveOutcome> {
+  const outcome = await db.transaction(async (tx) => {
+    const [scenario] = await tx.select().from(scenariosTable)
+      .where(and(eq(scenariosTable.id, scenarioId), eq(scenariosTable.userId, userId)))
+      .for("update");
+    if (!scenario) {
+      return { kind: "not_found" } as const;
+    }
+
+    const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
+    if (!validation.success) {
+      return { kind: "invalid", error: validation.error } as const;
+    }
+
+    const precheck = runNetworkEditsPrecheckForModel(scenario.modelId, validation.data);
+    if (!precheck.ok) {
+      return { kind: "precheck_failed", errors: precheck.errors } as const;
+    }
+
+    const input = { modelId: scenario.modelId, inputs: validation.data } as SolveInput;
+    const values = buildSolveJobValues({
+      scenarioId: scenario.id,
+      userId,
+      input,
+      enqueuedSolveInputRevision: scenario.solveInputRevision,
+    });
+    const [job] = await tx.insert(solveJobsTable).values(values).returning();
+
+    // Only advance latest_solve_job_id if this job id is greater than the
+    // stored one (or the stored one is null) — two concurrent enqueues
+    // committing in inverted order can't let the older job win.
+    await tx.update(scenariosTable)
+      .set({ latestSolveJobId: job.id })
+      .where(and(
+        eq(scenariosTable.id, scenario.id),
+        eq(scenariosTable.userId, userId),
+        or(isNull(scenariosTable.latestSolveJobId), lt(scenariosTable.latestSolveJobId, job.id)),
+      ));
+
+    return { kind: "queued", jobId: job.id, modelId: scenario.modelId, input } as const;
+  });
+
+  if (outcome.kind === "queued") {
+    registerQueuedJob(outcome.jobId, scenarioId, userId, outcome.input);
+    return { kind: "queued", jobId: outcome.jobId, modelId: outcome.modelId };
+  }
+  return outcome;
 }
 
 function pump(): void {

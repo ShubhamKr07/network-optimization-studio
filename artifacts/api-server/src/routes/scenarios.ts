@@ -1,9 +1,8 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
-import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
-import type { SolveInput } from "../solver/pmedian.js";
+import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
@@ -76,7 +75,7 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow, JadeAssignmentTemplateRow, JadeFlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, precheckChensInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
+import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedChensDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
@@ -246,6 +245,14 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   }
 
   const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
+  // A1 (SCND Correctness) — solve_input_revision is a DB-SIDE increment
+  // (`solve_input_revision = solve_input_revision + 1`, never a
+  // read-modify-write in app code: two concurrent edits both reading n and
+  // writing n+1 would lose an increment and let a stale job pass A7's
+  // future publication CAS). Only set for a geometric (non-bands-only)
+  // inputs change, below — mirrors the exact same `isBandsOnlyChange` gate
+  // that already decides whether to bump `inputsUpdatedAt`.
+  let revisionIncrement: { solveInputRevision: SQL<unknown> } | Record<string, never> = {};
   if (body.name !== undefined) updateObj.name = body.name;
   if (body.inputs !== undefined) {
     const [existing] = await db.select().from(scenariosTable)
@@ -275,12 +282,13 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     const isBandsOnlyChange = changedInputKeys.every((key) => key === "distanceBands");
     if (!isBandsOnlyChange) {
       updateObj.inputsUpdatedAt = new Date();
+      revisionIncrement = { solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1` };
     }
   }
   if (body.result !== undefined) updateObj.result = body.result;
 
   const [row] = await db.update(scenariosTable)
-    .set({ ...updateObj, updatedAt: new Date() })
+    .set({ ...updateObj, ...revisionIncrement, updatedAt: new Date() })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
@@ -405,37 +413,13 @@ function normalizeAddedEntityDistances(modelId: string, data: Record<string, unk
   return data;
 }
 
-function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
-  if (modelId === "p-median-us") {
-    return precheckPMedianInputs(inputs as unknown as PMedianInputs);
-  }
-  if (modelId === "p-median-brazil") {
-    return precheckPMedianInputs(inputs as unknown as PMedianInputs, BRAZIL_DATASET);
-  }
-  if (modelId === "transport-coal") {
-    return precheckTransportInputs(inputs as unknown as TransportLpInputs);
-  }
-  if (modelId === "two-echelon-gold-au") {
-    return precheckTwoEchelonInputs(inputs as unknown as TwoEchelonInputs);
-  }
-  // jade-T6 — second writer of this shared file (after jade-T5's
-  // VALID_MODEL_IDS entry). Registered here covers BOTH call sites in this
-  // file: the solve-before-enqueue path (POST .../solve, above) and the
-  // standalone GET .../precheck endpoint (below) both call
-  // runNetworkEditsPrecheck, so a shape-valid JADE scenario never falls
-  // through to the default {ok:true} at the bottom of this function.
-  if (modelId === "two-echelon-jade-us") {
-    return precheckJadeInputs(inputs as unknown as JadeInputs);
-  }
-  // C4.8 — Chapter 4 (chens-cosmetics-cn) semantic precheck. Its own function
-  // (precheckChensInputs, using CHENS_DATASET as the default): p-median's
-  // structural checks PLUS Chen-specific p_range/zero_demand/no_feasible_route/
-  // coverage_floor_infeasible with circuity-adjusted (×1.17) thresholds.
-  if (modelId === "chens-cosmetics-cn") {
-    return precheckChensInputs(inputs as unknown as ChensInputs);
-  }
-  return { ok: true, errors: [] };
-}
+// A1 (SCND Correctness) — the per-model precheck dispatch logic that used to
+// live here moved verbatim to services/precheck.ts's
+// `runNetworkEditsPrecheckForModel` (byte-identical behavior), so
+// jobRunner.ts's atomic `enqueueScenarioSolve` can share it too without a
+// circular import. This is now a thin local alias so every existing call
+// site below is untouched.
+const runNetworkEditsPrecheck = runNetworkEditsPrecheckForModel;
 
 router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   // Backpressure check first (before any DB work) so an overloaded server
@@ -459,42 +443,35 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   }
 
   const id = Number(req.params.scenarioId);
-  const [scenario] = await db.select().from(scenariosTable)
-    .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
-  if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
 
-  const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
-  if (!validation.success) {
-    res.status(422).json({ error: validation.error });
+  // A1 (SCND Correctness) — the enqueue AUTHORITY transaction. Locks the
+  // scenario row, re-runs shape validation + the semantic precheck against
+  // the FRESHLY LOCKED row (never a pre-lock belief about the inputs), and
+  // atomically inserts the job — closing the race where an edit could land
+  // between an earlier read and the enqueue. See jobRunner.ts's own header
+  // comment on enqueueScenarioSolve for the full rationale. Error mapping:
+  // a revalidation failure on the locked row returns the exact same
+  // synchronous 422/no-job response the pre-lock path always gave.
+  const outcome = await enqueueScenarioSolve(id, req.userId!);
+
+  if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
+  if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error }); return; }
+  if (outcome.kind === "precheck_failed") {
+    res.status(422).json({ error: "Network-edit precheck failed", errors: outcome.errors });
     return;
   }
-
-  // B2.1 — semantic precheck runs after shape validation succeeds and
-  // before the job is enqueued. Returns the same `errors` shape as
-  // GET .../precheck for the same scenario state.
-  const precheck = runNetworkEditsPrecheck(scenario.modelId, validation.data);
-  if (!precheck.ok) {
-    res.status(422).json({ error: "Network-edit precheck failed", errors: precheck.errors });
-    return;
-  }
-
-  const jobId = await enqueueSolveJob(
-    id,
-    req.userId!,
-    { modelId: scenario.modelId, inputs: validation.data } as SolveInput,
-  );
 
   posthog?.capture({
     distinctId: req.userId!,
     event: "scenario solve enqueued",
     properties: {
       scenario_id: id,
-      model_id: scenario.modelId,
-      job_id: jobId,
+      model_id: outcome.modelId,
+      job_id: outcome.jobId,
     },
   });
 
-  res.status(202).json({ jobId });
+  res.status(202).json({ jobId: outcome.jobId });
 });
 
 router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
@@ -1783,11 +1760,16 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   // normalizer here too so every persist path stays consistent.
   nextInputs = normalizeAddedEntityDistances(scenario.modelId, nextInputs);
 
+  // A1 (SCND Correctness) — import/apply is always a geometric input write
+  // (never a distanceBands-only change — that's routes/distanceBands.ts's
+  // own dedicated field-scoped endpoint, never this route), so it always
+  // increments solve_input_revision, DB-side, unconditionally.
   const [updated] = await db.update(scenariosTable)
     .set({
       inputs: nextInputs,
       inputsUpdatedAt: new Date(),
       updatedAt: new Date(),
+      solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1`,
     })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();

@@ -35,7 +35,18 @@ vi.mock("@workspace/db", () => ({
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn());
-vi.mock("child_process", () => ({ spawn: mockSpawn }));
+// A1 — jobRunner.ts's module-load-time RECOVERY_CONTRACT_IDENTITY computation
+// (recoveryContractIdentity.ts) calls the REAL `spawnSync` to probe PuLP/CBC.
+// This mock replaces child_process's whole export surface, so spawnSync must
+// be stubbed too or that eager compute throws "spawnSync is not a function"
+// before any test in this file even runs. `/bin/sh` is a real, always-present
+// POSIX path (this app is POSIX-only already, see jobRunner.ts's own startup
+// platform guard) so sha256File(cbcPath) inside recoveryContractIdentity.ts
+// succeeds against a real file without needing a special fixture.
+const mockSpawnSync = vi.hoisted(() =>
+  vi.fn(() => ({ status: 0, stdout: JSON.stringify({ pulpVersion: "3.3.2", cbcPath: "/bin/sh" }), stderr: "" })),
+);
+vi.mock("child_process", () => ({ spawn: mockSpawn, spawnSync: mockSpawnSync }));
 
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
@@ -86,6 +97,8 @@ let parsePositiveIntEnv: JobRunnerModule["parsePositiveIntEnv"];
 let QUEUE_DEPTH_LIMIT: JobRunnerModule["QUEUE_DEPTH_LIMIT"];
 let reapStuckJobs: JobRunnerModule["reapStuckJobs"];
 let toLegacyStoredResult: JobRunnerModule["toLegacyStoredResult"];
+let buildSolveJobValues: JobRunnerModule["buildSolveJobValues"];
+let RECOVERY_CONTRACT_IDENTITY: JobRunnerModule["RECOVERY_CONTRACT_IDENTITY"];
 
 beforeAll(async () => {
   const mod = await import("../solver/jobRunner.js");
@@ -95,6 +108,8 @@ beforeAll(async () => {
   QUEUE_DEPTH_LIMIT = mod.QUEUE_DEPTH_LIMIT;
   reapStuckJobs = mod.reapStuckJobs;
   toLegacyStoredResult = mod.toLegacyStoredResult;
+  buildSolveJobValues = mod.buildSolveJobValues;
+  RECOVERY_CONTRACT_IDENTITY = mod.RECOVERY_CONTRACT_IDENTITY;
 });
 
 const baseInput: SolveInput = {
@@ -283,7 +298,18 @@ describe("jobRunner", () => {
       { inputsHash: "h", modelId: "chens-cosmetics-cn", result: chenEnvelope },
     ]));
 
-    const chenInput = { modelId: "chens-cosmetics-cn", inputs: { objective: "coverage", p: 3 } } as unknown as SolveInput;
+    // A1 — enqueueSolveJob now re-validates `inputs` (input_snapshot must be
+    // SolveInput-valid, never a fabricated shortcut) before it ever reaches
+    // the cache-hit branch below, so this needs a genuinely schema-valid
+    // Chen "coverage" input, not just the two fields runJob's own
+    // resultSummary derivation reads.
+    const chenInput = {
+      modelId: "chens-cosmetics-cn",
+      inputs: {
+        objective: "coverage", p: 3, highServiceDistKm: 600, maxDistKm: 1000,
+        avgServiceDistCapKm: 800, gap: 0, timeLimitSec: 1,
+      },
+    } as unknown as SolveInput;
     await enqueueSolveJob(1, "user-1", chenInput);
 
     await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
@@ -340,7 +366,7 @@ describe("jobRunner", () => {
     // timeLimitSec:0 + SOLVE_TIMEOUT_GRACE_MS=50 (module-load-time env var,
     // top of file) => a real ~50ms timeout, comfortably inside vi.waitFor's
     // default budget — no fake timers needed.
-    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 0 } });
+    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 1 } });
 
     await vi.waitFor(() => {
       const calls = setValues(jobUpdateChain);
@@ -380,7 +406,7 @@ describe("jobRunner", () => {
     const child = new FakeChild();
     mockSpawn.mockReturnValue(child);
 
-    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 0 } });
+    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 1 } });
 
     // Real time here: ~50ms (SOLVE_TIMEOUT_GRACE_MS) for the outer timeout,
     // plus KILL_PROBE_INTERVAL_MS (50ms, hardcoded) for the TERM-grace-period
@@ -952,6 +978,46 @@ describe("result_cache (P1.2 write-through cache)", () => {
     });
     const written = (cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
     expect((written.result as Record<string, unknown>).solutionStatus).toBe("optimal");
+  });
+});
+
+// A1 (SCND Correctness) — buildSolveJobValues is the single place a
+// solve_jobs insert row is shaped, shared by both enqueueSolveJob and
+// enqueueScenarioSolve. Real (unmocked) validateInputsForModel/
+// computeInputsHash/RECOVERY_CONTRACT_IDENTITY calls — no DB involved, so
+// no db mocking needed for these.
+describe("buildSolveJobValues (A1 — durable payload + requested-limit shaping)", () => {
+  it("rejects a payload whose inputs fail SolveInput/model validation (input_snapshot must never be built from invalid data)", () => {
+    const invalidInput = {
+      modelId: "p-median-us",
+      inputs: { ...baseInput.inputs, capacityMode: "not-a-real-mode" },
+    } as unknown as SolveInput;
+
+    expect(() =>
+      buildSolveJobValues({ scenarioId: 1, userId: "user-1", input: invalidInput, enqueuedSolveInputRevision: null }),
+    ).toThrow(/input_snapshot rejected/);
+  });
+
+  it("builds a valid insert row: durable payload, requested-limit values/sources pinned to 'request', and the recovery identity", () => {
+    const values = buildSolveJobValues({ scenarioId: 42, userId: "user-1", input: baseInput, enqueuedSolveInputRevision: 3 });
+
+    expect(values.scenarioId).toBe(42);
+    expect(values.userId).toBe("user-1");
+    expect(values.status).toBe("queued");
+    expect(values.modelId).toBe("p-median-us");
+    expect(values.inputSnapshot).toEqual({ modelId: "p-median-us", inputs: baseInput.inputs });
+    expect(values.enqueuedSolveInputRevision).toBe(3);
+    expect(values.requestedGap).toBe(baseInput.inputs.gap);
+    expect(values.requestedGapSource).toBe("request");
+    expect(values.requestedTimeLimitSec).toBe(baseInput.inputs.timeLimitSec);
+    expect(values.requestedTimeLimitSource).toBe("request");
+    expect(values.recoveryContractIdentity).toBe(RECOVERY_CONTRACT_IDENTITY);
+    expect(typeof values.inputsHash).toBe("string");
+  });
+
+  it("preserves a null enqueuedSolveInputRevision for a caller with no locked-scenario context (Class 1 — never fabricated)", () => {
+    const values = buildSolveJobValues({ scenarioId: 1, userId: "user-1", input: baseInput, enqueuedSolveInputRevision: null });
+    expect(values.enqueuedSolveInputRevision).toBeNull();
   });
 });
 

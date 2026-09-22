@@ -28,7 +28,14 @@ vi.mock("@workspace/db", () => ({
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn());
-vi.mock("child_process", () => ({ spawn: mockSpawn }));
+// A1 — see jobRunner.test.ts's identical comment: jobRunner.ts's eager
+// RECOVERY_CONTRACT_IDENTITY computation calls the real `spawnSync` to probe
+// PuLP/CBC, so this mock (which replaces child_process's whole export
+// surface) must stub it too.
+const mockSpawnSync = vi.hoisted(() =>
+  vi.fn(() => ({ status: 0, stdout: JSON.stringify({ pulpVersion: "3.3.2", cbcPath: "/bin/sh" }), stderr: "" })),
+);
+vi.mock("child_process", () => ({ spawn: mockSpawn, spawnSync: mockSpawnSync }));
 
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
