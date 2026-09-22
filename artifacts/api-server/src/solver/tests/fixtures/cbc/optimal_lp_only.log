@@ -1,0 +1,25 @@
+Welcome to the CBC MILP Solver 
+Version: 2.10.3 
+Build Date: Dec 15 2019 
+
+command line - <CBC_BIN> <WORKDIR>/problem-pulp.mps -sec 60 -ratio 0.0 -timeMode elapsed -solve -printingOptions all -solution <WORKDIR>/problem-pulp.sol (default strategy 1)
+At line 2 NAME          MODEL
+At line 3 ROWS
+At line 24 COLUMNS
+At line 205 RHS
+At line 225 BOUNDS
+At line 226 ENDATA
+Problem MODEL has 19 rows, 60 columns and 120 elements
+Coin0008I MODEL read with 0 errors
+seconds was changed from 1e+100 to 60
+ratioGap was changed from 0 to 0
+Option for timeMode changed from cpu to elapsed
+Presolve 19 (0) rows, 60 (0) columns and 120 (0) elements
+0  Obj 0 Primal inf 70000000 (15)
+22  Obj 3.93553e+10
+Optimal - objective value 3.93553e+10
+Optimal objective 3.93553e+10 - 22 iterations time 0.002
+
+Option for printingOptions changed from normal to all
+Total time (CPU seconds):       0.00   (Wallclock seconds):       0.02
+

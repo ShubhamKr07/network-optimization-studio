@@ -65,6 +65,20 @@ def _ab(label: str, cond: bool, a_val, b_val, a_tag="A", b_tag="B") -> bool:
     return cond
 
 
+def _solved(r: dict) -> bool:
+    """DEC-2026-09-21-01: a solve produced a usable, valid objective/
+    solution whether CBC proved it exactly ("optimal") or stopped on a
+    truthful gap-limited feasible incumbent ("feasible") -- a feasible
+    incumbent still satisfies every constraint (it's a real feasible point,
+    just not provably the global optimum). Gates that only need "did this
+    solve produce a real objective/assignment set to compare" (monotonicity,
+    A/B, capacity-respected checks) should use this, not a bare `== "optimal"`
+    literal -- otherwise a truthfully-reported "feasible" result silently
+    SKIPS its downstream checks instead of running them (the exact bug this
+    helper exists to prevent: see the Brazil section, gap=0.05 by default)."""
+    return r.get("status") in ("optimal", "feasible")
+
+
 # ── Solver runner ─────────────────────────────────────────────────────────────
 def run(payload: dict, timeout: int = 180) -> dict:
     import subprocess
@@ -382,18 +396,33 @@ def test_brazil() -> None:
     _check("P=3 cap=20M is infeasible (3×20M=60M < 98.7M demand)",
            p_runs[3].get("status") == "infeasible")
 
-    # P=5 and above: feasible (5×20M=100M > 98.7M demand)
+    # P=5 and above: feasible (5×20M=100M > 98.7M demand). DEC-2026-09-21-01:
+    # at this dataset's default gap=0.05, real CBC evidence shows P=5/P=7
+    # stop on a genuinely gap-limited feasible incumbent (not a proven
+    # optimum), while P=10 solves fast enough to be proven exactly within
+    # the same 5% gap budget -- asserted per-P against the truthful
+    # solutionStatus/terminationReason rather than a blanket "optimal".
+    # Zero objective values change; only how the outcome is reported.
+    _GAP_LIMITED_P = {5, 7}
     for p in [5, 7, 10]:
-        _check(f"P={p} cap=20M is optimal ({p}×20M={p*20}M ≥ 98.7M demand)",
-               p_runs[p].get("status") == "optimal")
+        r = p_runs[p]
+        if p in _GAP_LIMITED_P:
+            _check(f"P={p} cap=20M is feasible/gap_limit ({p}×20M={p*20}M ≥ 98.7M demand, "
+                   "real CBC evidence — DEC-2026-09-21-01)",
+                   r.get("solutionStatus") == "feasible" and r.get("terminationReason") == "gap_limit",
+                   f"solutionStatus={r.get('solutionStatus')} terminationReason={r.get('terminationReason')}")
+        else:
+            _check(f"P={p} cap=20M is optimal ({p}×20M={p*20}M ≥ 98.7M demand)",
+                   r.get("solutionStatus") == "optimal" and r.get("terminationReason") == "optimality_proven",
+                   f"solutionStatus={r.get('solutionStatus')} terminationReason={r.get('terminationReason')}")
         _check(f"P={p} opens exactly {p} warehouses",
-               len(p_runs[p].get("openWarehouseIds", [])) == p,
-               f"got {len(p_runs[p].get('openWarehouseIds', []))}")
+               len(r.get("openWarehouseIds", [])) == p,
+               f"got {len(r.get('openWarehouseIds', []))}")
         _check(f"P={p} serves all {N_REGIONS} regions",
-               len({a["customerId"] for a in p_runs[p].get("assignments", [])}) == N_REGIONS)
+               len({a["customerId"] for a in r.get("assignments", [])}) == N_REGIONS)
 
     # Region IDs: DF and SE should appear, RR and TO should NOT
-    if p_runs[5].get("status") == "optimal":
+    if _solved(p_runs[5]):
         region_ids = {a["customerId"] for a in p_runs[5].get("assignments", [])}
         _check("New regions present: DF (Distrito Federal) assigned",
                "DF" in region_ids)
@@ -406,7 +435,7 @@ def test_brazil() -> None:
 
     # Capacity constraint validation
     print("\n── Accuracy: capacity constraints ──")
-    if p_runs[5].get("status") == "optimal":
+    if _solved(p_runs[5]):
         wh_load: dict[str, float] = {}
         for a in p_runs[5].get("assignments", []):
             wid = a["warehouseId"]
@@ -415,8 +444,8 @@ def test_brazil() -> None:
             # We need actual demand; look it up from region data
             wh_load[wid] = wh_load.get(wid, 0) + ff  # summed fractions (not tons)
         _check("P=5 cap=20M: all open WHs load ≤ capacity (indirect: solver enforces)",
-               p_runs[5].get("status") == "optimal",
-               "feasible status implies capacity respected")
+               _solved(p_runs[5]),
+               "a feasible incumbent — proven or gap-limited — still respects every constraint")
 
     # Single-source capacity trigger
     _check("Single-source cap=20M infeasible (SP demands 29M > 20M)",
@@ -434,7 +463,7 @@ def test_brazil() -> None:
 
     # ── A/B: P-Monotonicity ────────────────────────────────────────────────
     print("\n── A/B: P-Monotonicity (more warehouses → lower cost) ──")
-    feasible_p = [p for p in [5, 7, 10] if p_runs[p].get("status") == "optimal"]
+    feasible_p = [p for p in [5, 7, 10] if _solved(p_runs[p])]
     for i in range(len(feasible_p) - 1):
         pa, pb = feasible_p[i], feasible_p[i + 1]
         oa, ob = p_runs[pa].get("objective", 0), p_runs[pb].get("objective", 0)
@@ -456,7 +485,7 @@ def test_brazil() -> None:
     for i in range(len(cap_labels) - 1):
         ca, cb = cap_labels[i], cap_labels[i + 1]
         ra, rb = cap_runs[ca], cap_runs[cb]
-        if ra.get("status") == rb.get("status") == "optimal":
+        if _solved(ra) and _solved(rb):
             _ab(f"obj(cap={cb}) ≤ obj(cap={ca})  (more capacity → ≤ cost)",
                 rb.get("objective", 0) <= ra.get("objective", 0) * 1.001,
                 f"{ra['objective']:,.0f}", f"{rb['objective']:,.0f}",
@@ -486,9 +515,9 @@ def test_brazil() -> None:
     r_trade_b = r_nb              # P=7, cap=20M
     print(f"         P=5 cap=30M:  status={r_trade_a.get('status')}  obj={r_trade_a.get('objective',0):,.0f}  avg={r_trade_a.get('weightedAvgDistanceMi',0):.1f} mi")
     print(f"         P=7 cap=20M:  status={r_trade_b.get('status')}  obj={r_trade_b.get('objective',0):,.0f}  avg={r_trade_b.get('weightedAvgDistanceMi',0):.1f} mi")
-    if r_trade_a.get("status") == r_trade_b.get("status") == "optimal":
+    if _solved(r_trade_a) and _solved(r_trade_b):
         # Can't assert direction without knowing which dominates — just verify both are valid
-        _check("Trade-off: both P=5/cap=30M and P=7/cap=20M solve optimally",
+        _check("Trade-off: both P=5/cap=30M and P=7/cap=20M solve to a usable objective",
                True)
         winner = "P=7/cap=20M" if r_trade_b["objective"] < r_trade_a["objective"] else "P=5/cap=30M"
         print(f"         Winner (lower obj): {winner}")
@@ -627,7 +656,7 @@ def test_cross_model() -> None:
         _check(f"{label}: runtime 0 <= t < 300s",
                0 <= r.get("runTimeSec", -1) < 300,
                f"{r.get('runTimeSec', -1):.2f}s")
-        if r.get("status") == "optimal":
+        if _solved(r):
             _check(f"{label}: objective > 0", (r.get("objective") or 0) > 0)
             _check(f"{label}: bandCoverage non-empty",
                    len(r.get("bandCoverage", [])) > 0)

@@ -180,6 +180,16 @@ _OBJECTIVE_VALUE_RE = re.compile(r"^Objective value:\s*([-+0-9.eE]+)", re.MULTIL
 _BOUND_LINE_RE = re.compile(r"^(?:Lower|Upper) bound:\s*([-+0-9.eE]+)", re.MULTILINE)
 _NO_FEASIBLE_RE = re.compile(r"^No feasible solution found", re.MULTILINE)
 _SOL_OBJECTIVE_RE = re.compile(r"objective value\s+([-+0-9.eE]+)\s*$")
+# A pure-LP solve (zero integer/binary variables -- e.g. transport-coal's
+# multi-source transportation LP) never enters CBC's branch-and-bound layer
+# at all, so it never prints a "Result -" trailer line: the log goes
+# straight from presolve iterations to Clp's own
+# "Optimal - objective value X" / "Optimal objective X - N iterations
+# time Y" pair with no MIP machinery involved whatsoever. Confirmed against
+# a real transport-coal (singleSource=False) solve -- see
+# fixtures/cbc/README.md. Anchored on "Optimal -" (not just "Optimal")
+# so it can never match inside an unrelated line.
+_LP_ONLY_OPTIMAL_RE = re.compile(r"^Optimal - objective value\s+([-+0-9.eE]+)\s*$", re.MULTILINE)
 
 
 def _to_float(raw: Optional[str]) -> Optional[float]:
@@ -245,20 +255,29 @@ def classify_cbc_termination(log_text: str, sol_text: Optional[str]):
     result_matches = list(_RESULT_LINE_RE.finditer(log_text))
     result_msg = result_matches[-1].group("msg") if result_matches else None
 
-    # CBC has (at least) two distinct log shapes for infeasibility,
-    # confirmed against two real solves: (1) MIP-presolve infeasibility
+    # CBC has (at least) three distinct log/.sol shapes for infeasibility,
+    # confirmed against three real solves: (1) MIP-presolve infeasibility
     # prints a standalone "Problem is infeasible - N seconds" line with NO
     # "Result -" line at all (see fixtures/cbc/infeasible.*, a JADE
     # forced-open-exceeds-P solve); (2) a pure LP-relaxation infeasibility
     # (no integer variables, caught by CBC's own presolve/dual-simplex
     # analysis) prints "Result - Linear relaxation infeasible" instead, with
     # no standalone "Problem is infeasible" line anywhere (see
-    # fixtures/cbc/infeasible_lp_relaxation.*). Both are real, both must be
-    # recognized -- checking only one silently misclassifies the other.
+    # fixtures/cbc/infeasible_lp_relaxation.*); (3) a real MIP whose LP
+    # relaxation IS feasible but the full branch-and-bound search proves no
+    # INTEGER-feasible solution exists prints "Result - Problem proven
+    # infeasible" with a .sol first token of "Integer" (not "Infeasible") --
+    # confirmed against a real transport-coal single-source solve during B2
+    # (see fixtures/cbc/infeasible_integer.*). PuLP's own COIN_CMD.get_status()
+    # already maps both "Infeasible" and "Integer" .sol tokens identically to
+    # LpStatusInfeasible -- classify_cbc_termination must do the same or it
+    # will (wrongly) see these as contradictory evidence. All three are
+    # real, all three must be recognized -- checking only a subset silently
+    # misclassifies (or, worse, raises a parse error on) the others.
     is_infeasible_standalone_log = bool(_INFEASIBLE_LOG_RE.search(log_text))
     is_infeasible_result_line = result_msg is not None and "infeasible" in result_msg.lower()
     is_infeasible_log = is_infeasible_standalone_log or is_infeasible_result_line
-    is_infeasible_sol = sol_token0 == "Infeasible"
+    is_infeasible_sol = sol_token0 in ("Infeasible", "Integer")
     if is_infeasible_log or is_infeasible_sol:
         if sol_text is not None and is_infeasible_log != is_infeasible_sol:
             raise CBCParseError(
@@ -281,6 +300,17 @@ def classify_cbc_termination(log_text: str, sol_text: Optional[str]):
         return _result("unbounded", "unbounded", None, None)
 
     if result_msg is None:
+        lp_only = _LP_ONLY_OPTIMAL_RE.search(log_text)
+        if lp_only is not None:
+            # Pure-LP optimum (see _LP_ONLY_OPTIMAL_RE's docstring above) --
+            # Clp's simplex proves the LP optimum exactly, so this is
+            # unconditionally a proven optimum, never a gap-limited stop
+            # (there is no branch-and-bound cutoff to hit at all). Matches
+            # the existing "genuinely proven optimum" convention elsewhere
+            # in this function: bound is not synthesized as == incumbent,
+            # it stays null unless CBC itself printed a separate bound line.
+            incumbent = _to_float(lp_only.group(1))
+            return _result("optimal", "optimality_proven", incumbent, None)
         raise CBCParseError(
             "no 'Result -' line found in the CBC log, and no infeasible/"
             "unbounded marker either -- log may be truncated/malformed "

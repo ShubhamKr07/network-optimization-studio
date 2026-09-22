@@ -13,6 +13,7 @@ from merge_inputs import (
     build_merged_jade_dataset,
     build_merged_chens_dataset,
 )
+from cbc_termination import solve_with_capture
 
 # ---------------------------------------------------------------------------
 # Canonical datasets live in solvers/<model-id>/dataset/*.json (C1.1/C1.2).
@@ -155,15 +156,60 @@ CUSTOMERS_CHENS  = dict(_CHENS_CU_RAW)
 DISTANCE_CHENS   = {(k.split(',')[0], k.split(',')[1]): v for k, v in _CHENS_DIST_RAW.items()}
 
 # ---------------------------------------------------------------------------
-# Standardized result envelope (Phase 3.5, G2.1). `details` deliberately
-# retains the pre-envelope `assignments`/`openWarehouseIds` shape verbatim
-# (not just the new generic `edges` view) — a pure refactor of where each
-# already-computed value lives, not a re-derivation, so no numeric value
-# changes. `edges` is the new model-agnostic view Phase 4/5 render from.
+# B2: truthful CBC termination evidence, shared by every model. Production
+# used to call PULP_CBC_CMD(msg=False) with no logPath, discarding CBC's own
+# log into /dev/null and then trusting pulp.LpStatus[prob.status] alone --
+# which, per cbc_termination.py's module docstring, collapses a genuinely
+# gap-limited or time-limited-with-incumbent stop into the same LpStatusOptimal
+# a truly proven optimum gets. `_run_cbc` instead runs the solve through the
+# P0R.1 spike's capture-and-classify pipeline (unique per-solve logPath +
+# .sol capture -> parse_cbc_termination), returning a CBCCaptureResult whose
+# `lpStatus` mirrors the exact same pulp.LpStatus[prob.status] value every
+# existing call site already branches on (e.g. status_str == "Infeasible"),
+# so no other post-solve branching needs to change -- only what gets reported
+# as the envelope's solutionStatus/terminationReason.
 # ---------------------------------------------------------------------------
-def _envelope(status, quality, objective, run_time, edges, metrics, details, infeasibility_reason=None):
+def _run_cbc(prob, gap, time_limit, *, problem_uid=None, msg=False):
+    return solve_with_capture(
+        prob, gapRel=gap, timeLimit=time_limit, msg=msg, problem_uid=problem_uid)
+
+# ---------------------------------------------------------------------------
+# Standardized result envelope (Phase 3.5, G2.1; B2 adds truthful status).
+# `details` deliberately retains the pre-envelope `assignments`/
+# `openWarehouseIds` shape verbatim (not just the new generic `edges` view)
+# -- a pure refactor of where each already-computed value lives, not a
+# re-derivation, so no numeric value changes. `edges` is the new
+# model-agnostic view Phase 4/5 render from.
+#
+# B2: `solution_status` (one of cbc_termination.SOLUTION_STATUSES, or the
+# pre-existing "error" for a load/dispatch failure that never reached a
+# solve attempt at all) is now the argument every caller passes -- the
+# legacy `status` field is derived from it via `_STATUS_PROJECTION`, never
+# hardcoded to "optimal" again. `terminationReason`/`achievedGap`/
+# `solverIncumbentObjective`/`solverBestBound` are additive, nullable, and
+# come straight from CBC's own captured evidence (`_run_cbc`'s
+# CBCCaptureResult) wherever a solve was actually attempted; solver-math
+# derivation of `objective` itself is untouched (hard rule #6 / §2.9).
+# ---------------------------------------------------------------------------
+_STATUS_PROJECTION = {
+    "optimal": "optimal",
+    "feasible": "feasible",
+    "infeasible": "infeasible",
+    "no_solution": "no_solution",
+    "unbounded": "unbounded",
+}
+
+def _envelope(solution_status, quality, objective, run_time, edges, metrics, details,
+              infeasibility_reason=None, termination_reason=None, achieved_gap=None,
+              solver_incumbent_objective=None, solver_best_bound=None):
+    status = _STATUS_PROJECTION.get(solution_status, solution_status)
     return {
         "status": status,
+        "solutionStatus": solution_status,
+        "terminationReason": termination_reason,
+        "achievedGap": achieved_gap,
+        "solverIncumbentObjective": solver_incumbent_objective,
+        "solverBestBound": solver_best_bound,
         "objective": objective,
         "runTimeSec": round(run_time, 2),
         "quality": quality,
@@ -294,11 +340,10 @@ def solve_pmedian(inp):
             prob += LpConstraint(assign_vars[w, c] - facility_vars[w],
                                  LpConstraintLE, f"route_{w}_{c}", 0)
 
-    solver = PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False)
-    prob.solve(solver)
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="pmedian")
 
     run_time = time.time() - start
-    status_str = LpStatus[prob.status]
+    status_str = cbc.lpStatus
 
     if status_str == "Infeasible":
         forced_open = sum(1 for w in warehouses if get_bounds(w) == (1,1))
@@ -314,7 +359,10 @@ def solve_pmedian(inp):
                       "Increase P, raise capacity, or remove the capacity constraint.")
         return _envelope("infeasible", status_str, 0, run_time, [],
                           {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
-                          {"openWarehouseIds": [], "assignments": []}, reason)
+                          {"openWarehouseIds": [], "assignments": []}, reason,
+                          termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                          solver_incumbent_objective=cbc.solverIncumbentObjective,
+                          solver_best_bound=cbc.solverBestBound)
 
     open_wh_nums = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
     open_wh_ids  = [wh_data[w]['id'] for w in open_wh_nums]
@@ -362,9 +410,12 @@ def solve_pmedian(inp):
         utilization.append({"warehouseId": wh_data[w]['id'], "city": wh_data[w]['city'],
                              "utilization": min(100, round(wh_demand[w] * 100 / cap_for_util))})
 
-    return _envelope("optimal", status_str, round(obj_val), run_time, edges,
+    return _envelope(cbc.solutionStatus, status_str, round(obj_val), run_time, edges,
                       {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(wt_avg, 1)},
-                      {"openWarehouseIds": open_wh_ids, "assignments": assignments})
+                      {"openWarehouseIds": open_wh_ids, "assignments": assignments},
+                      termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                      solver_incumbent_objective=cbc.solverIncumbentObjective,
+                      solver_best_bound=cbc.solverBestBound)
 
 # ---------------------------------------------------------------------------
 # Transportation LP solver (Chapter 5)
@@ -463,11 +514,10 @@ def solve_transport(inp):
                     flow[m, s] - effective_demand(s) * source[m, s],
                     LpConstraintLE, f"link_{m}_{s}", 0)
 
-    solver = PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False)
-    prob.solve(solver)
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="transport")
 
     run_time   = time.time() - start
-    status_str = LpStatus[prob.status]
+    status_str = cbc.lpStatus
 
     if status_str == "Infeasible":
         total_capacity = sum(int((get_base_capacity(m) or 0) * capacity_factor) for m in mines)
@@ -488,7 +538,10 @@ def solve_transport(inp):
             )
         return _envelope("infeasible", status_str, 0, run_time, [],
                           {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
-                          {"openWarehouseIds": mines, "assignments": []}, reason)
+                          {"openWarehouseIds": mines, "assignments": []}, reason,
+                          termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                          solver_incumbent_objective=cbc.solverIncumbentObjective,
+                          solver_best_bound=cbc.solverBestBound)
 
     obj_val = value(prob.objective) or 0
     avg_dist = obj_val / total_demand if total_demand > 0 else 0
@@ -532,9 +585,12 @@ def solve_transport(inp):
             util = 0  # unconstrained added mine (no capacity given) — nothing to be "full" against
         utilization.append({"warehouseId": m, "city": mine_data[m]['city'], "utilization": util})
 
-    return _envelope("optimal", status_str, round(obj_val), run_time, edges,
+    return _envelope(cbc.solutionStatus, status_str, round(obj_val), run_time, edges,
                       {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(avg_dist, 1)},
-                      {"openWarehouseIds": mines, "assignments": assignments})
+                      {"openWarehouseIds": mines, "assignments": assignments},
+                      termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                      solver_incumbent_objective=cbc.solverIncumbentObjective,
+                      solver_best_bound=cbc.solverBestBound)
 
 # ---------------------------------------------------------------------------
 # Capacitated P-Median solver — Brazil Facility Location (Chapter 5)
@@ -601,6 +657,13 @@ def solve_capacitated_pmedian(inp):
                     "exactly one warehouse, but no warehouse can absorb this much demand. "
                     "Solution: toggle Single-source OFF to allow demand to split across warehouses."
                 ),
+                # No CBC evidence exists -- this is a pure pre-solve, dataset-
+                # derived infeasibility (a region's demand mathematically
+                # exceeds the single-warehouse capacity), detected before any
+                # solve is attempted. termination_reason mirrors the
+                # solution_status literal rather than fabricating CBC log
+                # evidence that was never produced.
+                termination_reason="infeasible",
             )
 
     start = time.time()
@@ -652,11 +715,10 @@ def solve_capacitated_pmedian(inp):
                 assign_vars[w, r] - facility_vars[w],
                 LpConstraintLE, f"route_{w}_{r}", 0)
 
-    solver = PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False)
-    prob.solve(solver)
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="brazil")
 
     run_time   = time.time() - start
-    status_str = LpStatus[prob.status]
+    status_str = cbc.lpStatus
 
     if status_str not in ("Optimal", "Not Solved"):
         # Generic infeasibility fallback
@@ -668,7 +730,10 @@ def solve_capacitated_pmedian(inp):
         )
         return _envelope("infeasible", status_str, 0, run_time, [],
                           {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
-                          {"openWarehouseIds": [], "assignments": []}, reason)
+                          {"openWarehouseIds": [], "assignments": []}, reason,
+                          termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                          solver_incumbent_objective=cbc.solverIncumbentObjective,
+                          solver_best_bound=cbc.solverBestBound)
 
     open_wh_ids = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
 
@@ -713,9 +778,12 @@ def solve_capacitated_pmedian(inp):
         for w in open_wh_ids
     ]
 
-    return _envelope("optimal", status_str, round(obj_val), run_time, edges,
+    return _envelope(cbc.solutionStatus, status_str, round(obj_val), run_time, edges,
                       {"utilizationByNode": utilization, "bandCoverage": band_coverage, "weightedAvgDistance": round(wt_avg, 1)},
-                      {"openWarehouseIds": open_wh_ids, "assignments": assignments})
+                      {"openWarehouseIds": open_wh_ids, "assignments": assignments},
+                      termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                      solver_incumbent_objective=cbc.solverIncumbentObjective,
+                      solver_best_bound=cbc.solverBestBound)
 
 # ---------------------------------------------------------------------------
 # Two-Echelon Gold Refinery solver (Chapter 10)
@@ -819,9 +887,9 @@ def solve_two_echelon(inp):
         prob += LpConstraint(lpSum(x[p, r] for p in mines) - bom * lpSum(y[r, c] for c in customers),
                              LpConstraintEQ, f"bom_balance_{r}", 0)
 
-    prob.solve(PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False))
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="two_echelon")
     run_time   = time.time() - start
-    status_str = LpStatus[prob.status]
+    status_str = cbc.lpStatus
 
     if status_str == "Infeasible":
         active = [r for r in refineries if get_ref_status(r) != "inactive"]
@@ -835,7 +903,10 @@ def solve_two_echelon(inp):
         else:
             reason = f"No feasible assignment for total demand of {total_demand:,.0f} kg."
         return _envelope("infeasible", status_str, 0, run_time, [],
-                         _EMPTY_METRICS, {"openWarehouseIds": [], "assignments": []}, reason)
+                         _EMPTY_METRICS, {"openWarehouseIds": [], "assignments": []}, reason,
+                         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                         solver_incumbent_objective=cbc.solverIncumbentObjective,
+                         solver_best_bound=cbc.solverBestBound)
 
     EPS = max(total_demand * 1e-9, 1e-6)          # relative, not absolute
     open_ids = [r for r in refineries if (open_r[r].varValue or 0) > 0.5]
@@ -908,13 +979,16 @@ def solve_two_echelon(inp):
     utilization = [{"warehouseId": r, "city": refinery_data[r]['city'],
                     "utilization": 100 if r in open_ids else 0} for r in refineries]
 
-    return _envelope("optimal", status_str, round(value(prob.objective) or 0, 2), run_time, edges,
+    return _envelope(cbc.solutionStatus, status_str, round(value(prob.objective) or 0, 2), run_time, edges,
                      {"utilizationByNode": utilization,
                       "bandCoverage": band_coverage,
                       "weightedAvgDistance": blended,
                       "avgDistanceByLeg": avg_by_leg},
                      {"openWarehouseIds": open_ids, "assignments": assignments,
-                      "bomRatio": bom})
+                      "bomRatio": bom},
+                     termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                     solver_incumbent_objective=cbc.solverIncumbentObjective,
+                     solver_best_bound=cbc.solverBestBound)
 
 # ---------------------------------------------------------------------------
 # JADE Multi-Product Two-Echelon solver (Chapter 9)
@@ -1060,11 +1134,10 @@ def solve_jade(inp):
         prob += LpConstraint(lpSum(single_source[w, c] for w in warehouses),
                              LpConstraintLE, f"onesrc_{c}", 1)
 
-    solver = PULP_CBC_CMD(keepFiles=False, gapRel=gap, timeLimit=time_limit, msg=False)
-    prob.solve(solver)
+    cbc = _run_cbc(prob, gap, time_limit, problem_uid="jade")
 
     run_time   = time.time() - start
-    status_str = LpStatus[prob.status]
+    status_str = cbc.lpStatus
 
     if status_str == "Infeasible":
         forced_open  = sum(1 for w in warehouses if get_bounds(w) == (1, 1))
@@ -1086,7 +1159,10 @@ def solve_jade(inp):
         else:
             reason = (f"Model is infeasible with P={p}. Total demand is {total_demand:,.0f} tons; "
                       "check plant-product capability coverage and warehouse force/inactive bounds.")
-        return _envelope("infeasible", status_str, 0, run_time, [], _EMPTY_METRICS, _EMPTY_DETAILS, reason)
+        return _envelope("infeasible", status_str, 0, run_time, [], _EMPTY_METRICS, _EMPTY_DETAILS, reason,
+                          termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                          solver_incumbent_objective=cbc.solverIncumbentObjective,
+                          solver_best_bound=cbc.solverBestBound)
 
     open_ids = [w for w in warehouses if (facility_vars[w].varValue or 0) > 0.5]
 
@@ -1184,7 +1260,7 @@ def solve_jade(inp):
                     "utilization": round(wh_demand_served.get(w, 0.0))} for w in open_ids]
 
     return _envelope(
-        "optimal", status_str, round(value(prob.objective) or 0, 4), run_time, edges,
+        cbc.solutionStatus, status_str, round(value(prob.objective) or 0, 4), run_time, edges,
         {
             "utilizationByNode": utilization,
             "bandCoverage": band_coverage,
@@ -1196,6 +1272,9 @@ def solve_jade(inp):
             "outboundCost": round(outbound_cost, 2),
         },
         {"openWarehouseIds": open_ids, "assignments": details_assignments},
+        termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+        solver_incumbent_objective=cbc.solverIncumbentObjective,
+        solver_best_bound=cbc.solverBestBound,
     )
 
 # ---------------------------------------------------------------------------
@@ -1224,8 +1303,13 @@ def solve_chens(inp):
     total = sum(dem.values())
     hi, mx, p = inp["highServiceDistKm"], inp["maxDistKm"], inp["p"]
     if total <= 0:
+        # No CBC evidence exists -- this is a pure pre-solve, data-derived
+        # infeasibility (zero effective demand), detected before any solve
+        # is attempted. termination_reason mirrors the solution_status
+        # literal rather than fabricating CBC log evidence never produced.
         return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
-                         _EMPTY_METRICS, _EMPTY_DETAILS, "Total effective demand is zero")
+                         _EMPTY_METRICS, _EMPTY_DETAILS, "Total effective demand is zero",
+                         termination_reason="infeasible")
     # ×1.17 circuity applied in-solver only. .get((w,c), 9999) sentinel matches
     # every other model's missing-pair convention: an added entity with no
     # distanceOverrides/estimate to some counterpart is simply unreachable
@@ -1254,14 +1338,20 @@ def solve_chens(inp):
         for c in custs:
             prob += a[w, c] <= o[w]
             prob += a[w, c] <= mdp[w, c]
-    prob.solve(PULP_CBC_CMD(msg=0, gapRel=inp["gap"], timeLimit=inp["timeLimitSec"]))
-    st = LpStatus[prob.status]
+    cbc = _run_cbc(prob, inp["gap"], inp["timeLimitSec"], problem_uid="chens", msg=0)
+    st = cbc.lpStatus
     if st == "Infeasible":                                            # D17: mathematical infeasibility ONLY
         return _envelope("infeasible", "infeasible", 0, round(time.time() - t, 2), [],
-                         _EMPTY_METRICS, _EMPTY_DETAILS, "No feasible assignment under the constraints")
+                         _EMPTY_METRICS, _EMPTY_DETAILS, "No feasible assignment under the constraints",
+                         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                         solver_incumbent_objective=cbc.solverIncumbentObjective,
+                         solver_best_bound=cbc.solverBestBound)
     if st != "Optimal":                                              # Not Solved / Undefined / Unbounded / timeout → error
         return _envelope("error", "error", 0, round(time.time() - t, 2), [],
-                         _EMPTY_METRICS, _EMPTY_DETAILS, f"Solver terminated with status: {st}")
+                         _EMPTY_METRICS, _EMPTY_DETAILS, f"Solver terminated with status: {st}",
+                         termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                         solver_incumbent_objective=cbc.solverIncumbentObjective,
+                         solver_best_bound=cbc.solverBestBound)
     edges = []
     covered = 0.0
     tdd = 0.0
@@ -1284,7 +1374,10 @@ def solve_chens(inp):
                "openWarehouseIds": open_ids, "coveragePct": cov, "coveredDemand": int(covered),
                "uncoveredPct": round(100 - cov, 4), "assignments": []}
     obj = cov if mode == "coverage" else round(value(prob.objective), 2)   # D22: min-dist objective 2-dp
-    return _envelope("optimal", "optimal", obj, round(time.time() - t, 2), edges, metrics, details)
+    return _envelope(cbc.solutionStatus, st, obj, round(time.time() - t, 2), edges, metrics, details,
+                      termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
+                      solver_incumbent_objective=cbc.solverIncumbentObjective,
+                      solver_best_bound=cbc.solverBestBound)
 
 # ---------------------------------------------------------------------------
 # Dispatcher
