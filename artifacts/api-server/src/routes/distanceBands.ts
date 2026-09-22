@@ -3,6 +3,7 @@ import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
 import { db, scenariosTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth.js";
+import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 
 const router = Router();
@@ -34,6 +35,8 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  // ch4-lock — before any write, on a row proven to be the caller's own.
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   // Per-model validation delegated to the existing registry/validator, so
   // each model keeps its own rules — the same single source of truth every

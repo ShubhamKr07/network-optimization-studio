@@ -224,6 +224,18 @@ export const ManifestSchema = z.object({
     // pre-Bundle-2 manifests (none exist on disk, but any future stale
     // fixture) still parse.
     supportsFacilityStatus: z.boolean().optional().default(false),
+    // ch4-lock — true when this model is withheld from students. The api-server
+    // refuses every scenario-scoped read and write for a locked model (403),
+    // so the lock survives a student who bypasses the frontend route guard.
+    //
+    // It lives HERE, on the registry-backed capability record, for the same
+    // reason every flag around it does: a hardcoded `modelId === "..."` list in
+    // the routes is this repo's most-documented recurring bug class. The
+    // frontend keeps its own `Chapter.locked` (chapters.ts) so Landing can grey
+    // a card synchronously without waiting on GET /api/models — a student must
+    // never see a live card flash before the lock resolves. The two are held in
+    // agreement by an explicit drift test, not by convention.
+    locked: z.boolean().optional().default(false),
     // Bundle 2.2 (B2.2-T0) — true when this model exposes the immutable
     // base×base reference-distance matrix via GET /models/:id/reference-distances
     // (T7's DistancesTab reference section). Optional+defaulted so pre-existing

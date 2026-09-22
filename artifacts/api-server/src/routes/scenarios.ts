@@ -5,6 +5,7 @@ import { posthog } from "../lib/posthog.js";
 import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
 import type { SolveInput } from "../solver/pmedian.js";
 import { requireAuth } from "../middlewares/auth.js";
+import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
@@ -163,13 +164,19 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
 
 router.get("/scenarios", async (req, res) => {
   const modelId = req.query.modelId as string | undefined;
+  // ch4-lock — the param guard cannot cover this route (no single scenario to
+  // resolve). An explicit ?modelId= for a locked model is refused outright;
+  // an unscoped list silently drops locked rows rather than 403-ing the whole
+  // request, since a student with a Chapter 3 scenario and an old Chapter 4
+  // one must still get their Chapter 3 list.
+  if (modelId && isModelLocked(modelId)) { respondLocked(res); return; }
   const where = modelId
     ? and(eq(scenariosTable.userId, req.userId!), eq(scenariosTable.modelId, modelId))
     : eq(scenariosTable.userId, req.userId!);
   const rows = await db.select().from(scenariosTable)
     .where(where)
     .orderBy(scenariosTable.createdAt);
-  res.json(rows.map(toApiScenario));
+  res.json(rows.filter(row => !isModelLocked(row.modelId)).map(toApiScenario));
 });
 
 router.post("/scenarios", async (req, res) => {
@@ -178,6 +185,10 @@ router.post("/scenarios", async (req, res) => {
     res.status(422).json({ error: "modelId is required and must be a valid model" });
     return;
   }
+  // ch4-lock — no new scenarios in a locked chapter. Checked after the
+  // validity check so an unknown id still reads as 422 (malformed), not 403
+  // (exists but withheld).
+  if (isModelLocked(body.modelId)) { respondLocked(res); return; }
   const validation = validateInputsForModel(body.modelId, body.inputs);
   if (!validation.success) {
     res.status(422).json({ error: validation.error });
@@ -209,6 +220,7 @@ router.get("/scenarios/:scenarioId", async (req, res) => {
   const [row] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(row.modelId)) { respondLocked(res); return; }
   res.json(toApiScenario(row));
 });
 
@@ -227,6 +239,11 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     const [existing] = await db.select().from(scenariosTable)
       .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
     if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+    // ch4-lock — reuses the fetch this branch already performs rather than
+    // adding a second query. Ownership-scoped, so a row the caller does not
+    // own is never found here and falls through to the 404 above — a locked
+    // row must never answer 403 to a non-owner (hard rule #5).
+    if (isModelLocked(existing.modelId)) { respondLocked(res); return; }
     const validation = validateInputsForModel(existing.modelId, body.inputs);
     if (!validation.success) {
       res.status(422).json({ error: validation.error });
@@ -255,6 +272,15 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   }
   if (body.result !== undefined) updateObj.result = body.result;
 
+  // ch4-lock — a name-only PATCH never enters the inputs branch above, so it
+  // would otherwise slip past unchecked. Only queries when nothing has
+  // resolved the model yet, keeping the common inputs-PATCH path at one read.
+  if (body.inputs === undefined) {
+    const [existing] = await db.select({ modelId: scenariosTable.modelId }).from(scenariosTable)
+      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+    if (existing && isModelLocked(existing.modelId)) { respondLocked(res); return; }
+  }
+
   const [row] = await db.update(scenariosTable)
     .set({ ...updateObj, updatedAt: new Date() })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
@@ -276,6 +302,15 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
 
 router.delete("/scenarios/:scenarioId", async (req, res) => {
   const id = Number(req.params.scenarioId);
+  // ch4-lock — resolved BEFORE the write. Ownership-scoped, so a row the
+  // caller does not own simply isn't found here and falls through to the
+  // handler's own 404 — a locked row must never answer 403 to a non-owner
+  // (that would confirm another user's id exists; hard rule #5).
+  {
+    const [locked] = await db.select({ modelId: scenariosTable.modelId }).from(scenariosTable)
+      .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
+    if (locked && isModelLocked(locked.modelId)) { respondLocked(res); return; }
+  }
   // A solved scenario owns solve_jobs rows whose scenario_id FK points at it
   // (no ON DELETE CASCADE). Deleting the scenario first trips that FK
   // constraint and surfaces as a 500 to the caller. Fix: delete the child
@@ -438,6 +473,7 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
   if (!validation.success) {
@@ -485,6 +521,16 @@ router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
     ));
   if (!job) { res.status(404).json({ error: "Not found" }); return; }
 
+  // ch4-lock — a solve_jobs row carries no modelId, so resolve the parent
+  // scenario (ownership-scoped, same anti-enumeration reasoning as above).
+  // Polling is read-only, but it returns the solved result summary — leaving
+  // it open would hand back exactly what the lock withholds.
+  {
+    const [parent] = await db.select({ modelId: scenariosTable.modelId }).from(scenariosTable)
+      .where(and(eq(scenariosTable.id, scenarioId), eq(scenariosTable.userId, req.userId!)));
+    if (parent && isModelLocked(parent.modelId)) { respondLocked(res); return; }
+  }
+
   res.json({
     id: job.id,
     status: job.status,
@@ -506,6 +552,7 @@ router.get("/scenarios/:scenarioId/precheck", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
   if (!validation.success) {
@@ -590,6 +637,7 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   if (OUTPUT_ENTITIES.includes(entity as OutputEntity)) {
     // C6.1 — generalized from a hardcoded p-median-us-only check to reading
@@ -1460,6 +1508,7 @@ router.post("/scenarios/:scenarioId/import", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   // Same model↔entity pairing the export route enforces: p-median-us/
   // p-median-brazil (T9 — Brazil shares p-median-us's exact entity set)
@@ -1535,6 +1584,7 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   // distances/laneCosts/legDistances (B4.1/Task 30/B6.2) are
   // p-median-us-and-p-median-brazil-only (T9)/transport-coal-only/
@@ -1789,6 +1839,7 @@ router.post("/scenarios/:scenarioId/clone", async (req, res) => {
   const [scenario] = await db.select().from(scenariosTable)
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)));
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
+  if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
   const [clone] = await db.insert(scenariosTable).values({
     name: `${scenario.name} (copy)`,

@@ -68,6 +68,7 @@ import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_WAREHOUSES, JADE_CUSTOMERS } from "../data/jadeDataset.js";
 import { CHENS_CUSTOMERS } from "../data/chensDataset.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
+import { isModelLocked, lockedModelIds, setLockedModelsForTests } from "../middlewares/lockedModel.js";
 // Import the (mocked) table symbols so the DELETE regression test can assert
 // which table each db.delete call targeted.
 import { scenariosTable, solveJobsTable } from "@workspace/db";
@@ -284,6 +285,11 @@ const chensRow = {
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
+  // ch4-lock — every pre-existing test in this file predates the lock and
+  // exercises real Chen/JADE behavior. Unlock for their duration so locking a
+  // chapter in production does not silently delete that coverage; the lock's
+  // own describe re-arms the set it needs.
+  setLockedModelsForTests([]);
   // Defaults: not found / no-op. clearAllMocks() only resets call history, not
   // configured return values, so every mock needs an explicit per-test-file default
   // or a later test can silently inherit an earlier test's mockReturnValue.
@@ -3492,3 +3498,148 @@ describe("transport scenario — field serialization", () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// ch4-lock — server-side enforcement of a withheld chapter.
+//
+// The frontend greys the card and guards the route, but a route guard is worth
+// about thirty seconds against devtools. These assert the half that actually
+// holds: no client, however crafted, can reach a locked model's data.
+// ---------------------------------------------------------------------------
+describe("locked models (ch4-lock)", () => {
+  const LOCKED_MODEL = "chens-cosmetics-cn";
+  const OPEN_MODEL = "p-median-us";
+
+  // Re-arm the real lock for this describe only — the file-wide beforeEach
+  // unlocks everything so the pre-lock suites keep their coverage.
+  beforeEach(() => { setLockedModelsForTests([LOCKED_MODEL, "two-echelon-jade-us"]); });
+
+  describe("the locked set comes from the manifests, not a hardcoded route list", () => {
+    // Reads the REAL manifests (override cleared), so this genuinely pins
+    // what ships — not what a test happened to set.
+    it("reports exactly the two locked chapters, from the manifests", () => {
+      setLockedModelsForTests(null);
+      expect(lockedModelIds().sort()).toEqual(["chens-cosmetics-cn", "two-echelon-jade-us"]);
+    });
+
+    it("does not lock an open or unknown model", () => {
+      setLockedModelsForTests(null);
+      expect(isModelLocked(OPEN_MODEL)).toBe(false);
+      expect(isModelLocked(undefined)).toBe(false);
+      expect(isModelLocked("no-such-model")).toBe(false);
+    });
+  });
+
+  describe("creation", () => {
+    it("refuses to create a scenario in a locked chapter, writing nothing", async () => {
+      const cookie = await loginAs(OWNER);
+      const res = await request(app)
+        .post("/api/scenarios")
+        .set("Cookie", cookie)
+        .send({ name: "sneaky", modelId: LOCKED_MODEL, inputs: chensInputs });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("This chapter is locked.");
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("keeps an unknown model at 422 — malformed and withheld stay distinguishable", async () => {
+      const cookie = await loginAs(OWNER);
+      const res = await request(app)
+        .post("/api/scenarios")
+        .set("Cookie", cookie)
+        .send({ name: "x", modelId: "not-a-model", inputs: {} });
+      expect(res.status).toBe(422);
+    });
+  });
+
+  describe("listing", () => {
+    it("refuses an explicit ?modelId= for a locked chapter", async () => {
+      const cookie = await loginAs(OWNER);
+      const res = await request(app).get(`/api/scenarios?modelId=${LOCKED_MODEL}`).set("Cookie", cookie);
+      expect(res.status).toBe(403);
+    });
+
+    // A student with both a Chapter 3 and an old Chapter 4 scenario must still
+    // get their Chapter 3 list — 403-ing the whole request would break the
+    // homepage for anyone who ever opened a now-locked chapter.
+    it("drops locked rows from an unscoped list while keeping open ones", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValueOnce(makeChain([pmedianRow, chensRow, jadeRow]));
+      const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.map((s: { id: number }) => s.id)).toEqual([pmedianRow.id]);
+    });
+  });
+
+  // The param guard is the whole point: asserted as a SET so a route added
+  // later is covered by construction, and removing the guard fails loudly
+  // across every one of them at once rather than in a single forgotten spot.
+  describe("every :scenarioId route is refused", () => {
+    // Each case carries a body its route accepts. Several handlers validate
+    // the body BEFORE they ever look the scenario up, so a junk body would
+    // return 422/400 and the test would "pass" the lock check without the
+    // lock having been consulted at all.
+    const IMPORT_BODY = { entity: "customers", csvText: "id,demand\n" };
+    const cases: Array<[string, "get" | "post" | "patch" | "delete", string, object]> = [
+      ["read", "get", "/api/scenarios/13", {}],
+      ["update", "patch", "/api/scenarios/13", { name: "renamed" }],
+      ["delete", "delete", "/api/scenarios/13", {}],
+      ["solve", "post", "/api/scenarios/13/solve", {}],
+      ["precheck", "get", "/api/scenarios/13/precheck", {}],
+      ["export", "get", "/api/scenarios/13/export?entity=customers&format=csv", {}],
+      ["import", "post", "/api/scenarios/13/import", IMPORT_BODY],
+      ["import apply", "post", "/api/scenarios/13/import/apply", { ...IMPORT_BODY, mode: "all_or_nothing" }],
+      ["clone", "post", "/api/scenarios/13/clone", {}],
+      ["distance-bands", "patch", "/api/scenarios/13/distance-bands", { distanceBands: [100] }],
+    ];
+
+    it.each(cases)("refuses %s with 403", async (_label, method, path, body) => {
+      const cookie = await loginAs(OWNER);
+      // A full row, not a `{modelId}` stub: several of these handlers read
+      // other columns before reaching the guard, and a stub would make them
+      // fail for the wrong reason.
+      mockDb.select.mockReturnValue(makeChain([chensRow]));
+      const res = await request(app)[method](path).set("Cookie", cookie).send(body);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("This chapter is locked.");
+    });
+
+    it("leaves an open model's scenario fully reachable (no collateral damage)", async () => {
+      const cookie = await loginAs(OWNER);
+      // ONE queued result: the handler's own ownership-scoped fetch is the
+      // same read the guard inspects — queuing two would leave residue in the
+      // shared mock queue and break whichever test ran next.
+      mockDb.select.mockReturnValueOnce(makeChain([pmedianRow]));
+      const res = await request(app).get(`/api/scenarios/${pmedianRow.id}`).set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(pmedianRow.id);
+    });
+  });
+
+  // Hard rule #5. If the guard answered 403 for a row the caller does not own,
+  // 403-vs-404 would confirm another user's scenario id exists — the exact
+  // side channel 404-never-403 exists to close. The guard's lookup is
+  // ownership-scoped, so a non-owned id finds nothing and falls through.
+  describe("anti-enumeration", () => {
+    it("returns 404, not 403, for another user's locked scenario", async () => {
+      const cookie = await loginAs("intruder");
+      // Ownership-scoped read finds nothing for this caller, so the lock is
+      // never consulted and the handler's own 404 stands.
+      mockDb.select.mockReturnValueOnce(makeChain([]));
+      const res = await request(app).get(`/api/scenarios/${chensRow.id}`).set("Cookie", cookie);
+      expect(res.status).toBe(404);
+    });
+
+    it("is indistinguishable from a wholly non-existent id", async () => {
+      const cookie = await loginAs("intruder");
+      mockDb.select.mockReturnValueOnce(makeChain([]));
+      const res = await request(app).get("/api/scenarios/999999").set("Cookie", cookie);
+      expect(res.status).toBe(404);
+    });
+  });
+
+  it("still answers 401 before any lock hint for an unauthenticated caller", async () => {
+    const res = await request(app).get(`/api/scenarios/${chensRow.id}`);
+    expect(res.status).toBe(401);
+  });
+});

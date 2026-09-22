@@ -10,6 +10,7 @@
     "demandEditable": true,
     "outputGrids": ["openWarehouses", "assignments", "flows", "costSummary", "serviceStats"],
     "supportsFacilityStatus": true,
+    "locked": true,
     "supportsReferenceDistances": true,
     "supportsAddedCustomerExclusion": true,
     "supportsPlantProductCapability": true

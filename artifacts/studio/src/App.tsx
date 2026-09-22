@@ -62,7 +62,17 @@ export function Gate() {
       <Route path="/">{authedOnly(<Landing />, "Network Design Labs", true)}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>
-          {c.workspace
+          {/* ch4-lock — a locked chapter's route STAYS registered (this file's
+              own hard-won rule: every path must always resolve to a real
+              Route, or a transitional render lands on the catch-all NotFound
+              instead of a valid redirect). Only its CONTENT branches: an
+              authed visitor is sent back to Landing, where the greyed
+              "Locked" card is the explanation; an unauthed one still goes to
+              /login first, so the lock never leaks that the route exists to
+              a logged-out stranger. */}
+          {c.locked
+            ? user ? <Redirect to="/" /> : <Redirect to="/login" />
+            : c.workspace
             ? // A0.2 pilot route flip (SCN v0.3 DD-4): Workspace renders its
               // own full self-contained header (app name, scenario picker,
               // account, Run Optimizer) — wrapping it in AppShell too (which

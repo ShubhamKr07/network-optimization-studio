@@ -52,6 +52,11 @@ vi.mock("../solver/jobRunner.js", () => ({
 
 import app from "../app.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
+import { setLockedModelsForTests } from "../middlewares/lockedModel.js";
+
+// ch4-lock — this suite round-trips real Chen/JADE imports. Unlock for its
+// duration so production locking those chapters does not delete the coverage.
+beforeEach(() => { setLockedModelsForTests([]); });
 
 function makeChain(returnValue: unknown) {
   const chain: Record<string, unknown> = {};
