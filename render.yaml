@@ -6,6 +6,11 @@ services:
     dockerContext: .
     plan: starter
     healthCheckPath: /api/healthz
+    # Platform-enforced drain budget for SIGTERM shutdown (see
+    # docs/ops/shutdown-budget.md). Default is 30s; raised to 120s so a
+    # long-running CBC solve has room to finish/interrupt cleanly before
+    # SIGKILL. Below the 300s cap.
+    maxShutdownDelaySeconds: 120
     envVars:
       - key: NODE_ENV
         value: production
