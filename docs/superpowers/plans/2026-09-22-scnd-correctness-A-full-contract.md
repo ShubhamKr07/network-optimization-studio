@@ -476,3 +476,177 @@ A cross-cutting note for a later reviewer: the recurring failure mode across all
 **Cross-cutting note, updated after round 4.** Rounds 1–3 were dominated by *compression* failures. Round 4 is dominated by a different and harder class: **composition** failures, where two individually correct tasks contradict each other at their seam — A-R34 (dispatcher vs subscribers), A-R32 (a CAS with no authority behind it), A-R37 (one transition under three names), A-R36 (two guarantees that cannot both hold). Single-task review will not surface these. Audit the **seams**: for every cross-task reference — "A7's CAS", "stays queued", "released" — check that the named thing exists, that both sides mean the same state, and that both tasks' predicates agree on which rows they touch.
 
 ---
+
+## Re-approval review round 5 (2026-09-22)
+
+### Decision
+
+**REQUEST CHANGES — NOT APPROVED FOR FULL EXECUTION.**
+
+The round-4 fold closes the earlier gate deadlock, makes the no-retry guarantee honest, introduces a real latest-job authority, separates waiting subscribers from the durable dispatcher, and substantially improves the active-run schema. Those are material improvements and should remain.
+
+The consolidated plan still does not compose into an executable correctness protocol. The most important remaining failures are concrete: an input edit without a second solve still passes the proposed publication CAS; A10 clears a subscriber's ownership and later requires that missing ownership to complete it; a sealed active run prevents a late caller from attaching **and** prevents the promised fresh election; the active run has no liveness source once its winner job completes; and deleting the winner job cascades away the coordination row while leaving other jobs waiting forever.
+
+This review does not withdraw the product-owner authorization already recorded for the **configuration/documentation portions** of A3 and A14. It does find that A14, as currently written, cannot be completed independently because its integration acceptance depends on A2/A3. No other implementation task is approved by this review.
+
+### Blocking findings
+
+#### A-R39 — CRITICAL: `latest_solve_job_id` does not protect against input mutation and is not monotonic under concurrent enqueue
+
+A7 explicitly requires a test for "an input edit with no second solve." The proposed scenario CAS checks only `scenarios.latest_solve_job_id = job.id`. Editing solve-relevant inputs does not change that pointer, so the old job still passes the CAS and publishes a result for inputs the scenario no longer contains. The acceptance test has no backing predicate.
+
+There is a second race inside enqueue. The route reads and validates the scenario before `enqueueSolveJob`; the plan then inserts a job and updates `latest_solve_job_id` in a transaction. A concurrent input edit can land between the route read and that transaction, so the persisted snapshot and the scenario state diverge before the job is even accepted. Two concurrent enqueue transactions can also finish their scenario updates in the opposite order from their job IDs unless the scenario row is locked or the update is conditional, allowing the older job to become "latest."
+
+**Required correction:** define one atomic request/publication authority that covers both job order and input state. Recommended:
+
+- add or adopt a monotonically increasing **solve-input revision**; the current `inputs_version` is not sufficient merely because it exists—current mutation paths do not increment it;
+- increment that revision on every solve-relevant input mutation, while preserving the deliberate non-staling exception for reporting-only `distanceBands` edits;
+- inside the enqueue transaction, lock/re-read the owned scenario, validate/capture its current inputs and revision, insert the job, and update `latest_solve_job_id` without permitting a lower job ID/revision to overwrite a newer one;
+- persist the captured revision on the job, then require **both** latest job ID and unchanged solve-input revision in A7's scenario publication CAS;
+- enumerate every writer that must advance the revision or invalidate publication: PATCH, import/apply, reset-to-baseline, distance overrides, added/deleted entities, and any other model input writer; and
+- add those route/service/schema files to task ownership.
+
+Tests must cover input mutation during enqueue, mutation after enqueue without resubmission, two concurrent enqueues committing in inverted order, reporting-only edits, and a mutation racing a cache-hit publication.
+
+#### A-R40 — CRITICAL: the recovery identity knowingly permits semantic drift before A6
+
+A1 now calls the existing `inputs_hash` a recovery identity, but the task itself records that it hashes only `solve.py` for solver code. It therefore does **not** detect a `cbc_termination.py`-only parser change. It also does not identify the Node result parser/schema, PuLP, or the actual CBC executable. `SOLVER_CODE_HASH` is truncated to 12 hexadecimal characters and the current component concatenation is not length-framed. Yet A2 is allowed to execute before A6 and claims it will never run an old accepted snapshot under changed semantics.
+
+An acknowledged silent-mismatch path cannot satisfy a correctness gate. A3 makes `cbc_termination.py` part of the truthful-result contract, so parser-only drift is not hypothetical or outside scope.
+
+**Required correction:** choose one of two coherent orderings:
+
+1. make A2 depend on the approved G-cache artifact/A6 identity and use that complete runtime-derived identity for enqueue and claim; or
+2. define a complete interim **recovery contract identity** before A2 that covers every semantics-bearing solver/parser/schema/dataset artifact, with unambiguous framing and a full digest, then have A6 extend the same manifest with PuLP/CBC runtime identity for cache correctness.
+
+Whichever is chosen, specify old-row behavior when the identity algorithm itself changes and test one-component-only changes for `solve.py`, `cbc_termination.py`, the Node schema/parser, dataset bytes/version, PuLP, and CBC. Remove the claim that the current solve.py-only hash is version-safe.
+
+#### A-R41 — CRITICAL: A10 cannot terminally complete waiting subscribers with A2's ownership predicate
+
+A10 correctly transitions a losing job from `running` to `waiting_on_active_run` and clears `claim_generation`, `claimed_at`, and `owner_heartbeat_at`. Its fan-out step then requires an "ownership-checked job completion." A2's exact terminal predicate is `id + status='running' + claim_generation`. That predicate can never match a waiting subscriber because A10 deliberately removed both the status and generation it requires.
+
+The winner path is also incomplete. The revised election text says a returned active-run ID means winner, but no normative step attaches the winner as a subscriber or defines a separate winner completion path. Consequently the fan-out cursor invariant does not say whether it includes the winner, and the winner's job/scenario may never be completed/published.
+
+**Required correction:** publish distinct exact terminal predicates and membership rules:
+
+- decide whether the winner is inserted into `solve_active_run_subscribers`. Recommended: include it, mark its subscriber role explicitly, and define whether it is processed first or last;
+- winner completion must use its `running + claim_generation` ownership predicate;
+- follower completion must use `status='waiting_on_active_run'` plus an uncompleted membership row for the exact active-run ID, not the cleared winner lease;
+- in one subscriber transaction, atomically terminalize the correct job, set subscriber `completed_at`, conditionally publish the scenario, and advance the cursor;
+- define the zero-row result separately for winner, waiting follower, deleted job, and already-completed idempotent replay; and
+- make success and failure fan-out use the same membership/terminal invariants.
+
+Tests must prove winner completion, waiting-follower completion, stale active-run ID rejection, idempotent replay, and a deleted subscriber without violating the cursor invariant.
+
+#### A-R42 — CRITICAL: active-run liveness and post-seal arrival behavior are not implementable from the published schema
+
+The stale-takeover rule says an active run is stale when its `claim_generation` has an expired heartbeat, but `solve_active_runs` has no heartbeat column and a generation is not itself a heartbeat source. The only heartbeat is on the winner's `solve_jobs` row. During fan-out the winner can become terminal before other subscribers; its heartbeat then stops even though the active run still needs a live owner. Recovery cannot distinguish live fan-out from a dead owner.
+
+The late-arrival rule is also contradictory. After `subscribers_sealed_at` is set, a caller cannot attach and is told to proceed as a fresh election. But the partial unique index still covers the sealed `fanning_out_*` row because it excludes only terminal states. The fresh insert necessarily conflicts; "retry once" does not create a legal state transition.
+
+**Required correction:**
+
+- give the active run its own ownership/liveness fields and ownership-checked heartbeat through solve **and fan-out**, or keep the winner job `running` and heartbeating until the entire active run is terminal; state which one is authoritative;
+- define exact takeover predicates for `electing`, `running`, `outcome_durable`, and both fan-out states without referring to a nonexistent generation heartbeat;
+- choose exact post-seal behavior. Recommended: a late caller waits on/consumes the durable outcome without joining the sealed cursor set, or remains in a non-dispatchable state until the current run becomes terminal/cache-visible. Do not promise a fresh election while the unique index forbids it;
+- ensure a late caller does not occupy a worker slot while waiting; and
+- test owner death before outcome, after outcome, during fan-out, winner completion before followers, and a late arrival at both sides of the seal transaction.
+
+#### A-R43 — CRITICAL: A10's winner `ON DELETE CASCADE` can strand every other subscriber
+
+The proposed `winner_job_id ... ON DELETE CASCADE` deletes the active-run row when the winner job is deleted; subscriber rows then cascade from the active run. The current scenario-delete route explicitly deletes all `solve_jobs` for that scenario before deleting the scenario. If the winner's scenario is deleted while an identical solve has subscribers for other scenarios/users, the active run and every membership row disappear, but those other jobs remain `waiting_on_active_run` with nothing capable of completing them.
+
+This is a deterministic permanent-stall path created by the new schema.
+
+**Required correction:** do not cascade coordination ownership away from live subscribers. Define the deletion/cancellation protocol before choosing FK actions:
+
+- use `RESTRICT`/an explicitly nullable owner reference or transfer active-run ownership before deleting a non-terminal winner;
+- make scenario deletion atomically remove/cancel that scenario's membership while preserving or deterministically failing the remaining run;
+- if the winner disappears, either let the supervised computation finish under active-run ownership, elect a replacement owner, or move the sealed run to resumable failure fan-out—choose one;
+- update `routes/scenarios.ts` ownership because its current child-first deletion order is directly affected; and
+- test deleting the winner scenario, deleting a follower scenario, deleting the final subscriber, and deletion racing seal/fan-out.
+
+No remaining job may stay `waiting_on_active_run` without a live or recoverable active-run row.
+
+#### A-R44 — HIGH: the null-heartbeat rollout path can steal work from a still-live pre-A2 process
+
+A2 proposes adopting a `running` row with a valid snapshot but null heartbeat by stamping the new generation at boot. During the A1→A2 rolling deployment, that row can still be executing in a pre-A2 process, which has no heartbeat and no ownership-checked terminal update. The new process can adopt and later fail the row while the old process continues and publishes unconditionally. This recreates the rolling-deploy race the lease was introduced to prevent.
+
+**Required correction:** make the A1/A2 release boundary explicit and safe:
+
+- do not deploy A1's schema/enqueue writer as a live revision without A2's owner-aware runner, even though they remain separate review commits;
+- require drain evidence proving no pre-A2 process remains before any null-heartbeat valid-snapshot row is adopted/failed; or introduce a transitional owner/version fence the old process also honors;
+- define an atomic predicate for the one-time null-lease transition rather than "if unclaimed by this generation"; and
+- test with an actually old-style owner that has no heartbeat and would otherwise publish late.
+
+The controller may cherry-pick A1 and A2 separately for review, but the deployment unit must contain both unless a safe compatibility protocol is specified.
+
+#### A-R45 — HIGH: A14 is authorized as independent, but its completion test depends on blocked tasks and stale language remains in QA
+
+The header still says "one task is authorized" and "three deep approval reviews / 30 findings" immediately before authorizing A3 and A14 and recording four rounds / 38 findings. More substantively, the DAG marks A14 as dependency-free and authorized, but A14's acceptance test requires A3's process-group supervisor and A2's drain/database transition. A14 cannot finish that test—or satisfy one-task/one-commit independently—while A2 remains gated.
+
+The round-4 semantic correction also did not reach every acceptance criterion:
+
+- A14's test still says "row released";
+- A13a still says execution may repeat after an ambiguous crash, contradicting the selected no-automatic-retry contract; and
+- A13a still requires "ownership released" for the over-deadline solve, while A2/A14 now require terminal interrupted/failed.
+
+**Required correction:** split or re-order the work:
+
+- **A14a**, authorized now: `render.yaml` plus the shutdown-budget runbook and Blueprint/live-setting verification;
+- **A14b** or A13a, after A2+A3: the over-deadline integration proof and database terminal-state assertion;
+- correct all QA language to terminal failure/no automatic retry; and
+- update the status header, review count, finding count, DAG, and R3 prerequisite names consistently.
+
+The Render control itself remains sound: `maxShutdownDelaySeconds` is the correct bounded drain control, and 120 s with a 90 s internal deadline preserves a useful safety margin.
+
+#### A-R46 — HIGH: the rollout drain proof and evidence-write workflow are still not independently auditable
+
+A11 still owns unnamed "feature-flag config" rather than a concrete module/file. More importantly, polling `/api/healthz` cannot prove that zero old Render instances remain: after traffic switches, the public proxy routes requests to the new revision while the old revision may still be draining and is no longer externally sampleable. "No response carries a pre-R1 version" therefore proves routing, not old-process death, and the observation-window duration is not stated.
+
+The activation evidence is to be written to a Git changelog after an external environment flip. With the current auto-deploy behavior, pushing that evidence commit can itself create a new deployment with the flag already enabled, changing the commit/deploy pair the evidence purports to describe.
+
+**Required correction:**
+
+- name the exact flag module and all owned files/tests; define how local/test environments override the default safely;
+- prove drain using the Render deployment lifecycle: record the successful deploy/revision, wait through the configured maximum shutdown window (plus stated margin), and capture platform deploy/instance/log evidence that the old revision received SIGTERM and exited or was killed; use the health/build signal as corroboration, not sole proof;
+- state the exact drain observation duration;
+- choose an evidence sink/workflow that does not silently trigger a second production deploy, such as an approved out-of-band deployment record later mirrored to Git with auto-deploy suppressed, or explicitly record and validate the follow-up deploy as a second activation event; and
+- make the rollback record follow the same deploy-ID/commit-SHA discipline.
+
+#### A-R47 — HIGH: the public retry contract is not derivable from the failure API
+
+A2 introduces an "explicitly retryable" version-mismatch outcome and the selected no-automatic-retry policy requires the UI to offer retry for interrupted/ambiguous failures. A5 exposes only `errorCode ∈ {SOLVE_FAILED, TIMEOUT}` plus a safe message. A9 does not state whether every failure is retryable or how it distinguishes the retryable subset without consuming internal `failureReason`/`failureStage` fields that A5 correctly forbids from the public API.
+
+**Required correction:** choose one public rule and make it testable:
+
+- simplest: every terminal solve failure (`SOLVE_FAILED` and `TIMEOUT`) presents the retry action, with synchronous `INPUT_INVALID` remaining non-job/422; or
+- add a bounded public `retryable` boolean/enum derived server-side from the internal class.
+
+Add the version-mismatch/contract-drift mapping to A5's exhaustive table, state the temporary pre-A5 safe message used by A2, and test that the frontend never infers retryability by parsing `errorMessage` text.
+
+### Validated improvements to retain
+
+- The gate matrix correctly separates design closure, task-specific G-cache blocking, review approval, and cohort authorization; after A-R45's status cleanup it is a workable control surface.
+- A2's 5 s bounded dispatcher, single-tick mutex, shared slot reservation, bounded backoff, ownership-checked heartbeat, and explicit no-automatic-retry guarantee are coherent directions.
+- `latest_solve_job_id` is the right separate provenance/authorization concept; A-R39 requires adding input revision and concurrency semantics, not reverting it.
+- `waiting_on_active_run` is the right internal state and must remain excluded from the A2 claim index.
+- A10's sealed membership, durable outcome, non-terminal fan-out states, cursor atomicity, and bounded retention materially improve crash recovery; A-R41–A-R43 close the remaining job/owner/deletion seams.
+- A11 correctly distinguishes a committed default-off flag from a product-owner-authorized external Render change and defines a safe transitional `error` alias.
+- The Render shutdown values remain internally consistent with the platform's 1–300 second range and unconditional SIGKILL boundary.
+
+### Round-5 re-approval conditions
+
+Before the next consolidated approval review:
+
+1. bind publication authorization to both monotonic job order and an unchanged solve-input revision (A-R39);
+2. use a complete recovery identity before A2 can execute recovered work (A-R40);
+3. publish separate winner/follower terminal predicates and include the winner in a complete fan-out invariant (A-R41);
+4. give active runs a real liveness authority and define legal post-seal arrivals (A-R42);
+5. make winner/scenario deletion unable to orphan waiting subscribers (A-R43);
+6. make the A1→A2 rolling transition safe for null-heartbeat rows (A-R44);
+7. split A14 configuration from its A2/A3-dependent integration proof and remove stale QA/status wording (A-R45);
+8. replace health sampling with auditable Render drain evidence and make the evidence write non-recursive with deployment (A-R46); and
+9. expose one deterministic public retry rule (A-R47).
+
+The approved G-cache artifact remains mandatory for A6 and its consumers. Closing A-R39–A-R47 does not self-approve execution; the next consolidated review must record the decision.
