@@ -45,72 +45,12 @@ pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
 
 ## Harness self-monitoring (OBS-1…OBS-11)
 
-A measurement + self-correction layer that makes the dev process observable. Spec/plan:
-`docs/superpowers/{specs,plans}/harness-self-monitoring.md`. It **layers on** the existing
-`.superpowers/sdd/` ledger (derives from it + git), never replaces it. Never fabricate a metric —
-underivable values are the literal `unknown`.
+A measurement + self-correction layer that makes the dev process observable — metrics CSVs, recorder/reporter commands, flake quantification, deploy smoke, and the docs-audit pipeline. **Operating manual: [`docs/superpowers/HARNESS.md`](docs/superpowers/HARNESS.md)** (per-CSV column semantics: [`docs/superpowers/metrics/README.md`](docs/superpowers/metrics/README.md)).
 
-**Metrics store** (`docs/superpowers/metrics/`, six append-only CSVs + README with the two rules):
-`tasks` (one row per finished task), `failures` (per gate failure, taxonomy `cause`), `flake`,
-`deploys`, `docs-audit`, `permissions` (per retro permission audit — grants classified
-risky/broad/ok + denials attributed to the task window). Weekly report → `reports/YYYY-WW.md`.
-
-**Commands** (TS under `scripts/src/harness/` + `scripts/src/deploy/`, `tsx`-run; shell at
-`scripts/harness/`; root `pnpm` aliases delegate):
-- `pnpm harness:record --task <id> …` — append a task row (derives timestamps/merged_sha; `tokens`
-  always `unknown` — no job token source). Refuses duplicates without `--force`.
-- `pnpm harness:permissions --task <id>` — audit `.claude/settings.local.json` grants (classify
-  risky/broad/ok) + attribute runtime tool denials from the session transcript to the task window;
-  append a `permissions.csv` row. **Exits 3 (STOP-and-ask) on a risky grant or a recurring denial.**
-  Baseline for `allow_new` is gitignored scratch (`.harness/permissions/`). Run by `/harness-retro`.
-- **Weekly permission-review loop** (grants/denials → reviewed promotion into the tracked project
-  allowlist): `pnpm harness:permissions:capture [--dry-run|--write-managed]` builds this week's
-  candidate list from the local **PreToolUse/PostToolUse ledger** (`.claude/hooks/permission-ledger.mjs`
-  → `.harness/permissions/ledger.jsonl`, provenance `prompted_and_executed`) + transcripts, writing a
-  redacted TRACKED artifact `docs/superpowers/metrics/permissions-review/<week>.{json,md}` (+ a
-  gitignored `<week>.local.json` with full commands). **No secrets in git**: a command that trips the
-  secret scan is committed as `sensitive — review locally` with NO rule and is promotable only via a
-  local apply. `scripts/harness/permissions-capture-weekly.sh` (local Mon cron, see
-  `docs/ops/permission-review-cron.md`) commits it to the `permissions-capture` branch; the Monday
-  harness-weekly workflow renders it into the PR (`## Permission review`). Review by commenting
-  `@claude allow|allow-risky|allow-destructive|deny|revoke|defer <id> [as Bash(<rule>)]`, then
-  `@claude apply permission review` — the hardened `permission-apply.yml` runs `pnpm
-  harness:permissions:apply` (deterministic; default-branch code over PR data only) which writes the
-  accepted rules into the **project-scoped tracked `.claude/settings.json`** (never user-global). A
-  risky grant needs `allow-risky`; **destructive needs `allow-destructive` (exact byte-for-byte, kept
-  by explicit decision — Decision B)** and is shown redacted-in-full for review (Decision A).
-- `pnpm harness:report [--week YYYY-WW]` — write the weekly report (medians, flake top-5, deploy
-  rollup, failure causes + 2nd-occurrence flags, `## Documentation`).
-- `pnpm smoke --env production|preview` — 7 post-deploy checks from outside Render
-  (`cors_preflight`, `cookie_attributes`, `fetch_credentials`, `postgres_tls`, `vite_env_baked`,
-  `python_solver_present`, `free_tier_wakeup`); targets resolve `--api-base`/`--studio-base` →
-  `NOS_API_BASE`/`NOS_STUDIO_BASE` → live fallback. See `docs/ops/smoke.md`.
-- `bash scripts/harness/flake-audit.sh --runs 20` — frozen-commit flake quant → `flake.csv`.
-- `pnpm docs:audit --full | --since <ref> [--mechanical-only]` — mechanical doc candidates (6
-  detectors) → `.harness/docs-audit/candidates.json` + `docs/superpowers/docs-audit/inventory.json`.
-- `pnpm docs:lint` — the proposed `doc_drift` gate (stale_reference only, exit non-zero). Runnable,
-  **not** wired to CI yet.
-
-**Gates:** the registration-points test (`registration.test.ts`, in the fast api-server gate) is
-live. Two proposed gates are **not enabled**: e2e-in-CI (**skipped** — no CI browser/app/seed infra),
-`doc_drift`/`docs:lint` (**deferred** until the stale-ref baseline is clean). See
-`docs/superpowers/gates/` + `docs/ops/e2e-stale-specs.md`.
-
-**Weekly job + docs pipeline (one combined PR, human-gated):** the GitHub Actions workflow
-`.github/workflows/harness-weekly.yml` runs **Mondays 13:00 UTC** (+ `workflow_dispatch`). It writes
-the metrics report (`pnpm harness:report`) and the mechanical candidates (`pnpm docs:audit --full`),
-then (via `anthropics/claude-code-action` + the `docs-audit` skill) opens **one PR** with two
-sections: a **FYI `## Weekly report`** (the committed scorecard, no action) and reviewable
-**`## Docs-audit findings`** (one commit per verified finding). Older `harness-weekly/*` PRs are
-auto-superseded. **Apply is `@claude`-driven on the PR:** comment `@claude apply|keep|edit|dismiss
-<finding-id>` per finding, then `@claude apply the review` — `claude.yml` (now `contents`+`pull-requests:
-write`) follows `.claude/skills/docs-apply/SKILL.md` to rewrite the branch (revert/edit) and merge
-`--no-squash`. `/docs-apply <pr>` still works locally. **Nothing reaches `main` except via a reviewed
-PR.** `docs/superpowers/specs/**` + `plans/**` are historical — never audited. (`.harness/` is
-gitignored scratch.)
-
-**GLM delegation is disabled here** (`.claude/glm-delegation-disabled.md`) — the standing rule is
-never delegate to GLM for this repo.
+Three invariants bind everyday work, so they stay here:
+- **Never fabricate a metric** — an underivable value is the literal string `unknown`, never an estimate.
+- **A failure cause appearing twice in `failures.csv` must produce a proposed gate**, not just documentation. `/harness-retro` drafts `docs/superpowers/gates/<cause>.md` and stops for approval.
+- **No documentation reaches `main` except via a reviewed PR.** `docs/superpowers/specs/**` + `plans/**` are historical and never audited; `.harness/` is gitignored scratch.
 
 ## Hard rules
 
@@ -123,6 +63,7 @@ never delegate to GLM for this repo.
 7. **Don't touch** `attached_assets/` (textbook source material) or Replit deploy files (`.replit`, `replit.md`, `push-to-github.mjs`) unless a plan task explicitly says so.
 8. When the plan conflicts with the repo's actual state, trust the repo, make the smallest correct fix, and note the deviation in the commit body. If a genuinely ambiguous product decision arises, stop and ask — don't guess.
 9. **Never write historical narrative into this file.** What landed — task/bundle entries, commit SHAs, gate counts, review verdicts, per-task deviations, phase completions — goes in **[`docs/CHANGELOG-implementation.md`](docs/CHANGELOG-implementation.md)** (append at the bottom, most recent last), in the **same commit** as the work it describes. `CLAUDE.md` may carry only a hyperlink to that doc, never a copy or a summary of an entry. Same rule for any other long-form record: write the content in its own doc under `docs/` and link it. The only things that belong *inline* here are durable, still-true operating knowledge — architecture, commands, hard rules, standing process, environment facts, and Gotchas. If an entry contains a durable lesson (a new bug class, a trap, a standing rule), put the **full entry in the changelog** and lift only the distilled rule into `## Gotchas` or `## Hard rules`.
+10. **Never delegate to GLM in this repo** (`.claude/glm-delegation-disabled.md`) — this overrides the user-global GLM-hybrid delegation preference. Every role executes and is reviewed on named Claude models only.
 
 ## Branch discipline (standing)
 
