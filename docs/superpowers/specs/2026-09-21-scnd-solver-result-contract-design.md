@@ -106,6 +106,8 @@ Read-time only, no backfill/re-solve. Normalized v1 from a stored legacy-nested 
 - Tests at **every actual emission site** for property allow-list + no payload/objective-input/path/diagnostic leakage.
 
 ### 2.13 Staged v1→v2 rollout + rollback floor (§28.2.5/§30.2.6/Q54/Q63) — additive, not atomic
+
+> **SUPERSEDED IN PART (2026-09-22, review A-R4).** This section was written before the A/B split and assumes R1's writer emits **v1**. Post-Option-B that premise is false: B ships a **third** representation — truthful `solutionStatus`/`terminationReason` with no `envelopeVersion` and no five-schema contract. The corrected R1 writes **B-format** behind a **three-way** reader (legacy / B-unversioned / v2). Task **A0** of `plans/2026-09-22-scnd-correctness-A-full-contract.md` owns the representation inventory and the authoritative release-state matrix; read it before acting on the named releases below. The rollback floor, the `v2_write` flag, the drain-proof requirement and the permanent legacy-reader retention (Q69) are unchanged.
 `nos-api` and `nos-studio` deploy separately and API instances overlap. **Correction (§30.2.6):** `envelopeVersion` does **NOT** protect an already-deployed old binary — the current Zod result object is **non-strict** and strips unknown keys, so a v2 row validates as the old shape. Safety therefore comes from **explicit legacy/v2 discrimination in the NEW dual-reader**, plus a rollback floor — never from an old binary rejecting unknowns.
 
 Named releases:

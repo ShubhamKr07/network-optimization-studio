@@ -8,7 +8,8 @@
 
 **Hard dependencies (do not build ahead of these):**
 - **Measurement spec** (`2026-09-22-scnd-measurement-design.md`) must have run: it supplies the **selected topology + worker count**, the measured `gap=0` p95 service time, per-solve RSS, and the cost model. Sizing here is otherwise a guess.
-- **Option A** (`2026-09-22-scnd-correctness-A-full-contract.md`) provides the **reliability substrate** this tier requires: durable `solve_jobs` payloads, the fd3 protocol, process-group supervision, composite cache identity, and the staged rollout. Scaling = A's queue + a *second consumer topology* + a scheduler. Don't duplicate A's queue; extend it.
+- **Option A** (`2026-09-22-scnd-correctness-A-full-contract.md`) provides the **single-instance** reliability substrate this tier builds on: durable `solve_jobs` payloads (`input_snapshot`/`model_id`), boot recovery of queued rows, the atomic `queued`→`running` CAS claim, ownership-checked completion, the fd3 protocol, process-group supervision, composite cache identity, and the staged rollout. **A deliberately stops short of multi-worker coordination** (decided 2026-09-22, review A-R2): `worker_id`, `lease_expires_at`, bounded `attempts`, `FOR UPDATE SKIP LOCKED`, connection-pool sizing, and readiness-on-DB-failure are **this spec's** to add. Scaling = A's queue + multi-worker claim semantics + a *second consumer topology* + a scheduler. Don't duplicate A's queue; extend it.
+- **The one predicate this spec must replace.** A2 isolates the single-instance recovery rule in a named `isReclaimableByThisInstance` — *"any `solve_jobs` row left in `running` from a prior process is, by definition, no longer running."* True for one instance, **destructive for two**: a booting worker would reap a live worker's jobs and republish over them. Replacing it with lease-expiry reclaim is a **hard prerequisite** of running more than one worker, not an optimization.
 - **Cohort/load gate:** justified only once measurement (or a real cohort) shows capacity/cost pressure at plausible rates. If the current single instance clears the load in measurement, **this spec is not built** — ship B (+ A if reliability warrants) and stop.
 
 ---
@@ -16,7 +17,7 @@
 ## 1. Architecture
 
 - **API service** (unchanged role): authenticates, validates, enqueues to the durable `solve_jobs` queue (A), serves polls. No solving on the request path.
-- **Solver worker tier** (new / from A's worker split): pulls claimed jobs from `solve_jobs` via `FOR UPDATE SKIP LOCKED` (A's lease/attempt protocol), runs `solve.py` under A's process-group supervision, writes results through A's composite-versioned cache.
+- **Solver worker tier** (new): pulls jobs from A's durable `solve_jobs` queue via `FOR UPDATE SKIP LOCKED` under **this spec's** lease/attempt protocol (extending A's CAS claim), runs `solve.py` under A's process-group supervision, writes results through A's composite-versioned cache.
 - **Compute topology = measurement-selected** (§1.4 of the Measurement spec): high-core vertical (≤12 CPU), one dedicated worker, or a horizontal fleet (≤100 same-plan instances). **This spec does not pre-decide it** — it consumes the measurement decision.
 - **Scheduled scaler:** scales the worker tier up **before** the class window and down **after the queue + active leases drain** — the primary cost lever (pay burst ~60 hr/month, not 730).
 
@@ -30,7 +31,7 @@
 ## 3. Backpressure, single-flight, gap-tuning
 
 - **Backpressure:** admission by durable queue signals (total queued, oldest-queued age, estimated wait, per-user in-flight) — replace the current process-local `QUEUE_DEPTH_LIMIT`; reject on estimated-wait/SLO with a meaningful `Retry-After`; fair/round-robin per user so one student can't monopolize.
-- **Single-flight (from A's cache identity):** one active solve per normalized hash; concurrent identical cold requests attach to the one run — the class-start stampede fix (50 students solving the assigned baseline = 1 solve, not 50). Needs A's durable queue to coordinate across workers.
+- **Single-flight — cross-instance half only.** A10 already ships single-flight **within one instance** (active-run record on A6's composite hash, winner election, subscriber attachment, stale-owner recovery via `claim_generation`). What A explicitly does not do is coordinate across instances: with a second worker, each solves independently. This spec extends A10's active-run record with the lease protocol so the class-start stampede fix (50 students on the assigned baseline = 1 solve, not 50) holds fleet-wide.
 - **Gap-tuning:** the original brainstorm's biggest cost lever — but the spike found teaching datasets prove optimal in <0.2 s, so gap-tuning's real payoff is likely small here; apply only if measurement shows a slow-regime tail worth cutting, as a per-scenario input (not a solver-math branch, hard rule #6).
 
 ## 4. Cost model (to be filled from measurement)
@@ -43,7 +44,7 @@ The brainstorm's Option-B estimate was ≈ **$70/mo** (API Standard + 1 base wor
 
 Reuse the parent design's two independent gates:
 - **Capacity gate:** the Measurement synthetic-load harness meets the ratified SLOs at the guaranteed rate on the selected topology.
-- **Reliability gate:** A's restart-safety + no-orphan + single-flight pass under load.
+- **Reliability gate:** A's restart-safety + no-orphan + single-instance single-flight pass under load, **plus** this spec's own additions — lease-expiry reclaim (no worker reaps a live worker's job), bounded attempts/retry exhaustion, and cross-instance single-flight.
 Deliver a decision doc: per-gate pass/fail, the identified bottleneck, worker count + cost recomputed from measured service time. A capacity pass authorizes a bounded pilot; reliability failures block it.
 
 ## 6. Explicitly out of scope / deferred
