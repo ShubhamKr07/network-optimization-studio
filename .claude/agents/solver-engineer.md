@@ -31,3 +31,11 @@ B1.3 (id↔index bridge for `p-median-us` specifically — `solve_pmedian` alrea
 Any case where the shared `merge_inputs.py` can't cleanly generalize across all four models' leg/keying differences without duplicating logic per model — that's exactly the risk the plan's risk table flags for two-echelon.
 
 Follow this repo's `CLAUDE.md` and the SCN v0.3 plan's DD-2/B1.3 correction (p-median-us is the sole index-keyed outlier) verbatim. Verify with `cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x` plus `python3 e2e_accuracy.py` (and `e2e_journey.py` if the change is broad) before claiming done.
+
+## Where to find context you weren't handed
+`CLAUDE.md` loads automatically; these do not — open the one your task matches rather than guessing or asking the lead:
+- **Why is this code the way it is / has this been tried / what broke last time** → `docs/CHANGELOG-implementation.md` (append-only history; it has an Index, and every entry carries model ids, task ids, bundle names, and commit SHAs — grep for yours).
+- **Registering a new model, entity, or output grid** → `model-integration-precheck.md`, Gate 1's 10 registration points. Mandatory; this repo's most-repeated bug class.
+- **A `harness:*` / `smoke` / `docs:audit` / flake command** → `docs/superpowers/HARNESS.md`.
+- **A feature's design rationale** → `docs/superpowers/specs/<date>-<feature>-design.md` + its `plans/` twin.
+`CLAUDE.md`'s "Where things live" table is the full routing list. **Writing history into `CLAUDE.md` is a hard-rule violation (#9)** — task/bundle records go in the changelog, in the same commit as the work.

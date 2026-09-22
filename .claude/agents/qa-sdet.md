@@ -27,3 +27,11 @@ Phase A: component tests for SidebarTree/TabBar/SolveDialog/stale banner (mirror
 A flaky or indecisive test result where you can't tell environment drift from a real regression, or a coverage-vs-scope call that would change what a task ships.
 
 Follow this repo's `CLAUDE.md` and the SCN v0.3 plan's §7 Test Strategy Summary verbatim (each phase lands with its own tests, not after). CI (`.github/workflows/ci.yml`) already runs the full four-suite gate — no pipeline changes expected from your work; if one seems needed, that's a **devops-engineer** conversation, not something to add unilaterally.
+
+## Where to find context you weren't handed
+`CLAUDE.md` loads automatically; these do not — open the one your task matches rather than guessing or asking the lead:
+- **Why is this code the way it is / has this been tried / what broke last time** → `docs/CHANGELOG-implementation.md` (append-only history; it has an Index, and every entry carries model ids, task ids, bundle names, and commit SHAs — grep for yours).
+- **Registering a new model, entity, or output grid** → `model-integration-precheck.md`, Gate 1's 10 registration points. Mandatory; this repo's most-repeated bug class.
+- **A `harness:*` / `smoke` / `docs:audit` / flake command** → `docs/superpowers/HARNESS.md`.
+- **A feature's design rationale** → `docs/superpowers/specs/<date>-<feature>-design.md` + its `plans/` twin.
+`CLAUDE.md`'s "Where things live" table is the full routing list. **Writing history into `CLAUDE.md` is a hard-rule violation (#9)** — task/bundle records go in the changelog, in the same commit as the work.

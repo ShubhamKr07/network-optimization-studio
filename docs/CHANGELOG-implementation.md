@@ -13,6 +13,37 @@ Related, non-changelog docs:
 
 ---
 
+## Index
+
+Entries are append-only and roughly chronological. **To find something fast, grep this file** for a
+model id (`chens-cosmetics-cn`), a task id (`D5.1`, `G3.1`, `B6.2`), a bundle name (`bundle6.1`), or
+a commit SHA — every entry carries all four. Line numbers below are a convenience for
+`Read(offset:)`; if one looks off, grep the title instead.
+
+| Entry | Line |
+|---|---|
+| Plan revision note (v0.1 → v0.2) | L49 |
+| Phase 0 — Render migration (R0.1–R0.9) | L51 |
+| Phase 1 — Auth, ownership, de-gamification (A1.1–B2.1) | L67 |
+| Phase 2 — Data layer extraction into model packages (C1–C2, X3) | L78 |
+| Phase 3 — Inputs epic (D0–D6, X1) | L87 |
+| Phase 3.5 — Model registry, result envelope, async job queue (G1–G3) | L103 |
+| Phase 4 — Results & map UX (E1–E5) | L109 |
+| Phase 5 — Compare v2 (F1, F2) | L117 |
+| Phase 6 — Solve worker-pool scaling (P1) | L121 |
+| Post-migration bug-class audit | L126 |
+| Chapter 10 — Two-Echelon Gold Refinery (`two-echelon-gold-au`) | L134 |
+| Post-Chapter-10 bug-fix/UX rounds (5 rounds) | L149 |
+| SCN v0.3 — Tabbed Workspace & Scenario-Local Network Edits (Phases A/B/C, 3.1, 3.2) | L158 |
+| SCN v0.3 Bundles 1–6.1 + JADE Ch.9 Workspace bundle | L178 |
+| Chapter 4 — Chen's Cosmetics (`chens-cosmetics-cn`) | L203 |
+| Workspace fixups bundle | L211 |
+| Workspace fixups 2 | L216 |
+| chen-bands-units | L222 |
+| ch4-fixes | L231 |
+
+---
+
 Tracking execution of `IMPLEMENTATION_PLAN.md` against `PRD-network-optimization-studio-v2.md`. Update this section as each task lands (one line per task, most recent phase at top).
 
 **Plan revision note:** `IMPLEMENTATION_PLAN.md` was revised to v0.2 upstream (pulled 2026-07-20) after Phase 1 work below had already started. Phase 1 (A1.1–B2.1) is byte-identical to v0.1 — unaffected. Phases 2–3 change shape: no typed per-model `scenarios` columns at all (`pValue`, `capacityMode`, `warehouseStatuses`, etc. never get built, not even temporarily) — Phase 3's D0.2 goes straight to a generic `scenarios.inputs jsonb` + `model_id` text field, validated per-model by Zod/JSON-Schema. Phase 2's dataset extraction targets per-model packages (`solvers/<model-id>/{manifest.json,dataset/*.json,solver.py,tests/}`) instead of a flat `lib/datasets/` folder. A new **Phase 3.5** (model registry + standardized result envelope `{status,objective,edges,metrics,details}` + async `solve_jobs` queue, replacing `spawnSync`) is inserted before Phase 4. See the plan's §0.5a for full rationale. None of the Phase 1 work below needs rework because of this.

@@ -28,3 +28,11 @@ B1.1 (Zod schema extension — shared with solver-engineer on the `manifest.json
 Any change that would require a DB schema migration (the plan's standing guarantee is zero migrations — anything that breaks that is a stop-and-ask), or an ownership/anti-enumeration question you can't close alone.
 
 Follow this repo's `CLAUDE.md` (hard rules, gotchas) and the SCN v0.3 plan's Design Decisions (DD-1 through DD-8) verbatim — they are locked, not suggestions. Verify with `pnpm --filter api-server run typecheck && pnpm --filter api-server test` before claiming done; run the full gate (`pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test && solver pytest`) before a task that touches the contract.
+
+## Where to find context you weren't handed
+`CLAUDE.md` loads automatically; these do not — open the one your task matches rather than guessing or asking the lead:
+- **Why is this code the way it is / has this been tried / what broke last time** → `docs/CHANGELOG-implementation.md` (append-only history; it has an Index, and every entry carries model ids, task ids, bundle names, and commit SHAs — grep for yours).
+- **Registering a new model, entity, or output grid** → `model-integration-precheck.md`, Gate 1's 10 registration points. Mandatory; this repo's most-repeated bug class.
+- **A `harness:*` / `smoke` / `docs:audit` / flake command** → `docs/superpowers/HARNESS.md`.
+- **A feature's design rationale** → `docs/superpowers/specs/<date>-<feature>-design.md` + its `plans/` twin.
+`CLAUDE.md`'s "Where things live" table is the full routing list. **Writing history into `CLAUDE.md` is a hard-rule violation (#9)** — task/bundle records go in the changelog, in the same commit as the work.

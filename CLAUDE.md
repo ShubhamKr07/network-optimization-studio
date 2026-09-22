@@ -4,6 +4,20 @@ Educational supply-chain network design tool. Students configure facility-locati
 
 Active work is governed by `IMPLEMENTATION_PLAN.md` (task IDs like A2.1, D5.1) with scope defined in `PRD-network-optimization-studio-v2.md`. When executing a task, follow the plan's per-task file lists, tests, and Definition of Done. Section 0 of the plan is the operating contract — read it first.
 
+## Where things live (read the doc, don't guess)
+
+This file is auto-loaded into every agent and subagent. **The docs below are not** — open them when your task matches a row. Everything in this file is inline because it applies to *every* task; anything task-specific was moved out and linked here.
+
+| If you need… | Read |
+|---|---|
+| What already landed, why a thing is the way it is, a past bug's fix, a commit SHA, prior gate counts, known deferred follow-ups | [`docs/CHANGELOG-implementation.md`](docs/CHANGELOG-implementation.md) — grep it by model id, bundle name, or task id (e.g. `D5.1`, `bundle6.1`, `chens`) |
+| To run/modify a `harness:*`, `smoke`, `docs:audit`, or flake command; the permission-review loop; the weekly PR pipeline | [`docs/superpowers/HARNESS.md`](docs/superpowers/HARNESS.md) |
+| A metrics CSV's exact columns | [`docs/superpowers/metrics/README.md`](docs/superpowers/metrics/README.md) |
+| To register a new model, entity, or output grid — the 10 registration points | `model-integration-precheck.md` (**mandatory** for that work; this repo's most-repeated bug class) |
+| The design rationale for a specific feature | `docs/superpowers/specs/<date>-<feature>-design.md` + `plans/<date>-<feature>.md` (historical, never audited) |
+| Deploy/ops runbooks | `docs/ops/{smoke,e2e-stale-specs,permission-review-cron}.md` |
+| The agent-team contract (roles, dispatch protocol, model policy) | `AGENTS.md` |
+
 ## Architecture (30 seconds)
 
 pnpm monorepo. Contract-first: `lib/api-spec/openapi.yaml` is the single source of truth for the API; Orval generates the Zod validators and React Query client from it.

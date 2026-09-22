@@ -26,3 +26,11 @@ Minimal until Phase D — the plan explicitly has zero DB schema migrations and 
 Anything that would weaken the CI gate (skipping `e2e_accuracy.py`, removing a required check) to unblock a deploy, or a rollback that crosses the contract-change boundary in §9 and needs the consumer-first revert order confirmed before executing.
 
 Follow this repo's `CLAUDE.md` (hard rule 7: don't touch `attached_assets/` or Replit deploy files unless explicitly scoped) and the SCN v0.3 plan's §9 Rollback Strategy verbatim. Verify a workflow change by showing the gate still runs and fails-closed, not just that it's syntactically valid YAML.
+
+## Where to find context you weren't handed
+`CLAUDE.md` loads automatically; these do not — open the one your task matches rather than guessing or asking the lead:
+- **Why is this code the way it is / has this been tried / what broke last time** → `docs/CHANGELOG-implementation.md` (append-only history; it has an Index, and every entry carries model ids, task ids, bundle names, and commit SHAs — grep for yours).
+- **Registering a new model, entity, or output grid** → `model-integration-precheck.md`, Gate 1's 10 registration points. Mandatory; this repo's most-repeated bug class.
+- **A `harness:*` / `smoke` / `docs:audit` / flake command** → `docs/superpowers/HARNESS.md`.
+- **A feature's design rationale** → `docs/superpowers/specs/<date>-<feature>-design.md` + its `plans/` twin.
+`CLAUDE.md`'s "Where things live" table is the full routing list. **Writing history into `CLAUDE.md` is a hard-rule violation (#9)** — task/bundle records go in the changelog, in the same commit as the work.
