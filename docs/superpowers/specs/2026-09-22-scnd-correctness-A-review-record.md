@@ -7,6 +7,10 @@
 > **Why this file exists.** Both reviews arrived as uncommitted additions to the plan and were rewritten in place during the fold, so the pre-fold file never reached a commit. `git log -S` on either review's text returns nothing. The dispositions survive as tables in the plan; the findings' own wording did not. Reconstructed here verbatim so the reasoning behind each accepted finding remains auditable.
 >
 > **Process rule going forward:** commit an incoming review *before* folding it, so the fold shows as a real diff against the review rather than against the pre-review file.
+>
+> **Round 3 (A-R25–A-R30) is NOT reproduced here — it does not need to be.** The rule above was applied for the first time on it: its verbatim text is committed in the plan at **`bf76b04`** (`docs: record round-3 re-approval review verbatim`), so `git show bf76b04` recovers it in full and the fold in the following commit reads as a real diff against it. Rounds 1 and 2 are transcribed below only because no such commit exists for them.
+>
+> Round 3's dispositions and the author responses to all three rounds live in the plan itself, under "Review disposition — round 3" and "Author responses to review".
 
 Dispositions for every finding below are in the plan's two "Review disposition" tables. Where a finding was accepted with a correction, the correction is recorded there, not here — this file is the input, not the verdict.
 
