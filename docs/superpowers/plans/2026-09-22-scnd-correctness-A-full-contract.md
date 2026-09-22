@@ -243,6 +243,8 @@ Node, as the surviving actor, owns the process group and the exact solve directo
 
 ## Review disposition — round 1 (2026-09-22)
 
+> Both reviews' verbatim text is preserved in **[`specs/2026-09-22-scnd-correctness-A-review-record.md`](../specs/2026-09-22-scnd-correctness-A-review-record.md)** (historical, non-normative). The tables below are the verdicts; that file is the input they were rendered against.
+
 All 16 findings accepted; two framing corrections.
 
 | Finding | Disposition | Landed in |
