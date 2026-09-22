@@ -148,3 +148,63 @@ All 6 findings accepted. One product-owner sequencing decision. Verbatim review 
 - **M-R6 — accepted.** "Temporary/off-hours Render" quietly permitted testing against production, contaminating real users, jobs, cache, analytics and the cost evidence the spec exists to produce. The telemetry point is equally sharp: §3 promised the *exact* bottleneck while §1.2 captured only Postgres active connections, which cannot separate pool wait from slow queries, locks or storage pressure. The preview-environment warning is a genuine trap — previews run at the autoscaling minimum, so a preview-based autoscale test would have measured the wrong thing while appearing to work.
 
 **Cross-cutting note.** Against the A plan's taxonomy, this review is mostly **compression** (M-R4, M-R5, M-R6: a topic named where a decision was needed) plus one **composition** failure (M-R1: two documents each waiting on the other). The A-plan rules apply unchanged — treat any bullet listing *what to decide* rather than *the decision* as open, and check cross-document references actually resolve. Worth noting M-R1 is the same shape as A-R31's circular gate matrix: a dependency written as a guard that reads as a deadlock. That has now happened twice across two documents, so it is a pattern to check for deliberately, not a one-off.
+
+---
+
+## Re-approval review — round 2 (2026-09-22)
+
+### Decision: REQUEST CHANGES — NOT APPROVED
+
+The first six findings were folded well: the workload is now open-loop and reproducible, the statistical design is materially stronger, SLOs are predeclared, environment isolation is explicit, and capacity is separated from reliability. Two approval blockers remain, followed by two clarifications that should be folded with them.
+
+### Blocking findings
+
+#### M-R7 — the A→Measurement sequencing reintroduces the dependency cycle
+
+The header now says **nothing in Measurement executes until all of Option A ships** and states the critical path as `A0…A14b → Measurement`. But Option A's own **Cohort gate** blocks the non-exempt reliability work until real or synthetic-load evidence exists, and AP-4 explicitly offers **“Wait for Measurement.”** Thus A can wait for Measurement while Measurement waits for all of A. The round-1 topology circularity was moved to the program sequence rather than eliminated.
+
+**Required resolution:** depend on the smallest executable A seam rather than the whole rollout. A defensible minimum is A0/A1/A2 for the durable queue and lease, A3 for process supervision, and A14b for the drain integration proof, with their applicable approval gates closed. Start Measurement after that seam exists; do not require unrelated result-schema, frontend, telemetry, or v2-writer activation tasks merely to run a worker prototype. If the product instead chooses to finish all of A first, make an explicit AP-4 exemption/waiver a named prerequisite in this spec's critical path; do not imply the cohort gate closes automatically.
+
+Add a cross-document test to the review checklist: every dependency edge must be checked in both directions against the depended-on document's gates. A textual sequence is not valid if the predecessor names the successor as its own evidence source.
+
+#### M-R8 — p95 service time is not a valid worker-count or cost-sizing input by itself
+
+Section 1.4 still says the selected topology and worker count are **derived from measured `gap=0` p95 service time**; the Scaling spec repeats that premise. Queue stability and CPU capacity depend on offered work, approximately `arrival rate × mean CPU service demand`, adjusted for measured parallel efficiency and headroom. The full empirical service-time distribution is then needed to predict queueing and validate tail latency. A rare slow tail below 5% can sit above p95 yet dominate mean compute; conversely, treating every request as p95 can materially over-provision and distort the cost comparison.
+
+**Required resolution:**
+
+- size baseline capacity from measured **mean CPU service demand by workload stratum and the declared workload weights**, not p95 wall time alone;
+- account for per-solve CPU utilization and measured parallel efficiency instead of assuming one fully utilized core per solve;
+- replay or simulate the **full measured service-time distribution** through the declared arrival trace to produce candidate worker counts and queue predictions;
+- use empirical end-to-end p95 from the authoritative load run as the **SLO validation**, not as the sole capacity formula; and
+- carry the same correction into `2026-09-22-scnd-scaling-design.md` wherever worker count or cost is said to be recomputed from p95 service time.
+
+The final report must show the capacity calculation, the distribution/trace input, predicted queue behavior, and the observed load-test confirmation for the selected count.
+
+### Required clarifications
+
+#### M-R9 — “slow-regime frequency” must not imply student-population prevalence
+
+The spec correctly says it cannot establish real student demand or mix, but §1.1 still says slow-regime frequency is “measured.” A stratified synthetic corpus determines its own weights; it cannot reveal how frequently students will choose forced-open versus free-choice inputs.
+
+**Required clarification:** report **frequency within the declared synthetic corpus/generator**, plus per-stratum results. Treat real-world free-choice frequency as an input knob in the cost and capacity sensitivity analysis until cohort evidence supplies population weights. Do not label the corpus proportion as observed student frequency or use an unweighted stratified total as the representative forecast.
+
+#### M-R10 — cost per successful solve has two materially different denominators
+
+Section 4 defines cost per successful solve as attributable window cost divided by terminal successful solves, while saying cached requests are reported separately. It is unclear whether a cache-hit job is included in the denominator. That ambiguity can make identical compute appear cheaper solely because the workload contains more hits and can obscure the cost of actual CBC execution.
+
+**Required clarification:** report both:
+
+1. **cost per successful submitted job**, including cache hits in the denominator; and
+2. **cost per successful CBC execution**, excluding cache hits and counting only solver work.
+
+Also report marginal burst-worker cost and the cache-hit mix beside both values. Use the first for product budgeting and the second for topology/solver-efficiency comparison.
+
+### Validated items retained
+
+- The 2,500/hour sustained contract and separate 50-request burst are the correct load cases.
+- Open-loop scheduling, intended-versus-achieved rate, deterministic cache populations, and the isolated environment close the largest false-pass risks from round 1.
+- The 12-CPU service ceiling, 100-instance service limit, uniform plan per service, per-second billing, Pro-or-higher autoscaling requirement, and preview-autoscaling limitation remain correct.
+- MP-1 through MP-4 are appropriate checkpoints once M-R7 makes their ordering non-circular.
+
+Closing M-R7 and M-R8, with M-R9 and M-R10 folded into the associated measurement and cost outputs, should make this spec approvable without another broad expansion of scope.
