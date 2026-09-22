@@ -1562,15 +1562,22 @@ components:
 
     CostSummaryExportRow:
       type: object
-      description: No band field — costSummary is not a band-bearing entity.
+      description: >-
+        No band field — costSummary is not a band-bearing entity. B6
+        whole-branch review Finding #2 — `quality` is a truthful derivation
+        (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/
+        `terminationReason` are the evidence it's derived from; null on both
+        for a legacy (pre-B2) result, where `quality` reads "Unverified".
       properties:
         objective: { type: ["number", "null"] }
         objectiveMode: { type: ["string", "null"] }
         weightedAvgDistance: { type: ["number", "null"] }
         runTimeSec: { type: ["number", "null"] }
         quality: { type: string }
+        solutionStatus: { type: ["string", "null"] }
+        terminationReason: { type: ["string", "null"] }
         solverUsed: { type: string }
-      required: [objective, objectiveMode, weightedAvgDistance, runTimeSec, quality, solverUsed]
+      required: [objective, objectiveMode, weightedAvgDistance, runTimeSec, quality, solutionStatus, terminationReason, solverUsed]
 
     AssignmentsExportEnvelope:
       type: object

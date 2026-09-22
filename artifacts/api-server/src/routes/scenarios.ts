@@ -156,7 +156,11 @@ function diffInputKeys(
 // "this scenario has never been re-solved since the truthful-status
 // migration — do not show Proven Optimal." Old rows self-heal to truthful
 // the moment they're re-solved (no backfill needed, per the plan).
-function presentResultForRead(result: Record<string, unknown> | null): Record<string, unknown> | null {
+// B6 whole-branch review Finding #3 — exported so distanceBands.ts's own
+// (necessarily hand-duplicated toApiScenario, see its header comment) can
+// apply the SAME legacy-unverified read guard, instead of a bands-only PATCH
+// silently skipping it.
+export function presentResultForRead(result: Record<string, unknown> | null): Record<string, unknown> | null {
   if (result == null) return result;
   if ("solutionStatus" in result) return result;
   return { ...result, solutionStatus: null, terminationReason: result.terminationReason ?? null };

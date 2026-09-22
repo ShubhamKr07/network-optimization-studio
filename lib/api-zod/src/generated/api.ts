@@ -655,8 +655,10 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "weightedAvgDistance": zod.number().nullable(),
   "runTimeSec": zod.number().nullable(),
   "quality": zod.string(),
+  "solutionStatus": zod.string().nullable(),
+  "terminationReason": zod.string().nullable(),
   "solverUsed": zod.string()
-}).describe('No band field — costSummary is not a band-bearing entity.'))
+}).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\".'))
 }).describe('v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.'),zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['serviceStats']),

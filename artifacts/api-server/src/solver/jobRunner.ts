@@ -251,6 +251,17 @@ async function lookupCachedResult(inputsHash: string): Promise<ResultEnvelope | 
       .where(eq(resultCacheTable.inputsHash, inputsHash));
     if (!row) return null;
 
+    // B6 whole-branch review Finding #1 — a pre-B2 cached row has no
+    // `solutionStatus` key at all (genuinely absent, not merely null — same
+    // "in" check routes/scenarios.ts's presentResultForRead uses on read)
+    // but still passes ResultEnvelopeSchema below (the field is optional).
+    // Serving it would render "Unverified" forever on every future re-solve
+    // of that same baseline, since a cache hit never reaches runJob()'s
+    // write-through and the stale pre-B2 entry is never replaced. Treat it
+    // as a cache miss instead, so the caller re-solves and writes through a
+    // truthful (post-B2) envelope, self-healing the cache.
+    if (!("solutionStatus" in row.result)) return null;
+
     // Don't trust a cached blob blindly — the envelope schema can drift
     // between when an entry was cached and now. A malformed/stale entry is
     // treated as a cache miss (solve normally), never a failure — same

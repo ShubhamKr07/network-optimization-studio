@@ -123,8 +123,11 @@ describe("jobRunner", () => {
       .mockReturnValueOnce(jobUpdateChain)      // markRunning
       .mockReturnValueOnce(jobUpdateChain)      // markSucceeded — job row
       .mockReturnValueOnce(scenarioUpdateChain); // markSucceeded — scenario row
+    // B6 whole-branch review Finding #1 — needs `solutionStatus` to hit the
+    // cache (a row missing it is now treated as a miss).
     const cachedEnvelope = {
       status: "optimal", objective: 94500000, runTimeSec: 0.4, quality: "Optimal",
+      solutionStatus: "optimal", terminationReason: "optimality_proven",
       edges: [], metrics: { weightedAvgDistance: 412.6 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
     };
     mockDb.select.mockReturnValueOnce(makeChain([
@@ -153,8 +156,11 @@ describe("jobRunner", () => {
       .mockReturnValueOnce(jobUpdateChain)
       .mockReturnValueOnce(jobUpdateChain)
       .mockReturnValueOnce(scenarioUpdateChain);
+    // B6 whole-branch review Finding #1 — needs `solutionStatus` to hit the
+    // cache (a row missing it is now treated as a miss).
     const chenEnvelope = {
       status: "optimal", objective: 66.0, runTimeSec: 0.7, quality: "optimal",
+      solutionStatus: "optimal", terminationReason: "optimality_proven",
       edges: [], metrics: { weightedAvgDistance: 250.5 }, details: { objective: "coverage" }, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
     };
     mockDb.select.mockReturnValueOnce(makeChain([
@@ -411,8 +417,13 @@ describe("jobRunner", () => {
 // Both the normal solver path and the cache-hit path funnel through the
 // SAME markSucceeded, so both must be covered here.
 describe("markSucceeded transaction (Part F / T6)", () => {
+  // B6 whole-branch review Finding #1 — carries `solutionStatus` so this
+  // envelope is a v2/post-B2 shape, since several tests below feed it
+  // through the cache-hit path (lookupCachedResult now treats a row missing
+  // `solutionStatus` as a miss — see result_cache describe block above).
   const envelope = {
     status: "optimal", objective: 12345, runTimeSec: 0.3, quality: "Optimal",
+    solutionStatus: "optimal", terminationReason: "optimality_proven",
     edges: [], metrics: { weightedAvgDistance: 88 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
   };
 
@@ -557,8 +568,13 @@ describe("reapStuckJobs (startup reaper)", () => {
 });
 
 describe("result_cache (P1.2 write-through cache)", () => {
+  // B6 whole-branch review Finding #1 — carries `solutionStatus` (a v2/post-B2
+  // envelope shape) so the "cache hit" test below doubles as proof a v2 row
+  // still hits; see the dedicated legacy-row test further down for the
+  // missing-solutionStatus (pre-B2) case.
   const envelope = {
     status: "optimal", objective: 42, runTimeSec: 0.2, quality: "Optimal",
+    solutionStatus: "optimal", terminationReason: "optimality_proven",
     edges: [], metrics: { weightedAvgDistance: 7 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
   };
 
@@ -669,6 +685,43 @@ describe("result_cache (P1.2 write-through cache)", () => {
       const updateCalls = (mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(updateCalls).toBeGreaterThanOrEqual(3); // running + succeeded(job) + succeeded(scenario)
     });
+  });
+
+  // B6 whole-branch review Finding #1 — a pre-B2 cached row has no
+  // `solutionStatus` key at all but still passes ResultEnvelopeSchema (the
+  // field is optional), so without the fix it would be served as a hit
+  // forever, rendering "Unverified" on every future re-solve of that same
+  // baseline instead of self-healing. Confirms it's treated as a MISS: the
+  // solver is actually spawned, and the truthful (solutionStatus-bearing)
+  // result of that re-solve is what gets written through to the cache.
+  it("a cached row missing solutionStatus (pre-B2) is treated as a miss and self-heals the cache on re-solve", async () => {
+    const enqueueChain = makeChain([{ id: 1 }]);
+    const cacheInsertChain = makeChain([{}]);
+    mockDb.insert.mockReturnValueOnce(enqueueChain).mockReturnValueOnce(cacheInsertChain);
+    mockDb.update.mockReturnValue(makeChain([{}]));
+    const legacyEnvelope = {
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+      // Deliberately no `solutionStatus` key — a genuine pre-B2 cache row.
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "x", modelId: "p-median-us", result: legacyEnvelope },
+    ]));
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    // Falls through to a real solve instead of serving the stale legacy row.
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    child.emit("close", 0);
+
+    await vi.waitFor(() => {
+      expect((cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    });
+    const written = (cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+    expect((written.result as Record<string, unknown>).solutionStatus).toBe("optimal");
   });
 });
 

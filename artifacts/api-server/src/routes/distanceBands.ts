@@ -5,6 +5,7 @@ import { db, scenariosTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth.js";
 import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
+import { presentResultForRead } from "./scenarios.js";
 
 const router = Router();
 
@@ -77,13 +78,19 @@ router.patch("/scenarios/:scenarioId/distance-bands", async (req, res) => {
   res.json(toApiScenario(row));
 });
 
-// Deliberately duplicated from scenarios.ts's own (unexported) toApiScenario
-// rather than importing it — scenarios.ts is this bundle's sole-writer file
-// for a DIFFERENT reason (the export/solve route logic), and importing a
-// private helper across route files would couple two otherwise-independent
+// Deliberately duplicated from scenarios.ts's own toApiScenario rather than
+// importing the whole projector — scenarios.ts is this bundle's sole-writer
+// file for a DIFFERENT reason (the export/solve route logic), and importing
+// a private helper across route files would couple two otherwise-independent
 // routers for a five-line projector. Kept in exact sync by hand; if this
 // drifts, both places already have full route-level test coverage of the
-// returned Scenario shape.
+// returned Scenario shape. B6 whole-branch review Finding #3 — `result` DOES
+// now import scenarios.ts's `presentResultForRead` (rather than hand-
+// duplicating that guard too) so a legacy result returned via this
+// bands-only PATCH gets the same `solutionStatus: null` stamp as every other
+// read path — the "one unambiguous signal" contract (see that function's own
+// header comment) must hold on every response shape, not just GET/PATCH
+// /scenarios/:id.
 function isStale(row: typeof scenariosTable.$inferSelect): boolean {
   return row.result != null && row.inputsUpdatedAt > row.solvedAt!;
 }
@@ -94,7 +101,7 @@ function toApiScenario(row: typeof scenariosTable.$inferSelect) {
     name: row.name,
     modelId: row.modelId,
     inputs: row.inputs,
-    result: row.result ?? null,
+    result: presentResultForRead(row.result ?? null),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     solvedAt: row.solvedAt ? row.solvedAt.toISOString() : null,

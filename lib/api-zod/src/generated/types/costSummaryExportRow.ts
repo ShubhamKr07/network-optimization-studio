@@ -7,7 +7,7 @@
  */
 
 /**
- * No band field — costSummary is not a band-bearing entity.
+ * No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/ `terminationReason` are the evidence it's derived from; null on both for a legacy (pre-B2) result, where `quality` reads "Unverified".
  */
 export interface CostSummaryExportRow {
   /** @nullable */
@@ -19,5 +19,9 @@ export interface CostSummaryExportRow {
   /** @nullable */
   runTimeSec: number | null;
   quality: string;
+  /** @nullable */
+  solutionStatus: string | null;
+  /** @nullable */
+  terminationReason: string | null;
   solverUsed: string;
 }
