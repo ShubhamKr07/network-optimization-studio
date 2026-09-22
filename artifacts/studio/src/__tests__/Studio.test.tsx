@@ -1122,10 +1122,10 @@ describe("Studio — result history back/forward", () => {
   });
 });
 
-// ── Quality statement (E3.1) ─────────────────────────────────────────────────
+// ── Quality statement (E3.1, superseded by B4 — truthful solutionStatus/
+// terminationReason instead of the requested gap) ───────────────────────────
 describe("Studio — Quality statement", () => {
-  const solvedResult = {
-    status: "optimal",
+  const baseResult = {
     objective: 1,
     runTimeSec: 0.1,
     quality: "Optimal",
@@ -1136,22 +1136,69 @@ describe("Studio — Quality statement", () => {
     infeasibilityReason: null,
   };
 
-  it("shows 'Proven optimal' when the solved scenario's gap is 0", async () => {
-    const scenario = { ...pmedianScenario, result: solvedResult, inputs: { ...pmedianInputs, gap: 0 } };
+  it("shows 'Proven optimal' when the solver's real termination reason is optimality_proven", async () => {
+    const solvedResult = {
+      ...baseResult, status: "optimal", solutionStatus: "optimal",
+      terminationReason: "optimality_proven", achievedGap: 0,
+    };
+    const scenario = { ...pmedianScenario, result: solvedResult };
     mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
     await userEvent.click(screen.getByText("Output"));
     expect(screen.getByTestId("text-quality-statement")).toHaveTextContent("Proven optimal");
+    expect(screen.getByTestId("result-status")).toHaveTextContent("Optimal");
   });
 
-  it("shows the configured-gap statement when the solved scenario's gap is > 0", async () => {
-    const scenario = { ...pmedianScenario, result: solvedResult, inputs: { ...pmedianInputs, gap: 0.05 } };
+  it("shows the within-gap statement when the achieved gap is > 0, even with a requested gap of 0 (B4 — never trust the requested gap)", async () => {
+    const solvedResult = {
+      ...baseResult, status: "feasible", solutionStatus: "feasible",
+      terminationReason: "gap_limit", achievedGap: 0.05,
+    };
+    // inputs.gap is 0 (student asked for a proof) but CBC still legitimately
+    // stopped short — the statement must come from the solver's own
+    // achievedGap, never the requested one.
+    const scenario = { ...pmedianScenario, result: solvedResult, inputs: { ...pmedianInputs, gap: 0 } };
     mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
     mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
     renderStudio();
     await userEvent.click(screen.getByText("Output"));
-    expect(screen.getByTestId("text-quality-statement")).toHaveTextContent("Within configured gap 5%, limit reached");
+    expect(screen.getByTestId("text-quality-statement")).toHaveTextContent("Feasible — within gap (5%)");
+    expect(screen.getByTestId("result-status")).toHaveTextContent("Feasible");
+  });
+
+  it("shows a distinct 'No incumbent' block (not the catch-all Error/objective:0) for a no_solution outcome", async () => {
+    const solvedResult = {
+      ...baseResult, status: "no_solution", objective: 0, solutionStatus: "no_solution",
+      terminationReason: "time_limit", achievedGap: null,
+    };
+    const scenario = { ...pmedianScenario, result: solvedResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByTestId("result-status")).toHaveTextContent("No solution found");
+    expect(screen.getByTestId("result-no-incumbent")).toHaveTextContent("No incumbent");
+    expect(screen.queryByTestId("result-weighted-avg-distance")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("text-quality-statement")).not.toBeInTheDocument();
+  });
+
+  it("shows a neutral 'Unverified' badge for a legacy result (solutionStatus null) and never claims 'Proven optimal'", async () => {
+    // Pre-B2 stored result: no solutionStatus/terminationReason/achievedGap
+    // at all (api-server's read-path guard stamps solutionStatus: null, but
+    // the frontend must handle either — absent or explicit null).
+    const legacyResult = { ...baseResult, status: "optimal" };
+    const scenario = { ...pmedianScenario, result: legacyResult };
+    mockUseListScenarios.mockReturnValue({ data: [scenario], isLoading: false } as ReturnType<typeof useListScenarios>);
+    mockUseGetScenario.mockReturnValue({ data: scenario } as ReturnType<typeof useGetScenario>);
+    renderStudio();
+    await userEvent.click(screen.getByText("Output"));
+    expect(screen.getByTestId("result-status")).toHaveTextContent("Unverified");
+    expect(screen.queryByTestId("result-status")).not.toHaveTextContent("Optimal");
+    expect(screen.queryByTestId("text-quality-statement")).not.toBeInTheDocument();
+    // Legacy rows still carry real objective/edges/metrics (only the status
+    // claim is unverified) — the headline metric block still renders.
+    expect(screen.getByTestId("result-weighted-avg-distance")).toBeInTheDocument();
   });
 });
 
