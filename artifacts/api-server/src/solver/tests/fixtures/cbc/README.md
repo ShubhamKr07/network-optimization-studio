@@ -23,9 +23,11 @@ full per-variable dump is 20KB-1.3MB of noise per case, not worth committing.
 | file | real source | solutionStatus | terminationReason |
 |---|---|---|---|
 | `optimal_optimality_proven` | JADE forced-open ground truth (`test_jade.py::test_ground_truth_objective_and_facilities`) | optimal | optimality_proven |
+| `optimal_lp_only` | transport-coal, singleSource=False (a pure LP — zero integer/binary variables, found during B2 when every model was actually routed through capture for the first time) | optimal | optimality_proven |
 | `feasible_gap_limit` | p-median-brazil P=5 cap=20M gap=0.05 — the exact scenario the design spec's §1 cites as mis-classified today | feasible | gap_limit |
 | `infeasible` | JADE forced-open exceeding P (`test_jade.py::test_forced_open_exceeds_p_infeasible`) | infeasible | infeasible |
 | `infeasible_lp_relaxation` | synthetic trivial LP (`x >= 2` with `x`'s own upper bound `1`, no integer variables) | infeasible | infeasible |
+| `infeasible_integer` | transport-coal, singleSource=True, gap=0.05 — a real degenerate MILP (~36s exhaustive search) whose LP relaxation is feasible but no integer-feasible solution exists (found during B2) | infeasible | infeasible |
 | `no_solution_time_limit` | p-median-us P=10, `timeLimitSec=0.15` (too tight for even one incumbent) | no_solution | time_limit |
 | `feasible_time_limit` | synthetic hard 2-constraint 0/1 knapsack (400 binaries, correlated value/weight), `timeLimit=0.05` | feasible | time_limit |
 | `feasible_node_limit` | same synthetic knapsack, `maxNodes=5` | feasible | node_limit |
@@ -55,6 +57,39 @@ relaxation infeasible`. Both real solves' `.sol` first token agrees
 silently misclassify the other as "no Result line -> malformed" (or worse,
 fall through to a wrong branch). `cbc_termination.py`'s `classify_cbc_termination`
 checks for both.
+
+## Real finding (B2): a THIRD infeasibility shape — `.sol` token `"Integer"`
+
+`infeasible_integer` (a real transport-coal single-source solve) prints
+`Result - Problem proven infeasible` in the log — a real MIP whose LP
+relaxation is feasible but whose exhaustive branch-and-bound search proves
+no integer-feasible point exists — with a `.sol` first token of `"Integer"`,
+not `"Infeasible"`. PuLP's own `COIN_CMD.get_status()` already maps both
+tokens identically to `LpStatusInfeasible`; before this fix,
+`classify_cbc_termination` only recognized the `"Infeasible"` token and
+raised a false "infeasibility signal mismatch" `CBCParseError` on this case
+instead of classifying it correctly. Found when B2 first routed
+`transport-coal`'s single-source case (a genuinely hard, ~36-second
+degenerate MILP) through capture for the first time.
+
+## Real finding (B2): a pure-LP optimum never prints a `Result -` line at all
+
+`optimal_lp_only` (a real transport-coal multi-source solve, zero integer/
+binary variables declared anywhere in the model) never enters CBC's
+branch-and-bound layer, so it never prints a `Result -` trailer of any kind
+— the log goes straight from presolve iterations to Clp's own `Optimal -
+objective value X` / `Optimal objective X - N iterations time Y` pair. This
+is distinct from `optimal_optimality_proven` (JADE), where presolve reduces
+every *declared* integer/binary variable away but CBC still runs its full
+MIP wrapper (and still prints `Result - Optimal solution found`) because the
+model *declared* integer variables in the first place — the determining
+factor is whether CBC was invoked in MIP mode at all, not whether any
+integer variables survive presolve. Discovered when B2 first routed every
+production model (not just JADE/Brazil/synthetic fixtures) through capture
+— `transport-coal`'s default `singleSource=False` case is a genuine pure LP
+and was previously untested by this module. `classify_cbc_termination` now
+falls back to `_LP_ONLY_OPTIMAL_RE` only when no `Result -` line exists at
+all (so a real MIP's classification is never affected).
 
 ## Not attainable / not captured in this spike
 

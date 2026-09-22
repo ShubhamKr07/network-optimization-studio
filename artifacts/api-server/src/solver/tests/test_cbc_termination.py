@@ -52,9 +52,20 @@ FIXTURE_EXPECTATIONS = [
     # name, solutionStatus, terminationReason, expect_objective_not_none,
     # expect_bound_not_none
     ("optimal_optimality_proven", "optimal", "optimality_proven", True, False),
+    # B2: a pure-LP solve (zero integer/binary variables -- e.g.
+    # transport-coal with singleSource=False) never prints a "Result -"
+    # trailer at all; CBC's Clp layer reports "Optimal - objective value X"
+    # directly. See _LP_ONLY_OPTIMAL_RE's docstring in cbc_termination.py.
+    ("optimal_lp_only", "optimal", "optimality_proven", True, False),
     ("feasible_gap_limit", "feasible", "gap_limit", True, True),
     ("infeasible", "infeasible", "infeasible", False, False),
     ("infeasible_lp_relaxation", "infeasible", "infeasible", False, False),
+    # B2: a real MIP whose LP relaxation is feasible but whose full
+    # branch-and-bound search proves no integer-feasible solution exists --
+    # .sol first token is "Integer", not "Infeasible" (PuLP's own
+    # COIN_CMD.get_status() already treats them identically). Found via a
+    # real transport-coal single-source solve.
+    ("infeasible_integer", "infeasible", "infeasible", False, False),
     ("no_solution_time_limit", "no_solution", "time_limit", False, True),
     ("feasible_time_limit", "feasible", "time_limit", True, True),
     ("feasible_node_limit", "feasible", "node_limit", True, True),
@@ -194,6 +205,19 @@ class TestClassifyMalformed:
             "Lower bound:                    99.0\n"
         )
         sol = "Optimal - objective value 100.0\n"  # missing "(within gap tolerance)"
+        with pytest.raises(CBCParseError):
+            classify_cbc_termination(log, sol)
+
+    def test_integer_sol_token_vs_optimal_log_still_raises(self):
+        # B2 widened is_infeasible_sol to accept "Integer" alongside
+        # "Infeasible" -- confirm that widening didn't also silently accept
+        # a genuine mismatch (an "Integer" .sol token contradicting a
+        # provably-optimal log is still contradictory evidence).
+        log = (
+            "Result - Optimal solution found\n\n"
+            "Objective value:                100.0\n"
+        )
+        sol = "Integer infeasible - objective value 100.0\n"
         with pytest.raises(CBCParseError):
             classify_cbc_termination(log, sol)
 
@@ -384,6 +408,25 @@ class TestSolveWithCaptureGoNoGo:
         result2 = solve_with_capture(prob2, timeLimit=10)
         assert result2.solutionStatus == "unbounded"
         assert result2.terminationReason == "unbounded"
+
+    def test_pure_lp_optimal_classifies_via_real_solve(self):
+        """B2 regression: a solve with zero integer/binary variables (a pure
+        LP, e.g. transport-coal's multi-source case) never prints a
+        "Result -" trailer -- CBC's Clp layer reports "Optimal - objective
+        value X" directly instead. Before this fix, classify_cbc_termination
+        raised CBCParseError on every such solve (real transport-coal
+        multi-source solves hit this)."""
+        from pulp import LpProblem, LpMinimize, LpVariable, lpSum
+        prob = LpProblem("RealPureLPOptimal", LpMinimize)
+        # No cat="Binary"/"Integer" anywhere -- a genuine continuous LP.
+        xs = [LpVariable(f"x{i}", lowBound=0) for i in range(5)]
+        prob += lpSum(xs)
+        prob += lpSum(xs) >= 3
+        result = solve_with_capture(prob, gapRel=0.0, timeLimit=10)
+        assert result.solutionStatus == "optimal"
+        assert result.terminationReason == "optimality_proven"
+        assert result.solverIncumbentObjective is not None
+        assert abs(result.solverIncumbentObjective - 3.0) < 1e-6
 
     def test_repeated_solves_accumulate_no_processes_or_artifacts(self):
         """Runs several solves back to back and confirms none leaves a
