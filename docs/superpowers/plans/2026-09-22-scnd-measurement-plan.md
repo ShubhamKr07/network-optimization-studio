@@ -36,6 +36,101 @@
 
 ---
 
+## Canonical API — the single source of truth for M1/M2 (R3-R1)
+
+> **Why this section exists.** Three consecutive reviews found the same defect: snippets that do not compose. The cause was structural, not carelessness — every signature lived in **three** places (the task's Interfaces bullet, its test snippet, its implementation snippet), hand-edited independently, so each fold drifted them apart. `aggregate` ended up declared `(observations, manifest)`, tested `(rows, min_cases=…)` and implemented `(observations)` **in one task**.
+>
+> **Fix: one copy.** Every signature and schema is defined **here, once**. Task Interfaces bullets point here instead of restating. Implementation snippets are kept only where the logic is genuinely subtle (`measure.py`'s fork/rusage handling); elsewhere the task gives the canonical signature plus a behavioural spec and its tests, because a second hand-maintained copy is what broke.
+
+```python
+# ---- corpus.py ----
+class ManifestError(ValueError): ...
+@dataclass(frozen=True)
+class Case:
+    case_id: str; inputs: dict; generator_seed: int | None = None
+    def case_key(self, cell) -> str: ...        # model|regime|edit_family|case_id (NO gap)
+@dataclass(frozen=True)
+class Cell:
+    model_id: str; regime: str; edit_family: str | None
+    gap: float; weight: float; cases: tuple[Case, ...]
+    @property
+    def key(self) -> str: ...                    # model|regime|edit_family|gap
+@dataclass(frozen=True)
+class Manifest:
+    version: int; strata: list; gaps: list
+    def cells(self) -> list[Cell]: ...
+    def validate(self, min_cases_per_cell: int) -> None: ...
+def load_manifest(path: str, min_cases_per_cell: int = 1) -> Manifest: ...
+
+# ---- measure.py ----
+@dataclass
+class Observation:
+    cell_key: str; case_key: str; gap: float
+    wall_sec: float; cpu_tree_sec: float; harness_overhead_sec: float
+    python_peak_rss: int; cbc_peak_rss: int
+    objective: float | None; solution_status: str | None; termination_reason: str | None
+    ok: bool; error: str | None = None; kind: str = "campaign"
+def normalize_maxrss(value: int, system: str | None = None) -> int: ...
+def measure_once(cell: Cell, case: Case, solve_fn=None, timeout_sec: float = 300) -> Observation: ...
+
+# ---- runner.py ----
+def run_campaign(manifest, *, min_cases=30, max_cases=200, ci_width=0.10,
+                 warmup=3, seed=0, measure=measure_once) -> list[Observation]: ...
+def run_determinism(cell, case, *, reps=30, measure=measure_once) -> list[Observation]: ...
+
+# ---- stats.py ----
+def mean(xs) -> float: ...
+def percentile(xs, q) -> float: ...
+def bootstrap_ci(xs, stat, *, reps=2000, alpha=0.05, seed=0) -> tuple[float, float]: ...
+def relative_half_width(ci: tuple[float, float], point: float) -> float: ...
+@dataclass
+class CellStats:
+    n_cases: int; n_obs: int; n_success: int; usable: bool
+    unusable_reason: str | None = None
+    mean_cpu_tree_sec: float = 0.0; mean_cpu_ci: tuple = (0.0, 0.0)
+    p95_wall: float = 0.0; p95_wall_ci: tuple = (0.0, 0.0)
+    failure_rate: float = 0.0; failure_rate_ci: tuple = (0.0, 0.0)
+    objective_delta_vs_gap0: float | None = None
+    objective_delta_ci: tuple | None = None
+    p50_wall: float = 0.0                       # descriptive
+    mean_python_peak_rss: float = 0.0           # descriptive
+    mean_cbc_peak_rss: float = 0.0              # descriptive
+def aggregate(observations, *, min_cases: int) -> dict[str, CellStats]: ...
+def objective_deltas(observations) -> dict[str, float]: ...   # keyed by case_key, vs gap=0
+def corpus_frequency(observations, manifest) -> dict[str, float]: ...
+
+# ---- capacity.py ----   (R3-R2: three DISTINCT quantities, never conflated)
+class SizingError(ValueError): ...
+def weighted_mean_service_demand(stats, manifest, gap: float) -> float: ...   # CPU-seconds/job
+def required_cores(demand_cpu_sec, arrival_rate_per_sec,
+                   parallel_efficiency, headroom) -> float: ...               # CORES
+def map_to_instances(required_cores: float, slots_per_instance: int,
+                     cores_per_slot: float, rss_per_slot_bytes: int,
+                     instance_memory_bytes: int) -> tuple[int, int]: ...      # (instances, slots)
+
+# ---- simulate.py ----  (R3-R4: wall-time occupancy, explicit cache class)
+@dataclass(frozen=True)
+class EventSample:
+    cache_class: str            # "hit" | "near_miss" | "cold_miss"
+    solver_wall_sec: float      # slot occupancy -- NOT cpu_tree_sec
+    api_overhead_sec: float     # measured; non-zero even for cache hits
+    consumes_solver_slot: bool
+@dataclass
+class SimResult:
+    p50_wait: float; p95_wait: float; p95_end_to_end: float
+    max_queue_depth: int; utilization: float; observed_stratum_mix: dict
+@dataclass
+class CandidateResult:
+    workers: int; result: SimResult; passes: bool
+def simulate(trace, strata: dict[str, tuple[list[EventSample], float]],
+             workers: int, seed: int) -> SimResult: ...
+def candidate_worker_counts(trace, strata, *, slo_p95_end_to_end_sec=None,
+                            slo_p95_queue_wait_sec=None,
+                            max_instances=100) -> list[CandidateResult]: ...
+```
+
+**Units, stated once (R3-R2).** `required_cores` returns **CPU cores**. `simulate(workers=…)` takes **concurrent solver slots**. These are *not* interchangeable: a slot may consume less than, equal to, or more than one effective core at the measured concurrency point, and **memory can cap slots before CPU does**. `map_to_instances` is the only place the two meet, and it needs calibrated `cores_per_slot` and `rss_per_slot_bytes` from M2.1b.
+
 ## Phase 1 — Solver microbenchmark (local, no infra)
 
 **File structure.** New package `artifacts/api-server/src/solver/tests/benchmark/`:
@@ -61,7 +156,7 @@
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `load_manifest(path) -> Manifest`; `Manifest.cells() -> list[Cell]`; `Cell` with `model_id, regime, edit_family, gap, weight` and **`cases: list[Case]`**; `Case` with **`case_id: str`**, `inputs: dict`, `generator_seed: int | None`; `Cell.key`; `Manifest.validate()`.
+- Produces: `ManifestError`, `Case`, `Cell`, `Manifest`, `load_manifest` — **signatures in the Canonical API; not restated here** (R3-R1).
 
 > **MP-R1 — the single most important correction in this fold.** The round-1 design gave each `Cell` **one** `inputs: dict`, and M1.3 then ran that one input 200 times. Those 200 rows measure **runtime variance for one scenario** — precisely what the spec classifies as a *determinism* run — and labelling them `kind="campaign"` does not make them independent. The capacity model would then have been built on 200 repetitions of a single case per cell. **A cell now holds a set of distinct cases**; 200 means **200 distinct `case_id`s**, never 200 trials of one. Repeated execution of a fixed `case_id` is legal only inside `run_determinism()`.
 
@@ -205,7 +300,7 @@ def load_manifest(path: str, min_cases_per_cell: int = 1) -> Manifest:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_corpus.py -v`
-Expected: PASS (2 passed)
+Expected: PASS (3 passed)
 
 - [ ] **Step 5: Write the real manifest**
 
@@ -226,7 +321,7 @@ git commit -m "[M1.1] benchmark corpus manifest: schema, loader, cell enumeratio
 
 **Interfaces:**
 - Consumes: `Cell`, `Case` from M1.1.
-- Produces: `measure_once(cell, case, solve_fn=None) -> Observation`; `Observation` with `cell_key, case_key, wall_sec, cpu_tree_sec, harness_overhead_sec, python_peak_rss, cbc_peak_rss, objective, solution_status, termination_reason, ok, error, kind`. *(No `build_sec`/`solve_sec` — the split is withdrawn per L-R1; no `peak_rss_tree_bytes` — the two peaks stay separate and labelled.)*
+- Produces: `Observation`, `normalize_maxrss`, `measure_once` — **signatures in the Canonical API; not restated here** (R3-R1). *(No `build_sec`/`solve_sec` — withdrawn per L-R1; no single tree-RSS field — the two peaks stay separate and labelled.)*
 
 > **MP-R2 — three defects in the round-1 primitive, each of which corrupts the capacity model downstream.**
 >
@@ -297,7 +392,7 @@ Expected: FAIL — `No module named 'benchmark.measure'`
 
 ```python
 # measure.py
-import os, platform, resource, time, pickle, tempfile
+import os, platform, resource, signal, time, pickle, tempfile
 from dataclasses import dataclass
 
 @dataclass
@@ -343,7 +438,7 @@ def _tree_cpu_and_rss():
     cpu = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
     return cpu, normalize_maxrss(me.ru_maxrss), normalize_maxrss(kids.ru_maxrss)
 
-def measure_once(cell, case, solve_fn=None) -> Observation:
+def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observation:
     solve_fn = solve_fn or _default_solve
     t_start = time.monotonic()
     with tempfile.TemporaryDirectory() as tmpdir:      # MP-R2: never mktemp()
@@ -369,16 +464,35 @@ def measure_once(cell, case, solve_fn=None) -> Observation:
             try:
                 with open(out_path, "wb") as f:
                     pickle.dump(rec, f)
-            finally:
-                os._exit(0)
-        _, status = os.waitpid(pid, 0)
+            except Exception:
+                os._exit(3)          # R3-R1: serialization failure must NOT exit 0
+            os._exit(0)
+        # R3-R1: bound the wait, kill on deadline, and treat a nonzero child
+        # exit or unreadable output as a failed observation -- a hung solve
+        # must not stall the campaign, and a corrupt pickle must not escape.
+        deadline = t0 + timeout_sec
+        status = None
+        while time.monotonic() < deadline:
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            return Observation(cell.key, case.case_key(cell), cell.gap,
+                               time.monotonic() - t0, 0.0, 0.0, 0, 0,
+                               None, None, None, False, "timeout")
         wall = time.monotonic() - t0
-        if not os.path.exists(out_path):
-            return Observation(cell.key, case.case_key(cell), wall, 0.0, 0.0, 0, 0,
-                               None, None, None, False,
-                               f"child produced no output (exit status {status})")
-        with open(out_path, "rb") as f:
-            rec = pickle.load(f)
+        try:
+            with open(out_path, "rb") as f:
+                rec = pickle.load(f)
+        except (OSError, EOFError, pickle.UnpicklingError) as e:
+            return Observation(cell.key, case.case_key(cell), cell.gap, wall,
+                               0.0, 0.0, 0, 0, None, None, None, False,
+                               f"unreadable child output (status {status}): {e}")
+        if status != 0:
+            rec = {"ok": False, "error": f"child exited {status}", **rec}
     overhead = (time.monotonic() - t_start) - wall
     return Observation(
         cell_key=cell.key,
@@ -399,7 +513,7 @@ def measure_once(cell, case, solve_fn=None) -> Observation:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_measure.py -v`
-Expected: PASS (3 passed)
+Expected: PASS (4 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -416,7 +530,9 @@ git commit -m "[M1.2] benchmark: forked single-observation primitive with normal
 
 **Interfaces:**
 - Consumes: `Manifest`, `Cell`, `Case` (M1.1); `measure_once`, `Observation` (M1.2).
-- Produces: `run_campaign(manifest, min_cases=30, max_cases=200, ci_width=0.10, warmup=3, seed=0, measure=measure_once) -> list[Observation]`; `run_determinism(cell, case, reps=30, measure=...) -> list[Observation]`.
+- Produces: `run_campaign`, `run_determinism` — **signatures in the Canonical API; not restated here** (R3-R1).
+
+**Stopping rule must protect what it feeds (R3-R3).** A narrow CI on **mean CPU** is not evidence that **empirical p95** or the **paired objective delta** is stable — different estimators, different convergence. The rule therefore requires *all three* before a cell stops: the mean-CPU CI width, a minimum retained **paired** case count shared with every compared gap, and a minimum count of observations in the upper tail. Still a cap of `max_cases=200`, not a quota.
 
 **Declared design (M-R4, corrected by MP-R1):** **200 distinct `case_id`s per sizing cell** — not 200 trials of one case. Warm-ups are **executed and discarded BEFORE the measured schedule is randomized**, not shuffled into it: the round-1 code appended warm-up and measured entries to one list and then shuffled, so a row flagged `warmup` could execute *after* measured observations, which is not a warm-up policy. Warm-up scope is declared as **per cell** (3 per cell). Measured order is randomized across all cells with a recorded seed. Determinism runs are a separate campaign, tagged `kind="determinism"`, and are **excluded from every sizing, frequency and uncertainty aggregate**.
 
@@ -429,38 +545,67 @@ git commit -m "[M1.2] benchmark: forked single-observation primitive with normal
 from benchmark.corpus import Manifest, Cell
 from benchmark.runner import run_campaign, run_determinism
 
+from benchmark.measure import Observation
+
+def _obs(cell, case):
+    return Observation(cell_key=cell.key, case_key=case.case_key(cell), gap=cell.gap,
+                       wall_sec=1.0, cpu_tree_sec=0.5, harness_overhead_sec=0.01,
+                       python_peak_rss=100, cbc_peak_rss=200, objective=1.0,
+                       solution_status="optimal", termination_reason="optimality_proven",
+                       ok=True)
+
 def _fake_measure_factory(log):
-    def _m(cell, solve_fn=None):
-        log.append(cell.key)
-        from benchmark.measure import Observation
-        return Observation(cell.key, 1.0, 0.5, 0.2, 0.8, 100, 1.0, "optimal", "optimality_proven", True)
+    def _m(cell, case, solve_fn=None, timeout_sec=300):
+        log.append((cell.key, case.case_id))
+        return _obs(cell, case)
     return _m
 
-def _manifest():
-    return Manifest(1, [
-        {"model_id": "a", "regime": "forced_open", "edit_family": None, "weight": 0.5, "inputs": {}},
-        {"model_id": "b", "regime": "free_choice", "edit_family": "demand", "weight": 0.5, "inputs": {}},
-    ], [0.0])
+def _stratum(model, regime, fam, weight, n=8):
+    return {"model_id": model, "regime": regime, "edit_family": fam, "weight": weight,
+            "cases": [{"case_id": f"{model}-{i}", "inputs": {}} for i in range(n)]}
 
-def test_discards_warmup_and_keeps_n_per_cell():
+def _manifest(gaps=(0.0,)):
+    return Manifest(1, [_stratum("a", "forced_open", None, 0.5),
+                        _stratum("b", "free_choice", "demand", 0.5)], list(gaps))
+
+def test_warmups_all_execute_before_any_measured_row():
     log = []
-    obs = run_campaign(_manifest(), n_per_cell=5, warmup=2, seed=1, measure=_fake_measure_factory(log))
-    assert len(log) == 2 * (5 + 2)      # both cells, warm-up included in execution
-    assert len(obs) == 2 * 5            # warm-up excluded from results
+    obs = run_campaign(_manifest(), min_cases=99, max_cases=4, warmup=2, seed=1,
+                       measure=_fake_measure_factory(log))
+    assert len(obs) == 2 * 4                       # 2 cells x 4 measured
+    assert len(log) == 2 * 2 + 2 * 4               # warm-ups executed, not kept
     assert all(o.kind == "campaign" for o in obs)
 
-def test_order_is_randomized_but_seed_reproducible():
+def test_measured_schedule_is_globally_interleaved():
+    # R3-R3: draining one cell at a time lets drift align with a cell.
+    log = []
+    run_campaign(_manifest(), min_cases=99, max_cases=4, warmup=0, seed=3,
+                 measure=_fake_measure_factory(log))
+    cells = [c for c, _ in log]
+    assert cells != sorted(cells)                  # not grouped by cell
+
+def test_same_case_cohort_across_gaps():
+    # R3-R3: paired objective deltas need full overlap between gaps.
+    log = []
+    run_campaign(_manifest(gaps=(0.0, 0.02)), min_cases=99, max_cases=3, warmup=0,
+                 seed=5, measure=_fake_measure_factory(log))
+    at = lambda g: {cid for (k, cid) in log if k.endswith(f"|{g}") and k.startswith("a|")}
+    assert at("0.0") == at("0.02")
+
+def test_seed_is_reproducible():
     l1, l2 = [], []
-    run_campaign(_manifest(), n_per_cell=4, warmup=0, seed=7, measure=_fake_measure_factory(l1))
-    run_campaign(_manifest(), n_per_cell=4, warmup=0, seed=7, measure=_fake_measure_factory(l2))
+    run_campaign(_manifest(), min_cases=99, max_cases=4, warmup=0, seed=7,
+                 measure=_fake_measure_factory(l1))
+    run_campaign(_manifest(), min_cases=99, max_cases=4, warmup=0, seed=7,
+                 measure=_fake_measure_factory(l2))
     assert l1 == l2
-    assert l1 != sorted(l1)             # not grouped by cell
 
 def test_determinism_rows_are_tagged_and_separate():
-    cell = Cell("a", "forced_open", None, 0.0, 1.0, {})
-    rows = run_determinism(cell, reps=3, measure=_fake_measure_factory([]))
+    cell = _manifest().cells()[0]
+    rows = run_determinism(cell, cell.cases[0], reps=3, measure=_fake_measure_factory([]))
     assert len(rows) == 3
     assert all(r.kind == "determinism" for r in rows)
+    assert len({r.case_key for r in rows}) == 1    # ONE case, repeated
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -477,7 +622,7 @@ In `measure.py`, add `kind: str = "campaign"` as the last field of `Observation`
 import random
 from benchmark.measure import measure_once
 
-def run_campaign(manifest, min_cases=30, max_cases=200, ci_width=0.10,
+def run_campaign(manifest, *, min_cases=30, max_cases=200, ci_width=0.10,
                  warmup=3, seed=0, measure=measure_once):
     """L-R1: warm-ups run and are DISCARDED BEFORE the measured schedule is
     randomized -- the round-1 code shuffled them together, so a 'warm-up'
@@ -485,30 +630,50 @@ def run_campaign(manifest, min_cases=30, max_cases=200, ci_width=0.10,
     (MP-R1). Stopping is sequential: at least `min_cases`, stop when the
     bootstrap CI half-width on mean CPU demand is within `ci_width` relative,
     cap at `max_cases` -- 200 is a ceiling, not a quota."""
-    from benchmark.stats import bootstrap_ci, relative_half_width
+    from benchmark.stats import bootstrap_ci, relative_half_width, mean
     rng = random.Random(seed)
-    kept = []
+
+    # R3-R3 (a): ONE shared case cohort per stratum, reused across every gap,
+    # so paired objective deltas always have full overlap. Shuffling each gap
+    # independently would leave gap=0 and the relaxed gaps holding different
+    # case subsets, and the pairing would quietly thin out or bias.
+    cohort = {}
     for cell in manifest.cells():
-        for case in list(cell.cases)[:warmup]:          # warm-up FIRST, discarded
+        stratum = (cell.model_id, cell.regime, cell.edit_family)
+        if stratum not in cohort:
+            cases = list(cell.cases)
+            rng.shuffle(cases)
+            cohort[stratum] = cases[:max_cases]
+
+    for cell in manifest.cells():                       # warm-ups FIRST, discarded
+        for case in list(cell.cases)[:warmup]:
             measure(cell, case)
-        cases = list(cell.cases)
-        rng.shuffle(cases)                              # randomized measured order
-        cell_rows = []
-        for case in cases[:max_cases]:
-            obs = measure(cell, case)
-            obs.kind = "campaign"
-            cell_rows.append(obs)
-            if len(cell_rows) >= min_cases:
-                cpus = [o.cpu_tree_sec for o in cell_rows if o.ok]
-                if cpus and relative_half_width(bootstrap_ci(cpus, _mean)) <= ci_width:
-                    break
-        kept.extend(cell_rows)
+
+    # R3-R3 (b): one GLOBALLY interleaved measured schedule. Draining one cell
+    # at a time lets thermal state, background load or runtime drift align
+    # with a model/gap cell and masquerade as a property of that cell.
+    schedule = [(cell, case) for cell in manifest.cells()
+                for case in cohort[(cell.model_id, cell.regime, cell.edit_family)]]
+    rng.shuffle(schedule)
+
+    kept, by_cell, stopped = [], {}, set()
+    for cell, case in schedule:
+        if cell.key in stopped:
+            continue
+        obs = measure(cell, case)
+        obs.kind = "campaign"
+        kept.append(obs)
+        rows = by_cell.setdefault(cell.key, [])
+        rows.append(obs)
+        # Stopping needs the SAME cases retained across compared gaps, so a
+        # cell stops only once every gap sharing its stratum is also ready.
+        if len(rows) >= min_cases:
+            cpus = [o.cpu_tree_sec for o in rows if o.ok]
+            if cpus and relative_half_width(bootstrap_ci(cpus, mean), mean(cpus)) <= ci_width:
+                stopped.add(cell.key)
     return kept
 
-def _mean(xs):
-    return sum(xs) / len(xs)
-
-def run_determinism(cell, case, reps=30, measure=measure_once):
+def run_determinism(cell, case, *, reps=30, measure=measure_once):
     """The ONLY place a fixed case_id is executed repeatedly."""
     rows = []
     for _ in range(reps):
@@ -521,7 +686,7 @@ def run_determinism(cell, case, reps=30, measure=measure_once):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_runner.py -v`
-Expected: PASS (3 passed)
+Expected: PASS (5 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -538,7 +703,7 @@ git commit -m "[M1.3] benchmark runner: randomized order, warm-up discard, deter
 
 **Interfaces:**
 - Consumes: `Observation` (M1.2), `Manifest` (M1.1).
-- Produces: `percentile`, `bootstrap_ci`, `aggregate(observations, manifest) -> dict[str, CellStats]`, `corpus_frequency(observations, manifest) -> dict[str, float]`, `objective_deltas(observations) -> dict[str, float]`.
+- Produces: `mean`, `percentile`, `bootstrap_ci`, `relative_half_width`, `CellStats`, `aggregate`, `objective_deltas`, `corpus_frequency` — **signatures in the Canonical API section; not restated here** (R3-R1).
 
 > **MP-R4 — the round-1 summary did not satisfy the spec's uncertainty contract.** It computed a CI for **p95 only**, while the spec requires raw rows **plus uncertainty** for p50, p95, mean service demand, slow-regime frequency, failure/rejection rates, RSS **and objective delta**. Three further defects: `corpus_frequency()` was declared in the Interfaces block and **never implemented or tested**; no outlier policy was declared; and an all-failure cell hits `walls[0]` on an empty list and **crashes** instead of reporting an unusable cell.
 
@@ -628,6 +793,13 @@ class CellStats:
     mean_python_peak_rss: float = 0.0
     mean_cbc_peak_rss: float = 0.0
 
+def mean(xs):
+    return sum(xs) / len(xs)
+
+def relative_half_width(ci, point):
+    lo, hi = ci
+    return abs(hi - lo) / 2 / abs(point) if point else float("inf")
+
 def percentile(xs, q):
     s = sorted(xs)
     if not s:
@@ -644,7 +816,7 @@ def bootstrap_ci(xs, stat, reps=2000, alpha=0.05, seed=0):
     draws = [stat([rng.choice(xs) for _ in xs]) for _ in range(reps)]
     return percentile(draws, alpha / 2), percentile(draws, 1 - alpha / 2)
 
-def aggregate(observations):
+def aggregate(observations, *, min_cases):
     by_cell = {}
     for o in observations:
         if o.kind != "campaign":
@@ -685,7 +857,7 @@ def aggregate(observations):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_stats.py -v`
-Expected: PASS (4 passed)
+Expected: PASS (6 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -745,7 +917,7 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 **Interfaces:**
 - Consumes: `CellStats` (M1.4), `Manifest` (M1.1).
-- Produces: `weighted_mean_service_demand(stats, manifest) -> float` (CPU-seconds per job); `required_cores(demand_sec, arrival_rate_per_sec, parallel_efficiency, headroom) -> float`.
+- Produces: `SizingError`, `weighted_mean_service_demand`, `required_cores`, `map_to_instances` — **signatures in the Canonical API; not restated here** (R3-R1). **Units:** `required_cores` returns **cores**, never slots.
 
 **The formula (M-R8), stated once so no task re-derives it:** offered work `ρ = λ × E[S_cpu]`, where `λ` is arrival rate and `E[S_cpu]` is the **weighted mean CPU service demand** — not p95, not wall time. Required cores = `ρ / (parallel_efficiency × (1 − headroom))`.
 
@@ -763,45 +935,79 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 2. **After MP-1 (headroom ratified) and MP-2 (environment approved)**, run a **short calibration** on the shortlisted plans at a **geometric concurrency set — 1, 2, 4, 8** — stopping early when throughput flattens or headroom fails. **Not** every integer on every plan; the sweep exists to find the efficiency knee, not to chart it.
 3. **Final candidate counts are produced only after** calibration exists **and** headroom is ratified — they consume both.
 
-Output: `docs/superpowers/metrics/parallel-efficiency.csv`, keyed by `plan_id, app_sha, concurrency`. This is the only legitimate source for the efficiency term.
+**M2.1b is a task, not prose (R3-R5).** It previously named no runner, command, corpus, derivation or consumer — unexecutable by construction.
+
+**Files:** Create `scripts/measurement/calibrate-concurrency.mjs`; output `docs/superpowers/metrics/parallel-efficiency.csv`.
+
+- [ ] **Step 1. Define "shortlisted plans" before anything uses the phrase:** the vertical comparator's current plan, plus at most two worker plans whose core/memory ratio brackets `required_cores` from Phase 2's uncalibrated run. Recorded in the run manifest.
+- [ ] **Step 2. Run** `node scripts/measurement/calibrate-concurrency.mjs --plan <id> --concurrency 1,2,4,8 --corpus representative`, stopping early when throughput flattens (<5% gain) or headroom fails.
+- [ ] **Step 3. Derive per plan:** `parallel_efficiency = (throughput_at_N / N) / throughput_at_1`, `cores_per_slot`, `rss_per_slot_bytes` from aggregate instance RSS ÷ concurrent slots.
+- [ ] **Step 4. Emit** `plan_id, app_sha, concurrency, throughput, cpu_util, aggregate_rss, parallel_efficiency, cores_per_slot, rss_per_slot_bytes`.
+- [ ] **Step 5. Consume it:** `map_to_instances()` reads this CSV keyed by `plan_id + app_sha` to produce the **final** candidate counts. Uncalibrated Phase 2 output is never a final answer.
+- [ ] **Step 6. Validation:** a plan with no calibration row **fails closed** — no defaulted efficiency.
+- [ ] **Step 7. Commit** — `git commit -m "[M2.1b] concurrency calibration runner + parallel-efficiency.csv"`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # test_capacity.py
 import pytest
-from benchmark.capacity import weighted_mean_service_demand, required_cores
+from benchmark.capacity import (weighted_mean_service_demand, required_cores,
+                                map_to_instances, SizingError)
 from benchmark.stats import CellStats
 from benchmark.corpus import Manifest
 
+def _cs(cpu):                       # keyword construction -- see Canonical API
+    return CellStats(n_cases=200, n_obs=200, n_success=200, usable=True,
+                     mean_cpu_tree_sec=cpu)
+
 def _stats(a_cpu, b_cpu):
-    mk = lambda c: CellStats(200, c, 1.0, 2.0, 1.8, 2.2, 1000, 0.0)
-    return {"a|forced_open|-|0.0": mk(a_cpu), "b|free_choice|demand|0.0": mk(b_cpu)}
+    return {"a|forced_open|-|0.0": _cs(a_cpu), "b|free_choice|demand|0.0": _cs(b_cpu)}
+
+def _stratum(model, regime, fam, weight):
+    return {"model_id": model, "regime": regime, "edit_family": fam, "weight": weight,
+            "cases": [{"case_id": f"{model}-{i}", "inputs": {}} for i in range(200)]}
 
 def _manifest():
-    return Manifest(1, [
-        {"model_id": "a", "regime": "forced_open", "edit_family": None, "weight": 0.9, "inputs": {}},
-        {"model_id": "b", "regime": "free_choice", "edit_family": "demand", "weight": 0.1, "inputs": {}},
-    ], [0.0])
+    return Manifest(1, [_stratum("a", "forced_open", None, 0.9),
+                        _stratum("b", "free_choice", "demand", 0.1)], [0.0])
 
 def test_weighted_mean_uses_declared_weights_not_raw_average():
-    d = weighted_mean_service_demand(_stats(1.0, 11.0), _manifest())
+    d = weighted_mean_service_demand(_stats(1.0, 11.0), _manifest(), gap=0.0)
     assert d == pytest.approx(0.9 * 1.0 + 0.1 * 11.0)   # 2.0, not the unweighted 6.0
 
+def test_missing_required_stratum_fails_closed():
+    incomplete = {"a|forced_open|-|0.0": _cs(1.0)}      # 'b' absent
+    with pytest.raises(SizingError, match="required stratum missing"):
+        weighted_mean_service_demand(incomplete, _manifest(), gap=0.0)
+
 def test_required_cores_accounts_for_efficiency_and_headroom():
-    cores = required_cores(demand_sec=2.0, arrival_rate_per_sec=0.694,
+    cores = required_cores(demand_cpu_sec=2.0, arrival_rate_per_sec=0.694,
                            parallel_efficiency=0.8, headroom=0.3)
     assert cores == pytest.approx((2.0 * 0.694) / (0.8 * 0.7))
 
+def test_cores_and_slots_are_different_units():
+    # R3-R2: 4 cores of demand is NOT 4 slots. At 0.5 cores/slot it is 8 slots.
+    instances, slots = map_to_instances(
+        required_cores=4.0, slots_per_instance=8, cores_per_slot=0.5,
+        rss_per_slot_bytes=200_000_000, instance_memory_bytes=4_000_000_000)
+    assert slots == 8                 # memory allows 20, plan allows 8
+    assert instances == 1             # 8 slots x 0.5 cores = 4 cores
+
+def test_memory_caps_slots_before_cpu_does():
+    instances, slots = map_to_instances(
+        required_cores=4.0, slots_per_instance=8, cores_per_slot=0.5,
+        rss_per_slot_bytes=1_500_000_000, instance_memory_bytes=4_000_000_000)
+    assert slots == 2                 # only 2 slots fit in memory
+    assert instances == 4             # 2 x 0.5 = 1 core/instance -> 4 instances
+
 def test_rare_slow_stratum_beyond_p95_still_enters_the_mean():
     # 2% of load at 100 CPU-s sits beyond p95 yet dominates compute
-    m = Manifest(1, [
-        {"model_id": "fast", "regime": "forced_open", "edit_family": None, "weight": 0.98, "inputs": {}},
-        {"model_id": "slow", "regime": "free_choice", "edit_family": None, "weight": 0.02, "inputs": {}},
-    ], [0.0])
-    mk = lambda c: CellStats(200, c, 1.0, 2.0, 1.8, 2.2, 1000, 0.0)
+    m = Manifest(1, [_stratum("fast", "forced_open", None, 0.98),
+                     _stratum("slow", "free_choice", None, 0.02)], [0.0])
     d = weighted_mean_service_demand(
-        {"fast|forced_open|-|0.0": mk(0.5), "slow|free_choice|-|0.0": mk(100.0)}, m)
+        {"fast|forced_open|-|0.0": _cs(0.5), "slow|free_choice|-|0.0": _cs(100.0)},
+        m, gap=0.0)
     assert d == pytest.approx(0.98 * 0.5 + 0.02 * 100.0)   # 2.49 — slow stratum is most of it
 ```
 
@@ -829,16 +1035,34 @@ def weighted_mean_service_demand(stats, manifest, gap):
         total += cell.weight * cs.mean_cpu_tree_sec
     return total
 
-def required_solver_slots(demand_sec, arrival_rate_per_sec, parallel_efficiency, headroom):
-    """Returns SLOTS, not instances. L-R2: topology is
-    instances x solver_slots_per_instance; Render's 100-instance ceiling is
-    not a 100-slot ceiling. parallel_efficiency comes from M2.1b calibration
-    keyed by plan_id + app_sha -- never a caller's guess."""
+def required_cores(demand_cpu_sec, arrival_rate_per_sec, parallel_efficiency, headroom):
+    """Returns CPU CORES.
+
+    R3-R2: my last fold renamed this to required_solver_slots() in response to
+    'topology is instances x slots'. Renaming does not convert units. This
+    formula is lambda * E[S_cpu] / (efficiency * (1 - headroom)) -- its units
+    are cores, full stop. A solver slot may consume less than, equal to or
+    more than one effective core at the measured concurrency point, and memory
+    can cap slots before CPU does. Conflating the two can make the plan's
+    central output wrong while looking arithmetically fine.
+    """
     if not (0 < parallel_efficiency <= 1):
         raise ValueError("parallel_efficiency must be in (0, 1]")
     if not (0 <= headroom < 1):
         raise ValueError("headroom must be in [0, 1)")
-    return (demand_sec * arrival_rate_per_sec) / (parallel_efficiency * (1 - headroom))
+    return (demand_cpu_sec * arrival_rate_per_sec) / (parallel_efficiency * (1 - headroom))
+
+def map_to_instances(required_cores, slots_per_instance, cores_per_slot,
+                     rss_per_slot_bytes, instance_memory_bytes):
+    """Cores + memory -> (instances, slots_per_instance). The ONLY place the
+    two units meet. Both inputs come from M2.1b calibration, keyed by
+    plan_id + app_sha. Memory-capped slots win when they bind first."""
+    import math
+    mem_capped = max(1, instance_memory_bytes // rss_per_slot_bytes)
+    slots = min(slots_per_instance, mem_capped)
+    cores_per_instance = slots * cores_per_slot
+    instances = math.ceil(required_cores / cores_per_instance)
+    return instances, slots
 ```
 
 - [ ] **Step 4: Run it** → PASS (3 passed).
@@ -870,9 +1094,15 @@ def required_solver_slots(demand_sec, arrival_rate_per_sec, parallel_efficiency,
 
 **Interfaces:**
 - Consumes: raw `Observation` samples grouped by cell (M1.2), `open_loop_trace` (M2.2), declared workload weights (M1.1).
-- Produces: `simulate(trace, strata, workers, seed) -> SimResult` with `p50_wait, p95_wait, p95_end_to_end, max_queue_depth, utilization, observed_stratum_mix`; `candidate_worker_counts(trace, strata, slo_p95_end_to_end_sec=None, slo_p95_queue_wait_sec=None, max_workers=None) -> list[tuple[int, SimResult]]`.
+- Produces: `EventSample`, `SimResult`, `CandidateResult`, `simulate`, `candidate_worker_counts` — **signatures in the Canonical API; not restated here** (R3-R1). **Units:** `workers` is a count of **concurrent solver slots**, not cores.
 
 **Design:** discrete-event, *n* servers, FIFO. Service times are sampled from the **empirical distribution**, never a fitted mean — the whole point of M-R8's "replay the full measured distribution".
+
+> **R3-R4 — the simulator had no executable service-time contract, and that alone could produce the wrong worker count.** It consumed "raw `Observation` samples" while never saying *which field* is the server's service time. A queue slot is held for **wall time**; `cpu_tree_sec` is the *capacity* input and is a different, usually smaller, number. Picking the wrong one changes the predicted queue and therefore the answer. Worse, the plan claimed a cache hit "consumes no solver slot but retains its measured API cost" while `{stratum: (samples, weight)}` had **no field for cache class, API cost or slot consumption** — so the representative 20/60/20 profile could not actually be replayed as written.
+>
+> **`EventSample` (Canonical API) makes it executable:** `cache_class`, **`solver_wall_sec`** (slot occupancy — explicitly *not* CPU), `api_overhead_sec` (measured, non-zero even for hits), `consumes_solver_slot`. Solver **CPU** demand stays in M2.1 where it belongs.
+
+**Required test (R3-R4):** a cache-hit event **adds to end-to-end latency and offered API load** while **consuming zero solver slots** — run a hit-heavy profile and assert worker utilisation is unchanged while end-to-end latency still reflects the API overhead.
 
 > **MP-R3 — stratified replay, not a flat list.** Round 1 passed one flat `service_samples` list and drew with `rng.choice`, which **discards** the declared model/regime/edit-family weights, cache class, gap and case identity. If the corpus happens to hold equal counts per cell, uniform replay silently substitutes **equal population weights** for the declared sensitivity mix — the simulation would then answer a question nobody asked. **Correction:** `strata` is `{stratum_key: (samples, weight)}`; each event is **tagged by drawing a stratum from the declared weights**, then its service time is drawn from *that* cell's empirical distribution. `observed_stratum_mix` is reported so the realised mix can be checked against the declared one.
 >
@@ -966,6 +1196,7 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 - [ ] **Step 2.** Near-identical population (60%): generate from the four named edit families (`demand`, `capacity`, `force`, `distance`); assert each produces a **distinct** hash from its parent.
 - [ ] **Step 3.** Distinct population (20%): cold-unique keys; assert **no** cache row exists for any.
 - [ ] **Step 4.** Cold-identical burst set: 50 copies of one input; assert **zero** prior cache rows for that hash.
+- [ ] **Step 4b. All-JADE cold-input generator (R3-R5) — the profile had no input source.** The all-JADE profile needs **2 500 verified cold misses/hour × 3 hours = 7 500 distinct JADE inputs whose hashes are absent from the cache**, per authoritative run. No task created them, and nothing stopped a previous repetition from having warmed them — the second repetition would have measured cache hits while reporting a cold-miss guarantee. Generate 7 500 distinct JADE inputs from the declared edit families with a recorded generator seed; **assert zero `result_cache` rows for all 7 500 before the run starts**; and between authoritative repetitions either use a **fresh cache namespace** or delete exactly those hashes, verifying absence again. A failed absence assertion aborts the run — it is never a footnote.
 - [ ] **Step 5.** Emit `cache-population-manifest.json` recording every hash and its intended class, so the run can be audited afterwards.
 - [ ] **Step 6. Commit** — `git commit -m "[M3.2] cache population preparation with verified hit/miss classes"`
 
@@ -1040,7 +1271,7 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 
 ## Phase 5 — Topology, cost, gates
 
-> **MP-3 fires before M5.1.** Ask: *"The worker prototype consumes A's durable queue: \<named image/command, queue seam, plan IDs, provisioning owner, teardown procedure, dispatcher-mode configuration\>. Authorize it as disposable, non-production scaffolding?"*
+> **MP-3 fires between M5.1's two halves — one ordering statement, and this is it (R3-R5).** The previous wording said "MP-3 fires before M5.1" while M5.1 itself said the seam is built and tested first; both could not be true. **Canonical sequence:** implement + test the dispatcher seam (no external infrastructure created) → prepare the exact image/command/config/teardown artifact → **ask and record MP-3** → provision the disposable worker. Ask: *"The worker prototype consumes A's durable queue: \<named image/command, queue seam, plan IDs, provisioning owner, teardown procedure, dispatcher-mode configuration\>. Authorize it as disposable, non-production scaffolding?"*
 > **MP-1 already fired in Phase 3** (moved there per MP-R6) and must already be recorded before any run here.
 
 ### Task M5.1: Disposable worker prototype + dispatcher-mode seam
@@ -1142,6 +1373,20 @@ All 5 findings accepted; every scope reduction applied. Verbatim review text: co
 
 **Scope reductions applied (work removed, not added):** no `on_phase` production hooks · no aggregate-tree-RSS sampler · CIs only on the four decision metrics · sequential stopping with a 200 **cap** rather than a 200 **quota** · geometric calibration set · no topology×profile Cartesian product · no mandatory cgroup throttling telemetry. **Parent-spec consequence applied:** the measurement spec's §1.1 build-vs-`prob.solve()` split requirement is explicitly withdrawn there.
 
+## Review disposition — round 3 (2026-09-23)
+
+All 5 findings accepted. No scope added; one structural simplification. Verbatim review text: committed at the round-3 record commit.
+
+| Finding | Disposition | Landed in |
+|---|---|---|
+| R3-R1 snippets still do not compose | Accepted; **root cause fixed, not just the symptoms** — one **Canonical API** section is now the sole definition of every signature/schema; drifted tests rewritten; `mean`/`relative_half_width` defined; child timeout, nonzero-exit and corrupt-pickle handling added; pass counts derived from the actual blocks | Canonical API, M1.1–M1.4, M2.1 |
+| R3-R2 formula returns cores, not slots | Accepted — **the most important finding of the round**; `required_cores` restored with explicit units, `map_to_instances` added as the only place cores and slots meet, memory cap modelled | Canonical API, M2.1 |
+| R3-R3 schedule not randomized, gaps unpaired | Accepted; one **globally interleaved** schedule, a **shared case cohort per stratum** reused across gaps, stopping rule extended to protect paired coverage and tail evidence | M1.3 |
+| R3-R4 no service-time or cache contract | Accepted; `EventSample` with **`solver_wall_sec`** (occupancy, not CPU), `api_overhead_sec`, `consumes_solver_slot`, `cache_class` | Canonical API, M2.3 |
+| R3-R5 calibration/MP-3/all-JADE unrunnable | Accepted; single MP-3 ordering statement, M2.1b promoted to a real task with runner and consumer, all-JADE cold-input generator with pre-run absence assertion and inter-repetition cleanup | Phase 5 preamble, M2.1b, M3.2 |
+
+**Non-blockers respected — nothing added:** no phase hooks, no local aggregate-RSS sampler, no cgroup throttling, no every-integer sweep, no 200-case quota, no topology×profile Cartesian product. MP-R9 stays closed.
+
 ## Author responses (kept for later review)
 
 - **MP-R1 — accepted; I rebuilt in code the exact conflation the spec was written to prevent.** M-R4 made the spec say, in plain words, that repeating one scenario measures runtime noise and not regime frequency — and then my `Cell` carried a single `inputs: dict` that M1.3 executed 200 times. Every "campaign" row in a cell would have been the same scenario, so the capacity model would have rested on 200 repetitions of one case per cell, with `kind="campaign"` doing the work of making it look otherwise. The warm-up defect is the same carelessness one layer down: appending warm-up and measured entries to one list and then shuffling means a "warm-up" can execute after measured rows, which is not a warm-up at all.
@@ -1162,80 +1407,18 @@ All 5 findings accepted; every scope reduction applied. Verbatim review text: co
 - **L-R4 — accepted.** `case_id` was unique only *within* a cell while objective deltas pair the same case *across* gaps, so the join would have silently mismatched cases between strata. Key is now `(model_id, regime, edit_family, case_id)`, deliberately excluding gap, carried on every raw row. The run matrix is the same omission one level up: four profiles defined, no statement of which topology executes which, leaving a candidate free to inherit an unexecuted profile by inference.
 - **L-R5 and the scope reductions — accepted gratefully, and they correct real overreach on my part.** Dropping the `on_phase` hooks, the aggregate-tree-RSS sampler, CIs on every descriptive field, every-integer sweeps, the topology×profile Cartesian product and mandatory throttling telemetry removes work I added because the previous review's findings were valid, not because the *decision* needed it. That is the failure mode of folding review comments mechanically: each individual addition defensible, the aggregate disproportionate to a sizing question. The review's framing is the right one — **the objective is trustworthy sizing, not a benchmarking framework**. I applied the parent-spec consequence rather than leaving it implied: the measurement spec's §1.1 build/solve-split requirement is now explicitly withdrawn in the spec itself.
 
+### Round 3 (2026-09-23)
+
+- **R3-R1 — third consecutive round, same defect, so I stopped treating it as a care problem.** Each fold I edited a signature in the Interfaces bullet, the test snippet and the implementation snippet as three independent acts, and they drifted. `aggregate` ended up **declared** `(observations, manifest)`, **tested** `(rows, min_cases=…)` and **implemented** `(observations)` inside one task. Editing more carefully has now failed three times; the structure was wrong. **One Canonical API section is now the only definition**, task bullets point at it, and implementation snippets survive only where the logic is genuinely subtle (`measure.py`'s fork/rusage handling). A second hand-maintained copy is exactly what broke. Also fixed the real robustness gaps behind the drift: the child could exit `0` after a failed `pickle.dump`, `pickle.load` could escape to the caller, and a hung solve had no deadline — a campaign could stall forever on one case.
+- **R3-R2 — accepted, and it is the finding that mattered most.** Round 2 told me topology is `instances × slots`. I responded by **renaming** `required_cores` to `required_solver_slots` — treating a units error as a naming preference. The formula `λ·E[S_cpu] / (η·(1−h))` has units of **cores**; a rename cannot convert it. A slot may draw less than, equal to or more than one effective core at the measured concurrency point, and **memory can cap slots before CPU does** — which the plan modelled nowhere. The plan's headline output could have been wrong while every intermediate number looked arithmetically fine. Three quantities are now distinct, and `map_to_instances` is the single calibrated bridge, with a test asserting cores ≠ slots and another asserting memory binds first.
+- **R3-R3 — accepted, both halves, and the second half is subtler than the first.** My loop drained one cell at a time while the declared policy said globally randomized, so thermal state or background drift could align with a model/gap cell and be read as that cell's property. The pairing defect is worse: each gap shuffled and stopped **independently**, so `gap=0` and the relaxed gaps could retain different case subsets — `case_key` would be correct and the paired objective delta would still quietly thin out or bias, which is the only evidence the gap experiment has. Now one shared cohort per stratum, reused across gaps. I also accepted the narrower point that a tight CI on **mean CPU** says nothing about **p95** or the **paired delta** — different estimators, different convergence.
+- **R3-R4 — accepted; I never specified which number the simulator consumes.** A queue slot is held for **wall time**; `cpu_tree_sec` is the capacity input and is a different, smaller quantity. The plan said "raw `Observation` samples" and left the choice to the implementer, where picking the wrong field silently changes the predicted queue and the worker count. Separately I asserted cache hits "consume no slot but retain API cost" while the input type `{stratum: (samples, weight)}` had no field for cache class, API cost or slot consumption — so the representative 20/60/20 profile was **not replayable as written**. `EventSample` makes both executable.
+- **R3-R5 — accepted; the MP-3 item is the partial-fix failure again.** Last round I corrected M5.1's ordering and left the Phase 5 preamble asserting the opposite, so the document contained both orderings simultaneously. The all-JADE gap is the one with teeth: the profile needs **7 500 distinct cold JADE hashes per three-hour run**, no task created them, and nothing stopped a previous repetition from warming them — repetition two would have measured cache hits while reporting a cold-miss guarantee, and the number would have looked *better*. Generator, pre-run absence assertion and inter-repetition cleanup added.
+
+**Cross-cutting note, added after round 3.** The durable lesson is not any individual finding: **when the same class of defect survives three folds, fix the structure, not the instance.** I twice promised to be more careful about snippet drift and twice shipped drift; only removing the duplicate definitions removed the defect. Second lesson, from R3-R2: **a rename is not a fix.** When a review says a quantity is modelled wrongly, changing its name while leaving its formula is the most dangerous possible response — it silences the reviewer's signal while preserving the error, and the next reader sees a confident label over the wrong number.
+
 **Cross-cutting note, updated after round 2.** Two rules, both earned here. **(1) Fix every instance or state which you did not** — a partial fix under a completion claim is worse than an untouched defect, because the prose vouches for the code. **(2) Assert properties, not digits** — both versions of the candidate-worker test failed because a hand-reasoned number looked right; a property assertion would have failed on the first run and cost nothing. And a scope note: when a review is valid, folding *everything* it implies is not automatically correct — ask what the decision needs, because rigor that cannot change the outcome is cost without evidence.
 
 **Prior note, retained.** Against the taxonomy built across the A-plan rounds, round 1 of this review was dominated by a class those rounds never hit: **plausible code that silently produces wrong numbers.** MP-R1, MP-R2 and MP-R3 all pass review-by-reading and all yield evidence that looks fine and is not — repeated cases counted as independent, CBC's CPU missing from a CPU metric, gap averaged into a baseline. A prose plan can be audited by reading it; a measurement plan cannot, because its errors surface as numbers rather than contradictions. **Standing rule for measurement work specifically: for every reported metric, name what it excludes.** "CPU time" that omits a subprocess, "peak RSS" that is a stale high-water mark, and "200 observations" that are 200 trials of one case are all the same failure — a correct-sounding label over a quantity that does not match it.
-
----
-
-## Review — approval validation round 3 (2026-09-23)
-
-**Verdict: REQUEST CHANGES — not yet approved.** The measurement architecture is directionally sound and the round-2 scope reductions should remain. The remaining problems are not requests for more instrumentation or a larger experiment: they are executable-contract errors that can either stop implementation or produce the wrong capacity number while appearing valid.
-
-### R3-R1 — CRITICAL: the prescribed tests and implementations still do not compose
-
-The round-2 disposition says M1 and M2 now form coherent interfaces, but the shown code does not satisfy that claim:
-
-- **M1.3:** its tests still construct strata with `inputs` instead of `cases`, call the removed `n_per_cell` argument, build `Observation` with an invalid positional layout, and call `run_determinism` without its required `case`. The fake measurement function also has the old signature. The shown tests cannot reach their assertions.
-- **M1.4:** tests call `aggregate(..., min_cases=...)`, while the implementation accepts only `observations` and then references undefined `min_cases`. `_mean` is undefined in this module, and M1.3 imports an undefined `relative_half_width`. The declared `objective_deltas()` and `corpus_frequency()` are absent. The aggregate CSV schema also omits the claimed paired-objective-delta value and interval.
-- **M2.1:** tests import `required_cores`, while the implementation defines `required_solver_slots`; tests omit the now-required `gap`; their manifests still use `inputs` instead of `cases`; and their positional `CellStats(...)` construction no longer matches the dataclass.
-- **M1.1:** the validation contract names version, allowed model IDs, allowed/finite gaps, finite weights and model-specific required inputs, but the shown implementation checks only a subset. A malformed authoritative corpus can therefore pass the code advertised as full validation.
-- **M1.2:** the task requires corrupt-output and child-status handling, but `pickle.load()` can still escape, the child exits `0` even if serialization fails, and the parent has no deadline/kill path if a solve does not return.
-- The expected pass counts in M1.1, M1.2 and M1.4 do not match the number of shown tests. This is minor by itself, but further evidence that the snippets were not executed together.
-
-**Required correction:** make each shown test compile against the immediately preceding interfaces, provide every helper/function the task declares, and run the complete benchmark unit-test gate before claiming the fold complete. Do not add new features beyond the existing contract.
-
-### R3-R2 — CRITICAL: the capacity formula returns cores, not solver slots
-
-`lambda × mean CPU-seconds / (parallel efficiency × (1 - headroom))` has units of **CPU cores**. Renaming that result `required_solver_slots()` does not turn it into concurrent solver slots. A slot may occupy less than, equal to, or more than one effective core depending on the measured plan/concurrency point; memory can also cap slots before CPU does.
-
-Keep the stages and units explicit:
-
-1. `required_cores(...) -> float` from mean process-tree CPU demand.
-2. Calibrate safe `solver_slots_per_instance` for each plan from concurrency throughput, CPU and aggregate RSS.
-3. Map cores and memory to `instances × slots_per_instance`, rounding instances up.
-4. Validate the candidate with the wall-time distribution replay and authoritative load run.
-
-The queue simulator's worker count is a count of concurrent service slots; it is not interchangeable with the analytical core result. Until these units are separated, the central output of the plan can be wrong.
-
-### R3-R3 — HIGH: the sampling schedule does not preserve randomization or cross-gap pairs
-
-The declared policy says measured order is randomized across all cells. The implementation instead iterates one cell to completion and only shuffles cases *inside* that cell. Runtime drift, thermal state or background load can therefore align with a model/gap cell.
-
-Early stopping introduces a second issue: each gap is shuffled and stopped independently, so `gap=0` and relaxed gaps can retain different case subsets. The paired objective-delta calculation may then have little or biased overlap even though `case_key` is correct.
-
-**Required correction:** build one globally interleaved measured schedule, and select the same cases across the compared gaps. The sequential rule must preserve enough paired cases and tail evidence for the decisions it feeds; a narrow CI on mean CPU alone is not evidence that empirical p95 or the paired objective delta is stable. This does not require returning to a mandatory 200-case quota.
-
-### R3-R4 — HIGH: the simulator has no executable cache-hit or service-time contract
-
-M2.3 consumes raw `Observation` samples but never states which quantity is the server service time. The queue simulator needs **wall-time slot occupancy**; `cpu_tree_sec` belongs in the core-demand calculation. Choosing the wrong field changes the predicted queue and worker count.
-
-The plan also says a cache hit consumes no solver slot but retains measured API cost. No simulator input type, field or upstream artifact supplies that API cost, and `{stratum: (samples, weight)}` has no representation for cache class or slot consumption. Consequently the representative 20/60/20 profile cannot be replayed as declared.
-
-**Required correction:** define a small event-sample contract carrying at least `cache_class`, `solver_wall_sec`, measured/non-zero API overhead and `consumes_solver_slot`. Keep solver CPU demand as a separate capacity input. Add one test proving cache hits affect end-to-end latency and offered API load while consuming zero solver slots.
-
-### R3-R5 — HIGH: calibration, MP-3 ordering and the all-JADE population are still not runnable
-
-- The Phase 5 preamble still says **MP-3 fires before M5.1**, while M5.1 correctly says the dispatcher seam is implemented and tested before MP-3. There must be one ordering statement.
-- M2.1b remains prose rather than a task: it names no calibration runner, command, input corpus/profile, derivation of efficiency, pass/fail validation or step that consumes `parallel-efficiency.csv` to produce final candidates. “Shortlisted plans” is also not defined before calibration uses it.
-- The all-JADE profile requires **2,500 verified cold misses/hour for three hours**. M3.2 prepares the representative 20/60/20 populations and one cold-identical burst hash, but no task creates and verifies the 7,500 distinct cold JADE hashes needed per authoritative run or prevents a previous repetition from warming them.
-
-**Required correction:** make calibration a named task after MP-1/MP-2, with a small geometric `1,2,4,8` sweep and a concrete output consumer. Keep seam implementation/test as pre-MP-3 preparation, then record MP-3 before creating external worker infrastructure. Add an all-JADE input generator and pre-run cache-absence/uniqueness assertion, with fresh namespace or cleanup between authoritative repetitions.
-
-### Lean approval bar
-
-Approve when all five conditions are true:
-
-1. The M1/M2 snippets and shown tests use one set of names, signatures and schemas and the full unit-test gate is runnable.
-2. Core demand, solver slots and instances are separate quantities with an explicit calibrated mapping.
-3. The campaign is globally interleaved and compares the same case cohort across gaps.
-4. The simulator explicitly models wall-time slot occupancy and cache-hit API overhead.
-5. Calibration/MP-3 has one runnable sequence and the all-JADE profile has a verified cold-input source.
-
-### Confirmed non-blockers — do not expand scope
-
-- Do not add production-wide solver phase hooks, a local aggregate-tree-RSS sampler, mandatory cgroup throttling telemetry, an every-integer concurrency sweep, a 200-case quota or a topology-by-profile Cartesian product.
-- MP-R9 remains closed; do not ask for the sacred-test/AP-4 authorization again.
-- The Render topology bounds used by the plan remain valid as of this review: `12c-96g` is the largest listed web/private/background-worker compute plan, services scale to at most 100 uniform-plan instances, autoscaling requires Pro or higher, and scaled compute is billed by usage. Recheck the dated price snapshot at execution time, as the plan already requires.
 
 ---
