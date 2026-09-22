@@ -327,6 +327,34 @@ export interface SolveMetrics {
   outboundCost?: number;
 }
 
+export type SolutionStatus = typeof SolutionStatus[keyof typeof SolutionStatus];
+
+
+export const SolutionStatus = {
+  optimal: 'optimal',
+  feasible: 'feasible',
+  infeasible: 'infeasible',
+  unbounded: 'unbounded',
+  no_solution: 'no_solution',
+  error: 'error',
+} as const;
+
+export type TerminationReason = typeof TerminationReason[keyof typeof TerminationReason];
+
+
+export const TerminationReason = {
+  optimality_proven: 'optimality_proven',
+  gap_limit: 'gap_limit',
+  time_limit: 'time_limit',
+  node_limit: 'node_limit',
+  infeasible: 'infeasible',
+  unbounded: 'unbounded',
+  unknown: 'unknown',
+} as const;
+
+/**
+ * Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports "feasible" here instead of a hardcoded "optimal" (see B2). Prefer solutionStatus/terminationReason.
+ */
 export type SolveResultStatus = typeof SolveResultStatus[keyof typeof SolveResultStatus];
 
 
@@ -334,6 +362,9 @@ export const SolveResultStatus = {
   optimal: 'optimal',
   infeasible: 'infeasible',
   error: 'error',
+  feasible: 'feasible',
+  no_solution: 'no_solution',
+  unbounded: 'unbounded',
 } as const;
 
 /**
@@ -345,7 +376,27 @@ export type SolveResultDetails = { [key: string]: unknown };
  * Standardized result envelope (Phase 3.5, G2.1/Phase 4) — solve.py's raw stdout shape, unwrapped by no TS-side shim as of Phase 4.
  */
 export interface SolveResult {
+  /** Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports "feasible" here instead of a hardcoded "optimal" (see B2). Prefer solutionStatus/terminationReason. */
   status: SolveResultStatus;
+  /** B3: the solver's real outcome classification, from CBC's own captured termination evidence (never the requested gap or wall-clock — see B1/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null/absent solutionStatus as unverified, never as a proven-optimal claim. */
+  solutionStatus?: SolutionStatus | null;
+  /** Why the solver stopped. Null alongside a null/absent solutionStatus (legacy), or when solutionStatus is "error" (a load/dispatch failure before any solve was attempted). */
+  terminationReason?: TerminationReason | null;
+  /**
+     * The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.
+     * @nullable
+     */
+  achievedGap?: number | null;
+  /**
+     * CBC's best incumbent objective from captured evidence, when known.
+     * @nullable
+     */
+  solverIncumbentObjective?: number | null;
+  /**
+     * CBC's best bound from captured evidence, when known.
+     * @nullable
+     */
+  solverBestBound?: number | null;
   objective: number;
   runTimeSec: number;
   quality: string;
