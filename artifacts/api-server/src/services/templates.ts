@@ -1451,6 +1451,13 @@ export function openWarehouseRowsToCsv(rows: OpenWarehouseTemplateRow[]): string
 // a self-describing `distanceUnit`. Numeric fields that can be unavailable are
 // typed `number | null` and serialize as EXPLICIT null (never omitted).
 // Bumped to OUTPUT_TEMPLATE_VERSION (D28).
+// B6 whole-branch review Finding #2 — `quality` is solve.py's raw PuLP-
+// promoted lpStatus string ("Optimal" even for a gap-limited/time-limited
+// solve — see solve.py's `status_str = cbc.lpStatus`), not a truthful
+// outcome statement. `solutionStatus`/`terminationReason` are added here so
+// a reader of the export can see the real evidence, and `quality` itself is
+// now derived truthfully (see truthfulQualityText below) rather than passed
+// through raw — a gap-limited export must never read "Optimal".
 export interface CostSummaryTemplateRow {
   templateVersion: number;
   objective: number | null;
@@ -1459,7 +1466,40 @@ export interface CostSummaryTemplateRow {
   distanceUnit: string;
   runTimeSec: number | null;
   quality: string;
+  solutionStatus: string | null;
+  terminationReason: string | null;
   solverUsed: string;
+}
+
+// B6 whole-branch review Finding #2 — mirrors studio's
+// `lib/resultOutcome.ts` (classifyResultOutcome/hasIncumbent/
+// resultQualityText, the UI's own truthful-status derivation) minimally:
+// api-server and studio are separate packages, so this is not importable
+// from there, and the logic is small enough not to warrant a new shared
+// package for one function. A legacy row (no `solutionStatus` key at all —
+// predates B2) never claims "Optimal"/"Proven optimal"; it reads
+// "Unverified" instead, exactly like the UI's `resultQualityText` does for
+// the same case.
+function truthfulQualityText(result: ResultEnvelope): string {
+  const solutionStatus = result.solutionStatus ?? null;
+  if (solutionStatus == null) return "Unverified";
+  if (solutionStatus !== "optimal" && solutionStatus !== "feasible") return "No incumbent";
+  switch (result.terminationReason) {
+    case "optimality_proven":
+      return "Proven optimal";
+    case "gap_limit": {
+      if (result.achievedGap == null) return "Feasible — within gap";
+      const pct = result.achievedGap * 100;
+      const formatted = Number.isInteger(pct) ? pct.toFixed(0) : pct.toFixed(1);
+      return `Feasible — within gap (${formatted}%)`;
+    }
+    case "time_limit":
+      return "Feasible — time limit reached";
+    case "node_limit":
+      return "Feasible — node limit reached";
+    default:
+      return "Unverified";
+  }
 }
 
 // Always exactly one row — a scenario has one current result, not a
@@ -1496,29 +1536,39 @@ export function buildCostSummaryRows(
       result.metrics.weightedAvgDistance == null ? null : roundForFile(toDisplay(result.metrics.weightedAvgDistance, canonicalUnit, requestedUnit)),
     distanceUnit: requestedUnit,
     runTimeSec: result.runTimeSec,
-    quality: result.quality,
+    quality: truthfulQualityText(result),
+    solutionStatus: result.solutionStatus ?? null,
+    terminationReason: result.terminationReason ?? null,
     solverUsed: result.solverUsed,
   }];
 }
 
 export function costSummaryRowsToCsv(rows: CostSummaryTemplateRow[]): string {
-  const header = "template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used";
+  const header = "template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used";
   const lines = rows.map(r =>
-    [r.templateVersion, r.objective ?? "", csvEscape(r.objectiveMode ?? ""), r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", csvEscape(r.quality), csvEscape(r.solverUsed)].join(","),
+    [r.templateVersion, r.objective ?? "", csvEscape(r.objectiveMode ?? ""), r.weightedAvgDistance ?? "", r.distanceUnit, r.runTimeSec ?? "", csvEscape(r.quality), csvEscape(r.solutionStatus ?? ""), csvEscape(r.terminationReason ?? ""), csvEscape(r.solverUsed)].join(","),
   );
   return [header, ...lines].join("\n") + "\n";
 }
 
 // Chen-bands-units bundle, Part E — v3 JSON row projector: `templateVersion`
-// and `distanceUnit` are envelope-only in JSON — the exact locked shape is
+// and `distanceUnit` are envelope-only in JSON — the locked shape was
 // `{objective, objectiveMode, weightedAvgDistance, runTimeSec, quality,
 // solverUsed}`. Not yet wired into routes/scenarios.ts (out of scope here).
+//
+// B6 whole-branch review Finding #2 — gained `solutionStatus`/
+// `terminationReason`, matching CostSummaryTemplateRow's own addition (see
+// its header comment) — the JSON export needs the same truthful-status
+// evidence the CSV export gained, not just a truthfully-derived `quality`
+// string with no way to see why.
 export interface CostSummaryJsonRow {
   objective: number | null;
   objectiveMode: string | null;
   weightedAvgDistance: number | null;
   runTimeSec: number | null;
   quality: string;
+  solutionStatus: string | null;
+  terminationReason: string | null;
   solverUsed: string;
 }
 
@@ -1529,6 +1579,8 @@ export function toCostSummaryJsonRow(r: CostSummaryTemplateRow): CostSummaryJson
     weightedAvgDistance: r.weightedAvgDistance,
     runTimeSec: r.runTimeSec,
     quality: r.quality,
+    solutionStatus: r.solutionStatus,
+    terminationReason: r.terminationReason,
     solverUsed: r.solverUsed,
   };
 }

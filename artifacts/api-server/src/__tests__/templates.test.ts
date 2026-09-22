@@ -852,6 +852,12 @@ describe("jade-T7 — buildJadeLegDistanceStubRows (legDistances stub generator,
 function makeResult(overrides: Partial<ResultEnvelope> = {}): ResultEnvelope {
   return {
     status: "optimal",
+    // B6 whole-branch review Finding #2 — solutionStatus/terminationReason
+    // chosen so truthfulQualityText(result) resolves to exactly "Proven
+    // optimal", matching this fixture's pre-existing `quality` string (which
+    // buildCostSummaryRows no longer passes through raw — see templates.ts).
+    solutionStatus: "optimal",
+    terminationReason: "optimality_proven",
     objective: 29873735731,
     runTimeSec: 0.45,
     quality: "Proven optimal",
@@ -1062,8 +1068,39 @@ describe("buildCostSummaryRows", () => {
       distanceUnit: "mi",
       runTimeSec: 0.45,
       quality: "Proven optimal",
+      solutionStatus: "optimal",
+      terminationReason: "optimality_proven",
       solverUsed: "CBC",
     }]);
+  });
+
+  // B6 whole-branch review Finding #2 — the actual bug: a gap-limited
+  // (feasible/gap_limit) result must NOT export "Optimal"/"Proven optimal".
+  it("a gap-limited (feasible/gap_limit) result exports its real truthful status, never Optimal", () => {
+    const result = makeResult({
+      status: "feasible",
+      solutionStatus: "feasible",
+      terminationReason: "gap_limit",
+      achievedGap: 0.05,
+      quality: "Optimal", // solve.py's raw PuLP lpStatus — must not be trusted verbatim
+    });
+    const row = buildCostSummaryRows(result, "mi", "mi", "p-median-us")[0];
+    expect(row.quality).toBe("Feasible — within gap (5%)");
+    expect(row.quality).not.toContain("Optimal");
+    expect(row.solutionStatus).toBe("feasible");
+    expect(row.terminationReason).toBe("gap_limit");
+  });
+
+  // B6 whole-branch review Finding #2 — a legacy row (no solutionStatus key
+  // at all, predates B2) must read "Unverified", never "Optimal", even
+  // though its raw `quality`/`status` were hardcoded "optimal" pre-B2.
+  it("a legacy result (no solutionStatus) exports quality as Unverified, never Optimal", () => {
+    const { solutionStatus: _s, terminationReason: _t, ...legacyBase } = makeResult();
+    const result = { ...legacyBase, status: "optimal" as const, quality: "Optimal" } as ResultEnvelope;
+    const row = buildCostSummaryRows(result, "mi", "mi", "p-median-us")[0];
+    expect(row.quality).toBe("Unverified");
+    expect(row.solutionStatus).toBeNull();
+    expect(row.terminationReason).toBeNull();
   });
 
   it("serializes objectiveMode as an explicit null (not omitted) when details has no objective mode", () => {
@@ -1120,7 +1157,7 @@ describe("costSummaryRowsToCsv", () => {
   it("emits exactly one data line (plus header) with the v3 column set", () => {
     const lines = costSummaryRowsToCsv(buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")).trim().split("\n");
     expect(lines.length).toBe(2);
-    expect(lines[0]).toBe("template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solver_used");
+    expect(lines[0]).toBe("template_version,objective,objective_mode,weighted_avg_distance,distance_unit,run_time_sec,quality,solution_status,termination_reason,solver_used");
     expect(lines[1].split(",")[0]).toBe(String(OUTPUT_TEMPLATE_VERSION));
   });
 });
@@ -1130,7 +1167,8 @@ describe("toCostSummaryJsonRow", () => {
     const row = buildCostSummaryRows(makeResult(), "mi", "mi", "p-median-us")[0];
     const jsonRow = toCostSummaryJsonRow(row);
     expect(jsonRow).toEqual({
-      objective: 29873735731, objectiveMode: null, weightedAvgDistance: 382.9, runTimeSec: 0.45, quality: "Proven optimal", solverUsed: "CBC",
+      objective: 29873735731, objectiveMode: null, weightedAvgDistance: 382.9, runTimeSec: 0.45, quality: "Proven optimal",
+      solutionStatus: "optimal", terminationReason: "optimality_proven", solverUsed: "CBC",
     });
     expect("templateVersion" in jsonRow).toBe(false);
     expect("distanceUnit" in jsonRow).toBe(false);

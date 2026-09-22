@@ -2190,6 +2190,38 @@ describe("PATCH /api/scenarios/:scenarioId/distance-bands (T9, spec Part G)", ()
     const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(setArg).not.toHaveProperty("inputsUpdatedAt");
   });
+
+  // B6 whole-branch review Finding #3 — distanceBands.ts hand-duplicates
+  // scenarios.ts's toApiScenario (see its own header comment) and must apply
+  // the SAME legacy-unverified read guard (presentResultForRead), or a
+  // legacy result returned via this bands-only PATCH would skip the
+  // `solutionStatus: null` stamp every other read path applies — the "one
+  // unambiguous signal" contract (see routes/scenarios.ts's B3 comment
+  // block) must hold here too.
+  it("stamps solutionStatus: null on a legacy result (no solutionStatus key) returned by this endpoint", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const legacyResult = {
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      // Deliberately no solutionStatus/terminationReason keys — a pre-B2 shape.
+    };
+    const solvedRow = { ...pmedianRow, result: legacyResult, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const newBands = [50, 150, 450, 900];
+    const chain = makeChain([{ ...solvedRow, inputs: { ...pmedianInputs, distanceBands: newBands }, result: legacyResult }]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: newBands });
+
+    expect(res.status).toBe(200);
+    // The deprecated `status` field is left exactly as stored, per B3's
+    // "leave status as-stored" contract.
+    expect(res.body.result.status).toBe("optimal");
+    expect("solutionStatus" in res.body.result).toBe(true);
+    expect(res.body.result.solutionStatus).toBeNull();
+  });
 });
 
 // ── JADE model-branched assignments/flows export (task A4, spec §5c) ───────
