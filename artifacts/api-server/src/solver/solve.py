@@ -1,7 +1,26 @@
 #!/usr/bin/env python3
 """P-Median, Transportation LP, and Capacitated P-Median solvers.
-Reads JSON from stdin, writes JSON to stdout."""
+Reads JSON from stdin, writes the SolverProcessMessage (A3) to fd 3."""
 import sys, json, time, math, os
+
+# ---------------------------------------------------------------------------
+# A3 -- fd 3 is the Node<->Python IPC channel jobRunner.ts's spawn() opens as
+# an extra stdio pipe. Mark it close-on-exec BEFORE any subprocess (CBC,
+# spawned later by PuLP inside a solve_* call) can inherit it: an inherited
+# fd3 held open by a grandchild process would block Node from ever seeing
+# EOF on that pipe once solve.py itself exits. Must run at import time --
+# before any solve() call, i.e. before CBC is ever spawned. Best-effort: fd 3
+# is genuinely absent for a manual/dev invocation
+# (`echo ... | python3 solve.py`, no Node driving it) -- _write_process_
+# message() below falls back to stdout in that case, so a missing fd 3 here
+# is expected and not fatal.
+try:
+    import fcntl
+    _fd3_flags = fcntl.fcntl(3, fcntl.F_GETFD)
+    fcntl.fcntl(3, fcntl.F_SETFD, _fd3_flags | fcntl.FD_CLOEXEC)
+except (OSError, ImportError):
+    pass
+
 from pulp import (LpProblem, LpMinimize, LpVariable, lpSum,
                   LpConstraint, LpConstraintEQ, LpConstraintLE, LpConstraintGE,
                   LpStatus, value, PULP_CBC_CMD)
@@ -170,8 +189,17 @@ DISTANCE_CHENS   = {(k.split(',')[0], k.split(',')[1]): v for k, v in _CHENS_DIS
 # as the envelope's solutionStatus/terminationReason.
 # ---------------------------------------------------------------------------
 def _run_cbc(prob, gap, time_limit, *, problem_uid=None, msg=False):
+    # A3 -- Node owns the per-solve temp dir now (mkdtemp'd in jobRunner.ts,
+    # passed via NOS_SOLVE_WORKDIR so it never touches the model-math
+    # payload). solve_with_capture()'s own base_tmp_dir already accepted an
+    # override; None (env var unset -- direct pytest calls of solve_pmedian()
+    # etc, or a manual/dev invocation with no Node driving it) falls back to
+    # its existing tempfile.gettempdir() default, so behavior for every
+    # non-Node caller is unchanged.
+    base_tmp_dir = os.environ.get("NOS_SOLVE_WORKDIR") or None
     return solve_with_capture(
-        prob, gapRel=gap, timeLimit=time_limit, msg=msg, problem_uid=problem_uid)
+        prob, gapRel=gap, timeLimit=time_limit, msg=msg, problem_uid=problem_uid,
+        base_tmp_dir=base_tmp_dir)
 
 # ---------------------------------------------------------------------------
 # Standardized result envelope (Phase 3.5, G2.1; B2 adds truthful status).
@@ -230,13 +258,65 @@ _EMPTY_DETAILS = {"openWarehouseIds": [], "assignments": []}
 def _load_error_envelope(model_id, run_time=0.0):
     """Error envelope returned when a model's dataset failed to load at
     import time — keyed off _LOAD_ERRORS so the user sees the actual
-    IO/JSON failure message instead of a bare traceback."""
-    return _envelope(
+    IO/JSON failure message instead of a bare traceback.
+
+    Pure-Python callers (solve_pmedian() etc invoked directly, e.g. by
+    pytest) still get this exact status="error" shape back — unchanged by
+    A3. It's only `__main__`'s process boundary that now refuses to forward
+    a status="error" envelope as a fd3 SUCCESS message; `_failureStage`
+    below is the private marker that boundary reads to classify which
+    FAILURE message to write instead (never the raw infeasibilityReason
+    text, which may contain a filesystem path from the underlying OSError).
+    """
+    env = _envelope(
         "error", "error", 0, run_time, [],
         {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
         {"openWarehouseIds": [], "assignments": []},
         _LOAD_ERRORS.get(model_id, f"Unknown load error for {model_id}"),
     )
+    env["_failureStage"] = "dataset_load"
+    return env
+
+
+# ---------------------------------------------------------------------------
+# A3 -- fd3 SolverProcessMessage helpers. See
+# artifacts/api-server/src/solver/solverProcessMessage.ts for the Node-side
+# schema this must match exactly (failureReason/failureStage enums,
+# errorDetail allowlist + 2048-byte cap).
+# ---------------------------------------------------------------------------
+_MAX_ERROR_DETAIL_BYTES = 2048
+
+
+def _failure(reason, stage, detail=None):
+    """Builds a FAILURE process message. `detail`, if given, MUST already be
+    a small, structured, allowlisted dict — never raw stdout/stderr, a raw
+    exception message, or a filesystem path (§ A3). Defensively truncated to
+    the 2048-byte octet cap the Node-side schema also enforces, so a bug here
+    degrades to a smaller-but-valid message rather than a protocol violation."""
+    if detail is not None:
+        raw = json.dumps(detail)
+        if len(raw.encode("utf-8")) > _MAX_ERROR_DETAIL_BYTES:
+            detail = {"truncated": True}
+    return {"failureReason": reason, "failureStage": stage, "errorDetail": detail}
+
+
+def _write_process_message(msg):
+    """Writes exactly one newline-terminated JSON object to fd 3 (A3's
+    Node<->Python IPC channel) — the sole channel a caller driven by
+    jobRunner.ts reads. Falls back to stdout only when fd 3 isn't open at
+    all (a manual/dev invocation with no Node parent providing it — not part
+    of the production contract). Never raises: a failure to report the
+    result must not crash the process after the solve already completed."""
+    line = json.dumps(msg) + "\n"
+    try:
+        with os.fdopen(os.dup(3), "w") as f:
+            f.write(line)
+            f.flush()
+        return
+    except OSError:
+        pass
+    sys.stdout.write(line)
+    sys.stdout.flush()
 
 # ---------------------------------------------------------------------------
 # P-Median solver (Chapter 3)
@@ -791,8 +871,10 @@ def solve_capacitated_pmedian(inp):
 # ---------------------------------------------------------------------------
 def solve_two_echelon(inp):
     if _LOAD_ERRORS.get("two-echelon-gold-au"):
-        return _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
+        env = _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
                          f"Dataset load failed: {_LOAD_ERRORS['two-echelon-gold-au']}")
+        env["_failureStage"] = "dataset_load"
+        return env
 
     bom            = float(inp.get('bomRatio', 1.1))
     distance_bands = sorted(inp.get('distanceBands', [500, 1000, 1500, 2000, 2600]))
@@ -1347,11 +1429,17 @@ def solve_chens(inp):
                          solver_incumbent_objective=cbc.solverIncumbentObjective,
                          solver_best_bound=cbc.solverBestBound)
     if st != "Optimal":                                              # Not Solved / Undefined / Unbounded / timeout → error
-        return _envelope("error", "error", 0, round(time.time() - t, 2), [],
+        env = _envelope("error", "error", 0, round(time.time() - t, 2), [],
                          _EMPTY_METRICS, _EMPTY_DETAILS, f"Solver terminated with status: {st}",
                          termination_reason=cbc.terminationReason, achieved_gap=cbc.achievedGap,
                          solver_incumbent_objective=cbc.solverIncumbentObjective,
                          solver_best_bound=cbc.solverBestBound)
+        # A CBC status we have no actionable branch for is the solver's own
+        # outcome, not a Python-side plumbing bug -- classified as
+        # solver_error, distinct from the internal_error stages above.
+        env["_failureReason"] = "solver_error"
+        env["_failureStage"] = "cbc_parse"
+        return env
     edges = []
     covered = 0.0
     tdd = 0.0
@@ -1396,15 +1484,45 @@ def solve(inp):
         return solve_chens(inp)
     if model_type == 'p_median':
         return solve_pmedian(inp)
-    return _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
-                      f"Unknown modelType: {model_type}")
+    env = _envelope("error", "error", 0, 0, [], _EMPTY_METRICS, _EMPTY_DETAILS,
+                     f"Unknown modelType: {model_type}")
+    env["_failureStage"] = "dispatch"
+    return env
 
+
+# ---------------------------------------------------------------------------
+# A3 -- process entrypoint. `solve()`/`solve_*()` are UNCHANGED pure Python
+# functions (hard rules #2/#6: zero solver-math changes) that still return an
+# envelope dict, including the pre-existing status="error" shape for a
+# dataset-load/dispatch failure -- direct Python callers (pytest) see exactly
+# what they always have. It is ONLY this process boundary that changed: a
+# status="error" envelope is no longer forwarded as if it were a real
+# success -- it is translated into a fd3 FAILURE message instead, so
+# jobRunner.ts can never cache or publish it (the live bug this task fixes).
+# `_failureStage` is a private marker `_load_error_envelope()`/the dispatch-
+# error/two-echelon-load-error branches set above; it is read here and
+# never forwarded itself (stripped implicitly -- `_failure()` builds a fresh
+# message, it doesn't pass the envelope dict through).
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    inp = json.loads(sys.stdin.read())
+    try:
+        inp = json.loads(sys.stdin.read())
+    except Exception:
+        _write_process_message(_failure("internal_error", "input_parse"))
+        sys.exit(0)
+
     try:
         result = solve(inp)
-    except Exception as e:
-        result = _envelope("error", "error", 0, 0, [],
-                            {"utilizationByNode": [], "bandCoverage": [], "weightedAvgDistance": 0},
-                            {"openWarehouseIds": [], "assignments": []}, str(e))
-    print(json.dumps(result))
+    except Exception:
+        # Any unhandled exception from solve()/solve_*() (including a
+        # CBCParseError bubbling up from cbc_termination.py) -- never forward
+        # the raw exception text, only a fixed, safe classification.
+        _write_process_message(_failure("internal_error", "solve_exception"))
+        sys.exit(0)
+
+    if result.get("status") == "error":
+        reason = result.get("_failureReason", "internal_error")
+        stage = result.get("_failureStage", "dispatch")
+        _write_process_message(_failure(reason, stage))
+    else:
+        _write_process_message(result)

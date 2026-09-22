@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import os from "os";
 import { existsSync, readFileSync } from "fs";
+import fsp from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
@@ -13,6 +14,12 @@ import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { posthog } from "../lib/posthog.js";
+import {
+  classifyFd3Message,
+  classifyTerminal,
+  type SolverSuccessEnvelopeV2,
+  type TerminalOutcome,
+} from "./solverProcessMessage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -152,61 +159,296 @@ function pump(): void {
   }
 }
 
-interface SpawnResult {
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  spawnError: string | null;
+// ---------------------------------------------------------------------------
+// A3 — process-group containment. solve.py is spawned DETACHED (its own
+// process-group leader, child.pid === its pgid on POSIX) so a timeout/
+// cancel can reliably reach every descendant (in particular CBC, spawned by
+// PuLP from *inside* the Python process) via `process.kill(-pgid, signal)`,
+// not just the direct child. TERM first (graceful), then — only if the
+// group is still alive after a bounded grace period — SIGKILL (which
+// cannot be caught/blocked on POSIX). Linux/POSIX-only: `process.kill`
+// with a negative pid is a POSIX process-group signal; this fails fast
+// (throws, surfaced as a real startup error) on a non-POSIX platform, which
+// this app has never targeted for the solver (production is Linux/Docker;
+// local dev is macOS, also POSIX).
+// ---------------------------------------------------------------------------
+
+if (process.platform !== "linux" && process.platform !== "darwin") {
+  throw new Error(
+    `solver/jobRunner.ts's process-group containment (A3) requires a POSIX platform ` +
+    `(process.kill(-pgid, ...) is POSIX-only); refusing to start on "${process.platform}".`,
+  );
 }
 
-// Solver contract: stdout's last non-empty line is the JSON envelope.
-// Tolerates stray banner output without silently accepting garbage — solve.py
-// may emit a deprecation warning or CBC banner line, and a naive
-// JSON.parse(stdout) would reject the whole thing. We take only the last
-// non-empty line so a banner doesn't break parsing, and throw explicitly if
-// there's nothing to parse (a real failure worth surfacing, not a silent
-// empty-object fallthrough). [R1, R2]
-function lastJsonLine(raw: string): string {
-  const lines = raw.trim().split("\n").filter((l) => l.trim() !== "");
-  if (lines.length === 0) throw new Error("empty solver stdout");
-  return lines[lines.length - 1];
+const DEFAULT_TERM_GRACE_MS = 2000;
+export const TERM_GRACE_MS = parsePositiveIntEnv(process.env.SOLVE_TERM_GRACE_MS, DEFAULT_TERM_GRACE_MS);
+export const KILL_PROBE_INTERVAL_MS = 50;
+// Bounded wait after SIGKILL before giving up probing — SIGKILL cannot be
+// caught/blocked on POSIX, so this should essentially always resolve almost
+// immediately; it's a safety bound, not a real expected wait.
+export const GROUP_DEATH_TIMEOUT_MS = 3000;
+
+export const STDIO_CAP_BYTES = 64 * 1024;
+export const FD3_CAP_BYTES = 1024 * 1024;
+
+// Margin added on top of a scenario's own requested timeLimitSec before the
+// outer solver-process timeout fires — gives CBC's own gap/time-limit
+// machinery a chance to finish writing its result after its internal clock
+// expires, rather than racing Node's outer kill against CBC's own graceful
+// stop. Kept as the same 15s default this app has always used; configurable
+// (like the other timing knobs above) so a test can shrink it instead of
+// needing fake timers to exercise a real timeout.
+const DEFAULT_TIMEOUT_GRACE_MS = 15000;
+export const TIMEOUT_GRACE_MS = parsePositiveIntEnv(process.env.SOLVE_TIMEOUT_GRACE_MS, DEFAULT_TIMEOUT_GRACE_MS);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function runSolverProcess(payload: string, timeoutMs: number): Promise<SpawnResult> {
+// Sends `signal` to the WHOLE process group led by `pid` (never just the
+// direct child) — swallows ESRCH (already dead) / EPERM (no longer ours to
+// signal) since both mean "nothing more for us to do here," not a real
+// failure worth surfacing.
+export function killProcessGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    /* already dead, or genuinely not ours — either way, nothing to do */
+  }
+}
+
+// Probes whether ANY process in the group led by `pid` is still alive
+// (signal 0 sends nothing, just checks existence/permission) — this is
+// what lets the timeout/no-orphan proof distinguish "direct child dead,
+// CBC grandchild orphaned and still alive" from genuine full-group death.
+export function isProcessGroupAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code !== "ESRCH";
+  }
+}
+
+export async function waitForGroupDeath(pid: number, probeIntervalMs: number, maxWaitMs: number): Promise<boolean> {
+  const deadline = Date.now() + maxWaitMs;
+  // Check once immediately — a group that's already dead (or never had
+  // anything to kill) shouldn't pay the first probe-interval delay.
+  if (!isProcessGroupAlive(pid)) return true;
+  while (Date.now() < deadline) {
+    await sleep(probeIntervalMs);
+    if (!isProcessGroupAlive(pid)) return true;
+  }
+  return !isProcessGroupAlive(pid);
+}
+
+// TERM -> (bounded grace) -> KILL -> (bounded wait) for the whole process
+// group. Used by both the timeout path and cancellation — the two defined
+// cancellation sources this app has (an outer solve timeout firing, or an
+// explicit cancel via `cancelJob`/`cancelAllActiveJobs`, e.g. SIGTERM/
+// deploy) both funnel through this one sequence.
+export async function terminateProcessGroup(pid: number): Promise<void> {
+  killProcessGroup(pid, "SIGTERM");
+  const diedAfterTerm = await waitForGroupDeath(pid, KILL_PROBE_INTERVAL_MS, TERM_GRACE_MS);
+  if (diedAfterTerm) return;
+  killProcessGroup(pid, "SIGKILL");
+  await waitForGroupDeath(pid, KILL_PROBE_INTERVAL_MS, GROUP_DEATH_TIMEOUT_MS);
+  // Even if this second wait times out (should essentially never happen on
+  // a healthy POSIX host), we proceed regardless — a stray survivor at that
+  // point is a containment gap the no-orphan proof exists to catch, not
+  // something worth blocking job completion over indefinitely.
+}
+
+// Active jobs' cancellation handles, keyed by jobId — the "internal cancel"
+// source (cancelJob) and the "SIGTERM/deploy" source (cancelAllActiveJobs)
+// both abort the same AbortSignal runSolverProcess watches. Deliberately
+// NOT wired into index.ts's own SIGTERM handler by this task (index.ts is
+// outside solver/'s ownership) — exported so that wiring is a one-line
+// addition for whoever owns index.ts.
+const activeControllers = new Map<number, { controller: AbortController; source: string }>();
+
+export function cancelJob(jobId: number, source: string = "internal"): boolean {
+  const entry = activeControllers.get(jobId);
+  if (!entry) return false;
+  entry.controller.abort(source);
+  return true;
+}
+
+export function cancelAllActiveJobs(source: string = "sigterm"): number {
+  let n = 0;
+  for (const [, entry] of activeControllers) {
+    entry.controller.abort(source);
+    n++;
+  }
+  return n;
+}
+
+// A capped byte-collector: past `capBytes`, further pushes are discarded
+// (not appended) rather than growing without bound — this is the "≤64 KiB
+// stdout/stderr, ≤1 MiB fd3, abort-at-cap" containment requirement. Decodes
+// once, at the end, from the full accumulated Buffer (never per-chunk) so a
+// multi-byte UTF-8 character split across two `data` events can't corrupt
+// the text.
+function makeCappedCollector(capBytes: number) {
+  let buf = Buffer.alloc(0);
+  let truncated = false;
+  return {
+    push(chunk: Buffer): void {
+      if (truncated) return;
+      const remaining = capBytes - buf.length;
+      if (chunk.length <= remaining) {
+        buf = Buffer.concat([buf, chunk]);
+      } else {
+        buf = Buffer.concat([buf, chunk.subarray(0, Math.max(remaining, 0))]);
+        truncated = true;
+      }
+    },
+    text(): string {
+      return buf.toString("utf8");
+    },
+    isTruncated(): boolean {
+      return truncated;
+    },
+  };
+}
+
+interface SupervisedRunResult {
+  outcome: TerminalOutcome;
+  pid: number | null;
+  stderrText: string;
+}
+
+// A3 — supervises exactly one solve.py invocation end-to-end: detached
+// process-group spawn, fd3 message capture (capped/incremental), stdout/
+// stderr capture (capped, diagnostics-only — never parsed as the result
+// anymore), the timeout/cancel TERM->KILL sequence, and classification via
+// classifyTerminal(). Never throws — every branch resolves.
+function runSolverProcess(
+  payload: string,
+  timeoutMs: number,
+  opts: { workDir: string; signal?: AbortSignal },
+): Promise<SupervisedRunResult> {
   return new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    let cancelled = false;
+    let spawnFailed = false;
+    let exitCode: number | null = null;
+
+    const stdoutCollector = makeCappedCollector(STDIO_CAP_BYTES);
+    const stderrCollector = makeCappedCollector(STDIO_CAP_BYTES);
+    const fd3Collector = makeCappedCollector(FD3_CAP_BYTES);
+
     // cwd guards [C6] — run from os.tmpdir() so a malicious/buggy solver
     // script that writes relative paths lands them in the OS temp dir, not
-    // the repo root.
-    const child = spawn("python3", [SOLVER_PY], { cwd: os.tmpdir() });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let settled = false;
+    // the repo root. detached: true makes this child the leader of its own
+    // process group (pid === pgid on POSIX) so terminateProcessGroup() can
+    // reach every descendant, not just this direct child. stdio index 3 is
+    // the fd3 IPC channel solve.py's `_write_process_message` writes to.
+    const child = spawn("python3", [SOLVER_PY], {
+      cwd: os.tmpdir(),
+      detached: true,
+      stdio: ["pipe", "pipe", "pipe", "pipe"],
+      env: { ...process.env, NOS_SOLVE_WORKDIR: opts.workDir },
+    });
 
-    const finish = (result: SpawnResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
+    const fd3Stream = child.stdio[3] as NodeJS.ReadableStream | null;
+
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearTimeoutTimer = () => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
     };
 
-    const timer = setTimeout(() => {
+    const onAbort = () => {
+      if (settled) return;
+      cancelled = true;
+      const pid = child.pid;
+      void (async () => {
+        if (pid) await terminateProcessGroup(pid);
+        finish();
+      })();
+    };
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        onAbort();
+      } else {
+        opts.signal.addEventListener("abort", onAbort, { once: true });
+      }
+    }
+
+    const finish = () => {
+      if (settled) {
+        // TT-13 — a late exit/message after this call already settled is
+        // dropped, not re-processed; nothing else to record here beyond
+        // not double-resolving (posthog/db writes only ever happen once,
+        // downstream in runJob, off this single resolution).
+        return;
+      }
+      settled = true;
+      clearTimeoutTimer();
+      if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
+
+      const message = classifyFd3Message({
+        raw: fd3Collector.text(),
+        oversize: fd3Collector.isTruncated(),
+      });
+      const outcome = classifyTerminal({
+        timedOut,
+        cancelled,
+        spawnFailed,
+        exitCode,
+        message,
+      });
+      resolve({ outcome, pid: child.pid ?? null, stderrText: stderrCollector.text() });
+    };
+
+    timeoutTimer = setTimeout(() => {
+      if (settled) return;
       timedOut = true;
-      child.kill("SIGKILL");
-      // Resolve directly rather than waiting on "close" — a killed process
-      // isn't guaranteed to report it promptly, and this is the one signal
-      // the job runner actually needs to move on and mark the job failed.
-      finish({ stdout, stderr, code: null, timedOut: true, spawnError: null });
+      const pid = child.pid;
+      void (async () => {
+        if (pid) await terminateProcessGroup(pid);
+        finish();
+      })();
     }, timeoutMs);
 
-    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.on("error", (err) => finish({ stdout, stderr, code: null, timedOut, spawnError: err.message }));
-    child.on("close", (code) => finish({ stdout, stderr, code, timedOut, spawnError: null }));
+    child.stdout?.on("data", (chunk: Buffer) => stdoutCollector.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => stderrCollector.push(chunk));
+    fd3Stream?.on("data", (chunk: Buffer) => fd3Collector.push(chunk));
+    fd3Stream?.on("error", () => {
+      /* degrades naturally via classifyFd3Message's missing/partial cases */
+    });
 
-    child.stdin.write(payload);
-    child.stdin.end();
+    child.on("error", (err) => {
+      spawnFailed = true;
+      exitCode = null;
+      void err; // never surfaced raw — classifyTerminal's spawn branch owns the diagnostic
+      finish();
+    });
+
+    // 'close' fires once the direct child has exited AND its stdio streams
+    // have closed — Node reaps the direct child as part of normal 'exit'
+    // handling, no separate wait/reap call needed for that half. Confirming
+    // whole-GROUP death (not just this direct child) only matters on the
+    // timeout/cancel paths above, where terminateProcessGroup() already
+    // does it before finish() is called.
+    child.on("close", (code) => {
+      if (timedOut || cancelled) return; // already resolving via the kill sequence
+      exitCode = code;
+      finish();
+    });
+
+    try {
+      child.stdin?.write(payload);
+      child.stdin?.end();
+    } catch {
+      /* a synchronous EPIPE here (child died before stdin was writable) is
+         still observed via 'error'/'close' above — nothing extra to do. */
+    }
   });
 }
 
@@ -244,6 +486,12 @@ export async function reapStuckJobs(): Promise<void> {
 // Phase 6 (P1.2) — write-through result cache, keyed on computeInputsHash().
 // Byte-identical repeated solves (common in a classroom where many students
 // start from the textbook baseline) skip spawning solve.py entirely.
+//
+// A3.C — this cache stays on the EXISTING (pre-A3) ResultEnvelopeSchema/
+// SOLVER_CODE_HASH key. No canonical v2 cache row is ever written by this
+// task; toLegacyStoredResult() below is what makes a v2 fd3 success
+// envelope compatible with this unchanged cache shape before it's ever
+// written.
 
 async function lookupCachedResult(inputsHash: string): Promise<ResultEnvelope | null> {
   try {
@@ -289,6 +537,36 @@ async function writeThroughCache(inputsHash: string, modelId: string, envelope: 
     /* caching is a pure optimization — a write-through failure must not
        fail a job that otherwise solved successfully. */
   }
+}
+
+// A3.C — success down-conversion. Converts the fd3 SolverSuccessEnvelopeV2
+// payload to the EXISTING post-B stored/cache/public representation
+// (ResultEnvelopeSchema) before any write — retains every field that schema
+// already knows about (status/solutionStatus/terminationReason/achievedGap/
+// solverIncumbentObjective/solverBestBound/objective/runTimeSec/quality/
+// edges/metrics/details/solverUsed/infeasibilityReason) and drops anything
+// v2-only a future A4 might add. Validated by ResultEnvelopeSchema itself
+// (NOT a v2 schema) — this is the one place a v2 envelope is allowed to
+// become "the" stored result; there is no v2 cache row or v2 scenario row
+// anywhere in this task.
+export function toLegacyStoredResult(envelope: SolverSuccessEnvelopeV2): ResultEnvelope {
+  const picked = {
+    status: envelope.status,
+    solutionStatus: envelope.solutionStatus,
+    terminationReason: envelope.terminationReason,
+    achievedGap: envelope.achievedGap,
+    solverIncumbentObjective: envelope.solverIncumbentObjective,
+    solverBestBound: envelope.solverBestBound,
+    objective: envelope.objective,
+    runTimeSec: envelope.runTimeSec,
+    quality: envelope.quality,
+    edges: envelope.edges,
+    metrics: envelope.metrics,
+    details: envelope.details,
+    solverUsed: envelope.solverUsed,
+    infeasibilityReason: envelope.infeasibilityReason,
+  };
+  return ResultEnvelopeSchema.parse(picked);
 }
 
 async function markSucceeded(jobId: number, scenarioId: number, modelId: string, envelope: ResultEnvelope): Promise<void> {
@@ -338,9 +616,33 @@ async function markSucceeded(jobId: number, scenarioId: number, modelId: string,
   });
 }
 
+// A3 — a fixed, safe message for solve_jobs.error. Built ONLY from the
+// terminal table's own closed enums (failureReason/failureStage), never
+// from raw stdout/stderr/exception text — this is the "temporary fixed
+// safe message" the task calls for; A5 later replaces this with the real
+// public errorCode/errorMessage serializer.
+function safeFailureMessage(reason: string, stage: string): string {
+  return `Solver failed (${reason}/${stage})`;
+}
+
+async function removeWorkDirIdempotent(workDir: string): Promise<void> {
+  try {
+    // force: true already makes this a no-op (not an error) if the
+    // directory is already gone — this IS the "verified idempotent
+    // removal" requirement, not an extra guard on top of it.
+    await fsp.rm(workDir, { recursive: true, force: true });
+  } catch {
+    // A3.T's K (cleanup outcome) column: "cleanup failure recorded
+    // internal-only; never double-publishes" — classification has already
+    // happened by the time this runs (it's in runJob's `finally`), so a
+    // cleanup failure here can only ever be an internal-only diagnostic,
+    // never something that changes what was already cached/published.
+  }
+}
+
 // The solver wrapper never throws — crashes, timeouts, and unparseable
-// stdout all degrade to a "failed" job with a message (a job status, not a
-// synthesized error-shaped result).
+// stdout/fd3 all degrade to a "failed" job with a message (a job status,
+// not a synthesized error-shaped result).
 async function runJob(jobId: number, scenarioId: number, userId: string, input: SolveInput): Promise<void> {
   await markRunning(jobId);
 
@@ -365,11 +667,27 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
   }
 
   const payload = JSON.stringify(buildPayload(input));
-  const timeoutMs = input.inputs.timeLimitSec * 1000 + 15000;
+  const timeoutMs = input.inputs.timeLimitSec * 1000 + TIMEOUT_GRACE_MS;
 
-  const { stdout, stderr, code, timedOut, spawnError } = await runSolverProcess(payload, timeoutMs);
+  const controller = new AbortController();
+  activeControllers.set(jobId, { controller, source: "internal" });
 
-  if (timedOut) {
+  const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), "nos-solve-"));
+  let result: SupervisedRunResult;
+  try {
+    result = await runSolverProcess(payload, timeoutMs, { workDir, signal: controller.signal });
+  } finally {
+    activeControllers.delete(jobId);
+    // Node owns this temp dir end-to-end: created here, removed here, only
+    // AFTER runSolverProcess has resolved (which — for the timeout/cancel
+    // paths — only happens once terminateProcessGroup() has already
+    // confirmed, or bounded-best-effort-waited for, whole-group death).
+    await removeWorkDirIdempotent(workDir);
+  }
+
+  const outcome = result.outcome;
+
+  if (outcome.kind === "timeout") {
     await markFailed(jobId, "Solver timed out");
     posthog?.capture({
       distinctId: userId,
@@ -378,54 +696,38 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
     });
     return;
   }
-  if (spawnError) {
-    await markFailed(jobId, spawnError);
+
+  if (outcome.kind === "interrupted") {
+    await markFailed(jobId, "Solver was interrupted");
     posthog?.capture({
       distinctId: userId,
       event: "scenario solve failed",
-      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "spawn_error" },
-    });
-    return;
-  }
-  if (code !== 0) {
-    await markFailed(jobId, `python3 process failed: ${stderr.slice(0, 500)}`);
-    posthog?.capture({
-      distinctId: userId,
-      event: "scenario solve failed",
-      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "non_zero_exit" },
+      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "interrupted" },
     });
     return;
   }
 
-  let raw: unknown;
-  try {
-    raw = JSON.parse(lastJsonLine(stdout));
-  } catch {
-    await markFailed(
-      jobId,
-      `Failed to parse solver output. stdout=${stdout.slice(0, 200)} stderr=${stderr.slice(0, 500)}`,
-    );
+  if (outcome.kind === "failed") {
+    await markFailed(jobId, safeFailureMessage(outcome.failureReason, outcome.failureStage));
     posthog?.capture({
       distinctId: userId,
       event: "scenario solve failed",
-      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "parse_error" },
+      properties: {
+        scenario_id: scenarioId,
+        job_id: jobId,
+        model_id: input.modelId,
+        reason: `${outcome.failureReason}:${outcome.failureStage}`,
+      },
     });
     return;
   }
 
-  const parsed = ResultEnvelopeSchema.safeParse(raw);
-  if (!parsed.success) {
-    await markFailed(jobId, "Solver output failed envelope validation: " + parsed.error.message.slice(0, 300));
-    posthog?.capture({
-      distinctId: userId,
-      event: "scenario solve failed",
-      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "envelope_invalid" },
-    });
-    return;
-  }
-
-  await writeThroughCache(inputsHash, input.modelId, parsed.data);
-  await markSucceeded(jobId, scenarioId, input.modelId, parsed.data);
+  // outcome.kind === "success" — A3.C: down-convert to the existing legacy
+  // envelope shape and route through the EXISTING (unchanged) cache/publish
+  // path. No v2 write anywhere.
+  const legacy = toLegacyStoredResult(outcome.envelope);
+  await writeThroughCache(inputsHash, input.modelId, legacy);
+  await markSucceeded(jobId, scenarioId, input.modelId, legacy);
   posthog?.capture({
     distinctId: userId,
     event: "scenario solve completed",
@@ -433,9 +735,9 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
       scenario_id: scenarioId,
       job_id: jobId,
       model_id: input.modelId,
-      status: parsed.data.status,
-      objective: parsed.data.objective,
-      run_time_sec: parsed.data.runTimeSec,
+      status: legacy.status,
+      objective: legacy.objective,
+      run_time_sec: legacy.runTimeSec,
       cache_hit: false,
     },
   });

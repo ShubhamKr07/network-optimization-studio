@@ -47,11 +47,27 @@ function makeChain(returnValue: unknown) {
 // job failure, prematurely freeing the slot and breaking the concurrency=1
 // invariant under test. So FakeChild must mirror a real ChildProcess's
 // stderr stream too.
+//
+// A3 — the real IPC channel is fd 3 (child.stdio[3]), not stdout; FakeChild
+// also needs a `.pid` (the process-group kill path reads it, even though
+// this file's own test never triggers a timeout/kill).
+let nextFakePid = 2000;
 class FakeChild extends EventEmitter {
+  pid = nextFakePid++;
   stdout = new EventEmitter();
   stderr = new EventEmitter();
+  fd3 = new EventEmitter();
+  stdio: unknown[];
   stdin = { write: vi.fn(), end: vi.fn() };
   kill = vi.fn();
+  constructor() {
+    super();
+    this.stdio = [this.stdin, this.stdout, this.stderr, this.fd3];
+  }
+}
+
+function emitFd3(child: FakeChild, obj: unknown) {
+  child.fd3.emit("data", Buffer.from(JSON.stringify(obj) + "\n"));
 }
 
 type JobRunnerModule = typeof import("../solver/jobRunner.js");
@@ -103,18 +119,18 @@ describe("jobRunner honors SOLVE_WORKER_CONCURRENCY=1", () => {
     expect(getQueueDepth()).toBe(1);
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
-    const envelope = JSON.stringify({
+    const envelope = {
       status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
       edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
-    });
-    child1.stdout.emit("data", Buffer.from(envelope));
+    };
+    emitFd3(child1, envelope);
     child1.emit("close", 0);
 
     // Only once the first job finishes does the second get its turn.
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(2));
     expect(getQueueDepth()).toBe(0);
 
-    child2.stdout.emit("data", Buffer.from(envelope));
+    emitFd3(child2, envelope);
     child2.emit("close", 0);
     await vi.waitFor(() => {
       const updateCalls = (mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length;

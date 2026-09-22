@@ -1,5 +1,24 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
+
+// A3 — real timers, small grace/kill windows. TERM_GRACE_MS/TIMEOUT_GRACE_MS
+// are read from env vars once at jobRunner.js's module load time (mirrors
+// jobRunnerConcurrency.test.ts's SOLVE_WORKER_CONCURRENCY pattern) — a plain
+// top-of-file statement here runs before any *dynamic* import (unlike a
+// static `import ... from "../solver/jobRunner.js"`, which ES modules hoist
+// above ALL other top-level code in this file, env-var assignment included —
+// see the dynamic import in beforeAll() below, the same fix
+// jobRunnerConcurrency.test.ts already uses for this exact hazard). Real
+// (not fake) timers are used throughout this file for the timeout tests: the
+// process-group kill sequence's own internal sleeps are tiny real
+// milliseconds (bounded by these env vars), simpler and less brittle than
+// threading vi.useFakeTimers() through a multi-step async kill sequence that
+// itself crosses a real fs.mkdtemp() await.
+process.env.SOLVE_TERM_GRACE_MS = "10";
+// Keeps the outer solver timeout itself real-but-fast (see jobRunner.ts's
+// TIMEOUT_GRACE_MS) so timeout tests can use plain real timers + vi.waitFor
+// instead of choreographing fake timers through an async mkdtemp() step.
+process.env.SOLVE_TIMEOUT_GRACE_MS = "50";
 
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(),
@@ -27,15 +46,56 @@ function makeChain(returnValue: unknown) {
   return chain;
 }
 
+// A3 — solve.py's real IPC channel is fd 3 (child.stdio[3]), not stdout.
+// FakeChild now carries a `.pid` (process-group kill needs a real number to
+// call process.kill(-pid, ...) against) and a `.stdio` array whose index 3
+// is what jobRunner.ts actually reads for the result message; `.stdout`/
+// `.stderr` stay as before (diagnostics-only capture, never parsed as the
+// result anymore).
+let nextFakePid = 1000;
 class FakeChild extends EventEmitter {
+  pid = nextFakePid++;
   stdout = new EventEmitter();
   stderr = new EventEmitter();
+  fd3 = new EventEmitter();
+  stdio: unknown[];
   stdin = { write: vi.fn(), end: vi.fn() };
   kill = vi.fn();
+  constructor() {
+    super();
+    this.stdio = [this.stdin, this.stdout, this.stderr, this.fd3];
+  }
 }
 
-import { enqueueSolveJob, getQueueDepth, parsePositiveIntEnv, QUEUE_DEPTH_LIMIT, reapStuckJobs } from "../solver/jobRunner.js";
+function emitFd3(child: FakeChild, obj: unknown) {
+  child.fd3.emit("data", Buffer.from(JSON.stringify(obj) + "\n"));
+}
+
+const SUCCESS_ENVELOPE = {
+  status: "optimal", solutionStatus: "optimal", terminationReason: "optimality_proven",
+  objective: 1, runTimeSec: 0.1, quality: "Optimal",
+  edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+};
+
 import type { SolveInput } from "../solver/pmedian.js";
+
+type JobRunnerModule = typeof import("../solver/jobRunner.js");
+let enqueueSolveJob: JobRunnerModule["enqueueSolveJob"];
+let getQueueDepth: JobRunnerModule["getQueueDepth"];
+let parsePositiveIntEnv: JobRunnerModule["parsePositiveIntEnv"];
+let QUEUE_DEPTH_LIMIT: JobRunnerModule["QUEUE_DEPTH_LIMIT"];
+let reapStuckJobs: JobRunnerModule["reapStuckJobs"];
+let toLegacyStoredResult: JobRunnerModule["toLegacyStoredResult"];
+
+beforeAll(async () => {
+  const mod = await import("../solver/jobRunner.js");
+  enqueueSolveJob = mod.enqueueSolveJob;
+  getQueueDepth = mod.getQueueDepth;
+  parsePositiveIntEnv = mod.parsePositiveIntEnv;
+  QUEUE_DEPTH_LIMIT = mod.QUEUE_DEPTH_LIMIT;
+  reapStuckJobs = mod.reapStuckJobs;
+  toLegacyStoredResult = mod.toLegacyStoredResult;
+});
 
 const baseInput: SolveInput = {
   modelId: "p-median-us",
@@ -49,6 +109,13 @@ const baseInput: SolveInput = {
 function setValues(chain: ReturnType<typeof makeChain>): Record<string, unknown>[] {
   return (chain.set as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as Record<string, unknown>);
 }
+
+// A3 — process.kill(-pid, signal) is the real mechanism the process-group
+// kill sequence uses. Spying on the real `process.kill` (not mocking
+// child_process's kill) lets tests both observe the group-kill calls AND
+// control isProcessGroupAlive()'s probe (signal === 0) outcome, without
+// needing real OS processes or fake timers.
+let killSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   // resetAllMocks (not clearAllMocks) — also drops any queued
@@ -70,11 +137,36 @@ beforeEach(() => {
   // the mock. Tests that need to observe the transaction boundary itself
   // (T6's new tests) override this per-test.
   mockDb.transaction.mockImplementation(async (cb: (tx: typeof mockDb) => Promise<void>) => cb(mockDb));
+  // Default: every process.kill call (both real signals and signal-0
+  // liveness probes) succeeds without throwing — i.e. "alive" for probes.
+  // Tests that need "the group died after TERM/KILL" override this.
+  killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  killSpy.mockRestore();
 });
+
+// Configures the kill spy so a probe (signal 0) reports the group as dead
+// immediately after the FIRST real signal (TERM or KILL) is sent — the
+// common "graceful TERM worked" case, keeping tests fast (no real sleeping
+// through TERM_GRACE_MS/GROUP_DEATH_TIMEOUT_MS).
+function mockGroupDiesImmediately() {
+  let signaled = false;
+  killSpy.mockImplementation((_pid: unknown, signal?: unknown) => {
+    if (signal === 0) {
+      if (signaled) {
+        const err = new Error("No such process") as NodeJS.ErrnoException;
+        err.code = "ESRCH";
+        throw err;
+      }
+      return true; // alive until the first real signal below
+    }
+    signaled = true;
+    return true;
+  });
+}
 
 describe("jobRunner", () => {
   it("transitions queued -> running -> succeeded and writes scenarios.result on success", async () => {
@@ -100,14 +192,38 @@ describe("jobRunner", () => {
     // resolves, so it can be observed before spawn() has actually run).
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
 
-    child.stdout.emit("data", Buffer.from(JSON.stringify({
+    emitFd3(child, {
       status: "optimal", objective: 100, runTimeSec: 0.1, quality: "Optimal",
       edges: [], metrics: { weightedAvgDistance: 5 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
-    })));
+    });
     child.emit("close", 0);
 
     await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
     expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === "optimal")).toBe(true);
+  });
+
+  // A3 — spawn() is now called with a detached process group + a 4-entry
+  // stdio array (index 3 is the fd3 IPC channel), and NOS_SOLVE_WORKDIR set
+  // in the child's env.
+  it("spawns solve.py detached with a 4-entry stdio array and NOS_SOLVE_WORKDIR set", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    mockDb.update.mockReturnValue(makeChain([{}]));
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    const [, , opts] = mockSpawn.mock.calls[0] as [string, string[], Record<string, unknown>];
+    expect(opts.detached).toBe(true);
+    expect(opts.stdio).toEqual(["pipe", "pipe", "pipe", "pipe"]);
+    expect(typeof (opts.env as Record<string, string>).NOS_SOLVE_WORKDIR).toBe("string");
+    expect((opts.env as Record<string, string>).NOS_SOLVE_WORKDIR.length).toBeGreaterThan(0);
+
+    emitFd3(child, SUCCESS_ENVELOPE);
+    child.emit("close", 0);
+    await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalled());
   });
 
   // C4.10/D21 — the succeeded resultSummary now carries objectiveMode +
@@ -197,13 +313,9 @@ describe("jobRunner", () => {
 
     // Resolve both so this test doesn't leak pending jobs (and the worker
     // pool's activeCount) into later tests in this file.
-    const envelope = JSON.stringify({
-      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
-      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
-    });
-    child1.stdout.emit("data", Buffer.from(envelope));
+    emitFd3(child1, SUCCESS_ENVELOPE);
     child1.emit("close", 0);
-    child2.stdout.emit("data", Buffer.from(envelope));
+    emitFd3(child2, SUCCESS_ENVELOPE);
     child2.emit("close", 0);
     await vi.waitFor(() => {
       const updateCalls = (mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length;
@@ -211,8 +323,13 @@ describe("jobRunner", () => {
     });
   });
 
-  it("timeout kills the child process and marks the job failed with a message", async () => {
-    vi.useFakeTimers();
+  // A3 — timeout now kills the whole process GROUP (process.kill(-pid,
+  // "SIGTERM"), then SIGKILL only if the group is still alive after the
+  // grace period), not just child.kill(). mockGroupDiesImmediately()
+  // simulates the common "TERM alone was enough" case, so this test stays
+  // fast (no real waiting through TERM_GRACE_MS).
+  it("timeout sends SIGTERM to the whole process group and marks the job failed", async () => {
+    mockGroupDiesImmediately();
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     mockDb.update.mockReturnValue(jobUpdateChain);
@@ -220,24 +337,85 @@ describe("jobRunner", () => {
     const child = new FakeChild(); // never emits "close" — simulates a hang
     mockSpawn.mockReturnValue(child);
 
-    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 1 } });
+    // timeLimitSec:0 + SOLVE_TIMEOUT_GRACE_MS=50 (module-load-time env var,
+    // top of file) => a real ~50ms timeout, comfortably inside vi.waitFor's
+    // default budget — no fake timers needed.
+    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 0 } });
 
-    // Flush pending microtasks (markRunning's DB update, buildPayload, the
-    // spawn() call and its setTimeout registration) before advancing —
-    // otherwise the timeout timer hasn't been set yet.
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(1000 + 15000 + 100);
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("timed out"))).toBe(true);
+    }, { timeout: 5000 });
 
-    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
-    // Flush the microtask chain after the timeout fires (markFailed's
-    // db.update) — vi.waitFor's own polling is timer-based and would be
-    // faked too, so flush manually instead of using it under fake timers.
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    const calls = setValues(jobUpdateChain);
-    expect(calls.some((s) => s.status === "failed" && String(s.error).includes("timed out"))).toBe(true);
+    expect(killSpy).toHaveBeenCalledWith(-child.pid, "SIGTERM");
+    // TERM alone worked (mockGroupDiesImmediately) — SIGKILL should never
+    // have been needed.
+    expect(killSpy).not.toHaveBeenCalledWith(-child.pid, "SIGKILL");
   });
 
-  it("a non-zero exit code marks the job failed without throwing", async () => {
+  // A3 — if the group is STILL alive after the TERM grace period, SIGKILL
+  // is escalated to. SOLVE_TERM_GRACE_MS=10 (module-load-time env var, see
+  // top of file) keeps this test's one real sleep short.
+  it("escalates to SIGKILL when the group survives the TERM grace period", async () => {
+    let sigtermSent = false;
+    let sigkillSent = false;
+    killSpy.mockImplementation((_pid: unknown, signal?: unknown) => {
+      if (signal === 0) {
+        if (sigkillSent) {
+          const err = new Error("No such process") as NodeJS.ErrnoException;
+          err.code = "ESRCH";
+          throw err;
+        }
+        return true; // alive until SIGKILL — TERM alone does NOT kill it
+      }
+      if (signal === "SIGTERM") sigtermSent = true;
+      if (signal === "SIGKILL") sigkillSent = true;
+      return true;
+    });
+
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", { ...baseInput, inputs: { ...baseInput.inputs, timeLimitSec: 0 } });
+
+    // Real time here: ~50ms (SOLVE_TIMEOUT_GRACE_MS) for the outer timeout,
+    // plus KILL_PROBE_INTERVAL_MS (50ms, hardcoded) for the TERM-grace-period
+    // loop's one sleep iteration (SOLVE_TERM_GRACE_MS=10 < 50, so a single
+    // probe-interval sleep is enough to exceed the grace deadline and fall
+    // through to SIGKILL) — comfortably inside vi.waitFor's default budget.
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("timed out"))).toBe(true);
+    }, { timeout: 5000 });
+
+    expect(sigtermSent).toBe(true);
+    expect(sigkillSent).toBe(true);
+  });
+
+  it("a non-zero exit code with a valid failure message marks the job failed with the classified reason", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    emitFd3(child, { failureReason: "solver_error", failureStage: "cbc_parse", errorDetail: null });
+    child.emit("close", 1);
+
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("solver_error/cbc_parse"))).toBe(true);
+    });
+  });
+
+  it("a non-zero exit with NO fd3 message marks the job failed as solver_error/exit", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     mockDb.update.mockReturnValue(jobUpdateChain);
@@ -249,10 +427,13 @@ describe("jobRunner", () => {
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
     child.emit("close", 1);
 
-    await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "failed")).toBe(true));
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("solver_error/exit"))).toBe(true);
+    });
   });
 
-  it("unparseable stdout marks the job failed without throwing", async () => {
+  it("an unparseable fd3 message with exit 0 marks the job failed as internal_error/protocol", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     mockDb.update.mockReturnValue(jobUpdateChain);
@@ -262,16 +443,16 @@ describe("jobRunner", () => {
 
     await enqueueSolveJob(1, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
-    child.stdout.emit("data", Buffer.from("not valid json {{"));
+    child.fd3.emit("data", Buffer.from("not valid json {{\n"));
     child.emit("close", 0);
 
     await vi.waitFor(() => {
       const calls = setValues(jobUpdateChain);
-      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("Failed to parse"))).toBe(true);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("internal_error/protocol"))).toBe(true);
     });
   });
 
-  it("an envelope that fails schema validation marks the job failed without throwing", async () => {
+  it("a missing fd3 message (no data at all) with exit 0 marks the job failed as internal_error/protocol", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     mockDb.update.mockReturnValue(jobUpdateChain);
@@ -281,13 +462,36 @@ describe("jobRunner", () => {
 
     await enqueueSolveJob(1, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
-    child.stdout.emit("data", Buffer.from(JSON.stringify({ not: "an envelope" })));
     child.emit("close", 0);
 
     await vi.waitFor(() => {
       const calls = setValues(jobUpdateChain);
-      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("envelope validation"))).toBe(true);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("internal_error/protocol"))).toBe(true);
     });
+  });
+
+  // A3 — a success-shaped message riding a non-zero exit must NEVER
+  // publish (TT-9) — this is the exact live-bug shape A3 closes: a
+  // dataset/dispatch failure must not be cached/published as if it solved.
+  it("a valid success message with a non-zero exit code never publishes (TT-9)", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    emitFd3(child, SUCCESS_ENVELOPE);
+    child.emit("close", 1);
+
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("internal_error/exit"))).toBe(true);
+    });
+    expect(mockDb.transaction).not.toHaveBeenCalled(); // markSucceeded (the only db.transaction caller) never ran
+    expect(mockDb.insert).toHaveBeenCalledTimes(1); // only enqueueSolveJob's own insert — no result_cache insert
   });
 
   // P1.1 — configurable concurrency / backpressure.
@@ -318,11 +522,7 @@ describe("jobRunner", () => {
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(3));
     expect(getQueueDepth()).toBe(1); // job 4 waiting, jobs 1-3 running (not counted)
 
-    const envelope = JSON.stringify({
-      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "Optimal",
-      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
-    });
-    children[0].stdout.emit("data", Buffer.from(envelope));
+    emitFd3(children[0], SUCCESS_ENVELOPE);
     children[0].emit("close", 0);
 
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(4));
@@ -330,7 +530,7 @@ describe("jobRunner", () => {
 
     // Drain the rest so this test doesn't leak activeCount into later tests.
     for (const child of children.slice(1)) {
-      child.stdout.emit("data", Buffer.from(envelope));
+      emitFd3(child, SUCCESS_ENVELOPE);
       child.emit("close", 0);
     }
     await vi.waitFor(() => {
@@ -339,7 +539,7 @@ describe("jobRunner", () => {
     });
   });
 
-  it("spawn error (e.g. ENOENT) marks the job failed without throwing", async () => {
+  it("spawn error (e.g. ENOENT) marks the job failed as internal_error/spawn without throwing", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     mockDb.update.mockReturnValue(jobUpdateChain);
@@ -353,14 +553,13 @@ describe("jobRunner", () => {
 
     await vi.waitFor(() => {
       const calls = setValues(jobUpdateChain);
-      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("ENOENT"))).toBe(true);
+      expect(calls.some((s) => s.status === "failed" && String(s.error).includes("internal_error/spawn"))).toBe(true);
     });
   });
 
-  // H2 — lastJsonLine() tolerates a banner printed before the JSON envelope:
-  // a deprecation warning or CBC banner on stdout must not break parsing,
-  // only the last non-empty line is read.
-  it("banner-then-JSON on stdout parses correctly (banner ignored)", async () => {
+  // A3 — stdout/stderr are diagnostics-only now (never parsed as the
+  // result); a banner or noisy stderr must not affect a valid fd3 success.
+  it("noisy stdout/stderr banner output does not affect a valid fd3 success", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
     const jobUpdateChain = makeChain([{}]);
     const scenarioUpdateChain = makeChain([{}]);
@@ -376,39 +575,70 @@ describe("jobRunner", () => {
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
 
     child.stdout.emit("data", Buffer.from("CBC solver banner line\n"));
-    child.stdout.emit("data", Buffer.from(JSON.stringify({
+    child.stderr.emit("data", Buffer.from("some deprecation warning\n"));
+    emitFd3(child, {
       status: "optimal", objective: 7, runTimeSec: 0.1, quality: "Optimal",
       edges: [], metrics: { weightedAvgDistance: 5 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
-    })));
+    });
     child.emit("close", 0);
 
     await vi.waitFor(() => expect(setValues(jobUpdateChain).some((s) => s.status === "succeeded")).toBe(true));
     expect(setValues(scenarioUpdateChain).some((s) => (s.result as { objective: number })?.objective === 7)).toBe(true);
   });
+});
 
-  // H2 — banner-only stdout (no JSON anywhere) fails the job, and stderr is
-  // included in the failure message so the failure is diagnosable.
-  it("banner-only stdout fails the job with stderr included in the message", async () => {
+// A3.C — the transitional-compatibility proof: zero canonical v2 scenario
+// rows and zero v2 cache rows exist anywhere. toLegacyStoredResult() is the
+// ONLY conversion path from a v2 success envelope to what gets written —
+// this test proves it round-trips through the EXISTING ResultEnvelopeSchema
+// shape, dropping nothing the schema doesn't already know about and adding
+// no v2-only key.
+describe("A3.C — toLegacyStoredResult (zero v2 writes)", () => {
+  it("down-converts a v2 success envelope to exactly the legacy field set", () => {
+    const v2 = {
+      status: "optimal" as const,
+      solutionStatus: "optimal" as const,
+      terminationReason: "optimality_proven" as const,
+      achievedGap: null,
+      solverIncumbentObjective: 100,
+      solverBestBound: 100,
+      objective: 100,
+      runTimeSec: 0.5,
+      quality: "Optimal",
+      edges: [],
+      metrics: {},
+      details: {},
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    const legacy = toLegacyStoredResult(v2);
+    expect(Object.keys(legacy).sort()).toEqual([
+      "achievedGap", "details", "edges", "infeasibilityReason", "metrics",
+      "objective", "quality", "runTimeSec", "solutionStatus", "solverBestBound",
+      "solverIncumbentObjective", "solverUsed", "status", "terminationReason",
+    ].sort());
+    expect(legacy.status).toBe("optimal");
+    expect(legacy.objective).toBe(100);
+  });
+
+  it("a failed/timeout/interrupted outcome never calls db.transaction (markSucceeded) or writes result_cache", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
-    const jobUpdateChain = makeChain([{}]);
-    mockDb.update.mockReturnValue(jobUpdateChain);
+    mockDb.update.mockReturnValue(makeChain([{}]));
 
     const child = new FakeChild();
     mockSpawn.mockReturnValue(child);
 
     await enqueueSolveJob(1, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
-
-    child.stdout.emit("data", Buffer.from("just a banner, no JSON\n"));
-    child.stderr.emit("data", Buffer.from("python3: traceback boom\n"));
+    emitFd3(child, { failureReason: "internal_error", failureStage: "dataset_load", errorDetail: null });
     child.emit("close", 0);
 
-    await vi.waitFor(() => {
-      const calls = setValues(jobUpdateChain);
-      expect(calls.some((s) => s.status === "failed")).toBe(true);
-      expect(calls.some((s) => String(s.error).includes("Failed to parse solver output"))).toBe(true);
-      expect(calls.some((s) => String(s.error).includes("traceback boom"))).toBe(true);
-    });
+    await vi.waitFor(() => expect(mockDb.update).toHaveBeenCalled());
+    // Only markRunning + markFailed ever touched db.update; db.transaction
+    // (markSucceeded's sole entry point) and a second db.insert (result_cache)
+    // never happened.
+    expect(mockDb.transaction).not.toHaveBeenCalled();
+    expect(mockDb.insert).toHaveBeenCalledTimes(1); // enqueueSolveJob only
   });
 });
 
@@ -437,7 +667,7 @@ describe("markSucceeded transaction (Part F / T6)", () => {
     await enqueueSolveJob(5, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
 
-    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    emitFd3(child, envelope);
     child.emit("close", 0);
 
     await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
@@ -526,7 +756,7 @@ describe("markSucceeded transaction (Part F / T6)", () => {
     await enqueueSolveJob(9, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
 
-    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    emitFd3(child, envelope);
     child.emit("close", 0);
 
     // The transaction still commits (no throw) even though both updates
@@ -613,7 +843,7 @@ describe("result_cache (P1.2 write-through cache)", () => {
     await enqueueSolveJob(7, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
 
-    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    emitFd3(child, envelope);
     child.emit("close", 0);
 
     await vi.waitFor(() => {
@@ -641,14 +871,14 @@ describe("result_cache (P1.2 write-through cache)", () => {
 
     await enqueueSolveJob(1, "user-1", baseInput);
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(1));
-    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    emitFd3(child, envelope);
     child.emit("close", 0);
 
     await vi.waitFor(() => {
       expect((cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     });
     // Feed the second job's select exactly what the first job's write-through
-    // wrote — a genuine round-trip through the write-then-read path, not a
+    // wrote — a genuine round trip through the write-then-read path, not a
     // blindly scripted "assume it's cached" stub.
     const written = (cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls[0][0];
     mockDb.select.mockReturnValueOnce(makeChain([written]));
@@ -678,7 +908,7 @@ describe("result_cache (P1.2 write-through cache)", () => {
     await enqueueSolveJob(1, "user-1", baseInput);
     // Falls through to a real solve rather than crashing on the bad cache row.
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
-    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    emitFd3(child, envelope);
     child.emit("close", 0);
 
     await vi.waitFor(() => {
@@ -714,7 +944,7 @@ describe("result_cache (P1.2 write-through cache)", () => {
     await enqueueSolveJob(1, "user-1", baseInput);
     // Falls through to a real solve instead of serving the stale legacy row.
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
-    child.stdout.emit("data", Buffer.from(JSON.stringify(envelope)));
+    emitFd3(child, envelope);
     child.emit("close", 0);
 
     await vi.waitFor(() => {
