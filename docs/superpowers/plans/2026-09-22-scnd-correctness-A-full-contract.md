@@ -284,3 +284,160 @@ All 8 findings accepted. Three additions recorded beyond the review's own text.
 **Additions beyond the review:** (1) A-R17 is a live defect, not only a design flaw — the current SIGTERM handler performs no drain and orphans CBC children; (2) A-R19's correction list was incomplete as written; (3) the in-process outer timeout (`jobRunner.ts:357`) cannot terminate a row whose process died, so "let it time out" was never a viable recovery strategy.
 
 **Approval remains explicit.** Closing A-R1–A-R24 does not self-approve the plan; a new consolidated review must record the approval decision.
+
+---
+
+## Re-approval review round 3 (2026-09-22)
+
+### Decision
+
+**REQUEST CHANGES — NOT APPROVED. A3 SHOULD NOT EXECUTE YET IN ITS CURRENT FORM.**
+
+The round-2 findings are largely incorporated. The remaining findings are concentrated in runtime transition safety: A3's pre-public compatibility behavior, durable discovery after boot, exact lease/shutdown semantics, Render's shutdown budget, the concrete single-flight state machine, and R3 activation sequencing.
+
+No files were changed during this review. The uncommitted Option-B solver/parser changes in the worktree were not treated as completed evidence.
+
+### Blocking findings
+
+#### A-R25 — CRITICAL: A3's "private-only" preparatory boundary is internally contradictory
+
+A3 says public responses, stored-result shape, and cache behavior remain unchanged, but the same task:
+
+- makes Python emit `SolverSuccessEnvelopeV2` before the public/storage migration;
+- maps every existing `_load_error_envelope`/error exit to the private failure branch;
+- applies terminal outcomes named `TIMEOUT`/`SOLVE_FAILED` and safe public messages before A5 introduces that public API; and
+- references A7's outcome-specific cache/publication policy before A7 exists.
+
+Today an error-shaped solver envelope can validate as a result and flow through the success path. Converting it into a failed job with no scenario result is publicly observable. Therefore A3 cannot simultaneously claim to be entirely private and change that lifecycle.
+
+**Required correction:** define an exact A3 transitional adapter/state:
+
+1. **Success compatibility:** specify how the private fd3 success payload is converted to the existing post-B stored/cache/public representation until A4/A7/R3. If the private payload is already `SolverSuccessEnvelopeV2`, name the down-conversion function, fields retained/dropped, validation schema, and tests. No v2 cache entry may be written.
+2. **Failure compatibility:** decide whether A3 changes an existing error-envelope outcome into a failed job. If yes, acknowledge and authorize the public job-status behavior change, define the temporary `SolveJob.error` safe message before A5, and test old-client behavior. If no, define the temporary private-failure→legacy adapter without reintroducing raw diagnostic leakage.
+3. **Terminal-table staging:** separate A3's internal terminal classification from A5's final public `errorCode`/`errorMessage` serializer and A7's final cache/publication policy. The A3.T `Public`, `Cache`, and `Publish` columns must state the preparatory behavior and the post-A5/A7 behavior separately, or explicitly identify which later task activates each column.
+4. Keep `v2_write` disabled and prove that A3 alone does not write a canonical v2 scenario/cache row.
+
+Until this adapter and behavior decision are normative, remove the statement that A3 is authorized now.
+
+#### A-R26 — CRITICAL: boot-only recovery can still strand queued jobs during deployment overlap
+
+A2 performs a recovery scan before the new process accepts traffic. During a zero-downtime deployment, however, the old process can enqueue additional rows **after** the new process completes that one-time scan. When the old process receives SIGTERM, its process-local `pendingJobs` queue disappears. Those rows remain `queued` in Postgres, but the new process has no specified mechanism to discover them.
+
+The durable row therefore does not by itself make the dispatcher durable.
+
+**Required correction:** add one exact mechanism:
+
+- a recurring bounded Postgres dispatcher scan using A2's atomic CAS claim; or
+- a reliable old→new handoff plus a mandatory post-drain scan, with failure recovery if the handoff never occurs.
+
+The recurring CAS scan is the simpler robust baseline and can later be optimized by Scaling with `FOR UPDATE SKIP LOCKED`.
+
+Also:
+
+- define queue ordering and starvation behavior;
+- change the partial claim index to support the query, normally `(queued_at, id) WHERE status='queued'`, rather than only `(status) WHERE status='queued'`;
+- test a job inserted by the old generation after the new generation's initial recovery scan;
+- test pending queued jobs when SIGTERM reaches the old process; and
+- distinguish exactly-once **terminal publication** from solver execution, which can be repeated after an ambiguous crash.
+
+#### A-R27 — CRITICAL: lease expiry, stale-owner recovery, and drain handoff remain undecided
+
+The owner-lease direction resolves the previous rolling-deploy race in principle, but the plan still leaves the interval, expiry threshold, safety factor, clock source, stale-row transition, and handoff behavior to implementation.
+
+The current SIGTERM wording is unsafe: stopping heartbeat renewal while an old-generation solver remains alive allows the new generation to declare it stale and reclaim it while the old solve can still complete.
+
+**Required correction:** decide and record:
+
+- heartbeat interval;
+- stale threshold and safety factor;
+- clock authority (prefer database time for DB lease comparisons);
+- the exact atomic stale-lease takeover predicate and update;
+- whether a stale running job is requeued/re-executed or terminally failed;
+- retry/duplicate-execution implications even if bounded attempts remain in Scaling;
+- heartbeat behavior while draining: renew while the old process still owns and runs the job; stop only after terminal update, verified child termination, or an explicit atomic ownership release;
+- behavior when heartbeat refresh fails because Postgres is unavailable; and
+- how a shutdown handoff becomes visible to the replacement process's recurring dispatcher.
+
+Tests must cover false-stale prevention, genuine owner death, DB outage during heartbeat, old-owner late completion, and SIGTERM arriving immediately before/after heartbeat renewal.
+
+#### A-R28 — HIGH: Render's shutdown budget is missing from the owned files and acceptance contract
+
+The plan correctly assumes overlapping generations, but attributes that guarantee to `healthCheckPath`. The accurate platform rule is that Render service deploys use zero downtime unless a persistent disk is attached; health checks decide when the new revision is eligible to go live. Render starts healthy new instances, switches traffic, then drains old instances. `maxShutdownDelaySeconds` bounds that drain, defaults to 30 seconds, and is limited to 1–300 seconds. See Render's official deployment documentation: <https://render.com/docs/deploys>.
+
+The current `render.yaml` does not set `maxShutdownDelaySeconds`, and neither A2 nor A3 owns `render.yaml`. A long CBC solve can therefore outlive the default platform deadline and receive SIGKILL before the process-group supervisor completes cleanup.
+
+**Required correction:**
+
+- add `render.yaml` to an explicitly devops-owned task;
+- choose an exact `maxShutdownDelaySeconds` value;
+- define a shutdown budget reserving bounded time for stop-admission, drain, TERM grace, KILL, group-death proof, temp cleanup, DB terminal/release update, and PostHog/Sentry flush;
+- because the request contract has no solver-time ceiling, state that an in-flight solve exceeding the remaining platform drain budget is interrupted on deploy rather than allowed to overrun;
+- make the app's internal shutdown deadline shorter than the platform deadline by a stated safety margin; and
+- test a solve that exceeds the drain deadline.
+
+Correct the plan/scaling wording from "`healthCheckPath` guarantees overlap" to the actual zero-downtime/no-persistent-disk lifecycle while preserving the conservative overlap-safe design.
+
+#### A-R29 — HIGH: A10 still labels an undecided schema/state machine "exact"
+
+A10 resolves the uniqueness scope and identifies the right concerns, but its "Active-run schema, exact" bullet does not enumerate any columns, types, nullability, state values, keys, indexes, or transition rules. Retention, stale recovery, attachment, partial fan-out failure, and crash recovery are still instructions to decide later.
+
+**Required correction before approval:** publish:
+
+- the exact `solve_active_runs` schema;
+- the exact subscriber representation/foreign keys;
+- the active-run state enum and permitted transitions;
+- winner-election and subscriber-attachment transaction boundaries;
+- cache-recheck transition;
+- per-subscriber completion/publication transaction and latest-job guard;
+- terminal retention/deletion policy;
+- stale-record takeover predicate;
+- winner failure/timeout propagation;
+- partial fan-out failure policy and resumption cursor/idempotency; and
+- migration from `(claim_generation, composite_hash)` uniqueness to Scaling's fleet-wide key.
+
+Completing these decisions during implementation would reopen correctness and recovery design inside a coding task, so they must be normative first.
+
+#### A-R30 — HIGH: R3's "complete" prerequisite list and QA commit structure remain incomplete
+
+A11's normative prerequisite list omits A0, A1, A2, and the landed A11 flag/runbook itself, although the representation matrix, schema, durable recovery, lease, and writer flag are required for R3.
+
+A13 combines pre-activation evidence and post-activation smoke into one task/commit. Under the global one-task/one-commit rule, that means either:
+
+- R3 is enabled before the pre-activation evidence is committed/reviewed; or
+- the task cannot finish its post-activation half before its only commit.
+
+**Required correction:**
+
+- Make the full R3 activation prerequisite list: `A0 + A1 + A2 + A3 + A4 + A5 + A6 + A7 + A8 + A9 + A10 + landed A11 default-off flag/runbook + A12 + committed A13a pre-activation evidence + Linux no-orphan evidence + pre-R1 drain evidence + approved G-cache artifact`.
+- Split QA into **A13a** (pre-activation tests/evidence, committed and reviewed before enabling) and **A13b** (post-activation smoke/rollback-floor exercise, committed afterward).
+- State who authorizes the actual `v2_write` flag change and where the activation evidence is recorded.
+
+### Validated improvements from round 2
+
+The following round-2 corrections are sound and should be retained:
+
+- A3 is moved first and owns its private schema rather than depending on A4.
+- The complete terminal equivalence table is published with row IDs.
+- A0 now owns the canonical Q73/Q76 consistency pass, including the stale error-envelope and out-of-scope contradictions.
+- A1 uses a Postgres sequence for generation ownership, `octet_length` for the diagnostic byte bound, and owns recovery indexes.
+- A2 uses heartbeat liveness instead of an instance-count assertion.
+- A5 and A12 name their concrete route/telemetry files.
+- A6 precedes A7.
+- A10 scopes uniqueness to `(claim_generation, composite_hash)` and explicitly records the Scaling migration direction.
+- A11 separates landing a default-off flag from enabling it.
+- A13 distinguishes pre-activation and post-activation verification conceptually; A-R30 requires that conceptual split to become two committed tasks.
+
+### Round-3 re-approval conditions
+
+Before the next consolidated approval review:
+
+1. make A3's pre-A4/A5/A7 compatibility behavior exact and remove or justify its public behavior change (A-R25);
+2. make queued-job discovery durable after boot and across old/new overlap (A-R26);
+3. decide exact heartbeat, expiry, stale takeover, retry/failure, and shutdown handoff semantics (A-R27);
+4. own/configure Render's shutdown delay and fit the application cleanup budget inside it (A-R28);
+5. publish the actual active-run/subscriber schema and transition/fan-out protocol (A-R29); and
+6. complete the R3 prerequisite list and split pre/post activation QA into separate committed tasks (A-R30).
+
+The separately reviewed G-cache artifact remains a mandatory external gate. Even after A-R25–A-R30 close, no canonical v2 cache operation or R3 activation is authorized without that artifact's exact manifest, framing, runtime identities, vectors, and fail-closed behavior.
+
+**Approval remains explicit:** closing these findings does not self-approve execution. A new consolidated review must record the decision.
