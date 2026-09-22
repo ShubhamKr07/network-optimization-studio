@@ -4,7 +4,7 @@
 
 **Goal:** Build the harness and analysis that produce the evidence sizing the Scaling build — capacity ceiling, exact bottleneck, per-solve cost, cache-hit reality, topology winner — without a real cohort.
 
-**Architecture:** Three layers, each consuming the previous one's artifacts. (1) A **local, in-process Python microbenchmark** measures per-solve service demand over a declared stratified corpus and writes raw CSV. (2) A **pure-computation capacity model** turns that distribution plus an arrival trace into candidate worker counts by simulation — never from p95. (3) An **HTTP load harness** runs open-loop against an isolated environment to validate the prediction and produce the gate verdicts. Analysis is deliberately separated from measurement so re-analysis never requires re-running a three-hour soak.
+**Architecture:** Three layers, each consuming the previous one's artifacts. (1) A **local, in-process Python microbenchmark** measures per-solve service demand over a declared stratified corpus and writes raw CSV. (2) A **pure-computation capacity model** implements distribution replay and parameterised sizing — never sizing from p95. (3) An **HTTP load harness** runs against an isolated environment, supplies target-plan calibration, produces the final candidate counts, and validates them. Analysis is deliberately separated from measurement so re-analysis never requires re-running a three-hour soak.
 
 **Tech Stack:** Python 3.13 (PuLP 3.3.2 / CBC), pytest · Node 24 driver for HTTP load · Postgres · Render (isolated environment)
 
@@ -16,7 +16,7 @@
 - **Isolated environment only.** Never run the load harness against production (`nos-api`/`nos-postgres`). §1.5 of the spec.
 - **No production infra as a committed change.** The worker prototype is disposable scaffolding under MP-3 with a named teardown owner.
 - **p95 never sizes capacity.** Capacity comes from mean CPU service demand × declared stratum weights, validated by p95. (M-R8)
-- **Corpus frequency is never student prevalence.** Every reported frequency is labelled as corpus/generator frequency, per stratum. (M-R9)
+- **Corpus composition is never student prevalence.** Declared manifest weights are labelled generator weights; realised `n_obs` shares are labelled observation allocation, never frequency or prevalence. (M-R9)
 - **Two cost denominators, always both.** Per successful submitted job (cache hits in) and per successful CBC execution (cache hits out). (M-R10)
 - **Never fabricate a metric** — an underivable value is the literal string `unknown` (CLAUDE.md).
 - **Benchmark unit tests must not run real solves.** They execute inside `pnpm --filter api-server test`'s sibling gate (`python3 -m pytest tests/ -x`) and must stay fast; real measurement runs are a separate CLI.
@@ -69,7 +69,9 @@ class Observation:
     wall_sec: float; cpu_tree_sec: float; harness_overhead_sec: float
     python_peak_rss: int; cbc_peak_rss: int
     objective: float | None; solution_status: str | None; termination_reason: str | None
-    ok: bool; error: str | None = None; kind: str = "campaign"
+    ok: bool
+    resource_complete: bool = True       # False => CPU demand is censored/unknown
+    error: str | None = None; kind: str = "campaign"
 def normalize_maxrss(value: int, system: str | None = None) -> int: ...
 def measure_once(cell: Cell, case: Case, solve_fn=None, timeout_sec: float = 300) -> Observation: ...
 
@@ -92,21 +94,34 @@ class CellStats:
     failure_rate: float = 0.0; failure_rate_ci: tuple = (0.0, 0.0)
     objective_delta_vs_gap0: float | None = None
     objective_delta_ci: tuple | None = None
+    objective_pairs_excluded: int = 0
     p50_wall: float = 0.0                       # descriptive
     mean_python_peak_rss: float = 0.0           # descriptive
     mean_cbc_peak_rss: float = 0.0              # descriptive
 def aggregate(observations, *, min_cases: int) -> dict[str, CellStats]: ...
-def objective_deltas(observations) -> dict[str, float]: ...   # keyed by case_key, vs gap=0
-def corpus_frequency(observations, manifest) -> dict[str, float]: ...
+# Both dicts are keyed by NON-ZERO-GAP cell_key: paired deltas and excluded count.
+def objective_deltas(observations) -> tuple[dict[str, list[float]], dict[str, int]]: ...
+# Per stratum: declared weight and observation allocation; never conflate them.
+def corpus_frequency(observations, manifest) -> dict[str, dict[str, float]]: ...
 
 # ---- capacity.py ----   (R3-R2: three DISTINCT quantities, never conflated)
 class SizingError(ValueError): ...
+@dataclass(frozen=True)
+class Calibration:
+    plan_id: str; app_sha: str; profile_id: str; gap: float
+    target_mean_cpu_sec: float; slots_per_instance: int
+    cores_per_slot: float; rss_per_slot_bytes: int; instance_memory_bytes: int
+    wall_scale_factor: float
 def weighted_mean_service_demand(stats, manifest, gap: float) -> float: ...   # CPU-seconds/job
 def required_cores(demand_cpu_sec, arrival_rate_per_sec,
                    parallel_efficiency, headroom) -> float: ...               # CORES
 def map_to_instances(required_cores: float, slots_per_instance: int,
                      cores_per_slot: float, rss_per_slot_bytes: int,
                      instance_memory_bytes: int) -> tuple[int, int]: ...      # (instances, slots)
+def load_calibration(path, *, plan_id, app_sha, profile_id, gap) -> Calibration: ...
+# Returns (instances, slots_per_instance, required_cores), using TARGET-plan CPU demand.
+def size_calibrated_plan(calibration: Calibration, arrival_rate_per_sec: float,
+                         headroom: float) -> tuple[int, int, float]: ...
 
 # ---- simulate.py ----  (R3-R4: wall-time occupancy, explicit cache class)
 @dataclass(frozen=True)
@@ -127,6 +142,9 @@ def simulate(trace, strata: dict[str, tuple[list[EventSample], float]],
 def candidate_worker_counts(trace, strata, *, slo_p95_end_to_end_sec=None,
                             slo_p95_queue_wait_sec=None,
                             max_workers: int) -> list[CandidateResult]: ...
+def build_event_samples(observations, cache_class_by_case_key,
+                        api_overhead_by_cache_class,
+                        *, wall_scale_factor: float) -> list[EventSample]: ...
 ```
 
 **Units, stated once (R3-R2).** `required_cores` returns **CPU cores**. `simulate(workers=…)` takes **concurrent solver slots**. These are *not* interchangeable: a slot may consume less than, equal to, or more than one effective core at the measured concurrency point, and **memory can cap slots before CPU does**. `map_to_instances` is the only place the two meet, and it needs calibrated `cores_per_slot` and `rss_per_slot_bytes` from M2.1b.
@@ -170,8 +188,16 @@ import json, pytest
 from benchmark.corpus import load_manifest, ManifestError
 
 def _stratum(model, regime, fam, weight, n_cases):
+    model_type = {"two-echelon-jade-us": "two_echelon_jade",
+                  "p-median-us": "p_median"}[model]
+    base = ({"modelType": model_type, "p": 3, "distanceBands": [500],
+             "timeLimitSec": 60}
+            if model == "two-echelon-jade-us" else
+            {"modelType": model_type, "p": 3, "capacityMode": "none",
+             "distanceBands": [500], "timeLimitSec": 60})
     return {"model_id": model, "regime": regime, "edit_family": fam, "weight": weight,
-            "cases": [{"case_id": f"{model}-{i}", "inputs": {"p": 3 + i}} for i in range(n_cases)]}
+            "cases": [{"case_id": f"{model}-{i}", "inputs": {**base, "p": 3 + i}}
+                      for i in range(n_cases)]}
 
 def test_cells_carry_distinct_cases_not_one_input(tmp_path):
     p = tmp_path / "m.json"
@@ -222,11 +248,28 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'benchmark.corpus'`
 
 ```python
 # corpus.py
-import json
+import json, math
+from pathlib import Path
 from dataclasses import dataclass
 
 class ManifestError(ValueError):
     pass
+
+MODEL_TYPES = {
+    "p-median-us": "p_median", "p-median-brazil": "capacitated_pmedian",
+    "transport-coal": "transport", "two-echelon-gold-au": "two_echelon",
+    "two-echelon-jade-us": "two_echelon_jade", "chens-cosmetics-cn": "chens",
+}
+
+def _repo_root():
+    p = Path(__file__).resolve()
+    return next(parent for parent in p.parents
+                if (parent / "pnpm-workspace.yaml").exists())
+
+def _required_inputs(model_id):
+    manifest = json.loads((_repo_root() / "solvers" / model_id / "manifest.json").read_text())
+    # gap is supplied by Cell; modelType is the solve.py dispatcher field.
+    return (set(manifest["inputsSchema"]["required"]) - {"gap"}) | {"modelType"}
 
 @dataclass(frozen=True)
 class Case:
@@ -262,30 +305,31 @@ class Manifest:
     def validate(self, min_cases_per_cell: int) -> None:
         """L-R1: a weights-only check is insufficient for an authoritative
         corpus. Full validation, all failures raising ManifestError."""
-        if abs(sum(s["weight"] for s in self.strata) - 1.0) >= 1e-9:
+        weights = [s["weight"] for s in self.strata]
+        if any(not isinstance(w, (int, float)) or not math.isfinite(w) for w in weights):
+            raise ManifestError("weights must be finite numbers")
+        if abs(sum(weights) - 1.0) >= 1e-9:
             raise ManifestError("stratum weights must sum to 1")
         if any(s["weight"] < 0 for s in self.strata):
             raise ManifestError("weights must be non-negative")
         if self.version != 1:
             raise ManifestError(f"unsupported manifest version: {self.version}")
-        live = {"p-median-us", "p-median-brazil", "transport-coal",
-                "two-echelon-gold-au", "two-echelon-jade-us", "chens-cosmetics-cn"}
-        if any(g not in (0, 0.005, 0.01, 0.02) for g in self.gaps):
+        live = set(MODEL_TYPES)
+        if any(not isinstance(g, (int, float)) or not math.isfinite(g) or
+               g not in (0, 0.005, 0.01, 0.02) for g in self.gaps):
             raise ManifestError(f"gap outside the allowed set: {self.gaps}")
         for s in self.strata:
             if s["model_id"] not in live:
                 raise ManifestError(f"unknown model_id: {s['model_id']}")
-            # F-R19: solve.py:1341 reads inp["timeLimitSec"] UNCONDITIONALLY for
-            # chens. A case missing it raises KeyError in the child and becomes
-            # an ok=False row -- an entire stratum reported as 100% failure, a
-            # measurement result rather than the manifest error it actually is.
-            required = {"modelType"} | ({"timeLimitSec"}
-                                        if s["model_id"] == "chens-cosmetics-cn" else set())
+            required = _required_inputs(s["model_id"])
             for c in s["cases"]:
                 missing = required - set(c["inputs"])
                 if missing:
                     raise ManifestError(
                         f"{s['model_id']} case {c['case_id']} missing {sorted(missing)}")
+                if c["inputs"]["modelType"] != MODEL_TYPES[s["model_id"]]:
+                    raise ManifestError(
+                        f"{s['model_id']} case {c['case_id']} has wrong modelType")
             if s["regime"] not in ("forced_open", "free_choice"):
                 raise ManifestError(f"bad regime: {s['regime']}")
             if s.get("edit_family") not in (None, "demand", "capacity", "force", "distance"):
@@ -362,9 +406,8 @@ git commit -m "[M1.1] benchmark corpus manifest: schema, loader, cell enumeratio
 
 ```python
 # test_measure.py
-from benchmark.corpus import Cell
+import time
 from benchmark.measure import measure_once, normalize_maxrss
-
 from benchmark.corpus import Cell, Case
 
 def _cell(gap=0.0):
@@ -400,6 +443,15 @@ def test_measure_once_records_failure_without_raising():
     assert "cbc exploded" in obs.error
     assert obs.objective is None
     assert obs.cpu_tree_sec >= 0           # resources still recorded on failure
+
+def test_timeout_marks_resource_demand_censored():
+    def hangs(inp):
+        time.sleep(1)
+    cell = _cell()
+    obs = measure_once(cell, cell.cases[0], solve_fn=hangs, timeout_sec=0.01)
+    assert obs.ok is False
+    assert obs.resource_complete is False  # zero is not mistaken for zero demand
+    assert obs.error == "timeout"
 
 def test_normalize_maxrss_units():
     assert normalize_maxrss(1024, "Linux") == 1024 * 1024   # KB -> bytes
@@ -437,6 +489,7 @@ class Observation:
     solution_status: str | None
     termination_reason: str | None
     ok: bool
+    resource_complete: bool = True         # False means CPU/RSS are censored
     error: str | None = None
     kind: str = "campaign"
 
@@ -519,7 +572,7 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
                                cpu_tree_sec=0.0, harness_overhead_sec=0.0,
                                python_peak_rss=0, cbc_peak_rss=0, objective=None,
                                solution_status=None, termination_reason=None,
-                               ok=False, error="timeout")
+                               ok=False, resource_complete=False, error="timeout")
         wall = time.monotonic() - t0
         try:
             with open(out_path, "rb") as f:
@@ -530,7 +583,7 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
                                harness_overhead_sec=0.0, python_peak_rss=0,
                                cbc_peak_rss=0, objective=None,
                                solution_status=None, termination_reason=None,
-                               ok=False,
+                               ok=False, resource_complete=False,
                                error=f"unreadable child output (status {status}): {e}")
         if status != 0:
             rec = {"ok": False, "error": f"child exited {status}", **rec}
@@ -548,6 +601,7 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
         solution_status=rec.get("status"),
         termination_reason=rec.get("reason"),
         ok=bool(rec.get("ok")),
+        resource_complete=True,
         error=rec.get("error"),
     )
 ```
@@ -555,7 +609,7 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_measure.py -v`
-Expected: PASS (4 passed)
+Expected: PASS (5 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -666,9 +720,7 @@ def test_determinism_rows_are_tagged_and_separate():
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_runner.py -v`
 Expected: FAIL — `No module named 'benchmark.runner'`
 
-- [ ] **Step 3: Implement the runner** *(F-R18: the round-2 instruction here said to add `kind` to `Observation` — M1.2 and the Canonical API already define it, so following the step would have produced a duplicate field.)*
-
-In `measure.py`, add `kind: str = "campaign"` as the last field of `Observation`.
+- [ ] **Step 3: Implement the runner.** `Observation.kind` already exists in M1.2; do not add another field.
 
 ```python
 # runner.py
@@ -702,11 +754,16 @@ def run_campaign(manifest, *, min_cases=30, max_cases=200, ci_width=0.10,
         for case in list(cell.cases)[:warmup]:
             measure(cell, case)
 
-    # R3-R3 (b): one GLOBALLY interleaved measured schedule. Draining one cell
-    # at a time lets thermal state, background load or runtime drift align
-    # with a model/gap cell and masquerade as a property of that cell.
-    schedule = [(cell, case) for cell in manifest.cells()
-                for case in cohort[(cell.model_id, cell.regime, cell.edit_family)]]
+    # Schedule a CASE GROUP, not independent (cell, case) rows. Every selected
+    # case is measured at every sibling gap before readiness is evaluated.
+    # Independently shuffling rows and merely stopping siblings together still
+    # retains different case sets across gaps when the stop boundary is hit.
+    cells_by_stratum = {}
+    for cell in manifest.cells():
+        cells_by_stratum.setdefault(
+            (cell.model_id, cell.regime, cell.edit_family), []).append(cell)
+    schedule = [(stratum, case) for stratum, cases in cohort.items()
+                for case in cases]
     rng.shuffle(schedule)
 
     # F-R6: stop per STRATUM, not per cell. Round 3's code added only
@@ -715,31 +772,35 @@ def run_campaign(manifest, *, min_cases=30, max_cases=200, ci_width=0.10,
     # gap alternative's ONLY quality evidence, would thin to 40 pairs
     # silently. The shared cohort fixes which cases are SCHEDULED; this fixes
     # which are RETAINED.
-    strat_of = lambda c: (c.model_id, c.regime, c.edit_family)
-    gaps_of = {}
-    for cell in manifest.cells():
-        gaps_of.setdefault(strat_of(cell), []).append(cell.key)
-
-    kept, by_cell, stopped = [], {}, set()
-    for cell, case in schedule:
-        if cell.key in stopped:
+    kept, by_cell, stopped_strata = [], {}, set()
+    for stratum, case in schedule:
+        if stratum in stopped_strata:
             continue
-        obs = measure(cell, case)
-        obs.kind = "campaign"
-        kept.append(obs)
-        by_cell.setdefault(cell.key, []).append(obs)
+
+        # Randomise order within the group to avoid a fixed gap-order bias,
+        # but complete the whole group atomically for paired retention.
+        siblings = list(cells_by_stratum[stratum])
+        rng.shuffle(siblings)
+        for cell in siblings:
+            obs = measure(cell, case)
+            obs.kind = "campaign"
+            kept.append(obs)
+            by_cell.setdefault(cell.key, []).append(obs)
 
         def ready(key):
             rows = by_cell.get(key, [])
             if len(rows) < min_cases:
                 return False
-            cpus = [o.cpu_tree_sec for o in rows if o.ok]
+            # Failed attempts with complete telemetry consumed compute and are
+            # service demand. Censored rows cannot justify stopping early.
+            if any(not o.resource_complete for o in rows):
+                return False
+            cpus = [o.cpu_tree_sec for o in rows]
             return bool(cpus) and relative_half_width(
                 bootstrap_ci(cpus, mean), mean(cpus)) <= ci_width
 
-        sibling_keys = gaps_of[strat_of(cell)]
-        if all(ready(k) for k in sibling_keys):
-            stopped.update(sibling_keys)        # all gaps stop TOGETHER
+        if all(ready(c.key) for c in siblings):
+            stopped_strata.add(stratum)         # after the complete case group
     return kept
 
 def run_determinism(cell, case, *, reps=30, measure=measure_once):
@@ -780,11 +841,11 @@ git commit -m "[M1.3] benchmark runner: randomized order, warm-up discard, deter
 
 - **Objective deltas (MP-R4):** computed **paired by `case_id`** against that same case's `gap=0` result. Explicit rule for infeasible / no-incumbent / failed outcomes: the pair is **excluded and counted**, never imputed. Without this, a faster relaxed-gap solve has no quality evidence and the gap experiment cannot be approved.
 - **Outlier policy, declared before any measurement:** none are deleted, and **raw rows are preserved in full** — which is the whole policy. *(The round-2 wording also promised a trimmed estimate beside every raw one; no field for it exists anywhere in the schema or CSV, so the promise is **withdrawn** rather than left dangling — F-R7. Preserved raw rows already allow any trimming to be computed later, in the open.)*
-- **Unusable cells fail loudly:** zero successes, or fewer than the declared minimum distinct cases, sets `usable=False` with a reason. M2.1 **fails closed** on any unusable cell rather than treating it as zero demand.
+- **Unusable cells fail loudly:** zero successes, fewer than the declared minimum distinct cases, or any row with censored resource telemetry sets `usable=False` with a reason. M2.1 **fails closed** on any unusable cell rather than treating it as zero demand. Failed attempts with complete telemetry remain in CPU-demand and wall-occupancy distributions because they consumed real capacity; a timeout recorded as CPU/RSS zero is censored evidence, not zero demand.
 - **`objective_deltas()` and `corpus_frequency()` are implemented and tested HERE, with steps (F-R7).** MP-R4 found them declared-but-absent; round 3 marked that fixed and they were still absent — the same finding twice. Concretely:
-  - `objective_deltas(observations)` keys by `case_key` and compares each non-zero-gap row against the **same `case_key`'s `gap==0`** row. A pair where either side is `ok=False` or `objective is None` is **excluded and counted** (`objective_pairs_excluded`), never imputed. `aggregate()` populates `objective_delta_vs_gap0`/`_ci` for non-zero-gap cells.
-  - `corpus_frequency(observations, manifest)` returns the realised `n_obs`-weighted share per stratum — labelled corpus/generator frequency, **never** student prevalence (M-R9).
-  - Tests: three cases at gaps 0/0.02 with one failure at 0.02 → two deltas and `excluded == 1`; realised corpus frequency equals the weighted proportion.
+  - `objective_deltas(observations)` keys its output by **non-zero-gap `cell_key`**, then compares each row against the same `case_key` at `gap==0`. This represents all relaxed gaps without overwriting them. The value is the signed raw delta `objective(gap) - objective(0)`; interpretation remains model-specific. A pair where either side is `ok=False` or `objective is None` is **excluded and counted** (`objective_pairs_excluded`), never imputed. `aggregate()` populates `objective_delta_vs_gap0`/`_ci` for each non-zero-gap cell.
+  - `corpus_frequency(observations, manifest)` reports **two different values** per stratum: the declared manifest weight and the realised observation allocation. Sequential stopping changes `n_obs`, so observation allocation is diagnostic and must never be relabelled as generator frequency or student prevalence (M-R9).
+  - Tests cover all relaxed gaps, exclusion counts, failed-attempt demand, censored telemetry, and the declared-weight/observation-allocation distinction.
   **Without the delta columns the gap decision cannot be made from the deliverable at all** — MP-R3 requires relaxed gaps to be presented with their paired objective-quality effects, and an artifact with no delta column cannot carry that.
 
 - [ ] **Step 1: Write the failing test**
@@ -792,15 +853,21 @@ git commit -m "[M1.3] benchmark runner: randomized order, warm-up discard, deter
 ```python
 # test_stats.py
 import pytest
+from benchmark.corpus import Manifest
 from benchmark.measure import Observation
-from benchmark.stats import percentile, bootstrap_ci, aggregate
+from benchmark.stats import (percentile, bootstrap_ci, aggregate,
+                             objective_deltas, corpus_frequency)
 
-def _obs(key, wall, cpu, case="c0", ok=True, kind="campaign", gap=0.0):
-    return Observation(cell_key=key, case_key=f"{key}|{case}", gap=gap, wall_sec=wall,
+def _obs(key, wall, cpu, case="c0", ok=True, kind="campaign", gap=0.0,
+         objective=1.0, resource_complete=True):
+    # cell_key ends in gap; case_key deliberately does not.
+    stratum = key.rsplit("|", 1)[0]
+    return Observation(cell_key=key, case_key=f"{stratum}|{case}", gap=gap, wall_sec=wall,
                        cpu_tree_sec=cpu, harness_overhead_sec=0.01,
-                       python_peak_rss=1000, cbc_peak_rss=2000, objective=1.0,
+                       python_peak_rss=1000, cbc_peak_rss=2000, objective=objective,
                        solution_status="optimal", termination_reason="optimality_proven",
-                       ok=ok, error=None, kind=kind)
+                       ok=ok, resource_complete=resource_complete,
+                       error=None, kind=kind)
 
 def test_percentile_linear_interpolation():
     assert percentile([1, 2, 3, 4], 0.5) == 2.5
@@ -834,6 +901,49 @@ def test_under_sampled_cell_is_unusable():
     rows = [_obs("k", 1.0, 0.5, case=f"c{i}") for i in range(3)]
     cs = aggregate(rows, min_cases=30)["k"]
     assert cs.usable is False and "distinct cases" in cs.unusable_reason
+
+def test_failed_attempt_with_complete_telemetry_counts_as_demand():
+    rows = [_obs("a|forced_open|-|0.0", 1.0, 1.0, case="c1"),
+            _obs("a|forced_open|-|0.0", 3.0, 3.0, case="c2", ok=False)]
+    cs = aggregate(rows, min_cases=1)["a|forced_open|-|0.0"]
+    assert cs.usable is True
+    assert cs.mean_cpu_tree_sec == pytest.approx(2.0)
+    assert cs.failure_rate == pytest.approx(0.5)
+
+def test_censored_resource_row_makes_cell_unusable():
+    rows = [_obs("a|forced_open|-|0.0", 1.0, 1.0, case="c1"),
+            _obs("a|forced_open|-|0.0", 5.0, 0.0, case="c2", ok=False,
+                 resource_complete=False)]
+    cs = aggregate(rows, min_cases=1)["a|forced_open|-|0.0"]
+    assert cs.usable is False and "censored" in cs.unusable_reason
+
+def test_objective_deltas_keep_every_gap_and_count_exclusions():
+    rows = []
+    for case, base in (("c1", 100.0), ("c2", 120.0), ("c3", 140.0)):
+        rows.append(_obs("a|forced_open|-|0.0", 1, 1, case=case,
+                         gap=0.0, objective=base))
+        rows.append(_obs("a|forced_open|-|0.005", 1, 1, case=case,
+                         gap=0.005, objective=base + 1))
+        rows.append(_obs("a|forced_open|-|0.02", 1, 1, case=case,
+                         gap=0.02, objective=base + 4,
+                         ok=(case != "c3")))
+    values, excluded = objective_deltas(rows)
+    assert values["a|forced_open|-|0.005"] == [1.0, 1.0, 1.0]
+    assert values["a|forced_open|-|0.02"] == [4.0, 4.0]
+    assert excluded["a|forced_open|-|0.02"] == 1
+
+def test_corpus_frequency_separates_weight_from_observation_allocation():
+    manifest = Manifest(1, [
+        {"model_id": "a", "regime": "forced_open", "edit_family": None,
+         "weight": 0.9, "cases": []},
+        {"model_id": "b", "regime": "free_choice", "edit_family": "demand",
+         "weight": 0.1, "cases": []}], [0.0])
+    rows = [_obs("a|forced_open|-|0.0", 1, 1, case="a1"),
+            _obs("b|free_choice|demand|0.0", 1, 1, case="b1"),
+            _obs("b|free_choice|demand|0.0", 1, 1, case="b2")]
+    freq = corpus_frequency(rows, manifest)
+    assert freq["a|forced_open|-"]["declared_weight"] == pytest.approx(0.9)
+    assert freq["a|forced_open|-"]["observation_share"] == pytest.approx(1 / 3)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -862,6 +972,9 @@ class CellStats:
     p95_wall_ci: tuple = (0.0, 0.0)
     failure_rate: float = 0.0
     failure_rate_ci: tuple = (0.0, 0.0)
+    objective_delta_vs_gap0: float | None = None
+    objective_delta_ci: tuple | None = None
+    objective_pairs_excluded: int = 0
     # descriptive -- point estimates, backed by raw rows
     p50_wall: float = 0.0
     mean_python_peak_rss: float = 0.0
@@ -890,12 +1003,48 @@ def bootstrap_ci(xs, stat, reps=2000, alpha=0.05, seed=0):
     draws = [stat([rng.choice(xs) for _ in xs]) for _ in range(reps)]
     return percentile(draws, alpha / 2), percentile(draws, 1 - alpha / 2)
 
+def objective_deltas(observations):
+    """Return raw signed objective deltas and excluded-pair counts per
+    non-zero-gap cell. case_key is stable across gaps; cell_key is not."""
+    campaign = [o for o in observations if o.kind == "campaign"]
+    baseline = {o.case_key: o for o in campaign if o.gap == 0.0}
+    values, excluded = {}, {}
+    for row in campaign:
+        if row.gap == 0.0:
+            continue
+        values.setdefault(row.cell_key, [])
+        excluded.setdefault(row.cell_key, 0)
+        base = baseline.get(row.case_key)
+        if (base is None or not base.ok or not row.ok or
+                base.objective is None or row.objective is None):
+            excluded[row.cell_key] += 1
+            continue
+        values[row.cell_key].append(row.objective - base.objective)
+    return values, excluded
+
+def corpus_frequency(observations, manifest):
+    """Report declared generator weight separately from realised allocation."""
+    rows = [o for o in observations if o.kind == "campaign"]
+    total = len(rows)
+    counts = {}
+    for row in rows:
+        stratum = row.cell_key.rsplit("|", 1)[0]
+        counts[stratum] = counts.get(stratum, 0) + 1
+    out = {}
+    for s in manifest.strata:
+        fam = s["edit_family"] if s["edit_family"] is not None else "-"
+        key = f'{s["model_id"]}|{s["regime"]}|{fam}'
+        out[key] = {"declared_weight": s["weight"],
+                    "observation_share": counts.get(key, 0) / total if total else 0.0}
+    return out
+
 def aggregate(observations, *, min_cases):
     by_cell = {}
     for o in observations:
         if o.kind != "campaign":
             continue
         by_cell.setdefault(o.cell_key, []).append(o)
+    delta_values, delta_excluded = objective_deltas(observations)
     out = {}
     for key, rows in by_cell.items():
         ok = [r for r in rows if r.ok]
@@ -903,29 +1052,38 @@ def aggregate(observations, *, min_cases):
         # L-R1: an all-failure or under-sampled cell is reported as UNUSABLE,
         # never crashed on (round 1 indexed walls[0] on an empty list) and
         # never returned as zero demand (which would shrink sizing silently).
-        if not ok or n_cases < min_cases:
+        censored = [r for r in rows if not r.resource_complete]
+        if not ok or n_cases < min_cases or censored:
             out[key] = CellStats(n_cases=n_cases, n_obs=len(rows), n_success=len(ok),
                                  usable=False,
-                                 unusable_reason="no successes" if not ok
-                                 else f"only {n_cases} distinct cases")
+                                 unusable_reason=("resource demand censored"
+                                                  if censored else
+                                                  "no successes" if not ok else
+                                                  f"only {n_cases} distinct cases"))
             continue
-        walls = [r.wall_sec for r in ok]
-        cpus = [r.cpu_tree_sec for r in ok]
+        # Failures consumed slots and CPU too. Successful-only distributions
+        # understate demand exactly when failure/timeout rates rise.
+        walls = [r.wall_sec for r in rows]
+        cpus = [r.cpu_tree_sec for r in rows]
+        deltas = delta_values.get(key, [])
         # L-R1: uncertainty ONLY on decision metrics. p50, RSS and corpus
         # frequency are descriptive -- point estimates plus raw rows suffice.
         out[key] = CellStats(
             n_cases=n_cases, n_obs=len(rows), n_success=len(ok), usable=True,
             mean_cpu_tree_sec=mean(cpus),
-            mean_cpu_ci=bootstrap_ci(cpus, _mean),
+            mean_cpu_ci=bootstrap_ci(cpus, mean),
             p95_wall=percentile(walls, 0.95),
             p95_wall_ci=bootstrap_ci(walls, lambda s: percentile(s, 0.95)),
             # F-R4: (n - ok)/n is EXACTLY 0.1 for 9/10; 1 - ok/n gives
             # 0.09999999999999998 and fails an equality assertion on first run.
             failure_rate=(len(rows) - len(ok)) / len(rows),
-            failure_rate_ci=bootstrap_ci([0.0 if r.ok else 1.0 for r in rows], _mean),
+            failure_rate_ci=bootstrap_ci([0.0 if r.ok else 1.0 for r in rows], mean),
+            objective_delta_vs_gap0=mean(deltas) if deltas else None,
+            objective_delta_ci=(bootstrap_ci(deltas, mean) if deltas else None),
+            objective_pairs_excluded=delta_excluded.get(key, 0),
             p50_wall=percentile(walls, 0.5),                       # descriptive
-            mean_python_peak_rss=mean([r.python_peak_rss for r in ok]),   # descriptive
-            mean_cbc_peak_rss=mean([r.cbc_peak_rss for r in ok]),         # descriptive
+            mean_python_peak_rss=mean([r.python_peak_rss for r in rows]), # descriptive
+            mean_cbc_peak_rss=mean([r.cbc_peak_rss for r in rows]),       # descriptive
         )
     return out
 ```
@@ -933,7 +1091,7 @@ def aggregate(observations, *, min_cases):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_stats.py -v`
-Expected: PASS (6 passed)
+Expected: PASS (10 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -955,20 +1113,20 @@ git commit -m "[M1.4] benchmark stats: percentiles, bootstrap CI, determinism-ex
 - Produces: `write_raw(observations, path)`, `write_aggregates(stats, manifest, path)`; CSVs `docs/superpowers/metrics/benchmark-raw.csv` and `benchmark-aggregates.csv`.
 
 **Raw columns (L-R1 — `case_key` is mandatory or the advertised paired re-analysis is impossible from the artifact):**
-`run_id,timestamp,cell_key,case_key,case_id,model_id,regime,edit_family,gap,kind,wall_sec,cpu_tree_sec,harness_overhead_sec,python_peak_rss,cbc_peak_rss,objective,solution_status,termination_reason,ok,error`
+`run_id,timestamp,cell_key,case_key,case_id,model_id,regime,edit_family,gap,kind,wall_sec,cpu_tree_sec,harness_overhead_sec,python_peak_rss,cbc_peak_rss,objective,solution_status,termination_reason,ok,resource_complete,error`
 
 **Aggregate columns:**
-`run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,n_cases,n_obs,n_success,usable,unusable_reason,mean_cpu_tree_sec,mean_cpu_ci_low,mean_cpu_ci_high,p95_wall,p95_wall_ci_low,p95_wall_ci_high,failure_rate,failure_rate_ci_low,failure_rate_ci_high,objective_delta_vs_gap0,objective_delta_ci_low,objective_delta_ci_high,objective_pairs_excluded,p50_wall,mean_python_peak_rss,mean_cbc_peak_rss,corpus_frequency`
+`run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,observation_share,n_cases,n_obs,n_success,usable,unusable_reason,mean_cpu_tree_sec,mean_cpu_ci_low,mean_cpu_ci_high,p95_wall,p95_wall_ci_low,p95_wall_ci_high,failure_rate,failure_rate_ci_low,failure_rate_ci_high,objective_delta_vs_gap0,objective_delta_ci_low,objective_delta_ci_high,objective_pairs_excluded,p50_wall,mean_python_peak_rss,mean_cbc_peak_rss`
 
 The four `objective_delta_*` columns are **mandatory, not optional** (F-R7): without them the relaxed-gap alternatives have no paired quality evidence in the artifact, and the gap decision MP-R3 requires cannot be made from the deliverable. The M1.5 header test asserts them.
 
-Confidence intervals appear only on the four decision metrics (mean CPU demand, p95 wall, failure rate, and the paired objective delta reported alongside); `p50_wall`, the two RSS columns and `corpus_frequency` are descriptive point estimates backed by the raw rows (L-R1).
+Confidence intervals appear only on the four decision metrics (mean CPU demand, p95 wall, failure rate, and the paired objective delta reported alongside); `p50_wall`, the two RSS columns and `observation_share` are descriptive point estimates backed by the raw rows (L-R1). `corpus_weight` is the declared generator weight; `observation_share` is only the realised allocation after sequential stopping. Neither is student prevalence.
 
-- [ ] **Step 1: Write the failing test** — assert the header row matches the two lists above exactly, that a determinism row appears in raw with `kind=determinism`, and that `corpus_frequency` is present in aggregates.
+- [ ] **Step 1: Write the failing test** — assert the header row matches the two lists above exactly, that a determinism row appears in raw with `kind=determinism`, that censored rows expose `resource_complete=false`, and that `corpus_weight` and `observation_share` remain separate in aggregates.
 - [ ] **Step 2: Run it** — `python3 -m pytest benchmark/test_report.py -v` → FAIL.
-- [ ] **Step 3: Implement** `write_raw`/`write_aggregates` with `csv.DictWriter` and the exact headers; `cli.py` wires `load_manifest → run_campaign → aggregate → write_*` behind `argparse` (`--manifest`, `--n`, `--warmup`, `--seed`, `--out-dir`, `--determinism-cell`).
+- [ ] **Step 3: Implement** `write_raw`/`write_aggregates` with `csv.DictWriter` and the exact headers; `cli.py` wires `load_manifest → run_campaign → aggregate → write_*` behind `argparse` (`--manifest`, `--min-cases`, `--max-cases`, `--ci-width`, `--warmup`, `--seed`, `--out-dir`, `--determinism-cell`).
 - [ ] **Step 4: Run it** → PASS.
-- [ ] **Step 5: Document the columns** in `docs/superpowers/metrics/README.md`, including the sentence that `corpus_frequency` is **generator frequency, not student prevalence** (M-R9).
+- [ ] **Step 5: Document the columns** in `docs/superpowers/metrics/README.md`, including the distinction: `corpus_weight` is the **declared generator weight**, `observation_share` is the **realised sampling allocation**, and neither is student prevalence (M-R9).
 - [ ] **Step 5b: The JADE re-measure deliverable (F-R20).** Spec §1.1 requires re-measuring the forced-open JADE regime at `gap=0` against the spike's **0.6–3.5 s** and the parent design's **~13 s** claim; the corpus contains the cell but nothing surfaced the comparison. Report `two-echelon-jade-us|forced_open|*|0.0` p50/p95 wall **beside both prior claims** in the benchmark report, stating explicitly which (if either) the measurement supports.
 - [ ] **Step 6: Full gate**
 
@@ -986,7 +1144,7 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 ## Phase 2 — Capacity model (pure computation, no infra)
 
-**Why separate from Phase 3.** Analysis must be re-runnable without repeating a three-hour soak. Phase 2 consumes Phase 1's CSV and produces candidate worker counts; Phase 3 only validates them.
+**Why separate from Phase 3.** Analysis must be re-runnable without repeating a three-hour soak. Phase 2 consumes Phase 1's CSV and implements the parameterised model; the final counts are materialised in M5.2 only after short target-plan calibration, then validated by authoritative runs.
 
 ### Task M2.1: Service-demand model — mean CPU demand weighted by declared strata
 
@@ -996,7 +1154,7 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 **Interfaces:**
 - Consumes: `CellStats` (M1.4), `Manifest` (M1.1).
-- Produces: `SizingError`, `weighted_mean_service_demand`, `required_cores`, `map_to_instances` — **signatures in the Canonical API; not restated here** (R3-R1). **Units:** `required_cores` returns **cores**, never slots.
+- Produces: `SizingError`, `Calibration`, `weighted_mean_service_demand`, `required_cores`, `map_to_instances`, `load_calibration`, `size_calibrated_plan` — **signatures in the Canonical API; not restated here** (R3-R1). **Units:** `required_cores` returns **cores**, never slots.
 
 **The formula (M-R8), stated once so no task re-derives it:** offered work `ρ = λ × E[S_cpu]`, where `λ` is arrival rate and `E[S_cpu]` is the **weighted mean CPU service demand** — not p95, not wall time. Required cores = `ρ / (parallel_efficiency × (1 − headroom))`.
 
@@ -1006,7 +1164,7 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 >
 > **2. Missing cells must fail closed.** Round 1 did `if cs is None: continue`, so an absent cell **silently reduced** the demand estimate — the failure mode where less evidence produces a smaller, more comfortable number. **Correction:** raise on any required cell that is absent, unusable, or below the minimum distinct-case count.
 >
-> **3. `parallel_efficiency` must be measured, not passed in.** The spec requires measured per-solve CPU utilisation and parallel efficiency, and local CPU-seconds are **not transferable** to a different Render plan without calibration on that plan. **Correction:** add a **concurrency sweep** (below) on each candidate target plan; store the derived efficiency keyed by **plan ID + application SHA**, and have `required_cores` consume that stored value rather than a caller's guess.
+> **3. `parallel_efficiency` must be measured, not guessed.** The spec requires measured per-solve CPU utilisation and parallel efficiency, and local CPU-seconds are **not transferable** to a different Render plan without calibration on that plan. **Correction:** add a **concurrency sweep** (below) on each candidate target plan, keyed by plan/application/profile/gap. The final mapping consumes calibrated `cores_per_slot`, which already embodies the measured efficiency; `required_cores` therefore receives `1.0` in that path so efficiency is applied exactly once.
 
 **M2.1b — calibration, and it does NOT live in Phase 2 (L-R3).** The last fold put a concurrency sweep requiring real Render runs inside a phase labelled *pure computation, no infrastructure*, ahead of MP-2 and MP-3 — so Phase 2 promised an artifact its own position made unobtainable. Corrected ordering:
 
@@ -1018,15 +1176,15 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 **M2.1b is a task, not prose (R3-R5).** It previously named no runner, command, corpus, derivation or consumer — unexecutable by construction.
 
-**Files:** Create `scripts/measurement/calibrate-concurrency.mjs`; output `docs/superpowers/metrics/parallel-efficiency.csv`.
+**Files:** Create `scripts/measurement/calibrate-concurrency.mjs`; output `docs/superpowers/metrics/parallel-efficiency-raw.csv` and `docs/superpowers/metrics/parallel-efficiency.csv`.
 
 - [ ] **Step 1. Define "shortlisted plans" before anything uses the phrase:** the vertical comparator's current plan, plus at most two worker plans whose core/memory ratio brackets `required_cores` from Phase 2's uncalibrated run. Recorded in the run manifest.
 - [ ] **Step 2. Run** `node scripts/measurement/calibrate-concurrency.mjs --plan <id> --service <id> --concurrency 1,2,4,8 --corpus representative`, stopping early when throughput flattens (<5% gain) or headroom fails. `--service` is mandatory (F-R9): the isolated API service for the vertical comparator, the MP-3 prototype for worker plans — `--plan` alone never said which deployed service was being driven.
-- [ ] **Step 3. Derive per plan — three quantities, three formulas, and one anti-double-count rule (F-R10).** `parallel_efficiency = (throughput_at_N / N) / throughput_at_1` · **`cores_per_slot = cpu_util_at_N × plan_cores / N`** at the knee · `rss_per_slot_bytes = aggregate_instance_rss / N`.
+- [ ] **Step 3. Derive per plan/profile/gap — target demand plus three mapping quantities and one anti-double-count rule (F-R10).** Local CPU seconds are not portable across plans. At concurrency 1, measure an idle baseline, then derive **`target_mean_cpu_sec = (integral(instance_cpu_cores dt) − idle_cpu_core_seconds) / attempted solver executions`** over the steady measurement window; the denominator includes successful and failed executions because both consume capacity, and a missing interval invalidates the row. Derive `wall_scale_factor = target_p50_active_solver_wall / local_p50_wall` from the same case cohort for queue replay. At the knee derive `parallel_efficiency = (throughput_at_N / N) / throughput_at_1` · **`cores_per_slot = cpu_util_fraction_at_N × plan_cores / N`** (`cpu_util_fraction` is normalized to `[0,1]`) · `rss_per_slot_bytes = aggregate_instance_rss / N`.
   **`cores_per_slot` already embeds contention loss**, and `required_cores` divides by `parallel_efficiency` too — applying both over-provisions instances by roughly `1/η` with every intermediate number looking arithmetically fine, which is precisely the failure R3-R2 warned about. **Rule: when a calibrated `cores_per_slot` is used, `required_cores` is called with `parallel_efficiency=1.0`.** Exactly one of the two carries the efficiency term; the other is 1.0. The function stays parameterised (L-R3) — only the **final** call reads `parallel-efficiency.csv`.
-- [ ] **Step 4. Emit** `plan_id, app_sha, concurrency, throughput, cpu_util, aggregate_rss, parallel_efficiency, cores_per_slot, rss_per_slot_bytes`.
-- [ ] **Step 5. Consume it:** `map_to_instances()` reads this CSV keyed by `plan_id + app_sha` to produce the **final** candidate counts. Uncalibrated Phase 2 output is never a final answer.
-- [ ] **Step 6. Validation:** a plan with no calibration row **fails closed** — no defaulted efficiency.
+- [ ] **Step 4. Emit two artifacts so the identity key is actually unique.** `parallel-efficiency-raw.csv` contains `plan_id,app_sha,profile_id,gap,concurrency,throughput,cpu_util_fraction,aggregate_rss,run_id`. `parallel-efficiency.csv` contains exactly one derived row per `plan_id,app_sha,profile_id,gap`: `target_mean_cpu_sec,parallel_efficiency,cores_per_slot,rss_per_slot_bytes,instance_memory_bytes,slots_per_instance,wall_scale_factor` plus the source run IDs.
+- [ ] **Step 5. Consume it explicitly:** `load_calibration()` selects exactly one row keyed by `plan_id + app_sha + profile_id + gap`; `size_calibrated_plan()` calls `required_cores(target_mean_cpu_sec, ..., parallel_efficiency=1.0, headroom=ratified)` and then `map_to_instances()`. `map_to_instances()` remains pure and never reads a file. For queue prediction, `build_event_samples()` applies the same row's `wall_scale_factor` before running `simulate(workers=instances × slots)`. Uncalibrated Phase 2 output is never a final answer.
+- [ ] **Step 6. Validation:** a missing, duplicate, non-positive or mismatched calibration row **fails closed** — no defaulted efficiency, CPU demand, or wall scale.
 - [ ] **Step 7. Commit** — `git commit -m "[M2.1b] concurrency calibration runner + parallel-efficiency.csv"`
 
 - [ ] **Step 1: Write the failing test**
@@ -1035,7 +1193,8 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 # test_capacity.py
 import pytest
 from benchmark.capacity import (weighted_mean_service_demand, required_cores,
-                                map_to_instances, SizingError)
+                                map_to_instances, size_calibrated_plan,
+                                load_calibration, Calibration, SizingError)
 from benchmark.stats import CellStats
 from benchmark.corpus import Manifest
 
@@ -1091,6 +1250,33 @@ def test_rare_slow_stratum_beyond_p95_still_enters_themean():
         {"fast|forced_open|-|0.0": _cs(0.5), "slow|free_choice|-|0.0": _cs(100.0)},
         m, gap=0.0)
     assert d == pytest.approx(0.98 * 0.5 + 0.02 * 100.0)   # 2.49 — slow stratum is most of it
+
+def test_final_sizing_uses_target_plan_cpu_demand_once():
+    cal = Calibration(plan_id="worker-pro", app_sha="abc", profile_id="representative",
+                      gap=0.0, target_mean_cpu_sec=2.0, slots_per_instance=8,
+                      cores_per_slot=0.5, rss_per_slot_bytes=200_000_000,
+                      instance_memory_bytes=4_000_000_000, wall_scale_factor=1.2)
+    instances, slots, cores = size_calibrated_plan(
+        cal, arrival_rate_per_sec=0.7, headroom=0.3)
+    assert cores == pytest.approx(2.0)       # 2.0 * 0.7 / (1 - 0.3)
+    assert (instances, slots) == (1, 8)
+
+def test_calibration_loader_requires_one_exact_identity(tmp_path):
+    header = ("plan_id,app_sha,profile_id,gap,target_mean_cpu_sec,"
+              "slots_per_instance,cores_per_slot,rss_per_slot_bytes,"
+              "instance_memory_bytes,wall_scale_factor\n")
+    row = "worker-pro,abc,representative,0.0,2.0,8,0.5,200000000,4000000000,1.2\n"
+    path = tmp_path / "cal.csv"
+    path.write_text(header + row)
+    assert load_calibration(path, plan_id="worker-pro", app_sha="abc",
+                            profile_id="representative", gap=0).target_mean_cpu_sec == 2.0
+    with pytest.raises(SizingError, match="exactly one"):
+        load_calibration(path, plan_id="worker-pro", app_sha="wrong",
+                         profile_id="representative", gap=0)
+    path.write_text(header + row + row)
+    with pytest.raises(SizingError, match="exactly one"):
+        load_calibration(path, plan_id="worker-pro", app_sha="abc",
+                         profile_id="representative", gap=0)
 ```
 
 - [ ] **Step 2: Run it** → FAIL, `No module named 'benchmark.capacity'`.
@@ -1098,8 +1284,24 @@ def test_rare_slow_stratum_beyond_p95_still_enters_themean():
 
 ```python
 # capacity.py
+import csv
+from dataclasses import dataclass
+
 class SizingError(ValueError):
     pass
+
+@dataclass(frozen=True)
+class Calibration:
+    plan_id: str
+    app_sha: str
+    profile_id: str
+    gap: float
+    target_mean_cpu_sec: float
+    slots_per_instance: int
+    cores_per_slot: float
+    rss_per_slot_bytes: int
+    instance_memory_bytes: int
+    wall_scale_factor: float
 
 def weighted_mean_service_demand(stats, manifest, gap):
     """L-R2: ONE gap at a time. gap=0 is the mandatory baseline; relaxed gaps
@@ -1145,9 +1347,38 @@ def map_to_instances(required_cores, slots_per_instance, cores_per_slot,
     cores_per_instance = slots * cores_per_slot
     instances = math.ceil(required_cores / cores_per_instance)
     return instances, slots
+
+def load_calibration(path, *, plan_id, app_sha, profile_id, gap):
+    with open(path, newline="") as f:
+        matches = [r for r in csv.DictReader(f)
+                   if r["plan_id"] == plan_id and r["app_sha"] == app_sha
+                   and r["profile_id"] == profile_id
+                   and float(r["gap"]) == float(gap)]
+    if len(matches) != 1:
+        raise SizingError(f"expected exactly one calibration row, found {len(matches)}")
+    r = matches[0]
+    cal = Calibration(plan_id, app_sha, profile_id, float(gap),
+                      float(r["target_mean_cpu_sec"]), int(r["slots_per_instance"]),
+                      float(r["cores_per_slot"]), int(r["rss_per_slot_bytes"]),
+                      int(r["instance_memory_bytes"]), float(r["wall_scale_factor"]))
+    if min(cal.target_mean_cpu_sec, cal.slots_per_instance, cal.cores_per_slot,
+           cal.rss_per_slot_bytes, cal.instance_memory_bytes,
+           cal.wall_scale_factor) <= 0:
+        raise SizingError("calibration values must be positive")
+    return cal
+
+def size_calibrated_plan(calibration, arrival_rate_per_sec, headroom):
+    # Efficiency is already embedded in calibrated cores_per_slot; do not
+    # divide by it a second time.
+    cores = required_cores(calibration.target_mean_cpu_sec, arrival_rate_per_sec,
+                           parallel_efficiency=1.0, headroom=headroom)
+    instances, slots = map_to_instances(
+        cores, calibration.slots_per_instance, calibration.cores_per_slot,
+        calibration.rss_per_slot_bytes, calibration.instance_memory_bytes)
+    return instances, slots, cores
 ```
 
-- [ ] **Step 4: Run it** → PASS (3 passed).
+- [ ] **Step 4: Run it** → PASS (8 passed).
 - [ ] **Step 5: Commit** — `git commit -m "[M2.1] capacity: weighted mean CPU service demand + required-cores formula"`
 
 ### Task M2.2: Arrival trace generator
@@ -1176,7 +1407,7 @@ def map_to_instances(required_cores, slots_per_instance, cores_per_slot,
 
 **Interfaces:**
 - Consumes: raw `Observation` samples grouped by cell (M1.2), `open_loop_trace` (M2.2), declared workload weights (M1.1).
-- Produces: `EventSample`, `SimResult`, `CandidateResult`, `simulate`, `candidate_worker_counts` — **signatures in the Canonical API; not restated here** (R3-R1). **Units:** `workers` is a count of **concurrent solver slots**, not cores.
+- Produces: `EventSample`, `SimResult`, `CandidateResult`, `simulate`, `candidate_worker_counts`, `build_event_samples` — **signatures in the Canonical API; not restated here** (R3-R1). **Units:** `workers` is a count of **concurrent solver slots**, not cores.
 
 **Design:** discrete-event, *n* servers, FIFO. Service times are sampled from the **empirical distribution**, never a fitted mean — the whole point of M-R8's "replay the full measured distribution".
 
@@ -1198,7 +1429,9 @@ def map_to_instances(required_cores, slots_per_instance, cores_per_slot,
 
 ```python
 # test_simulate.py
-from benchmark.simulate import simulate, candidate_worker_counts
+import pytest
+from benchmark.measure import Observation
+from benchmark.simulate import simulate, candidate_worker_counts, build_event_samples
 
 from benchmark.simulate import EventSample
 
@@ -1261,10 +1494,26 @@ def test_stratified_replay_respects_declared_weights():
     strata = {"fast": ([_ev(0.1)], 0.98), "slow": ([_ev(50.0)], 0.02)}
     r = simulate(trace, strata, workers=4, seed=0)
     assert 0.015 < r.observed_stratum_mix["slow"] < 0.025
+
+def test_event_builder_scales_target_wall_and_requires_measured_api_cost():
+    rows = [Observation(cell_key="a|forced_open|-|0.0",
+                        case_key="a|forced_open|-|c1", gap=0.0,
+                        wall_sec=2.0, cpu_tree_sec=1.0,
+                        harness_overhead_sec=0.1, python_peak_rss=1,
+                        cbc_peak_rss=1, objective=1.0,
+                        solution_status="optimal",
+                        termination_reason="optimality_proven", ok=True)]
+    classes = {rows[0].case_key: "cold_miss"}
+    events = build_event_samples(
+        rows, classes, {"cold_miss": 0.2}, wall_scale_factor=1.5)
+    assert events[0].solver_wall_sec == pytest.approx(3.0)
+    assert events[0].api_overhead_sec == pytest.approx(0.2)
+    with pytest.raises(ValueError, match="api overhead"):
+        build_event_samples(rows, classes, {}, wall_scale_factor=1.5)
 ```
 
 - [ ] **Step 2: Run it** → FAIL.
-- [ ] **Step 3: Implement** a heap-based event loop: push arrivals, maintain `workers` free-at timestamps. **Per event, draw a stratum from the declared weights first, then draw the service time from that stratum's empirical samples** (L-R2 — never `rng.choice` over a flat list, which substitutes uniform weights for the declared mix). Cache-hit events consume no solver slot. Record wait and end-to-end per job, plus `observed_stratum_mix`. `candidate_worker_counts` returns `CandidateResult(workers, result, passes)` for **every** explored count in ascending order — callers select the first `passes`, so a near-miss stays visible.
+- [ ] **Step 3: Implement** a heap-based event loop: push arrivals, maintain `workers` free-at timestamps. **Per event, draw a stratum from the declared weights first, then draw the service time from that stratum's empirical samples** (L-R2 — never `rng.choice` over a flat list, which substitutes uniform weights for the declared mix). Cache-hit events consume no solver slot. Record wait and end-to-end per job, plus `observed_stratum_mix`. `candidate_worker_counts` returns `CandidateResult(workers, result, passes)` for **every** explored count in ascending order — callers select the first `passes`, so a near-miss stays visible. `build_event_samples()` maps only complete campaign rows using the explicit `case_key → cache_class` assignment, multiplies non-hit solver wall by the selected target calibration's positive `wall_scale_factor`, sets hits to zero solver occupancy, and fails if either class assignment or measured API overhead is absent; it never invents zero overhead.
 - [ ] **Step 4: Run it** → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "[M2.3] queue simulator: empirical-distribution replay to candidate worker counts"`
 
@@ -1332,6 +1581,18 @@ Populations per the spec's table — **prepared and verified, never assumed**:
 - [ ] **Step 5.** Emit `intended_rate` and `achieved_rate`. **For the OPEN-LOOP profiles only** (representative sustained, cold-identical burst, all-JADE sustained), **fail the run** if achieved < 99% of intended — a shortfall invalidates rather than passes.
   **UI-faithful is exempt, because it is closed-loop by definition (F-R12).** One job in flight per student means a scheduled event for a busy student *cannot* be submitted on time; achieved < intended is the expected outcome, so the 99% rule as previously written would have failed **every** UI-faithful run. Declared collision action: **drop the event and record `deferred_by_policy`**, reported beside the achieved rate and **excluded from both cost denominators**. Step 1's "a closed-loop driver invalidates the run" likewise scopes to the open-loop profiles.
 - [ ] **Step 6. Commit** — `git commit -m "[M3.3] open-loop load driver with intended-vs-achieved rate enforcement"`
+
+### Task M3.3a: Measure API overhead for simulator input (exploratory)
+
+`api_overhead_sec` is measured evidence, not a convenient constant. This task may run before MP-1 only as an explicitly **non-authoritative shakedown**, excluded from every pass/fail dataset.
+
+**Files:** Create `scripts/measurement/measure-api-overhead.mjs`; output `docs/superpowers/metrics/api-overhead.csv`.
+
+- [ ] **Step 1.** Against the isolated environment and M3.2 cache manifest, run a short low-concurrency sample for each cache class (`hit`, `near_miss`, `cold_miss`). Record request/enqueue/serialization overhead outside solver-slot occupancy, keyed by `app_sha + profile_id + cache_class`, with sample count and CI.
+- [ ] **Step 2.** Emit `app_sha,profile_id,cache_class,n,mean_api_overhead_sec,ci_low,ci_high,run_id`; reject a missing class, duplicate key, non-positive sample count, or negative duration. Label the artifact `exploratory_non_authoritative=true`.
+- [ ] **Step 3.** Add a loader used by `build_event_samples()`; selection must match the run's application SHA and profile. No zero/default fallback is allowed.
+- [ ] **Step 4.** Do **not** publish a final queue prediction yet. The final event samples require both this API-overhead artifact and M2.1b's target-plan `wall_scale_factor`; after calibration, rebuild the samples and run `simulate(workers=instances × slots)`.
+- [ ] **Step 5. Commit** — `git commit -m "[M3.3a] measured API-overhead input for queue simulation"`.
 
 ### Task M3.3b: Ratify the SLO gate — ask MP-1 (F-R8)
 
@@ -1409,6 +1670,7 @@ MP-1 also existed only as prose, and **nothing assembled the table it ratifies**
 - [ ] **Not committed as production infra.** `render.yaml` is unchanged; the prototype is created and torn down out-of-band.
 
 ### Task M5.2: Topology runs
+- [ ] **Execute M2.1b now for each shortlisted plan.** Load the exact calibration row, produce final candidate counts with `size_calibrated_plan()`, rebuild target-scaled event samples using M3.3a API overhead, and record the analytic prediction at `workers = instances × slots` before observing the authoritative run. A missing/mismatched calibration aborts the candidate.
 - [ ] Run the same corpus + burst against: high-core vertical (≤ **12 CPU**, `12c-96g` ceiling), one dedicated worker, horizontal fleet (≤ **100 instances**, uniform plan).
 - [ ] **Never validate autoscaling in a preview environment** — previews run at the autoscaling minimum. Manual fixed-instance comparisons in previews are valid when explicitly configured.
 - [ ] Compare on end-to-end SLO, safe CPU/RSS headroom, restart behaviour, scale-window billing, idle cost, operational complexity.
@@ -1437,6 +1699,7 @@ Repeat only the runs used for the **final** pass/fail decision, per the MP-1 rep
 - [ ] The final report records: **intended vs achieved arrival rate**, raw rows, uncertainty, bottleneck evidence, per-gate verdicts, selected topology + worker count, capacity calculation, distribution/trace input, predicted queue behaviour, observed confirmation, and the dated cost model.
 - [ ] **Name the evidence artifact per profile (review recommendation).** The verdict cites the run IDs for **both** the representative profile **and** the guaranteed all-JADE cold-miss profile. A topology cannot pass on one and inherit the other by inference.
 - [ ] **MP-4 fires:** *"Capacity gate: \<verdict\>. Reliability/isolation gate: \<verdict\>. What is built?"*
+- [ ] **Record MP-4 before teardown:** write the exact answer, UTC timestamp, decider, selected topology/configuration, and cited run/report IDs to `docs/CHANGELOG-implementation.md`. A spoken answer or an answer stored only in the final report does not close the checkpoint.
 - [ ] **Teardown** the isolated environment and the prototype; the named owner confirms.
 
 ---
@@ -1449,15 +1712,15 @@ Repeat only the runs used for the **final** pass/fail decision, per the MP-1 rep
 | §1.2 open-loop load, cache populations, telemetry, RSS, restart, soak | M3.1–M3.4 |
 | §1.3 experiments | M4.1, M4.2 |
 | §1.4 topology comparison + platform constraints | M5.1, M5.2 |
-| §1.4.1 capacity sizing from mean CPU demand | M2.1–M2.3 |
+| §1.4.1 capacity sizing from mean CPU demand | M2.1–M2.3, M2.1b executed at M5.2 |
 | §1.5 isolated environment | M3.1 |
 | §2 SLO ratification | **M3.3b** — MP-1 ratified before M3.4b's first authoritative run (F-R8; this row previously asserted the pre-MP-R6 "before M5.2" ordering, so the document held both) |
 | §3 two gates | M5.4 |
 | §4 cost model, two denominators | M5.3 |
 | §5 deliverables | M1.5, M3.4, M4.x, M5.3, M5.4 |
-| MP-1…MP-4 | Phase 3 preamble, Phase 5 preamble, M5.4 |
+| MP-1…MP-4 | M3.3b, M3.1 Step 0, M5.1 Step 3b, M5.4 record step |
 
-**Type consistency:** `Cell.key` (M1.1) is the join key through `Observation.cell_key` (M1.2), `aggregate()`'s dict keys (M1.4), and `weighted_mean_service_demand`'s lookup (M2.1). **`Case.case_id` (M1.1) is the second join key** — carried on every `Observation` (M1.2), used to pair objective deltas against `gap=0` (M1.4), and the thing `run_determinism` holds fixed while `run_campaign` varies (M1.3). `Observation.kind` is added in M1.3 and consumed in M1.4 and M1.5.
+**Type consistency:** `Cell.key` (M1.1) is the join key through `Observation.cell_key` (M1.2), `aggregate()`'s dict keys (M1.4), and `weighted_mean_service_demand`'s lookup (M2.1). **`Case.case_id` (M1.1) is the second join key** — carried on every `Observation` (M1.2), used to pair objective deltas against `gap=0` (M1.4), and the thing `run_determinism` holds fixed while `run_campaign` varies (M1.3). `Observation.kind` and `resource_complete` are defined in M1.2 and consumed in M1.3–M1.5.
 
 ---
 
@@ -1533,6 +1796,20 @@ All 20 findings accepted. No scope added. Verbatim review: `../specs/2026-09-23-
 | F-R18 stale counts and contradictory instructions | Accepted; counts recomputed from the blocks, duplicate-field instruction and duplicate Step 5 removed, file ownership de-duplicated |
 | F-R19 `validate()` prose ≠ code; `chens` needs `timeLimitSec` | Accepted — **verified `solve.py:1341` reads it unconditionally**; full validation implemented |
 | F-R20 spec coverage: JADE re-measure unreported; MP-3 text divergent | Accepted; deliverable added, spec's MP-3 question reconciled |
+
+## Review disposition — round 5, final executable-contract pass (2026-09-23)
+
+All 7 findings accepted and folded into the executable plan; no optional platform work was added.
+
+| Finding | Disposition |
+|---|---|
+| R5-1 M1.1 test fixtures omitted required `modelType` and live model-input validation | Accepted; fixtures now compose and validation derives required inputs from each solver manifest |
+| R5-2 failed attempts were removed from service demand, while timeout zeros masqueraded as measurements | Accepted; complete failed attempts count toward CPU/wall demand; censored timeout/corrupt-output rows fail the cell closed via `resource_complete` |
+| R5-3 sibling gaps still retained different case sets at the stopping boundary | Accepted; scheduling is atomic per `(stratum, case)` group and readiness is evaluated only after all sibling gaps run |
+| R5-4 one delta per `case_key` could not represent three relaxed gaps | Accepted; objective values/exclusions are keyed by non-zero-gap `cell_key`, with signed raw paired deltas |
+| R5-5 local CPU/wall measurements were treated as portable to Render and the CSV consumer was implicit | Accepted; calibration now emits target-plan CPU demand and wall scale; explicit loader and sizing orchestrator fail closed on identity/value mismatches |
+| R5-6 sequential-stop observation counts were labelled corpus frequency | Accepted; declared generator weight and realised observation allocation are separate fields |
+| R5-7 simulator API overhead had no evidence source and MP-4 had no durable record step | Accepted; exploratory M3.3a produces keyed overhead evidence, final simulation waits for target calibration, and MP-4 is recorded before teardown |
 
 ## Author responses (kept for later review)
 
