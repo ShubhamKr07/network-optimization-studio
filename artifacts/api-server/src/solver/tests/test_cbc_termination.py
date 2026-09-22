@@ -169,6 +169,24 @@ class TestClassifyMalformed:
         with pytest.raises(CBCParseError):
             classify_cbc_termination(log, sol)
 
+    def test_contradictory_unbounded_sol_vs_optimal_log_raises(self):
+        # §34.2.10: .sol says Unbounded but the log proved an optimum -> the
+        # sources disagree, so this is contradictory evidence, NOT unbounded.
+        log = (
+            "Result - Optimal solution found\n\n"
+            "Objective value:                100.0\n"
+        )
+        sol = "Unbounded - objective value 0\n"
+        with pytest.raises(CBCParseError):
+            classify_cbc_termination(log, sol)
+
+    def test_contradictory_unbounded_log_vs_optimal_sol_raises(self):
+        # §34.2.10: the mirror case -- log says unbounded, .sol says optimal.
+        log = "Result - Problem is unbounded\n"
+        sol = "Optimal - objective value 42.0\n"
+        with pytest.raises(CBCParseError):
+            classify_cbc_termination(log, sol)
+
     def test_contradictory_gap_tolerance_signal_raises(self):
         log = (
             "Result - Optimal solution found (within gap tolerance)\n\n"

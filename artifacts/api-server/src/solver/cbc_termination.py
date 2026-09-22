@@ -116,7 +116,6 @@ import re
 import shutil
 import tempfile
 import uuid
-import warnings
 from typing import Optional
 
 import pulp
@@ -129,23 +128,32 @@ from pulp import PULP_CBC_CMD
 # COIN_CMD.solve_CBC()'s internals without warning; fail loud, not silent.
 # ---------------------------------------------------------------------------
 _VALIDATED_PULP_VERSION = "3.3.2"
-if pulp.__version__ != _VALIDATED_PULP_VERSION:  # pragma: no cover - env-dependent
-    warnings.warn(
-        f"cbc_termination.py's capture wrapper was verified against "
-        f"pulp=={_VALIDATED_PULP_VERSION}; running under pulp=={pulp.__version__}. "
-        "COIN_CMD.solve_CBC()'s temp-file/delete_tmp_files contract may have "
-        "changed underneath this module -- re-verify (see this module's "
-        "docstring) before trusting captured evidence.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
+
+
+def _require_validated_pulp() -> None:
+    """Fail closed (§34.3.1): the capture wrapper hooks COIN_CMD's temp-file/
+    delete_tmp_files internals, verified against this exact pulp release; a
+    version bump can silently change them, so RAISE (not warn) before
+    capturing any evidence. Guards only the CAPTURE path — the pure text
+    classifier (classify_cbc_termination) is PuLP-independent and stays
+    usable (fixture tests) under any pulp version."""
+    if pulp.__version__ != _VALIDATED_PULP_VERSION:  # pragma: no cover - env-dependent
+        raise RuntimeError(
+            f"cbc_termination capture wrapper verified against "
+            f"pulp=={_VALIDATED_PULP_VERSION}; running under pulp=={pulp.__version__}. "
+            "Re-verify COIN_CMD.solve_CBC()'s temp-file contract before trusting "
+            "captured evidence."
+        )
 
 EPS = 1e-10
 
 SOLUTION_STATUSES = frozenset({"optimal", "feasible", "infeasible", "unbounded", "no_solution"})
 TERMINATION_REASONS = frozenset({
+    # §34.3.4: `interrupted` is NOT a parser output — a killed process leaves
+    # no CBC evidence, so interruption is classified by Node (failure branch),
+    # never here. `unknown` is retained for the legacy read path only.
     "optimality_proven", "gap_limit", "time_limit", "node_limit",
-    "infeasible", "unbounded", "interrupted", "unknown",
+    "infeasible", "unbounded", "unknown",
 })
 
 
@@ -261,6 +269,15 @@ def classify_cbc_termination(log_text: str, sol_text: Optional[str]):
     is_unbounded_sol = sol_token0 == "Unbounded"
     is_unbounded_log = result_msg is not None and "unbounded" in result_msg.lower()
     if is_unbounded_sol or is_unbounded_log:
+        # Same cross-source agreement guard as the infeasible branch above
+        # (§34.2.10): when both the log and the .sol are present they must
+        # AGREE -- an optimal-log/unbounded-.sol (or vice-versa) is
+        # contradictory evidence, not an unbounded result. Do not accept
+        # `unbounded` on a single source's say-so when the other disagrees.
+        if sol_text is not None and is_unbounded_sol != is_unbounded_log:
+            raise CBCParseError(
+                f"unboundedness signal mismatch: log says unbounded={is_unbounded_log}, "
+                f".sol first token={sol_token0!r}")
         return _result("unbounded", "unbounded", None, None)
 
     if result_msg is None:
@@ -370,6 +387,7 @@ class CapturingCBCSolver(PULP_CBC_CMD):
     """
 
     def __init__(self, *, work_dir: str, **kwargs):
+        _require_validated_pulp()
         self.work_dir = work_dir
         file_uid = uuid.uuid4().hex
         self.log_path = os.path.join(work_dir, f"{file_uid}.log")
