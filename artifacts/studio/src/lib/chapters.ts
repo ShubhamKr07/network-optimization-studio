@@ -7,6 +7,23 @@ export interface Chapter {
   title: string;
   description: string;
   hiddenFromLanding?: boolean;
+  /**
+   * ch4-lock — the chapter still appears on Landing but is greyed out,
+   * labelled "locked", and not clickable (its Recent-Solves rows lose their
+   * link too, so the lock can't be sidestepped from the history list).
+   *
+   * Deliberately DISTINCT from `hiddenFromLanding`: hidden means "don't
+   * advertise this yet", locked means "advertise it as deliberately
+   * unavailable". A hidden chapter shows nothing; a locked one shows a
+   * closed door.
+   *
+   * SCOPE, stated plainly: this is a Landing-surface affordance only. The
+   * chapter's route stays registered in App.tsx, so a direct URL or a
+   * bookmarked deep link still opens the Workspace. Making the lock
+   * enforceable needs a route guard (and, to be real, a server-side rule) —
+   * not built here.
+   */
+  locked?: boolean;
   /** SCN v0.3 route cutover flag (DD-4): when true, App.tsx renders the new
    * tabbed Workspace page instead of Studio for this chapter's route. Set
    * per-chapter as each model's Workspace tab content lands (A5.1-A5.3
@@ -38,6 +55,7 @@ export const CHAPTERS: Chapter[] = [
     description: "Service-level facility location across China: open warehouses to maximize the demand served within a target service distance.",
     workspace: true,
     hiddenFromLanding: false,
+    locked: true,
     labHeaderTitle: "Chen's Cosmetics · Model Lab",
     labHeaderSubtitle: "Ch 4 · service coverage · China warehouses → customers",
   },
@@ -81,6 +99,7 @@ export const CHAPTERS: Chapter[] = [
     title: "JADE Network — Multi-Product Two-Echelon",
     description: "Multi-product two-echelon facility location: choose which warehouses to open so plants can ship several distinct products through them to customers at minimum cost.",
     workspace: true,
+    locked: true,
     labHeaderTitle: "JADE Network · Model Lab",
     labHeaderSubtitle: "Ch 9 · two-echelon multi-product · plants → warehouses → customers",
   },

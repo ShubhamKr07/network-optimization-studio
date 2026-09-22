@@ -124,8 +124,12 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
     await expect(footer).toContainText("start");
     await expect(footer).not.toContainText("active");
 
-    // Chapter 9 (JADE) card is present (unhidden); Chapter 10 + Chapter 5 hidden.
-    await expect(page.getByTestId("link-/chapter-9/jade")).toHaveCount(1);
+    // ch4-lock — Chapter 9 (JADE) is still present (unhidden) but LOCKED, so
+    // it is no longer a link: assert the inert wrapper instead. Chapter 10 +
+    // Chapter 5 remain hidden entirely (a different thing from locked).
+    await expect(page.getByTestId("link-/chapter-9/jade")).toHaveCount(0);
+    await expect(page.getByTestId("locked-/chapter-9/jade")).toHaveCount(1);
+    await expect(page.getByTestId("landing-card-locked-two-echelon-jade-us")).toHaveCount(1);
     const hiddenChapterPaths = ["/chapter-10/gold-refinery", "/chapter-5/transport", "/chapter-5/brazil"];
     for (const path of hiddenChapterPaths) {
       await expect(page.getByTestId(`link-${path}`)).toHaveCount(0);

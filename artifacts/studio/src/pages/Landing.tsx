@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { Lock } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
@@ -91,9 +92,21 @@ export function Landing() {
         )}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => (
-          <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
-            <Card className="cursor-pointer hover:border-primary/50 transition-colors h-full flex flex-col overflow-hidden">
+        {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => {
+          // ch4-lock — a locked chapter still shows (unlike hiddenFromLanding)
+          // but reads as a closed door: greyed, no hover affordance, and NOT
+          // wrapped in a <Link>, so the whole card is genuinely inert rather
+          // than a link styled to look disabled.
+          const locked = c.locked === true;
+          const card = (
+            <Card
+              className={`h-full flex flex-col overflow-hidden transition-colors ${
+                locked ? "opacity-60 grayscale cursor-not-allowed" : "cursor-pointer hover:border-primary/50"
+              }`}
+              data-testid={`landing-card-${c.modelId}`}
+              data-locked={locked ? "true" : undefined}
+              aria-disabled={locked || undefined}
+            >
               <CardHeader>
                 <p className="scnd-kicker">{c.chapter}</p>
                 <CardTitle className="scnd-display text-lg">{c.title}</CardTitle>
@@ -101,14 +114,18 @@ export function Landing() {
               </CardHeader>
               {(() => {
                 const entry = byModel.get(c.modelId);
-                const status = !ready
-                  ? null
-                  : !entry || entry.scenarioCount === 0
-                    ? "no scenarios yet"
-                    : entry.lastSucceededSolveAt
-                      ? `${entry.scenarioCount} scenarios · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
-                      : `${entry.scenarioCount} scenarios`;
-                const isActive = ready && c.modelId === activeModelId;
+                const status = locked
+                  ? "locked"
+                  : !ready
+                    ? null
+                    : !entry || entry.scenarioCount === 0
+                      ? "no scenarios yet"
+                      : entry.lastSucceededSolveAt
+                        ? `${entry.scenarioCount} scenarios · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
+                        : `${entry.scenarioCount} scenarios`;
+                // A locked chapter never claims "active", even if it happens to
+                // hold the most recent solve — that would contradict the lock.
+                const isActive = !locked && ready && c.modelId === activeModelId;
                 return (
                   <div
                     className="mt-auto flex items-center justify-between gap-2 border-t px-6 py-3"
@@ -116,18 +133,43 @@ export function Landing() {
                     data-testid={`landing-card-footer-${c.modelId}`}
                   >
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="scnd-display font-bold flex-shrink-0" style={{ fontSize: "15px", color: "var(--green-700)" }}>{chapterNumber(c.chapter)}</span>
+                      <span
+                        className="scnd-display font-bold flex-shrink-0"
+                        style={{ fontSize: "15px", color: locked ? "var(--text-faint)" : "var(--green-700)" }}
+                      >
+                        {chapterNumber(c.chapter)}
+                      </span>
                       {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{status}</span>}
                     </span>
-                    {isActive
-                      ? <Badge variant="outline" className="text-[10px] text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
-                      : <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>}
+                    {locked ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 text-[color:var(--text-muted)]"
+                        data-testid={`landing-card-locked-${c.modelId}`}
+                      >
+                        <Lock className="w-2.5 h-2.5" aria-hidden="true" />
+                        Locked
+                      </Badge>
+                    ) : isActive ? (
+                      <Badge variant="outline" className="text-[10px] text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
+                    ) : (
+                      <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "10.5px", color: "var(--text-faint)" }}>start →</span>
+                    )}
                   </div>
                 );
               })()}
             </Card>
-          </Link>
-        ))}
+          );
+          return locked ? (
+            <div key={c.path} data-testid={`locked-${c.path}`} title="This chapter is locked.">
+              {card}
+            </div>
+          ) : (
+            <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
+              {card}
+            </Link>
+          );
+        })}
       </div>
 
       {visibleHistory && visibleHistory.length > 0 && (
@@ -162,12 +204,26 @@ export function Landing() {
                   </div>
                 </div>
               );
-              return chapterPath ? (
+              // ch4-lock — a locked chapter's history rows lose their link
+              // too. Leaving them clickable would let a student walk straight
+              // into a chapter whose card says "Locked", which is worse than
+              // no lock at all: the rule would look arbitrary rather than
+              // absent. The row still RENDERS (the solve happened; hiding it
+              // would misreport their own history), just inert.
+              const rowLocked = chapterForModelId(h.modelId)?.locked === true;
+              return chapterPath && !rowLocked ? (
                 <Link key={h.id} href={`${chapterPath}?scenario=${h.scenarioId}`} data-testid={`link-solve-history-${h.id}`}>
                   {row}
                 </Link>
               ) : (
-                <div key={h.id}>{row}</div>
+                <div
+                  key={h.id}
+                  className={rowLocked ? "opacity-60 cursor-not-allowed" : undefined}
+                  data-testid={rowLocked ? `locked-solve-history-${h.id}` : undefined}
+                  title={rowLocked ? "This chapter is locked." : undefined}
+                >
+                  {row}
+                </div>
               );
             })}
           </div>

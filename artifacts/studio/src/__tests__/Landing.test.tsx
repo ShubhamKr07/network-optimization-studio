@@ -49,8 +49,14 @@ describe("Landing", () => {
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    // Chapter 9 (JADE) is unhidden (jade-T17) — its card links to its route.
-    expect(screen.getByTestId("link-/chapter-9/jade")).toHaveAttribute("href", "/chapter-9/jade");
+    // ch4-lock — Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still
+    // renders, but it is now LOCKED: the card is no longer wrapped in a
+    // <Link>, so there is no href to follow at all. Asserted as the absence
+    // of the link plus the presence of the inert wrapper, so this can't pass
+    // by the card having merely disappeared.
+    expect(screen.queryByTestId("link-/chapter-9/jade")).not.toBeInTheDocument();
+    expect(screen.getByTestId("locked-/chapter-9/jade")).toBeInTheDocument();
+    expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
     // Chapter 10 is now hidden — not rendered in the grid.
     expect(screen.queryByTestId("link-/chapter-10/gold-refinery")).not.toBeInTheDocument();
     // Chapter 5 stays hidden — not rendered in the grid.
@@ -254,5 +260,73 @@ describe("Landing — live summary (T4)", () => {
     // no card, no footer testid.
     expect(screen.queryByTestId("landing-card-footer-transport-coal")).not.toBeInTheDocument();
     expect(screen.queryByTestId("landing-card-footer-p-median-brazil")).not.toBeInTheDocument();
+  });
+});
+
+// ch4-lock — Chapters 4 and 9 are greyed out and locked on Landing. These
+// pin the three things that make the lock real rather than cosmetic: the
+// card is inert (no <Link>/href), it is visibly greyed, and it still
+// RENDERS (a lock is not the same as hiding, which `hiddenFromLanding`
+// already does for Chapters 5 and 10).
+describe("Landing — locked chapters (ch4-lock)", () => {
+  const LOCKED: Array<[string, string, RegExp]> = [
+    ["chens-cosmetics-cn", "/chapter-4", /Chen's Cosmetics/],
+    ["two-echelon-jade-us", "/chapter-9/jade", /JADE Network/],
+  ];
+
+  it.each(LOCKED)("%s renders but is not a link", (modelId, path, titleRe) => {
+    renderLanding();
+    expect(screen.getByText(titleRe)).toBeInTheDocument();
+    expect(screen.queryByTestId(`link-${path}`)).not.toBeInTheDocument();
+    expect(screen.getByTestId(`locked-${path}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`landing-card-${modelId}`)).toHaveAttribute("data-locked", "true");
+  });
+
+  it.each(LOCKED)("%s is visibly greyed and shows a Locked badge", (modelId) => {
+    renderLanding();
+    expect(screen.getByTestId(`landing-card-${modelId}`).className).toContain("opacity-60");
+    expect(screen.getByTestId(`landing-card-locked-${modelId}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`landing-card-footer-${modelId}`)).toHaveTextContent("locked");
+  });
+
+  it("leaves unlocked chapters untouched — Chapter 3 keeps its link and shows no lock badge", () => {
+    renderLanding();
+    expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
+    expect(screen.queryByTestId("locked-/chapter-3")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("landing-card-locked-p-median-us")).not.toBeInTheDocument();
+    expect(screen.getByTestId("landing-card-p-median-us")).not.toHaveAttribute("data-locked");
+  });
+});
+
+describe("Landing — locked chapters in Recent solves (ch4-lock)", () => {
+  // The lock must hold on BOTH entry points. A locked card beside a clickable
+  // history row into the same chapter would make the rule look arbitrary
+  // rather than absent. The row still renders — it is the student's own
+  // solve history, and hiding it would misreport what they did.
+  it("renders a locked chapter's solve row but strips its link", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 20, scenarioId: 7, scenarioName: "JADE Base", modelId: "two-echelon-jade-us",
+        status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1,
+        queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByText("JADE Base")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-solve-history-20")).not.toBeInTheDocument();
+    expect(screen.getByTestId("locked-solve-history-20")).toBeInTheDocument();
+  });
+
+  it("still links an unlocked chapter's solve row (no collateral damage)", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 21, scenarioId: 8, scenarioName: "AL Base", modelId: "p-median-us",
+        status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1,
+        queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByTestId("link-solve-history-21")).toHaveAttribute("href", "/chapter-3?scenario=8");
+    expect(screen.queryByTestId("locked-solve-history-21")).not.toBeInTheDocument();
   });
 });
