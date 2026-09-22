@@ -986,3 +986,88 @@ All 9 findings accepted, plus all 5 execution recommendations. Verbatim review t
 **Cross-cutting note.** Against the taxonomy built across the A-plan rounds, this review is dominated by a class those rounds never hit: **plausible code that silently produces wrong numbers.** MP-R1, MP-R2 and MP-R3 all pass review-by-reading and all yield evidence that looks fine and is not — repeated cases counted as independent, CBC's CPU missing from a CPU metric, gap averaged into a baseline. A prose plan can be audited by reading it; a measurement plan cannot, because its errors surface as numbers rather than contradictions. **Standing rule for measurement work specifically: for every reported metric, name what it excludes.** "CPU time" that omits a subprocess, "peak RSS" that is a stale high-water mark, and "200 observations" that are 200 trials of one case are all the same failure — a correct-sounding label over a quantity that does not match it.
 
 ---
+
+## Review — approval validation round 2, lean scope (2026-09-23)
+
+**Verdict: REQUEST CHANGES — not yet approved.** MP-R1…MP-R9 are directionally resolved, and MP-R9 is closed: the canonical changelog exists and records AP-4. The remaining blocker is narrower than the round-1 review disposition suggests: several corrected contracts live only in explanatory prose while the executable test/implementation blocks still prescribe the rejected round-1 code.
+
+This review deliberately removes rigor that does not change the topology or cost decision. The objective is trustworthy sizing, not a general benchmarking framework or a new observability platform.
+
+### L-R1 — CRITICAL: make the prescribed M1 code internally executable
+
+The following are one composition defect, not separate requests for more functionality:
+
+- M1.1 tests `load_manifest(..., min_cases_per_cell=200)`, but the implementation accepts only `path`, validates only weights, and says two tests pass when three are present.
+- M1.2 declares `Case`, `case_id`, `cpu_tree_sec`, `harness_overhead_sec` and `peak_rss_tree_bytes`, but its tests still construct the old `Cell`, omit `Case`, call the old `measure_once` signature and assert old fields. Its `Observation` dataclass is still the old layout while `measure_once` returns the new positional layout.
+- M1.3's implementation still appends warm-ups and measured rows to one list, shuffles both together, and calls `measure(cell)` without selecting a distinct `Case`.
+- M1.4's implementation still has the old p95-only `CellStats`, the empty-`walls` crash, and no objective-delta or `corpus_frequency()` implementation.
+- M1.5's CSV headers omit `case_id`/case key and still name the old CPU/RSS fields, so the advertised paired re-analysis cannot be performed from the raw artifact.
+
+**Required, lean correction:** update those tests, dataclasses, snippets, expected counts and CSV headers so each task has one coherent interface and its shown code can pass its shown tests. Do not add functionality beyond the contracts already claimed in the disposition table.
+
+**Scope reduction from the prior review:**
+
+- Do **not** add a cgroup or high-frequency process-tree RSS sampler solely for the local benchmark. Record Python peak and CBC-child peak separately and label them accurately; use aggregate **instance** RSS from the authoritative load run for memory sizing. `max(self, child)` may not be labelled aggregate tree RSS.
+- Do **not** add production-wide `on_phase` callbacks merely to split build from CBC. Capacity needs total process-tree CPU and wall time. Measure spawn/import/dataset-load savings as the paired M4.2 persistent-worker experiment. If the parent spec still requires an exact build/`prob.solve()` split, revise that requirement explicitly rather than inserting invasive timing hooks into every solver path.
+- Do **not** force 200 cases when a predeclared sequential stopping rule reaches the required precision earlier. Require independence, a sensible minimum, a declared CI-width stop, and a 200-case cap.
+- Require uncertainty for the decision metrics — mean CPU demand, end-to-end p95, failure/rejection rate and paired objective delta. Raw rows and descriptive summaries are sufficient for p50, RSS and corpus frequencies; bootstrap intervals on every field are not required.
+
+### L-R2 — CRITICAL: replace the stale M2 algorithms and fix the simulator contract
+
+M2.1's shown implementation still skips missing cells and averages all gaps via `len(manifest.gaps)`, directly contradicting the accepted per-gap/fail-closed correction. M2.3 declares stratified replay but two tests still call `service_samples=`, and its implementation step still says to sample the flat `service_samples` list.
+
+The revised candidate test is also still false: with one arrival per second and a deterministic two-second service time, **two** workers already yield zero queue wait and two-second end-to-end latency, so three is not the smallest count meeting a 2.5-second SLO. Separately, prose says the function returns **all** explored counts, in which case entry zero is the one-worker result, not the first passer.
+
+**Required, lean correction:**
+
+- Add an explicit `gap` argument/filter and fail on every missing or unusable required stratum.
+- Replay declared stratum weights and draw service from the selected stratum's empirical samples.
+- Define `CandidateResult(workers, result, passes)`; return all explored counts in ascending order and test the first result whose `passes` is true.
+- Model topology as `instances × solver_slots_per_instance`; Render's 100-instance ceiling is not a 100-solver-slot ceiling.
+
+### L-R3 — HIGH: repair the calibration and approval sequence without an exhaustive sweep
+
+M2.1b requires real runs on candidate Render plans while Phase 2 is labelled pure computation/no infrastructure and precedes MP-2/MP-3. Authoritative worker counts also consume the headroom ratified later at MP-1. The current sequence therefore cannot produce the artifact Phase 2 promises.
+
+M5.1 has the inverse ordering problem: MP-3 fires before M5.1, but the MP-3 request must name the dispatcher-mode configuration that M5.1 has not yet implemented or proven.
+
+**Required, lean correction:**
+
+1. Phase 2 builds the analytical code and produces uncalibrated distributions only.
+2. After MP-1 and MP-2, run a short calibration on shortlisted plans at a small geometric concurrency set such as 1, 2, 4, 8, stopping when throughput flattens or headroom fails. Do **not** sweep every integer on every plan.
+3. Implement and test the default-preserving API enqueue-only/worker-claim seam before MP-3. This preparation creates no external worker.
+4. Prepare the exact image/command/configuration/teardown artifact, ask and record MP-3, then provision the disposable worker and perform worker-plan calibration.
+5. Produce final candidate counts only after the required calibration and ratified headroom exist.
+
+M3.4a and the dispatcher seam must name their actual application files, tests and commit boundaries. Delete M1.2's statement that its timing seam is the plan's only production-file touch, because observability and dispatcher mode necessarily touch application code.
+
+### L-R4 — HIGH: make case joins and the authoritative run matrix explicit
+
+`case_id` is only unique within a cell, while objective pairing is described as grouping by `case_id`. Use a stable key such as `(model_id, regime, edit_family, case_id)` and intentionally pair that key across gaps. Carry it in every raw row along with the run/profile ID.
+
+The four profiles are defined in M3.3 but no later task says exactly which are executed for which topology. A full Cartesian product would be unnecessary. Use this minimum decision matrix:
+
+- **Every candidate topology:** representative sustained profile + synchronized cold-identical burst.
+- **Top one or two candidates:** sustained all-JADE cold-miss guarantee.
+- **Selected candidate:** UI-faithful profile + restart/recovery probe.
+- Repeat only runs used for the final pass/fail decision according to the MP-1 rule; exploratory calibration runs remain excluded.
+
+The final report cites the run IDs for each required cell in that matrix. A candidate cannot inherit an unexecuted profile by inference.
+
+### L-R5 — MEDIUM: reduce telemetry to what the decision needs
+
+The mandatory core is: offered/achieved rate, enqueue/queue/end-to-end latency, rejection/failure/timeout, queue depth, active solve count, instance CPU, aggregate instance RSS/OOM/restarts, event-loop lag, database pool wait, query latency and lock delay. These are sufficient to identify whether the binding constraint is solver CPU/memory, API responsiveness, queue admission or Postgres.
+
+CPU-throttled time is **not** a mandatory new instrumentation project. Render's documented service metrics expose CPU time/limit and memory but not a direct throttled-time metric. If cgroup throttling data is already cheaply available, collect it; otherwise record it as unavailable and do not block the capacity verdict when the core CPU/throughput evidence is complete. Network errors and three-hour storage growth are supporting diagnostics, not independent pass/fail gates unless an exploratory run shows them material.
+
+### Explicitly closed or demoted
+
+- **MP-R9 is closed.** Do not re-ask AP-4 and do not reopen approval provenance in the next round.
+- Exact local aggregate process-tree RSS, CIs on every descriptive metric, every-integer concurrency sweeps, a full topology×profile Cartesian product, mandatory cgroup throttling telemetry, and production timing hooks in every solver are **not approval requirements**.
+- The existing architectural decisions remain closed: open-loop authoritative load, mean CPU demand for sizing, p95 for SLO validation, separate capacity/reliability gates, two cost denominators, isolated infrastructure and the current Render platform limits.
+
+### Lean approval exit criteria
+
+Approve when L-R1 and L-R2 are reflected in the actual executable snippets/tests, L-R3's calibration/checkpoint order is runnable, and L-R4's case key plus minimum run matrix are explicit. L-R5 is satisfied by naming sources for the core metrics and marking the rest optional. No broader measurement or observability framework is required.
+
+---
