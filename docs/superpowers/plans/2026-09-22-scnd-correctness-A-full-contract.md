@@ -387,3 +387,188 @@ All 16 accepted, with two corrections to the review's framing:
 - **A-R2** — the finding offered a binary (A owns everything / Scaling owns everything). Rejected in favour of a split, since lease semantics with no second consumer is speculative machinery. *Note: round 3's A-R17 later forced a minimal lease back into A anyway — for rolling-deploy safety, not for multi-worker coordination — so the split survived but its boundary moved by one column.*
 
 A cross-cutting note for a later reviewer: the recurring failure mode across all three rounds was **compression** — a normative decision in a long design source being restated as a topic heading in a shorter plan, which reads as decided and is not. A-R29 is the cleanest example. When auditing a future revision, treat any bullet whose body lists *what to decide* rather than *the decision* as an open finding regardless of the word "exact".
+
+---
+
+## Re-approval review round 4 (2026-09-22)
+
+### Decision
+
+**REQUEST CHANGES — NOT APPROVED FOR FULL EXECUTION.**
+
+Round 3 materially improved the plan: the A3 compatibility boundary is now honest, post-boot dispatch is durable in direction, the owner lease has concrete timing, Render has an owned shutdown budget, and pre/post-activation QA is split correctly. Those improvements should be retained.
+
+The plan is not yet executable as one correctness contract. The remaining blockers are no longer broad architectural questions; they are composition failures between tasks. In particular, A2 will claim rows that A10 says must remain waiting, A7 names a latest-job CAS for which no database authority exists, recovery can execute an old snapshot under a new solver identity, A10's terminal states prevent its own crash-resumable fan-out, and the entry gates block the tasks that are supposed to close them.
+
+This review does **not** withdraw the separately recorded A3 preparatory authorization. A3 remains limited to the exact A3.C boundary, with `v2_write` disabled. It does not authorize A14 or any other task. This review appends documentation only; it does not treat the uncommitted Option-B solver/parser worktree changes as landed evidence.
+
+### Blocking findings
+
+#### A-R31 — CRITICAL: the entry-gate and ordering rules are circular and grant contradictory execution authority
+
+The header says only A3 is authorized and that nothing else executes until the entry gates close. The entry-gate preamble says **all** gates close before any non-A3 task executes, but:
+
+- `G-baseline` is closed by A0, so the rule prevents A0 from running to close its own gate;
+- `G-Q73` says Q73–Q84 close through decisions in the owning tasks below, so those tasks are also blocked by the gate they must close;
+- `G-cache` says A6 cannot start without the artifact, but its placement as a global entry gate unnecessarily blocks A0/A1/A2/A4/A5 and the creation/review of the artifact itself;
+- the status says only A3 is authorized, while Ordering says A14 may execute in parallel with A3; and
+- the cohort gate exempts A1+A2 but not A3, even though the same header authorizes A3 before cohort evidence.
+
+An implementer cannot determine which statement controls without making an authorization decision the plan reserves for the reviewer/product owner.
+
+**Required correction:** replace the single circular list with an explicit gate matrix:
+
+1. name which documentation/evidence tasks are allowed to run **to close** each gate;
+2. make `G-cache` a prerequisite for A6 and all consumers of A6, not for unrelated earlier tasks;
+3. distinguish design-decision closure from post-implementation acceptance evidence;
+4. state whether A14 is part of the already authorized preparatory slice or remains blocked (this review treats it as blocked);
+5. add A3 to the cohort exception or state why its §34 preparatory authorization overrides that gate; and
+6. publish one dependency DAG whose edges agree with the entry gates—especially that A4 cannot start merely "after A3" while `G-baseline` requires A0 first.
+
+#### A-R32 — CRITICAL: A7 promises a latest-job publication CAS, but the schema has no authoritative latest-job value
+
+A7 requires that a stale or older completion never overwrite a newer result, and A10 repeatedly refers to "A7's CAS." The only current pointer is `scenarios.result_run_id`, which identifies the job that produced the **currently published** result. It is not updated when a newer solve is enqueued, so it cannot tell whether job 1 is stale after job 2 is requested. A2's ownership predicate only proves that job 1 still owns **its own job row**; it says nothing about whether job 1 is still authorized to publish to the scenario.
+
+The current plan therefore cannot prevent this valid race: enqueue job 1, change/resubmit as job 2, job 2 publishes first, then job 1 completes and overwrites job 2.
+
+**Required correction:** choose and specify one durable publication authority, recommended:
+
+- add nullable `scenarios.latest_solve_job_id` (distinct from `result_run_id`) and set it to the new job ID atomically with enqueue; or use an equally explicit scenario revision/input-hash token captured at enqueue;
+- make the publication transaction update `scenarios` only when that authority still matches the completing job/snapshot **and** make the job terminal update ownership-checked;
+- define the terminal representation of a successfully computed but superseded job: it remains addressable in history, but never changes the scenario's current result;
+- apply the same predicate independently for every A10 subscriber; and
+- test inverted completion order, an input edit without a second solve, cache-hit completion, and deletion/concurrent enqueue boundaries.
+
+Add every new column, foreign key, index, and enqueue writer to A1/A7's file and schema ownership. `result_run_id` must remain the provenance pointer for the published result; it must not be overloaded as the latest-request authority.
+
+#### A-R33 — CRITICAL: durable recovery is not version-aware and can run an old queued snapshot under new solver semantics
+
+A1 persists `model_id` and `input_snapshot`, but drops the `dataset_version` and `solver_version` fields required by the Phase-0 design's version-aware recovery finding. A2 reconstructs queued work without comparing the enqueue-time identity to the runtime identity. During a deploy, an old generation can enqueue a job and a new generation can execute it with different solver/parser/dataset semantics. A6's composite cache identity does not repair this automatically, and A1+A2 are explicitly allowed to land before A6/G-cache.
+
+This is not only a cache concern: the recovered result can be semantically different from what the accepted request represented.
+
+**Required correction:** define a recovery identity available when A1+A2 land:
+
+- persist enqueue-time dataset identity and solver/contract identity atomically with the snapshot;
+- derive the current identity at claim time, not from an old deployment-wide constant that can misidentify the actual CBC/runtime artifacts;
+- decide exact mismatch behavior. If old code/data cannot be executed, fail the job once with a safe retryable public outcome; do not silently run it under the new identity;
+- define how A6's approved composite identity replaces or subsumes these fields without creating a release gap;
+- handle mixed old/new generations and rollback explicitly; and
+- add QA for a queued job crossing a dataset change, solver/parser change, compatible deploy, incompatible deploy, and rollback.
+
+If the full runtime-derived G-cache identity is required to make that decision safely, then A1+A2 must depend on the approved G-cache artifact; the plan cannot both defer that identity to A6 and claim version-safe recovery earlier.
+
+#### A-R34 — CRITICAL: A10's queued subscribers are eligible for A2 dispatch, so single-flight can launch duplicate solves
+
+A10 says a losing caller remains `queued` while it waits on an active run. A2's recurring dispatcher claims every oldest `queued` row via `queued → running` CAS. Nothing in A2's claim query excludes `solve_active_run_subscribers`. In addition, the natural current flow claims a job **before** `runJob` reaches cache/election, so two identical jobs can already be `running` when one loses election; A10 does not define the losing `running → waiting` transition.
+
+As written, the subscriber can be reclaimed by the next dispatcher tick and spawn a second solve, defeating the central A10 guarantee.
+
+**Required correction:** publish one exact lifecycle and use it everywhere. A recommended design is:
+
+- add an internal `waiting_on_active_run` state (or an equivalent column/query predicate that is impossible for A2 to claim);
+- define where election occurs relative to A2's `queued → running` claim;
+- if election happens after claim, atomically attach the loser and transition it from owned `running` to the non-dispatchable waiting state, clearing lease fields;
+- update the dispatcher predicate/index, job polling serializer, history behavior, cancellation/deletion behavior, and terminal predicates for the new state;
+- state how the external API represents waiting without breaking R1/R2 clients (it may serialize as `queued` while remaining distinct internally); and
+- test truly concurrent claims/elections while the recurring dispatcher is active, not only N direct function calls with the pump mocked.
+
+No subscriber may be both eligible for A2 dispatch and attached to an active run.
+
+#### A-R35 — CRITICAL: A10's "normative" state machine is still not crash-resumable or transactionally closed
+
+The new tables are useful, but several transitions contradict the promised recovery semantics:
+
+- "unique violation ⇒ subscriber" cannot continue in the same PostgreSQL transaction after an unhandled unique violation; use `INSERT ... ON CONFLICT`/a savepoint and specify how the conflicting active-run ID is locked and obtained;
+- attachment is permitted while the winner may be finishing fan-out, but no transaction seals the subscriber set before declaring the run terminal, so a late subscriber can attach after the final cursor check and remain forever incomplete;
+- winner failure immediately sets `state='failed'`, even though subscriber failure fan-out can only be partially complete and must be resumed. A terminal state therefore hides unfinished fan-out from recovery;
+- the schema stores no durable success outcome/result reference. A crash after CBC succeeds but before/during fan-out leaves recovery without the result required to complete subscribers—especially for `no_solution`, which A7 deliberately does not cache;
+- `fanout_cursor` assumes an exact stable ordering and closed membership set, neither of which is stated;
+- "retained for a stated window" still does not state the window, deletion predicate, batch size, or safety condition; and
+- `winner_job_id bigint` does not match the current `solve_jobs.id serial`/integer authority, while subscriber column types and FK delete behavior are omitted.
+
+**Required correction:** replace the prose with an executable transaction/state protocol:
+
+1. exact winner/loser SQL or equivalent Drizzle operations, including locks and retry behavior;
+2. an attachment predicate and a transactional "closed to new subscribers" boundary;
+3. a durable outcome payload/reference plus outcome kind available to crash recovery;
+4. a non-terminal fan-out state for both success and failure, transitioning to `completed`/`failed` only after every sealed subscriber is terminal;
+5. an explicit ascending subscriber key, cursor invariant, and atomic subscriber-completion+cursor update;
+6. exact stale takeover and recovery predicates for every non-terminal state;
+7. an exact retention interval and bounded deletion query; and
+8. complete column types, nullability, indexes, check constraints, FK actions, and schema exports.
+
+QA must include crash after election, after durable winner outcome but before first subscriber, midway through success fan-out, midway through failure fan-out, at final-subscriber/late-attach concurrency, and after terminal transition before cleanup.
+
+#### A-R36 — CRITICAL: A2 claims at-least-once execution, but its stale-owner policy can fail a job before it ever executes
+
+A2 says execution is at least once and may repeat after an ambiguous crash. The same task says every stale `running` job is terminally failed and never requeued because attempts are deferred to Scaling. A process can crash immediately after the `queued → running` CAS and before spawning Python. Sixty seconds later the row is failed without one solver execution. A process can also crash after computation but before publication; that row is failed rather than re-executed. The claimed delivery guarantee is therefore false.
+
+**Required correction:** choose one honest contract:
+
+- **Recommended for the stated reliability goal:** bring a minimal bounded attempt counter/retry policy into A, requeue a stale claim only while attempts remain, and preserve ownership-checked exactly-once terminal publication; or
+- explicitly define A as **no automatic retry / possible terminal failure after an ambiguous claim**, remove the at-least-once statement and any restart-safe language that implies running work completes, and make the UI/public message direct the user to retry.
+
+If retry stays in Scaling, A2 must not say execution may repeat after crash unless another named A path actually requeues it. Add tests for crash immediately after claim, immediately before spawn, after solver success/before durable outcome, and after durable outcome/before publication.
+
+#### A-R37 — HIGH: dispatcher, heartbeat-loss, and shutdown release behavior remain underspecified and partially contradictory
+
+The lease durations are now exact, but the surrounding loop and handoff are not:
+
+- "fixed interval" has no value; no claim batch size, scan serialization/reentrancy rule, runtime DB-error backoff, jitter, or guarantee that one failed tick cannot stop future scans is stated;
+- "bounded by free worker slots" does not say how concurrent enqueue kicks and scanner ticks reserve slots without over-claiming;
+- heartbeat refresh needs the same `id + status + claim_generation` predicate as completion; a zero-row refresh means ownership is already lost and must trigger cancellation;
+- on a DB heartbeat error, the plan suppresses publication but does not require immediate A3 process-group cancellation, so expensive orphaned computation can continue for the whole solve limit;
+- the stale predicate does not match `owner_heartbeat_at IS NULL`, leaving A1-era/A2-deploy-transition running rows with valid snapshots but no lease outside both the stale scan and the historical-null-snapshot rule; and
+- A2 says an explicit ownership release exposes a handoff, A14 says a long running row is "released for the incoming generation," A3.T classifies deploy interruption as terminal failure, and A2's stale policy forbids requeue. Those are different state transitions.
+
+**Required correction:** specify the dispatcher interval, claim limit, in-process mutex/slot reservation, retry/backoff/telemetry behavior, and drain cancellation. Define exactly one SQL transition for each shutdown category:
+
+- never-claimed queued work stays queued;
+- a solve completing inside the grace period commits normally;
+- a running solve exceeding the grace period is group-cancelled and ownership-checked to the terminal interrupted/failed outcome; and
+- if Postgres is unavailable after verified child death, the row remains owned/running for the later stale sweep—without publication by the old owner.
+
+Do not call a terminal failure a "release for the incoming generation." Add an explicit transitional predicate for null-heartbeat running rows, and prove the dispatcher continues after transient Postgres failures.
+
+#### A-R38 — HIGH: the R1→R3 rollout and flag activation are still placeholders, not an auditable operation
+
+A11's intent is correct, but the task still says "feature-flag config," "the named cutoff and window," and "concrete treatment" without naming the file, environment key, parser/default, cutoff value, duration, cleanup criterion, or row behavior. It also says activation evidence is recorded in the same commit that enables the flag "per hard rule #9," but `CLAUDE.md` currently has hard rules **1–8**. More importantly, a Render environment-variable flip is external runtime state, not inherently the same operation as a Git commit.
+
+The transitional public alias is also incomplete: R2 exposes `errorCode`/`errorMessage` alongside old `error`, while A5 prohibits exposing the raw stored diagnostic. The plan never states that `error` is a safe alias of `errorMessage`, its nullability, or the exact release that removes it.
+
+**Required correction:** make A11 operationally exact:
+
+- name the config source and exact flag key (for example `SOLVER_V2_WRITE_ENABLED`), strict accepted values, default-off/fail-closed behavior, and startup logging/version signal;
+- separate the committed default-off release from the externally authorized Render setting change;
+- define the evidence record for that external change: approver, timestamp, environment/service, deploy ID, commit SHA, old/new value, and rollback command/step;
+- define how zero pre-R1 instances is proven from a server build/contract-version signal rather than an ambiguous health check;
+- give the compatibility cutoff and minimum observation window concrete values and a measurable exit threshold;
+- specify already-written scenario/job/cache behavior during writer disable and rollback;
+- define transitional `error` as a safe serializer alias (never the diagnostic), including nullability and removal release; and
+- remove the nonexistent hard-rule citation or add the rule to the controlling document through a separately reviewed policy change.
+
+### Validated improvements to retain
+
+- A3.C now accurately separates private fd3 transport, the authorized failed-job behavior change, legacy success down-conversion, and later A5/A7 activation.
+- A3.T is sufficiently exhaustive as a process/message classification table; the remaining drain issue is the database transition around cancellation, not its precedence rows.
+- A1's ordered queued index, database-clock lease timestamps, `octet_length` diagnostic bound, and Postgres sequence generation are sound directions.
+- The 10 s heartbeat / 60 s stale threshold is a reasonable conservative starting contract for this phase, subject to A-R37's exact lost-owner behavior.
+- A14 correctly owns `render.yaml`, uses a platform deadline below Render's 300-second maximum, and reserves an internal safety margin. Per the Render worker/web-service guidance, `maxShutdownDelaySeconds` is the right platform control; health checks gate new-revision eligibility rather than creating overlap.
+- A13a/A13b correctly separate committed pre-activation evidence from post-activation smoke.
+- The complete R3 prerequisite list is materially improved; after A-R31/A-R38, it can become operational rather than aspirational.
+
+### Round-4 re-approval conditions
+
+Before the next consolidated approval review:
+
+1. replace the circular authorization text with one gate matrix and dependency DAG (A-R31);
+2. add an actual latest-request publication authority and exact scenario CAS (A-R32);
+3. make queued/recovered jobs version-aware across deploy and rollback (A-R33);
+4. make A10 subscribers non-dispatchable and reconcile election with A2 claims (A-R34);
+5. close A10's attachment, durable-outcome, fan-out, stale-recovery, and retention transactions (A-R35);
+6. choose an honest crash/retry delivery guarantee (A-R36);
+7. make dispatcher, heartbeat-loss, null-lease transition, and SIGTERM database outcomes exact (A-R37); and
+8. publish the concrete flag, compatibility window, safe alias, drain proof, activation evidence, and rollback procedure (A-R38).
+
+The G-cache artifact remains a separate mandatory approval gate for A6 and every v2 cache/writer consumer. Closing A-R31–A-R38 does not self-approve implementation; the next review must record an explicit decision against the consolidated revision.
