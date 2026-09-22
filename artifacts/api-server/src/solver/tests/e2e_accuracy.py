@@ -79,6 +79,38 @@ def _solved(r: dict) -> bool:
     return r.get("status") in ("optimal", "feasible")
 
 
+def _check_gap_outcome(label: str, r: dict, gap: float) -> bool:
+    """B7 (DEC-2026-09-21-01 robustification): assert the CBC-build-portable
+    invariant for a gap>0 request, instead of hardcoding which specific P/
+    scenario this machine's CBC 2.10.3 happened to prove exactly vs. stop
+    gap-limited on. A different CBC build (e.g. CI's ubuntu runner) can
+    legitimately PROVE optimality within the same gap budget where this
+    machine stopped on a gap-limited incumbent, or vice versa -- that's not
+    a regression, it's a valid alternate truthful outcome. So instead of a
+    two-sided exact prediction, accept whichever outcome CBC actually
+    produced while still proving the real invariants:
+      - status must be "optimal" or "feasible" (a real usable solution was
+        found -- "infeasible"/"no_solution"/"unbounded"/"error" all fail).
+      - "feasible" must be honestly reported as gap-limited (terminationReason
+        == "gap_limit") with an achieved gap that's actually within budget
+        (achievedGap present and <= the requested gap).
+      - "optimal" must be honestly reported as a proven optimum
+        (terminationReason == "optimality_proven").
+    Zero objective values change; only how a legitimately-either-way outcome
+    is asserted."""
+    st  = r.get("solutionStatus")
+    tr  = r.get("terminationReason")
+    ag  = r.get("achievedGap")
+    if st == "optimal":
+        cond = tr == "optimality_proven"
+    elif st == "feasible":
+        cond = tr == "gap_limit" and ag is not None and ag <= gap
+    else:
+        cond = False
+    return _check(label, cond,
+                  f"solutionStatus={st} terminationReason={tr} achievedGap={ag}")
+
+
 # ── Solver runner ─────────────────────────────────────────────────────────────
 def run(payload: dict, timeout: int = 180) -> dict:
     import subprocess
@@ -396,25 +428,21 @@ def test_brazil() -> None:
     _check("P=3 cap=20M is infeasible (3×20M=60M < 98.7M demand)",
            p_runs[3].get("status") == "infeasible")
 
-    # P=5 and above: feasible (5×20M=100M > 98.7M demand). DEC-2026-09-21-01:
-    # at this dataset's default gap=0.05, real CBC evidence shows P=5/P=7
-    # stop on a genuinely gap-limited feasible incumbent (not a proven
-    # optimum), while P=10 solves fast enough to be proven exactly within
-    # the same 5% gap budget -- asserted per-P against the truthful
-    # solutionStatus/terminationReason rather than a blanket "optimal".
-    # Zero objective values change; only how the outcome is reported.
-    _GAP_LIMITED_P = {5, 7}
+    # P=5 and above: feasible (5×20M=100M > 98.7M demand). B7 (DEC-2026-09-21-01
+    # robustification): at this dataset's default gap=0.05, CBC may either
+    # prove a P value exactly optimal within the gap budget, or stop on a
+    # genuinely gap-limited feasible incumbent -- which one happens is a
+    # function of the CBC build/host, not this test's business. Assert the
+    # CBC-build-portable invariant via _check_gap_outcome (accepts either
+    # truthful outcome) rather than hardcoding which specific P values this
+    # machine's CBC 2.10.3 happened to land on. Zero objective values change;
+    # only how the outcome is reported.
     for p in [5, 7, 10]:
         r = p_runs[p]
-        if p in _GAP_LIMITED_P:
-            _check(f"P={p} cap=20M is feasible/gap_limit ({p}×20M={p*20}M ≥ 98.7M demand, "
-                   "real CBC evidence — DEC-2026-09-21-01)",
-                   r.get("solutionStatus") == "feasible" and r.get("terminationReason") == "gap_limit",
-                   f"solutionStatus={r.get('solutionStatus')} terminationReason={r.get('terminationReason')}")
-        else:
-            _check(f"P={p} cap=20M is optimal ({p}×20M={p*20}M ≥ 98.7M demand)",
-                   r.get("solutionStatus") == "optimal" and r.get("terminationReason") == "optimality_proven",
-                   f"solutionStatus={r.get('solutionStatus')} terminationReason={r.get('terminationReason')}")
+        _check_gap_outcome(
+            f"P={p} cap=20M is optimal or gap-limited-feasible "
+            f"({p}×20M={p*20}M ≥ 98.7M demand) — CBC-build-portable (B7/DEC-2026-09-21-01)",
+            r, BASE["gap"])
         _check(f"P={p} opens exactly {p} warehouses",
                len(r.get("openWarehouseIds", [])) == p,
                f"got {len(r.get('openWarehouseIds', []))}")
@@ -452,9 +480,13 @@ def test_brazil() -> None:
            r_ss_20.get("status") == "infeasible")
     _check("Infeasibility reason names São Paulo",
            "Paulo" in (r_ss_20.get("infeasibilityReason") or ""))
-    _check("Single-source cap=100M is optimal (all regions ≤ 100M)",
-           r_ss_100.get("status") == "optimal")
-    if r_ss_100.get("status") == "optimal":
+    # B7 (DEC-2026-09-21-01): single-source cap=100M also runs at gap=0.05
+    # (from BASE) -- CBC-build-portable outcome, not a hardcoded "optimal".
+    _check_gap_outcome(
+        "Single-source cap=100M is optimal or gap-limited-feasible "
+        "(all regions ≤ 100M) — CBC-build-portable (B7/DEC-2026-09-21-01)",
+        r_ss_100, BASE["gap"])
+    if _solved(r_ss_100):
         sc = {}
         for a in r_ss_100.get("assignments", []):
             sc[a["customerId"]] = sc.get(a["customerId"], 0) + 1
