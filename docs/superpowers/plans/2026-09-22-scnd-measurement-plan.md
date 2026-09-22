@@ -104,6 +104,12 @@ def objective_deltas(observations) -> tuple[dict[str, list[float]], dict[str, in
 # Per stratum: declared weight and observation allocation; never conflate them.
 def corpus_frequency(observations, manifest) -> dict[str, dict[str, float]]: ...
 
+# ---- report.py ----   (R6-2: the CSVs carry run_id and observation_share, so the
+#                        writers take what fills them; nothing else can supply them)
+def write_raw(observations, path, *, run_id: str) -> None: ...
+def write_aggregates(stats, observations, manifest, path, *, run_id: str) -> None: ...
+#   observation_share per row = corpus_frequency(observations, manifest)[stratum]["observation_share"]
+
 # ---- capacity.py ----   (R3-R2: three DISTINCT quantities, never conflated)
 class SizingError(ValueError): ...
 @dataclass(frozen=True)
@@ -141,7 +147,7 @@ def simulate(trace, strata: dict[str, tuple[list[EventSample], float]],
              workers: int, seed: int) -> SimResult: ...
 def candidate_worker_counts(trace, strata, *, slo_p95_end_to_end_sec=None,
                             slo_p95_queue_wait_sec=None,
-                            max_workers: int) -> list[CandidateResult]: ...
+                            max_workers: int, seed: int = 0) -> list[CandidateResult]: ...
 def build_event_samples(observations, cache_class_by_case_key,
                         api_overhead_by_cache_class,
                         *, wall_scale_factor: float) -> list[EventSample]: ...
@@ -565,7 +571,13 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
             # the child's child -- burning a core through every subsequent
             # observation, contaminating exactly the tail measurements the
             # interleaved schedule exists to protect.
-            os.killpg(pid, signal.SIGKILL)
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                # R6-1: the deadline can land before the child's os.setsid()
+                # ran (no group `pid` exists yet). It has not started the
+                # solve either, so killing the process alone is complete.
+                os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
             return Observation(cell_key=cell.key, case_key=case.case_key(cell),
                                gap=cell.gap, wall_sec=time.monotonic() - t0,
@@ -574,6 +586,7 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
                                solution_status=None, termination_reason=None,
                                ok=False, resource_complete=False, error="timeout")
         wall = time.monotonic() - t0
+        code = os.waitstatus_to_exitcode(status)   # waitpid returns the ENCODED status
         try:
             with open(out_path, "rb") as f:
                 rec = pickle.load(f)
@@ -584,9 +597,9 @@ def measure_once(cell, case, solve_fn=None, timeout_sec: float = 300) -> Observa
                                cbc_peak_rss=0, objective=None,
                                solution_status=None, termination_reason=None,
                                ok=False, resource_complete=False,
-                               error=f"unreadable child output (status {status}): {e}")
-        if status != 0:
-            rec = {"ok": False, "error": f"child exited {status}", **rec}
+                               error=f"unreadable child output (exit {code}): {e}")
+        if code != 0:
+            rec = {"ok": False, "error": f"child exited {code}", **rec}
     overhead = (time.monotonic() - t_start) - wall
     return Observation(
         cell_key=cell.key,
@@ -634,7 +647,7 @@ git commit -m "[M1.2] benchmark: forked single-observation primitive with normal
 
 **Declared design (M-R4, corrected by MP-R1):** **200 distinct `case_id`s per sizing cell** — not 200 trials of one case. Warm-ups are **executed and discarded BEFORE the measured schedule is randomized**, not shuffled into it: the round-1 code appended warm-up and measured entries to one list and then shuffled, so a row flagged `warmup` could execute *after* measured observations, which is not a warm-up policy. Warm-up scope is declared as **per cell** (3 per cell). Measured order is randomized across all cells with a recorded seed. Determinism runs are a separate campaign, tagged `kind="determinism"`, and are **excluded from every sizing, frequency and uncertainty aggregate**.
 
-**Tests this task must add (MP-R1):** campaign `case_id`s within a cell are **all distinct**; determinism `case_id`s are **all identical**; **no measured observation precedes its cell's warm-ups**; the same seed reproduces the identical measured order.
+**Tests this task must add (MP-R1):** campaign `case_id`s within a cell are **all distinct**; determinism `case_id`s are **all identical**; **no measured observation precedes its cell's warm-ups**; the same seed reproduces the identical measured order. *(R6-5: F-R17 was folded as "four named, two asserted — accepted", yet the warm-up test still asserted only counts and nothing asserted distinctness. Both are asserted below now; the warm-up/measured distinction is recovered from the fact that `kept` is appended in call order, so the measured rows must be exactly the tail of the call log.)*
 
 - [ ] **Step 1: Write the failing test**
 
@@ -673,6 +686,20 @@ def test_warmups_all_execute_before_any_measured_row():
     assert len(obs) == 2 * 4                       # 2 cells x 4 measured
     assert len(log) == 2 * 2 + 2 * 4               # warm-ups executed, not kept
     assert all(o.kind == "campaign" for o in obs)
+    # R6-5: the ORDER property the test is named for. Measured rows are kept
+    # in call order, so they must be exactly the tail of the call log -- every
+    # call before that tail is a warm-up, and no warm-up sits among them.
+    measured = [(o.cell_key, o.case_key.rsplit("|", 1)[1]) for o in obs]
+    assert log[-len(measured):] == measured
+    assert len(log) - len(measured) == 2 * 2
+
+def test_campaign_case_ids_are_distinct_within_a_cell():
+    # MP-R1: 4 measured rows in a cell are 4 DISTINCT cases, never repeats.
+    obs = run_campaign(_manifest(), min_cases=99, max_cases=4, warmup=0, seed=1,
+                       measure=_fake_measure_factory([]))
+    for key in {o.cell_key for o in obs}:
+        keys = [o.case_key for o in obs if o.cell_key == key]
+        assert len(keys) == len(set(keys)) == 4
 
 def test_measured_schedule_is_globally_interleaved():
     # R3-R3: draining one cell at a time lets drift align with a cell.
@@ -816,7 +843,7 @@ def run_determinism(cell, case, *, reps=30, measure=measure_once):
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd artifacts/api-server/src/solver/tests && python3 -m pytest benchmark/test_runner.py -v`
-Expected: PASS (6 passed)
+Expected: PASS (7 passed)
 
 - [ ] **Step 5: Commit**
 
@@ -998,7 +1025,7 @@ def percentile(xs, q):
     hi = min(lo + 1, len(s) - 1)
     return s[lo] + (s[hi] - s[lo]) * (pos - lo)
 
-def bootstrap_ci(xs, stat, reps=2000, alpha=0.05, seed=0):
+def bootstrap_ci(xs, stat, *, reps=2000, alpha=0.05, seed=0):   # keyword-only, as declared
     rng = random.Random(seed)
     draws = [stat([rng.choice(xs) for _ in xs]) for _ in range(reps)]
     return percentile(draws, alpha / 2), percentile(draws, 1 - alpha / 2)
@@ -1110,24 +1137,26 @@ git commit -m "[M1.4] benchmark stats: percentiles, bootstrap CI, determinism-ex
 
 **Interfaces:**
 - Consumes: `Observation` (M1.2), `CellStats` (M1.4).
-- Produces: `write_raw(observations, path)`, `write_aggregates(stats, manifest, path)`; CSVs `docs/superpowers/metrics/benchmark-raw.csv` and `benchmark-aggregates.csv`.
+- Produces: `write_raw`, `write_aggregates` — **signatures in the Canonical API; not restated here** (R3-R1, R6-2: the previous bullet declared `write_raw(observations, path)` and `write_aggregates(stats, manifest, path)`, neither of which could fill the `run_id` or `observation_share` columns it was told to write). CSVs `docs/superpowers/metrics/benchmark-raw.csv` and `benchmark-aggregates.csv`.
 
 **Raw columns (L-R1 — `case_key` is mandatory or the advertised paired re-analysis is impossible from the artifact):**
-`run_id,timestamp,cell_key,case_key,case_id,model_id,regime,edit_family,gap,kind,wall_sec,cpu_tree_sec,harness_overhead_sec,python_peak_rss,cbc_peak_rss,objective,solution_status,termination_reason,ok,resource_complete,error`
+`run_id,cell_key,case_key,case_id,model_id,regime,edit_family,gap,kind,wall_sec,cpu_tree_sec,harness_overhead_sec,python_peak_rss,cbc_peak_rss,objective,solution_status,termination_reason,ok,resource_complete,error`
+
+Rows are written in measured order (the randomized schedule), so drift across the campaign is analysable from row order. *(R6-2: a `timestamp` column was listed here with nothing to fill it — `Observation` carries no timestamp and adding one would touch all five constructors; the column is deleted rather than the field invented.)* `case_id,model_id,regime,edit_family,gap` are split out of `cell_key`/`case_key` for filtering; the keys stay the join columns.
 
 **Aggregate columns:**
 `run_id,cell_key,model_id,regime,edit_family,gap,corpus_weight,observation_share,n_cases,n_obs,n_success,usable,unusable_reason,mean_cpu_tree_sec,mean_cpu_ci_low,mean_cpu_ci_high,p95_wall,p95_wall_ci_low,p95_wall_ci_high,failure_rate,failure_rate_ci_low,failure_rate_ci_high,objective_delta_vs_gap0,objective_delta_ci_low,objective_delta_ci_high,objective_pairs_excluded,p50_wall,mean_python_peak_rss,mean_cbc_peak_rss`
 
 The four `objective_delta_*` columns are **mandatory, not optional** (F-R7): without them the relaxed-gap alternatives have no paired quality evidence in the artifact, and the gap decision MP-R3 requires cannot be made from the deliverable. The M1.5 header test asserts them.
 
-Confidence intervals appear only on the four decision metrics (mean CPU demand, p95 wall, failure rate, and the paired objective delta reported alongside); `p50_wall`, the two RSS columns and `observation_share` are descriptive point estimates backed by the raw rows (L-R1). `corpus_weight` is the declared generator weight; `observation_share` is only the realised allocation after sequential stopping. Neither is student prevalence.
+Confidence intervals appear only on the four decision metrics (mean CPU demand, p95 wall, failure rate, and the paired objective delta reported alongside); `p50_wall`, the two RSS columns and `observation_share` are descriptive point estimates backed by the raw rows (L-R1). `corpus_weight` is the declared generator weight; `observation_share` is only the realised allocation after sequential stopping — it is **stratum-level** (`corpus_frequency` output) and is repeated on each of that stratum's gap rows. Neither is student prevalence.
 
 - [ ] **Step 1: Write the failing test** — assert the header row matches the two lists above exactly, that a determinism row appears in raw with `kind=determinism`, that censored rows expose `resource_complete=false`, and that `corpus_weight` and `observation_share` remain separate in aggregates.
 - [ ] **Step 2: Run it** — `python3 -m pytest benchmark/test_report.py -v` → FAIL.
-- [ ] **Step 3: Implement** `write_raw`/`write_aggregates` with `csv.DictWriter` and the exact headers; `cli.py` wires `load_manifest → run_campaign → aggregate → write_*` behind `argparse` (`--manifest`, `--min-cases`, `--max-cases`, `--ci-width`, `--warmup`, `--seed`, `--out-dir`, `--determinism-cell`).
+- [ ] **Step 3: Implement** `write_raw`/`write_aggregates` with `csv.DictWriter` and the exact headers; `cli.py` generates one `run_id` per invocation and wires `load_manifest → run_campaign → aggregate → write_raw/write_aggregates` behind `argparse` (`--manifest`, `--min-cases`, `--max-cases`, `--ci-width`, `--warmup`, `--seed`, `--out-dir`, `--determinism-cell`). `--determinism-cell <cell_key>` additionally runs `run_determinism` on that cell's **first** case and appends its rows (`kind=determinism`) to the raw CSV under the same `run_id`; they never enter the aggregates.
 - [ ] **Step 4: Run it** → PASS.
 - [ ] **Step 5: Document the columns** in `docs/superpowers/metrics/README.md`, including the distinction: `corpus_weight` is the **declared generator weight**, `observation_share` is the **realised sampling allocation**, and neither is student prevalence (M-R9).
-- [ ] **Step 5b: The JADE re-measure deliverable (F-R20).** Spec §1.1 requires re-measuring the forced-open JADE regime at `gap=0` against the spike's **0.6–3.5 s** and the parent design's **~13 s** claim; the corpus contains the cell but nothing surfaced the comparison. Report `two-echelon-jade-us|forced_open|*|0.0` p50/p95 wall **beside both prior claims** in the benchmark report, stating explicitly which (if either) the measurement supports.
+- [ ] **Step 5b: The JADE re-measure deliverable (F-R20).** Spec §1.1 requires re-measuring the forced-open JADE regime at `gap=0` against the spike's **0.6–3.5 s** and the parent design's **~13 s** claim; the corpus contains the cell but nothing surfaced the comparison. Take `two-echelon-jade-us|forced_open|*|0.0` p50/p95 wall from `benchmark-aggregates.csv` and write the comparison **beside both prior claims** into the **M5.4 final report** — the only report deliverable this plan defines (R6-2: "the benchmark report" named an artifact that does not exist) — citing the `run_id` and rows, and stating explicitly which (if either) the measurement supports. M5.4's report list names this item so it cannot be dropped in transit.
 - [ ] **Step 6: Full gate**
 
 Run: `cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x`
@@ -1144,7 +1173,7 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 ## Phase 2 — Capacity model (pure computation, no infra)
 
-**Why separate from Phase 3.** Analysis must be re-runnable without repeating a three-hour soak. Phase 2 consumes Phase 1's CSV and implements the parameterised model; the final counts are materialised in M5.2 only after short target-plan calibration, then validated by authoritative runs.
+**Why separate from Phase 3.** Analysis must be re-runnable without repeating a three-hour soak. Phase 2 consumes Phase 1's CSV and implements the parameterised model; the final counts are materialised **per candidate** only after short target-plan calibration — the vertical comparator at M3.4b Step 2b, worker plans at M5.2 — each recorded **before** that candidate's authoritative run observes it.
 
 ### Task M2.1: Service-demand model — mean CPU demand weighted by declared strata
 
@@ -1158,13 +1187,15 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 **The formula (M-R8), stated once so no task re-derives it:** offered work `ρ = λ × E[S_cpu]`, where `λ` is arrival rate and `E[S_cpu]` is the **weighted mean CPU service demand** — not p95, not wall time. Required cores = `ρ / (parallel_efficiency × (1 − headroom))`.
 
+**Free-choice-frequency sensitivity (M-R9, spec §1.1 — R6-7: the spec names it for capacity and this plan had it only for cost in M5.3).** No machinery: call `weighted_mean_service_demand` with a `Manifest` whose stratum weights carry the alternate free-choice share, and report the relative change in `required_cores` beside the declared-weight result. It is labelled a sensitivity **input**, never a forecast.
+
 > **MP-R3 — three corrections, and gap is the important one.**
 >
 > **1. Gap is a configuration alternative, not a workload dimension.** Round 1 iterated every gap cell and divided by `len(manifest.gaps)`, treating `gap ∈ {0, 0.005, 0.01, 0.02}` as an equal-probability production mix. It is not: production runs at whatever gap is configured, and averaging faster relaxed-gap runs into the mandatory `gap=0` baseline **understates required capacity**. **Correction:** capacity is computed **separately per gap**; `gap=0` is the mandatory baseline; relaxed gaps are presented as explicit alternatives **with their paired objective-quality deltas** (M1.4), never averaged in.
 >
 > **2. Missing cells must fail closed.** Round 1 did `if cs is None: continue`, so an absent cell **silently reduced** the demand estimate — the failure mode where less evidence produces a smaller, more comfortable number. **Correction:** raise on any required cell that is absent, unusable, or below the minimum distinct-case count.
 >
-> **3. `parallel_efficiency` must be measured, not guessed.** The spec requires measured per-solve CPU utilisation and parallel efficiency, and local CPU-seconds are **not transferable** to a different Render plan without calibration on that plan. **Correction:** add a **concurrency sweep** (below) on each candidate target plan, keyed by plan/application/profile/gap. The final mapping consumes calibrated `cores_per_slot`, which already embodies the measured efficiency; `required_cores` therefore receives `1.0` in that path so efficiency is applied exactly once.
+> **3. `parallel_efficiency` must be measured, not guessed.** The spec requires measured per-solve CPU utilisation and parallel efficiency, and local CPU-seconds are **not transferable** to a different Render plan without calibration on that plan. **Correction:** add a **concurrency sweep** (below) on each candidate target plan, keyed by plan/application/profile/gap. The final mapping consumes calibrated `target_mean_cpu_sec` **and** `cores_per_slot`, **both measured at the operating concurrency** (M2.1b Step 3), so contention is already inside them; `required_cores` therefore receives `1.0` in that path and η is applied exactly once.
 
 **M2.1b — calibration, and it does NOT live in Phase 2 (L-R3).** The last fold put a concurrency sweep requiring real Render runs inside a phase labelled *pure computation, no infrastructure*, ahead of MP-2 and MP-3 — so Phase 2 promised an artifact its own position made unobtainable. Corrected ordering:
 
@@ -1172,7 +1203,7 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 2. **After MP-1 (headroom ratified) and MP-2 (environment approved)**, run a **short calibration** on the shortlisted plans at a **geometric concurrency set — 1, 2, 4, 8** — stopping early when throughput flattens or headroom fails. **Not** every integer on every plan; the sweep exists to find the efficiency knee, not to chart it.
 3. **Final candidate counts are produced only after** calibration exists **and** headroom is ratified — they consume both.
 
-> **M2.1b EXECUTES IN PHASE 5, immediately before M5.2 — it is only documented here (F-R9).** The block previously sat physically inside "Phase 2 — pure computation, no infra" while its Step 2 runs a Render calibration, so an agent walking checkboxes top-down would reach it before M3.1's environment exists. Worse, two of its three shortlisted plans are **worker** plans, which do not exist until MP-3 provisions the prototype in Phase 5 — "after MP-1 and MP-2" was necessary but not sufficient. **Calibration targets, named:** the vertical comparator is calibrated on the **isolated API service**; worker plans on the **MP-3 prototype**.
+> **M2.1b is only documented here; it EXECUTES per target plan once that plan's service exists (F-R9, refined R6-4): the vertical comparator at M3.4b Step 2b, worker plans in Phase 5 immediately before M5.2.** The block previously sat physically inside "Phase 2 — pure computation, no infra" while its Step 2 runs a Render calibration, so an agent walking checkboxes top-down would reach it before M3.1's environment exists. Worse, two of its three shortlisted plans are **worker** plans, which do not exist until MP-3 provisions the prototype in Phase 5 — "after MP-1 and MP-2" was necessary but not sufficient. But "all of it in Phase 5" over-corrected: the vertical comparator's authoritative runs are observed in **M3.4b**, and a calibration scheduled after them would have written that candidate's prediction *after* its result was known — the prediction-before-observation rule M5.2 states, broken for the first matrix row. Its target (the isolated API service) exists from M3.1 and MP-1, MP-2 and M3.3a all precede M3.4b, so nothing stops it running there. **Calibration targets, named:** the vertical comparator is calibrated on the **isolated API service**; worker plans on the **MP-3 prototype**.
 
 **M2.1b is a task, not prose (R3-R5).** It previously named no runner, command, corpus, derivation or consumer — unexecutable by construction.
 
@@ -1180,9 +1211,12 @@ git commit -m "[M1.5] benchmark CSV report + CLI, metrics README columns"
 
 - [ ] **Step 1. Define "shortlisted plans" before anything uses the phrase:** the vertical comparator's current plan, plus at most two worker plans whose core/memory ratio brackets `required_cores` from Phase 2's uncalibrated run. Recorded in the run manifest.
 - [ ] **Step 2. Run** `node scripts/measurement/calibrate-concurrency.mjs --plan <id> --service <id> --concurrency 1,2,4,8 --corpus representative`, stopping early when throughput flattens (<5% gain) or headroom fails. `--service` is mandatory (F-R9): the isolated API service for the vertical comparator, the MP-3 prototype for worker plans — `--plan` alone never said which deployed service was being driven.
-- [ ] **Step 3. Derive per plan/profile/gap — target demand plus three mapping quantities and one anti-double-count rule (F-R10).** Local CPU seconds are not portable across plans. At concurrency 1, measure an idle baseline, then derive **`target_mean_cpu_sec = (integral(instance_cpu_cores dt) − idle_cpu_core_seconds) / attempted solver executions`** over the steady measurement window; the denominator includes successful and failed executions because both consume capacity, and a missing interval invalidates the row. Derive `wall_scale_factor = target_p50_active_solver_wall / local_p50_wall` from the same case cohort for queue replay. At the knee derive `parallel_efficiency = (throughput_at_N / N) / throughput_at_1` · **`cores_per_slot = cpu_util_fraction_at_N × plan_cores / N`** (`cpu_util_fraction` is normalized to `[0,1]`) · `rss_per_slot_bytes = aggregate_instance_rss / N`.
-  **`cores_per_slot` already embeds contention loss**, and `required_cores` divides by `parallel_efficiency` too — applying both over-provisions instances by roughly `1/η` with every intermediate number looking arithmetically fine, which is precisely the failure R3-R2 warned about. **Rule: when a calibrated `cores_per_slot` is used, `required_cores` is called with `parallel_efficiency=1.0`.** Exactly one of the two carries the efficiency term; the other is 1.0. The function stays parameterised (L-R3) — only the **final** call reads `parallel-efficiency.csv`.
-- [ ] **Step 4. Emit two artifacts so the identity key is actually unique.** `parallel-efficiency-raw.csv` contains `plan_id,app_sha,profile_id,gap,concurrency,throughput,cpu_util_fraction,aggregate_rss,run_id`. `parallel-efficiency.csv` contains exactly one derived row per `plan_id,app_sha,profile_id,gap`: `target_mean_cpu_sec,parallel_efficiency,cores_per_slot,rss_per_slot_bytes,instance_memory_bytes,slots_per_instance,wall_scale_factor` plus the source run IDs.
+- [ ] **Step 3. Derive per plan/profile/gap — every sizing quantity at the SAME operating concurrency (F-R10, corrected R6-3).** Local CPU seconds are not portable across plans. First measure an idle baseline (no load) to obtain `idle_cpu_core_seconds` per window. Find the knee `N` from the sweep — `parallel_efficiency = (throughput_at_N / N) / throughput_at_1` is the **knee-finding diagnostic**, recorded in the raw CSV and **never a sizing input**. Then, **at `N` and only at `N`**, over the steady measurement window, derive:
+  - **`target_mean_cpu_sec = (∫ instance_cpu_cores dt − idle_cpu_core_seconds) / attempted solver executions`** — CPU-seconds per attempted execution **while `N` slots run concurrently**, so per-job CPU inflation under contention (cache/SMT sharing) is inside the number. The denominator includes successful and failed executions because both consume capacity; a missing interval invalidates the row.
+  - **`cores_per_slot = cpu_util_fraction_at_N × plan_cores / N`** (`cpu_util_fraction` normalised to `[0,1]`) — cores actually drawn per slot, so contention that shows as *lost utilisation* (lock and I/O stalls) is inside it.
+  - `rss_per_slot_bytes = aggregate_instance_rss_at_N / N` · `slots_per_instance = N` · `wall_scale_factor = target_p50_active_solver_wall_at_N / local_p50_wall` from the same case cohort, for queue replay — a slot is occupied for the wall time it sees **under contention**, not the wall time of a lone run.
+  **Why `parallel_efficiency=1.0` in the calibrated path, stated exactly.** Round 4 wrote "`cores_per_slot` already embeds contention loss, so η is applied once there". That was half true: `cores_per_slot` captures contention that *lowers utilisation* but **not** contention that *raises CPU-seconds per job* — and for a CPU-bound single-threaded CBC, `cores_per_slot ≈ 1` at every `N`, so with `target_mean_cpu_sec` taken at concurrency 1 η would have been applied **zero** times, under-provisioning by the inflation factor with every intermediate number arithmetically fine (the mirror of the double-count R3-R2 warned about). Measuring `target_mean_cpu_sec` at `N` closes it: `instances = λ · cpu_N / ((1 − h) · N · cores_per_slot)` is exact by construction, because `N · cores_per_slot` is the cores an instance consumes at `N` and `cpu_N` is what each job costs there. **Rule: in the calibrated path `required_cores` is called with `parallel_efficiency=1.0`; η is a sweep diagnostic only.** The function stays parameterised (L-R3) for the uncalibrated Phase 2 path, where η is an assumed input — only the **final** call reads `parallel-efficiency.csv`.
+- [ ] **Step 4. Emit two artifacts so the identity key is actually unique.** `parallel-efficiency-raw.csv` contains one row per sweep point: `plan_id,app_sha,profile_id,gap,concurrency,throughput,cpu_util_fraction,cpu_core_seconds,idle_cpu_core_seconds,attempted_executions,p50_active_solver_wall_sec,aggregate_rss,run_id` (R6-3: the previous raw schema lacked the four inputs Step 3's derivations consume, so the derived row could not be audited from the raw one). `parallel-efficiency.csv` contains exactly one derived row per `plan_id,app_sha,profile_id,gap`: `target_mean_cpu_sec,parallel_efficiency,cores_per_slot,rss_per_slot_bytes,instance_memory_bytes,slots_per_instance,wall_scale_factor` plus the source run IDs.
 - [ ] **Step 5. Consume it explicitly:** `load_calibration()` selects exactly one row keyed by `plan_id + app_sha + profile_id + gap`; `size_calibrated_plan()` calls `required_cores(target_mean_cpu_sec, ..., parallel_efficiency=1.0, headroom=ratified)` and then `map_to_instances()`. `map_to_instances()` remains pure and never reads a file. For queue prediction, `build_event_samples()` applies the same row's `wall_scale_factor` before running `simulate(workers=instances × slots)`. Uncalibrated Phase 2 output is never a final answer.
 - [ ] **Step 6. Validation:** a missing, duplicate, non-positive or mismatched calibration row **fails closed** — no defaulted efficiency, CPU demand, or wall scale.
 - [ ] **Step 7. Commit** — `git commit -m "[M2.1b] concurrency calibration runner + parallel-efficiency.csv"`
@@ -1368,8 +1402,9 @@ def load_calibration(path, *, plan_id, app_sha, profile_id, gap):
     return cal
 
 def size_calibrated_plan(calibration, arrival_rate_per_sec, headroom):
-    # Efficiency is already embedded in calibrated cores_per_slot; do not
-    # divide by it a second time.
+    # Contention is already inside target_mean_cpu_sec AND cores_per_slot --
+    # both measured at the operating concurrency (M2.1b Step 3). Do not
+    # divide by an efficiency term again.
     cores = required_cores(calibration.target_mean_cpu_sec, arrival_rate_per_sec,
                            parallel_efficiency=1.0, headroom=headroom)
     instances, slots = map_to_instances(
@@ -1513,8 +1548,8 @@ def test_event_builder_scales_target_wall_and_requires_measured_api_cost():
 ```
 
 - [ ] **Step 2: Run it** → FAIL.
-- [ ] **Step 3a: Implement `build_event_samples`.** It is declared in the Canonical API and pinned by the test above, but no step named it — an implementer working from the checkbox list rather than the tests would have shipped the simulator without its input builder. Behaviour: map each observation to its `cache_class` via `cache_class_by_case_key`; set `solver_wall_sec = wall_sec × wall_scale_factor` (M2.1b's target-plan scale — local wall times are not portable to Render); take `api_overhead_sec` from `api_overhead_by_cache_class` and **raise `ValueError` mentioning "api overhead" when a class is absent** — never default it to zero, which would silently make cache hits free; set `consumes_solver_slot=False` for `cache_class == "hit"`.
-- [ ] **Step 3b: Implement `simulate`** — a heap-based event loop: push arrivals, maintain `workers` free-at timestamps. **Per event, draw a stratum from the declared weights first, then draw the service time from that stratum's empirical samples** (L-R2 — never `rng.choice` over a flat list, which substitutes uniform weights for the declared mix). Cache-hit events consume no solver slot. Record wait and end-to-end per job, plus `observed_stratum_mix`. `candidate_worker_counts` returns `CandidateResult(workers, result, passes)` for **every** explored count in ascending order — callers select the first `passes`, so a near-miss stays visible. `build_event_samples()` maps only complete campaign rows using the explicit `case_key → cache_class` assignment, multiplies non-hit solver wall by the selected target calibration's positive `wall_scale_factor`, sets hits to zero solver occupancy, and fails if either class assignment or measured API overhead is absent; it never invents zero overhead.
+- [ ] **Step 3a: Implement `build_event_samples`.** It is declared in the Canonical API and pinned by the test above, but no step named it — an implementer working from the checkbox list rather than the tests would have shipped the simulator without its input builder. Behaviour (the **only** statement of it — R6-6: Step 3b carried a second, partly different copy): use `kind == "campaign"` rows with `resource_complete=True` only (failed-but-complete attempts included — they occupied a slot; determinism rows never); map each row to its `cache_class` via `cache_class_by_case_key` and **raise `ValueError` when a `case_key` has no assignment**; `wall_scale_factor` must be positive (M2.1b's target-plan scale — local wall times are not portable to Render); set `solver_wall_sec = wall_sec × wall_scale_factor` for non-hit classes and `0.0` for `cache_class == "hit"`; take `api_overhead_sec` from `api_overhead_by_cache_class` and **raise `ValueError` mentioning "api overhead" when a class is absent** — never default it to zero, which would silently make cache hits free; set `consumes_solver_slot = (cache_class != "hit")`.
+- [ ] **Step 3b: Implement `simulate`** — a heap-based event loop: push arrivals, maintain `workers` free-at timestamps. **Per event, draw a stratum from the declared weights first, then draw an `EventSample` from that stratum's empirical list** (L-R2 — never `rng.choice` over a flat list, which substitutes uniform weights for the declared mix). A non-slot event (cache hit) never touches the heap and has `wait = 0`. **Definitions the tests rely on, stated once (R6-6):** `end_to_end = api_overhead_sec + wait + solver_wall_sec`; `utilization = Σ solver_wall_sec over slot-consuming events / (workers × (last completion − first arrival))`, so an all-hit profile reports `0`; `observed_stratum_mix[key]` is the **fraction** of events drawn from that stratum; `max_queue_depth` is the largest number of jobs waiting for a slot at any arrival. `candidate_worker_counts` runs `simulate` at every count `1..max_workers` with the same `seed` (default `0`, so candidates differ only in `workers`) and returns `CandidateResult(workers, result, passes)` for **every** count in ascending order — callers select the first `passes`, so a near-miss stays visible.
 - [ ] **Step 4: Run it** → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "[M2.3] queue simulator: empirical-distribution replay to candidate worker counts"`
 
@@ -1522,7 +1557,7 @@ def test_event_builder_scales_target_wall_and_requires_measured_api_cost():
 
 ## Phase 3 — Load harness (needs the isolated environment)
 
-> **MP-2 fires before this phase.** Ask: *"Measurement needs an isolated Render environment — separate database, separate cache namespace, synthetic identities, analytics/alerts disabled, named teardown owner, dated cost snapshot. Approve provisioning and its teardown plan?"* Do not provision anything first.
+> **MP-2 fires at M3.1 Step 2 — after the pinned set and teardown runbook are drafted (Step 1, so there is a concrete teardown plan and owner to approve) and before anything is provisioned (Step 3).** Ask: *"Measurement needs an isolated Render environment — separate database, separate cache namespace, synthetic identities, analytics/alerts disabled, named teardown owner, dated cost snapshot. Approve provisioning and its teardown plan?"* Do not provision anything first. *(R6-8: the F-R8 fold put the ask at "Step 0", before the runbook that names the teardown owner and cost snapshot the question asks to approve existed.)*
 >
 > **MP-1 MOVED HERE — it fires before the first authoritative run, NOT before M5.2 (MP-R6).** Round 1 placed MP-1 immediately before the topology runs while M3.4 already executed the restart probe, the three-hour soak and the burst. That let the **main load evidence be observed before the SLO thresholds, aggregation rules, headroom limits and repetition pass rule were ratified** — exactly the post-hoc gate movement M-R5 was written to prohibit, reintroduced by task ordering.
 >
@@ -1535,13 +1570,13 @@ def test_event_builder_scales_target_wall_and_requires_measured_api_cost():
 - Create: `scripts/measurement/seed-cohort.mjs`
 - Create: `docs/ops/measurement-environment.md` (pinned config + teardown runbook)
 
-- [ ] **Step 0 — ask MP-2 and record it (F-R8).** MP-2 existed only as blockquote prose, so an agent walking the checkbox list would provision without ever asking. Ask MP-2 **verbatim**; write the answer, UTC timestamp, decider and referenced artifacts to `docs/CHANGELOG-implementation.md` **before Step 1**. A checkpoint answered anywhere else is not answered.
-- [ ] **Step 1.** Record the pinned set in `docs/ops/measurement-environment.md` **before** provisioning: application SHA, dataset version, region, exact compute plan IDs, instance count, environment variables, database plan, load-generator location/capacity, **named teardown owner**, and the dated price snapshot.
-- [ ] **Step 2.** `provision-env.sh` creates the isolated service + database. Analytics disabled via `POSTHOG_API_KEY` unset and `SENTRY_DSN` unset — assert both are absent after boot rather than assuming.
-- [ ] **Step 3.** `seed-cohort.mjs` registers **50 distinct synthetic users** through `POST /auth/register` (never one shared account — auth/session cost is part of the load). **MP-R5: registering accounts is not sufficient.** The API solves an **existing persisted scenario** (`POST /scenarios/:id/solve`), so provisioning must also **create and save the scenario/input fixtures per user through the real `/api` contracts** and retain their scenario IDs for submission. A cohort of 50 users with no scenarios cannot submit anything.
-- [ ] **Step 4.** Record scenario IDs in the run manifest. **Never commit cookies or credentials**; session material lives only in ignored, permission-restricted temporary storage.
-- [ ] **Step 5.** Verify isolation **without touching production** (review recommendation): assert distinct Render environment/service/database identifiers, then perform a **sentinel write/read confined to the measurement database**. Do **not** fetch or copy production user identities merely to prove no overlap — that would import the very data the isolation exists to avoid.
-- [ ] **Step 6. Commit** — `git commit -m "[M3.1] isolated measurement environment + 50-session synthetic cohort"` *(F-R18: this task had two "Step 5".)*
+- [ ] **Step 1.** Draft the pinned set and teardown runbook in `docs/ops/measurement-environment.md` **before** asking or provisioning: application SHA, dataset version, region, exact compute plan IDs, instance count, environment variables, database plan, load-generator location/capacity, **named teardown owner**, teardown procedure, and the dated price snapshot. This is the artifact MP-2 approves.
+- [ ] **Step 2 — ask MP-2 and record it (F-R8, re-ordered R6-8).** MP-2 existed only as blockquote prose, so an agent walking the checkbox list would provision without ever asking. Ask MP-2 **verbatim**, citing Step 1's runbook; write the answer, UTC timestamp, decider and referenced artifacts to `docs/CHANGELOG-implementation.md` **before Step 3**. A checkpoint answered anywhere else is not answered.
+- [ ] **Step 3.** `provision-env.sh` creates the isolated service + database. Analytics disabled via `POSTHOG_API_KEY` unset and `SENTRY_DSN` unset — assert both are absent after boot rather than assuming.
+- [ ] **Step 4.** `seed-cohort.mjs` registers **50 distinct synthetic users** through `POST /auth/register` (never one shared account — auth/session cost is part of the load). **MP-R5: registering accounts is not sufficient.** The API solves an **existing persisted scenario** (`POST /scenarios/:id/solve`), so provisioning must also **create and save the scenario/input fixtures per user through the real `/api` contracts** and retain their scenario IDs for submission. A cohort of 50 users with no scenarios cannot submit anything.
+- [ ] **Step 5.** Record scenario IDs in the run manifest. **Never commit cookies or credentials**; session material lives only in ignored, permission-restricted temporary storage.
+- [ ] **Step 6.** Verify isolation **without touching production** (review recommendation): assert distinct Render environment/service/database identifiers, then perform a **sentinel write/read confined to the measurement database**. Do **not** fetch or copy production user identities merely to prove no overlap — that would import the very data the isolation exists to avoid.
+- [ ] **Step 7. Commit** — `git commit -m "[M3.1] isolated measurement environment + 50-session synthetic cohort"` *(F-R18: this task had two "Step 5".)*
 
 ### Task M3.2: Cache population preparation and verification
 
@@ -1629,10 +1664,11 @@ MP-1 also existed only as prose, and **nothing assembled the table it ratifies**
 - [ ] **Step 2.** RSS: one declared method, capturing **both** per-child peak and aggregate instance RSS.
 **Whose runs these are (F-R13).** Because MP-1 now precedes this task, its runs are authoritative by the preamble's own definition — so they must be attributed or they duplicate M5.2. **These are the vertical comparator's authoritative representative + burst runs**, cited in M5.2's matrix first row. **The restart probe here is a harness shakedown, explicitly labelled non-authoritative and excluded from the decision dataset** — the authoritative restart/recovery probe is M5.2's *selected-candidate* run, per the matrix. Without this, the plan runs a three-hour soak that either duplicates M5.2 or is silently discarded.
 
+- [ ] **Step 2b — calibrate and predict the vertical comparator BEFORE Steps 3–4 observe it (R6-4).** Execute M2.1b Steps 1–6 for the vertical comparator's pinned plan against the isolated API service. Load the row with `load_calibration()`, record `size_calibrated_plan()`'s `(instances, slots, cores)` and `simulate(workers = instances × slots)` on event samples rebuilt with M3.3a's overhead and this row's `wall_scale_factor`, and write the prediction into the run manifest. M5.2's prediction-before-observation rule binds these runs too: with M2.1b scheduled wholly in Phase 5, this candidate's authoritative soak would have been observed here while its prediction was written afterwards, in Phase 5, with the result already known. **One `app_sha` per candidate:** this candidate's calibration row, prediction and authoritative runs all use the SHA pinned in M3.1 Step 1, and M5.2 loads that row by that SHA — a later M5.1 seam commit does not invalidate it, because the seam is default-preserving and this candidate keeps API dispatch enabled.
 - [ ] **Step 3.** Restart probe (**shakedown, non-authoritative**): redeploy mid-load, assert **zero permanently-stuck jobs** afterwards.
 - [ ] **Step 4.** Three-hour soak at the sustained profile; the 50-request burst runs **separately**.
 - [ ] **Step 5.** Assert the load generator itself was not saturated — otherwise the run measures the driver, not the system.
-- [ ] **Step 6. Commit** — `git commit -m "[M3.4] telemetry collection, restart probe, three-hour soak"`
+- [ ] **Step 6. Commit** — `git commit -m "[M3.4b] telemetry collection, restart probe, three-hour soak"`
 
 ---
 
@@ -1648,11 +1684,17 @@ MP-1 also existed only as prose, and **nothing assembled the table it ratifies**
 - [ ] State explicitly that this is material for ~1 s models and **not** for the tail.
 - [ ] Write the decision record. Commit.
 
+### Task M4.3: Experiment comparability (review recommendation)
+
+*(R6-9: this task sat after M5.3, so an agent walking top-down would run M4.1/M4.2 before reading the constraint that governs them. Moved; content unchanged.)*
+
+- [ ] M4.1 and M4.2 use the **same `case_id`s, raw-row schema, repetition counts and objective-validity rules** as the main benchmark, so their decision records are comparable evidence rather than anecdotes. An experiment measured on a different corpus cannot be read against the baseline.
+
 ---
 
 ## Phase 5 — Topology, cost, gates
 
-> **MP-3 fires between M5.1's two halves — one ordering statement, and this is it (R3-R5).** The previous wording said "MP-3 fires before M5.1" while M5.1 itself said the seam is built and tested first; both could not be true. **Canonical sequence:** implement + test the dispatcher seam (no external infrastructure created) → prepare the exact image/command/config/teardown artifact → **ask and record MP-3** → provision the disposable worker. Ask: *"The worker prototype consumes A's durable queue: \<named image/command, queue seam, plan IDs, provisioning owner, teardown procedure, dispatcher-mode configuration\>. Authorize it as disposable, non-production scaffolding?"*
+> **MP-3 fires between M5.1's two halves — one ordering statement, and this is it (R3-R5).** The previous wording said "MP-3 fires before M5.1" while M5.1 itself said the seam is built and tested first; both could not be true. **Canonical sequence:** implement + test the dispatcher seam (no external infrastructure created) → prepare the exact image/command/config/teardown artifact → **ask and record MP-3** → provision the disposable worker. Ask, in the spec's exact wording: *"The worker prototype consumes A's durable queue: \<named image/command, queue seam, plan IDs, dispatcher-mode configuration, provisioning owner, teardown procedure\>. Authorize it as disposable, non-production scaffolding?"*
 > **MP-1 already fired in Phase 3** (moved there per MP-R6) and must already be recorded before any run here.
 
 ### Task M5.1: Disposable worker prototype + dispatcher-mode seam
@@ -1671,7 +1713,7 @@ MP-1 also existed only as prose, and **nothing assembled the table it ratifies**
 - [ ] **Not committed as production infra.** `render.yaml` is unchanged; the prototype is created and torn down out-of-band.
 
 ### Task M5.2: Topology runs
-- [ ] **Execute M2.1b now for each shortlisted plan.** Load the exact calibration row, produce final candidate counts with `size_calibrated_plan()`, rebuild target-scaled event samples using M3.3a API overhead, and record the analytic prediction at `workers = instances × slots` before observing the authoritative run. A missing/mismatched calibration aborts the candidate.
+- [ ] **Execute M2.1b now for each shortlisted worker plan** (the vertical comparator's calibration, prediction and authoritative representative + burst runs were completed at M3.4b Step 2b — cite those run IDs in the matrix's first row, loading its row by the SHA recorded there). Load the exact calibration row, produce final candidate counts with `size_calibrated_plan()`, rebuild target-scaled event samples using M3.3a API overhead, and record the analytic prediction at `workers = instances × slots` before observing the authoritative run. A missing/mismatched calibration aborts the candidate.
 - [ ] Run the same corpus + burst against: high-core vertical (≤ **12 CPU**, `12c-96g` ceiling), one dedicated worker, horizontal fleet (≤ **100 instances**, uniform plan).
 - [ ] **Never validate autoscaling in a preview environment** — previews run at the autoscaling minimum. Manual fixed-instance comparisons in previews are valid when explicitly configured.
 - [ ] Compare on end-to-end SLO, safe CPU/RSS headroom, restart behaviour, scale-window billing, idle cost, operational complexity.
@@ -1688,16 +1730,12 @@ Repeat only the runs used for the **final** pass/fail decision, per the MP-1 rep
 
 ### Task M5.3: Cost model
 - [ ] Report **both** denominators: cost per successful **submitted job** (cache hits in — budgeting) and per successful **CBC execution** (cache hits out — topology comparison). Marginal burst-worker cost and cache-hit mix beside both. Rejected/failed/timed-out in neither.
-- [ ] Dated all-in model: workspace fee, always-on API, idle/base worker, burst workers, Postgres, scheduler, storage/backups, bandwidth, and the measurement infrastructure itself. Sensitivity to **cache-hit rate** and **free-choice frequency** (the M-R9 input knob).
-
-### Task M4.3: Experiment comparability (review recommendation)
-
-- [ ] M4.1 and M4.2 use the **same `case_id`s, raw-row schema, repetition counts and objective-validity rules** as the main benchmark, so their decision records are comparable evidence rather than anecdotes. An experiment measured on a different corpus cannot be read against the baseline.
+- [ ] Dated all-in model: workspace fee, always-on API, idle/base worker, burst workers, Postgres, scheduler, storage/backups, bandwidth, and the measurement infrastructure itself. Sensitivity to **cache-hit rate** and **free-choice frequency** (the M-R9 input knob; the capacity-side sensitivity is M2.1's alternate-weight call).
 
 ### Task M5.4: Gate verdicts and decision document
 - [ ] **Capacity gate:** does the measured topology meet the ratified latency, rejection, headroom and cost limits?
 - [ ] **Reliability/isolation gate:** durability, restart recovery, process containment, API availability, safe ownership.
-- [ ] The final report records: **intended vs achieved arrival rate**, raw rows, uncertainty, bottleneck evidence, per-gate verdicts, selected topology + worker count, capacity calculation, distribution/trace input, predicted queue behaviour, observed confirmation, and the dated cost model.
+- [ ] The final report records: **intended vs achieved arrival rate**, raw rows, uncertainty, bottleneck evidence, per-gate verdicts, selected topology + worker count, capacity calculation, distribution/trace input, predicted queue behaviour, observed confirmation, the JADE `gap=0` re-measure beside both prior claims (M1.5 Step 5b), the free-choice-frequency sensitivity (M2.1, M5.3), and the dated cost model.
 - [ ] **Name the evidence artifact per profile (review recommendation).** The verdict cites the run IDs for **both** the representative profile **and** the guaranteed all-JADE cold-miss profile. A topology cannot pass on one and inherit the other by inference.
 - [ ] **MP-4 fires:** *"Capacity gate: \<verdict\>. Reliability/isolation gate: \<verdict\>. What is built?"*
 - [ ] **Record MP-4 before teardown:** write the exact answer, UTC timestamp, decider, selected topology/configuration, and cited run/report IDs to `docs/CHANGELOG-implementation.md`. A spoken answer or an answer stored only in the final report does not close the checkpoint.
@@ -1713,13 +1751,13 @@ Repeat only the runs used for the **final** pass/fail decision, per the MP-1 rep
 | §1.2 open-loop load, cache populations, telemetry, RSS, restart, soak | M3.1–M3.4 |
 | §1.3 experiments | M4.1, M4.2 |
 | §1.4 topology comparison + platform constraints | M5.1, M5.2 |
-| §1.4.1 capacity sizing from mean CPU demand | M2.1–M2.3, M2.1b executed at M5.2 |
+| §1.4.1 capacity sizing from mean CPU demand | M2.1–M2.3; M2.1b executed at M3.4b Step 2b (vertical comparator) and M5.2 (worker plans), each before its candidate's authoritative run |
 | §1.5 isolated environment | M3.1 |
 | §2 SLO ratification | **M3.3b** — MP-1 ratified before M3.4b's first authoritative run (F-R8; this row previously asserted the pre-MP-R6 "before M5.2" ordering, so the document held both) |
 | §3 two gates | M5.4 |
 | §4 cost model, two denominators | M5.3 |
 | §5 deliverables | M1.5, M3.4, M4.x, M5.3, M5.4 |
-| MP-1…MP-4 | M3.3b, M3.1 Step 0, M5.1 Step 3b, M5.4 record step |
+| MP-1…MP-4 | M3.3b, M3.1 Step 2, M5.1 Step 3b, M5.4 record step |
 
 **Type consistency:** `Cell.key` (M1.1) is the join key through `Observation.cell_key` (M1.2), `aggregate()`'s dict keys (M1.4), and `weighted_mean_service_demand`'s lookup (M2.1). **`Case.case_id` (M1.1) is the second join key** — carried on every `Observation` (M1.2), used to pair objective deltas against `gap=0` (M1.4), and the thing `run_determinism` holds fixed while `run_campaign` varies (M1.3). `Observation.kind` and `resource_complete` are defined in M1.2 and consumed in M1.3–M1.5.
 
@@ -1784,7 +1822,7 @@ All 20 findings accepted. No scope added. Verbatim review: `../specs/2026-09-23-
 | F-R5 M1.3 imports a module M1.4 creates | Accepted; **M1.4 executes before M1.3** — fourth task-ordering circularity |
 | F-R6 stop rule stops cells independently, thinning paired deltas | Accepted; readiness computed per **stratum**, all gaps stop together; phantom "upper tail" criterion deleted |
 | F-R7 `objective_deltas`/`corpus_frequency` declared-but-absent **again**; stale schema; no delta CSV columns | Accepted; steps + tests written, stale prose deleted, four `objective_delta_*` columns added |
-| F-R8 MP-1/MP-2 have no step that asks them; self-review row contradicts the preamble | Accepted; **M3.0** (MP-2), **M3.3b** (MP-1 + drafts its table), **M5.1 Step 3b** (MP-3); self-review row corrected |
+| F-R8 MP-1/MP-2 have no step that asks them; self-review row contradicts the preamble | Accepted; **M3.1 Step 2** (MP-2 — was "Step 0", re-ordered in round 6), **M3.3b** (MP-1 + drafts its table), **M5.1 Step 3b** (MP-3); self-review row corrected |
 | F-R9 M2.1b sits in Phase 2 while running Render calibration | Accepted; marked Phase-5-executing, calibration targets named, `--service` added |
 | F-R10 `cores_per_slot` underived; η counted twice | Accepted; formula fixed, and the **exactly-one-carries-η** rule stated |
 | F-R11 `max_instances` bounds slots; no link from `(instances, slots)` to `workers` | Accepted; renamed `max_workers`, and `workers = instances × slots` stated |
@@ -1811,6 +1849,23 @@ All 7 findings accepted and folded into the executable plan; no optional platfor
 | R5-5 local CPU/wall measurements were treated as portable to Render and the CSV consumer was implicit | Accepted; calibration now emits target-plan CPU demand and wall scale; explicit loader and sizing orchestrator fail closed on identity/value mismatches |
 | R5-6 sequential-stop observation counts were labelled corpus frequency | Accepted; declared generator weight and realised observation allocation are separate fields |
 | R5-7 simulator API overhead had no evidence source and MP-4 had no durable record step | Accepted; exploratory M3.3a produces keyed overhead evidence, final simulation waits for target calibration, and MP-4 is recorded before teardown |
+
+## Review disposition — round 6, independent fix-in-place pass (2026-09-23)
+
+Every M1/M2 code block was extracted and executed (`32 passed` before the edits, `33` after; a throwaway `simulate.py` written to the Step 3a/3b contract passes all 7 `test_simulate.py` tests). No scope added; two promises deleted rather than implemented.
+
+| Finding | Disposition |
+|---|---|
+| R6-1 `measure.py` timeout path could raise `ProcessLookupError` if the deadline landed before the child's `os.setsid()`; `waitpid`'s encoded status was reported as an exit code | Fixed; `killpg` falls back to `kill`, `os.waitstatus_to_exitcode` used |
+| R6-2 M1.5 declared `write_raw(observations, path)` / `write_aggregates(stats, manifest, path)` which cannot fill the `run_id`/`observation_share` columns they must write; a `timestamp` column had no source; Step 5b targeted a "benchmark report" that no task defines | Fixed; `report.py` signatures added to the Canonical API, `timestamp` column **deleted** (row order already carries sequence), Step 5b routed to the M5.4 final report |
+| R6-3 calibrated path applied η **zero** times, not once: `target_mean_cpu_sec` was taken at concurrency 1 while `cores_per_slot` only captures utilisation loss, so per-job CPU inflation under contention was in neither — under-provisioning by the inflation factor with `parallel_efficiency=1.0` | Fixed; every calibrated quantity is measured at the knee `N`, η demoted to a knee-finding diagnostic, raw sweep CSV given the columns the derivation consumes |
+| R6-4 the vertical comparator's authoritative runs (M3.4b) were observed before its calibration and prediction (M2.1b "executes in Phase 5"), contradicting M5.2's prediction-before-observation rule | Fixed; M3.4b Step 2b calibrates and predicts the vertical comparator first; M2.1b executes per plan when its service exists; one `app_sha` per candidate stated |
+| R6-5 F-R17 remainder: the warm-up test asserted counts, not order; nothing asserted campaign `case_id` distinctness | Fixed; both properties asserted, M1.3 count `7 passed` |
+| R6-6 M2.3 Steps 3a/3b carried two partly different `build_event_samples` contracts; `utilization`, `end_to_end`, `observed_stratum_mix` and the sweep seed were undefined although tests assert on them | Fixed; one contract in 3a, definitions pinned in 3b, `seed: int = 0` on `candidate_worker_counts` |
+| R6-7 spec §1.1 requires free-choice frequency as a knob in the **capacity** sensitivity; plan had it only in M5.3 cost | Fixed with no machinery: alternate-weight `Manifest` through `weighted_mean_service_demand`, reported in M5.4 |
+| R6-8 M3.1 asked MP-2 at "Step 0", before the runbook naming the teardown owner and cost snapshot the question approves existed | Fixed; draft runbook → ask → provision; preamble and self-review row updated |
+| R6-9 M4.3 (constraint on M4.1/M4.2) sat after M5.3; M3.4b commit tag; MP-3 question order differed from the spec's | Fixed; moved, `[M3.4b]`, spec wording used |
+| R6-10 spec ≠ plan on two settled scope reductions: spec §1.1 still demanded uncertainty on p50/RSS/frequency and §1.2 still listed throttling/network/storage growth as captured | **Spec corrected** (revision notes in §1.1 and §1.2) to the L-R5 decisions this plan already records; the plan is unchanged |
 
 ## Author responses (kept for later review)
 
