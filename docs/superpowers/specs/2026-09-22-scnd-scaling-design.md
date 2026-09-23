@@ -631,3 +631,23 @@ Use the claimant registry as the sole live-capacity authority: add claim-accepta
 **Conditional approval criterion:** I would approve the architecture/spec after S-R17–S-R20 close, SP-1 is resolved, and the live Postgres ceiling validates the completed ledger. A measurement-sized implementation plan and a real-cohort pilot remain separately gated as described above.
 
 </details>
+
+---
+
+## 12. Round 5 approval review — 2026-09-23
+
+**Decision: REQUEST CHANGES / not approved.** The live-capacity and serialized-admission design from round 4 is the correct shape. Two closure errors remain: the new `accepting_claims` state is not consistently a schema/control-plane predicate, and the authority ladder asks Stage 1 to decide facts that are unavailable until Stage 2. Neither requires a new subsystem.
+
+### New blocking findings
+
+| ID | Finding | Evidence | Required correction before approval |
+|---|---|---|---|
+| **S-R21 — `accepting_claims` is not one normative control-plane predicate** | §1.3 introduces `accepting_claims` only in prose, not in the displayed `solve_claimants` schema. §3.2 uses it for admission, but §2.1 reconciliation still counts fresh ready `worker_only` rows without it. During a rolling worker deploy or scale-in, old draining workers remain fresh and can be counted as ready/capable despite having stopped claiming. | §1.3 schema, §2.1 reconciliation predicate, §3.2 claimable-capacity predicate. | Add `accepting_claims boolean NOT NULL` to the normative table. Define one named **claimable-worker** predicate: worker role, `worker_only`, `ready_at IS NOT NULL`, fresh heartbeat, and `accepting_claims=true`. Use that exact predicate for admission, scaler reconciliation, and readiness alerts. Add rolling-worker-deploy and in-flight-scale-in tests proving old drainers never inflate the count. |
+| **S-R22 — Stage 1 requires facts that can only be produced after Stage 1** | The preamble says architecture/spec approval requires SP-1 and a live connection ceiling. But SP-1 is asked only if Measurement selects O1/O2, and a complete connection ledger needs the selected worker topology/count. Both are Stage-2 facts under the document's own A → Measurement → Scaling sequence. The stated Stage-1 gate is therefore impossible or forces a premature product decision. | Preamble authority ladder; §1.1 SP-1 timing; §3.2/§10 connection-ledger inputs. | Stage 1 approves the architecture when all design findings close and records SP-1/connection capacity as contingent decisions. Stage 2, after A and Measurement select topology, requires an SP-1 waiver/decision for O1/O2 or a completed ledger plus live ceiling for O3/O4 before authorizing the selected implementation plan. Stage 3 remains the applicable final-built-topology gates, MP-4, and the O4 coalescing condition. |
+
+### Approval path
+
+1. Make `accepting_claims` a real schema field and route every control-plane count through the single claimable-worker predicate.
+2. Correct the authority ladder so contingent product/evidence decisions occur only after Measurement makes them relevant.
+
+**Conditional approval criterion:** I would approve the architecture/spec after S-R21 and S-R22 close. A measurement-sized implementation plan and a real-cohort pilot remain separately gated by the selected outcome and its evidence.
