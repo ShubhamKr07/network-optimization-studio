@@ -178,13 +178,17 @@ describe("A14b — over-deadline SIGTERM drain integration proof", () => {
 
     // Exactly one deterministic terminal outcome: `failed` — never
     // "released"/requeued (A-R36/A-R37: A performs no automatic retry).
-    // TT-2's taxonomy for a cancellation-classified outcome (A3.C, pre-A5):
-    // the temporary fixed safe message written to `solve_jobs.error`, no
-    // failureReason/failureStage/errorCode yet (A5 activates those columns'
-    // public serializer later) — asserted as-is, not over-specified.
+    // TT-2's taxonomy for a cancellation-classified outcome: the internal
+    // `error` diagnostic text stays as before, and A5 now also stamps the
+    // typed columns its public serializer (derivePublicFailure) reads —
+    // errorCode='SOLVE_FAILED' (never TIMEOUT for a cancellation, even
+    // though a deploy drain and an outer timeout can look superficially
+    // similar) and failureReason='interrupted'.
     const row = await pollJobStatus(jobId, ["failed", "succeeded"], 5_000);
     expect(row.status).toBe("failed");
     expect(row.error).toMatch(/interrupted/i);
+    expect(row.errorCode).toBe("SOLVE_FAILED");
+    expect(row.failureReason).toBe("interrupted");
 
     // Never published/cached as a scenario result — a cancelled solve must
     // not surface as a success.

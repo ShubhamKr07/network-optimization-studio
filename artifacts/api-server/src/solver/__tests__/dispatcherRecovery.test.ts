@@ -260,6 +260,13 @@ describe("A2 — reapStaleLeases (owner lease takeover; false-stale prevention; 
     const row = await getJob(jobId);
     expect(row.status).toBe("failed");
     expect(row.error).toMatch(/lease expired/i);
+    // A5 — the typed columns its public serializer (derivePublicFailure)
+    // reads: errorCode='SOLVE_FAILED' + failureReason='interrupted' +
+    // failureStage='reaper' (§2.11: "interrupted (cancel / deploy /
+    // server-restart-reaper / external kill)").
+    expect(row.errorCode).toBe("SOLVE_FAILED");
+    expect(row.failureReason).toBe("interrupted");
+    expect(row.failureStage).toBe("reaper");
   });
 
   it("reaping a genuinely dead owner is a ONE-TIME deterministic terminal outcome — reaping twice is a no-op the second time", async () => {
@@ -421,6 +428,12 @@ describe("A2 — Phase 2 legacy cleanup (drain-gated; null-lease + historical ro
     expect(row.status).toBe("failed");
     expect(row.errorCode).toBe("SOLVE_FAILED");
     expect(row.error).toBe(VERSION_MISMATCH_SAFE_MESSAGE);
+    // A5 — failureReason/failureStage now also stamped so the public
+    // serializer (derivePublicFailure) selects the SAME message for this
+    // row as it would for a live version mismatch, not the generic
+    // "Solve failed" fallback.
+    expect(row.failureReason).toBe("data_error");
+    expect(row.failureStage).toBe("validate");
   });
 
   it("a HISTORICAL row with a null input_snapshot/model_id (unrecoverable by construction) terminates once, in EITHER queued or running status", async () => {

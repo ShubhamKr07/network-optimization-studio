@@ -36,7 +36,7 @@ vi.mock("@workspace/db", () => ({
   db: mockDb,
   pool: mockPool,
   scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
-  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary" },
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary", errorCode: "solve_jobs.error_code", failureReason: "solve_jobs.failure_reason", failureStage: "solve_jobs.failure_stage" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -55,11 +55,20 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
-vi.mock("../solver/jobRunner.js", () => ({
-  enqueueScenarioSolve: mockEnqueueScenarioSolve,
-  getQueueDepth: mockGetQueueDepth,
-  QUEUE_DEPTH_LIMIT: 30,
-}));
+// A5 — derivePublicFailure is a PURE function (no DB/process access) that
+// routes/scenarios.ts and routes/solveHistory.ts both call directly; pull
+// the REAL implementation through so these routes' error-shape tests
+// exercise actual behavior instead of a hand-duplicated stand-in that could
+// silently drift from it.
+vi.mock("../solver/jobRunner.js", async () => {
+  const actual = await vi.importActual<typeof import("../solver/jobRunner.js")>("../solver/jobRunner.js");
+  return {
+    enqueueScenarioSolve: mockEnqueueScenarioSolve,
+    getQueueDepth: mockGetQueueDepth,
+    QUEUE_DEPTH_LIMIT: 30,
+    derivePublicFailure: actual.derivePublicFailure,
+  };
+});
 
 import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
@@ -3215,6 +3224,78 @@ describe("GET /api/scenarios/:id/solve-jobs/:jobId", () => {
     expect(res.body.status).toBe("succeeded");
     expect(res.body.resultSummary).toEqual({ status: "optimal", objective: 100 });
     expect(res.body.error).toBeNull();
+    expect(res.body.errorCode).toBeNull();
+    expect(res.body.errorMessage).toBeNull();
+  });
+
+  // A5 — the permanent public errorCode/errorMessage shape, and the
+  // negative-leakage guarantee: a failed job's raw internal diagnostic
+  // (`error`, `errorDetail`, `failureReason`, `failureStage`) must NEVER
+  // reach this response, even when those columns carry something that
+  // LOOKS like a real leak (a filesystem path, a stack-trace-shaped
+  // string) — the route only ever derives `error`/`errorCode`/
+  // `errorMessage` from the closed, fixed public mapping.
+  describe("A5 — public errorCode/errorMessage + negative leakage", () => {
+    const LEAK_MARKER = "/tmp/nos-solve-abc123/secret_traceback.py line 42 Traceback (most recent call last)";
+
+    it("TIMEOUT: errorCode column TIMEOUT -> errorCode=TIMEOUT, errorMessage=\"Solve timed out\", error aliases errorMessage", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: LEAK_MARKER, errorCode: "TIMEOUT",
+        failureReason: "timeout", failureStage: "timeout", errorDetail: LEAK_MARKER,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("TIMEOUT");
+      expect(res.body.errorMessage).toBe("Solve timed out");
+      expect(res.body.error).toBe("Solve timed out"); // transitional alias, not the raw column
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+      expect(JSON.stringify(res.body)).not.toMatch(/failureReason|failureStage|errorDetail/);
+    });
+
+    it("interrupted: failureReason=interrupted -> errorCode=SOLVE_FAILED, errorMessage=\"Solve interrupted\" — never leaks the raw error/errorDetail column", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: LEAK_MARKER, errorCode: "SOLVE_FAILED",
+        failureReason: "interrupted", failureStage: "reaper", errorDetail: LEAK_MARKER,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("SOLVE_FAILED");
+      expect(res.body.errorMessage).toBe("Solve interrupted");
+      expect(res.body.error).toBe("Solve interrupted");
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
+
+    it("a historical row (all typed failure columns null) reads as the conservative SOLVE_FAILED default, never TIMEOUT — and still never leaks the raw error text", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: LEAK_MARKER, errorCode: null,
+        failureReason: null, failureStage: null, errorDetail: null,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("SOLVE_FAILED");
+      expect(res.body.errorMessage).toBe("Solve failed");
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
+
+    it("a generic protocol/exit failure (solver_error/internal_error taxonomy) -> the generic \"Solve failed\", raw error/errorDetail never surfaced", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: "Solver failed (internal_error/protocol)",
+        errorCode: "SOLVE_FAILED", failureReason: "internal_error", failureStage: "protocol", errorDetail: LEAK_MARKER,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("SOLVE_FAILED");
+      expect(res.body.errorMessage).toBe("Solve failed");
+      // The internal diagnostic text must not appear even indirectly (it
+      // names failureReason/failureStage, which are internal-only).
+      expect(JSON.stringify(res.body)).not.toContain("internal_error");
+      expect(JSON.stringify(res.body)).not.toContain("protocol");
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
   });
 
   it("returns 401 without a session", async () => {
@@ -3358,6 +3439,68 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+
+  // A5 — same permanent public failure shape + negative-leakage guarantee
+  // as the job-poll endpoint above. solveHistory.ts's inner query selects
+  // ONLY the typed errorCode/failureReason/failureStage columns (never
+  // `error`/`errorDetail`) — this asserts the resulting HTTP response
+  // reflects that: a row shaped like it came straight off a raw DB read
+  // (carrying `error`/`errorDetail` text a naive implementation might have
+  // spread through) never surfaces that text.
+  describe("A5 — public errorCode/errorMessage + negative leakage", () => {
+    const LEAK_MARKER = "/tmp/nos-solve-xyz/secret_traceback.py Traceback (most recent call last)";
+
+    it("a failed row with errorCode=TIMEOUT -> errorCode=TIMEOUT, errorMessage=\"Solve timed out\", no raw leakage", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        id: 20, scenarioId: 1, status: "failed", resultSummary: null,
+        queuedAt: new Date("2026-01-05T00:00:00Z"), finishedAt: new Date("2026-01-05T00:00:05Z"),
+        scenarioName: "Timed Out", modelId: "p-median-us",
+        errorCode: "TIMEOUT", failureReason: "timeout", failureStage: "timeout",
+        error: LEAK_MARKER, errorDetail: LEAK_MARKER,
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ errorCode: "TIMEOUT", errorMessage: "Solve timed out" });
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+      expect(JSON.stringify(res.body)).not.toMatch(/failureReason|failureStage|errorDetail|"error"/);
+    });
+
+    it("a failed row with failureReason=interrupted -> errorCode=SOLVE_FAILED, errorMessage=\"Solve interrupted\"", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        id: 21, scenarioId: 2, status: "failed", resultSummary: null,
+        queuedAt: new Date("2026-01-06T00:00:00Z"), finishedAt: new Date("2026-01-06T00:00:05Z"),
+        scenarioName: "Interrupted", modelId: "p-median-us",
+        errorCode: "SOLVE_FAILED", failureReason: "interrupted", failureStage: "reaper",
+        error: LEAK_MARKER, errorDetail: LEAK_MARKER,
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ errorCode: "SOLVE_FAILED", errorMessage: "Solve interrupted" });
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
+
+    it("a succeeded row's errorCode/errorMessage are both null (no failure to report)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        id: 22, scenarioId: 3, status: "succeeded",
+        resultSummary: { status: "optimal", objective: 5, runTimeSec: 0.1 },
+        queuedAt: new Date("2026-01-07T00:00:00Z"), finishedAt: new Date("2026-01-07T00:00:01Z"),
+        scenarioName: "OK", modelId: "p-median-us",
+        errorCode: null, failureReason: null, failureStage: null,
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ errorCode: null, errorMessage: null });
+    });
   });
 });
 

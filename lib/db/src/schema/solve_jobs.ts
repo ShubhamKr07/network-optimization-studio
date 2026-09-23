@@ -119,19 +119,30 @@ export const solveJobsTable = pgTable("solve_jobs", {
     // A2 adds 'data_error' — the internal failureReason for a recovery-
     // contract-identity mismatch caught at claim time (A-R33/A-R40/A-R47:
     // "internal failureReason='data_error', failureStage='validate'").
-    // A1 shipped this CHECK before that case existed; extending an IN-list
+    // A5 adds 'timeout'/'interrupted' — the two A3.T Terminal kinds
+    // (TT-1/TT-2) that are their own top-level outcomes, not a `failed`-kind
+    // classification carried on the fd3 message, but are still real
+    // failureReason values per §2.11's canonical internal enum
+    // (`solver_error | data_error | model_error | internal_error | timeout |
+    // interrupted`) — needed so the public errorCode/errorMessage
+    // serializer (A5) can distinguish "Solve interrupted" from the generic
+    // "Solve failed" purely from typed columns, never from free-text `error`.
+    // A1 shipped this CHECK before either case existed; extending an IN-list
     // CHECK on an already-nullable column is additive (no NOT NULL migration,
     // hard rule #3's protocol doesn't apply) — deviation noted per hard rule
-    // #8, smallest correct fix to unblock A2 without waiting on A5.
+    // #8, smallest correct fix (same precedent A2 already established here).
     "CK_solve_jobs_failure_reason",
-    sql`${table.failureReason} IS NULL OR ${table.failureReason} IN ('internal_error', 'solver_error', 'data_error')`,
+    sql`${table.failureReason} IS NULL OR ${table.failureReason} IN ('internal_error', 'solver_error', 'data_error', 'timeout', 'interrupted')`,
   ),
   check(
-    // A2 adds 'validate' — the failureStage half of the same case above.
+    // A2 adds 'validate' — the failureStage half of the data_error case
+    // above. A5 adds 'reaper' — reapStaleLeases' own interrupted-by-lease-
+    // expiry case (§2.11: "interrupted (cancel / deploy / server-restart-
+    // reaper / external kill)"), same additive-CHECK precedent as above.
     "CK_solve_jobs_failure_stage",
     sql`${table.failureStage} IS NULL OR ${table.failureStage} IN (
       'timeout', 'spawn', 'protocol', 'exit', 'dataset_load', 'dispatch',
-      'input_parse', 'solve_exception', 'cbc_parse', 'validate'
+      'input_parse', 'solve_exception', 'cbc_parse', 'validate', 'reaper'
     )`,
   ),
   check(

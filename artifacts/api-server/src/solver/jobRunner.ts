@@ -487,6 +487,12 @@ export async function reapStaleLeases(): Promise<number> {
     .set({
       status: "failed",
       error: "Solve was interrupted (owner lease expired)".slice(0, 500),
+      // A5 — typed columns (§2.11: "interrupted (cancel / deploy /
+      // server-restart-reaper / external kill)"). `errorCode` is what the
+      // public serializer (derivePublicFailure below) actually reads.
+      failureReason: "interrupted",
+      failureStage: "reaper",
+      errorCode: "SOLVE_FAILED",
       finishedAt: sql`now()`,
     })
     .where(and(
@@ -650,6 +656,14 @@ export async function runPhase2LegacyCleanup(): Promise<{ nullLeaseFailed: numbe
     .set({
       status: "failed",
       error: LEGACY_UNRECOVERABLE_SAFE_MESSAGE,
+      // A5 — same typed shape as the version-mismatch case these rows reuse
+      // the message from (jobRunner.ts's own header comment above): "this
+      // job can never be honestly re-run." failureReason='data_error' +
+      // failureStage='validate' is what makes derivePublicFailure() below
+      // select the identical VERSION_MISMATCH_SAFE_MESSAGE for these rows
+      // too, rather than falling through to the generic "Solve failed".
+      failureReason: "data_error",
+      failureStage: "validate",
       errorCode: "SOLVE_FAILED",
       finishedAt: sql`now()`,
     })
@@ -666,6 +680,14 @@ export async function runPhase2LegacyCleanup(): Promise<{ nullLeaseFailed: numbe
     .set({
       status: "failed",
       error: LEGACY_UNRECOVERABLE_SAFE_MESSAGE,
+      // A5 — same typed shape as the version-mismatch case these rows reuse
+      // the message from (jobRunner.ts's own header comment above): "this
+      // job can never be honestly re-run." failureReason='data_error' +
+      // failureStage='validate' is what makes derivePublicFailure() below
+      // select the identical VERSION_MISMATCH_SAFE_MESSAGE for these rows
+      // too, rather than falling through to the generic "Solve failed".
+      failureReason: "data_error",
+      failureStage: "validate",
       errorCode: "SOLVE_FAILED",
       finishedAt: sql`now()`,
     })
@@ -1034,7 +1056,11 @@ async function markFailed(
   jobId: number,
   generation: number,
   error: string,
-  taxonomy?: { failureReason: string; failureStage: string; errorCode: string },
+  // A5 — `failureStage` is nullable: TT-1/TT-2 (timeout/interrupted) are
+  // their own top-level Terminal kinds, not a `failed`-kind classification
+  // carried on the fd3 message, so Node doesn't always have a real stage to
+  // report for them (see the taxonomy passed at each call site below).
+  taxonomy?: { failureReason: string; failureStage: string | null; errorCode: string },
 ): Promise<boolean> {
   const setValues: Record<string, unknown> = {
     status: "failed",
@@ -1220,11 +1246,75 @@ async function markSucceeded(
 
 // A3 — a fixed, safe message for solve_jobs.error. Built ONLY from the
 // terminal table's own closed enums (failureReason/failureStage), never
-// from raw stdout/stderr/exception text — this is the "temporary fixed
-// safe message" the task calls for; A5 later replaces this with the real
-// public errorCode/errorMessage serializer.
+// from raw stdout/stderr/exception text. This remains an INTERNAL
+// diagnostic string only — A5's derivePublicFailure() below is the real
+// public errorCode/errorMessage serializer, and it deliberately never reads
+// this column (or this function's output) at all; routes/scenarios.ts and
+// routes/solveHistory.ts must not read `job.error` either.
 function safeFailureMessage(reason: string, stage: string): string {
   return `Solver failed (${reason}/${stage})`;
+}
+
+// ---------------------------------------------------------------------------
+// A5 — the permanent public failure shape (§2.11; A0/Q80's decision).
+// `errorCode` + a server-owned, fixed `errorMessage` is the ONLY public
+// surface for a failed job: the raw stored `solve_jobs.error` diagnostic,
+// `failureReason`, `failureStage`, and `errorDetail` are NEVER surfaced —
+// this function is the single place that reads those typed internal columns
+// and turns them into the closed public shape. routes/scenarios.ts's
+// solve-job poll handler and routes/solveHistory.ts both call this and nail
+// nothing else in from the row.
+//
+// Exhaustive failureReason/Node-class -> errorCode table (§2.11's mapping +
+// the A3.T terminal table), implemented as this fixed selection order:
+//   1. errorCode === "TIMEOUT" (TT-1, the outer deadline)        -> TIMEOUT / "Solve timed out"
+//   2. failureReason === "interrupted" (TT-2, reapStaleLeases)   -> SOLVE_FAILED / "Solve interrupted"
+//   3. failureReason === "data_error" && failureStage==="validate"
+//      (A2's recovery-contract-identity/version mismatch, and Phase 2's
+//      legacy-row cleanup, which intentionally reuses the same shape)
+//                                                                 -> SOLVE_FAILED / VERSION_MISMATCH_SAFE_MESSAGE
+//   4. everything else that reached status="failed" — solver_error,
+//      internal_error, model_error, any TT-5..TT-11/TT-14 protocol/exit/
+//      spawn classification, AND any historical pre-A1 row with null typed
+//      columns (read as a CONSERVATIVE SOLVE_FAILED, never fabricated as
+//      TIMEOUT)                                                  -> SOLVE_FAILED / "Solve failed"
+// A non-"failed" job (queued/running/succeeded) has no failure to report:
+// null. The public retry rule (A5 deliverable 3, A-R47) is ONE sentence,
+// not a field: every terminal async failure here — SOLVE_FAILED or TIMEOUT
+// alike — is retryable; no `retryable` boolean is added to the contract,
+// A9's frontend derives the retry action from `errorCode` alone.
+// ---------------------------------------------------------------------------
+
+export type PublicErrorCode = "SOLVE_FAILED" | "TIMEOUT";
+
+export interface PublicSolveFailure {
+  errorCode: PublicErrorCode;
+  errorMessage: string;
+}
+
+const SAFE_MESSAGE_SOLVE_FAILED = "Solve failed";
+const SAFE_MESSAGE_TIMEOUT = "Solve timed out";
+const SAFE_MESSAGE_INTERRUPTED = "Solve interrupted";
+
+export function derivePublicFailure(
+  job: { status: string; errorCode?: string | null; failureReason?: string | null; failureStage?: string | null },
+): PublicSolveFailure | null {
+  if (job.status !== "failed") return null;
+
+  if (job.errorCode === "TIMEOUT") {
+    return { errorCode: "TIMEOUT", errorMessage: SAFE_MESSAGE_TIMEOUT };
+  }
+
+  // Every other case — including a null/absent errorCode on a historical
+  // pre-A1 row — reads as the conservative SOLVE_FAILED default (never
+  // TIMEOUT unless positively known).
+  if (job.failureReason === "interrupted") {
+    return { errorCode: "SOLVE_FAILED", errorMessage: SAFE_MESSAGE_INTERRUPTED };
+  }
+  if (job.failureReason === "data_error" && job.failureStage === "validate") {
+    return { errorCode: "SOLVE_FAILED", errorMessage: VERSION_MISMATCH_SAFE_MESSAGE };
+  }
+  return { errorCode: "SOLVE_FAILED", errorMessage: SAFE_MESSAGE_SOLVE_FAILED };
 }
 
 async function removeWorkDirIdempotent(workDir: string): Promise<void> {
@@ -1359,7 +1449,14 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
     const outcome = result.outcome;
 
     if (outcome.kind === "timeout") {
-      const published = await markFailed(jobId, generation, "Solver timed out");
+      // A5 (TT-1) — the typed columns are the source of truth for the
+      // public serializer (derivePublicFailure below); this internal
+      // `error` string is diagnostic-only and never read by it.
+      const published = await markFailed(jobId, generation, "Solver timed out", {
+        failureReason: "timeout",
+        failureStage: "timeout",
+        errorCode: "TIMEOUT",
+      });
       if (published) {
         posthog?.capture({
           distinctId: userId,
@@ -1371,7 +1468,15 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
     }
 
     if (outcome.kind === "interrupted") {
-      const published = await markFailed(jobId, generation, "Solver was interrupted");
+      // A5 (TT-2) — `failureStage` stays null here: at cancel/SIGTERM time
+      // Node has no reliable "what stage was CBC in" signal (unlike the
+      // reaper's own stale-lease case in reapStaleLeases below, which knows
+      // exactly why it's failing this row).
+      const published = await markFailed(jobId, generation, "Solver was interrupted", {
+        failureReason: "interrupted",
+        failureStage: null,
+        errorCode: "SOLVE_FAILED",
+      });
       if (published) {
         posthog?.capture({
           distinctId: userId,

@@ -608,6 +608,17 @@ export const SolveJobStatus = {
 } as const;
 
 /**
+ * SCND correctness A5 (§2.11) — the permanent, exhaustive public failure-classification enum for a failed async solve job. `null` on every non-failed job. A historical row with no typed failure columns (pre-A1) reads as the conservative `SOLVE_FAILED` default, never `TIMEOUT` unless positively known. Every value here is retryable — there is no separate `retryable` field; the frontend derives the retry action from this enum alone (A-R47).
+ */
+export type SolveJobErrorCode = typeof SolveJobErrorCode[keyof typeof SolveJobErrorCode];
+
+
+export const SolveJobErrorCode = {
+  SOLVE_FAILED: 'SOLVE_FAILED',
+  TIMEOUT: 'TIMEOUT',
+} as const;
+
+/**
  * @nullable
  */
 export type SolveJobResultSummary = { [key: string]: unknown } | null;
@@ -615,8 +626,18 @@ export type SolveJobResultSummary = { [key: string]: unknown } | null;
 export interface SolveJob {
   id: number;
   status: SolveJobStatus;
-  /** @nullable */
+  /**
+     * DEPRECATED transitional alias of `errorMessage` (never the raw stored diagnostic) — kept only for the pre-A11 compatibility window, removed at cleanup. Prefer `errorCode`/`errorMessage`.
+     * @nullable
+     */
   error: string | null;
+  /** The permanent public failure code. Never surfaces the internal `failureReason`/`failureStage`/`errorDetail` taxonomy or any raw solver diagnostic — see SolveJobErrorCode. */
+  errorCode: SolveJobErrorCode | null;
+  /**
+     * A server-owned, fixed safe message for `errorCode` (§2.11's exhaustive mapping table) — e.g. "Solve failed" / "Solve timed out" / "Solve interrupted" / "Solve could not run — please try again". Never raw stdout/stderr/exception text or a filesystem path. `null` on every non-failed job.
+     * @nullable
+     */
+  errorMessage: string | null;
   /** @nullable */
   resultSummary: SolveJobResultSummary;
   queuedAt: string;
@@ -646,6 +667,13 @@ export interface SolveHistoryEntry {
   weightedAvgDistance: number | null;
   /** Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10). */
   distanceUnit: string;
+  /** SCND correctness A5 (§2.11) — same permanent public failure code as SolveJob.errorCode; null for a non-failed row. */
+  errorCode: SolveJobErrorCode | null;
+  /**
+     * SCND correctness A5 (§2.11) — same fixed safe message as SolveJob.errorMessage; null for a non-failed row.
+     * @nullable
+     */
+  errorMessage: string | null;
   /** @nullable */
   runTimeSec: number | null;
   queuedAt: string;

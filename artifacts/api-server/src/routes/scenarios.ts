@@ -2,7 +2,7 @@ import { Router } from "express";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
-import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
+import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT, derivePublicFailure } from "../solver/jobRunner.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
@@ -486,10 +486,22 @@ router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
     ));
   if (!job) { res.status(404).json({ error: "Not found" }); return; }
 
+  // A5 — the permanent public failure shape. `failure` is derived ONLY from
+  // the typed columns (errorCode/failureReason/failureStage) via
+  // jobRunner's derivePublicFailure(); the raw stored `job.error`
+  // diagnostic (and errorDetail/failureReason/failureStage themselves) are
+  // NEVER read here and never appear in this response. The transitional
+  // `error` field is kept as a SAFE ALIAS of `errorMessage` (never
+  // `job.error`) for the current compatibility window (removed at A11
+  // cleanup, per §2.13) — `errorCode`/`errorMessage` are the permanent pair.
+  const failure = derivePublicFailure(job);
+
   res.json({
     id: job.id,
     status: job.status,
-    error: job.error ?? null,
+    error: failure?.errorMessage ?? null,
+    errorCode: failure?.errorCode ?? null,
+    errorMessage: failure?.errorMessage ?? null,
     resultSummary: job.resultSummary ?? null,
     queuedAt: job.queuedAt.toISOString(),
     startedAt: job.startedAt ? job.startedAt.toISOString() : null,

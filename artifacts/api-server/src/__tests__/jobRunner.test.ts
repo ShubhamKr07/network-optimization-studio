@@ -98,6 +98,9 @@ let QUEUE_DEPTH_LIMIT: JobRunnerModule["QUEUE_DEPTH_LIMIT"];
 let toLegacyStoredResult: JobRunnerModule["toLegacyStoredResult"];
 let buildSolveJobValues: JobRunnerModule["buildSolveJobValues"];
 let RECOVERY_CONTRACT_IDENTITY: JobRunnerModule["RECOVERY_CONTRACT_IDENTITY"];
+let derivePublicFailure: JobRunnerModule["derivePublicFailure"];
+let VERSION_MISMATCH_SAFE_MESSAGE: JobRunnerModule["VERSION_MISMATCH_SAFE_MESSAGE"];
+let cancelJob: JobRunnerModule["cancelJob"];
 
 beforeAll(async () => {
   const mod = await import("../solver/jobRunner.js");
@@ -108,6 +111,9 @@ beforeAll(async () => {
   toLegacyStoredResult = mod.toLegacyStoredResult;
   buildSolveJobValues = mod.buildSolveJobValues;
   RECOVERY_CONTRACT_IDENTITY = mod.RECOVERY_CONTRACT_IDENTITY;
+  derivePublicFailure = mod.derivePublicFailure;
+  VERSION_MISMATCH_SAFE_MESSAGE = mod.VERSION_MISMATCH_SAFE_MESSAGE;
+  cancelJob = mod.cancelJob;
 });
 
 const baseInput: SolveInput = {
@@ -371,6 +377,12 @@ describe("jobRunner", () => {
       expect(calls.some((s) => s.status === "failed" && String(s.error).includes("timed out"))).toBe(true);
     }, { timeout: 5000 });
 
+    // A5 (TT-1) — the typed errorCode column is what the public serializer
+    // actually reads; must be TIMEOUT, never the SOLVE_FAILED default.
+    const failedSet = setValues(jobUpdateChain).find((s) => s.status === "failed")!;
+    expect(failedSet.errorCode).toBe("TIMEOUT");
+    expect(failedSet.failureReason).toBe("timeout");
+
     expect(killSpy).toHaveBeenCalledWith(-child.pid, "SIGTERM");
     // TERM alone worked (mockGroupDiesImmediately) — SIGKILL should never
     // have been needed.
@@ -418,6 +430,39 @@ describe("jobRunner", () => {
 
     expect(sigtermSent).toBe(true);
     expect(sigkillSent).toBe(true);
+  });
+
+  // A5 (TT-2) — an internal cancelJob() call (the same mechanism SIGTERM
+  // drain uses via cancelAllActiveJobs) must ALSO stamp the typed
+  // errorCode/failureReason columns, not just the internal `error` text —
+  // this is the "move A3's interim solve_jobs.error writes onto A1's typed
+  // columns" deliverable, exercised here at the mocked-DB level (the real-DB
+  // equivalent is overDeadlineDrain.test.ts's SIGTERM-drain integration
+  // proof).
+  it("an internal cancelJob() call marks the job failed with errorCode=SOLVE_FAILED and failureReason=interrupted (never TIMEOUT)", async () => {
+    mockGroupDiesImmediately();
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    const jobUpdateChain = makeChain([{}]);
+    mockDb.update.mockReturnValue(jobUpdateChain);
+
+    const child = new FakeChild(); // never emits "close" on its own — cancelJob() must drive it
+    mockSpawn.mockReturnValue(child);
+
+    const jobId = await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+
+    const cancelled = cancelJob(jobId, "test-cancel");
+    expect(cancelled).toBe(true);
+
+    await vi.waitFor(() => {
+      const calls = setValues(jobUpdateChain);
+      expect(calls.some((s) => s.status === "failed")).toBe(true);
+    }, { timeout: 5000 });
+
+    const failedSet = setValues(jobUpdateChain).find((s) => s.status === "failed")!;
+    expect(String(failedSet.error)).toMatch(/interrupted/i);
+    expect(failedSet.errorCode).toBe("SOLVE_FAILED");
+    expect(failedSet.failureReason).toBe("interrupted");
   });
 
   it("a non-zero exit code with a valid failure message marks the job failed with the classified reason", async () => {
@@ -1050,5 +1095,76 @@ describe("parsePositiveIntEnv (P1.1 env-var config parsing)", () => {
 describe("QUEUE_DEPTH_LIMIT (P1.1)", () => {
   it("resolves to the documented default (30) when SOLVE_QUEUE_DEPTH_LIMIT is unset in this test process", () => {
     expect(QUEUE_DEPTH_LIMIT).toBe(30);
+  });
+});
+
+// A5 — the exhaustive failureReason/Node-class -> errorCode mapping (§2.11 +
+// the A3.T terminal table), plus the negative-leakage guarantee: this
+// function NEVER reads/returns failureReason, failureStage, errorDetail, or
+// the raw `error` column — its output is exactly {errorCode, errorMessage}
+// or null, nothing else.
+describe("derivePublicFailure (A5 — permanent public errorCode + errorMessage)", () => {
+  it("returns null for every non-failed status", () => {
+    for (const status of ["queued", "running", "succeeded"]) {
+      expect(derivePublicFailure({ status, errorCode: "TIMEOUT", failureReason: "timeout", failureStage: "timeout" })).toBeNull();
+    }
+  });
+
+  it("TT-1 timeout: errorCode column TIMEOUT -> TIMEOUT / \"Solve timed out\"", () => {
+    expect(derivePublicFailure({ status: "failed", errorCode: "TIMEOUT", failureReason: "timeout", failureStage: "timeout" }))
+      .toEqual({ errorCode: "TIMEOUT", errorMessage: "Solve timed out" });
+  });
+
+  it("TT-2 interrupted (cancel/deploy): failureReason=interrupted -> SOLVE_FAILED / \"Solve interrupted\", never TIMEOUT", () => {
+    expect(derivePublicFailure({ status: "failed", errorCode: "SOLVE_FAILED", failureReason: "interrupted", failureStage: null }))
+      .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: "Solve interrupted" });
+  });
+
+  it("reapStaleLeases' server-restart-reaper interruption classifies identically to a live cancellation", () => {
+    expect(derivePublicFailure({ status: "failed", errorCode: "SOLVE_FAILED", failureReason: "interrupted", failureStage: "reaper" }))
+      .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: "Solve interrupted" });
+  });
+
+  it("recovery-contract-identity / version-mismatch (data_error + validate) -> SOLVE_FAILED / the exact A2 string", () => {
+    expect(derivePublicFailure({ status: "failed", errorCode: "SOLVE_FAILED", failureReason: "data_error", failureStage: "validate" }))
+      .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: VERSION_MISMATCH_SAFE_MESSAGE });
+    // Byte-identical to A2's temporary pre-A5 string, per the plan's own
+    // instruction — nothing changes for this case when A5 lands.
+    expect(VERSION_MISMATCH_SAFE_MESSAGE).toBe("Solve could not run — please try again");
+  });
+
+  it("Phase 2's legacy-row cleanup (same failureReason/failureStage pair, different origin) reads identically to a live version mismatch", () => {
+    expect(derivePublicFailure({ status: "failed", errorCode: "SOLVE_FAILED", failureReason: "data_error", failureStage: "validate" }))
+      .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: VERSION_MISMATCH_SAFE_MESSAGE });
+  });
+
+  it("every other TT-5..TT-11/TT-14 classification (solver_error/internal_error, any stage) -> the generic SOLVE_FAILED / \"Solve failed\"", () => {
+    const cases: Array<{ failureReason: string; failureStage: string }> = [
+      { failureReason: "solver_error", failureStage: "cbc_parse" },
+      { failureReason: "solver_error", failureStage: "exit" },
+      { failureReason: "internal_error", failureStage: "protocol" },
+      { failureReason: "internal_error", failureStage: "spawn" },
+      { failureReason: "internal_error", failureStage: "exit" },
+    ];
+    for (const c of cases) {
+      expect(derivePublicFailure({ status: "failed", errorCode: "SOLVE_FAILED", ...c }))
+        .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: "Solve failed" });
+    }
+  });
+
+  it("a historical pre-A1 row with EVERY typed column null reads as the conservative SOLVE_FAILED default, never TIMEOUT", () => {
+    expect(derivePublicFailure({ status: "failed", errorCode: null, failureReason: null, failureStage: null }))
+      .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: "Solve failed" });
+  });
+
+  it("a historical row with typed columns entirely ABSENT (undefined, not just null) degrades identically", () => {
+    expect(derivePublicFailure({ status: "failed" }))
+      .toEqual({ errorCode: "SOLVE_FAILED", errorMessage: "Solve failed" });
+  });
+
+  it("never returns failureReason/failureStage/errorDetail/error on its output shape", () => {
+    const result = derivePublicFailure({ status: "failed", errorCode: "SOLVE_FAILED", failureReason: "interrupted", failureStage: "reaper" });
+    expect(result).not.toBeNull();
+    expect(Object.keys(result!).sort()).toEqual(["errorCode", "errorMessage"]);
   });
 });

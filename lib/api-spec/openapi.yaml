@@ -1428,6 +1428,18 @@ components:
       type: string
       enum: [queued, running, succeeded, failed]
 
+    SolveJobErrorCode:
+      type: string
+      description: >-
+        SCND correctness A5 (§2.11) — the permanent, exhaustive public
+        failure-classification enum for a failed async solve job. `null` on
+        every non-failed job. A historical row with no typed failure columns
+        (pre-A1) reads as the conservative `SOLVE_FAILED` default, never
+        `TIMEOUT` unless positively known. Every value here is retryable —
+        there is no separate `retryable` field; the frontend derives the
+        retry action from this enum alone (A-R47).
+      enum: [SOLVE_FAILED, TIMEOUT]
+
     SolveJob:
       type: object
       properties:
@@ -1437,6 +1449,26 @@ components:
           $ref: "#/components/schemas/SolveJobStatus"
         error:
           type: ["string", "null"]
+          description: >-
+            DEPRECATED transitional alias of `errorMessage` (never the raw
+            stored diagnostic) — kept only for the pre-A11 compatibility
+            window, removed at cleanup. Prefer `errorCode`/`errorMessage`.
+        errorCode:
+          description: >-
+            The permanent public failure code. Never surfaces the internal
+            `failureReason`/`failureStage`/`errorDetail` taxonomy or any raw
+            solver diagnostic — see SolveJobErrorCode.
+          oneOf:
+            - $ref: "#/components/schemas/SolveJobErrorCode"
+            - type: "null"
+        errorMessage:
+          type: ["string", "null"]
+          description: >-
+            A server-owned, fixed safe message for `errorCode` (§2.11's
+            exhaustive mapping table) — e.g. "Solve failed" / "Solve timed
+            out" / "Solve interrupted" / "Solve could not run — please try
+            again". Never raw stdout/stderr/exception text or a filesystem
+            path. `null` on every non-failed job.
         resultSummary:
           type: ["object", "null"]
         queuedAt:
@@ -1448,7 +1480,7 @@ components:
         finishedAt:
           type: ["string", "null"]
           format: date-time
-      required: [id, status, error, resultSummary, queuedAt, startedAt, finishedAt]
+      required: [id, status, error, errorCode, errorMessage, resultSummary, queuedAt, startedAt, finishedAt]
 
     SolveHistoryEntry:
       type: object
@@ -1474,6 +1506,14 @@ components:
         distanceUnit:
           type: string
           description: Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10).
+        errorCode:
+          description: SCND correctness A5 (§2.11) — same permanent public failure code as SolveJob.errorCode; null for a non-failed row.
+          oneOf:
+            - $ref: "#/components/schemas/SolveJobErrorCode"
+            - type: "null"
+        errorMessage:
+          type: ["string", "null"]
+          description: SCND correctness A5 (§2.11) — same fixed safe message as SolveJob.errorMessage; null for a non-failed row.
         runTimeSec:
           type: ["number", "null"]
         queuedAt:
@@ -1482,7 +1522,7 @@ components:
         finishedAt:
           type: ["string", "null"]
           format: date-time
-      required: [id, scenarioId, scenarioName, modelId, status, objective, objectiveMode, weightedAvgDistance, distanceUnit, runTimeSec, queuedAt, finishedAt]
+      required: [id, scenarioId, scenarioName, modelId, status, objective, objectiveMode, weightedAvgDistance, distanceUnit, errorCode, errorMessage, runTimeSec, queuedAt, finishedAt]
 
     LandingSummary:
       type: object

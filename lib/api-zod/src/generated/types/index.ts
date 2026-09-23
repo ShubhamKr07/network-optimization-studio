@@ -116,6 +116,7 @@ export * from './serviceStatsExportRow';
 export * from './solutionStatus';
 export * from './solveHistoryEntry';
 export * from './solveJob';
+export * from './solveJobErrorCode';
 export * from './solveJobQueued';
 export * from './solveJobResultSummary';
 export * from './solveJobStatus';
