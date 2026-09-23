@@ -7,6 +7,7 @@ import { formatRelativeTime } from "@/lib/relativeTime";
 import { formatChenObjective, formatObjective as formatObjectiveShared } from "@/lib/formatObjective";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
+import { isRetryableFailureCode } from "@/lib/solveFailure";
 
 function chapterNumber(chapterLabel: string): string {
   const n = chapterLabel.match(/\d+/)?.[0] ?? "";
@@ -137,29 +138,70 @@ export function Landing() {
           <div className="border rounded-lg divide-y bg-white">
             {visibleHistory.map((h) => {
               const chapterPath = chapterPathForModelId(h.modelId);
+              // A9 (SCND correctness, §2.7.1) — `h.status` is the job-
+              // lifecycle status, always authoritative on its own: a
+              // superseded-but-successful job (A7) is a real "succeeded"
+              // status here and must render as such, NEVER as a failure —
+              // this badge is derived from `h.status` alone, with no
+              // second-guessing from any other field. `legacyUnverified` is
+              // an orthogonal PROOF-STATE concern layered on top only for a
+              // succeeded row: a normalized-legacy/unverified result still
+              // "succeeded" as a job, it just isn't a verified proof — so it
+              // gets an ADDITIONAL neutral "unverified" badge, never
+              // promoted to (and never rendered as) anything resembling
+              // "Proven optimal".
+              const isRetryable = h.status === "failed" && isRetryableFailureCode(h.errorCode);
               const row = (
-                <div className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-mono text-[10.5px] text-muted-foreground">
-                      {chapterForModelId(h.modelId)?.chapter ?? ""} ·
-                    </span>
-                    <span className="truncate font-medium text-foreground">{h.scenarioName}</span>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] ${
-                        h.status === "succeeded" ? "text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]" :
-                        h.status === "failed" ? "text-[color:var(--danger)] border-[color:var(--danger-border)] bg-[color:var(--danger-bg)]" :
-                        "text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
-                      }`}
-                    >
-                      {h.status}
-                    </Badge>
+                <div className="flex flex-col gap-0.5 px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-[10.5px] text-muted-foreground">
+                        {chapterForModelId(h.modelId)?.chapter ?? ""} ·
+                      </span>
+                      <span className="truncate font-medium text-foreground">{h.scenarioName}</span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${
+                          h.status === "succeeded" ? "text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]" :
+                          h.status === "failed" ? "text-[color:var(--danger)] border-[color:var(--danger-border)] bg-[color:var(--danger-bg)]" :
+                          "text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
+                        }`}
+                      >
+                        {h.status}
+                      </Badge>
+                      {h.status === "succeeded" && h.legacyUnverified && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-muted-foreground border-muted-foreground/40 bg-muted/30"
+                          data-testid={`badge-legacy-unverified-${h.id}`}
+                        >
+                          unverified
+                        </Badge>
+                      )}
+                      {isRetryable && (
+                        <span
+                          className="text-[10px] font-medium text-[color:var(--danger)]"
+                          data-testid={`link-retry-solve-history-${h.id}`}
+                        >
+                          Retry →
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
+                      {h.objective != null && <span>{formatHistoryObjective({ ...h, objective: h.objective }, unit)}</span>}
+                      {h.weightedAvgDistance != null && <span>{formatHistoryDistance({ ...h, weightedAvgDistance: h.weightedAvgDistance }, unit)}</span>}
+                      {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
-                    {h.objective != null && <span>{formatHistoryObjective({ ...h, objective: h.objective }, unit)}</span>}
-                    {h.weightedAvgDistance != null && <span>{formatHistoryDistance({ ...h, weightedAvgDistance: h.weightedAvgDistance }, unit)}</span>}
-                    {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
-                  </div>
+                  {/* A9 — failure rendering consumes errorCode/errorMessage
+                      (A5's permanent, server-owned safe strings), never a
+                      raw diagnostic; there is no raw diagnostic anywhere on
+                      this typed response to fall back to. */}
+                  {h.status === "failed" && h.errorMessage && (
+                    <p className="text-[10.5px] text-muted-foreground pl-[3.25rem]" data-testid={`text-error-message-${h.id}`}>
+                      {h.errorMessage}
+                    </p>
+                  )}
                 </div>
               );
               return chapterPath ? (

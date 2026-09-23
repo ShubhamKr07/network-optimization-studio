@@ -1496,6 +1496,67 @@ describe("Workspace — Solve dialog", () => {
     }));
     expect(screen.queryByTestId("tab-output:output-map")).not.toBeInTheDocument();
   });
+
+  // A9 (SCND correctness, §2.11/A5) — a job carrying the permanent
+  // errorCode/errorMessage prefers errorMessage over the DEPRECATED
+  // transitional `error` alias, and passes errorCode through to SolveDialog
+  // so its Retry action renders — for BOTH known errorCode values.
+  it("prefers errorMessage over the deprecated error alias, and renders an errorCode-derived Retry action (SOLVE_FAILED)", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "failed", error: "Solve failed", errorCode: "SOLVE_FAILED", errorMessage: "Solve failed — please try again", resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Solve failed",
+      description: "Solve failed — please try again",
+    }));
+    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solve failed — please try again");
+    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+  });
+
+  it("renders an errorCode-derived Retry action for a TIMEOUT failure too", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "failed", error: null, errorCode: "TIMEOUT", errorMessage: "Solve timed out", resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solve timed out");
+    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+  });
+
+  it("falls back to the deprecated error alias when errorMessage is absent (an older API build or historical row)", () => {
+    mockSolveScenario.mutate.mockImplementation((_vars: unknown, opts: { onSuccess: (r: { jobId: number }) => void }) => {
+      opts.onSuccess({ jobId: 7 });
+    });
+    mockUseGetSolveJob.mockImplementation((_scenarioId: number, jobId: number) =>
+      (jobId
+        ? { data: { id: 7, status: "failed", error: "Solver timed out", resultSummary: null } }
+        : { data: undefined }) as unknown as ReturnType<typeof useGetSolveJob>
+    );
+    renderWorkspace();
+    fireEvent.click(screen.getByTestId("button-run-optimizer"));
+    fireEvent.click(screen.getByTestId("solve-dialog-solve"));
+
+    expect(screen.getByTestId("solve-dialog-error")).toHaveTextContent("Solver timed out");
+    // No errorCode on this historical-shaped job — still retryable per
+    // isRetryableFailureCode's documented null/undefined default.
+    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+  });
 });
 
 // ── Task 6 (C5.1) — result-history stepper ───────────────────────────────────
