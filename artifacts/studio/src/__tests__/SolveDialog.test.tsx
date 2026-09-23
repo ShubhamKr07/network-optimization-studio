@@ -354,6 +354,51 @@ describe("SolveDialog — running solve clock (B9)", () => {
   });
 });
 
+// A9 (SCND correctness, §2.11/A-R47) — every terminal async solve failure
+// (SOLVE_FAILED and TIMEOUT alike) renders an explicit Retry action, decided
+// from `errorCode` ALONE — never by parsing `errorMessage` text.
+describe("SolveDialog — A9 errorCode-derived Retry action", () => {
+  it("shows Retry for a SOLVE_FAILED job and clicking it calls onSolve again", () => {
+    const { onSolve } = renderDialog({
+      phase: "failed",
+      errorMessage: "Solve failed",
+      errorCode: "SOLVE_FAILED",
+    });
+    const retry = screen.getByTestId("solve-dialog-retry");
+    expect(retry).toBeInTheDocument();
+    fireEvent.click(retry);
+    expect(onSolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows Retry for a TIMEOUT job too (both known errorCode values are retryable)", () => {
+    renderDialog({ phase: "failed", errorMessage: "Solve timed out", errorCode: "TIMEOUT" });
+    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+  });
+
+  it("still shows Retry for a synchronous (pre-job) failure with no errorCode at all", () => {
+    renderDialog({ phase: "failed", errorMessage: "Could not enqueue the solve. Try again.", errorCode: undefined });
+    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+  });
+
+  it("does not show Retry outside the failed phase", () => {
+    renderDialog({ phase: "solving", errorCode: "SOLVE_FAILED" });
+    expect(screen.queryByTestId("solve-dialog-retry")).not.toBeInTheDocument();
+  });
+
+  // The load-bearing invariant: Retry's presence tracks errorCode, NOT the
+  // co-located errorMessage text. Same errorCode, a deliberately misleading
+  // errorMessage that reads like a dead end — Retry still renders, because
+  // the errorMessage is never inspected to decide this.
+  it("renders Retry even when errorMessage's TEXT reads as non-retryable — only errorCode decides this", () => {
+    renderDialog({
+      phase: "failed",
+      errorMessage: "This failure is permanent and cannot be retried.",
+      errorCode: "SOLVE_FAILED",
+    });
+    expect(screen.getByTestId("solve-dialog-retry")).toBeInTheDocument();
+  });
+});
+
 // chen-bands-units, T13, Part D — SolveDialog's own band editor + avg-cap
 // field adopt the identical `useDistanceDraft` contract OptimizationParametersTab
 // uses (one state source, not a parallel copy — both call the same shared

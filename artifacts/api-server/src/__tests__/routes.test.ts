@@ -11,7 +11,7 @@ const mockDb = vi.hoisted(() => ({
   transaction: vi.fn(async (cb: (tx: typeof mockDb) => Promise<unknown>) => cb(mockDb)),
 }));
 
-const mockEnqueueSolveJob = vi.hoisted(() => vi.fn());
+const mockEnqueueScenarioSolve = vi.hoisted(() => vi.fn());
 const mockGetQueueDepth = vi.hoisted(() => vi.fn(() => 0));
 const mockPool = vi.hoisted(() => ({ query: vi.fn(async () => ({ rows: [{ "?column?": 1 }] })) }));
 // POSTHOG-2 — posthog is null in this test process (no POSTHOG_API_KEY), so
@@ -36,7 +36,7 @@ vi.mock("@workspace/db", () => ({
   db: mockDb,
   pool: mockPool,
   scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
-  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary" },
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary", result: "solve_jobs.result", errorCode: "solve_jobs.error_code", failureReason: "solve_jobs.failure_reason", failureStage: "solve_jobs.failure_stage" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -55,11 +55,20 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
-vi.mock("../solver/jobRunner.js", () => ({
-  enqueueSolveJob: mockEnqueueSolveJob,
-  getQueueDepth: mockGetQueueDepth,
-  QUEUE_DEPTH_LIMIT: 30,
-}));
+// A5 — derivePublicFailure is a PURE function (no DB/process access) that
+// routes/scenarios.ts and routes/solveHistory.ts both call directly; pull
+// the REAL implementation through so these routes' error-shape tests
+// exercise actual behavior instead of a hand-duplicated stand-in that could
+// silently drift from it.
+vi.mock("../solver/jobRunner.js", async () => {
+  const actual = await vi.importActual<typeof import("../solver/jobRunner.js")>("../solver/jobRunner.js");
+  return {
+    enqueueScenarioSolve: mockEnqueueScenarioSolve,
+    getQueueDepth: mockGetQueueDepth,
+    QUEUE_DEPTH_LIMIT: 30,
+    derivePublicFailure: actual.derivePublicFailure,
+  };
+});
 
 import app from "../app.js";
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
@@ -281,6 +290,32 @@ const chensRow = {
   createdAt: new Date("2026-01-06T00:00:00Z"),
   updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
+
+// A8 (SCND Correctness, §2.7.1), fixed under A-fix (F1b/F3) — output-entity
+// export 409s only a GENUINELY pre-B legacy-unverified result (neither
+// solutionStatus nor terminationReason ever set — see resultEnvelope.ts's
+// hasTruthfulStatusEvidence/normalizeLegacyResult). This helper used to
+// fabricate `envelopeVersion:2, legacyUnverified:false` directly onto the
+// fixture — a shape production code NEVER actually writes without going
+// through composePublishedResult (which, pre-A-fix, had zero production
+// callers — see resultEnvelope.ts's own header). That let this whole test
+// file's "verified/200" fixtures pass for the wrong reason, silently masking
+// the real F1 wiring gap. Now produces the TRUTHFUL, ACTUALLY-PRODUCED B
+// shape instead: a real `solutionStatus`/`terminationReason` (exactly what
+// jobRunner.ts's markSucceeded has written for every solve since Bundle B),
+// no `envelopeVersion`/`legacyUnverified` fields at all — B rows never carry
+// either. `isLegacyUnverifiedResult` correctly returns false for this shape
+// under the fixed rule, same test outcome, honest mechanism.
+function verifiedResult<T extends { status: string; objective: number }>(base: T): T & Record<string, unknown> {
+  return {
+    solutionStatus: base.status,
+    terminationReason: base.status === "optimal" ? "optimality_proven" : "unknown",
+    achievedGap: 0,
+    solverIncumbentObjective: base.objective,
+    solverBestBound: base.objective,
+    ...base,
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -601,6 +636,39 @@ describe("PATCH /api/scenarios/:id", () => {
     const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
       .send({ inputs: pmedianInputs, modelId: "transport-coal" });
     expect(res.status).toBe(422);
+  });
+
+  // A-fix (F2) — `result` is solver-owned; a client can never PATCH it.
+  // Before this fix, `body.result` was read and written verbatim with no
+  // schema constraining it — a real, confirmed vector for an owner to
+  // self-certify a fabricated `{envelopeVersion:2, legacyUnverified:false}`
+  // result and pass the output-export legacy-unverified gate with no real
+  // solve having run.
+  it("returns 422 when the body includes result (solver-owned, never client-settable) and never writes it", async () => {
+    const cookie = await loginAs(OWNER);
+    const forged = {
+      envelopeVersion: 2, status: "optimal", solutionStatus: "optimal",
+      terminationReason: "optimality_proven", achievedGap: 0,
+      solverIncumbentObjective: 1, solverBestBound: 1, objective: 1,
+      runTimeSec: 0.01, quality: "Proven optimal", edges: [], metrics: {},
+      details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      requestedGap: null, requestedGapSource: null,
+      requestedTimeLimitSec: null, requestedTimeLimitSource: null,
+      legacyUnverified: false,
+    };
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
+      .send({ result: forged });
+    expect(res.status).toBe(422);
+    // The forgery attempt never reaches db.update at all.
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for a result-forgery attempt even when combined with a legitimate inputs change (the whole request is rejected, not partially applied)", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
+      .send({ inputs: pmedianInputs, result: { status: "optimal" } });
+    expect(res.status).toBe(422);
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("returns 422 when inputs fails model-specific validation", async () => {
@@ -1740,11 +1808,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1769,11 +1837,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: { bandCoverage: [{ band: 200, percent: 100 }] }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1827,11 +1895,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...transportRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
         edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       stale: false,
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1856,11 +1924,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...twoEchelonRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
         edges: [{ fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       stale: false,
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1881,11 +1949,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: { bandCoverage: [{ band: 200, percent: 100 }], weightedAvgDistance: 42.1 }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     for (const [entity, expected] of [["costSummary", 3], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
@@ -1901,12 +1969,12 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...chensRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
         metrics: { bandCoverage: [{ band: 500, percent: 87.5 }], weightedAvgDistance: 250.5, utilizationByNode: [], openFacilityIds: ["wh-15"] },
         details: { objective: "coverage" }, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1934,11 +2002,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1954,13 +2022,13 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...chensRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-17", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
         // wh-15 (Changchun) is forced-open but serves no customer → no edge.
         metrics: { utilizationByNode: [], openFacilityIds: ["wh-17", "wh-15"] },
         details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1977,6 +2045,58 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/1/export?entity=flows&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(422);
+  });
+
+  // A8 (SCND Correctness, §2.7.1) — the latest-path (no runId) counterpart
+  // of the runId-path 409 test below. A legacy-unverified result is REJECTED
+  // for every output entity, not just assignments — asserted here as never
+  // rendered/exported as proven optimal (DoD item 5): the response body
+  // carries neither `rows` nor any quality/status claim.
+  it.each(["assignments", "openWarehouses", "costSummary", "serviceStats"] as const)(
+    "a legacy-unverified latest result → 409 LEGACY_RESULT_REQUIRES_RESOLVE for entity=%s, never exported",
+    async (entity) => {
+      const cookie = await loginAs(OWNER);
+      const legacyRow = {
+        ...pmedianRow,
+        result: {
+          status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+          edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+          metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+          // Deliberately no envelopeVersion/solutionStatus/terminationReason.
+        },
+        solvedAt: new Date("2026-01-01T00:00:00Z"),
+      };
+      mockDb.select.mockReturnValue(makeChain([legacyRow]));
+
+      const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({
+        error: "This scenario's result predates verified solve tracking and cannot be exported as output data — re-solve to produce a verified result.",
+        code: "LEGACY_RESULT_REQUIRES_RESOLVE",
+      });
+      expect(res.body).not.toHaveProperty("rows");
+      expect(JSON.stringify(res.body)).not.toMatch(/proven/i);
+    },
+  );
+
+  it("a genuinely verified (v2) latest result exports normally (200) — the counterpart positive case", async () => {
+    const cookie = await loginAs(OWNER);
+    const verifiedRow = {
+      ...pmedianRow,
+      result: verifiedResult({
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      }),
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([verifiedRow]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(1);
   });
 });
 
@@ -2025,18 +2145,18 @@ describe("GET /api/scenarios/:id/export — unit= (T9, spec Part E / decision 5b
 describe("GET /api/scenarios/:id/export — runId (T9, spec Part F)", () => {
   const solvedRow = {
     ...pmedianRow,
-    result: {
+    result: verifiedResult({
       status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
       edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
       metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-    },
+    }),
     solvedAt: new Date("2026-01-01T00:00:00Z"),
   };
-  const historicalResult = {
+  const historicalResult = verifiedResult({
     status: "optimal", objective: 55, runTimeSec: 0.3, quality: "Proven optimal",
     edges: [{ fromId: "ATL", toId: "C2", flow: 20, distance: 10 }],
     metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-  };
+  });
 
   it("exports the addressed run, not the latest", async () => {
     const cookie = await loginAs(OWNER);
@@ -2104,6 +2224,27 @@ describe("GET /api/scenarios/:id/export — runId (T9, spec Part F)", () => {
     const cookie = await loginAs(OWNER);
     const res = await request(app).get(`/api/scenarios/1/export?entity=assignments&format=json&runId=${bad}`).set("Cookie", cookie);
     expect(res.status).toBe(400);
+  });
+
+  // A8 (SCND Correctness, §2.7.1) — a syntactically-valid but legacy-shaped
+  // (no envelopeVersion) runId result is REJECTED, not exported — distinct
+  // from the "malformed" 422 case above (that one fails ResultEnvelopeSchema
+  // outright; this one is a perfectly valid legacy envelope, just unverified).
+  it("a legacy-unverified runId result → 409 LEGACY_RESULT_REQUIRES_RESOLVE, never exported", async () => {
+    const cookie = await loginAs(OWNER);
+    const legacyHistoricalResult = {
+      status: "optimal", objective: 55, runTimeSec: 0.3, quality: "Proven optimal",
+      edges: [{ fromId: "ATL", toId: "C2", flow: 20, distance: 10 }],
+      metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      // Deliberately no envelopeVersion/solutionStatus/terminationReason —
+      // the exact bare shape solve.py has always written pre-A11 activation.
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([{ id: 77, scenarioId: 1, userId: OWNER, result: legacyHistoricalResult }]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=77").set("Cookie", cookie);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("LEGACY_RESULT_REQUIRES_RESOLVE");
+    expect(res.body).not.toHaveProperty("rows");
   });
 });
 
@@ -2245,7 +2386,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
   const jadeSolvedRow = {
     ...jadeRow,
     inputs: { ...jadeInputs, distanceBands: [200, 400, 800, 1600] },
-    result: {
+    result: verifiedResult({
       status: "optimal", objective: 1000, runTimeSec: 0.5, quality: "Proven optimal",
       edges: [
         { fromId: "PL1", toId: "WH1", flow: 100, distance: 150, leg: "plant_to_warehouse", productId: "P1" },
@@ -2263,7 +2404,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
         ],
       },
       solverUsed: "CBC", infeasibilityReason: null,
-    },
+    }),
     solvedAt: new Date("2026-01-05T00:00:00Z"),
   };
 
@@ -2394,11 +2535,11 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
@@ -2418,11 +2559,11 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...transportRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
         edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       stale: false,
     };
     mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
@@ -2922,72 +3063,88 @@ describe("POST /api/scenarios/:id/clone", () => {
 });
 
 // ── Solve scenario ─────────────────────────────────────────────────────────
+// A1 (SCND Correctness) — the route's own select+validate+precheck logic
+// (previously tested here directly against fabricated scenario rows) moved
+// INTO jobRunner.ts's `enqueueScenarioSolve` — a single atomic
+// lock-then-validate-then-precheck-then-insert transaction (see that
+// function's own header comment for the race it closes). The route is now a
+// thin outcome-to-HTTP-status mapper, so these tests mock
+// `enqueueScenarioSolve`'s return value directly instead of a fake DB row.
+// Per-model precheck MESSAGE-BODY coverage (id_collision etc, for every
+// model) already lives in precheck.test.ts, directly against the precheck
+// functions — this block only proves the route's OWN contract: status-code
+// mapping per outcome kind, the 429 backpressure fast-path (still
+// route-level, before enqueueScenarioSolve is ever called), and the posthog
+// events. Genuine end-to-end atomicity (the real lock/revalidate/precheck
+// behavior enqueueScenarioSolve performs against a REAL Postgres row) is
+// covered by a dedicated real-DB test file (scenarioSolveAtomicity.test.ts),
+// since mocking `enqueueScenarioSolve` here necessarily bypasses its real
+// internals.
 describe("POST /api/scenarios/:id/solve", () => {
-  // G3.1: solve is now async — the route's job is to validate + enqueue and
-  // return 202 {jobId}. Input-translation (buildPayload) and result-shape
-  // translation (envelopeToLegacy) are pure functions covered directly in
-  // pmedian.test.ts; the actual job lifecycle is covered in
-  // jobRunner.test.ts. This block only tests the route's own contract.
-  it("returns 202 with a jobId and enqueues the job with the scenario's modelId/inputs", async () => {
+  it("returns 401 without a session", async () => {
+    expect((await request(app).post("/api/scenarios/1/solve")).status).toBe(401);
+  });
+
+  it("returns 202 with the jobId and calls enqueueScenarioSolve(id, userId)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    mockEnqueueSolveJob.mockResolvedValue(42);
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 42, modelId: "p-median-us" });
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(202);
     expect(res.body.jobId).toBe(42);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(1, OWNER, { modelId: "p-median-us", inputs: pmedianInputs });
+    expect(mockEnqueueScenarioSolve).toHaveBeenCalledWith(1, OWNER);
   });
 
-  it("enqueues transport-coal scenarios with their modelId/inputs", async () => {
+  it("captures 'scenario solve enqueued' with the outcome's modelId/jobId", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockEnqueueSolveJob.mockResolvedValue(7);
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 7, modelId: "transport-coal" });
 
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(8, OWNER, { modelId: "transport-coal", inputs: { ...transportInputs, mineCapacities: {}, stationDemands: {}, addedMines: [], addedStations: [], laneCostOverrides: [] } });
+    await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
+    expect(mockPosthogCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: OWNER,
+        event: "scenario solve enqueued",
+        properties: { scenario_id: 8, model_id: "transport-coal", job_id: 7 },
+      }),
+    );
   });
 
-  it("enqueues p-median-brazil scenarios with their modelId/inputs", async () => {
+  it("returns 404 when the outcome is not_found (unknown or cross-user scenario — never 403)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([brazilRow]));
-    mockEnqueueSolveJob.mockResolvedValue(9);
-
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalledWith(10, OWNER, { modelId: "p-median-brazil", inputs: brazilInputs });
-  });
-
-  it("returns 404 when scenario not found", async () => {
-    const cookie = await loginAs(OWNER);
-    // Default: select returns [] → 404
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "not_found" });
     const res = await request(app).post("/api/scenarios/999/solve").set("Cookie", cookie);
     expect(res.status).toBe(404);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
   });
 
-  it("returns 404 (not 403) when solving a scenario owned by a different user", async () => {
-    const cookie = await loginAs("other-user-id");
-    mockDb.select.mockReturnValue(makeChain([]));
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(404);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("returns 422 when the scenario's stored inputs fail model validation", async () => {
+  it("returns 422 with the validation message when the outcome is invalid (locked row's stored inputs fail model validation)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, inputs: { ...pmedianInputs, capacityMode: "bogus" } }]));
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "invalid", error: "capacityMode must be one of ..." });
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(422);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+    expect(res.body.error).toBe("capacityMode must be one of ...");
+  });
+
+  // B2.1 — semantic precheck runs after shape validation, before enqueue.
+  it("returns 422 with structured precheck errors when the outcome is precheck_failed", async () => {
+    const cookie = await loginAs(OWNER);
+    mockEnqueueScenarioSolve.mockResolvedValue({
+      kind: "precheck_failed",
+      errors: [{ code: "id_collision", message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id` }],
+    });
+    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Network-edit precheck failed");
+    expect(res.body.errors).toContainEqual({
+      code: "id_collision",
+      message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
+    });
   });
 
   // P1.1 — backpressure: queue depth at/over the threshold sheds load with
-  // 429 + Retry-After instead of enqueuing.
-  it("returns 429 with a Retry-After header when queue depth is at the limit, and does not enqueue", async () => {
+  // 429 + Retry-After instead of ever calling enqueueScenarioSolve. Unchanged
+  // by A1 — this check stays entirely route-level, before any DB work.
+  it("returns 429 with a Retry-After header when queue depth is at the limit, and does not call enqueueScenarioSolve", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(30); // mocked QUEUE_DEPTH_LIMIT is 30
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
@@ -2996,44 +3153,40 @@ describe("POST /api/scenarios/:id/solve", () => {
     expect(res.headers["retry-after"]).toBeDefined();
     expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
     expect(res.body.error).toBeTypeOf("string");
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+    expect(mockEnqueueScenarioSolve).not.toHaveBeenCalled();
   });
 
   it("returns 429 when queue depth exceeds the limit (not just exactly at it)", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(31);
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(429);
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
+    expect(mockEnqueueScenarioSolve).not.toHaveBeenCalled();
   });
 
   it("still enqueues normally when queue depth is just below the limit", async () => {
     const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(29);
-    mockEnqueueSolveJob.mockResolvedValue(55);
+    mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 55, modelId: "p-median-us" });
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(202);
     expect(res.body.jobId).toBe(55);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
+    expect(mockEnqueueScenarioSolve).toHaveBeenCalled();
   });
 
-  it("the 429 backpressure check runs before the scenario ownership lookup (fails fast without a DB query)", async () => {
+  it("the 429 backpressure check runs before calling enqueueScenarioSolve at all (fails fast)", async () => {
     const cookie = await loginAs(OWNER);
     mockGetQueueDepth.mockReturnValue(30);
-    // mockDb.select default (from beforeEach) returns [] — if the route queried
-    // the DB before the capacity check, a nonexistent scenario would 404 instead
-    // of 429; asserting 429 here proves the capacity check ran first.
     const res = await request(app).post("/api/scenarios/999999/solve").set("Cookie", cookie);
     expect(res.status).toBe(429);
+    expect(mockEnqueueScenarioSolve).not.toHaveBeenCalled();
   });
 
   // POSTHOG-2 — the 429 backpressure branch captures a "scenario solve
-  // rejected" event. No `model_id`: the queue check runs before the
-  // scenario row is loaded, so it isn't known yet at this point.
+  // rejected" event. No `model_id`: enqueueScenarioSolve is never called on
+  // this path, so it isn't known yet at this point.
   it("captures 'scenario solve rejected' when the queue is at capacity", async () => {
     const cookie = await loginAs(OWNER);
     mockGetQueueDepth.mockReturnValue(30); // mocked QUEUE_DEPTH_LIMIT is 30
@@ -3053,139 +3206,6 @@ describe("POST /api/scenarios/:id/solve", () => {
         },
       }),
     );
-  });
-
-  // B2.1 — semantic precheck runs after shape validation, before enqueue.
-  it("returns 422 with structured precheck errors when a p-median-us scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...pmedianRow,
-      inputs: {
-        ...pmedianInputs,
-        // Reuses a real base-dataset warehouse id — an id-collision finding.
-        addedWarehouses: [{ id: WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a p-median-us scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
-    mockEnqueueSolveJob.mockResolvedValue(99);
-    const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  it("does not run the p-median-us precheck against non-p-median-us models (transport-coal enqueues with its own trivially-passing precheck)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockEnqueueSolveJob.mockResolvedValue(100);
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  // B6.1 — transport-coal gets its own precheck function (precheckTransportInputs).
-  it("returns 422 with structured precheck errors when a transport-coal scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...transportRow,
-      inputs: {
-        ...transportInputs,
-        // Reuses a real base-dataset mine id — an id-collision finding.
-        addedMines: [{ id: TRANSPORT_COAL_WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0 }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added mine id '${TRANSPORT_COAL_WAREHOUSES[0].id}' collides with an existing base-dataset mine id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a transport-coal scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([transportRow]));
-    mockEnqueueSolveJob.mockResolvedValue(102);
-    const res = await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  // B6.3 — p-median-brazil fast-follows p-median-us' precheck wiring.
-  it("returns 422 with structured precheck errors when a p-median-brazil scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...brazilRow,
-      inputs: {
-        ...brazilInputs,
-        // Reuses a real Brazil base-dataset warehouse id — an id-collision finding.
-        addedWarehouses: [{ id: BRAZIL_WAREHOUSES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added warehouse id '${BRAZIL_WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a p-median-brazil scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([brazilRow]));
-    mockEnqueueSolveJob.mockResolvedValue(101);
-    const res = await request(app).post("/api/scenarios/10/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
-  });
-
-  // B6.2 — two-echelon-gold-au gets its own precheck function (precheckTwoEchelonInputs).
-  it("returns 422 with structured precheck errors when a two-echelon-gold-au scenario's network edits fail precheck, and does not enqueue", async () => {
-    const cookie = await loginAs(OWNER);
-    const row = {
-      ...twoEchelonRow,
-      inputs: {
-        ...twoEchelonInputs,
-        // Reuses a real base-dataset refinery id — an id-collision finding.
-        addedRefineries: [{ id: GOLD_REFINERIES[0].id, city: "X", state: "XX", lat: 0, lng: 0, status: "active" }],
-      },
-    };
-    mockDb.select.mockReturnValue(makeChain([row]));
-    const res = await request(app).post("/api/scenarios/11/solve").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBeTypeOf("string");
-    expect(res.body.errors).toContainEqual({
-      code: "id_collision",
-      message: `Added refinery id '${GOLD_REFINERIES[0].id}' collides with an existing base-dataset refinery id`,
-    });
-    expect(mockEnqueueSolveJob).not.toHaveBeenCalled();
-  });
-
-  it("still enqueues a two-echelon-gold-au scenario with no network edits (precheck trivially passes)", async () => {
-    const cookie = await loginAs(OWNER);
-    mockDb.select.mockReturnValue(makeChain([twoEchelonRow]));
-    mockEnqueueSolveJob.mockResolvedValue(103);
-    const res = await request(app).post("/api/scenarios/11/solve").set("Cookie", cookie);
-    expect(res.status).toBe(202);
-    expect(mockEnqueueSolveJob).toHaveBeenCalled();
   });
 });
 
@@ -3342,6 +3362,78 @@ describe("GET /api/scenarios/:id/solve-jobs/:jobId", () => {
     expect(res.body.status).toBe("succeeded");
     expect(res.body.resultSummary).toEqual({ status: "optimal", objective: 100 });
     expect(res.body.error).toBeNull();
+    expect(res.body.errorCode).toBeNull();
+    expect(res.body.errorMessage).toBeNull();
+  });
+
+  // A5 — the permanent public errorCode/errorMessage shape, and the
+  // negative-leakage guarantee: a failed job's raw internal diagnostic
+  // (`error`, `errorDetail`, `failureReason`, `failureStage`) must NEVER
+  // reach this response, even when those columns carry something that
+  // LOOKS like a real leak (a filesystem path, a stack-trace-shaped
+  // string) — the route only ever derives `error`/`errorCode`/
+  // `errorMessage` from the closed, fixed public mapping.
+  describe("A5 — public errorCode/errorMessage + negative leakage", () => {
+    const LEAK_MARKER = "/tmp/nos-solve-abc123/secret_traceback.py line 42 Traceback (most recent call last)";
+
+    it("TIMEOUT: errorCode column TIMEOUT -> errorCode=TIMEOUT, errorMessage=\"Solve timed out\", error aliases errorMessage", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: LEAK_MARKER, errorCode: "TIMEOUT",
+        failureReason: "timeout", failureStage: "timeout", errorDetail: LEAK_MARKER,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("TIMEOUT");
+      expect(res.body.errorMessage).toBe("Solve timed out");
+      expect(res.body.error).toBe("Solve timed out"); // transitional alias, not the raw column
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+      expect(JSON.stringify(res.body)).not.toMatch(/failureReason|failureStage|errorDetail/);
+    });
+
+    it("interrupted: failureReason=interrupted -> errorCode=SOLVE_FAILED, errorMessage=\"Solve interrupted\" — never leaks the raw error/errorDetail column", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: LEAK_MARKER, errorCode: "SOLVE_FAILED",
+        failureReason: "interrupted", failureStage: "reaper", errorDetail: LEAK_MARKER,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("SOLVE_FAILED");
+      expect(res.body.errorMessage).toBe("Solve interrupted");
+      expect(res.body.error).toBe("Solve interrupted");
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
+
+    it("a historical row (all typed failure columns null) reads as the conservative SOLVE_FAILED default, never TIMEOUT — and still never leaks the raw error text", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: LEAK_MARKER, errorCode: null,
+        failureReason: null, failureStage: null, errorDetail: null,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("SOLVE_FAILED");
+      expect(res.body.errorMessage).toBe("Solve failed");
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
+
+    it("a generic protocol/exit failure (solver_error/internal_error taxonomy) -> the generic \"Solve failed\", raw error/errorDetail never surfaced", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockReturnValue(makeChain([{
+        ...jobRow, status: "failed", error: "Solver failed (internal_error/protocol)",
+        errorCode: "SOLVE_FAILED", failureReason: "internal_error", failureStage: "protocol", errorDetail: LEAK_MARKER,
+      }]));
+      const res = await request(app).get("/api/scenarios/1/solve-jobs/42").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.errorCode).toBe("SOLVE_FAILED");
+      expect(res.body.errorMessage).toBe("Solve failed");
+      // The internal diagnostic text must not appear even indirectly (it
+      // names failureReason/failureStage, which are internal-only).
+      expect(JSON.stringify(res.body)).not.toContain("internal_error");
+      expect(JSON.stringify(res.body)).not.toContain("protocol");
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
   });
 
   it("returns 401 without a session", async () => {
@@ -3485,6 +3577,150 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+
+  // A8 (SCND Correctness, §2.7.1) — the typed legacyUnverified marker.
+  // Mixed collection: historical-legacy (no result at all), a genuinely
+  // verified v2 result, and a failure, all in ONE response — each row's
+  // value is independently correct.
+  describe("A8 — legacyUnverified marker + mixed collections", () => {
+    it("a succeeded row with no full result at all → legacyUnverified:true (conservative, never promoted to proven)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      // historyRow1 above never sets `result` (only `resultSummary`) — the
+      // real shape of every solve today, since jobRunner.ts's write path
+      // never carries envelopeVersion (out of A8's scope to change).
+      configureSolveHistoryMocks([historyRow1]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ status: "succeeded", legacyUnverified: true });
+    });
+
+    it("a succeeded row with a genuine v2 published result → legacyUnverified:false", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        ...historyRow1,
+        result: verifiedResult({
+          status: "optimal", objective: 94500000, runTimeSec: 0.4, quality: "Proven optimal",
+          edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+        }),
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ status: "succeeded", legacyUnverified: false });
+    });
+
+    it("a malformed stored result → legacyUnverified:true, never a throw", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{ ...historyRow1, result: { not: "a valid envelope" } }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ legacyUnverified: true });
+    });
+
+    it("a failed row → legacyUnverified:false (no result exists to (un)verify)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([historyRow2]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ status: "failed", legacyUnverified: false });
+    });
+
+    it("a mixed collection (legacy-succeeded + v2-succeeded + failed) in one response — each row independently correct, never a proven claim on the legacy row", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      const v2Row = {
+        ...historyRowNew,
+        id: 30, scenarioId: 30,
+        result: verifiedResult({
+          status: "optimal", objective: 66.0, runTimeSec: 0.7, quality: "Proven optimal",
+          edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+        }),
+      };
+      configureSolveHistoryMocks([historyRow1, v2Row, historyRow2]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(3);
+      const byId = Object.fromEntries(res.body.map((r: { id: number }) => [r.id, r]));
+      expect(byId[10]).toMatchObject({ status: "succeeded", legacyUnverified: true });
+      expect(byId[30]).toMatchObject({ status: "succeeded", legacyUnverified: false });
+      expect(byId[9]).toMatchObject({ status: "failed", legacyUnverified: false });
+      // The legacy row's own `quality`/summary never claims proof — a
+      // resultSummary field, not the full result; asserted here only that
+      // the marker itself, not any rendered text, is what a consumer must
+      // gate on (A9's job to actually render this).
+      expect(byId[10].legacyUnverified).toBe(true);
+    });
+  });
+
+  // A5 — same permanent public failure shape + negative-leakage guarantee
+  // as the job-poll endpoint above. solveHistory.ts's inner query selects
+  // ONLY the typed errorCode/failureReason/failureStage columns (never
+  // `error`/`errorDetail`) — this asserts the resulting HTTP response
+  // reflects that: a row shaped like it came straight off a raw DB read
+  // (carrying `error`/`errorDetail` text a naive implementation might have
+  // spread through) never surfaces that text.
+  describe("A5 — public errorCode/errorMessage + negative leakage", () => {
+    const LEAK_MARKER = "/tmp/nos-solve-xyz/secret_traceback.py Traceback (most recent call last)";
+
+    it("a failed row with errorCode=TIMEOUT -> errorCode=TIMEOUT, errorMessage=\"Solve timed out\", no raw leakage", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        id: 20, scenarioId: 1, status: "failed", resultSummary: null,
+        queuedAt: new Date("2026-01-05T00:00:00Z"), finishedAt: new Date("2026-01-05T00:00:05Z"),
+        scenarioName: "Timed Out", modelId: "p-median-us",
+        errorCode: "TIMEOUT", failureReason: "timeout", failureStage: "timeout",
+        error: LEAK_MARKER, errorDetail: LEAK_MARKER,
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ errorCode: "TIMEOUT", errorMessage: "Solve timed out" });
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+      expect(JSON.stringify(res.body)).not.toMatch(/failureReason|failureStage|errorDetail|"error"/);
+    });
+
+    it("a failed row with failureReason=interrupted -> errorCode=SOLVE_FAILED, errorMessage=\"Solve interrupted\"", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        id: 21, scenarioId: 2, status: "failed", resultSummary: null,
+        queuedAt: new Date("2026-01-06T00:00:00Z"), finishedAt: new Date("2026-01-06T00:00:05Z"),
+        scenarioName: "Interrupted", modelId: "p-median-us",
+        errorCode: "SOLVE_FAILED", failureReason: "interrupted", failureStage: "reaper",
+        error: LEAK_MARKER, errorDetail: LEAK_MARKER,
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ errorCode: "SOLVE_FAILED", errorMessage: "Solve interrupted" });
+      expect(JSON.stringify(res.body)).not.toContain(LEAK_MARKER);
+    });
+
+    it("a succeeded row's errorCode/errorMessage are both null (no failure to report)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        id: 22, scenarioId: 3, status: "succeeded",
+        resultSummary: { status: "optimal", objective: 5, runTimeSec: 0.1 },
+        queuedAt: new Date("2026-01-07T00:00:00Z"), finishedAt: new Date("2026-01-07T00:00:01Z"),
+        scenarioName: "OK", modelId: "p-median-us",
+        errorCode: null, failureReason: null, failureStage: null,
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ errorCode: null, errorMessage: null });
+    });
   });
 });
 

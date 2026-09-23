@@ -25,6 +25,7 @@ import {
   type SolveResult,
   type Plant,
   type SolveJob,
+  type SolveJobErrorCode,
 } from "@workspace/api-client-react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -2643,6 +2644,13 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [solveDialogOpen, setSolveDialogOpen] = useState(false);
   const [solvePhase, setSolvePhase] = useState<SolveDialogPhase>("idle");
   const [solveError, setSolveError] = useState<string | null>(null);
+  // A9 (SCND correctness, §2.11/A-R47) — the polled job's permanent public
+  // errorCode, tracked alongside `solveError`'s message so SolveDialog can
+  // derive its Retry affordance from errorCode ALONE. Null for a
+  // synchronous save/enqueue rejection (never had a job, so never had an
+  // errorCode) — SolveDialog's own default still renders Retry for that case
+  // via `isRetryableFailureCode`'s documented null/undefined handling.
+  const [solveErrorCode, setSolveErrorCode] = useState<SolveJobErrorCode | null>(null);
   const [pollingJobId, setPollingJobId] = useState<number | null>(null);
 
   // jade-INT (#8, spec §9) — a persisted mirror of the last polled solve-job
@@ -2656,6 +2664,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
 
   function openSolveDialog() {
     setSolveError(null);
+    setSolveErrorCode(null);
     setSolvePhase("idle");
     setLastJobSnapshot(null);
     setSolveDialogOpen(true);
@@ -2679,6 +2688,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     // ever run there even if invoked programmatically.
     if (!currentScenario || isBrowsingHistoryNow) return;
     setSolveError(null);
+    // A9 — a synchronous save/enqueue rejection below never has a job, so it
+    // never has an errorCode; clearing it here (rather than per-branch) is
+    // sufficient since neither onError branch below sets it.
+    setSolveErrorCode(null);
     const scenarioId = currentScenario.id;
 
     track("solve triggered", { scenario_id: currentScenario.id, model_id: modelId });
@@ -2804,9 +2817,17 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
       queryClient.invalidateQueries({ queryKey: getListScenariosQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetScenarioQueryKey(currentScenario.id) });
     } else if (jobStatus.status === "failed") {
-      const message = jobStatus.error ?? "The solver did not complete. Try again.";
+      // A9 (SCND correctness, §2.11/A5) — prefer the permanent `errorMessage`
+      // over the DEPRECATED transitional `error` alias; both are
+      // server-owned safe messages (never a raw diagnostic), so falling back
+      // to `error` when `errorMessage` is absent (older API builds, or a
+      // pre-A5 historical row) is safe and keeps this reading correctly
+      // either way. `errorCode` is tracked separately for SolveDialog's
+      // errorCode-derived Retry action — never parsed out of the message.
+      const message = jobStatus.errorMessage ?? jobStatus.error ?? "The solver did not complete. Try again.";
       setSolvePhase("failed");
       setSolveError(message);
+      setSolveErrorCode(jobStatus.errorCode ?? null);
       setPollingJobId(null);
       toast({
         title: "Solve failed",
@@ -4012,6 +4033,10 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         onChange={handleOptimizationParamsChange}
         phase={solvePhase}
         errorMessage={solveError}
+        // A9 (SCND correctness, §2.11/A-R47) — drives SolveDialog's
+        // errorCode-derived Retry action. Null for a synchronous
+        // save/enqueue rejection (no job ever existed).
+        errorCode={solveErrorCode}
         onSolve={handleSolve}
       />
 

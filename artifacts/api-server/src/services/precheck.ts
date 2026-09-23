@@ -1356,3 +1356,33 @@ export function precheckJadeInputs(
 
   return { ok: errors.length === 0, errors };
 }
+
+// A1 (SCND Correctness) — extracted from routes/scenarios.ts's own
+// `runNetworkEditsPrecheck` (unchanged dispatch logic, moved verbatim) so
+// BOTH the route (its GET .../precheck endpoint and, historically, its
+// solve handler) AND jobRunner.ts's atomic `enqueueScenarioSolve` (the new
+// one-transaction enqueue authority — see that file's own header) can share
+// one precheck dispatcher without jobRunner.ts importing routes/scenarios.ts
+// (which would be circular: routes/scenarios.ts already imports jobRunner.ts
+// for enqueueScenarioSolve/getQueueDepth/etc).
+export function runNetworkEditsPrecheckForModel(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
+  if (modelId === "p-median-us") {
+    return precheckPMedianInputs(inputs as unknown as PMedianInputs);
+  }
+  if (modelId === "p-median-brazil") {
+    return precheckPMedianInputs(inputs as unknown as PMedianInputs, BRAZIL_DATASET);
+  }
+  if (modelId === "transport-coal") {
+    return precheckTransportInputs(inputs as unknown as TransportLpInputs);
+  }
+  if (modelId === "two-echelon-gold-au") {
+    return precheckTwoEchelonInputs(inputs as unknown as TwoEchelonInputs);
+  }
+  if (modelId === "two-echelon-jade-us") {
+    return precheckJadeInputs(inputs as unknown as JadeInputs);
+  }
+  if (modelId === "chens-cosmetics-cn") {
+    return precheckChensInputs(inputs as unknown as ChensInputs);
+  }
+  return { ok: true, errors: [] };
+}

@@ -33,6 +33,7 @@ import type {
   ImportPreview,
   ImportRequest,
   LandingSummary,
+  LegacyResultExportRejection,
   ListScenariosParams,
   LoginRequest,
   LogoutSuccess,
@@ -1401,7 +1402,7 @@ export const getExportScenarioQueryKey = (scenarioId: number,
     }
 
 
-export const getExportScenarioQueryOptions = <TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<ErrorEnvelope | void>>(scenarioId: number,
+export const getExportScenarioQueryOptions = <TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<ErrorEnvelope | void | LegacyResultExportRejection>>(scenarioId: number,
     params: ExportScenarioParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
@@ -1421,14 +1422,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ExportScenarioQueryResult = NonNullable<Awaited<ReturnType<typeof exportScenario>>>
-export type ExportScenarioQueryError = ErrorType<ErrorEnvelope | void>
+export type ExportScenarioQueryError = ErrorType<ErrorEnvelope | void | LegacyResultExportRejection>
 
 
 /**
  * @summary Export a scenario's warehouse or customer data, overrides merged over baseline
  */
 
-export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<ErrorEnvelope | void>>(
+export function useExportScenario<TData = Awaited<ReturnType<typeof exportScenario>>, TError = ErrorType<ErrorEnvelope | void | LegacyResultExportRejection>>(
  scenarioId: number,
     params: ExportScenarioParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportScenario>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 

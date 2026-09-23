@@ -5,14 +5,25 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { SolveJobErrorCode } from './solveJobErrorCode';
 import type { SolveJobResultSummary } from './solveJobResultSummary';
 import type { SolveJobStatus } from './solveJobStatus';
 
 export interface SolveJob {
   id: number;
   status: SolveJobStatus;
-  /** @nullable */
+  /**
+     * DEPRECATED transitional alias of `errorMessage` (never the raw stored diagnostic) — kept only for the pre-A11 compatibility window, removed at cleanup. Prefer `errorCode`/`errorMessage`.
+     * @nullable
+     */
   error: string | null;
+  /** The permanent public failure code. Never surfaces the internal `failureReason`/`failureStage`/`errorDetail` taxonomy or any raw solver diagnostic — see SolveJobErrorCode. */
+  errorCode: SolveJobErrorCode | null;
+  /**
+     * A server-owned, fixed safe message for `errorCode` (§2.11's exhaustive mapping table) — e.g. "Solve failed" / "Solve timed out" / "Solve interrupted" / "Solve could not run — please try again". Never raw stdout/stderr/exception text or a filesystem path. `null` on every non-failed job.
+     * @nullable
+     */
+  errorMessage: string | null;
   /** @nullable */
   resultSummary: SolveJobResultSummary;
   queuedAt: Date;

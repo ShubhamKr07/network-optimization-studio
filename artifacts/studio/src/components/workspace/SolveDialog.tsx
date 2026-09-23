@@ -17,6 +17,8 @@ import { useElapsed, type ElapsedJobStatus } from "@/lib/useElapsed";
 import { type CanonicalUnit } from "@workspace/units";
 import { useDisplayUnit } from "@/contexts/UnitContext";
 import { useDistanceDraft } from "@/hooks/useDistanceDraft";
+import { isRetryableFailureCode } from "@/lib/solveFailure";
+import type { SolveJobErrorCode } from "@workspace/api-client-react";
 
 /**
  * `"idle"` — dialog just opened / previous run finished cleanly.
@@ -118,6 +120,15 @@ interface SolveDialogProps {
   onChange: (field: OptimizationParametersField, value: number | number[]) => void;
   phase: SolveDialogPhase;
   errorMessage?: string | null;
+  /** A9 (SCND correctness, §2.11/A-R47) — the polled job's permanent public
+   * failure code, when `phase === "failed"` came from an actual async
+   * solve-job failure (as opposed to a synchronous save/enqueue rejection,
+   * which never has an errorCode). Drives the explicit Retry action below —
+   * `undefined`/`null` (a synchronous failure, or a historical row with no
+   * typed errorCode) is treated the same as a known code: still retryable,
+   * per `isRetryableFailureCode`'s documented default. Never used to parse
+   * `errorMessage` text — retryability is errorCode-derived, full stop. */
+  errorCode?: SolveJobErrorCode | null;
   onSolve: () => void;
 }
 
@@ -155,6 +166,7 @@ export function SolveDialog({
   onChange,
   phase,
   errorMessage,
+  errorCode,
   onSolve,
 }: SolveDialogProps) {
   const busy = phase === "saving" || phase === "solving";
@@ -354,6 +366,25 @@ export function SolveDialog({
             <p className="text-sm text-destructive" data-testid="solve-dialog-error">
               {errorMessage}
             </p>
+          )}
+
+          {/* A9 (SCND correctness, A-R47) — every terminal async solve
+              failure gets an explicit retry action, decided from `errorCode`
+              ALONE (never by parsing `errorMessage` text — see
+              `isRetryableFailureCode`'s own doc comment). This is IN ADDITION
+              to the footer's plain "Solve" button (which already re-runs the
+              same handler) — a dedicated, clearly-labeled affordance rather
+              than relying on a light re-read of "Solve" after an error. */}
+          {phase === "failed" && isRetryableFailureCode(errorCode) && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onSolve}
+              data-testid="solve-dialog-retry"
+            >
+              Retry
+            </Button>
           )}
         </div>
 

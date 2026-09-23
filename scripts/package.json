@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "migrate-scenario-owners": "tsx ./src/migrate-scenario-owners.ts",
     "migrate-scenario-inputs": "tsx ./src/migrate-scenario-inputs.ts",
+    "migrate-solve-input-revision": "tsx ./src/migrate-solve-input-revision.ts",
     "strip-network-edits": "tsx ./src/strip-network-edits.ts",
     "harness:record": "tsx ./src/harness/record-task.ts",
     "harness:permissions": "tsx ./src/harness/audit-permissions.ts",

@@ -200,6 +200,137 @@ describe("Landing — mode-aware recent-solve objective label (D14)", () => {
   });
 });
 
+// A9 (SCND correctness, §2.7.1) — nullable-status union / legacy badges /
+// errorCode-errorMessage failure rendering / retry affordance, on the real
+// live consumer of SolveHistoryEntry.
+describe("Landing — A9 legacy badges, errorCode/errorMessage failures, retry", () => {
+  it("shows a neutral 'unverified' badge for a succeeded-but-legacyUnverified row, alongside (never replacing) the succeeded badge", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 30, scenarioId: 6, scenarioName: "Old Run", modelId: "p-median-us",
+        status: "succeeded", objective: 500, objectiveMode: null, weightedAvgDistance: 100, distanceUnit: "mi", runTimeSec: 0.5,
+        legacyUnverified: true, errorCode: null, errorMessage: null,
+        queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-legacy-unverified-30")).toHaveTextContent("unverified");
+    // The literal false-proof claim this exists to prevent must never appear.
+    expect(screen.queryByText(/Proven optimal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Optimal$/i)).not.toBeInTheDocument();
+  });
+
+  it("does NOT show the unverified badge for a genuine v2 succeeded row (legacyUnverified: false)", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 31, scenarioId: 7, scenarioName: "Fresh Run", modelId: "p-median-us",
+        status: "succeeded", objective: 500, objectiveMode: null, weightedAvgDistance: 100, distanceUnit: "mi", runTimeSec: 0.5,
+        legacyUnverified: false, errorCode: null, errorMessage: null,
+        queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.queryByTestId("badge-legacy-unverified-31")).not.toBeInTheDocument();
+  });
+
+  it("renders errorMessage (never a raw diagnostic — there is none on this typed field) for a failed row", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 32, scenarioId: 8, scenarioName: "Broke", modelId: "p-median-us",
+        status: "failed", objective: null, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+        legacyUnverified: false, errorCode: "SOLVE_FAILED", errorMessage: "Solve failed — please try again",
+        queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByTestId("text-error-message-32")).toHaveTextContent("Solve failed — please try again");
+  });
+
+  it("renders an explicit Retry affordance for a SOLVE_FAILED row, and for a TIMEOUT row too — errorCode-derived", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [
+        {
+          id: 33, scenarioId: 9, scenarioName: "Broke A", modelId: "p-median-us",
+          status: "failed", objective: null, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+          legacyUnverified: false, errorCode: "SOLVE_FAILED", errorMessage: "Solve failed",
+          queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+        },
+        {
+          id: 34, scenarioId: 10, scenarioName: "Broke B", modelId: "p-median-us",
+          status: "failed", objective: null, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+          legacyUnverified: false, errorCode: "TIMEOUT", errorMessage: "Solve timed out",
+          queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
+        },
+      ],
+    });
+    renderLanding();
+    expect(screen.getByTestId("link-retry-solve-history-33")).toBeInTheDocument();
+    expect(screen.getByTestId("link-retry-solve-history-34")).toBeInTheDocument();
+  });
+
+  // The load-bearing invariant, at the real live consumer: retry is derived
+  // from errorCode ALONE, never by parsing errorMessage text.
+  it("still renders Retry when errorMessage's TEXT reads as non-retryable — only errorCode decides this", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 35, scenarioId: 11, scenarioName: "Broke C", modelId: "p-median-us",
+        status: "failed", objective: null, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+        legacyUnverified: false, errorCode: "SOLVE_FAILED", errorMessage: "This failure is permanent and cannot be retried.",
+        queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByTestId("link-retry-solve-history-35")).toBeInTheDocument();
+  });
+
+  it("a superseded-but-successful job (A7) — status 'succeeded' with legacyUnverified false — renders as succeeded, NEVER as a failure, and has no retry affordance", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [{
+        id: 36, scenarioId: 12, scenarioName: "Superseded Job", modelId: "p-median-us",
+        status: "succeeded", objective: 42, objectiveMode: null, weightedAvgDistance: 10, distanceUnit: "mi", runTimeSec: 0.2,
+        legacyUnverified: false, errorCode: null, errorMessage: null,
+        queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+      }],
+    });
+    renderLanding();
+    expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-retry-solve-history-36")).not.toBeInTheDocument();
+  });
+
+  it("renders a mixed collection — legacy-unverified succeeded, v2 succeeded, and failed rows — each correctly, in one list", () => {
+    mockUseGetSolveHistory.mockReturnValue({
+      data: [
+        {
+          id: 40, scenarioId: 20, scenarioName: "Legacy", modelId: "p-median-us",
+          status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1,
+          legacyUnverified: true, errorCode: null, errorMessage: null,
+          queuedAt: "2026-01-01T00:00:00Z", finishedAt: "2026-01-01T00:00:01Z",
+        },
+        {
+          id: 41, scenarioId: 21, scenarioName: "Modern", modelId: "p-median-us",
+          status: "succeeded", objective: 2, objectiveMode: null, weightedAvgDistance: 2, distanceUnit: "mi", runTimeSec: 2,
+          legacyUnverified: false, errorCode: null, errorMessage: null,
+          queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z",
+        },
+        {
+          id: 42, scenarioId: 22, scenarioName: "Broken", modelId: "p-median-us",
+          status: "failed", objective: null, objectiveMode: null, weightedAvgDistance: null, distanceUnit: "mi", runTimeSec: null,
+          legacyUnverified: false, errorCode: "SOLVE_FAILED", errorMessage: "Solve failed",
+          queuedAt: "2026-01-03T00:00:00Z", finishedAt: "2026-01-03T00:00:01Z",
+        },
+      ],
+    });
+    renderLanding();
+    expect(screen.getByTestId("badge-legacy-unverified-40")).toBeInTheDocument();
+    expect(screen.queryByTestId("badge-legacy-unverified-41")).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-retry-solve-history-42")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-retry-solve-history-40")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-retry-solve-history-41")).not.toBeInTheDocument();
+  });
+});
+
 describe("Landing — live summary (T4)", () => {
   it("falls back to the baseline (number + start →, no stats line) while summary is unavailable", () => {
     mockUseGetLandingSummary.mockReturnValue({ data: undefined, isPending: true, isError: false });
