@@ -358,3 +358,36 @@ The review's central judgement — that this was a direction, not yet a contract
 When those items close, this design can proceed to its measurement-sized implementation-plan pass. No final instance count, plan ID, SLO value or price is requested here; those remain Measurement outputs.
 
 </details>
+
+---
+
+## 12. Round 2 approval review — 2026-09-23
+
+**Decision: REQUEST CHANGES / not approved.** The folded design now closes the original S-R1…S-R8 review in substance and preserves the right architecture: durable Postgres work, isolated compute when selected, scheduled manual capacity, and independent capacity/reliability evidence. The remaining work is not a restart. It is one coherent operational correction bundle, plus two external decisions. No end-user best/worst-load scenarios are included here.
+
+### New blocking findings
+
+| ID | Finding | Evidence | Required correction before approval |
+|---|---|---|---|
+| **S-R9 — claimant identity cannot prove cutover or readiness** | §1.2 step 4 says a `claim_generation` is "stamped by an API-tier boot," but A's generation is only a sequence number allocated once per boot; it carries no durable API/worker role. `worker_id` is proposed only as observability and cannot establish the stated proof. Separately, an idle pre-scaled worker owns no job and therefore has no `owner_heartbeat_at`; it can never satisfy §2.1's `observed_ready_claimants` test before the class begins. | `scnd-correctness-A: artifacts/api-server/src/solver/jobRunner.ts` allocates `bootClaimGeneration` from `solve_jobs_claim_generation_seq`; claimed rows store generation but no tier identity. §1.2.4, §2.1, §8 depend on a role/readiness signal that does not exist. | Add one durable **claimant registry**. Each boot registers immutable `claimant_id`, role (`api`/`worker`), mode, `claim_generation`, boot time, and a DB-backed readiness heartbeat after it has proved it can use the queue. Store `claimant_id` on a claimed job (or preserve a durable equivalent mapping). Reconcile distinct live worker registry rows, not job heartbeats; prove cutover with `NOT EXISTS` running job joined to an API claimant. Retain registry rows until no job can reference them. |
+| **S-R10 — zero-instance cutover conflicts with the platform floor** | §1.2 deploys a `worker_only` service at zero instances, yet §4 correctly states that a manually scaled Render worker cannot scale below one instance. The initial cutover cannot execute as written. | §1.2.1 vs. §4; Render manual scaling has a one-instance minimum. | Replace step 1 with a one-worker, no-claim **standby** state (strictly configured and observable), used only to prove boot/DB readiness/no listener. Then enable claiming and immediately flip the API to `enqueue_only` outside a class window. The short dual-claim interval remains safe through the existing atomic claim; standby must not silently become a second dispatcher. |
+| **S-R11 — retry exhaustion is bypassable on a stale lease** | Attempts are consumed at claim, but lease recovery always requeues. A worker killed after claiming its third allowed attempt can be requeued and either claimed a fourth time or loop, contradicting the claimed bound. The printed "full jitter" formula also has no random term. | §3.1 says attempt at claim (§162), unconditional requeue (§163), and terminal exhaustion at three (§166). | Make lease recovery a single conditional transaction: if `attempts >= MAX_ATTEMPTS`, terminalize with the stated internal/dispatch taxonomy; otherwise clear the lease and requeue with an explicitly DB-generated jittered delay. Make the claim predicate refuse `attempts >= MAX_ATTEMPTS` as defence in depth. Add a test that kills a worker after the final permitted claim and proves zero further claims. |
+| **S-R12 — connection and admission models use the wrong/unfinished units** | The budget omits a long-lived `LISTEN/NOTIFY` session per worker when the intended wake-up path is used, the cron/controller connection, and overlapping process generations during deploy/drain. The `Retry-After` formula divides queued jobs by mean CPU seconds; CPU demand is appropriate for cost/sizing but not a student's wall-clock queue wait, and it omits work already active in all slots. | §1.2 intends `LISTEN/NOTIFY`; §3.2 counts only API pools, worker pools, and a generic reserve, then derives wait from `cpu_N`. | Build and ratify a maximum-simultaneous connection ledger: API and worker generations during overlap, transaction pools, dedicated notification sessions (if enabled), cron/controller, migrations/operations, and a fixed reserve. Validate it against live `SHOW max_connections` and observed `pg_stat_activity` under a rolling deployment. Derive admission/`Retry-After` from measured effective completion throughput (or effective wall service time) at the selected concurrency and queued-plus-active remaining work; keep CPU demand for cost and compute sizing only. |
+
+### External decisions that still hold approval
+
+- **SP-1 must choose (a) or an explicitly recorded waiver (b).** The proposed reduced-cohort option (c) is not a technical middle path: the predecessor rule prohibits *any* real cohort without isolation. My recommendation is **(a)** — retain the locked worker-isolation requirement for every real cohort. O1/O2 may still be valid capacity/cost outcomes or internal demonstrations, but do not authorize a real pilot without the worker tier unless an accountable owner records the waiver.
+- **Record the live Postgres ceiling only after S-R12 defines the complete ledger.** Run `SHOW max_connections`, calculate the allowed worker ceiling including deployment overlap and notification mode, and choose a pooler or database upgrade if it does not fit. A guessed ceiling or generic reserve is not an approval substitute.
+
+### Small consistency correction
+
+§2 still says "a cron/GitHub-Action (or Render cron)" although §2.2 has selected Render Cron Job. Make §2 name Render Cron Job only, with its calendar-expansion tick and idempotent due-action behaviour. This is not independently blocking once S-R9–S-R12 are corrected.
+
+### Approval path
+
+1. Adopt the claimant registry and standby cutover as one change; this simultaneously closes cutover attribution, idle-worker readiness, and the Render one-worker-floor conflict.
+2. Correct the retry exhaustion branch and its final-attempt test.
+3. Replace the connection and queue-wait models with measured, like-for-like operational units; then capture the live database ceiling.
+4. Resolve SP-1 on the record. If Measurement selects O4, separately approve the existing single-flight successor spec before enabling coalescing.
+
+**Conditional approval criterion:** I would approve this document for its measurement-sized implementation-plan pass after S-R9–S-R12 close, SP-1 is resolved, and the live connection ceiling validates the completed ledger. The required post-build capacity and reliability rerun remains the only authority for a real-cohort pilot.
