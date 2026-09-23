@@ -195,6 +195,11 @@ git commit -m "[S0.2] resolve V1 outcome row and V2 SP-1; select plan scope"
 - Create: `docs/ops/scnd-connection-ledger.md`, `docs/ops/scnd-scaling-runtime-config.md`
 
 - [ ] **Step 1: Resolve the implementation inputs, not implementation outputs.** Resolve V3 (`cpu_N`), V4 (`N`), V5 (`mean_service_sec`), V6 (cache-hit rate), V7 (per-solve peak RSS), and V8 (worker plan, count and slots) from the named Measurement artifacts. Recompute the chosen count/cost from those operands rather than merely copying the topology label. Select `SOLVE_WAKEUP_MODE=notify|poll` from the measured latency need and record the choice. If any required source is absent or still provisional, **STOP**. V10 (observed rolling-deploy peak), V11 (boot-to-first-claim), and V14 (coalescing result) are produced later and do not block this step.
+
+  **Two source-specific warnings, because a generic STOP is not actionable enough here:**
+
+  - **V5 needs a Measurement *change*, not merely a Measurement run.** `simulate.py`'s `SimResult` has no `mean_service_sec` field today — it exposes `p50_wait`, `p95_wait`, `p95_end_to_end`, `max_queue_depth`, `utilization`, `observed_stratum_mix`. The operand is one division over `total_solver_wall`, which `simulate()` already accumulates for `utilization`. So the STOP here is "raise a one-line addition with Measurement," not "wait indefinitely." **Never substitute `cpu_N`** — it is a CPU-time quantity answering a different question, and doing so is the exact error spec rounds 3 and 4 corrected (S-R12, S-R13).
+  - **V7 sets `slots_per_instance` via `capacity.py: map_to_instances(...)`.** Derive it from measured per-solve peak RSS, **not** from the instance's advertised memory — memory, not CPU, is what caps slots per box, and advertised memory ignores what a solve actually holds.
 - [ ] **Step 2: Materialize validated runtime configuration.** Record the selected Render worker plan/count (and O4 cron plan/cost), API and worker transaction-pool sizes, `SOLVE_SLOTS_PER_WORKER`, `SOLVE_WORKER_CONCURRENCY` (equal to slots), dispatcher batch limit (at least concurrency), `SOLVE_MEAN_SERVICE_SEC`, ratified queue-wait SLO, retry/cap values, claimant heartbeat/staleness, consecutive-failed-scan threshold, drain gate/platform shutdown delay, wake-up mode, and notification-session count. Starting values may be adopted only when the responsible Measurement/product decision explicitly ratifies them and the register records that provenance.
 - [ ] **Step 3: Complete the maximum-simultaneous connection ledger before adding a worker service.** Use:
 
@@ -1016,6 +1021,8 @@ Emit the bounded-cardinality admission outcome and estimated-wait fields through
 
 ## Phase 7 — Cutover
 
+> **Order warning — under O4, Phases 9 and 10 come first.** Do not begin S7.1 on a fleet topology until S9.1–S9.3 are built and exercised. Under O1/O2+SP-1(a) and O3 there is no scaler, and this phase follows Phase 6 directly.
+
 ### Task S7.1: Rehearsal and V10
 
 **Files:** Create `docs/ops/scnd-worker-cutover.md`
@@ -1075,6 +1082,8 @@ Emit the bounded-cardinality admission outcome and estimated-wait fields through
 
 ## Phase 9 — Scheduler *(execute only if V1 = O4)*
 
+> **Order warning — this phase runs BEFORE Phase 7 and Phase 8.** Per *Required execution order* item 4, an O4 build finishes S9.1–S9.3 **before** the S7.1 rehearsal and the S8.1a gate, because S8.1a's fleet evidence (missed scale-up, Render API failure, reconciliation deadline, active-job scale-in, autoscaling detection) cannot be produced by a scaler that does not exist. The document's phase numbering is presentational; the dependency list governs. An agent executing top-to-bottom will reach S7.1 first — **stop and come here instead.**
+
 ### Task S9.1: Resolve V12 and write the calendar
 - [ ] Resolve **V12** — class days/windows and IANA timezone. Product input (SP-3). **STOP and ask.** Never a fixed UTC offset; the zone database handles DST.
 - [ ] Write `docs/ops/scnd-class-calendar.yaml` with holidays and an expiring manual-override field.
@@ -1098,6 +1107,8 @@ Emit the bounded-cardinality admission outcome and estimated-wait fields through
 
 ## Phase 10 — Coalescing condition *(execute only if V1 = O4)*
 
+> **Order warning — this resolves at S8.1a time, not after cutover.** The cold-identical-burst run that feeds V14 is part of the S8.1a gate. If the condition fires, the single-flight successor spec must be designed, built and joined to G-FLEET **before** S7.2 production cutover — not retrofitted afterwards.
+
 ### Task S10.1: Resolve V14
 - [ ] Run the cold-identical-burst test from G-FLEET; measure duplicate compute.
 - [ ] Compare against the selected topology's capacity headroom **and** cost budget (spec §1.1's coalescing condition).
@@ -1106,10 +1117,45 @@ Emit the bounded-cardinality admission outcome and estimated-wait fields through
 
 ---
 
+## Revision record
+
+**Rev 2 — 2026-09-24 review, folded.** Verdict: **approved as a conditional execution plan.** All corrections accepted; none needed a divergent remedy. The revision text is preserved verbatim in commit `0e14422`.
+
+Most findings were not stylistic — **seven were defects that would have surfaced during execution**, and they cluster into three kinds worth naming, because the same kinds will recur in the next plan:
+
+**Code that could not run as written.** I referenced `solve_admission` in the admission transaction's `FOR UPDATE` and never created or seeded that table. I called `countClaimableWorkers(tx)` against a signature taking no arguments. I used `sql.raw` to interpolate an interval instead of parameterizing it. Each is the kind of error that reads fine in prose and fails on the first run — **plan code needs the same "would this compile" pass as real code**, not just a coherence pass.
+
+**Verification that verified nothing.** S0.1's `grep -cE "\[A1[0-3]\]|\[A9\]"` checked a subset of A and counted rather than asserting each task — it could have authorized a partial A, the one prerequisite this plan cannot proceed without. And the headline S-R18 burst test fired 50 concurrent requests from **one** user and scenario, so once S5.3's per-user caps landed, 49 would have been rejected by the cap and the test would have passed without ever exercising the read/insert race it exists to prove. Both are worse than a missing check, because they report success.
+
+**Contracts silently weakened.** My admission transaction called `enqueueSolveJob(tx, …)` as though enqueue were a simple insert. A's real enqueue locks the scenario, captures the input snapshot, computes the recovery-contract identity and stamps `enqueued_solve_input_revision` — the input to A7's publication CAS. A parallel reduced insert path would have dropped those without any test noticing, which is precisely the "never weaken A" constraint this plan states in its own Global Constraints and then violated in its own code sample.
+
+**Gaps, not errors:** no task implemented §3.1's retryable/non-retryable classification, so every failure would have retried including the deterministic ones; no task implemented `FOR UPDATE SKIP LOCKED`, which the spec promises in §1 and gates on in §5.1; no observability task existed despite §8 making DB-side observability the *replacement* for a readiness endpoint; and my requeue left attempt-local state (`started_at`, failure columns) on the row.
+
+**Corrections adopted beyond those:**
+
+| Area | Change |
+|---|---|
+| Authorization | New **S0.3** Stage-2 pack — sizing, runtime config and connection ledger complete **before any code changes**. Value resolution moved out of Phase 5, where it was too late to inform the build |
+| Execution order | New **Required execution order** section: phases are presentational, the dependency list governs. O4 builds the scaler before rehearsal; S8.1 split into **S8.1a** (pre-cutover, final topology in non-production) and **S8.1b** (post-cutover, bounded production smoke). My single S8.1 sat *after* cutover — I would have cut production over before the reliability gate ran |
+| Configuration | Measured values must be **validated runtime configuration**, not a Markdown register. Production boot fails closed. `SOLVE_WORKER_CONCURRENCY === SOLVE_SLOTS_PER_WORKER` enforced, so admission cannot promise capacity `pump()` does not have |
+| Boot/shutdown | `markClaimantReady()` moved after the claim path is live (I marked ready before the scheduler started); supervised heartbeat replaces `setInterval(asyncFn)` with its dropped rejections; SIGTERM gets a re-entrancy guard, error handling and `closeWorkerResources()` |
+| Schema | `CK_solve_claimants_role_mode` — my two independent CHECKs permitted `role='api', mode='worker_only'`, a combination that poisons capacity accounting |
+| Ledger | `worker_generations × worker_instances × notify_sessions` — I omitted the generation multiplier, so a rolling deploy's second set of `LISTEN` sessions was unbudgeted. `controller_connections` is O4-only. The operations reserve must be named and owned, not a plug |
+| Wake-up | `pg_notify` moved **inside** A's enqueue transaction; Postgres delivers only on commit, closing the commit→notify crash gap my version had |
+| Deploy safety | `SOLVE_DISPATCH_MODE=api_dispatch` must be set on existing services **before** the first deploy of this code. My S2.1 makes an unset mode fail boot — shipping it without that step would have broken production on deploy. No placeholder values may be committed to `render.yaml`; my worker service also had no `DATABASE_URL` |
+| Safety | Dev database comes from `SCND_DEV_DATABASE_URL` with an isolation warning, not a pasted local URL; `git switch` + explicit pathspec commits; the register guard refuses to overwrite an existing file |
+
+**Restored in this pass** (lost when V-resolution consolidated into S0.3): the V5 warning that `SimResult` has no such field and the fix is a one-line Measurement change — a generic STOP is not actionable, and the "never substitute `cpu_N`" rule is the error spec rounds 3 and 4 both corrected; and V7's warning not to derive `slots_per_instance` from advertised memory. **Added:** order warnings at the Phase 7/9/10 headings, since an agent reading top-to-bottom reaches S7.1 before the scaler exists, and three DoD rows for the checkpoint, the retry classification and the concurrency equality.
+
+---
+
 ## Definition of Done
 
+- [ ] **S0.3's Stage-2 authorization checkpoint is recorded, and no Phase-1 commit predates it.** This is the boundary between "we have a plan" and "we may change code"; verify by commit date, not by assertion.
 - [ ] Every V-row in spec §10 is either recorded in `scaling-resolved-values.md` with provenance, or visibly marked n/a for the selected outcome. **No row is silently absent.**
-- [ ] No spec "starting value" appears in a sizing, admission or cost calculation as a substitute for a resolved value.
+- [ ] No spec "starting value" appears in a sizing, admission or cost calculation as a substitute for a resolved value, and every production-consumed value exists as validated runtime configuration — **the Markdown register is evidence, not a config source.** Production boot fails closed on an absent or malformed required value.
+- [ ] **No deterministic failure class retries** (S4.4): `solver_error`, `data_error`, `timeout`, recovery-identity mismatch and `internal_error` outside `spawn`/`dispatch` are terminal on first failure. Retry covers lost work, never rejected work.
+- [ ] **`SOLVE_WORKER_CONCURRENCY === SOLVE_SLOTS_PER_WORKER`** in production, and `dispatcherBatchLimit >= concurrency` — admission must never promise more capacity on paper than `pump()` actually runs.
 - [ ] `worker_id` appears nowhere (S-R16).
 - [ ] The full gate is green and `e2e_accuracy.py` passes **99/99 unmodified** — this plan touches no Python.
 - [ ] `render blueprints validate render.yaml` passes; API/worker deploy the same commit; runtime config matches the authorized pack; the connection ledger fits both the live ceiling and observed rolling-deploy peak.
