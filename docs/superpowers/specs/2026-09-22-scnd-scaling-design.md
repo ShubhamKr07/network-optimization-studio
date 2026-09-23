@@ -1,17 +1,17 @@
 # SCND Scaling — Solver-Tier + Scheduled-Autoscale Spec
 
 **Date:** 2026-09-22
-**Status:** **REQUEST CHANGES — Stage 1 (architecture/spec) not yet approved.** Four review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction; round 3: S-R13…S-R16 + three consistency edits; round 4: S-R17…S-R20). All four review texts are preserved verbatim in commits `02d105f`, `1e0f29a`, `eba7fb2` and `1064c46`; the per-finding record is §11. **All twenty-four findings are accepted**; rounds 2–4 needed no divergent remedies.
+**Status:** **All review findings are closed in text; Stage 1 (architecture/spec) approval is the reviewer's to give.** Five review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction; round 3: S-R13…S-R16 + three consistency edits; round 4: S-R17…S-R20; round 5: S-R21…S-R22). All five review texts are preserved verbatim in commits `02d105f`, `1e0f29a`, `eba7fb2`, `1064c46` and `1a5a24e`; the per-finding record is §11. **All twenty-six findings are accepted**; rounds 2–5 needed no divergent remedies. Round 5's stated criterion was *"I would approve the architecture/spec after S-R21 and S-R22 close"* — both close here, but **the document does not declare its own approval.**
 
-**Three approvals were being conflated, and this status line was the worst offender** — for three rounds it said SP-1 and the connection ceiling held "implementation planning," implying those two were sufficient. They are not. Per S-R20:
+**Three approvals were being conflated, and this status line was the worst offender** — for three rounds it said SP-1 and the connection ceiling held "implementation planning," implying those two were sufficient. Round 4 split them into stages; **round 5 found that split still wrong, because Stage 1 demanded facts only Stage 2 can produce** (S-R22). Corrected:
 
 | Stage | What it approves | Prerequisites |
 |---|---|---|
-| **1 — Architecture / spec** | That this design is the right shape and may proceed toward a plan. **Not** authorization to implement, and specifically not to build the selected fleet | S-R17…S-R20 closed (this fold), **SP-1 resolved**, live Postgres ceiling validating the completed §3.2 ledger |
-| **2 — Measurement-sized implementation plan** | A `writing-plans` pass against a *known* topology | Stage 1, **plus** A complete (A4–A13 still in flight), Measurement Phases 3–4 results, §1.1's outcome row selected, §10's measured values in hand — including `mean_service_sec`, which **no Measurement artifact currently emits** |
+| **1 — Architecture / spec** | That this design is the right shape and may proceed toward a plan. **Not** authorization to implement, and specifically not to build the selected fleet | **All design findings closed** — nothing else. SP-1 and connection capacity are recorded as **contingent decisions** (below), not gates |
+| **2 — Measurement-sized implementation plan** | A `writing-plans` pass against a *known* topology | Stage 1, **plus** A complete (A4–A13 in flight), Measurement Phases 3–4 results, §1.1's outcome row selected, §10's measured values in hand — including `mean_service_sec`, which **no Measurement artifact currently emits**. **Then the contingent decision for the selected row:** O1/O2 → a recorded SP-1 waiver; O3/O4 → the completed §3.2 ledger validated against the live Postgres ceiling |
 | **3 — Real-cohort pilot** | Students on it | Stage 2 built, **plus** the applicable §5.1 gate set passing on the **final built topology** (not the prototype), MP-4, and — under O4 — §1.1's coalescing condition; under O1/O2 the SP-1 waiver |
 
-Each stage's evidence is independent: stage 1 never implies stage 2, and stage 2 never implies stage 3.
+**The two long-standing blockers are mutually exclusive by outcome, which the old flat framing hid.** SP-1 fires only for O1/O2 — the outcomes with no worker tier. The connection ledger matters only for O3/O4 — the outcomes that build one. Neither is answerable before Measurement selects a row, and demanding both up front forced a product decision on a question that may never be asked. Each stage's evidence is independent: Stage 1 never implies Stage 2, and Stage 2 never implies Stage 3.
 
 **A pattern worth stating rather than burying:** the admission model has now been wrong in **four consecutive rounds** — named-but-unspecified (S-R7), wrong units (S-R12), dimensionally invalid while citing a nonexistent field (S-R13), and counting nominal instead of claimable capacity while never serializing its own decision (S-R17/S-R18). Each fix introduced the next defect. It is the one part of this document that has never survived a review, and it should be read with more suspicion than the rest.
 The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1 ("B2 — durable isolated solver tier + pilot gate"). Direction inherited from the original brainstorm `2026-09-19-scnd-scaling-design.md` (Option B: split solver tier + scheduled autoscale ≈ $70/mo).
@@ -111,7 +111,25 @@ solve_claimants
   booted_at        timestamp not null   -- DB clock
   ready_at         timestamp            -- set once the queue probe succeeds
   heartbeat_at     timestamp not null   -- DB clock, refreshed on a fixed tick
+  accepting_claims boolean not null default true
+                                        -- willingness, not liveness; false from
+                                        --   the moment the scan stops (S-R21)
 ```
+
+**The claimable-worker predicate — defined once, used everywhere** *(S-R21)*. Round 4 introduced `accepting_claims` in prose only: it never reached the schema block above, and only §3.2's admission path adopted it, while §2.1's reconciliation kept counting merely-ready workers. During a rolling worker deploy or a scale-in, old drainers stayed fresh and ready and **inflated the scaler's own capacity count** — the very confusion the field exists to prevent, left live in the control plane while the data plane was fixed.
+
+```sql
+-- claimable_worker: the ONLY definition of "a worker that can take work"
+role = 'worker'
+  AND mode = 'worker_only'
+  AND ready_at IS NOT NULL
+  AND accepting_claims
+  AND heartbeat_at > now() - claimant_staleness
+```
+
+**Every control-plane count routes through this one predicate** — §3.2's `effective_slot_count`, §2.1's scaler reconciliation, and §2.2's readiness alerting. There is no second, weaker definition anywhere; that is the whole point of naming it.
+
+**A drainer is excluded but not invisible.** It keeps heartbeating its claimant row (§2.1 step 1), so it remains a live row with `accepting_claims = false` — distinguishable from a worker that crashed, which goes stale, and from one that never booted, which has no row. Exclusion from the count and presence in the table are different facts, and operators need both.
 
 - **Registration happens at boot, before any claim.** A claimant that cannot register cannot claim — the registry write is on the same fail-closed path as A2's boot recovery.
 - **`ready_at` is set only after the claimant proves it can *use* the queue**, not merely that it started: a read of the claim index under its own pool. Booted-but-broken is therefore distinguishable from ready, which is the distinction the scaler needs.
@@ -148,7 +166,7 @@ Safety comes from the worker's own shutdown behaviour plus A's lease, which toge
 Consequences stated plainly rather than buried:
 - **A solve whose wall time can exceed the shutdown budget will occasionally be killed and retried during scale-in.** At the measured teaching-dataset times (<0.2 s optimal, ~16.5 s worst free-choice) this is far inside 120 s and effectively never fires. If measurement ever shows a solve family approaching the budget, that family needs a time-limit ceiling *before* this tier ships, not a larger budget — 300 s is a platform cap, not a lever.
 - **Admission during scale-in:** the API does not stop accepting. Queue depth rises, §3.2's estimated-wait admission naturally starts shedding, and the remaining workers drain it. There is no separate "draining" admission state to implement.
-- **Reconciliation, not verification:** the scaler records `desired_count`, then polls until `observed_ready_claimants` equals it. **That count is `COUNT(*)` over distinct `solve_claimants` rows with `role='worker'`, `mode='worker_only'`, `ready_at IS NOT NULL` and a fresh `heartbeat_at`** (§1.3) — *not* job heartbeats. Corrected per S-R9: the previous definition keyed on having claimed or heartbeated a job, which an idle pre-scaled worker never does, making the test unsatisfiable at exactly the pre-class moment the scaler exists to verify. A mismatch past a deadline alerts; it does not retry blindly.
+- **Reconciliation, not verification:** the scaler records `desired_count`, then polls until `observed_claimable_workers` equals it. **That count is `COUNT(*)` over §1.3's `claimable_worker` predicate — the same predicate admission uses, including `accepting_claims`** *(corrected per S-R21; round 4 left this clause counting merely-ready workers, so a rolling deploy's drainers inflated it)* — and *not* job heartbeats *(corrected per S-R9; the original keyed on having claimed or heartbeated a job, which an idle pre-scaled worker never does, making the test unsatisfiable at exactly the pre-class moment the scaler exists to verify)*. A mismatch past a deadline alerts; it does not retry blindly.
 - **Native autoscaling must be asserted OFF.** Render ignores manual instance counts when its own autoscaling is enabled, which would silently defeat the entire cost lever. The scaler asserts this on every run and fails loudly if it finds autoscaling on.
 - **Render's scale API is asynchronous.** The call returning 200 means accepted, not applied. Treat 429/5xx as retryable with backoff; treat a successful call as a request, and let reconciliation decide truth.
 
@@ -170,7 +188,7 @@ Consequences stated plainly rather than buried:
 | Credentials | A Render API key in the cron job's env, scoped to the worker service. Not in the repo, not in the calendar file |
 | Retry | Bounded retry with backoff on 429/5xx; exhaustion alerts and leaves the previous desired count in place |
 | Verification | §2.1 reconciliation — observed ready claimants must reach the desired count before the run reports success |
-| Alerting | Missed scale-up (window started, count below desired), unexpected count outside class windows, autoscaling-enabled, reconciliation deadline |
+| Alerting | Missed scale-up (window started, count below desired), unexpected count outside class windows, autoscaling-enabled, reconciliation deadline. **Every "count" here is §1.3's `claimable_worker` predicate** (S-R21) — alerting on merely-ready workers would report healthy capacity built entirely from drainers |
 | Manual override | A desired-count override field in the calendar with an expiry; the scaler honours it and alerts while it is active, so an override cannot be forgotten silently |
 
 > **SP-3 — required input, not an approval.** The class calendar's timezone, the term's class days and window times, and the pre-scale lead time are **product inputs this document cannot invent.** They are requested at the point the scaler is planned. The lead time specifically derives from the measured boot-to-first-claim time (§2), so it is requested *after* measurement, not before.
@@ -285,11 +303,9 @@ The honest reading is that I over-applied M-R8. That correction says *size* from
 ```
 mean_service_sec      = measured mean effective WALL service time per slot-consuming job,
                         at the selected concurrency          [seconds]
-effective_slot_count  = slots_per_worker × COUNT(solve_claimants WHERE
-                            role = 'worker' AND mode = 'worker_only'
-                            AND ready_at IS NOT NULL
-                            AND accepting_claims               -- S-R17
-                            AND heartbeat_at > now() - staleness)   [slots]
+effective_slot_count  = slots_per_worker × COUNT(claimable_worker)   [slots]
+                        -- claimable_worker is defined once in §1.3 and is the
+                        -- same predicate the scaler reconciles on (S-R21)
 
 remaining_slot_seconds = queued_jobs × mean_service_sec       -- work not yet started
                        + busy_slots  × mean_service_sec       -- one full service per busy slot
@@ -311,7 +327,7 @@ Slot-seconds ÷ slots = seconds. The active term charges a **full** mean service
 One short Postgres transaction performs, in order: **cache eligibility → claimable-capacity snapshot → wait calculation → admission decision → `solve_jobs` insert.** Serialization is via a **locked admission state row** (`SELECT … FOR UPDATE` on a single row) rather than `SERIALIZABLE` with retry — at 0.694 submissions/sec the contention is negligible, and a lock that is obviously correct beats a retry loop that must itself be tested under the burst. The transaction holds no solver work and no external call, so it is short by construction.
 
 - **Ordering inside the transaction is unchanged and load-bearing:** cache eligibility first, so a student whose answer already exists is never rejected for queue depth. A cache hit takes no slot and does not advance the admission counter.
-- **Tests:** a concurrent cold-miss burst at the full cohort size proving the admission bound cannot overshoot through a read/insert race; partial scale-up readiness (provisioned-but-not-ready workers do not inflate capacity); an in-flight scale-in (a draining worker stops contributing slots the moment it receives `SIGTERM`, not when it exits); and the zero-claimable-slots path returning `503` rather than dividing.
+- **Tests:** a concurrent cold-miss burst at the full cohort size proving the admission bound cannot overshoot through a read/insert race; partial scale-up readiness (provisioned-but-not-ready workers do not inflate capacity); an in-flight scale-in (a draining worker stops contributing slots the moment it receives `SIGTERM`, not when it exits); **a rolling worker deploy, asserting that old drainers inflate neither admission capacity nor the scaler's reconciliation count — the same assertion against both consumers of the predicate** (S-R21); and the zero-claimable-slots path returning `503` rather than dividing.
 - Reject with `429` when `estimated_wait_sec` exceeds the ratified queue-wait SLO; `Retry-After = clamp(ceil(estimated_wait_sec), 5, 120)`. The fixed `Retry-After: 30` from P1.1 is replaced.
 - **`cpu_N` keeps its job** — §4's cost model and §1.1's instance sizing. It simply never answers a student-facing latency question again.
 - **Ordering** is now a step inside the admission transaction below, not a standalone rule — cache eligibility first, so a student whose answer already exists is never rejected for queue depth, which would be indefensible.
@@ -395,9 +411,9 @@ Worker-tier implementation plan (a later `writing-plans` pass, sized by measurem
 
 Nothing below is an oversight; each is a value this document is not entitled to invent. Read this section before treating any number in §§2–3 as evidence.
 
-**Blocking — someone other than the author must answer:**
-- **SP-1** — does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision. **Two options, (a) or a recorded waiver (b); the round-2 reviewer recommends (a).** §1.1.
-- **Postgres `max_connections` on `basic-256mb`** — genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. **Sequenced, per S-R12:** complete §3.2's maximum-simultaneous ledger *first*, then `SHOW max_connections` on the live instance, then observe `pg_stat_activity` **under a rolling deployment** (the only condition that exercises the deploy-overlap term). Reading the ceiling before the ledger is complete validates the wrong arithmetic confidently. If it does not fit, the pooler-or-bigger-plan cost lands in §4.
+**Contingent decisions — someone other than the author must answer, but only once Measurement makes the question relevant** *(re-framed per S-R22; these were wrongly listed as Stage-1 gates for four rounds, which made Stage 1 unsatisfiable and forced a premature product call)*. **They are mutually exclusive by outcome:**
+- **SP-1 — fires only if Measurement selects O1/O2.** Does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision. **Two options, (a) or a recorded waiver (b); the round-2 reviewer recommends (a).** §1.1. Under O3/O4 this question never arises — the worker tier satisfies the rule by construction.
+- **Postgres `max_connections` on `basic-256mb` — needed only if Measurement selects O3/O4.** Genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. **Sequenced, per S-R12:** complete §3.2's maximum-simultaneous ledger *first*, then `SHOW max_connections` on the live instance, then observe `pg_stat_activity` **under a rolling deployment** (the only condition that exercises the deploy-overlap term). Reading the ceiling before the ledger is complete validates the wrong arithmetic confidently. If it does not fit, the pooler-or-bigger-plan cost lands in §4.
 
 **Product inputs (SP-3), not author choices:** class calendar days/windows, IANA timezone, pre-scale lead time (derives from measured boot-to-first-claim, so it is requested *after* measurement), and the §6 retention window in days.
 
@@ -410,6 +426,20 @@ Nothing below is an oversight; each is a value this document is not entitled to 
 ---
 
 ## 11. Review record
+
+### Round 5 — approval review, 2026-09-23
+
+Verbatim text in commit `1a5a24e` and collapsed below. **Both findings accepted; no divergent remedies.** Round 5 reviewed *round 4's fold* and found two closure errors in it — neither a new subsystem, both mine.
+
+| ID | Disposition | Where |
+|---|---|---|
+| S-R21 — `accepting_claims` is not one normative control-plane predicate | **Accepted.** Round 4 introduced the field in prose only: it never reached §1.3's schema block, and only §3.2's admission adopted it while §2.1's reconciliation kept counting merely-ready workers. **I fixed the data plane and left the control plane broken** — during a rolling deploy or scale-in, drainers inflated the scaler's own capacity count. One named `claimable_worker` predicate now, defined once and consumed by admission, reconciliation and alerting alike | §1.3, §2.1, §2.2, §3.2 |
+| S-R22 — Stage 1 required facts only Stage 2 can produce | **Accepted.** The ladder demanded SP-1 resolved and a live-validated connection ledger *before* architecture approval — but SP-1 is asked only if Measurement selects O1/O2, and the ledger needs the selected worker count. Stage 1 was unsatisfiable, or forced a premature product decision on a question that may never be asked. Both are now **contingent decisions at Stage 2**, branched by outcome | Preamble, §10 |
+
+**Two patterns, both already named in this document and both repeated anyway:**
+
+- **S-R21 is the propagation failure I wrote a rule against one round earlier.** §11's round-3 entry says: *"a round that changes an enumerated set, a terminal-state rule or a mandated mechanism must grep for every clause that counts, names or relies on it before the fold is committed."* I then added a new capacity predicate and did not grep for the other clause that counts claimants. Writing the rule down did not make me run it; the rule needs to be a step in the fold, not a paragraph in the record.
+- **S-R22 is the third unsatisfiable gate.** S-R9's readiness test could not fire before class; S-R15's O2 gate required a suite O2 never builds; now Stage 1 required evidence only Stage 2 can produce. Same shape every time: a prerequisite written from the perspective of someone who already has the answer. **Check for it explicitly — for each gate, name who evaluates it, when, and with what in hand.**
 
 ### Round 4 — approval review, 2026-09-23
 
@@ -634,7 +664,9 @@ Use the claimant registry as the sole live-capacity authority: add claim-accepta
 
 ---
 
-## 12. Round 5 approval review — 2026-09-23
+<details>
+<summary>Round 5 review text (verbatim, as received — superseded by the fold above)</summary>
+
 
 **Decision: REQUEST CHANGES / not approved.** The live-capacity and serialized-admission design from round 4 is the correct shape. Two closure errors remain: the new `accepting_claims` state is not consistently a schema/control-plane predicate, and the authority ladder asks Stage 1 to decide facts that are unavailable until Stage 2. Neither requires a new subsystem.
 
@@ -651,3 +683,5 @@ Use the claimant registry as the sole live-capacity authority: add claim-accepta
 2. Correct the authority ladder so contingent product/evidence decisions occur only after Measurement makes them relevant.
 
 **Conditional approval criterion:** I would approve the architecture/spec after S-R21 and S-R22 close. A measurement-sized implementation plan and a real-cohort pilot remain separately gated by the selected outcome and its evidence.
+
+</details>
