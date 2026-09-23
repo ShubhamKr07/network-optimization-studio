@@ -8,7 +8,7 @@
 | Stage | What it approves | Prerequisites |
 |---|---|---|
 | **1 — Architecture / spec** | That this design is the right shape and may proceed toward a plan. **Not** authorization to implement, and specifically not to build the selected fleet | **All design findings closed** — nothing else. SP-1 and connection capacity are recorded as **contingent decisions** (below), not gates |
-| **2 — Measurement-sized implementation plan** | A `writing-plans` pass against a *known* topology | Stage 1, **plus** A complete (A4–A13 in flight), Measurement Phases 3–4 results, §1.1's outcome row selected, §10's measured values in hand — including `mean_service_sec`, which **no Measurement artifact currently emits**. **Then the contingent decision for the selected row** (branched per S-R23, §1.1a): O1/O2 **+ waiver (b)** → the recorded waiver is the authorization, no ledger needed; O1/O2 **+ hold (a)** → the isolation-required worker path, which needs the completed §3.2 ledger and live ceiling exactly as O3 does; O3/O4 → the completed ledger validated against the live ceiling |
+| **2 — Implementation plan authorized to *execute*** | Running the plan, not writing it — **the plan itself is written ahead of these facts and resolves them as it goes** (§10's register) | Stage 1, **plus** A complete (A4–A13 in flight). Everything else — topology row, measured values, the contingent decision — is a **resolution step inside the plan** (V1–V14), not a precondition for having one. **The contingent decision for the selected row** (branched per S-R23, §1.1a) is resolved at the plan's branch task: O1/O2 **+ waiver (b)** → the recorded waiver is the authorization, no ledger needed; O1/O2 **+ hold (a)** → the isolation-required worker path, needing the completed §3.2 ledger and live ceiling exactly as O3 does; O3/O4 → the completed ledger validated against the live ceiling |
 | **3 — Real-cohort pilot** | Students on it | Stage 2 built, **plus** the applicable §5.1 gate set passing on the **final built topology** (not the prototype), MP-4, and — under O4 — §1.1's coalescing condition; under O1/O2 the SP-1 waiver |
 
 **The two long-standing blockers are near-exclusive by outcome, which the old flat framing hid.** SP-1 fires only for O1/O2 — the outcomes with no worker tier. The connection ledger matters for O3/O4, **and also for O1/O2 if SP-1 is answered (a)**, since that branch builds a worker tier on policy grounds (§1.1a, S-R23). Neither is answerable before Measurement selects a row, and demanding both up front forced a product decision on a question that may never be asked. Each stage's evidence is independent: Stage 1 never implies Stage 2, and Stage 2 never implies Stage 3.
@@ -423,13 +423,40 @@ The review is right that "readiness-on-DB-failure" implied an HTTP check a **Ren
 
 ## 9. Deliverables
 
-Worker-tier implementation plan (a later `writing-plans` pass, sized by measurement) — **including the `solve_claimants` registry (§1.3), which is new schema this spec introduces and A does not have** — the scheduled-scaler + its runbook, the completed connection ledger and its live validation (§3.2, §10), the cost report, the two-gate pilot-verification doc, and — only under O4 and SP-2 — the single-flight successor spec. **Nothing here is built before Measurement runs and §1.1's outcome row is selected** — this spec is the *target*, deliberately not an executable plan until the evidence exists.
+Worker-tier implementation plan (`plans/2026-09-23-scnd-scaling-worker-tier.md`) — **including the `solve_claimants` registry (§1.3), which is new schema this spec introduces and A does not have** — the scheduled-scaler + its runbook, the completed connection ledger and its live validation (§3.2, §10), the cost report, the two-gate pilot-verification doc, and — only under O4 and if the coalescing condition fires — the single-flight successor spec.
+
+**The plan is written now and resolves its own inputs as it executes** (§10's register). Earlier revisions of this line said the plan could not exist until Measurement selected a row; that conflated *writing* a plan with *running* one. The topology-dependent parts are branch tasks keyed on V1, not assumptions — so a plan written today is correct under all four outcomes, and the agent executing it reads the real value at the branch. **What remains genuinely sequential is A**: nothing in the plan executes before A lands, and its Preflight asserts that first.
 
 ---
 
-## 10. Open inputs and unratified values
+## 10. Value-resolution register
 
-Nothing below is an oversight; each is a value this document is not entitled to invent. Read this section before treating any number in §§2–3 as evidence.
+**These are not blockers to route around; they are lookups with addresses.** Every unknown below is resolvable by the time the task that needs it executes — so the implementation plan does not carry guessed values, it carries **resolution steps**. The executing agent reads the real value from a named source at the moment of use, and the plan orders its tasks so each value's source exists before its consumer runs.
+
+**The one rule that makes this safe:**
+
+> **A missing value is a STOP, never a substitution.** If the named source does not exist, is empty, or disagrees with itself, the agent halts and reports — it does not infer a plausible number, carry forward a starting value as though it were measured, or proceed with a placeholder. Every starting value in §§2.1/3.1/3.2 is exactly the kind of plausible number that would make a silent substitution invisible, which is why they are enumerated below as *unratified*.
+
+| # | Value / decision | Resolve from | Earliest resolvable | Consumed by | If absent |
+|---|---|---|---|---|---|
+| **V1** | Outcome row O1–O4 | Measurement M5.2 topology runs + M5.4 gate verdicts decision doc | Measurement Phase 5 | §1.1, and the plan's branch point | **STOP** — no topology, nothing downstream is meaningful |
+| **V2** | SP-1 answer, (a) or (b) | Product owner, at the §1.1 checkpoint | When V1 resolves to O1/O2 | §1.1a build path, §5.1 gate set | **STOP and ask** — never assumed either way |
+| **V3** | `cpu_N` — mean CPU service demand at knee concurrency | `capacity.py: weighted_mean_service_demand(stats, manifest, gap)` over the M1 campaign stats | Phase 3 campaign run | §4 cost, §1.1 sizing | **STOP** |
+| **V4** | Knee concurrency `N` | M5.2 topology runs | Phase 5 | V3's operating point | **STOP** |
+| **V5** | **`mean_service_sec`** — mean effective *wall* service per slot-consuming job | `simulate.py: SimResult` — **field does not exist yet**; add `total_solver_wall / count(consumes_solver_slot)` (§3.2) | Phase 3, once the field is added | §3.2 admission, `Retry-After` | **STOP** — and note this one needs a Measurement change first, not just a run |
+| **V6** | Cache hit rate `h` | Phase 3 load-run cache mix | Phase 3 | §4 sensitivity, capacity | **STOP** |
+| **V7** | Per-solve peak RSS | M1.2's normalized-peak-RSS primitive, campaign output | Phase 3 campaign | `slots_per_instance` via `map_to_instances` | **STOP** |
+| **V8** | `slots_per_worker` / `CONCURRENCY`, worker count | `capacity.py: size_calibrated_plan(calibration, arrival_rate, headroom)` | Phase 5 | §3.2 ledger + admission | **STOP** |
+| **V9** | Postgres `max_connections` | `SHOW max_connections` on the live `nos-postgres` instance, **after** §3.2's ledger is complete | Any time — but the ledger must come first (S-R12) | §3.2 budget | Run the command; it is a lookup, not a wait |
+| **V10** | Observed peak `pg_stat_activity` under rolling deploy | Live observation during the cutover rehearsal | During this plan's own cutover task | §3.2 overlap term validation | **STOP** — the overlap term is unverifiable any other way |
+| **V11** | Boot-to-first-claim | **Measured by this plan itself** — scale API call → first successful claim, instrumented in the worker task | During this plan's scale-up task | §2 pre-scale lead time | Measure it here; **it is an output of this work, not an input** |
+| **V12** | Class calendar days/windows, IANA timezone | Product owner (SP-3) | Any time | §2.2 calendar | **STOP and ask** |
+| **V13** | Retention window in days | Product owner (SP-3) | Any time | §6 | **STOP and ask** |
+| **V14** | Coalescing condition result | §5.1 G-FLEET cold-identical-burst test | After the fleet is built | §1.1 O4 pilot authority, SP-2 | **STOP** |
+
+**V11 was misfiled for six rounds.** §10 previously listed boot-to-first-claim among "measured values this document consumes but does not have," alongside Measurement outputs. It is not a Measurement output and never could be: measuring how long a solver worker takes to boot and claim requires a solver worker, which *this* plan builds. It is produced here and fed back into §2's lead time.
+
+**Everything below is unchanged in substance — it is the detail behind the register rows.**
 
 **Contingent decisions — someone other than the author must answer, but only once Measurement makes the question relevant** *(re-framed per S-R22; these were wrongly listed as Stage-1 gates for four rounds, which made Stage 1 unsatisfiable and forced a premature product call)*. **They are mutually exclusive by outcome:**
 - **SP-1 — fires only if Measurement selects O1/O2.** Does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision. **Two options, (a) or a recorded waiver (b); the round-2 reviewer recommends (a).** §1.1. Under O3/O4 this question never arises — the worker tier satisfies the rule by construction.
@@ -437,7 +464,7 @@ Nothing below is an oversight; each is a value this document is not entitled to 
 
 **Product inputs (SP-3), not author choices:** class calendar days/windows, IANA timezone, pre-scale lead time (derives from measured boot-to-first-claim, so it is requested *after* measurement), and the §6 retention window in days.
 
-**Measured values this document consumes but does not have.** Measurement Phases 1–2 delivered the *instruments*; no run has produced results (see the preamble). Still unmeasured and required: `cpu_N` and the knee concurrency, **`mean_service_sec`** — mean effective *wall* service time per slot-consuming job at the selected concurrency (§3.2's admission model; **not currently emitted by any Measurement artifact**, and a live Phase 3 ask since `simulate()` already holds `total_solver_wall`), per-solve RSS, cache hit rate `h`, and boot-to-first-claim (§2's pre-scale lead time).
+**Measured values this document consumes but does not have (V3–V8).** Measurement Phases 1–2 delivered the *instruments*; no run has produced results (see the preamble). **`mean_service_sec` (V5) is the one that needs a Measurement change, not merely a Measurement run** — `SimResult` has no such field today, and `simulate()` already holds `total_solver_wall`, so the ask is one division plus a field. Raise it while Phase 3 is still being planned.
 
 **Starting values, not measured results.** Every number in §§2.1/3.1/3.2 — `MAX_ATTEMPTS=3`, backoff `base=5 s`/`cap=60 s`, `MAX_RUNNING_PER_USER=1`, `MAX_QUEUED_PER_USER=3`, ±20 % scan jitter, `Retry-After` clamp 5–120 s, `worker_pool = CONCURRENCY + 2`, the 120 s shutdown budget inherited from A14a — is a **starting value to be ratified against measurement**. They are stated concretely so they can be argued with, which is the opposite of the vagueness S-R7 objected to. **Do not mistake concreteness for evidence.**
 
