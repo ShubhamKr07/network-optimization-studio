@@ -1,7 +1,8 @@
 # SCND Scaling — Solver-Tier + Scheduled-Autoscale Spec
 
 **Date:** 2026-09-22
-**Status:** Design spec for review. The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1 ("B2 — durable isolated solver tier + pilot gate"). Direction inherited from the original brainstorm `2026-09-19-scnd-scaling-design.md` (Option B: split solver tier + scheduled autoscale ≈ $70/mo).
+**Status:** **REQUEST CHANGES — not approved for implementation planning.** The deep approval review of 2026-09-23 (S-R1…S-R8 + four important corrections) is folded into the body below; the review text itself is preserved verbatim in commit `02d105f`, and the per-finding record is §11. Every finding is accepted and corrected in text, but **two blockers are not closable by writing** and hold the status: **SP-1** (may a capacity-passing API authorize a real cohort with no worker isolation — a reversal of a locked decision) and the **unconfirmed Postgres connection ceiling** (§3.2, §10). Approval follows those answers, not this document.
+The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1 ("B2 — durable isolated solver tier + pilot gate"). Direction inherited from the original brainstorm `2026-09-19-scnd-scaling-design.md` (Option B: split solver tier + scheduled autoscale ≈ $70/mo).
 **Branch:** `scnd-scaling`.
 
 **Goal:** Handle the contracted **50 users × 50 solves/hr, ≤3-hr class bursts, at low cost** by moving solves off the API's request path onto a **measurement-sized solver tier** that **scales up only for the class window** and back down after — decoupled, burst-safe, and cheap because it rents burst capacity ~60 hr/month, not 24/7.
@@ -32,7 +33,7 @@
 
 The contradiction the review found is real and was mine: the goal sentence assumes a worker tier, §4 contemplates a permanently enlarged vertical service, and the cohort/load gate said "not built." Those are three different outcomes stated as if they were one. They are separated here, and each row names its required artifact and what it authorizes.
 
-The predecessor split ledger (`2026-09-20-scnd-scaling-phase0-design.md` §13.1, Q2) says: *"Worker isolation + B2 reliability remain mandatory regardless of topology; B2 must land before any real cohort pilot."* **That rule is not superseded here.** Read precisely, it binds the **real-cohort pilot**, not every build — so rows O1–O2 below are compatible with it *as long as they do not authorize a real cohort*. The one place it genuinely binds is row O1, and that is escalated to the product owner as **SP-1** rather than decided in this document.
+The predecessor split ledger (`2026-09-20-scnd-scaling-phase0-design.md` §13.1, Q2) says: *"Worker isolation + B2 reliability remain mandatory regardless of topology; B2 must land before any real cohort pilot."* **That rule is not superseded here** — a deliberate divergence from S-R1's requested correction, which was to "explicitly supersede the predecessor rule if a passing API permits no worker-tier build." Read precisely, the rule binds the **real-cohort pilot**, not every build, so rows O1–O2 below are compatible with it *as long as they do not authorize a real cohort* and no supersession is needed to publish this matrix. That leaves exactly one live conflict — whether a cohort may run on a capacity-passing API with no isolation. It is a reversal of a decision locked **before A existed**, when the API had no durable queue, no lease and no drain; A has since shipped all three, which is new evidence but not a mandate. It is escalated as **SP-1** rather than resolved by the author who would benefit from resolving it.
 
 | # | Measurement outcome | What gets built | Required artifact | Pilot authority |
 |---|---|---|---|---|
@@ -129,7 +130,7 @@ Consequences stated plainly rather than buried:
   **Design constraints inherited from A's rounds, do not rediscover them:** election must use `ON CONFLICT` (an unhandled unique violation aborts the transaction); uniqueness scope must be an **immutable** key, never the mutable lease owner; the fan-out cursor must order by an explicit sequence, **not** `job_id`, if the winner is not processed in id order; the durable outcome must be persisted **before** fan-out, because `no_solution` is deliberately never cached and so the cache cannot serve as the recovery source; subscribers must be structurally unclaimable by the dispatcher; and `ON DELETE` actions cannot substitute for an explicit deletion transaction. See the A plan's A10 removal record and rounds 2–6 of its review record.
   **Sizing note:** at A's current `CONCURRENCY=3` a 50-student stampede costs about **two** redundant sub-second solves, because the first completion populates the cache for the queued remainder. Single-flight's value scales with worker count — which is precisely why it belongs here and not in the correctness contract.
   **Status corrected per S-R4.** The review is right that this is an outline, and right that it was nonetheless listed as a reliability-gate requirement in §5. That asymmetry was the actual defect and it is fixed: **single-flight is removed from the gate until its own spec is approved**, and it is scoped to outcome O4 only (§1.1), because at O3's single worker the sizing note above shows the value is roughly two sub-second solves — not worth a distributed coalescing protocol.
-  **It gets its own spec pass, not a section here.** Writing this protocol inline is precisely what produced 12 of the A plan's 56 findings across six rounds, ending in four CRITICALs in one round. That was not carelessness; it is a genuinely hard protocol that needs its own brainstorm → spec → review cycle, exactly as A and Measurement each got. Folding it back into a section of *this* document would repeat the failure with the same author, the same reviewers and less space. The deliverable is therefore a named successor spec (`specs/2026-09-2x-scnd-single-flight-design.md`) carrying the inherited constraints above as its starting contract, and it must define: the immutable uniqueness key, winner election via `ON CONFLICT`, subscriber attachment and sealing, the explicitly-sequenced fan-out cursor, outcome persisted **before** fan-out, stale-owner takeover on this spec's lease, cancellation/deletion as an explicit transaction, its interaction with §3.1's retry, and acceptance tests proving exactly one CBC execution and exactly-once terminalization per cold identical burst.
+  **It gets its own spec pass, not a section here — a deliberate divergence from S-R4's requested remedy**, which was to add a normative single-flight sub-spec to *this* document. The finding's own evidence argues against that remedy: writing this protocol inline is precisely what produced 12 of the A plan's 56 findings across six rounds, ending in four CRITICALs in one round — three incompatible generation authorities, an ordering model incompatible with its own cursor invariant, a uniqueness exclusion abandoning its own acceptance criterion, and a deletion protocol FK actions cannot implement. That was not carelessness; it is a genuinely hard protocol that needs its own brainstorm → spec → review cycle, exactly as A and Measurement each got. Folding it back into a section of *this* document would repeat the failure with the same author, the same reviewers and less space. What was actually defective is the asymmetry the review identified in the same breath — gating on an outline — and that is fixed directly. **If the protocol is wanted inline instead, say so and it gets written; the expectation is that it fails the same way.** The deliverable is therefore a named successor spec (`specs/2026-09-2x-scnd-single-flight-design.md`) carrying the inherited constraints above as its starting contract, and it must define: the immutable uniqueness key, winner election via `ON CONFLICT`, subscriber attachment and sealing, the explicitly-sequenced fan-out cursor, outcome persisted **before** fan-out, stale-owner takeover on this spec's lease, cancellation/deletion as an explicit transaction, its interaction with §3.1's retry, and acceptance tests proving exactly one CBC execution and exactly-once terminalization per cold identical burst.
 
 > **SP-2 — approval checkpoint (ask only if Measurement selects O4).** *A horizontal fleet makes duplicate solves worth eliminating, so single-flight becomes real work — its own brainstorm/spec/review cycle before any implementation, on the evidence that the last attempt to shortcut this cost six review rounds. Authorize that spec pass, or accept the duplicate-compute cost for the pilot and defer coalescing until the measured waste justifies it?* Either answer is defensible; the measured cold-identical-burst waste from Measurement's load profile is the evidence that should decide it.
 - **Gap-tuning:** the original brainstorm's biggest cost lever — but the spike found teaching datasets prove optimal in <0.2 s, so gap-tuning's real payoff is likely small here; apply only if measurement shows a slow-regime tail worth cutting, as a per-scenario input (not a solver-math branch, hard rule #6).
@@ -260,7 +261,58 @@ Worker-tier implementation plan (a later `writing-plans` pass, sized by measurem
 
 ---
 
-## Review disposition — deep approval review (2026-09-23)
+## 10. Open inputs and unratified values
+
+Nothing below is an oversight; each is a value this document is not entitled to invent. Read this section before treating any number in §§2–3 as evidence.
+
+**Blocking — someone other than the author must answer:**
+- **SP-1** — does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision (§1.1).
+- **Postgres `max_connections` on `basic-256mb`** — genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. Read from the live instance (`SHOW max_connections`); §3.2's budget cannot be checked without it, and if it does not fit, the pooler-or-bigger-plan cost lands in §4.
+
+**Product inputs (SP-3), not author choices:** class calendar days/windows, IANA timezone, pre-scale lead time (derives from measured boot-to-first-claim, so it is requested *after* measurement), and the §6 retention window in days.
+
+**Starting values, not measured results.** Every number in §§2.1/3.1/3.2 — `MAX_ATTEMPTS=3`, backoff `base=5 s`/`cap=60 s`, `MAX_RUNNING_PER_USER=1`, `MAX_QUEUED_PER_USER=3`, ±20 % scan jitter, `Retry-After` clamp 5–120 s, the 120 s shutdown budget inherited from A14a — is a **starting value to be ratified against measurement**. They are stated concretely so they can be argued with, which is the opposite of the vagueness S-R7 objected to. **Do not mistake concreteness for evidence.**
+
+**Deferred by design, not omitted:** the single-flight protocol (§3, SP-2) — open because it needs its own spec, not because it was forgotten.
+
+---
+
+## 11. Review record
+
+Round 1 — deep approval review, 2026-09-23. Review text preserved verbatim in commit `02d105f`; this table is the disposition, and the corrections themselves live in the sections named. **All twelve findings accepted.** Ten corrected as requested; **S-R1 and S-R4 accepted with a different remedy than the one requested**, each argued at the point of divergence (§1.1, §3) rather than in an appendix.
+
+The review's central judgement — that this was a direction, not yet a contract for the distributed coordination it introduces — was correct. S-R2, S-R3 and S-R7 named gaps left as nouns. Two findings were also overtaken by program state the review could not have had: **B is executed** and **A is in progress** (see the preamble), so every code and schema claim in the fold is cited from `scnd-correctness-A`, not from a plan.
+
+| ID | Disposition | Where |
+|---|---|---|
+| S-R1 — topology/build contradictory | **Accepted, different remedy.** Four-row outcome matrix; predecessor rule **narrowed, not superseded**; "ship B (+ A)" replaced with real program state | Preamble, §1.1, **SP-1** |
+| S-R2 — dispatch cutover absent | **Accepted.** Three mutually exclusive modes, fail-closed validation, five-step cutover, queryable zero-API-claimant proof; lost-kick latency stated with its mitigation | §1.2, **SP-4** |
+| S-R3 — retry not a protocol | **Accepted.** Full protocol keyed to A1's existing failure taxonomy; attempt consumed at claim; old-owner fencing shown to need no new machinery | §3.1 |
+| S-R4 — single-flight an outline | **Accepted, different remedy.** Removed from the reliability gate and scoped to O4; promoted to its own successor spec rather than written inline | §3, §5, **SP-2** |
+| S-R5 — scale-in race-unsafe | **Accepted, stronger conclusion.** Render picks the victim instance, so the pre-check is unfixable and is dropped; safety moves to worker SIGTERM + A's lease + bounded attempts | §2.1 |
+| S-R6 — scheduler contract incomplete | **Accepted.** Render Cron Job selected on a timing argument; calendar/locking/credential/reconciliation/override contract | §2.2, **SP-3** |
+| S-R7 — DB/admission/fairness only named | **Accepted.** Connection budget, pool sizing, jittered cadence, index analysis, per-user cap with starvation bound, exact wait/`Retry-After` | §3.2, §10 |
+| S-R8 — gates validate the prototype | **Accepted.** Authoritative post-build rerun on the final topology; named reliability suite; both gates **and** MP-4 required | §5 |
+| Readiness-on-DB-failure | **Accepted.** Background workers have no inbound URL; boot/run/self-terminate semantics with DB-side observability | §8 |
+| Retention/index/bounds | **Accepted.** Rehomed explicitly, with A Part F's `result` + `input_snapshot` growth noted as larger than the ledger assumed | §6 |
+| Cost evidence-driven | **Accepted.** `$70/mo` and the 1–3 min boot demoted to hypotheses; omitted charges enumerated | §2, §4 |
+| A7 provenance | **Accepted.** Consumed-not-reimplemented, with the retry-specific consequence spelled out | Preamble, §3.1 |
+
+**Re-approval checklist (reviewer's, with author status):**
+
+- [x] Outcome matrix reconciles no-build / vertical / dedicated-worker / fleet with the predecessor ledger — §1.1; **SP-1 open for the one genuine conflict**
+- [x] Production worker-mode cutover prevents concurrent claiming — §1.2
+- [x] Retry/lease/fencing/exhaustion semantics deterministic and tested — §3.1
+- [ ] Single-flight schema/state machine/cancellation protocol — **open by design**: removed from the gate, promoted to its own spec (§3, SP-2)
+- [x] Safe drain/reconciliation; native autoscaling cannot override — §2.1, §2.2
+- [x] Calendar/controller, database budget, admission, fairness executable — §2.2, §3.2; **connection ceiling is a named required input** (§10)
+- [x] Final built topology, not its prototype, carries authoritative evidence — §5
+- [x] Retention/bounds and A7 publication-CAS provenance explicit — §6, preamble
+
+---
+
+<details>
+<summary>Round 1 review text (verbatim, as received — superseded by the fold above)</summary>
 
 **Decision: REQUEST CHANGES / not approved for implementation planning.** The direction is sound: measurement-led sizing, durable Postgres work, isolated solver compute, scheduled capacity and separate capacity/reliability gates are the right shape. The document is not yet a sufficient contract for the new distributed coordination and production transition it introduces. The findings below deliberately exclude end-user best/worst-case experience scenarios; they concern only the design and its approval conditions.
 
@@ -305,52 +357,4 @@ Worker-tier implementation plan (a later `writing-plans` pass, sized by measurem
 
 When those items close, this design can proceed to its measurement-sized implementation-plan pass. No final instance count, plan ID, SLO value or price is requested here; those remain Measurement outputs.
 
----
-
-## Author responses — round 1 (2026-09-23)
-
-**Every finding accepted.** Seven of the eight are corrected in the body above; one (S-R4) is accepted with a scope change rather than the correction requested, argued below. The review's central judgement — that this document was a direction, not yet a contract for the distributed coordination it introduces — was correct, and three findings (S-R2, S-R3, S-R7) named gaps I had left as nouns.
-
-**Program state has moved since the review was written,** and it matters for two findings: **B is executed** (B1–B7 on `scnd-scaling`), and **A is in progress** with A0/A1/A2/A3/A14a/A14b landed. Where the responses below cite real code or schema, they cite it from `scnd-correctness-A`, not from a plan.
-
-| ID | Disposition | Where |
-|---|---|---|
-| S-R1 | **Accepted.** Four-row outcome matrix; predecessor rule narrowed-not-superseded; "ship B (+ A)" replaced with real program state | Preamble, §1.1, **SP-1** |
-| S-R2 | **Accepted.** Three dispatch modes, fail-closed validation, five-step cutover with a queryable proof, and the latency cost of losing the in-process kick stated | §1.2, **SP-4** |
-| S-R3 | **Accepted.** Full retry protocol keyed to A's existing failure taxonomy; attempt consumed at claim; fencing shown to need no new machinery | §3.1 |
-| S-R4 | **Accepted, different remedy.** Removed from the reliability gate and scoped to O4; promoted to its own successor spec rather than a section here | §3, §5, **SP-2** |
-| S-R5 | **Accepted, stronger conclusion.** The pre-check isn't merely racy — Render won't let you name the instance being removed, so drain safety moves entirely to worker SIGTERM + A's lease | §2.1 |
-| S-R6 | **Accepted.** Render Cron Job selected on a timing argument; full calendar/locking/credential/override table | §2.2, **SP-3** |
-| S-R7 | **Accepted.** Connection budget formula, pool sizing, jittered cadence, index analysis, per-user cap with a starvation bound, exact wait/`Retry-After` | §3.2 |
-| S-R8 | **Accepted.** Authoritative post-build rerun on the final topology; named reliability suite; both gates **and** MP-4 required | §5 |
-| Readiness-on-DB-failure | **Accepted.** Background workers have no inbound URL; replaced with boot/run/self-terminate semantics and DB-side observability | §8 |
-| Retention/index/bounds | **Accepted.** Rehomed here explicitly, with A's Part F `result` + `input_snapshot` growth noted as newly larger than the ledger assumed | §6 |
-| Cost evidence-driven | **Accepted.** `$70/mo` and the 1–3 min boot demoted to hypotheses; omitted charges enumerated | §2, §4 |
-| A7 provenance | **Accepted.** Named as consumed-not-reimplemented, with the retry-specific consequence spelled out | Preamble, §3.1 |
-
-### The three responses that are more than "fixed"
-
-**S-R1 — I did not supersede the predecessor rule, and I think the review's own framing allows that.** The required correction says to "explicitly supersede the predecessor rule if a passing API permits no worker-tier build." Reading the ledger precisely (`2026-09-20` §13.1, Q2): *"Worker isolation + B2 reliability remain mandatory regardless of topology; B2 must land before any real cohort pilot."* It binds the **cohort pilot**, not every build. So the matrix reconciles without reversal: O1/O2 build no worker tier **and authorize no real cohort**. That leaves exactly one live conflict — whether a cohort may run on a capacity-passing API with no isolation — and that is a reversal of a locked decision made before A existed. It goes to the product owner as SP-1 with the changed evidence stated, rather than being quietly resolved by the person who benefits from resolving it.
-
-**S-R4 — the requested remedy would repeat a known failure.** The review asks for a normative single-flight sub-spec inside this document. I am declining that specific remedy while accepting the finding, because the finding's own evidence argues against it: this protocol, written as a section of a larger spec, produced 12 of the A plan's 56 findings across six rounds and ended in four CRITICALs in one round — three incompatible generation authorities, an ordering model incompatible with its own cursor invariant, a uniqueness exclusion abandoning its own acceptance criterion, and a deletion protocol FK actions cannot implement. Writing it as a section of *this* spec instead would change nothing about why that happened. What was actually wrong was the asymmetry the review identified in the same breath — gating on an outline — and that is fixed directly: **out of the gate, scoped to O4, its own spec pass under SP-2.** If you want the protocol inline instead, say so and I will write it; I think it fails the same way.
-
-**S-R5 — the TOCTOU framing understates it.** "Drain, then scale down" is not repairable by a better check, because Render's scale API sets a desired count and chooses the victim instance itself. There is no instance you can drain on purpose. §2.1 therefore drops the pre-check entirely and makes an abruptly-killed worker a *recoverable* event: stop claiming on SIGTERM, finish within the 120 s budget A14a already set, and let A's 60 s stale-lease threshold plus §3.1's bounded attempts requeue anything the platform kills. This is simpler than the contract the review asked for and it is safe for a reason that does not depend on timing.
-
-### What is deliberately still open
-
-- **Postgres `max_connections` on `basic-256mb` is unknown and not guessed** (§3.2). The post-migration audit flagged it unconfirmed and it still is. It is a required input to the worker-tier plan, read from the live instance.
-- **Class calendar, timezone, pre-scale lead time, retention window** — product inputs (SP-3), not author choices.
-- **Every numeric starting value** in §§2.1/3.1/3.2 (`MAX_ATTEMPTS=3`, backoff 5 s/60 s, `MAX_RUNNING_PER_USER=1`, `MAX_QUEUED_PER_USER=3`, ±20 % jitter, `Retry-After` clamp 5–120 s) is a **starting value to be ratified against measurement**, not a measured result. They are stated concretely so they can be argued with, which is the opposite of the vagueness S-R7 correctly objected to — but do not mistake concreteness for evidence.
-
-### Re-approval checklist — author status
-
-- [x] Outcome matrix reconciles no-build / vertical / dedicated-worker / fleet with the predecessor ledger (§1.1) — **SP-1 open for the one genuine conflict**
-- [x] Production worker-mode cutover prevents concurrent claiming (§1.2)
-- [x] Retry/lease/fencing/exhaustion semantics deterministic, with named tests (§3.1)
-- [~] Single-flight — **removed from the gate and promoted to its own spec (SP-2)** rather than defined here; this item is open by design, not by omission
-- [x] Scale-in drain/reconciliation contract; native autoscaling asserted off (§2.1, §2.2)
-- [x] Calendar/controller, database budget, admission, fairness are executable (§2.2, §3.2) — **connection ceiling is a named required input**
-- [x] Final built topology, not its prototype, carries authoritative evidence (§5)
-- [x] Retention/bounds and A7 publication-CAS provenance explicit (§6, preamble)
-
-**Status after this round: still REQUEST CHANGES, by my own reading.** Seven findings are closed in text, but the two that block implementation planning are not closable by writing: SP-1 (does a capacity-passing API authorize a cohort without isolation?) and the connection ceiling. Both need someone other than me. Approval should follow the answers, not this fold.
+</details>
