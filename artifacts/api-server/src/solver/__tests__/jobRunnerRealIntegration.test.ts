@@ -8,10 +8,24 @@
 // requirement as routes.test.ts / dataset.test.ts) — run with e.g.
 // `DATABASE_URL=postgresql://... pnpm --filter api-server exec vitest run
 // src/solver/__tests__/jobRunnerRealIntegration.test.ts`.
+//
+// A7 — enqueues via `enqueueScenarioSolve` (the REAL production authority
+// transaction routes/scenarios.ts's solve route actually calls), not the
+// simple `enqueueSolveJob` primitive. This matters now: A7's publication CAS
+// is ALWAYS ON (not flag-gated) and requires `scenarios.latest_solve_job_id`
+// + `enqueued_solve_input_revision` to have been captured correctly at
+// enqueue — `enqueueSolveJob` deliberately never sets `latest_solve_job_id`
+// (it's the "simple, non-locking primitive... used directly by tests," per
+// its own header, not the HTTP path), so a job enqueued through it would
+// legitimately never satisfy the CAS and would be recorded "superseded"
+// rather than published — a real, correct consequence of always-on
+// ownership gating, but not what THIS file exists to prove. Using the real
+// authority path here is what makes "production wiring" true end-to-end,
+// publication included.
 import { describe, it, expect, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, usersTable, scenariosTable, solveJobsTable } from "@workspace/db";
-import { enqueueSolveJob } from "../jobRunner.js";
+import { enqueueScenarioSolve } from "../jobRunner.js";
 import type { SolveInput } from "../pmedian.js";
 
 const TEST_USER_ID = `a3-no-orphan-proof-${Date.now()}`;
@@ -58,7 +72,10 @@ describe("A3 — real end-to-end solve via the unmocked production pipeline", ()
     }).returning();
     scenarioId = scenario!.id;
 
-    const jobId = await enqueueSolveJob(scenarioId, TEST_USER_ID, input);
+    const outcome = await enqueueScenarioSolve(scenarioId, TEST_USER_ID);
+    expect(outcome.kind).toBe("queued");
+    if (outcome.kind !== "queued") throw new Error("unreachable");
+    const jobId = outcome.jobId;
     const result = await pollJob(jobId, 60000);
 
     expect(result.status).toBe("succeeded");

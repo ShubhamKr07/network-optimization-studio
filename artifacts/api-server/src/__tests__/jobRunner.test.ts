@@ -101,6 +101,7 @@ let RECOVERY_CONTRACT_IDENTITY: JobRunnerModule["RECOVERY_CONTRACT_IDENTITY"];
 let derivePublicFailure: JobRunnerModule["derivePublicFailure"];
 let VERSION_MISMATCH_SAFE_MESSAGE: JobRunnerModule["VERSION_MISMATCH_SAFE_MESSAGE"];
 let cancelJob: JobRunnerModule["cancelJob"];
+let isOutcomeCacheable: JobRunnerModule["isOutcomeCacheable"];
 
 beforeAll(async () => {
   const mod = await import("../solver/jobRunner.js");
@@ -114,6 +115,7 @@ beforeAll(async () => {
   derivePublicFailure = mod.derivePublicFailure;
   VERSION_MISMATCH_SAFE_MESSAGE = mod.VERSION_MISMATCH_SAFE_MESSAGE;
   cancelJob = mod.cancelJob;
+  isOutcomeCacheable = mod.isOutcomeCacheable;
 });
 
 const baseInput: SolveInput = {
@@ -845,14 +847,166 @@ describe("markSucceeded transaction (Part F / T6)", () => {
     child.emit("close", 0);
 
     // The transaction still commits (no throw) even though the job-row
-    // update affected 0 rows — markSucceeded resolves `false` (published:
-    // no) rather than throwing, and the scenario update inside the
+    // update affected 0 rows — markSucceeded resolves {kind:"not_owned"}
+    // (A7) rather than throwing, and the scenario update inside the
     // transaction never runs at all.
     await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
-    await expect(mockDb.transaction.mock.results[0].value).resolves.toBe(false);
+    await expect(mockDb.transaction.mock.results[0].value).resolves.toEqual({ kind: "not_owned" });
     // Exactly 2 db.update calls total: the CAS claim + markSucceeded's
     // (0-row) job-row update — the scenario update is gated out entirely.
     expect((mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+  });
+
+  // A7 — a genuine throw on the SECOND internal statement (the scenario-row
+  // update), NOT the transaction wrapper itself — refines the "forced
+  // mid-transaction failure" test above (which throws before either
+  // tx.update() is even attempted) by proving the job-row update's own
+  // success inside the transaction does NOT get reported as a real commit
+  // when the very next statement in the SAME transaction genuinely fails.
+  // A real Postgres driver rolls back both statements together; this proves
+  // our own code doesn't swallow that error or claim a partial success.
+  it("a genuine throw between the two internal statements propagates (rollback), not a partial 'succeeded'", async () => {
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    mockDb.update
+      .mockReturnValueOnce(makeChain([{}])) // CAS claim (outside markSucceeded's transaction)
+      .mockReturnValueOnce(makeChain([{}])); // runJob's outer catch-all's own markFailed call
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "h", modelId: "p-median-us", result: envelope },
+    ]));
+
+    let txUpdateCallCount = 0;
+    mockDb.transaction.mockImplementationOnce(async (cb: (tx: typeof mockDb) => Promise<unknown>) => {
+      const tx = {
+        update: vi.fn(() => {
+          txUpdateCallCount++;
+          if (txUpdateCallCount === 1) return makeChain([{ id: 1 }]); // the job-row update "succeeds"
+          throw new Error("simulated failure on the scenario-row statement"); // the very next statement genuinely throws
+        }),
+      };
+      return cb(tx as unknown as typeof mockDb);
+    });
+
+    await expect(enqueueSolveJob(20, "user-1", baseInput)).resolves.toBeTypeOf("number");
+    await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
+    // markSucceeded's own promise REJECTED — never resolved to any
+    // ScenarioPublicationOutcome at all, published or otherwise.
+    await expect(mockDb.transaction.mock.results[0].value).rejects.toThrow(/scenario-row statement/);
+    // runJob's top-level catch-all still terminal-fails the job rather than
+    // stranding it "running" (the same no-retry contract as any other
+    // "crash between claim and a defined outcome" case).
+    await vi.waitFor(() => expect((mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2));
+  });
+
+  // A7 — a cache hit publishes under the CURRENT job's OWN identity, never
+  // a stale one from whichever job originally wrote the cache entry (the
+  // §2.12 "composition" concern, at the layer this task actually owns:
+  // markSucceeded's resultRunId always comes from the argument it was
+  // called with, not from anything baked into the cached envelope). Two
+  // DIFFERENT job ids share the exact same cache entry; each publish must
+  // point at its OWN job id, never the other's.
+  it("cache-hit publication attributes resultRunId to the CURRENT job, never a different job that shares the cache entry", async () => {
+    const cachedEnvelope = { ...envelope, objective: 909 };
+
+    // First cache hit — job id 101.
+    mockDb.insert.mockReturnValueOnce(makeChain([{ id: 101 }]));
+    const scenarioUpdateChainA = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(makeChain([{}])) // CAS claim
+      .mockReturnValueOnce(makeChain([{}])) // markSucceeded job-row update
+      .mockReturnValueOnce(scenarioUpdateChainA); // markSucceeded scenario-row update
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "shared-hash", modelId: "p-median-us", result: cachedEnvelope },
+    ]));
+    await enqueueSolveJob(31, "user-1", baseInput);
+    await vi.waitFor(() => expect(setValues(scenarioUpdateChainA).some((s) => s.resultRunId === 101)).toBe(true));
+
+    // Second cache hit against the SAME cache entry — job id 202, a
+    // DIFFERENT scenario. Must publish under ITS OWN job id.
+    mockDb.insert.mockReturnValueOnce(makeChain([{ id: 202 }]));
+    const scenarioUpdateChainB = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(makeChain([{}])) // CAS claim
+      .mockReturnValueOnce(makeChain([{}])) // markSucceeded job-row update
+      .mockReturnValueOnce(scenarioUpdateChainB); // markSucceeded scenario-row update
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: "shared-hash", modelId: "p-median-us", result: cachedEnvelope },
+    ]));
+    await enqueueSolveJob(32, "user-1", baseInput);
+    await vi.waitFor(() => expect(setValues(scenarioUpdateChainB).some((s) => s.resultRunId === 202)).toBe(true));
+
+    // Neither chain's resultRunId is ever the OTHER job's id.
+    expect(setValues(scenarioUpdateChainA).some((s) => s.resultRunId === 202)).toBe(false);
+    expect(setValues(scenarioUpdateChainB).some((s) => s.resultRunId === 101)).toBe(false);
+  });
+});
+
+// A7 — outcome-specific cache eligibility (§2.8), flag OFF. This file never
+// sets SOLVER_V2_WRITE_ENABLED, so isV2WriteEnabled() reads false throughout
+// (see featureFlags.ts's own fail-closed default) — the plan's flag-scoping
+// rule requires that with the flag OFF, cache-write behavior for a
+// successful solve stays BYTE-FOR-BYTE unchanged from pre-A7: every
+// solutionStatus is cached unconditionally under the v1 key, exactly as it
+// was before this task. The flag-ON half of this table (no_solution never
+// cached; others cached under the v2 key) is covered in
+// jobRunnerV2Cache.test.ts, which sets the flag before its own dynamic
+// import (module-load-once, can't be toggled mid-file).
+describe("A7 — isOutcomeCacheable (pure function)", () => {
+  it("flag OFF: every solutionStatus is cacheable, INCLUDING no_solution (preserves pre-A7 behavior)", () => {
+    for (const status of ["optimal", "feasible", "infeasible", "unbounded", "no_solution"]) {
+      expect(isOutcomeCacheable(status, false)).toBe(true);
+    }
+  });
+
+  it("flag ON: every solutionStatus is cacheable EXCEPT no_solution", () => {
+    for (const status of ["optimal", "feasible", "infeasible", "unbounded"]) {
+      expect(isOutcomeCacheable(status, true)).toBe(true);
+    }
+    expect(isOutcomeCacheable("no_solution", true)).toBe(false);
+  });
+});
+
+describe("A7 — outcome-specific cache/publish lifecycle (flag OFF — this file's default)", () => {
+  const outcomeCases: { status: string; objective: number }[] = [
+    { status: "optimal", objective: 100 },
+    { status: "feasible", objective: 150 },
+    { status: "infeasible", objective: 0 },
+    { status: "unbounded", objective: -1 },
+    { status: "no_solution", objective: 0 },
+  ];
+
+  it.each(outcomeCases)("flag OFF: a fresh '$status' solve is BOTH cached and published (pre-A7 behavior, unchanged)", async ({ status, objective }) => {
+    const enqueueChain = makeChain([{ id: 1 }]);
+    const cacheInsertChain = makeChain([{}]);
+    mockDb.insert.mockReturnValueOnce(enqueueChain).mockReturnValueOnce(cacheInsertChain);
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+    mockDb.select.mockReturnValueOnce(makeChain([])); // cache miss
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    const outcomeEnvelope = {
+      status, objective, runTimeSec: 0.2, quality: status,
+      solutionStatus: status, terminationReason: status === "optimal" ? "optimality_proven" : "unknown",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: status === "infeasible" ? "no feasible assignment" : null,
+    };
+
+    await enqueueSolveJob(1, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    emitFd3(child, outcomeEnvelope);
+    child.emit("close", 0);
+
+    // Cached — flag off means every status is still cache-eligible.
+    await vi.waitFor(() => {
+      expect((cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    });
+    // Published — publication always happens for every solved outcome,
+    // regardless of cache eligibility.
+    await vi.waitFor(() => expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === status)).toBe(true));
   });
 });
 

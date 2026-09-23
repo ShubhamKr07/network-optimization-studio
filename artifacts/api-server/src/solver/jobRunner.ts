@@ -1236,21 +1236,88 @@ export function toLegacyStoredResult(envelope: SolverSuccessEnvelopeV2): ResultE
   return ResultEnvelopeSchema.parse(picked);
 }
 
-// A2 — ownership-checked SUCCESS completion (A-R48's dependency, minus A7's
-// own latest_solve_job_id/revision CAS, which is explicitly out of this
-// task's scope). The job's own terminal transition is what GATES
-// publication: if the ownership-checked job update affects ZERO rows, the
-// scenario update never runs at all — "never published" on a dropped stale
-// completion, not merely "published harmlessly to a since-deleted row."
-// Returns whether it actually published (job update matched a row) so
-// callers can gate telemetry the same way.
-async function markSucceeded(
+// A7 — the three DISTINCT terminal outcomes of a publication attempt
+// (A-R48). Each is a different real-world situation and must never be
+// conflated:
+//   - "not_owned"  — the job's OWN terminal update affected ZERO rows: this
+//     process's lease was already lost (reclaimed by a newer generation's
+//     stale-lease takeover, or the row was otherwise terminalized out from
+//     under us) BEFORE this call ever ran. Publish nothing, change nothing,
+//     leave the row exactly as the reaper/newer owner left it — it is not
+//     this job's to touch anymore. Never retried.
+//   - "superseded"  — the job's OWN terminal update SUCCEEDED (this process
+//     genuinely still owned the lease and the compute genuinely finished),
+//     but the scenario-level publication CAS did not match — either a
+//     newer job now owns `latest_solve_job_id`, or the scenario's inputs
+//     have moved on to a new `solve_input_revision` since this job was
+//     enqueued (an edit landed with no second solve having completed yet).
+//     The job is STILL recorded terminally as `succeeded` with its full
+//     result addressable in solve history (A-R32) — it simply never
+//     becomes the scenario's CURRENT result. This is never a failure.
+//   - "published"   — both matched: the scenario's `result`/`resultRunId`
+//     now reflect this job's outcome.
+// Exported so tests can assert on it directly without string-matching.
+export type ScenarioPublicationOutcome =
+  | { kind: "not_owned" }
+  | { kind: "superseded" }
+  | { kind: "published" };
+
+// A7 (§2.8) — outcome-specific cache eligibility. GATED on isV2WriteEnabled()
+// per the plan's flag-scoping rule: this is "item 1's caching," and with the
+// flag OFF, cache-write behavior for a successful solve must stay BYTE-FOR-
+// BYTE unchanged from pre-A7 (every solutionStatus cached unconditionally
+// under the v1 key) — the outcome table below only actually applies once
+// the flag is ON (i.e. once the cache key is A6's full composite identity,
+// the "complete effective-limit/version key" §2.8's `feasible` row requires).
+//   - flag OFF: cache everything (pre-A7 behavior, verbatim).
+//   - flag ON:  optimal / infeasible / unbounded / feasible -> cache (a
+//               `feasible` entry is only ever written here under the v2 key,
+//               which callers already select end-to-end — see runJob).
+//               no_solution -> NEVER cache: "no incumbent within the
+//               requested gap/time limit" is not a stable answer to memoize
+//               — a later identical-inputs solve under a longer limit could
+//               easily find one, and caching the absence would wrongly deny
+//               it forever.
+export function isOutcomeCacheable(status: string, v2Enabled: boolean): boolean {
+  if (!v2Enabled) return true;
+  return status !== "no_solution";
+}
+
+// A2/A7 — ownership-checked SUCCESS completion + the ALWAYS-ON publication
+// CAS (A-R32/A-R39/A-R48; not flag-gated — this fixes a real superseded-
+// overwrite race regardless of v2). Two INDEPENDENT gates, evaluated in
+// order, each producing its own distinct terminal meaning (see
+// ScenarioPublicationOutcome above):
+//   1. The job's OWN ownership-checked terminal update (`RETURNING id`) —
+//      unchanged from A2. Zero rows -> "not_owned", and the scenario update
+//      NEVER RUNS AT ALL (a checked branch on the returned row count, not a
+//      second independent statement that could run regardless — A-R48's
+//      exact "dependency, not mere co-transaction-membership" requirement).
+//   2. Only once (1) has matched exactly one row: the scenario CAS itself —
+//      `latest_solve_job_id = <this job>` AND `solve_input_revision =
+//      <this job's own enqueued_solve_input_revision>`. A null captured
+//      revision (only possible via the non-authority `enqueueSolveJob`
+//      simple primitive, never the real HTTP path — see that function's own
+//      header) can never satisfy this CAS by construction: an unproven
+//      revision is never treated as a match (fail-closed, the same stance
+//      this file already takes on every other "identity underivable"
+//      case) — such a job is legitimately "superseded" since it was never
+//      granted publication authority at enqueue.
+// Both writes still happen inside ONE transaction (Part F/T6, unchanged);
+// completion telemetry is gated by the CALLER on `kind !== "not_owned"`,
+// firing only after this function's transaction has committed. Exported —
+// same rationale as claimJobRow above: direct testing of the publication
+// CAS predicate against a REAL database without paying for a full
+// runJob/spawn cycle.
+export async function markSucceeded(
   jobId: number,
   generation: number,
   scenarioId: number,
+  userId: string,
   modelId: string,
   envelope: ResultEnvelope,
-): Promise<boolean> {
+  enqueuedSolveInputRevision: number | null,
+): Promise<ScenarioPublicationOutcome> {
   // D21/C4.10 — resultSummary now carries the objective mode + a unit-tagged
   // weighted-average distance so the solve-history read (and Landing) can label
   // each solve without re-deriving the model. objectiveMode is the solver's
@@ -1291,23 +1358,44 @@ async function markSucceeded(
     if (updatedJobRows.length === 0) {
       // A2 — dropped stale completion: ownership already lost (reclaimed by
       // a newer generation's stale-lease takeover, or otherwise
-      // terminalized out from under us). Never publish, never retry.
-      return false;
+      // terminalized out from under us). Never publish, never retry. The
+      // scenario CAS below is NEVER EVEN ATTEMPTED — this is the checked
+      // branch A-R48 requires, not a second independent statement.
+      return { kind: "not_owned" } as const;
     }
 
-    // Unchanged from the existing (A3/B) publish path — A7 later layers the
-    // latest_solve_job_id/solve_input_revision CAS on top of this same
-    // statement; that is explicitly out of A2's scope.
-    await tx.update(scenariosTable)
+    // A7 — the publication CAS (A-R32/A-R39/A-R48), reached ONLY because
+    // exactly one job row was just terminally updated above. A null
+    // enqueuedSolveInputRevision can never satisfy `eq(...)` in SQL (it
+    // compares false/UNKNOWN against every real integer), so it falls
+    // through to "superseded" exactly as intended — no separate branch
+    // needed.
+    const scenarioRows = await tx.update(scenariosTable)
       .set({
         result: resultJson,
         resultRunId: jobId,
         solvedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(scenariosTable.id, scenarioId));
+      .where(and(
+        eq(scenariosTable.id, scenarioId),
+        eq(scenariosTable.userId, userId),
+        eq(scenariosTable.latestSolveJobId, jobId),
+        enqueuedSolveInputRevision == null
+          ? sql`false`
+          : eq(scenariosTable.solveInputRevision, enqueuedSolveInputRevision),
+      ))
+      .returning({ id: scenariosTable.id });
 
-    return true;
+    if (scenarioRows.length === 0) {
+      // A-R32 — succeeded-but-superseded: the job row above already
+      // committed status='succeeded' with its full result — this branch
+      // only decides whether the SCENARIO also gets updated. Never a
+      // failure; never shown as one.
+      return { kind: "superseded" } as const;
+    }
+
+    return { kind: "published" } as const;
   });
 }
 
@@ -1436,6 +1524,15 @@ async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<
     input = reconstructed;
   }
 
+  // A7 — the job row's OWN captured publication-authority input (A-R32/
+  // A-R39): the scenario's solve_input_revision AT THE MOMENT this job was
+  // enqueued (inside enqueueScenarioSolve's locked transaction), threaded
+  // through to markSucceeded's CAS. Null for a job enqueued via the simple
+  // enqueueSolveJob primitive (never the real HTTP path — see its own
+  // header) or a historical pre-A1 row; either way, markSucceeded treats
+  // null as "never satisfies the CAS" (fail-closed).
+  const enqueuedSolveInputRevision = claimedRow.enqueuedSolveInputRevision;
+
   // A2 — version-aware claim (A-R33/A-R40/A-R47). A null persisted identity
   // is never itself treated as a mismatch — every real production enqueue
   // path (buildSolveJobValues) sets it unconditionally, so a null here only
@@ -1460,7 +1557,7 @@ async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<
     return;
   }
 
-  await runJob(jobId, scenarioId, userId, input, generation);
+  await runJob(jobId, scenarioId, userId, input, generation, enqueuedSolveInputRevision);
 }
 
 // The solver wrapper never throws — crashes, timeouts, and unparseable
@@ -1469,7 +1566,14 @@ async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<
 // ownership token (A2) — every terminal write below is ownership-checked
 // against it, and a heartbeat loop renews the lease for as long as this
 // function is executing.
-async function runJob(jobId: number, scenarioId: number, userId: string, input: SolveInput, generation: number): Promise<void> {
+async function runJob(
+  jobId: number,
+  scenarioId: number,
+  userId: string,
+  input: SolveInput,
+  generation: number,
+  enqueuedSolveInputRevision: number | null,
+): Promise<void> {
   const stopHeartbeat = startOwnerHeartbeat(jobId, generation);
   try {
     // A6 — flag selects the WHOLE cache path (both this read and the
@@ -1479,8 +1583,12 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
     const inputsHash = isV2WriteEnabled() ? computeInputsHashV2(input) : computeInputsHash(input);
     const cached = await lookupCachedResult(inputsHash);
     if (cached) {
-      const published = await markSucceeded(jobId, generation, scenarioId, input.modelId, cached);
-      if (published) {
+      // A7 — a cache hit republishes whatever a PRIOR job already cached; no
+      // outcome-cacheability branch needed here (that only gates NEW writes
+      // below) — but the ALWAYS-ON publication CAS still applies, gated on
+      // THIS job's own identity, never the cache-writing job's.
+      const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, cached, enqueuedSolveInputRevision);
+      if (publishOutcome.kind !== "not_owned") {
         posthog?.capture({
           distinctId: userId,
           event: "scenario solve completed",
@@ -1492,6 +1600,7 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
             objective: cached.objective,
             run_time_sec: cached.runTimeSec,
             cache_hit: true,
+            published: publishOutcome.kind === "published",
           },
         });
       }
@@ -1580,12 +1689,22 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
     }
 
     // outcome.kind === "success" — A3.C: down-convert to the existing legacy
-    // envelope shape and route through the EXISTING (unchanged) cache/publish
-    // path. No v2 write anywhere.
+    // envelope shape. A7 (§2.8): branch on the TRUTHFUL outcome BEFORE the
+    // cache write — permission to cache is granted only by A3.T rows
+    // TT-3/TT-4 (this whole branch), but WHICH solutionStatus values are
+    // actually cache-eligible depends on the outcome table (see
+    // isOutcomeCacheable's own header for the full flag-scoped rationale).
+    // Publication (markSucceeded) always runs for every solved outcome,
+    // regardless of cache eligibility — a `no_solution`/uncached `feasible`
+    // result is still the truthful, published answer, it just isn't reused
+    // as a cache entry.
     const legacy = toLegacyStoredResult(outcome.envelope);
-    await writeThroughCache(inputsHash, input.modelId, legacy);
-    const published = await markSucceeded(jobId, generation, scenarioId, input.modelId, legacy);
-    if (published) {
+    const v2Enabled = isV2WriteEnabled();
+    if (isOutcomeCacheable(legacy.status, v2Enabled)) {
+      await writeThroughCache(inputsHash, input.modelId, legacy);
+    }
+    const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, legacy, enqueuedSolveInputRevision);
+    if (publishOutcome.kind !== "not_owned") {
       posthog?.capture({
         distinctId: userId,
         event: "scenario solve completed",
@@ -1597,6 +1716,7 @@ async function runJob(jobId: number, scenarioId: number, userId: string, input: 
           objective: legacy.objective,
           run_time_sec: legacy.runTimeSec,
           cache_hit: false,
+          published: publishOutcome.kind === "published",
         },
       });
     }

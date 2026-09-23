@@ -204,3 +204,104 @@ describe("v2 cache path (isV2WriteEnabled()=true)", () => {
     expect(written.inputsHash).toBe(computeInputsHashV2(baseInput));
   });
 });
+
+// A7 (§2.8) — outcome-specific cache/publish lifecycle, flag ON. This file
+// sets SOLVER_V2_WRITE_ENABLED="true" at the top (before jobRunner.js's
+// dynamic import), so isV2WriteEnabled() reads true throughout — the real
+// §2.8 outcome table applies here: optimal/infeasible/unbounded/feasible are
+// ALL cache-eligible under the v2 (complete effective-limit/version) key;
+// no_solution is NEVER cached, though it is still always PUBLISHED (a
+// no-incumbent result is still the truthful answer, it's just not reused).
+// The flag-OFF half of this table (cache everything, pre-A7 behavior
+// unchanged) is covered in jobRunner.test.ts.
+describe("A7 — outcome-specific cache/publish lifecycle (flag ON)", () => {
+  const cacheableCases: { status: string; objective: number }[] = [
+    { status: "optimal", objective: 100 },
+    { status: "feasible", objective: 150 }, // "cache only under the complete effective-limit/version key" — satisfied here BY the v2 key itself
+    { status: "infeasible", objective: 0 },
+    { status: "unbounded", objective: -1 },
+  ];
+
+  it.each(cacheableCases)("flag ON: a fresh '$status' solve IS cached under the v2 key, and published", async ({ status, objective }) => {
+    const enqueueChain = makeChain([{ id: 1 }]);
+    const cacheInsertChain = makeChain([{}]);
+    mockDb.insert.mockReturnValueOnce(enqueueChain).mockReturnValueOnce(cacheInsertChain);
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+    mockDb.select.mockReturnValueOnce(makeChain([])); // cache miss
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    const outcomeEnvelope = {
+      status, objective, runTimeSec: 0.2, quality: status,
+      solutionStatus: status, terminationReason: status === "optimal" ? "optimality_proven" : "unknown",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: status === "infeasible" ? "no feasible assignment" : null,
+    };
+
+    await enqueueSolveJob(10, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    emitFd3(child, outcomeEnvelope);
+    child.emit("close", 0);
+
+    await vi.waitFor(() => {
+      expect((cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    });
+    const written = (cacheInsertChain.values as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+    expect(written.inputsHash).toBe(computeInputsHashV2(baseInput)); // the "complete" key
+    await vi.waitFor(() => expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === status)).toBe(true));
+  });
+
+  it("flag ON: a fresh 'no_solution' solve is PUBLISHED but NEVER cached (no incumbent is not a stable answer to memoize)", async () => {
+    mockDb.insert.mockReturnValueOnce(makeChain([{ id: 1 }])); // enqueue's own insert only — NO second insert for result_cache
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+    mockDb.select.mockReturnValueOnce(makeChain([])); // cache miss
+
+    const child = new FakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    const noSolutionEnvelope = {
+      status: "no_solution", objective: 0, runTimeSec: 0.2, quality: "No incumbent",
+      solutionStatus: "no_solution", terminationReason: "time_limit",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+
+    await enqueueSolveJob(11, "user-1", baseInput);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
+    emitFd3(child, noSolutionEnvelope);
+    child.emit("close", 0);
+
+    // Published: the truthful no-incumbent result still reaches the scenario.
+    await vi.waitFor(() => expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === "no_solution")).toBe(true));
+    // Never cached: db.insert was called exactly ONCE (enqueueSolveJob's own
+    // job-row insert) — no second insert for result_cache ever happened.
+    expect((mockDb.insert as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+  });
+
+  it("flag ON: a cache HIT for a no_solution entry (written before this task, or under the flag-off path) still republishes it faithfully — reading is unaffected by the write-side policy", async () => {
+    const jobUpdateChain = makeChain([{}]);
+    const scenarioUpdateChain = makeChain([{}]);
+    mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
+    mockDb.update
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(jobUpdateChain)
+      .mockReturnValueOnce(scenarioUpdateChain);
+    mockDb.select.mockReturnValueOnce(makeChain([
+      { inputsHash: computeInputsHashV2(baseInput), modelId: "p-median-us", result: { ...envelope, status: "no_solution", solutionStatus: "no_solution" } },
+    ]));
+
+    await enqueueSolveJob(12, "user-1", baseInput);
+
+    await vi.waitFor(() => expect(setValues(scenarioUpdateChain).some((s) => (s.result as { status: string })?.status === "no_solution")).toBe(true));
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+});

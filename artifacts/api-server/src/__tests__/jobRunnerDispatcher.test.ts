@@ -392,6 +392,11 @@ describe("A2 — an old owner's late completion is dropped (mocked, ownership pr
     child.emit("close", 0);
 
     await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
-    await expect(mockDb.transaction.mock.results[0].value).resolves.toBe(false);
+    // A7 — markSucceeded's return type is now a distinguishing
+    // ScenarioPublicationOutcome, not a bare boolean: the job's own
+    // ownership-checked update matching zero rows is specifically
+    // "not_owned" (never "superseded", which means the JOB update
+    // succeeded but the scenario CAS didn't).
+    await expect(mockDb.transaction.mock.results[0].value).resolves.toEqual({ kind: "not_owned" });
   });
 });
