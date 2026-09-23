@@ -60,3 +60,50 @@ Deliver a decision doc: per-gate pass/fail, the identified bottleneck, worker co
 ## 7. Deliverables
 
 Worker-tier implementation plan (a later `writing-plans` pass, sized by measurement), the scheduled-scaler + its runbook, the cost report, the two-gate pilot-verification doc. **Nothing here is built before Measurement runs and the cohort/load gate is cleared** — this spec is the *target*, deliberately not an executable plan until the evidence exists.
+
+---
+
+## Review disposition — deep approval review (2026-09-23)
+
+**Decision: REQUEST CHANGES / not approved for implementation planning.** The direction is sound: measurement-led sizing, durable Postgres work, isolated solver compute, scheduled capacity and separate capacity/reliability gates are the right shape. The document is not yet a sufficient contract for the new distributed coordination and production transition it introduces. The findings below deliberately exclude end-user best/worst-case experience scenarios; they concern only the design and its approval conditions.
+
+### Validated direction
+
+- Size from measured mean CPU service demand and validate the SLO with observed tail latency; do not size from p95 wall time.
+- Keep the API off the solver request path for a worker topology; use A's durable queue and ownership fencing rather than creating another queue.
+- Use identical plans within a horizontally scaled service, with the selected topology and worker count determined by Measurement.
+- Treat scheduled **manual** scaling, not reactive queue-depth autoscaling, as the primary cost control. Render supports manual scaling from 1 to 100 instances; its native autoscaling is a separate feature and requires a Pro-or-higher workspace. [Render scaling](https://render.com/docs/scaling)
+- Preserve two independent gates: capacity evidence cannot waive a reliability failure.
+
+### Blocking findings
+
+| ID | Finding | Required correction before approval |
+|---|---|---|
+| **S-R1 — topology/build outcome is contradictory** | The goal requires a solver tier, §1 allows high-core tune-in-place, §4 allows a permanently enlarged vertical service, while the cohort/load gate says Scaling is not built if the current instance passes. The predecessor split ledger says worker isolation/reliability are mandatory regardless of topology. | Publish one Measurement-outcome matrix: existing API/no Scaling, vertical API, dedicated worker, or fleet; name the required artifact and pilot authority for each. Explicitly supersede the predecessor rule if a passing API permits no worker-tier build. Replace the undefined “ship B (+ A)” phrasing. |
+| **S-R2 — API-to-worker dispatch cutover is absent** | A retains a recurring API dispatcher. A worker service that also claims `solve_jobs` races it unless the API is made enqueue/poll-only. The disposable Measurement seam is not a production rollout contract. | Define mutually exclusive `api_dispatch` and `worker_only` modes, strict startup validation, production cutover/rollback order, and a pre-run proof that API active-solver count is zero for worker topologies. |
+| **S-R3 — automatic retry is not a protocol yet** | `worker_id` and bounded `attempts` do not decide when an attempt is consumed, which failures retry, how a stale lease requeues, or how an old owner is prevented from publishing. Scaling changes A's deliberate “terminal failure, no automatic retry” rule. | Specify schema and state transitions for retryable/non-retryable failure classes, attempt increment, database-clock backoff/jitter, `next_attempt_at`, lease expiry, `claim_generation` fencing, recovery-identity mismatch, exhaustion/dead-letter outcome, and exactly-once terminal publication. |
+| **S-R4 — single-flight is still an outline** | The document correctly lists constraints from A10's removal, but does not define the active-run/subscriber schema, state machine, transaction boundaries, cancellation/deletion, retry interaction, or acceptance invariants. It nevertheless makes fleet-wide single-flight a reliability-gate requirement. | Add a normative single-flight sub-spec (or approved section): immutable key, winner election, subscriber attachment/sealing, ordered durable fan-out, persisted outcome before fan-out, takeover, cancellation/deletion, and tests proving exactly one CBC execution and exactly-once terminalization. |
+| **S-R5 — scale-in is race-unsafe and Render control is underspecified** | “Drain queue + leases, then scale down” has a TOCTOU gap: a job can arrive or be claimed after the check. The Render scale API is asynchronous, and manual instance counts are ignored when native autoscaling is enabled. | Define desired-capacity/draining state; admission and claim behavior during scale-in; worker `SIGTERM` drain/cancel behavior; reconciliation of requested, observed and ready claimant count; autoscaling-disabled assertion; API retry/429 handling; and tests for enqueue-at-drain-boundary and active-job scale-in. Workers must stop claiming, finish or safely interrupt work, close pools and exit within their configured shutdown budget. [Render graceful shutdown](https://render.com/docs/deploys) |
+| **S-R6 — scheduler/calendar contract is incomplete** | “cron/GitHub Action (or Render cron)”, UTC, DST and holidays leave the authority, locking, failure recovery and human override unspecified. | Select one controller; define the source calendar and IANA timezone, generated UTC occurrences, idempotency/overlap lock, credentials, retry/backoff, observed-count verification, alerting, manual override and holiday changes. |
+| **S-R7 — database, admission and fairness are only named** | At fleet scale, polling and connection multiplication can exhaust Postgres before CBC capacity is exhausted. “Fair/round-robin” and “estimated wait” have no executable semantics. | Define the global connection budget (`API + workers × pool + reserve`), pool sizes, claim batch/poll cadence with jitter, supporting indexes, fairness algorithm/starvation bound, per-user queued/running caps, atomic cache/admission ordering, and the exact wait/`Retry-After` calculation. |
+| **S-R8 — the gates validate the prototype, not clearly the shipped tier** | Measurement selects a topology before Scaling adds retries, fairness, single-flight, production dispatcher modes and the scaler. Those additions can change both capacity and failure behavior. | Require an authoritative post-build rerun on the final topology. The reliability suite must include dispatcher-mode enforcement, DB outage/pool exhaustion, retry exhaustion, missed scale-up/API failure, active-job scale-in, fairness/starvation, cold-identical coalescing, and deletion/cancellation during fan-out. State unambiguously that **both** gates plus MP-4 approval are required for a pilot. |
+
+### Important corrections (not new platform scope)
+
+- **Readiness-on-DB-failure needs worker semantics.** Render background workers have no inbound URL, so define startup failure, claim suspension, heartbeat observability and self-termination/backoff instead of implying an HTTP readiness check. [Render background workers](https://render.com/docs/background-workers)
+- **Restore or explicitly rehome the predecessor's retention/index/bounds contract.** Cover queued/terminal jobs, active-run and subscriber rows, result cache, dead-letter rows, cleanup concurrency and storage growth. The predecessor assigned these to B2; they cannot disappear from its successor.
+- **Cost remains evidence-driven.** Treat `$70/month` and the 1–3 minute boot estimate as historical hypotheses. The final model must charge measured provisioned-instance seconds, including pre-scale, drain delay, the one-worker floor, scheduler/workspace/database costs and failed scaling actions. A manual worker service cannot scale below one instance; an off-hours scale-to-zero option would need its own runtime and service-level contract.
+- **Name A7 as an inherited safety dependency.** The predecessor originally assigned stale-result publication to B2, but A now owns the scenario latest-job/input-revision publication CAS. This spec should say it consumes that A7 guarantee and must not reimplement or weaken it.
+
+### Re-approval checklist
+
+- [ ] One outcome matrix reconciles no-build, vertical, dedicated-worker and fleet decisions with the predecessor ledger.
+- [ ] Production worker-mode cutover prevents the API and worker tier from claiming concurrently.
+- [ ] Retry/lease/fencing/exhaustion semantics are deterministic and tested.
+- [ ] Single-flight has an approved schema, state machine and failure/cancellation protocol.
+- [ ] Scheduled manual scaling has a safe drain/reconciliation contract and native autoscaling cannot override it.
+- [ ] Calendar/controller, database budget, admission and fairness are executable contracts.
+- [ ] The final built topology, not only its prototype, passes authoritative capacity and reliability evidence.
+- [ ] Retention/bounds and A7 publication-CAS provenance are explicit.
+
+When those items close, this design can proceed to its measurement-sized implementation-plan pass. No final instance count, plan ID, SLO value or price is requested here; those remain Measurement outputs.
