@@ -1,7 +1,7 @@
 # SCND Scaling — Solver-Tier + Scheduled-Autoscale Spec
 
 **Date:** 2026-09-22
-**Status:** **REQUEST CHANGES — not approved for implementation planning.** The deep approval review of 2026-09-23 (S-R1…S-R8 + four important corrections) is folded into the body below; the review text itself is preserved verbatim in commit `02d105f`, and the per-finding record is §11. Every finding is accepted and corrected in text, but **two blockers are not closable by writing** and hold the status: **SP-1** (may a capacity-passing API authorize a real cohort with no worker isolation — a reversal of a locked decision) and the **unconfirmed Postgres connection ceiling** (§3.2, §10). Approval follows those answers, not this document.
+**Status:** **REQUEST CHANGES — not approved for implementation planning.** Two review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction + one consistency fix). Both review texts are preserved verbatim in commits `02d105f` and `1e0f29a`; the per-finding record is §11. **All sixteen findings are accepted**, and round 2's four are corrected as specified — none needed a divergent remedy. The status is held by the **same two blockers it was held by after round 1, both external to the text**: **SP-1** (may a capacity-passing API authorize a real cohort with no worker isolation — now narrowed to two options, with the reviewer recommending (a)) and the **Postgres connection ceiling** (§3.2, §10), which round 2 correctly re-sequenced: complete the ledger *before* reading the ceiling. The round-2 reviewer's stated conditional-approval criterion — S-R9…S-R12 closed, SP-1 resolved, live ceiling validating a completed ledger — is met on the first clause only.
 The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1 ("B2 — durable isolated solver tier + pilot gate"). Direction inherited from the original brainstorm `2026-09-19-scnd-scaling-design.md` (Option B: split solver tier + scheduled autoscale ≈ $70/mo).
 **Branch:** `scnd-scaling`.
 
@@ -9,8 +9,9 @@ The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1
 
 **Program state (as of 2026-09-23 — S-R1):**
 - **Bundle B is executed**, not a future option. B1–B7 are on `scnd-scaling` (`f215832..a5f0c16`): the truthful `solutionStatus`/`terminationReason` contract from captured CBC evidence, the OpenAPI/Zod read-path legacy-unverified guard, the Workspace rendering, and the QA spec. Any sentence in this document that treats "ship B" as a remaining choice is stale; the remaining choice is how much of **A** and of **this spec** is justified.
-- **Option A is in progress**, not pending. A0, A1, A2, A3, A14a, A14b have landed on `scnd-correctness-A`. A2 in particular already ships the recurring bounded dispatcher scan, the atomic CAS claim, the owner lease (10 s heartbeat / 60 s stale threshold, DB-clock-authoritative), ownership-checked completion, two-phase boot recovery, and SIGTERM drain. **This changes what is left to specify here** — several items the predecessor ledger assigned to B2 (§13.1 rows 12.2 partial, 12.3, 12.4, 12.6) are now A's, shipped, and must be consumed rather than restated.
-- **Measurement is in the pipeline**, gated behind A per M-R1. Its plan (`plans/2026-09-22-scnd-measurement-plan.md`) is written and approved through MP-4; nothing in it executes until A ships.
+- **Option A is in progress — A0–A3 and A14a/A14b have landed; A4–A13 are executing.** On `scnd-correctness-A` through `86f75dc`. A2 already ships the recurring bounded dispatcher scan, the atomic CAS claim, the owner lease (10 s heartbeat / 60 s stale threshold, DB-clock-authoritative), ownership-checked completion, two-phase boot recovery, and SIGTERM drain. **This changes what is left to specify here** — several items the predecessor ledger assigned to B2 (§13.1 rows 12.2 partial, 12.3, 12.4, 12.6) are now A's, shipped, and must be consumed rather than restated. **A6 (composite cache identity) and A7 (publication CAS) are inside the in-flight A4–A13 range**, so this document depends on them as contracts, not yet as landed code.
+- **Measurement Phases 1 and 2 are complete; Phase 3 is next.** On `scnd-measurement` through `5a8d8d7`: M1.1–M1.5 (corpus manifest, forked single-observation primitive with normalized peak RSS, randomized runner, bootstrap-CI stats, CSV report) and M2.1–M2.3 (`capacity.py`'s weighted mean CPU service demand + required-cores/instances mapping; `simulate.py`'s open-loop arrival trace and queue simulator).
+- **Read that precisely: Phases 1–2 built the instruments, not the numbers.** No benchmark results artifact exists on `scnd-measurement` — the CSVs under `docs/superpowers/metrics/` are the harness's own, unrelated. Every quantity this document sizes from (`cpu_N`, the knee concurrency, hit rate, per-solve RSS, effective throughput, boot-to-first-claim) is still **unmeasured**. Phase 3's load harness and Phase 4's experiments produce them. Nothing here may be read as evidence-backed yet.
 
 **Hard dependencies (do not build ahead of these):**
 - **Measurement spec** (`2026-09-22-scnd-measurement-design.md`) must have run: it supplies the **selected topology + worker count**, the measured **mean CPU service demand at the operating concurrency** (**not** p95 wall time — M-R8: queue stability depends on `arrival rate × mean CPU demand`; p95 validates the SLO, it never sizes the tier), per-solve RSS, and the cost model. Sizing here is otherwise a guess. **Measurement is itself now deferred until Option A ships** (decided 2026-09-22, review M-R1): its topology comparison needs a worker seam that only A's durable `solve_jobs` queue provides, and without that the two specs were each blocked on the other. Effective order: **A → Measurement → Scaling**.
@@ -45,7 +46,9 @@ The predecessor split ledger (`2026-09-20-scnd-scaling-phase0-design.md` §13.1,
 **O2 is the row §4's "bump the instance + keep 24/7" sentence belongs to** — it is a real outcome, not a contradiction of the goal, and it is the one outcome where an autoscaled fleet would be the more expensive answer.
 
 > **SP-1 — approval checkpoint (ask at the Measurement decision point).**
-> *Measurement selected outcome O1/O2 (no worker isolation). The predecessor split ledger says worker isolation is mandatory before any real cohort pilot, regardless of topology — a rule locked before A existed, when the API had no durable queue, no lease and no drain. A has since shipped all three. Do you (a) hold the ledger rule and require a worker tier before any real cohort even though capacity does not demand one, (b) waive it for this pilot on the record, citing A's landed reliability substrate, or (c) run the pilot at a reduced cohort size as a middle path?*
+> *Measurement selected outcome O1/O2 (no worker isolation). The predecessor split ledger says worker isolation is mandatory before any real cohort pilot, regardless of topology — a rule locked before A existed, when the API had no durable queue, no lease and no drain. A has since shipped all three. Do you **(a)** hold the ledger rule and require a worker tier before any real cohort even though capacity does not demand one, or **(b)** record an explicit, owner-attributed waiver for this pilot citing A's landed reliability substrate?*
+> **Two options only.** A third — "run at a reduced cohort size" — was offered in round 1 and is **withdrawn as incoherent** (round 2): the rule prohibits *any* real cohort without isolation, so a smaller cohort is still a waiver, just an unrecorded one. Shrinking the blast radius is not a technical middle path; it is (b) without the accountability.
+> **Reviewer's recommendation is (a)** — hold the requirement. O1/O2 remain valid capacity and cost outcomes and are fine for internal demonstrations; they simply do not authorize a real pilot without the worker tier unless an accountable owner records the waiver.
 > This is a scope reversal of a locked decision; it is not mine to make.
 
 ### 1.2 Dispatcher modes and the production cutover (S-R2)
@@ -60,19 +63,48 @@ The review is right that this was absent, and the gap is concrete rather than th
   - `worker_only` — the worker service scans and claims. It **binds no HTTP listener and serves no route.** Valid for O3/O4.
 - **Startup validation is fail-closed.** An unset, unrecognised, or topology-inconsistent value aborts boot with a non-zero exit — never a silent default. `worker_only` additionally asserts that no `PORT` listener is configured; `enqueue_only` asserts `activeSolverCount() === 0` is structurally true because no pump is registered, not merely observed to be zero at one instant.
 - **The lost in-process kick is a real latency cost, stated rather than hidden.** In `api_dispatch`, an enqueue immediately kicks `pump()`. In `enqueue_only`, the job waits for a worker's next scan — up to `SOLVE_DISPATCHER_INTERVAL_MS` (default 5 s) added to *every* solve start, which a student experiences as a 5-second stall before the spinner starts moving. Mitigation, in preference order: (1) Postgres `LISTEN/NOTIFY` on enqueue, worker wakes immediately, scan remains the durable fallback; (2) shorten the worker scan interval and accept the added poll load, budgeted in §3.2. **(1) is the intended design**; (2) is the fallback if `NOTIFY` proves unreliable across Render's pooler.
+- **A fourth mode, `worker_standby`** (added per S-R10): the worker boots, registers in §1.3's claimant registry, proves it can reach the database and run its readiness probe, and **claims nothing**. It exists because Render's manual scaling floor is one instance — see the cutover below.
 - **Cutover order (production, one deploy per step, each independently revertible):**
-  1. Deploy the worker service at **zero instances** in `worker_only`. Nothing changes.
-  2. Scale workers to 1. **Both** tiers now claim — this is the only unsafe window, and it is safe *in the reliability sense* (A's CAS claim and lease make double-claim impossible) but not in the capacity sense. Hold it to one deploy cycle.
+  1. Deploy the worker service at **one instance in `worker_standby`**. *(Corrected per S-R10 — the previous "zero instances" step contradicted this document's own §4: a manually scaled Render worker cannot go below one instance, so the cutover as written could not execute. A standby instance is the honest equivalent and is strictly better, because it actually proves boot, DB reachability and no-listener before anything claims.)* The mode is asserted at boot and visible in the registry; **standby must never silently become a second dispatcher**, which is why it is a distinct enumerated mode and not a runtime flag on `worker_only`.
+  2. Flip the worker to `worker_only` and redeploy. **Both** tiers now claim — safe *in the reliability sense* (A's CAS claim and lease make double-claim impossible) but not in the capacity sense. Hold it to one deploy cycle, outside a class window.
   3. Flip the API to `enqueue_only` and redeploy. Render's zero-downtime deploy means the old `api_dispatch` revision drains for up to `maxShutdownDelaySeconds` (**120 s**, set by A14a in `render.yaml`) while still owning live solves. That overlap is expected and safe; do not try to eliminate it.
-  4. **Pre-run proof before declaring cutover complete:** after the old API revision's drain window has fully elapsed, assert that zero `solve_jobs` rows in `running` carry a `claim_generation` stamped by an API-tier boot. A's `claim_generation` comes from a Postgres sequence read once per process boot, so generations are per-owner and this is a direct query, not an inference.
+  4. **Proof before declaring cutover complete** (rewritten per S-R9 — see §1.3): after the old API revision's drain window has elapsed, assert `NOT EXISTS (running job joined to a claimant registry row whose role = 'api')`.
   5. Scale workers to the measured count.
 - **Rollback is the exact reverse**, and step 3's reverse (API back to `api_dispatch`) is safe at any moment for the same reason step 2 is: two claimants cannot double-claim one row.
 
 > **SP-4 — approval checkpoint (ask before step 3).** *Cutting the API to `enqueue_only` is the irreversible-feeling step — it is reversible by redeploy, but between step 2 and step 4 there is a window where both tiers claim. Confirm the cutover window (ideally outside a class window) and that a rollback deploy is acceptable if the worker tier misbehaves.*
 
+### 1.3 Claimant registry (S-R9)
+
+**The finding is correct and the defect was load-bearing in two places.** §1.2's old step 4 claimed a `claim_generation` could be recognised as "stamped by an API-tier boot." It cannot: `jobRunner.ts` allocates `bootClaimGeneration` from `solve_jobs_claim_generation_seq` once per boot and stamps that integer on claimed rows. **The integer carries no role.** Nothing in the database distinguishes generation 47 allocated by an API boot from generation 48 allocated by a worker boot, so the cutover proof was an inference dressed as a query, and `worker_id` — which I had explicitly demoted to observability — could not carry the weight either.
+
+The second half is worse and I had not seen it: **§2.1's readiness test was unsatisfiable exactly when it matters.** `observed_ready_claimants` was defined as workers that had claimed or heartbeated within a scan interval, but an idle pre-scaled worker owns no job, so it writes no `owner_heartbeat_at` and is indistinguishable from a worker that never booted. The scaler's entire purpose is to confirm capacity is ready **before** the class generates any work — the one moment the signal is guaranteed absent.
+
+One table fixes both, and the review is right that adopting it together with §1.2's standby step is a single change:
+
+```
+solve_claimants
+  claimant_id      text primary key     -- immutable, generated at boot
+  role             text not null        -- 'api' | 'worker'      (CHECK)
+  mode             text not null        -- the SOLVE_DISPATCH_MODE value (CHECK)
+  claim_generation integer not null     -- A's per-boot sequence value
+  booted_at        timestamp not null   -- DB clock
+  ready_at         timestamp            -- set once the queue probe succeeds
+  heartbeat_at     timestamp not null   -- DB clock, refreshed on a fixed tick
+```
+
+- **Registration happens at boot, before any claim.** A claimant that cannot register cannot claim — the registry write is on the same fail-closed path as A2's boot recovery.
+- **`ready_at` is set only after the claimant proves it can *use* the queue**, not merely that it started: a read of the claim index under its own pool. Booted-but-broken is therefore distinguishable from ready, which is the distinction the scaler needs.
+- **`heartbeat_at` is job-independent.** It ticks whether or not the claimant owns work, which is precisely what makes an idle pre-scaled worker observable. A's `owner_heartbeat_at` stays exactly as it is — **job liveness and claimant liveness are different questions and now have different columns.** Nothing in A is modified.
+- **`claimant_id` is stored on the claimed job** (or an equivalent durable mapping is preserved), so a running row is attributable to a role for as long as it exists. Registry rows are retained until no job can reference them — §6 owns that bound.
+- **Reconciliation counts distinct live worker registry rows**, not job heartbeats (§2.1).
+- **Cutover proof** is the `NOT EXISTS` join in §1.2 step 4 — a real query over a real column, not an inference about integers.
+
+This is new schema that A does not have and this spec introduces; it is listed in §9's deliverables and its retention bound in §6.
+
 ## 2. Scheduled autoscale (the cost lever)
 
-- Render has **no native queue-depth autoscale** (utilization-based autoscale needs a Pro workspace and reacts to CPU, not queue age). Use a **scheduled scaler**: a cron/GitHub-Action (or Render cron) calling the Render API to set the worker instance count — **UTC schedule**, pre-scale 5–10 min before class, scale down only after drain proof.
+- Render has **no native queue-depth autoscale** (utilization-based autoscale needs a Pro workspace and reacts to CPU, not queue age). Use a **scheduled scaler: a Render Cron Job** (selected in §2.2, named here too per the round-2 consistency correction — the earlier "cron/GitHub-Action (or Render cron)" left the authority open after §2.2 had closed it). It ticks on a fixed schedule, expands §2.2's calendar to UTC occurrences, and takes the **due action idempotently** — it sets a desired instance count, never increments, so a tick that fires twice or fires late converges to the same state rather than compounding.
 - Keep a **1-worker floor** off-peak (handles the distinct-trickle) unless the product accepts off-hours waits.
 - Handle missed schedules, holidays, DST, and Render API failures; commands idempotent + observable; alert on unexpected worker count outside class windows.
 - **Cold-start note:** a scaled-up worker pays a container boot; **treat the earlier "~1–3 min" as a historical hypothesis, not a figure to plan against** (review, third important correction). The real number is a measured output — time from scale API call to first successful claim — and pre-scale lead time is derived from it, not assumed.
@@ -95,7 +127,7 @@ Safety comes from the worker's own shutdown behaviour plus A's lease, which toge
 Consequences stated plainly rather than buried:
 - **A solve whose wall time can exceed the shutdown budget will occasionally be killed and retried during scale-in.** At the measured teaching-dataset times (<0.2 s optimal, ~16.5 s worst free-choice) this is far inside 120 s and effectively never fires. If measurement ever shows a solve family approaching the budget, that family needs a time-limit ceiling *before* this tier ships, not a larger budget — 300 s is a platform cap, not a lever.
 - **Admission during scale-in:** the API does not stop accepting. Queue depth rises, §3.2's estimated-wait admission naturally starts shedding, and the remaining workers drain it. There is no separate "draining" admission state to implement.
-- **Reconciliation, not verification:** the scaler records `desired_count`, then polls until `observed_ready_claimants` (workers that have successfully claimed or heartbeated within one scan interval) equals it. A mismatch past a deadline alerts; it does not retry blindly.
+- **Reconciliation, not verification:** the scaler records `desired_count`, then polls until `observed_ready_claimants` equals it. **That count is `COUNT(*)` over distinct `solve_claimants` rows with `role='worker'`, `mode='worker_only'`, `ready_at IS NOT NULL` and a fresh `heartbeat_at`** (§1.3) — *not* job heartbeats. Corrected per S-R9: the previous definition keyed on having claimed or heartbeated a job, which an idle pre-scaled worker never does, making the test unsatisfiable at exactly the pre-class moment the scaler exists to verify. A mismatch past a deadline alerts; it does not retry blindly.
 - **Native autoscaling must be asserted OFF.** Render ignores manual instance counts when its own autoscaling is enabled, which would silently defeat the entire cost lever. The scaler asserts this on every run and fails loudly if it finds autoscaling on.
 - **Render's scale API is asynchronous.** The call returning 200 means accepted, not applied. Treat 429/5xx as retryable with backoff; treat a successful call as a request, and let reconciliation decide truth.
 
@@ -160,27 +192,49 @@ So retry covers **lost work, never rejected work.** That keeps A's "an ambiguous
 
 **State transitions:**
 - **An attempt is consumed at claim time, not at failure time.** This is the one non-obvious call and it is deliberate: a worker that dies between claiming and writing anything never records a failure, so incrementing on recorded failure leaves a crash-loop unbounded — the exact shape that strands work forever. Incrementing inside the CAS claim transaction makes the bound real regardless of how the attempt ends.
-- **Requeue on lease expiry:** the reclaim transaction sets `status='queued'`, clears `claim_generation`/`claimed_at`/`owner_heartbeat_at`, and stamps `next_attempt_at = now() + backoff`. **The old owner is already fenced with no new machinery** — A2's completion predicate is `WHERE id=? AND status='running' AND claim_generation=?`, and a requeued row is neither `running` nor carrying that generation, so a late completion from a zombie owner matches zero rows and is dropped exactly as A2 already drops stale completions.
+- **Lease recovery is a single *conditional* transaction, not an unconditional requeue** *(corrected per S-R11 — this was a real hole, not a wording problem)*. The earlier text consumed an attempt at claim but then requeued on lease expiry unconditionally, so a worker killed after taking its **third** permitted attempt was requeued and claimable a fourth time, or indefinitely. The stated bound was decorative. The reclaim transaction now branches:
+  - `attempts >= MAX_ATTEMPTS` → **terminalize in that same transaction**, with the §3.1 exhaustion taxonomy below (`failed`, `internal_error`, `dispatch`, `SOLVE_FAILED`). Never requeue.
+  - otherwise → clear the lease and requeue with a fresh `next_attempt_at`.
+- **The claim predicate additionally refuses `attempts >= MAX_ATTEMPTS`** as defence in depth, so the bound holds even if a row reaches `queued` with a full attempt count by any path this document did not foresee.
+- **The old owner is already fenced with no new machinery** — A2's completion predicate is `WHERE id=? AND status='running' AND claim_generation=?`, and a requeued (or terminalized) row is neither `running` nor carrying that generation, so a late completion from a zombie owner matches zero rows and is dropped exactly as A2 already drops stale completions.
 - **`enqueued_solve_input_revision` is carried forward unchanged** across every retry, so A7's publication CAS still rejects a result whose scenario has moved on (see the A7 dependency note in the preamble).
-- **Backoff** is computed on the **database clock**, never a worker's: `next_attempt_at = now() + min(base × 2^(attempts−1), cap)` with full jitter. `base = 5 s`, `cap = 60 s` as starting values. Claim predicate gains `AND (next_attempt_at IS NULL OR next_attempt_at <= now())`.
+- **Backoff** is computed on the **database clock**, never a worker's, and the delay is **generated in SQL** so it is both DB-clock-authoritative and genuinely random *(corrected per S-R11 — the earlier formula was labelled "full jitter" while containing no random term, which is a contradiction I wrote and did not catch)*:
+
+  ```sql
+  next_attempt_at = now() + (random() * least(base * power(2, attempts - 1), cap)) * interval '1 second'
+  ```
+
+  That is full jitter in the intended sense — uniform over `[0, capped_backoff]`, not the capped value itself — which is what actually de-synchronizes a fleet retrying the same dead worker's jobs. `base = 5 s`, `cap = 60 s` as starting values (§10). Claim predicate gains `AND (next_attempt_at IS NULL OR next_attempt_at <= now())`.
 - **Exhaustion at `MAX_ATTEMPTS = 3`** (one original + two retries): terminal `failed`, `failure_reason='internal_error'`, `failure_stage='dispatch'`, `error_code='SOLVE_FAILED'`, and the same safe student-facing message A2 already uses for retryable-looking internal failures. **No dead-letter table** — A's taxonomy columns already record everything a dead-letter row would, and a second table would need its own retention, indexes and consistency story for no added information. Exhausted rows are found by `status='failed' AND attempts >= 3`.
 - **Exactly-once terminal publication is unchanged and uninvented:** it is A2's ownership predicate plus A7's CAS. Retry adds no new publication path, which is the property that keeps this protocol small.
 
-**Tests:** attempt consumed on claim then killed before any write (bound holds); stale-lease requeue with the old owner attempting completion afterwards (zero rows, no publication); each non-retryable class terminal on first failure; exhaustion terminal with the correct taxonomy; `next_attempt_at` honoured under a fleet (no worker claims early); retry of a job whose scenario inputs changed mid-flight still fails A7's CAS.
+**Tests:** attempt consumed on claim then killed before any write (bound holds); **kill a worker immediately after it takes the final permitted attempt and prove zero further claims — the row terminalizes on lease expiry rather than requeuing** (the S-R11 regression, and the one test whose absence let the hole through); stale-lease requeue with the old owner attempting completion afterwards (zero rows, no publication); each non-retryable class terminal on first failure; exhaustion terminal with the correct taxonomy; a `queued` row carrying `attempts >= MAX_ATTEMPTS` is refused by the claim predicate; `next_attempt_at` honoured under a fleet (no worker claims early) and observably jittered across a batch; retry of a job whose scenario inputs changed mid-flight still fails A7's CAS.
 
 ### 3.2 Database budget, admission and fairness (S-R7)
 
 Accepted — these were named, not specified.
 
-**Connection budget.** The failure mode the review names is real and is the one that bites first: at fleet scale, Postgres connections are exhausted well before CBC capacity is.
+**Connection ledger — maximum simultaneous, not steady-state** *(rewritten per S-R12; the earlier budget was the right idea counted wrong)*. The failure mode is real and bites before CBC capacity does. What the earlier formula omitted is everything that makes the *peak* differ from the average:
 
 ```
-total = api_instances × api_pool  +  worker_instances × worker_pool  +  reserve
-worker_pool = CONCURRENCY + 2      (claim + heartbeat + one per in-flight completion)
-reserve     ≥ 5                    (migrations, psql, the scaler's advisory lock)
+peak_total =
+    api_generations      × api_instances    × api_pool          -- 2 during a rolling deploy
+  + worker_generations   × worker_instances × worker_pool       -- 2 during a rolling deploy
+  + worker_instances     × notify_sessions                      -- 1 each if LISTEN/NOTIFY is enabled
+  + controller                                                  -- the §2.2 cron's advisory-lock session
+  + operations_reserve                                          -- migrations, psql, incident access
+
+worker_pool     = CONCURRENCY + 2     (claim + heartbeat + one per in-flight completion)
+notify_sessions = 1 per worker        (a LISTEN session is long-lived and pinned;
+                                       it cannot be shared through a transaction pool)
 ```
 
-**The ceiling this must fit under is genuinely unknown in-repo and is not guessed here.** `render.yaml` runs `nos-postgres` on `basic-256mb`; the post-migration audit (Task 5) recorded that this plan's real connection ceiling was never confirmed, and that is still true. It is a **required input to the worker-tier plan**, obtained from the live instance (`SHOW max_connections`), not from documentation and not from me. If the budget does not fit, the answer is a connection pooler or a larger DB plan — and that cost belongs in §4's model, which is exactly the kind of cost an unexamined fleet plan hides.
+Three corrections are load-bearing:
+- **`LISTEN/NOTIFY` is not free, and §1.2 *mandates* it.** I made it the intended wake-up path in §1.2 and then budgeted as if it did not exist. A listening session holds a dedicated backend for the worker's lifetime — it is the one connection a transaction pooler cannot multiplex away.
+- **Deploy overlap doubles the tiers, and this document says so elsewhere.** §1.2 step 3 states that two API generations coexist for up to 120 s; the same is true of workers on their own deploys. Peak connections happen during a deploy, not during a class.
+- **The controller holds a session** for the duration of its advisory lock (§2.2).
+
+**The ceiling is still unknown, and the review is right about the order of operations.** `render.yaml` runs `nos-postgres` on `basic-256mb`; the post-migration audit (Task 5) recorded its real ceiling as unconfirmed and it remains so. **Do not read `SHOW max_connections` until this ledger is complete** — validating a wrong ledger against a real ceiling produces a confident wrong answer, which is worse than an open question. Sequence: complete the ledger → `SHOW max_connections` on the live instance → observe `pg_stat_activity` **under a rolling deployment**, which is the only condition that exercises the overlap term → then choose. If it does not fit, the answer is a transaction pooler (noting it cannot pool the `LISTEN` sessions) or a larger plan, and that cost lands in §4.
 
 **Claim cadence.** Each worker scans on A2's `SOLVE_DISPATCHER_INTERVAL_MS` (5 s default) with **±20 % per-worker jitter**, so N workers do not stampede the same index on the same tick. Batch size is bounded by that worker's free slots, never a fixed constant — a worker with no free slot issues no claim query at all. With `LISTEN/NOTIFY` (§1.2) the scan is the durable fallback rather than the primary path, which is what keeps poll load flat as the fleet grows.
 
@@ -194,13 +248,22 @@ MAX_RUNNING_PER_USER = 1        MAX_QUEUED_PER_USER = 3
 
 The claim query skips users already at their running cap; enqueue rejects past the queued cap with a clear message. This is chosen over round-robin because round-robin under `FOR UPDATE SKIP LOCKED` needs either a per-user cursor or a window function in the claim path — both add contention to the hottest query in the system to buy an ordering property the cap already delivers. **Starvation bound:** with cap `R = 1` and `W` total slots, a user's job waits behind at most `⌈U_ahead / W⌉` service times where `U_ahead` is the count of *distinct other users* queued ahead — bounded by cohort size, not by queue depth, which is the property that matters. At 50 users × 50 solves/hr (0.694 submissions/sec) one running per user is not a practical constraint.
 
-**Admission and `Retry-After`.** This replaces the process-local `QUEUE_DEPTH_LIMIT`, which cannot see a fleet:
+**Admission and `Retry-After` — wall-clock units** *(rewritten per S-R12)*. This replaces the process-local `QUEUE_DEPTH_LIMIT`, which cannot see a fleet.
+
+**The previous formula divided queued jobs by `cpu_N`, and that was wrong in a way worth naming.** `Retry-After` is a promise to a student about wall-clock time. CPU-seconds ÷ slots yields a CPU-time answer, which understates wall-clock whenever a solve blocks or contends — and the formula also ignored the work already executing in every slot, which a newly-queued job must also wait out. Both errors push the estimate the same way: **too optimistic**, producing a `Retry-After` that expires before capacity exists and invites the retry storm admission is meant to prevent.
+
+The honest reading is that I over-applied M-R8. That correction says *size* from mean CPU demand rather than p95 wall time; it does not say CPU demand answers wall-clock questions. **Sizing and queue-wait are different questions with different units, and Measurement already separates them in code** — `capacity.py` owns `weighted_mean_service_demand`/`required_cores` (CPU-seconds, for §4), while `simulate.py` owns the queue model and its `EventSample.solver_wall_sec`, commented in the source as *"slot occupancy — NOT cpu_tree_sec."* The instrument that distinguishes these already exists and I reached for the wrong one.
 
 ```
-estimated_wait_sec = queued_depth × cpu_N / (workers × slots_per_worker)
+remaining_work_sec  = Σ wall-service of queued jobs  +  Σ residual wall-service of active jobs
+estimated_wait_sec  = remaining_work_sec / effective_completion_throughput
 ```
 
-where `cpu_N` is Measurement's **mean CPU service demand at the knee concurrency N** — the same quantity §4 sizes from, not p95 (M-R8). Reject with `429` when `estimated_wait_sec` exceeds the ratified queue-wait SLO; `Retry-After = clamp(ceil(estimated_wait_sec), 5, 120)`. The existing fixed `Retry-After: 30` from P1.1 is replaced. **Ordering:** the cache check precedes admission, so a request that will be served from cache is never rejected for queue depth — rejecting a student whose answer already exists would be indefensible.
+- **`effective_completion_throughput`** (jobs/sec at the selected concurrency) is a **measured Phase 3/4 output**, read from `simulate.py`'s `SimResult` and ratified against the load runs — not derived from `cpu_N`.
+- The practical form uses mean effective wall service time per job at the selected concurrency; the active term is approximated conservatively (a full service time per busy slot) rather than tracked per job, because over-estimating a wait is the safe direction and under-estimating is the failure this finding is about.
+- Reject with `429` when `estimated_wait_sec` exceeds the ratified queue-wait SLO; `Retry-After = clamp(ceil(estimated_wait_sec), 5, 120)`. The fixed `Retry-After: 30` from P1.1 is replaced.
+- **`cpu_N` keeps its job** — §4's cost model and §1.1's instance sizing. It simply never answers a student-facing latency question again.
+- **Ordering:** the cache check precedes admission, so a request that will be served from cache is never rejected for queue depth — rejecting a student whose answer already exists would be indefensible.
 
 ## 4. Cost model (to be filled from measurement)
 
@@ -218,7 +281,7 @@ Reuse the parent design's two independent gates:
 
 **Authoritative rerun on the built tier (S-R8).** Measurement selects a topology on a *prototype* seam, before this spec adds retry, fairness, admission, dispatcher modes and the scaler — additions that change both capacity (every retry is a second full CPU charge; fairness caps change queue ordering) and failure behaviour. **The gates are therefore rerun on the final built topology, and it is that rerun, not Measurement's, that authorizes anything.** Measurement's run selects; this run decides.
 
-The reliability suite for that rerun must include: dispatcher-mode enforcement (an `enqueue_only` API provably claims nothing; a misconfigured mode fails boot), DB outage and pool exhaustion, retry exhaustion, a missed scale-up and a Render API failure, active-job scale-in (§2.1), fairness/starvation at the cap, cold-identical burst (measuring duplicate-compute waste — the evidence SP-2 needs), and deletion/cancellation of a scenario mid-solve.
+The reliability suite for that rerun must include: dispatcher-mode enforcement (an `enqueue_only` API provably claims nothing; a misconfigured mode fails boot; **a `worker_standby` instance registers and never claims** — §1.2), **the claimant-registry cutover proof and idle-worker readiness** (a pre-scaled worker owning no job is counted ready — §1.3), DB outage and pool exhaustion, **retry exhaustion including the final-attempt kill** (§3.1), a missed scale-up and a Render API failure, active-job scale-in (§2.1), fairness/starvation at the cap, **peak connection count observed under a rolling deployment** (§3.2's overlap term), cold-identical burst (measuring duplicate-compute waste — the evidence SP-2 needs), and deletion/cancellation of a scenario mid-solve.
 
 Deliver a decision doc: per-gate pass/fail, the identified bottleneck, worker count + cost recomputed from **measured mean CPU service demand** (M-R8 again — "service time" here read as wall time, the quantity §4 already excludes). **Both gates pass *and* MP-4 approval are required for a pilot** — a capacity pass alone authorizes nothing, and a reliability failure is not waivable by capacity evidence.
 
@@ -234,6 +297,7 @@ Rehomed explicitly rather than allowed to disappear (review, second important co
 | Queued rows | Bounded by §3.2's per-user queued cap × cohort size — a structural bound, not a cleanup job |
 | `result_cache` | Size or age cap with an eviction policy. **A6's composite identity means a code-hash change orphans an entire generation of entries at once** — that is the eviction trigger that matters, not gradual growth |
 | Exhausted/failed rows | Same retention as terminal; no separate dead-letter store (§3.1) |
+| `solve_claimants` rows (§1.3) | Retained until **no job can reference them** — a row is deletable only once no `solve_jobs` row carries its `claimant_id`. Cleanup is therefore keyed to job retention above, never to a claimant's own age; deleting a live-referenced row would destroy the cutover proof's join |
 | Active-run / subscriber rows | Owned by the single-flight spec if it is ever built (§3); named here so the dependency is not lost |
 | Cleanup concurrency | Batched deletes under a statement timeout, off-peak, holding no lock that blocks the claim path |
 
@@ -257,7 +321,7 @@ The review is right that "readiness-on-DB-failure" implied an HTTP check a **Ren
 
 ## 9. Deliverables
 
-Worker-tier implementation plan (a later `writing-plans` pass, sized by measurement), the scheduled-scaler + its runbook, the cost report, the two-gate pilot-verification doc, and — only under O4 and SP-2 — the single-flight successor spec. **Nothing here is built before Measurement runs and §1.1's outcome row is selected** — this spec is the *target*, deliberately not an executable plan until the evidence exists.
+Worker-tier implementation plan (a later `writing-plans` pass, sized by measurement) — **including the `solve_claimants` registry (§1.3), which is new schema this spec introduces and A does not have** — the scheduled-scaler + its runbook, the completed connection ledger and its live validation (§3.2, §10), the cost report, the two-gate pilot-verification doc, and — only under O4 and SP-2 — the single-flight successor spec. **Nothing here is built before Measurement runs and §1.1's outcome row is selected** — this spec is the *target*, deliberately not an executable plan until the evidence exists.
 
 ---
 
@@ -266,12 +330,14 @@ Worker-tier implementation plan (a later `writing-plans` pass, sized by measurem
 Nothing below is an oversight; each is a value this document is not entitled to invent. Read this section before treating any number in §§2–3 as evidence.
 
 **Blocking — someone other than the author must answer:**
-- **SP-1** — does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision (§1.1).
-- **Postgres `max_connections` on `basic-256mb`** — genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. Read from the live instance (`SHOW max_connections`); §3.2's budget cannot be checked without it, and if it does not fit, the pooler-or-bigger-plan cost lands in §4.
+- **SP-1** — does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision. **Two options, (a) or a recorded waiver (b); the round-2 reviewer recommends (a).** §1.1.
+- **Postgres `max_connections` on `basic-256mb`** — genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. **Sequenced, per S-R12:** complete §3.2's maximum-simultaneous ledger *first*, then `SHOW max_connections` on the live instance, then observe `pg_stat_activity` **under a rolling deployment** (the only condition that exercises the deploy-overlap term). Reading the ceiling before the ledger is complete validates the wrong arithmetic confidently. If it does not fit, the pooler-or-bigger-plan cost lands in §4.
 
 **Product inputs (SP-3), not author choices:** class calendar days/windows, IANA timezone, pre-scale lead time (derives from measured boot-to-first-claim, so it is requested *after* measurement), and the §6 retention window in days.
 
-**Starting values, not measured results.** Every number in §§2.1/3.1/3.2 — `MAX_ATTEMPTS=3`, backoff `base=5 s`/`cap=60 s`, `MAX_RUNNING_PER_USER=1`, `MAX_QUEUED_PER_USER=3`, ±20 % scan jitter, `Retry-After` clamp 5–120 s, the 120 s shutdown budget inherited from A14a — is a **starting value to be ratified against measurement**. They are stated concretely so they can be argued with, which is the opposite of the vagueness S-R7 objected to. **Do not mistake concreteness for evidence.**
+**Measured values this document consumes but does not have.** Measurement Phases 1–2 delivered the *instruments*; no run has produced results (see the preamble). Still unmeasured and required: `cpu_N` and the knee concurrency, `effective_completion_throughput` at the selected concurrency (§3.2's admission model — a Phase 3/4 output from `simulate.py`'s `SimResult`, not derivable from `cpu_N`), per-solve RSS, cache hit rate `h`, and boot-to-first-claim (§2's pre-scale lead time).
+
+**Starting values, not measured results.** Every number in §§2.1/3.1/3.2 — `MAX_ATTEMPTS=3`, backoff `base=5 s`/`cap=60 s`, `MAX_RUNNING_PER_USER=1`, `MAX_QUEUED_PER_USER=3`, ±20 % scan jitter, `Retry-After` clamp 5–120 s, `worker_pool = CONCURRENCY + 2`, the 120 s shutdown budget inherited from A14a — is a **starting value to be ratified against measurement**. They are stated concretely so they can be argued with, which is the opposite of the vagueness S-R7 objected to. **Do not mistake concreteness for evidence.**
 
 **Deferred by design, not omitted:** the single-flight protocol (§3, SP-2) — open because it needs its own spec, not because it was forgotten.
 
@@ -279,7 +345,25 @@ Nothing below is an oversight; each is a value this document is not entitled to 
 
 ## 11. Review record
 
-Round 1 — deep approval review, 2026-09-23. Review text preserved verbatim in commit `02d105f`; this table is the disposition, and the corrections themselves live in the sections named. **All twelve findings accepted.** Ten corrected as requested; **S-R1 and S-R4 accepted with a different remedy than the one requested**, each argued at the point of divergence (§1.1, §3) rather than in an appendix.
+### Round 2 — approval review, 2026-09-23
+
+Verbatim text in commit `1e0f29a` and collapsed below. **All four blocking findings accepted and corrected as specified — no divergent remedies this round.** Two of them (S-R9, S-R11) were live defects rather than under-specification: the cutover proof and the readiness test were both unsatisfiable as written, and the retry bound was decorative. The reviewer is also right that S-R9 and S-R10 are **one change**, and they are folded as one.
+
+| ID | Disposition | Where |
+|---|---|---|
+| S-R9 — claimant identity cannot prove cutover or readiness | **Accepted.** `claim_generation` is a bare sequence integer carrying no role, so the cutover proof was an inference dressed as a query; worse, an idle pre-scaled worker writes no `owner_heartbeat_at`, making the scaler's readiness test unsatisfiable at exactly the pre-class moment it exists for. New `solve_claimants` registry with job-independent heartbeat and `ready_at`; A's own lease untouched | **§1.3** (new), §1.2 step 4, §2.1, §5, §6, §9 |
+| S-R10 — zero-instance cutover conflicts with the platform floor | **Accepted.** The document contradicted itself: §1.2 step 1 deployed at zero instances, §4 states a manual worker cannot go below one. New `worker_standby` mode as a fourth enumerated value — not a runtime flag — so standby cannot silently become a second dispatcher | §1.2 |
+| S-R11 — retry exhaustion bypassable on a stale lease | **Accepted.** Attempts were consumed at claim but lease recovery requeued unconditionally, so a worker killed on its final attempt was claimable again; the bound was decorative. Conditional reclaim transaction + claim predicate refusing `attempts >= MAX_ATTEMPTS` + the final-attempt-kill test. Also: the "full jitter" formula contained no random term — replaced with a SQL `random()` expression | §3.1, §5 |
+| S-R12 — connection and admission models use the wrong/unfinished units | **Accepted.** Ledger rewritten as maximum-simultaneous, adding the per-worker `LISTEN` session §1.2 mandates but never budgeted, the controller session, and deploy-overlap generations. Admission re-derived from measured wall-clock completion throughput plus active residual work; `cpu_N` retained for cost/sizing only | §3.2, §10 |
+| SP-1 direction | **Accepted.** Option (c) withdrawn as incoherent — a smaller cohort is still a waiver, just unrecorded. Two options; reviewer's recommendation (a) stated | §1.1, §10 |
+| Ceiling sequencing | **Accepted.** Ledger completed *before* reading `SHOW max_connections`; validation under a rolling deployment | §3.2, §10 |
+| §2 consistency | **Accepted.** §2 now names Render Cron Job only, with its calendar tick and idempotent due-action behaviour | §2 |
+
+**One thing round 2 could not have known, now recorded in the preamble:** Measurement Phases 1–2 are complete, but they delivered the *instruments* (`capacity.py`, `simulate.py`, the M1 corpus/runner/stats chain) and **no results**. That matters for S-R12's remedy specifically — the required "measured effective completion throughput" has a named source (`simulate.py`'s `SimResult`, whose `EventSample.solver_wall_sec` is commented in the source as *"slot occupancy — NOT cpu_tree_sec"*), but it does not yet have a value.
+
+### Round 1 — deep approval review, 2026-09-23
+
+Review text preserved verbatim in commit `02d105f`; this table is the disposition, and the corrections themselves live in the sections named. **All twelve findings accepted.** Ten corrected as requested; **S-R1 and S-R4 accepted with a different remedy than the one requested**, each argued at the point of divergence (§1.1, §3) rather than in an appendix.
 
 The review's central judgement — that this was a direction, not yet a contract for the distributed coordination it introduces — was correct. S-R2, S-R3 and S-R7 named gaps left as nouns. Two findings were also overtaken by program state the review could not have had: **B is executed** and **A is in progress** (see the preamble), so every code and schema claim in the fold is cited from `scnd-correctness-A`, not from a plan.
 
@@ -361,7 +445,8 @@ When those items close, this design can proceed to its measurement-sized impleme
 
 ---
 
-## 12. Round 2 approval review — 2026-09-23
+<details>
+<summary>Round 2 review text (verbatim, as received — superseded by the fold above)</summary>
 
 **Decision: REQUEST CHANGES / not approved.** The folded design now closes the original S-R1…S-R8 review in substance and preserves the right architecture: durable Postgres work, isolated compute when selected, scheduled manual capacity, and independent capacity/reliability evidence. The remaining work is not a restart. It is one coherent operational correction bundle, plus two external decisions. No end-user best/worst-load scenarios are included here.
 
@@ -391,3 +476,5 @@ When those items close, this design can proceed to its measurement-sized impleme
 4. Resolve SP-1 on the record. If Measurement selects O4, separately approve the existing single-flight successor spec before enabling coalescing.
 
 **Conditional approval criterion:** I would approve this document for its measurement-sized implementation-plan pass after S-R9–S-R12 close, SP-1 is resolved, and the live connection ceiling validates the completed ledger. The required post-build capacity and reliability rerun remains the only authority for a real-cohort pilot.
+
+</details>
