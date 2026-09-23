@@ -20,6 +20,8 @@ import { validateInputsForModel } from "../validation/inputs/index.js";
 import { runNetworkEditsPrecheckForModel } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { computeRecoveryContractIdentity } from "./recoveryContractIdentity.js";
+import { computeSolverContractIdentity } from "./solverContractIdentity.js";
+import { isV2WriteEnabled } from "../config/featureFlags.js";
 import {
   classifyFd3Message,
   classifyTerminal,
@@ -74,6 +76,27 @@ const RESULT_ENVELOPE_TS = path.join(findRepoRoot(__dirname), "artifacts", "api-
 const SOLVER_PROCESS_MESSAGE_TS = path.join(findRepoRoot(__dirname), "artifacts", "api-server", "src", "solver", "solverProcessMessage.ts");
 
 export const RECOVERY_CONTRACT_IDENTITY = computeRecoveryContractIdentity({
+  solvePyPath: SOLVER_PY,
+  cbcTerminationPyPath: CBC_TERMINATION_PY,
+  resultEnvelopeTsPath: RESULT_ENVELOPE_TS,
+  solverProcessMessageTsPath: SOLVER_PROCESS_MESSAGE_TS,
+});
+
+// A6 (SCND Correctness) — SOLVER_CONTRACT_IDENTITY: the composite cache-key
+// manifest, per the approved G-cache artifact (docs/superpowers/specs/
+// 2026-09-23-scnd-gcache-artifact.md). Reuses A1's EXACT manifest above
+// (same file paths, same PuLP/CBC runtime probe, same dataset components)
+// plus solverContractIdentity.ts's SOLVER_CONTRACT_VERSION constant — "one
+// manifest, two consumers, two different final hashes": RECOVERY_CONTRACT_IDENTITY
+// above governs A2's claim-time recovery check only; this constant governs
+// ONLY the v2 cache key (computeInputsHashV2 below), itself gated
+// end-to-end behind isV2WriteEnabled() (A11). Computed once, eagerly, at
+// module load — same fail-closed pattern as RECOVERY_CONTRACT_IDENTITY: an
+// underivable component throws here too, crashing this module's import and
+// therefore server boot, regardless of whether the v2 flag is even on (the
+// identity must be derivable at boot so flipping the flag later never needs
+// a restart-time surprise).
+export const SOLVER_CONTRACT_IDENTITY = computeSolverContractIdentity({
   solvePyPath: SOLVER_PY,
   cbcTerminationPyPath: CBC_TERMINATION_PY,
   resultEnvelopeTsPath: RESULT_ENVELOPE_TS,
@@ -200,6 +223,33 @@ export function computeInputsHash(input: SolveInput): string {
   return crypto
     .createHash("sha256")
     .update(input.modelId + datasetVersion + SOLVER_CODE_HASH + canonicalJson(input.inputs))
+    .digest("hex");
+}
+
+// A6 — v2 cache key: identical SHAPE to computeInputsHash above (modelId +
+// dataset version + canonical JSON of inputs) but keyed on
+// SOLVER_CONTRACT_IDENTITY (A1's full composite manifest + SOLVER_CONTRACT_VERSION)
+// instead of SOLVER_CODE_HASH (solve.py bytes only, truncated to 12 hex
+// chars). A parser change (resultEnvelope.ts/solverProcessMessage.ts), a
+// cbc_termination.py change, a PuLP/CBC runtime change (a different CBC
+// build or architecture — P0R.1 found the real build differs by arch even
+// under an identical PuLP version), or a SOLVER_CONTRACT_VERSION bump ALL
+// change this hash even with solve.py byte-identical — closing exactly the
+// cache-vs-truthful-status drift the G-cache artifact documents (B1's
+// parser-only change demonstrated this drift was real, not hypothetical).
+//
+// Because the key material is entirely different from computeInputsHash's,
+// a v1-only row's inputsHash can never equal a v2 lookup's inputsHash for
+// the same logical inputs (two different sha256 digests over two different
+// input strings) — an unversioned (v1) row is a v2 cache MISS by
+// construction, never read, never trusted, left in place; no row is ever
+// rewritten in-place from v1 to v2, and no separate "is this a v2 row"
+// marker column is needed.
+export function computeInputsHashV2(input: SolveInput): string {
+  const datasetVersion = String(readVersion(input.modelId).version);
+  return crypto
+    .createHash("sha256")
+    .update(input.modelId + datasetVersion + SOLVER_CONTRACT_IDENTITY + canonicalJson(input.inputs))
     .digest("hex");
 }
 
@@ -1083,15 +1133,32 @@ async function markFailed(
   return rows.length > 0;
 }
 
-// Phase 6 (P1.2) — write-through result cache, keyed on computeInputsHash().
-// Byte-identical repeated solves (common in a classroom where many students
-// start from the textbook baseline) skip spawning solve.py entirely.
+// Phase 6 (P1.2) — write-through result cache. Byte-identical repeated
+// solves (common in a classroom where many students start from the
+// textbook baseline) skip spawning solve.py entirely.
 //
-// A3.C — this cache stays on the EXISTING (pre-A3) ResultEnvelopeSchema/
-// SOLVER_CODE_HASH key. No canonical v2 cache row is ever written by this
-// task; toLegacyStoredResult() below is what makes a v2 fd3 success
-// envelope compatible with this unchanged cache shape before it's ever
-// written.
+// A6 — the cache KEY is now FLAG-SELECTED (isV2WriteEnabled(), A11), not a
+// single fixed key:
+//   - flag OFF (default, current production behavior): runJob() below
+//     computes inputsHash via the EXISTING computeInputsHash()
+//     (SOLVER_CODE_HASH — solve.py bytes only, truncated) — byte-for-byte
+//     unchanged from pre-A6 behavior. Zero student-visible change; the
+//     current gate stays green under this path exactly as before.
+//   - flag ON: runJob() instead computes inputsHash via
+//     computeInputsHashV2() (SOLVER_CONTRACT_IDENTITY — the full composite
+//     manifest + SOLVER_CONTRACT_VERSION), so a parser/contract-version/
+//     CBC-build/PuLP-version change invalidates the cache even with
+//     solve.py unchanged.
+// Both paths share the SAME lookupCachedResult/writeThroughCache primitives
+// below (both are generic over whatever inputsHash string they're handed)
+// and the SAME result_cache table — there is no separate v2 table and no
+// schema migration. The flag selects ONE WHOLE PATH end-to-end (read AND
+// write together) per solve — a single job can never read under the v1 key
+// and write under the v2 key, or vice versa. toLegacyStoredResult() still
+// down-converts a v2 fd3 success envelope to the existing
+// ResultEnvelopeSchema shape before either path ever writes it — that part
+// is genuinely unchanged by this task. A7 (not this task) owns the
+// outcome/publish policy on top of this (no_solution never cached, etc.).
 
 async function lookupCachedResult(inputsHash: string): Promise<ResultEnvelope | null> {
   try {
@@ -1405,7 +1472,11 @@ async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<
 async function runJob(jobId: number, scenarioId: number, userId: string, input: SolveInput, generation: number): Promise<void> {
   const stopHeartbeat = startOwnerHeartbeat(jobId, generation);
   try {
-    const inputsHash = computeInputsHash(input);
+    // A6 — flag selects the WHOLE cache path (both this read and the
+    // write-through below share this single computed value). Flag off
+    // (default) => byte-for-byte the pre-A6 v1 key; see the block comment
+    // above lookupCachedResult for the full rationale.
+    const inputsHash = isV2WriteEnabled() ? computeInputsHashV2(input) : computeInputsHash(input);
     const cached = await lookupCachedResult(inputsHash);
     if (cached) {
       const published = await markSucceeded(jobId, generation, scenarioId, input.modelId, cached);
