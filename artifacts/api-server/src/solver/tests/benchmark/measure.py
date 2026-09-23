@@ -30,10 +30,35 @@ def normalize_maxrss(value: int, system: str | None = None) -> int:
     return value * 1024 if system == "Linux" else value
 
 def _default_solve(inp):
+    """M1.6: `inp` here is a corpus CASE's API-schema inputs (`+ gap`), NOT
+    solve.py's wire format -- `corpus/manifest.json` cases are validated
+    against each model's `solvers/<id>/manifest.json` inputsSchema (the same
+    shape jobRunner.ts sends the route), while solve.py reads a different
+    internal wire dict (`pValue`/`warehouseCapacities`/... vs `p`/
+    `warehouseOverrides`/...). In production this translation is
+    `pmedian.ts`'s `buildPayload`; `benchmark/translate.py` is its Python
+    mirror for the harness. `inp["modelType"]` is the corpus's own bolted-on
+    wire-format dispatch tag (added by corpus.py for `Manifest.validate()`,
+    not a real API-schema field) -- reverse-mapped through
+    `corpus.MODEL_TYPES` (values are unique per model_id) to recover which
+    model this case belongs to, since `to_solver_input` needs the model_id,
+    not the wire modelType, to pick its translation branch.
+    """
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
     import solve as solve_mod
-    return solve_mod.solve(inp)
+    from benchmark.corpus import MODEL_TYPES
+    from benchmark.translate import to_solver_input
+
+    wire_model_type = inp.get("modelType")
+    model_id = next((mid for mid, wt in MODEL_TYPES.items() if wt == wire_model_type), None)
+    if model_id is None:
+        # Not a recognized corpus wire modelType (e.g. a hand-built inp in a
+        # unit test that never goes through _default_solve at all today, or
+        # an inp already in wire format) -- pass through unchanged rather
+        # than raising, so nothing that already works can break.
+        return solve_mod.solve(inp)
+    return solve_mod.solve(to_solver_input(model_id, inp))
 
 def _tree_cpu_and_rss():
     """Whole Python+CBC process tree CPU (user+sys), and the two peaks kept
