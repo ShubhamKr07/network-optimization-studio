@@ -353,6 +353,71 @@ describe("A2 — runDispatcherTickOnce (recurring scan, not a one-time boot scan
   }, 65_000);
 });
 
+describe("A2 — restart-mid-load: a deep queue drains fully with exactly-once terminal publication (A13a)", () => {
+  // A13a coverage-trace gap fill: the individual mechanisms behind "restart
+  // recovery" (recurring re-discovery, ownership-checked completion,
+  // zero-row-dropped stale completions) are each proven in isolation above,
+  // but no existing test previously exercised them TOGETHER at N>1 rows the
+  // way a real deploy-time restart would leave a backlog. Inserts N rows
+  // directly (bypassing registerQueuedJob — exactly "left behind by a dead
+  // process, no in-process owner", matching insertQueuedRow's own
+  // documented purpose above), then drains them via repeated recurring
+  // ticks (never a single boot-only scan) the same way production's 5s
+  // interval would across several passes given CONCURRENCY-bounded claim
+  // batches. Asserts BOTH halves of the acceptance bullet: no row is left
+  // stuck (every job reaches a terminal state) and exactly-once terminal
+  // publication (each scenario's resultRunId resolves to its OWN job —
+  // never another row's, which would only be possible under a double-claim
+  // or cross-row publish bug).
+  it("N rows queued as if left by a dead process are all discovered across repeated ticks, terminate, and each publishes to exactly its own scenario", async () => {
+    const N = 8;
+    const jobs: { scenarioId: number; jobId: number }[] = [];
+    for (let i = 0; i < N; i++) {
+      const scenarioId = await createScenario();
+      const jobId = await insertQueuedRow({ scenarioId, queuedAtOffsetMs: 3_600_000 + i * 1000 });
+      // Simulate what enqueueScenarioSolve's atomic transaction would have
+      // recorded before the (hypothetical) process death: this job IS the
+      // scenario's legitimately-latest request, at the scenario's current
+      // (default) solve_input_revision. Without this, A7's publication CAS
+      // (latest_solve_job_id AND solve_input_revision must both match) can
+      // never pass and every job would land "succeeded but superseded" —
+      // which would make this test assert the wrong thing, not prove the
+      // real restart-and-publish path.
+      await db.update(solveJobsTable).set({ enqueuedSolveInputRevision: 1 })
+        .where(eq(solveJobsTable.id, jobId));
+      await db.update(scenariosTable).set({ latestSolveJobId: jobId })
+        .where(eq(scenariosTable.id, scenarioId));
+      jobs.push({ scenarioId, jobId });
+    }
+    const jobIds = jobs.map((j) => j.jobId);
+
+    // Repeated recurring ticks — not one boot-only scan — until every row
+    // this test owns has left `queued` (claimed by some tick's batch).
+    const claimDeadline = Date.now() + 60_000;
+    while (Date.now() < claimDeadline) {
+      const stillQueued = await db.select({ id: solveJobsTable.id }).from(solveJobsTable)
+        .where(and(inArray(solveJobsTable.id, jobIds), eq(solveJobsTable.status, "queued")));
+      if (stillQueued.length === 0) break;
+      await runDispatcherTickOnce();
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    // No row left stuck: every job reaches a terminal state.
+    for (const { jobId } of jobs) {
+      const result = await pollUntilTerminal(jobId, 30_000);
+      expect(result.status).toBe("succeeded");
+    }
+
+    // Exactly-once terminal publication: each scenario's resultRunId points
+    // at its OWN job, never a different row's — the observable signature of
+    // a double-claim or cross-row publish would be a mismatch here.
+    for (const { scenarioId, jobId } of jobs) {
+      const [scenario] = await db.select().from(scenariosTable).where(eq(scenariosTable.id, scenarioId));
+      expect(scenario!.resultRunId).toBe(jobId);
+    }
+  }, 120_000);
+});
+
 describe("A2 — version-aware claim (RECOVERY_CONTRACT_IDENTITY mismatch)", () => {
   it("a claim whose PERSISTED identity differs from the CURRENT runtime identity fails ONCE, terminal, with the safe retryable message — never executes", async () => {
     const scenarioId = await createScenario();
