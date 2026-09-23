@@ -11,6 +11,15 @@ services:
     # long-running CBC solve has room to finish/interrupt cleanly before
     # SIGKILL. Below the 300s cap.
     maxShutdownDelaySeconds: 120
+    # A11 — suppresses auto-deploy on push while the R3 activation
+    # procedure runs (docs/ops/v2-write-activation.md), so committing the
+    # out-of-band SOLVER_V2_WRITE_ENABLED evidence record to Git cannot
+    # itself trigger a second, uncontrolled deploy. This Blueprint value is
+    # authoritative (the Dashboard is not used for this service), so the
+    # two can never diverge. Restored to the prior state (no line / "on")
+    # once the activation-evidence commit has landed — see the runbook's
+    # suppression procedure, step 5.
+    autoDeployTrigger: off
     envVars:
       - key: NODE_ENV
         value: production
