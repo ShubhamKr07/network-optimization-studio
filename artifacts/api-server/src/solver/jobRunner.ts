@@ -16,6 +16,7 @@ import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
 import { getManifest } from "../registry/modelRegistry.js";
 import { posthog } from "../lib/posthog.js";
+import { captureSolveFailure } from "../lib/sentry.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { runNetworkEditsPrecheckForModel } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
@@ -963,6 +964,14 @@ interface SupervisedRunResult {
   outcome: TerminalOutcome;
   pid: number | null;
   stderrText: string;
+  // A12 — the fd3 failure message's own structured, allowlisted
+  // `errorDetail` (SolverFailureSchema-validated, already byte-capped),
+  // carried alongside `outcome` purely so runJob's Sentry operator-sink call
+  // can forward it. Non-null ONLY when the message classification was a
+  // genuine `failure` (TT-5/TT-10) — every other failed-outcome row
+  // (protocol/exit/spawn/timeout/interrupted, TT-1/2/6/7/8/9/11/14) never
+  // had a real fd3 failure message to begin with, so this stays null there.
+  failureErrorDetail: Record<string, unknown> | null;
 }
 
 // A3 — supervises exactly one solve.py invocation end-to-end: detached
@@ -1049,7 +1058,8 @@ function runSolverProcess(
         exitCode,
         message,
       });
-      resolve({ outcome, pid: child.pid ?? null, stderrText: stderrCollector.text() });
+      const failureErrorDetail = message.kind === "failure" ? (message.failure.errorDetail ?? null) : null;
+      resolve({ outcome, pid: child.pid ?? null, stderrText: stderrCollector.text(), failureErrorDetail });
     };
 
     timeoutTimer = setTimeout(() => {
@@ -1542,16 +1552,33 @@ async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<
   // real, decided mismatch: fail once, terminal, safe + retryable — never
   // silently execute an accepted snapshot under changed semantics.
   if (claimedRow.recoveryContractIdentity != null && claimedRow.recoveryContractIdentity !== RECOVERY_CONTRACT_IDENTITY) {
-    const published = await markFailed(jobId, generation, VERSION_MISMATCH_SAFE_MESSAGE, {
-      failureReason: "data_error",
-      failureStage: "validate",
-      errorCode: "SOLVE_FAILED",
-    });
+    const versionMismatchTaxonomy = {
+      failureReason: "data_error" as const,
+      failureStage: "validate" as const,
+      errorCode: "SOLVE_FAILED" as const,
+    };
+    const published = await markFailed(jobId, generation, VERSION_MISMATCH_SAFE_MESSAGE, versionMismatchTaxonomy);
     if (published) {
+      // A12 — PostHog product event: bounded `error_code` tag only, no
+      // diagnostic contents (the internal failureReason/failureStage stay
+      // off this surface entirely).
       posthog?.capture({
         distinctId: userId,
         event: "scenario solve failed",
-        properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "version_mismatch" },
+        properties: {
+          scenario_id: scenarioId,
+          job_id: jobId,
+          model_id: input.modelId,
+          error_code: versionMismatchTaxonomy.errorCode,
+        },
+      });
+      // A12 — Sentry operator sink: the closed internal taxonomy, no
+      // structured errorDetail here (this is a static version-mismatch
+      // check, not a parsed fd3 failure message).
+      captureSolveFailure({
+        failureReason: versionMismatchTaxonomy.failureReason,
+        failureStage: versionMismatchTaxonomy.failureStage,
+        errorDetail: null,
       });
     }
     return;
@@ -1588,7 +1615,17 @@ async function runJob(
       // below) — but the ALWAYS-ON publication CAS still applies, gated on
       // THIS job's own identity, never the cache-writing job's.
       const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, cached, enqueuedSolveInputRevision);
-      if (publishOutcome.kind !== "not_owned") {
+      // A12 — "scenario solve completed" fires ONLY for the "published"
+      // outcome: strictly after markSucceeded's transaction has committed
+      // (markSucceeded is `await`ed above, so its transaction is already
+      // committed by the time this line runs) AND only when this job's
+      // result actually became the scenario's current result. A
+      // "superseded" job (compute succeeded, but a newer job/input edit won
+      // the scenario CAS) and a "not_owned" job (this process's lease was
+      // already lost) both correctly emit NOTHING here — from a product
+      // telemetry perspective, "completed" means the student's scenario now
+      // shows this result, which is false for either of those two kinds.
+      if (publishOutcome.kind === "published") {
         posthog?.capture({
           distinctId: userId,
           event: "scenario solve completed",
@@ -1600,7 +1637,7 @@ async function runJob(
             objective: cached.objective,
             run_time_sec: cached.runTimeSec,
             cache_hit: true,
-            published: publishOutcome.kind === "published",
+            published: true,
           },
         });
       }
@@ -1632,16 +1669,18 @@ async function runJob(
       // A5 (TT-1) — the typed columns are the source of truth for the
       // public serializer (derivePublicFailure below); this internal
       // `error` string is diagnostic-only and never read by it.
-      const published = await markFailed(jobId, generation, "Solver timed out", {
-        failureReason: "timeout",
-        failureStage: "timeout",
-        errorCode: "TIMEOUT",
-      });
+      const timeoutTaxonomy = { failureReason: "timeout" as const, failureStage: "timeout" as const, errorCode: "TIMEOUT" as const };
+      const published = await markFailed(jobId, generation, "Solver timed out", timeoutTaxonomy);
       if (published) {
         posthog?.capture({
           distinctId: userId,
           event: "scenario solve failed",
-          properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "timeout" },
+          properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, error_code: timeoutTaxonomy.errorCode },
+        });
+        captureSolveFailure({
+          failureReason: timeoutTaxonomy.failureReason,
+          failureStage: timeoutTaxonomy.failureStage,
+          errorDetail: result.failureErrorDetail,
         });
       }
       return;
@@ -1652,27 +1691,26 @@ async function runJob(
       // Node has no reliable "what stage was CBC in" signal (unlike the
       // reaper's own stale-lease case in reapStaleLeases below, which knows
       // exactly why it's failing this row).
-      const published = await markFailed(jobId, generation, "Solver was interrupted", {
-        failureReason: "interrupted",
-        failureStage: null,
-        errorCode: "SOLVE_FAILED",
-      });
+      const interruptedTaxonomy = { failureReason: "interrupted" as const, failureStage: null, errorCode: "SOLVE_FAILED" as const };
+      const published = await markFailed(jobId, generation, "Solver was interrupted", interruptedTaxonomy);
       if (published) {
         posthog?.capture({
           distinctId: userId,
           event: "scenario solve failed",
-          properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "interrupted" },
+          properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, error_code: interruptedTaxonomy.errorCode },
+        });
+        captureSolveFailure({
+          failureReason: interruptedTaxonomy.failureReason,
+          failureStage: interruptedTaxonomy.failureStage,
+          errorDetail: result.failureErrorDetail,
         });
       }
       return;
     }
 
     if (outcome.kind === "failed") {
-      const published = await markFailed(jobId, generation, safeFailureMessage(outcome.failureReason, outcome.failureStage), {
-        failureReason: outcome.failureReason,
-        failureStage: outcome.failureStage,
-        errorCode: "SOLVE_FAILED",
-      });
+      const failedTaxonomy = { failureReason: outcome.failureReason, failureStage: outcome.failureStage, errorCode: "SOLVE_FAILED" as const };
+      const published = await markFailed(jobId, generation, safeFailureMessage(outcome.failureReason, outcome.failureStage), failedTaxonomy);
       if (published) {
         posthog?.capture({
           distinctId: userId,
@@ -1681,8 +1719,13 @@ async function runJob(
             scenario_id: scenarioId,
             job_id: jobId,
             model_id: input.modelId,
-            reason: `${outcome.failureReason}:${outcome.failureStage}`,
+            error_code: failedTaxonomy.errorCode,
           },
+        });
+        captureSolveFailure({
+          failureReason: failedTaxonomy.failureReason,
+          failureStage: failedTaxonomy.failureStage,
+          errorDetail: result.failureErrorDetail,
         });
       }
       return;
@@ -1704,7 +1747,14 @@ async function runJob(
       await writeThroughCache(inputsHash, input.modelId, legacy);
     }
     const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, legacy, enqueuedSolveInputRevision);
-    if (publishOutcome.kind !== "not_owned") {
+    // A12/A7 — same "published only" gate as the cache-hit branch above:
+    // "superseded" (this job's own terminal write succeeded, but the
+    // scenario CAS lost to a newer job or a later input edit) and
+    // "not_owned" (this process's lease was already gone) both emit
+    // nothing. `markSucceeded` is awaited above, so its one publication
+    // transaction has already committed by the time this fires — "completed"
+    // is never emitted before that commit.
+    if (publishOutcome.kind === "published") {
       posthog?.capture({
         distinctId: userId,
         event: "scenario solve completed",
@@ -1716,7 +1766,7 @@ async function runJob(
           objective: legacy.objective,
           run_time_sec: legacy.runTimeSec,
           cache_hit: false,
-          published: publishOutcome.kind === "published",
+          published: true,
         },
       });
     }
@@ -1727,11 +1777,34 @@ async function runJob(
     // exactly the "crash immediately after claim, immediately before
     // spawn" case: an honest, IMMEDIATE terminal failure — never a silent
     // stall, and never a retry (A performs no automatic retry).
-    await markFailed(jobId, generation, "Unexpected error before a solver outcome was reached", {
-      failureReason: "internal_error",
-      failureStage: "spawn",
-      errorCode: "SOLVE_FAILED",
-    });
+    //
+    // A12 — this is the one failure branch that previously emitted NO
+    // telemetry at all (neither PostHog nor Sentry) despite being a real,
+    // user-visible "scenario solve failed" outcome. The taxonomy is fixed
+    // (internal_error/spawn, matching the DB write below) — the actual
+    // caught exception is NEVER read into either sink: an arbitrary JS
+    // exception's message/stack can carry a filesystem path or other
+    // incidental detail, which both contracts (PostHog's bounded errorCode
+    // and Sentry's own allowlist) explicitly prohibit.
+    const unexpectedTaxonomy = { failureReason: "internal_error" as const, failureStage: "spawn" as const, errorCode: "SOLVE_FAILED" as const };
+    const published = await markFailed(jobId, generation, "Unexpected error before a solver outcome was reached", unexpectedTaxonomy);
+    if (published) {
+      posthog?.capture({
+        distinctId: userId,
+        event: "scenario solve failed",
+        properties: {
+          scenario_id: scenarioId,
+          job_id: jobId,
+          model_id: input.modelId,
+          error_code: unexpectedTaxonomy.errorCode,
+        },
+      });
+      captureSolveFailure({
+        failureReason: unexpectedTaxonomy.failureReason,
+        failureStage: unexpectedTaxonomy.failureStage,
+        errorDetail: null,
+      });
+    }
   } finally {
     stopHeartbeat();
   }
