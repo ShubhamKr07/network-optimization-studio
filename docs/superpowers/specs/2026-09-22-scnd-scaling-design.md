@@ -1,11 +1,19 @@
 # SCND Scaling — Solver-Tier + Scheduled-Autoscale Spec
 
 **Date:** 2026-09-22
-**Status:** **REQUEST CHANGES — not approved for implementation planning.** Three review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction; round 3: S-R13…S-R16 + three consistency edits). All three review texts are preserved verbatim in commits `02d105f`, `1e0f29a` and `eba7fb2`; the per-finding record is §11. **All twenty findings are accepted**; rounds 2 and 3 needed no divergent remedies.
+**Status:** **REQUEST CHANGES — Stage 1 (architecture/spec) not yet approved.** Four review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction; round 3: S-R13…S-R16 + three consistency edits; round 4: S-R17…S-R20). All four review texts are preserved verbatim in commits `02d105f`, `1e0f29a`, `eba7fb2` and `1064c46`; the per-finding record is §11. **All twenty-four findings are accepted**; rounds 2–4 needed no divergent remedies.
 
-The status is held by the **same two external blockers as after round 1** — **SP-1** (§1.1) and the **Postgres connection ceiling** (§3.2, §10) — plus one new dependency round 3 surfaced: **§3.2's admission model needs a Measurement operand (`mean_service_sec`) that no artifact currently emits.** Phase 3 is in the pipeline, so that is a live ask, not a late one.
+**Three approvals were being conflated, and this status line was the worst offender** — for three rounds it said SP-1 and the connection ceiling held "implementation planning," implying those two were sufficient. They are not. Per S-R20:
 
-**A pattern worth stating rather than burying:** the admission model has now been wrong in three consecutive rounds — first named-but-unspecified (S-R7), then in the wrong units (S-R12), then dimensionally invalid while citing a field that does not exist (S-R13). Each fix introduced the next defect. It is the one part of this document that has never survived a review, and it should be read with more suspicion than the rest.
+| Stage | What it approves | Prerequisites |
+|---|---|---|
+| **1 — Architecture / spec** | That this design is the right shape and may proceed toward a plan. **Not** authorization to implement, and specifically not to build the selected fleet | S-R17…S-R20 closed (this fold), **SP-1 resolved**, live Postgres ceiling validating the completed §3.2 ledger |
+| **2 — Measurement-sized implementation plan** | A `writing-plans` pass against a *known* topology | Stage 1, **plus** A complete (A4–A13 still in flight), Measurement Phases 3–4 results, §1.1's outcome row selected, §10's measured values in hand — including `mean_service_sec`, which **no Measurement artifact currently emits** |
+| **3 — Real-cohort pilot** | Students on it | Stage 2 built, **plus** the applicable §5.1 gate set passing on the **final built topology** (not the prototype), MP-4, and — under O4 — §1.1's coalescing condition; under O1/O2 the SP-1 waiver |
+
+Each stage's evidence is independent: stage 1 never implies stage 2, and stage 2 never implies stage 3.
+
+**A pattern worth stating rather than burying:** the admission model has now been wrong in **four consecutive rounds** — named-but-unspecified (S-R7), wrong units (S-R12), dimensionally invalid while citing a nonexistent field (S-R13), and counting nominal instead of claimable capacity while never serializing its own decision (S-R17/S-R18). Each fix introduced the next defect. It is the one part of this document that has never survived a review, and it should be read with more suspicion than the rest.
 The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1 ("B2 — durable isolated solver tier + pilot gate"). Direction inherited from the original brainstorm `2026-09-19-scnd-scaling-design.md` (Option B: split solver tier + scheduled autoscale ≈ $70/mo).
 **Branch:** `scnd-scaling`.
 
@@ -42,7 +50,7 @@ The predecessor split ledger (`2026-09-20-scnd-scaling-phase0-design.md` §13.1,
 
 | # | Measurement outcome | What gets built | Required artifact | Pilot authority |
 |---|---|---|---|---|
-| **O1** | Existing API instance clears the guaranteed load with headroom | Nothing in this spec. A ships; B is already shipped | Measurement decision doc recording headroom + the cost of doing nothing | **None from this document.** A real cohort pilot on a non-isolated API tier contradicts the ledger's "isolation mandatory" rule → **SP-1** |
+| **O1** | Existing API instance clears the guaranteed load with headroom | Nothing in this spec. A ships; B is already shipped | Measurement decision doc recording headroom + the cost of doing nothing | **Gate set G-API** (§5.1) + MP-4, **and** an SP-1 waiver — identical to O2 *(corrected per S-R19)* |
 | **O2** | A larger single API instance clears it (vertical, ≤ 12 CPU plan ceiling) | Instance-plan change only. **No** worker service, **no** scheduler, **no** retry/fairness/single-flight. `api_dispatch` mode retained (§1.2) | Plan-change record + recomputed 24/7 cost vs. burst cost | **Gate set G-API** (§5.1) + MP-4, **and** an SP-1 waiver — O2 builds nothing this spec's worker gates test |
 | **O3** | One dedicated worker clears it | Worker service + §1.2 cutover + §1.3 registry + §3.1 retry + §3.2 admission/fairness + §6 retention. **No** scheduler (single worker, always on), **no** single-flight (value is ~2 redundant sub-second solves at this scale — §3) | Worker-tier implementation plan | **Gate set G-WORKER** (§5.1) + MP-4 |
 | **O4** | Only a horizontal fleet clears it | All of O3, **plus** the scheduled scaler (§2) and its drain contract (§2.1), **plus** single-flight **if the coalescing condition below requires it** | Worker-tier plan + scaler runbook + (conditionally) single-flight spec | **Gate set G-FLEET** (§5.1) + MP-4 + **the coalescing condition** |
@@ -52,6 +60,8 @@ The predecessor split ledger (`2026-09-20-scnd-scaling-phase0-design.md` §13.1,
 > **A fleet pilot may proceed without single-flight only if the cold-identical-burst test (§5) shows the measured duplicate compute fits inside the selected topology's capacity headroom *and* its cost budget. Otherwise the single-flight successor spec must be approved and built first.**
 
 The test already exists in §5's reliability suite; this gives its result an authority it previously lacked. §3's SP-2 and §5 both defer to this sentence rather than restating it.
+
+**O1 and O2 carry identical authority** *(S-R19)*. Round 3 had O1 saying "no pilot authority comes from this document" while §5.1's G-API admitted O1 under an SP-1 waiver — two sources of truth for the same waived pilot. They are the same situation: a non-isolated API tier, differing only in whether a larger instance was purchased. The stricter-sounding O1 wording was not stricter, only contradictory; the waiver is what governs, and it governs both rows.
 
 **O2 is the row §4's "bump the instance + keep 24/7" sentence belongs to** — it is a real outcome, not a contradiction of the goal, and it is the one outcome where an autoscaled fleet would be the more expensive answer.
 
@@ -106,6 +116,7 @@ solve_claimants
 - **Registration happens at boot, before any claim.** A claimant that cannot register cannot claim — the registry write is on the same fail-closed path as A2's boot recovery.
 - **`ready_at` is set only after the claimant proves it can *use* the queue**, not merely that it started: a read of the claim index under its own pool. Booted-but-broken is therefore distinguishable from ready, which is the distinction the scaler needs.
 - **`heartbeat_at` is job-independent.** It ticks whether or not the claimant owns work, which is precisely what makes an idle pre-scaled worker observable. A's `owner_heartbeat_at` stays exactly as it is — **job liveness and claimant liveness are different questions and now have different columns.** Nothing in A is modified.
+- **`accepting_claims boolean not null default true`** *(added per S-R17)*. Liveness and willingness are also different questions. A draining worker is alive, ready, `worker_only` and heartbeating — and will never claim again. **It is set false in the same transition that stops the scan** (§2.1 step 1), so there is no window where the registry advertises capacity the worker has already renounced. This is the field §3.2 counts; `ready_at` alone would count drainers.
 - **`solve_jobs.claimant_id` is a nullable FK to `solve_claimants.claimant_id`** *(made normative per S-R16 — round 2 said "or an equivalent durable mapping," which left the cutover proof's join without a relational contract and contradicted §3.1's schema list, which named only `worker_id`)*. Nullable because pre-registry and legacy terminal rows have no claimant and must never be fabricated one — the same Class-1 treatment A1 already applies to its own unknowable-history columns. **Written atomically inside the CAS claim transaction**, so a row is never `running` with a null claimant, and **protected from deletion while referenced** (§6). The §1.2 cutover query and the §6 retention rule both use this one field and no other.
 - **Reconciliation counts distinct live worker registry rows**, not job heartbeats (§2.1).
 - **Cutover proof** is the `NOT EXISTS` join in §1.2 step 4 — a real query over a real column, not an inference about integers.
@@ -129,7 +140,7 @@ The review frames this as a TOCTOU gap in "drain queue + leases, then scale down
 
 Safety comes from the worker's own shutdown behaviour plus A's lease, which together make an abruptly-removed worker a *recoverable* event rather than one to be avoided:
 
-1. **On `SIGTERM` the worker stops claiming immediately** — cancels the scan schedule, refuses new claims — and keeps heartbeating the jobs it already owns, so a peer does not take them over mid-solve.
+1. **On `SIGTERM` the worker stops claiming immediately** — cancels the scan schedule, refuses new claims, **and sets its registry row's `accepting_claims = false` in that same transition** (§1.3, per S-R17, so admission stops counting slots this worker has already renounced) — and keeps heartbeating **both** its owned jobs (`owner_heartbeat_at`, so a peer does not take them over mid-solve) **and its own claimant row** (`heartbeat_at`, so it stays observably alive-but-draining rather than vanishing into the stale-claimant path).
 2. It waits for owned solves to finish, bounded by `maxShutdownDelaySeconds` (range 1–300; **120 s** is what A14a set for the API and is the starting value here). Then it closes pools and exits.
 3. **Anything still running at the budget is SIGKILLed by the platform.** Its lease then goes stale at A2's 60 s threshold and the job is **requeued *or terminalized* by §3.1's conditional retry protocol**, depending on whether it had attempts left — corrected per round 3, since §3.1's conditional reclaim made the flat "requeued" here wrong the moment it landed.
 4. Because step 3 is bounded and attempt-limited, scale-in never loses work and never loops.
@@ -274,7 +285,11 @@ The honest reading is that I over-applied M-R8. That correction says *size* from
 ```
 mean_service_sec      = measured mean effective WALL service time per slot-consuming job,
                         at the selected concurrency          [seconds]
-effective_slot_count  = workers × slots_per_worker           [slots]
+effective_slot_count  = slots_per_worker × COUNT(solve_claimants WHERE
+                            role = 'worker' AND mode = 'worker_only'
+                            AND ready_at IS NOT NULL
+                            AND accepting_claims               -- S-R17
+                            AND heartbeat_at > now() - staleness)   [slots]
 
 remaining_slot_seconds = queued_jobs × mean_service_sec       -- work not yet started
                        + busy_slots  × mean_service_sec       -- one full service per busy slot
@@ -286,9 +301,20 @@ Slot-seconds ÷ slots = seconds. The active term charges a **full** mean service
 - **`mean_service_sec` is a new required Measurement output**, and this document must not invent it. It is **not** currently emitted: `simulate()` already accumulates `total_solver_wall` and uses it only to derive `utilization`, so the operand is one division away from data the simulator holds — `total_solver_wall / count(events where consumes_solver_slot)`. **Phase 3 is in the pipeline now, so this is a live, small ask rather than a late one:** add the mean (and the slot-consuming count) to `SimResult`, and carry it into the Phase 4 decision record alongside the wait percentiles.
 - If the alternative jobs/sec model is preferred instead, `measured_jobs_per_sec` must be added to the Measurement artifact explicitly and the numerator converted to job-equivalents. Either model is acceptable; **mixing them is what produced this finding**, so the spec commits to the slot-seconds form above and Measurement emits its operands.
 - `cpu_N` keeps cost and compute sizing only (§4, §1.1), and never answers a latency question.
+
+**Capacity means *claimable*, not provisioned (S-R17).** The round-3 formula said `workers × slots_per_worker` without saying which workers — desired, provisioned or ready — and that ambiguity was the defect. The dangerous case is scale-in: a draining worker is alive, ready, `worker_only` and heartbeating, yet has permanently stopped claiming, so counting it inflates capacity and **shortens `Retry-After` below the true wait** — the precise failure S-R13 identified, reached by a different route. **The claimant registry is the sole live-capacity authority**; §1.3's `accepting_claims` is what distinguishes willing from merely alive, and a provisioned-but-not-yet-ready worker is excluded by `ready_at IS NOT NULL` (erring toward over-estimating the wait, the safe direction).
+
+**Zero claimable slots is an explicit outcome, not a division.** When `effective_slot_count = 0` — mid-scale-up before any worker is ready, or every worker draining — a cold miss is rejected `503` with a "temporarily unavailable" body and a fixed conservative `Retry-After`. It must never divide by zero, and it must never promise a wait that no slot can serve. Cache hits are unaffected: they consume no slot and are served normally (see the ordering rule below).
+
+**Admission is one transaction, not an ordering (S-R18).** Round 3 said only that the cache check precedes admission — an ordering, which does not bound anything. Under this system's *designed* load, ~50 students submitting at once, every request can concurrently observe the same low queue depth, every one passes the SLO check, and every one enqueues. **The global limit then bounds nothing, and the wait it promised was never true.** This is not an edge case; it is the target workload. (The repo has a precedent: P1.1's check-then-enqueue non-atomicity was deferred as Minor at pilot scale — defensible when the check was a crude depth cap, not defensible now that admission makes a wait *promise*.)
+
+One short Postgres transaction performs, in order: **cache eligibility → claimable-capacity snapshot → wait calculation → admission decision → `solve_jobs` insert.** Serialization is via a **locked admission state row** (`SELECT … FOR UPDATE` on a single row) rather than `SERIALIZABLE` with retry — at 0.694 submissions/sec the contention is negligible, and a lock that is obviously correct beats a retry loop that must itself be tested under the burst. The transaction holds no solver work and no external call, so it is short by construction.
+
+- **Ordering inside the transaction is unchanged and load-bearing:** cache eligibility first, so a student whose answer already exists is never rejected for queue depth. A cache hit takes no slot and does not advance the admission counter.
+- **Tests:** a concurrent cold-miss burst at the full cohort size proving the admission bound cannot overshoot through a read/insert race; partial scale-up readiness (provisioned-but-not-ready workers do not inflate capacity); an in-flight scale-in (a draining worker stops contributing slots the moment it receives `SIGTERM`, not when it exits); and the zero-claimable-slots path returning `503` rather than dividing.
 - Reject with `429` when `estimated_wait_sec` exceeds the ratified queue-wait SLO; `Retry-After = clamp(ceil(estimated_wait_sec), 5, 120)`. The fixed `Retry-After: 30` from P1.1 is replaced.
 - **`cpu_N` keeps its job** — §4's cost model and §1.1's instance sizing. It simply never answers a student-facing latency question again.
-- **Ordering:** the cache check precedes admission, so a request that will be served from cache is never rejected for queue depth — rejecting a student whose answer already exists would be indefensible.
+- **Ordering** is now a step inside the admission transaction below, not a standalone rule — cache eligibility first, so a student whose answer already exists is never rejected for queue depth, which would be indefensible.
 
 ## 4. Cost model (to be filled from measurement)
 
@@ -311,13 +337,13 @@ Reuse the parent design's two independent gates. **Both remain mandatory, and ca
 
 | Set | Applies to | Reliability suite |
 |---|---|---|
-| **G-API** | O1, O2 — **only under a recorded SP-1 waiver** | Option A's own API reliability proof: restart safety, owner-lease reclaim, no-orphan, boot recovery, SIGTERM drain, A7 publication CAS. Plus API capacity evidence at the guaranteed rate. **No worker, scaler or retry tests** — there is nothing to test |
+| **G-API** | O1 and O2 alike — **only under a recorded SP-1 waiver** (S-R19) | Option A's own API reliability proof: restart safety, owner-lease reclaim, no-orphan, boot recovery, SIGTERM drain, A7 publication CAS. Plus API capacity evidence at the guaranteed rate. **No worker, scaler or retry tests** — there is nothing to test |
 | **G-WORKER** | O3 | G-API, **plus** dispatcher-mode enforcement (incl. `worker_standby` never claims), the §1.3 claimant-registry cutover proof and idle-worker readiness, multi-worker claim under `SKIP LOCKED`, retry exhaustion incl. the final-attempt kill, per-user fairness/starvation, DB outage and pool exhaustion, peak connections under a rolling deployment, deletion/cancellation mid-solve |
 | **G-FLEET** | O4 | G-WORKER, **plus** missed scale-up and Render API failure, active-job scale-in (§2.1), reconciliation deadline, autoscaling-enabled detection, and the **cold-identical burst** — which under O4 is not merely informative but the input to §1.1's coalescing condition |
 
 **Single-flight is not a gate item in any set** (S-R4, unchanged): if §1.1's coalescing condition requires the successor spec and it is built, its acceptance tests join G-FLEET. Until then no gate depends on work that does not exist.
 
-**In every set: both applicable gates plus MP-4 are required for a pilot.** G-API additionally requires the SP-1 waiver, because without it O1/O2 authorize no real cohort at all.
+**In every set: both applicable gates plus MP-4 are required for a pilot.** G-API additionally requires the SP-1 waiver, because without it O1/O2 authorize no real cohort at all. **This is Stage 3 of the authority ladder** (preamble): passing a gate set here is not architecture approval and not plan authorization — it is the last of three independent stages, run against the final built topology.
 
 **Authoritative rerun on the built tier (S-R8).** Measurement selects a topology on a *prototype* seam, before this spec adds retry, fairness, admission, dispatcher modes and the scaler — additions that change both capacity (every retry is a second full CPU charge; fairness caps change queue ordering) and failure behaviour. **The gates are therefore rerun on the final built topology, and it is that rerun, not Measurement's, that authorizes anything.** Measurement's run selects; this run decides.
 
@@ -384,6 +410,19 @@ Nothing below is an oversight; each is a value this document is not entitled to 
 ---
 
 ## 11. Review record
+
+### Round 4 — approval review, 2026-09-23
+
+Verbatim text in commit `1064c46` and collapsed below. **All four blocking findings accepted; no divergent remedies.** Round 4 moved from contract contradictions to the **runtime boundary** — what happens when a class burst meets a fleet whose capacity is changing underneath it. Two of the four are genuine load-control defects that would have shipped.
+
+| ID | Disposition | Where |
+|---|---|---|
+| S-R17 — admission counts nominal, not claimable, capacity | **Accepted.** `workers × slots_per_worker` never said *which* workers, and the registry had liveness but no willingness. A draining worker is alive, ready, `worker_only` and heartbeating while permanently done claiming — counting it inflates capacity and **shortens `Retry-After` below the true wait**, which is S-R13's harm reached by another route. New `accepting_claims`, set false in the same transition that stops the scan; zero claimable slots now returns `503` rather than dividing by zero | §1.3, §2.1, §3.2 |
+| S-R18 — cache/admission/enqueue ordered but not atomic | **Accepted.** Ordering bounds nothing. At the *designed* load — ~50 students submitting at once — every request can observe the same low depth, pass, and enqueue, so the limit bounds nothing and the promised wait was never true. One short transaction (cache eligibility → capacity snapshot → wait → decision → insert) behind a locked admission row; `SERIALIZABLE`-with-retry rejected as harder to verify at 0.694 submissions/sec | §3.2 |
+| S-R19 — O1 had conflicting pilot authority | **Accepted.** O1 said "no authority from this document" while G-API admitted O1 under an SP-1 waiver. O1 now matches O2 exactly — the stricter-sounding wording was not stricter, only contradictory | §1.1, §5.1 |
+| S-R20 — architecture, plan and pilot authority conflated | **Accepted.** Three-stage ladder published in the preamble. **The status line had been the worst offender**, claiming for three rounds that SP-1 and the ceiling held "implementation planning" — when A completion, Measurement Phases 3–4 and a selected topology are equally prerequisite | Preamble, §5.1 |
+
+**What changed in the nature of the findings.** Rounds 1–3 found things the document said wrongly. Round 4 found things it said correctly *in isolation* that break when the system moves — a worker draining mid-burst, fifty requests arriving in the same instant. Both S-R17 and S-R18 are invisible to any reading that holds the fleet still. That is worth recording because the remaining unreviewed surfaces (the scaler's reconciliation loop, retry under fleet churn) have the same shape.
 
 ### Round 3 — approval review, 2026-09-23
 
@@ -570,7 +609,9 @@ When those items close, this design can proceed to its measurement-sized impleme
 
 ---
 
-## 12. Round 4 approval review — 2026-09-23
+<details>
+<summary>Round 4 review text (verbatim, as received — superseded by the fold above)</summary>
+
 
 **Decision: REQUEST CHANGES / not approved.** The round-three fold corrected the admission formula, topology-specific gates and claimant schema. The remaining weakness is at the runtime boundary where a class burst meets changing fleet capacity: the design counts nominal workers rather than workers that can actually claim, and it does not serialize admission with enqueue. These are load-control defects, not refinements. The approval status also needs to distinguish an architecture decision from a measurement-sized plan and a pilot.
 
@@ -588,3 +629,5 @@ When those items close, this design can proceed to its measurement-sized impleme
 Use the claimant registry as the sole live-capacity authority: add claim-acceptance lifecycle, then consume its count inside a single serialized admission/enqueue transaction. This closes both S-R17 and S-R18 without another service or queue. Align O1's authority and publish the three-stage approval ladder at the same time; those close the two remaining governance contradictions.
 
 **Conditional approval criterion:** I would approve the architecture/spec after S-R17–S-R20 close, SP-1 is resolved, and the live Postgres ceiling validates the completed ledger. A measurement-sized implementation plan and a real-cohort pilot remain separately gated as described above.
+
+</details>
