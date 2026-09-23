@@ -4,7 +4,7 @@ import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
 import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT, derivePublicFailure } from "../solver/jobRunner.js";
 import { requireAuth } from "../middlewares/auth.js";
-import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
+import { ResultEnvelopeSchema, StoredScenarioResultSchema, normalizeStoredResult } from "../solver/resultEnvelope.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { getManifest } from "../registry/modelRegistry.js";
@@ -162,6 +162,25 @@ export function presentResultForRead(result: Record<string, unknown> | null): Re
   if (result == null) return result;
   if ("solutionStatus" in result) return result;
   return { ...result, solutionStatus: null, terminationReason: result.terminationReason ?? null };
+}
+
+// A8 (SCND Correctness, §2.7.1) — output-entity export legacy/unverified
+// gate. Reuses A4's own StoredScenarioResultSchema/normalizeStoredResult
+// discriminator (resultEnvelope.ts) rather than re-deriving legacy detection
+// here: a raw stored value that parses as PublishedSolveResultV2 (real
+// envelopeVersion:2) is verified (legacyUnverified:false); anything else —
+// historical-unversioned OR B's truthful-but-unversioned rows (§2.14's
+// representations #1/#2, both share the same raw ResultEnvelopeSchema shape
+// with no envelopeVersion key) — normalizes to legacy v1
+// (legacyUnverified:true). A value that fails to parse as EITHER shape is
+// treated conservatively as legacy-unverified too — never assume proven
+// when the stored shape can't even be classified. Exported so a future A9
+// frontend test (or another export-adjacent route) can reuse this exact
+// classification rather than re-deriving it.
+export function isLegacyUnverifiedResult(raw: Record<string, unknown> | null): boolean {
+  const parsed = StoredScenarioResultSchema.safeParse(raw);
+  if (!parsed.success) return true;
+  return normalizeStoredResult(parsed.data).legacyUnverified;
 }
 
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
@@ -646,6 +665,17 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.status(422).json({ error: "Stored result is not a valid result envelope" });
         return;
       }
+      // A8 (§2.7.1) — never export output data of unknowable proof state.
+      // Checked against the RAW stored value (job.result), not `parsedJob.data`
+      // — ResultEnvelopeSchema itself has no envelopeVersion key, so parsing
+      // through it would silently strip the one field this check needs.
+      if (isLegacyUnverifiedResult(job.result)) {
+        res.status(409).json({
+          error: "That solve's result predates verified solve tracking and cannot be exported as output data — re-solve to produce a verified result.",
+          code: "LEGACY_RESULT_REQUIRES_RESOLVE",
+        });
+        return;
+      }
       result = parsedJob.data;
     } else {
       if (scenario.result == null || isStale(scenario)) {
@@ -655,6 +685,15 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       const parsed = ResultEnvelopeSchema.safeParse(scenario.result);
       if (!parsed.success) {
         res.status(422).json({ error: "Stored result is not a valid result envelope" });
+        return;
+      }
+      // A8 (§2.7.1) — same legacy/unverified gate as the runId branch above,
+      // checked against the RAW scenario.result for the same reason.
+      if (isLegacyUnverifiedResult(scenario.result)) {
+        res.status(409).json({
+          error: "This scenario's result predates verified solve tracking and cannot be exported as output data — re-solve to produce a verified result.",
+          code: "LEGACY_RESULT_REQUIRES_RESOLVE",
+        });
         return;
       }
       result = parsed.data;

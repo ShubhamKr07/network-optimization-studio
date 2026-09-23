@@ -44,6 +44,21 @@ export interface ErrorEnvelope {
   error: string;
 }
 
+export type LegacyResultExportRejectionCode = typeof LegacyResultExportRejectionCode[keyof typeof LegacyResultExportRejectionCode];
+
+
+export const LegacyResultExportRejectionCode = {
+  LEGACY_RESULT_REQUIRES_RESOLVE: 'LEGACY_RESULT_REQUIRES_RESOLVE',
+} as const;
+
+/**
+ * SCND correctness A8 (§2.7.1) — the export endpoint's 409 body for a legacy/unverified output-entity export rejection. `code` is a stable, permanent machine-readable discriminator (never removed at a compatibility cleanup) the frontend uses to render a resolve prompt instead of a generic error toast.
+ */
+export interface LegacyResultExportRejection {
+  error: string;
+  code: LegacyResultExportRejectionCode;
+}
+
 /**
  * Database reachability (a SELECT 1 against the pool). `down` still returns 200 — the API process is up.
  */
@@ -676,6 +691,8 @@ export interface SolveHistoryEntry {
   errorMessage: string | null;
   /** @nullable */
   runTimeSec: number | null;
+  /** SCND correctness A8 (§2.7.1) — always emitted. True when this row's status is "succeeded" and its stored result does NOT parse as a canonical v2 published result (§2.6) — covers both historical-unversioned rows and B's truthful-but-unversioned rows (§2.14), never promoted to a proven claim. False for a non-succeeded row (no result to (un)verify) and for a genuine v2 published result. */
+  legacyUnverified: boolean;
   queuedAt: string;
   /** @nullable */
   finishedAt: string | null;

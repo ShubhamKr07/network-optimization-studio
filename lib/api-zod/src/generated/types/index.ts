@@ -69,6 +69,8 @@ export * from './jadeFlowExportRowLeg';
 export * from './landingSummary';
 export * from './landingSummaryChapter';
 export * from './landingSummaryTotals';
+export * from './legacyResultExportRejection';
+export * from './legacyResultExportRejectionCode';
 export * from './legAverageDistance';
 export * from './listScenariosModelId';
 export * from './listScenariosParams';

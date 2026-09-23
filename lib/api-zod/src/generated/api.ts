@@ -158,6 +158,7 @@ export const GetSolveHistoryResponseItem = zod.object({
   "errorCode": zod.union([zod.enum(['SOLVE_FAILED', 'TIMEOUT']).describe('SCND correctness A5 (§2.11) — the permanent, exhaustive public failure-classification enum for a failed async solve job. `null` on every non-failed job. A historical row with no typed failure columns (pre-A1) reads as the conservative `SOLVE_FAILED` default, never `TIMEOUT` unless positively known. Every value here is retryable — there is no separate `retryable` field; the frontend derives the retry action from this enum alone (A-R47).'),zod.null()]).describe('SCND correctness A5 (§2.11) — same permanent public failure code as SolveJob.errorCode; null for a non-failed row.'),
   "errorMessage": zod.string().nullable().describe('SCND correctness A5 (§2.11) — same fixed safe message as SolveJob.errorMessage; null for a non-failed row.'),
   "runTimeSec": zod.number().nullable(),
+  "legacyUnverified": zod.boolean().describe('SCND correctness A8 (§2.7.1) — always emitted. True when this row\'s status is \"succeeded\" and its stored result does NOT parse as a canonical v2 published result (§2.6) — covers both historical-unversioned rows and B\'s truthful-but-unversioned rows (§2.14), never promoted to a proven claim. False for a non-succeeded row (no result to (un)verify) and for a genuine v2 published result.'),
   "queuedAt": zod.coerce.date(),
   "finishedAt": zod.coerce.date().nullable()
 })

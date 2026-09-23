@@ -36,7 +36,7 @@ vi.mock("@workspace/db", () => ({
   db: mockDb,
   pool: mockPool,
   scenariosTable: { id: "scenarios.id", name: "name", userId: "scenarios.user_id", modelId: "scenarios.model_id", createdAt: "created_at", updatedAt: "updated_at" },
-  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary", errorCode: "solve_jobs.error_code", failureReason: "solve_jobs.failure_reason", failureStage: "solve_jobs.failure_stage" },
+  solveJobsTable: { id: "solve_jobs.id", scenarioId: "solve_jobs.scenario_id", userId: "solve_jobs.user_id", status: "solve_jobs.status", finishedAt: "solve_jobs.finished_at", queuedAt: "solve_jobs.queued_at", resultSummary: "solve_jobs.result_summary", result: "solve_jobs.result", errorCode: "solve_jobs.error_code", failureReason: "solve_jobs.failure_reason", failureStage: "solve_jobs.failure_stage" },
   usersTable: { id: "id", email: "email" },
 }));
 
@@ -289,6 +289,32 @@ const chensRow = {
   createdAt: new Date("2026-01-06T00:00:00Z"),
   updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
+
+// A8 (SCND Correctness, §2.7.1) — output-entity export now 409s a
+// legacy-unverified result. Every bare `{status:"optimal", objective, ...}`
+// fixture below (the shape solve.py has always written, pre-A11 v2-write
+// activation) is legacy-unverified by construction (no envelopeVersion key
+// at all — see resultEnvelope.ts's normalizeStoredResult). A test that must
+// keep asserting a SUCCESSFUL (200) output-entity export wraps its fixture
+// in this helper, which adds exactly the fields PublishedSolveResultV2Schema
+// requires on top of the caller's own model-specific edges/metrics/details —
+// nothing about those fields' assertions changes.
+function verifiedResult<T extends { status: string; objective: number }>(base: T): T & Record<string, unknown> {
+  return {
+    envelopeVersion: 2,
+    solutionStatus: base.status,
+    terminationReason: base.status === "optimal" ? "optimality_proven" : "unknown",
+    achievedGap: 0,
+    solverIncumbentObjective: base.objective,
+    solverBestBound: base.objective,
+    requestedGap: null,
+    requestedGapSource: null,
+    requestedTimeLimitSec: null,
+    requestedTimeLimitSource: null,
+    legacyUnverified: false,
+    ...base,
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -1743,11 +1769,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1772,11 +1798,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: { bandCoverage: [{ band: 200, percent: 100 }] }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1830,11 +1856,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...transportRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
         edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       stale: false,
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1859,11 +1885,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...twoEchelonRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
         edges: [{ fromId: "daggar-hills", toId: "sydney", flow: 80, distance: 2381.79, leg: "refinery_to_customer" }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       stale: false,
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1884,11 +1910,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: { bandCoverage: [{ band: 200, percent: 100 }], weightedAvgDistance: 42.1 }, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     for (const [entity, expected] of [["costSummary", 3], ["serviceStats", 3], ["openWarehouses", 1]] as const) {
@@ -1904,12 +1930,12 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...chensRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-15", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
         metrics: { bandCoverage: [{ band: 500, percent: 87.5 }], weightedAvgDistance: 250.5, utilizationByNode: [], openFacilityIds: ["wh-15"] },
         details: { objective: "coverage" }, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1937,11 +1963,11 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1957,13 +1983,13 @@ describe("GET /api/scenarios/:id/export", () => {
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...chensRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 87.5, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "wh-17", toId: "cn-1", flow: 100, distance: 250.5, band: 0 }],
         // wh-15 (Changchun) is forced-open but serves no customer → no edge.
         metrics: { utilizationByNode: [], openFacilityIds: ["wh-17", "wh-15"] },
         details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-06T00:00:00Z"),
     };
     mockDb.select.mockReturnValue(makeChain([solvedRow]));
@@ -1980,6 +2006,58 @@ describe("GET /api/scenarios/:id/export", () => {
     const res = await request(app).get("/api/scenarios/1/export?entity=flows&format=json").set("Cookie", cookie);
 
     expect(res.status).toBe(422);
+  });
+
+  // A8 (SCND Correctness, §2.7.1) — the latest-path (no runId) counterpart
+  // of the runId-path 409 test below. A legacy-unverified result is REJECTED
+  // for every output entity, not just assignments — asserted here as never
+  // rendered/exported as proven optimal (DoD item 5): the response body
+  // carries neither `rows` nor any quality/status claim.
+  it.each(["assignments", "openWarehouses", "costSummary", "serviceStats"] as const)(
+    "a legacy-unverified latest result → 409 LEGACY_RESULT_REQUIRES_RESOLVE for entity=%s, never exported",
+    async (entity) => {
+      const cookie = await loginAs(OWNER);
+      const legacyRow = {
+        ...pmedianRow,
+        result: {
+          status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+          edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+          metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+          // Deliberately no envelopeVersion/solutionStatus/terminationReason.
+        },
+        solvedAt: new Date("2026-01-01T00:00:00Z"),
+      };
+      mockDb.select.mockReturnValue(makeChain([legacyRow]));
+
+      const res = await request(app).get(`/api/scenarios/1/export?entity=${entity}&format=json`).set("Cookie", cookie);
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({
+        error: "This scenario's result predates verified solve tracking and cannot be exported as output data — re-solve to produce a verified result.",
+        code: "LEGACY_RESULT_REQUIRES_RESOLVE",
+      });
+      expect(res.body).not.toHaveProperty("rows");
+      expect(JSON.stringify(res.body)).not.toMatch(/proven/i);
+    },
+  );
+
+  it("a genuinely verified (v2) latest result exports normally (200) — the counterpart positive case", async () => {
+    const cookie = await loginAs(OWNER);
+    const verifiedRow = {
+      ...pmedianRow,
+      result: verifiedResult({
+        status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
+        edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
+        metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      }),
+      solvedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    mockDb.select.mockReturnValue(makeChain([verifiedRow]));
+
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json").set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(1);
   });
 });
 
@@ -2028,18 +2106,18 @@ describe("GET /api/scenarios/:id/export — unit= (T9, spec Part E / decision 5b
 describe("GET /api/scenarios/:id/export — runId (T9, spec Part F)", () => {
   const solvedRow = {
     ...pmedianRow,
-    result: {
+    result: verifiedResult({
       status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
       edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
       metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-    },
+    }),
     solvedAt: new Date("2026-01-01T00:00:00Z"),
   };
-  const historicalResult = {
+  const historicalResult = verifiedResult({
     status: "optimal", objective: 55, runTimeSec: 0.3, quality: "Proven optimal",
     edges: [{ fromId: "ATL", toId: "C2", flow: 20, distance: 10 }],
     metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-  };
+  });
 
   it("exports the addressed run, not the latest", async () => {
     const cookie = await loginAs(OWNER);
@@ -2107,6 +2185,27 @@ describe("GET /api/scenarios/:id/export — runId (T9, spec Part F)", () => {
     const cookie = await loginAs(OWNER);
     const res = await request(app).get(`/api/scenarios/1/export?entity=assignments&format=json&runId=${bad}`).set("Cookie", cookie);
     expect(res.status).toBe(400);
+  });
+
+  // A8 (SCND Correctness, §2.7.1) — a syntactically-valid but legacy-shaped
+  // (no envelopeVersion) runId result is REJECTED, not exported — distinct
+  // from the "malformed" 422 case above (that one fails ResultEnvelopeSchema
+  // outright; this one is a perfectly valid legacy envelope, just unverified).
+  it("a legacy-unverified runId result → 409 LEGACY_RESULT_REQUIRES_RESOLVE, never exported", async () => {
+    const cookie = await loginAs(OWNER);
+    const legacyHistoricalResult = {
+      status: "optimal", objective: 55, runTimeSec: 0.3, quality: "Proven optimal",
+      edges: [{ fromId: "ATL", toId: "C2", flow: 20, distance: 10 }],
+      metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      // Deliberately no envelopeVersion/solutionStatus/terminationReason —
+      // the exact bare shape solve.py has always written pre-A11 activation.
+    };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    mockDb.select.mockReturnValueOnce(makeChain([{ id: 77, scenarioId: 1, userId: OWNER, result: legacyHistoricalResult }]));
+    const res = await request(app).get("/api/scenarios/1/export?entity=assignments&format=json&runId=77").set("Cookie", cookie);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("LEGACY_RESULT_REQUIRES_RESOLVE");
+    expect(res.body).not.toHaveProperty("rows");
   });
 });
 
@@ -2248,7 +2347,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
   const jadeSolvedRow = {
     ...jadeRow,
     inputs: { ...jadeInputs, distanceBands: [200, 400, 800, 1600] },
-    result: {
+    result: verifiedResult({
       status: "optimal", objective: 1000, runTimeSec: 0.5, quality: "Proven optimal",
       edges: [
         { fromId: "PL1", toId: "WH1", flow: 100, distance: 150, leg: "plant_to_warehouse", productId: "P1" },
@@ -2266,7 +2365,7 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
         ],
       },
       solverUsed: "CBC", infeasibilityReason: null,
-    },
+    }),
     solvedAt: new Date("2026-01-05T00:00:00Z"),
   };
 
@@ -2397,11 +2496,11 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...pmedianRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "Proven optimal",
         edges: [{ fromId: "ALN", toId: "C1", flow: 50, distance: 42.1, band: 0 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       solvedAt: new Date("2026-01-01T00:00:00Z"),
     };
     mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
@@ -2421,11 +2520,11 @@ describe("GET /api/scenarios/:id/export — JADE model-branched assignments/flow
     const cookie = await loginAs(OWNER);
     const solvedRow = {
       ...transportRow,
-      result: {
+      result: verifiedResult({
         status: "optimal", objective: 100, runTimeSec: 0.5, quality: "x",
         edges: [{ fromId: "KY", toId: "CHI", flow: 500, distance: 300 }],
         metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
-      },
+      }),
       stale: false,
     };
     mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
@@ -3439,6 +3538,88 @@ describe("GET /api/solve-history", () => {
     const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+
+  // A8 (SCND Correctness, §2.7.1) — the typed legacyUnverified marker.
+  // Mixed collection: historical-legacy (no result at all), a genuinely
+  // verified v2 result, and a failure, all in ONE response — each row's
+  // value is independently correct.
+  describe("A8 — legacyUnverified marker + mixed collections", () => {
+    it("a succeeded row with no full result at all → legacyUnverified:true (conservative, never promoted to proven)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      // historyRow1 above never sets `result` (only `resultSummary`) — the
+      // real shape of every solve today, since jobRunner.ts's write path
+      // never carries envelopeVersion (out of A8's scope to change).
+      configureSolveHistoryMocks([historyRow1]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ status: "succeeded", legacyUnverified: true });
+    });
+
+    it("a succeeded row with a genuine v2 published result → legacyUnverified:false", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{
+        ...historyRow1,
+        result: verifiedResult({
+          status: "optimal", objective: 94500000, runTimeSec: 0.4, quality: "Proven optimal",
+          edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+        }),
+      }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ status: "succeeded", legacyUnverified: false });
+    });
+
+    it("a malformed stored result → legacyUnverified:true, never a throw", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([{ ...historyRow1, result: { not: "a valid envelope" } }]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ legacyUnverified: true });
+    });
+
+    it("a failed row → legacyUnverified:false (no result exists to (un)verify)", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      configureSolveHistoryMocks([historyRow2]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ status: "failed", legacyUnverified: false });
+    });
+
+    it("a mixed collection (legacy-succeeded + v2-succeeded + failed) in one response — each row independently correct, never a proven claim on the legacy row", async () => {
+      const cookie = await loginAs(OWNER);
+      mockDb.select.mockClear();
+      mockDb.selectDistinctOn.mockClear();
+      const v2Row = {
+        ...historyRowNew,
+        id: 30, scenarioId: 30,
+        result: verifiedResult({
+          status: "optimal", objective: 66.0, runTimeSec: 0.7, quality: "Proven optimal",
+          edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+        }),
+      };
+      configureSolveHistoryMocks([historyRow1, v2Row, historyRow2]);
+      const res = await request(app).get("/api/solve-history").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(3);
+      const byId = Object.fromEntries(res.body.map((r: { id: number }) => [r.id, r]));
+      expect(byId[10]).toMatchObject({ status: "succeeded", legacyUnverified: true });
+      expect(byId[30]).toMatchObject({ status: "succeeded", legacyUnverified: false });
+      expect(byId[9]).toMatchObject({ status: "failed", legacyUnverified: false });
+      // The legacy row's own `quality`/summary never claims proof — a
+      // resultSummary field, not the full result; asserted here only that
+      // the marker itself, not any rendered text, is what a consumer must
+      // gate on (A9's job to actually render this).
+      expect(byId[10].legacyUnverified).toBe(true);
+    });
   });
 
   // A5 — same permanent public failure shape + negative-leakage guarantee

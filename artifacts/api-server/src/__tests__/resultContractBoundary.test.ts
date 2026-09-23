@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { presentResultForRead } from "../routes/scenarios.js";
+import { presentResultForRead, isLegacyUnverifiedResult } from "../routes/scenarios.js";
 import {
   ResultEnvelopeSchema,
   StoredScenarioResultSchema,
@@ -106,5 +106,60 @@ describe("routes/scenarios.ts's private->public boundary (A4)", () => {
     const failureFixture = { failureReason: "internal_error", failureStage: "dataset_load", errorDetail: null };
     expect(StoredScenarioResultSchema.safeParse(failureFixture).success).toBe(false);
     expect(NormalizedSolveResultSchema.safeParse(failureFixture).success).toBe(false);
+  });
+
+  // A8 (SCND Correctness) — isLegacyUnverifiedResult() is the exact
+  // discriminator routes/scenarios.ts's output-entity export 409 gate and
+  // routes/solveHistory.ts's legacyUnverified marker both key off (directly,
+  // for the export gate; indirectly via the same underlying
+  // normalizeStoredResult() call, for solve history). Unit-level coverage
+  // here complements the HTTP-level tests in routes.test.ts.
+  describe("isLegacyUnverifiedResult() (A8)", () => {
+    it("a post-B2 row with a real solutionStatus key is STILL legacy-unverified — never promoted without a genuine envelopeVersion:2", () => {
+      const postB2Row = ResultEnvelopeSchema.parse({
+        status: "optimal",
+        solutionStatus: "optimal",
+        terminationReason: "optimality_proven",
+        achievedGap: 0,
+        solverIncumbentObjective: 250,
+        solverBestBound: 250,
+        objective: 250,
+        runTimeSec: 0.3,
+        quality: "Optimal",
+        edges: [],
+        metrics: {},
+        details: {},
+        solverUsed: "CBC (PuLP)",
+        infeasibilityReason: null,
+      });
+      expect(isLegacyUnverifiedResult(postB2Row as unknown as Record<string, unknown>)).toBe(true);
+    });
+
+    it("a pre-B2 row with no solutionStatus key at all is legacy-unverified", () => {
+      const preB2Row = {
+        status: "optimal", objective: 250, runTimeSec: 0.3, quality: "Optimal",
+        edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+      };
+      expect(isLegacyUnverifiedResult(preB2Row)).toBe(true);
+    });
+
+    it("a genuine v2 published result (envelopeVersion:2) is NOT legacy-unverified", () => {
+      const v2Row = {
+        envelopeVersion: 2, status: "optimal", solutionStatus: "optimal",
+        terminationReason: "optimality_proven", achievedGap: 0,
+        solverIncumbentObjective: 250, solverBestBound: 250, objective: 250,
+        runTimeSec: 0.3, quality: "Proven optimal", edges: [], metrics: {}, details: {},
+        solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+        requestedGap: null, requestedGapSource: null,
+        requestedTimeLimitSec: null, requestedTimeLimitSource: null,
+        legacyUnverified: false,
+      };
+      expect(isLegacyUnverifiedResult(v2Row)).toBe(false);
+    });
+
+    it("null / a structurally invalid value is conservatively legacy-unverified, never a throw", () => {
+      expect(isLegacyUnverifiedResult(null)).toBe(true);
+      expect(isLegacyUnverifiedResult({ not: "a valid envelope" })).toBe(true);
+    });
   });
 });

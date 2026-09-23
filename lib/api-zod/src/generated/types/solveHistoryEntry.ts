@@ -37,6 +37,8 @@ export interface SolveHistoryEntry {
   errorMessage: string | null;
   /** @nullable */
   runTimeSec: number | null;
+  /** SCND correctness A8 (§2.7.1) — always emitted. True when this row's status is "succeeded" and its stored result does NOT parse as a canonical v2 published result (§2.6) — covers both historical-unversioned rows and B's truthful-but-unversioned rows (§2.14), never promoted to a proven claim. False for a non-succeeded row (no result to (un)verify) and for a genuine v2 published result. */
+  legacyUnverified: boolean;
   queuedAt: Date;
   /** @nullable */
   finishedAt: Date | null;
