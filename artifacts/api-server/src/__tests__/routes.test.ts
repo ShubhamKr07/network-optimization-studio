@@ -1181,6 +1181,115 @@ describe("Scenario.stale — distanceBands non-staling save (task A4)", () => {
   });
 });
 
+// ── B3 — truthful-status contract (OpenAPI/Zod additive fields + the
+// read-path legacy-unverified guard) ────────────────────────────────────────
+describe("B3 — result envelope truthful status", () => {
+  it("a v2-shaped (feasible/gap_limit) envelope round-trips through GET unchanged", async () => {
+    const cookie = await loginAs(OWNER);
+    const v2Result = {
+      status: "feasible",
+      solutionStatus: "feasible",
+      terminationReason: "gap_limit",
+      achievedGap: 0.05,
+      solverIncumbentObjective: 1_000_000,
+      solverBestBound: 950_000,
+      objective: 1_000_000,
+      runTimeSec: 2.3,
+      quality: "Feasible — within gap",
+      edges: [],
+      metrics: {},
+      details: {},
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: v2Result, solvedAt: new Date() }]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.result.status).toBe("feasible");
+    expect(res.body.result.solutionStatus).toBe("feasible");
+    expect(res.body.result.terminationReason).toBe("gap_limit");
+    expect(res.body.result.achievedGap).toBe(0.05);
+    expect(res.body.result.solverIncumbentObjective).toBe(1_000_000);
+    expect(res.body.result.solverBestBound).toBe(950_000);
+  });
+
+  it("a v2-shaped optimal/optimality_proven envelope round-trips through GET unchanged", async () => {
+    const cookie = await loginAs(OWNER);
+    const v2Result = {
+      status: "optimal",
+      solutionStatus: "optimal",
+      terminationReason: "optimality_proven",
+      achievedGap: 0,
+      solverIncumbentObjective: 500_000,
+      solverBestBound: 500_000,
+      objective: 500_000,
+      runTimeSec: 0.4,
+      quality: "Proven optimal",
+      edges: [],
+      metrics: {},
+      details: {},
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: v2Result, solvedAt: new Date() }]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.result.solutionStatus).toBe("optimal");
+    expect(res.body.result.terminationReason).toBe("optimality_proven");
+  });
+
+  it("a legacy stored result (no solutionStatus key at all) reads as unverified, never proven", async () => {
+    const cookie = await loginAs(OWNER);
+    // Shape a pre-B2 solve.py actually persisted: `status` hardcoded
+    // "optimal" regardless of the real CBC outcome, and no solutionStatus/
+    // terminationReason/achievedGap keys whatsoever (JSON simply never had
+    // them — not present-as-null).
+    const legacyResult = {
+      status: "optimal",
+      objective: 42,
+      runTimeSec: 1.1,
+      quality: "Proven optimal",
+      edges: [],
+      metrics: {},
+      details: {},
+      solverUsed: "CBC (PuLP)",
+      infeasibilityReason: null,
+    };
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: legacyResult, solvedAt: new Date() }]));
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    // The deprecated `status` field is left exactly as stored (per the plan:
+    // "leave status as-stored") -- NOT rewritten or hidden.
+    expect(res.body.result.status).toBe("optimal");
+    // But the response must not let a reader treat that as a proven claim:
+    // solutionStatus is explicitly stamped null (present key, null value --
+    // not simply absent), the one unambiguous "unverified" signal.
+    expect(res.body.result).toHaveProperty("solutionStatus");
+    expect(res.body.result.solutionStatus).toBeNull();
+    expect(res.body.result.terminationReason).toBeNull();
+  });
+
+  it("an unsolved scenario's null result is not synthesized into an object", async () => {
+    const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow])); // result: null
+    const res = await request(app).get("/api/scenarios/1").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.result).toBeNull();
+  });
+
+  it("the legacy-unverified guard also applies on the LIST endpoint (GET /api/scenarios)", async () => {
+    const cookie = await loginAs(OWNER);
+    const legacyResult = {
+      status: "optimal", objective: 42, runTimeSec: 1.1, quality: "Proven optimal",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+    };
+    mockDb.select.mockReturnValue(makeChain([{ ...pmedianRow, result: legacyResult, solvedAt: new Date() }]));
+    const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body[0].result.solutionStatus).toBeNull();
+  });
+});
+
 // ── Delete scenario ────────────────────────────────────────────────────────
 describe("DELETE /api/scenarios/:id", () => {
   it("returns 204 on successful delete", async () => {
@@ -2086,6 +2195,38 @@ describe("PATCH /api/scenarios/:scenarioId/distance-bands (T9, spec Part G)", ()
     expect(res.body.stale).toBe(false);
     const setArg = (chain.set as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(setArg).not.toHaveProperty("inputsUpdatedAt");
+  });
+
+  // B6 whole-branch review Finding #3 — distanceBands.ts hand-duplicates
+  // scenarios.ts's toApiScenario (see its own header comment) and must apply
+  // the SAME legacy-unverified read guard (presentResultForRead), or a
+  // legacy result returned via this bands-only PATCH would skip the
+  // `solutionStatus: null` stamp every other read path applies — the "one
+  // unambiguous signal" contract (see routes/scenarios.ts's B3 comment
+  // block) must hold here too.
+  it("stamps solutionStatus: null on a legacy result (no solutionStatus key) returned by this endpoint", async () => {
+    const cookie = await loginAs(OWNER);
+    const solvedAt = new Date("2026-01-01T00:00:00Z");
+    const legacyResult = {
+      status: "optimal", objective: 1, runTimeSec: 0.1, quality: "x",
+      edges: [], metrics: {}, details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      // Deliberately no solutionStatus/terminationReason keys — a pre-B2 shape.
+    };
+    const solvedRow = { ...pmedianRow, result: legacyResult, solvedAt, inputsUpdatedAt: solvedAt };
+    mockDb.select.mockReturnValueOnce(makeChain([solvedRow]));
+    const newBands = [50, 150, 450, 900];
+    const chain = makeChain([{ ...solvedRow, inputs: { ...pmedianInputs, distanceBands: newBands }, result: legacyResult }]);
+    mockDb.update.mockReturnValueOnce(chain);
+
+    const res = await request(app).patch("/api/scenarios/1/distance-bands").set("Cookie", cookie)
+      .send({ distanceBands: newBands });
+
+    expect(res.status).toBe(200);
+    // The deprecated `status` field is left exactly as stored, per B3's
+    // "leave status as-stored" contract.
+    expect(res.body.result.status).toBe("optimal");
+    expect("solutionStatus" in res.body.result).toBe(true);
+    expect(res.body.result.solutionStatus).toBeNull();
   });
 });
 

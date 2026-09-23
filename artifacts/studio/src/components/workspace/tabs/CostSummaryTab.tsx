@@ -4,6 +4,7 @@ import { getGetDatasetQueryKey, useGetDataset, useListModels } from "@workspace/
 import { useExport } from "@/contexts/ExportContext";
 import { formatChenObjective, formatObjective, objectiveModeOfDetails } from "@/lib/formatObjective";
 import { buildEntityIdentityById } from "@/lib/entityIdentity";
+import { resultQualityText } from "@/lib/resultOutcome";
 import { useDisplayUnit, type UnitApi } from "@/contexts/UnitContext";
 import type { CanonicalUnit } from "@workspace/units";
 
@@ -348,7 +349,11 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
     rows.push(
       ["Weighted avg. distance", formatDistance(result.metrics.weightedAvgDistance, canonicalDistanceUnit, unit), true],
       ["Runtime", `${result.runTimeSec.toFixed(2)}s`, true],
-      ["Quality", result.quality, false],
+      // B4.1 — the truthful outcome (never the raw solver `result.quality`,
+      // which was hardcoded "optimal" pre-B2 regardless of a gap/time-limit
+      // stop). This is the live, reachable rendering path — every chapter
+      // routes through Workspace.tsx, never Studio.tsx.
+      ["Quality", resultQualityText(result), false],
       ["Solver", result.solverUsed, false],
     );
 
@@ -527,7 +532,7 @@ export function CostSummaryTab({ result, scenarioId, modelId, scenarios = [], is
               <td className="p-2 text-muted-foreground">Quality</td>
               {compareScenarios.map(s => (
                 <td key={s.id} className="p-2" data-testid={`cost-summary-compare-quality-${s.id}`}>
-                  {s.result!.quality}
+                  {resultQualityText(s.result!)}
                 </td>
               ))}
             </tr>

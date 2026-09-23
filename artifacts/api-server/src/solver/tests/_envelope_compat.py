@@ -5,7 +5,13 @@ resultEnvelope.ts's own Zod-validated DoD — so flatten back to the
 pre-envelope shape once here (mirrors pmedian.ts's envelopeToLegacy() shim)
 instead of touching every assertion in every test file. Per that task's
 documented exception, only paths change here, not any expected numeric
-value."""
+value.
+
+B2: also passes through solutionStatus/terminationReason/achievedGap/
+solverIncumbentObjective/solverBestBound verbatim (additive -- every
+pre-existing flat field is untouched) so DEC-2026-09-21-01's corrected
+e2e_accuracy.py assertions can check the truthful outcome directly instead
+of only the legacy `status` projection."""
 
 
 def flatten_envelope(env: dict) -> dict:
@@ -15,6 +21,11 @@ def flatten_envelope(env: dict) -> dict:
     details = env.get("details") or {}
     return {
         "status": env.get("status"),
+        "solutionStatus": env.get("solutionStatus"),
+        "terminationReason": env.get("terminationReason"),
+        "achievedGap": env.get("achievedGap"),
+        "solverIncumbentObjective": env.get("solverIncumbentObjective"),
+        "solverBestBound": env.get("solverBestBound"),
         "openWarehouseIds": details.get("openWarehouseIds", []),
         "assignments": details.get("assignments", []),
         "objective": env.get("objective", 0),

@@ -32,6 +32,7 @@ import { toast } from "@/hooks/use-toast";
 import type { StudioModelType } from "@/lib/chapters";
 import { chapterForModelId } from "@/lib/chapters";
 import { qualityStatement } from "@/lib/quality";
+import { classifyResultOutcome, hasIncumbent, type ResultOutcome } from "@/lib/resultOutcome";
 import { computeBandCoverage, computeAutoBands } from "@/lib/bands";
 import { getBandColor } from "@/lib/bandPalette";
 import { Slider } from "@/components/ui/slider";
@@ -205,6 +206,23 @@ function buildInputsForSave(cfg: LocalConfig, modelId: string): Record<string, u
     ...(modelId === "p-median-brazil" ? { singleSource: cfg.singleSource } : {}),
   };
 }
+
+// B4/B4.1 — truthful solve-outcome classification for rendering.
+// `classifyResultOutcome`/`hasIncumbent` moved to `@/lib/resultOutcome` in
+// B4.1 so Workspace's CostSummaryTab.tsx (the actually-reachable live
+// rendering path — every chapter routes through Workspace.tsx, never this
+// file) can reuse the exact same logic instead of duplicating it. Only the
+// colored-badge presentation stays local to this (dead-route, but still
+// tested) page.
+const RESULT_BADGE: Record<ResultOutcome, { label: string; classes: string; dot: string }> = {
+  optimal: { label: "Optimal", classes: "text-green-700 bg-green-50 border-green-200", dot: "#16A34A" },
+  feasible: { label: "Feasible", classes: "text-blue-700 bg-blue-50 border-blue-200", dot: "#2563EB" },
+  infeasible: { label: "Infeasible", classes: "text-red-600 bg-red-50 border-red-200", dot: "#DC2626" },
+  no_solution: { label: "No solution found", classes: "text-amber-600 bg-amber-50 border-amber-200", dot: "#F59E0B" },
+  unbounded: { label: "Unbounded", classes: "text-red-600 bg-red-50 border-red-200", dot: "#DC2626" },
+  error: { label: "Error", classes: "text-amber-600 bg-amber-50 border-amber-200", dot: "#F59E0B" },
+  legacy_unverified: { label: "Unverified", classes: "text-slate-600 bg-slate-50 border-slate-200", dot: "#64748B" },
+};
 
 interface StudioProps {
   modelId: StudioModelType;
@@ -1552,31 +1570,63 @@ export function Studio({ modelId }: StudioProps) {
                 <span className="text-[10px] font-semibold uppercase tracking-widest text-primary">Results · Steps 3-4</span>
               </div>
 
-              {/* Status pill */}
-              <div className="px-3 py-3 border-b">
-                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full border ${
-                  result.status === "optimal" ? "text-green-700 bg-green-50 border-green-200" :
-                  result.status === "infeasible" ? "text-red-600 bg-red-50 border-red-200" :
-                  "text-amber-600 bg-amber-50 border-amber-200"
-                }`} data-testid="result-status">
-                  <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: result.status === "optimal" ? "#16A34A" : result.status === "infeasible" ? "#DC2626" : "#F59E0B" }} />
-                  {result.status === "optimal" ? "Optimal" : result.status === "infeasible" ? "Infeasible" : "Error"}
-                </span>
-                {isStale && (
-                  <Badge variant="outline" className="ml-2 text-[10px] text-amber-700 border-amber-300 bg-amber-50" data-testid="badge-stale">
-                    Stale — inputs changed since this solve
-                  </Badge>
-                )}
-              </div>
-
-              {result.status === "infeasible" ? (
-                <div className="px-3 py-3 border-b">
-                  <div className="bg-red-50 border border-red-200 rounded p-3">
-                    <p className="text-xs font-semibold text-red-700 mb-1">Cannot solve</p>
-                    <p className="text-xs text-red-600">{result.infeasibilityReason}</p>
+              {/* Status pill — B4: derived from the truthful solutionStatus
+                  (B2/B3), never the pre-B2 hardcoded-optimal claim. A legacy
+                  row (solutionStatus null) renders a neutral "Unverified"
+                  badge instead of ever claiming "Optimal". */}
+              {(() => {
+                const outcome = classifyResultOutcome(result);
+                const badge = RESULT_BADGE[outcome];
+                return (
+                  <div className="px-3 py-3 border-b">
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full border ${badge.classes}`}
+                      data-testid="result-status"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: badge.dot }} />
+                      {badge.label}
+                    </span>
+                    {isStale && (
+                      <Badge variant="outline" className="ml-2 text-[10px] text-amber-700 border-amber-300 bg-amber-50" data-testid="badge-stale">
+                        Stale — inputs changed since this solve
+                      </Badge>
+                    )}
                   </div>
-                </div>
-              ) : (
+                );
+              })()}
+
+              {(() => {
+                const outcome = classifyResultOutcome(result);
+                if (outcome === "infeasible") {
+                  return (
+                    <div className="px-3 py-3 border-b">
+                      <div className="bg-red-50 border border-red-200 rounded p-3">
+                        <p className="text-xs font-semibold text-red-700 mb-1">Cannot solve</p>
+                        <p className="text-xs text-red-600">{result.infeasibilityReason}</p>
+                      </div>
+                    </div>
+                  );
+                }
+                if (!hasIncumbent(outcome)) {
+                  // B4: no_solution/unbounded/error all carry a meaningless
+                  // objective:0 sentinel from solve.py — render "No incumbent"
+                  // instead of a number that looks like a real result.
+                  const message =
+                    outcome === "no_solution"
+                      ? "The solver stopped before finding a feasible solution within the configured limits."
+                      : outcome === "unbounded"
+                        ? "The problem is unbounded — no finite optimum exists."
+                        : (result.infeasibilityReason ?? "The solver could not produce a result.");
+                  return (
+                    <div className="px-3 py-3 border-b" data-testid="result-no-incumbent">
+                      <div className="bg-amber-50 border border-amber-200 rounded p-3">
+                        <p className="text-xs font-semibold text-amber-700 mb-1">No incumbent</p>
+                        <p className="text-xs text-amber-600">{message}</p>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
                 <>
                   {/* Headline metric */}
                   <div className="px-3 py-4 border-b">
@@ -1586,11 +1636,10 @@ export function Studio({ modelId }: StudioProps) {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">Weighted-average distance</p>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Objective {(result.objective ?? 0).toExponential(2)} · Run {result.runTimeSec.toFixed(2)}s · {result.solverUsed}
+                      Objective {result.objective.toExponential(2)} · Run {result.runTimeSec.toFixed(2)}s · {result.solverUsed}
                     </p>
                     {(() => {
-                      const solvedGap = (scenarioFromApi?.inputs as { gap?: number } | undefined)?.gap ?? 0;
-                      const statement = qualityStatement(result.status, solvedGap);
+                      const statement = qualityStatement(result.terminationReason, result.achievedGap);
                       return statement ? (
                         <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-quality-statement">{statement}</p>
                       ) : null;
@@ -1740,7 +1789,8 @@ export function Studio({ modelId }: StudioProps) {
                   </>
                   )}
                 </>
-              )}
+                );
+              })()}
             </>
           ) : (
             <>

@@ -126,3 +126,66 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     expect(parsed.metrics.avgDistanceByLeg![0].avgDistance).toBe(1465);
   });
 });
+
+// B3 — Zod-only checks (no subprocess needed): the schema accepts both the
+// new v2-shaped truthful fields and a pre-B2 legacy envelope missing them
+// entirely.
+describe("ResultEnvelopeSchema (B3 additive fields)", () => {
+  const base = {
+    objective: 100,
+    runTimeSec: 0.1,
+    quality: "Feasible — within gap",
+    edges: [],
+    metrics: {},
+    details: {},
+    solverUsed: "CBC (PuLP)",
+    infeasibilityReason: null,
+  };
+
+  it("accepts a feasible/gap_limit v2 envelope (would have failed the pre-B3 status enum)", () => {
+    const raw = {
+      ...base,
+      status: "feasible",
+      solutionStatus: "feasible",
+      terminationReason: "gap_limit",
+      achievedGap: 0.05,
+      solverIncumbentObjective: 100,
+      solverBestBound: 95,
+    };
+    const parsed = ResultEnvelopeSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.solutionStatus).toBe("feasible");
+      expect(parsed.data.terminationReason).toBe("gap_limit");
+      expect(parsed.data.achievedGap).toBe(0.05);
+    }
+  });
+
+  it("accepts an optimal/optimality_proven v2 envelope", () => {
+    const raw = {
+      ...base,
+      status: "optimal",
+      solutionStatus: "optimal",
+      terminationReason: "optimality_proven",
+      achievedGap: 0,
+      solverIncumbentObjective: 100,
+      solverBestBound: 100,
+    };
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
+  });
+
+  it("accepts a legacy envelope missing solutionStatus/terminationReason/achievedGap entirely", () => {
+    const raw = { ...base, status: "optimal" };
+    const parsed = ResultEnvelopeSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.solutionStatus).toBeUndefined();
+      expect(parsed.data.terminationReason).toBeUndefined();
+    }
+  });
+
+  it("still rejects a solutionStatus value outside the known enum", () => {
+    const raw = { ...base, status: "optimal", solutionStatus: "bogus" };
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(false);
+  });
+});

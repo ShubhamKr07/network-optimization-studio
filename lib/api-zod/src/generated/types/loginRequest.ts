@@ -7,7 +7,12 @@
  */
 
 export interface LoginRequest {
+  /** Normalized (trimmed + lowercased) by the server before lookup; the lookup itself is case-insensitive so accounts created before normalization still resolve. */
   email: string;
-  /** @minLength 1 */
+  /**
+     * Same cost guard as registration — an over-length password is rejected before argon2 ever runs, and (per the no-enumeration rule) is indistinguishable from any other bad credential.
+     * @minLength 1
+     * @maxLength 128
+     */
   password: string;
 }

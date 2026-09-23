@@ -142,13 +142,37 @@ function diffInputKeys(
   return changed;
 }
 
+// B3 — lightweight legacy-unverified read guard (not the full
+// envelopeVersion/5-schema apparatus — that's Option A). A stored `result`
+// that predates B2 has no `solutionStatus` key at all (JSON.parse simply
+// omits it, so `"solutionStatus" in result` is false, not `=== null`). Such
+// a row's `status` field is still whatever B2-era solve.py hardcoded
+// ("optimal" for every non-infeasible/non-error solve, truthful or not) —
+// left untouched here since the plan is explicit ("leave status as-stored")
+// — but the response must not let a reader treat that as a proven claim.
+// Explicitly stamping `solutionStatus: null` (rather than leaving the key
+// absent, which JSON.stringify would drop anyway) gives the frontend one
+// unambiguous signal to check: a present-but-null solutionStatus means
+// "this scenario has never been re-solved since the truthful-status
+// migration — do not show Proven Optimal." Old rows self-heal to truthful
+// the moment they're re-solved (no backfill needed, per the plan).
+// B6 whole-branch review Finding #3 — exported so distanceBands.ts's own
+// (necessarily hand-duplicated toApiScenario, see its header comment) can
+// apply the SAME legacy-unverified read guard, instead of a bands-only PATCH
+// silently skipping it.
+export function presentResultForRead(result: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (result == null) return result;
+  if ("solutionStatus" in result) return result;
+  return { ...result, solutionStatus: null, terminationReason: result.terminationReason ?? null };
+}
+
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
   return {
     id: row.id,
     name: row.name,
     modelId: row.modelId,
     inputs: row.inputs,
-    result: row.result ?? null,
+    result: presentResultForRead(row.result ?? null),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     solvedAt: row.solvedAt ? row.solvedAt.toISOString() : null,

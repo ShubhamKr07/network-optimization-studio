@@ -50,7 +50,8 @@ export function Login() {
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
+          {/* Mirrors LoginRequest.password's maxLength in openapi.yaml. */}
+          <Input id="password" type="password" required maxLength={128} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
         </div>
         <Button type="submit" disabled={loginUser.isPending} data-testid="button-login" className="mt-1">
           {loginUser.isPending ? "Logging in…" : "Log in"}

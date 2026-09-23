@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports "feasible" here instead of a hardcoded "optimal" (see B2). Prefer solutionStatus/terminationReason.
+ */
 export type SolveResultStatus = typeof SolveResultStatus[keyof typeof SolveResultStatus];
 
 
@@ -13,4 +16,7 @@ export const SolveResultStatus = {
   optimal: 'optimal',
   infeasible: 'infeasible',
   error: 'error',
+  feasible: 'feasible',
+  no_solution: 'no_solution',
+  unbounded: 'unbounded',
 } as const;

@@ -1,0 +1,46 @@
+Welcome to the CBC MILP Solver 
+Version: 2.10.3 
+Build Date: Dec 15 2019 
+
+command line - <CBC_BIN> <WORKDIR>/problem-pulp.mps -sec 0.15 -ratio 0.0 -timeMode elapsed -solve -printingOptions all -solution <WORKDIR>/problem-pulp.sol (default strategy 1)
+At line 2 NAME          MODEL
+At line 3 ROWS
+At line 5458 COLUMNS
+At line 36785 RHS
+At line 42239 BOUNDS
+At line 47466 ENDATA
+Problem MODEL has 5453 rows, 5226 columns and 15678 elements
+Coin0008I MODEL read with 0 errors
+seconds was changed from 1e+100 to 0.15
+ratioGap was changed from 0 to 0
+Option for timeMode changed from cpu to elapsed
+Continuous objective value is 1.28263e+10 - 0.04 seconds
+Cgl0004I processed model has 5401 rows, 5226 columns (5226 integer (5226 of which binary)) and 15626 elements
+Cbc0038I Initial state - 0 integers unsatisfied sum - 0
+Cbc0038I No solution found this major pass
+Cbc0038I After 0.11 seconds - Feasibility pump exiting - took 0.00 seconds
+Cbc0020I Exiting on maximum time
+Cbc0005I Partial search - best objective 1e+50 (best possible 1.2826349e+10), took 0 iterations and 0 nodes (0.11 seconds)
+Cbc0035I Maximum depth 0, 0 variables fixed on reduced cost
+Cuts at root node changed objective from 1.28263e+10 to 1.28263e+10
+Probing was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Gomory was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Knapsack was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Clique was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+MixedIntegerRounding2 was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+FlowCover was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+TwoMirCuts was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+ZeroHalf was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+
+Result - Stopped on time limit
+
+No feasible solution found
+Lower bound:                    12826349390.000
+Enumerated nodes:               0
+Total iterations:               0
+Time (CPU seconds):             0.10
+Time (Wallclock seconds):       0.11
+
+Option for printingOptions changed from normal to all
+Total time (CPU seconds):       0.12   (Wallclock seconds):       0.14
+

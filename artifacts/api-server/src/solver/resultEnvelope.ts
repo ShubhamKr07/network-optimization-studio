@@ -56,8 +56,58 @@ export const MetricsSchema = z.object({
   outboundCost: z.number().optional(),
 });
 
+// B3 — truthful status (solve.py's B2). `solutionStatus` is the solver's
+// real outcome classification, taken verbatim from cbc_termination.py's
+// SOLUTION_STATUSES plus the pre-existing "error" sentinel solve.py already
+// used for a load/dispatch failure that never reached a solve attempt at all
+// (`_load_error_envelope` / the top-level except in solve.py's `main`) --
+// the plan text names only the 5 CBC-classification values, but solve.py
+// genuinely emits "error" too, so it's included here (hard rule #8
+// deviation, noted in the B3 commit body rather than silently narrowed).
+export const SolutionStatusSchema = z.enum([
+  "optimal",
+  "feasible",
+  "infeasible",
+  "unbounded",
+  "no_solution",
+  "error",
+]);
+
+// Mirrors cbc_termination.py's TERMINATION_REASONS verbatim, including the
+// legacy-only "unknown" sentinel (never a parser output going forward --
+// see B1's §34.3.4 fix -- kept here purely so a pre-B1 stored value, or a
+// future legacy-read normalization, still validates).
+export const TerminationReasonSchema = z.enum([
+  "optimality_proven",
+  "gap_limit",
+  "time_limit",
+  "node_limit",
+  "infeasible",
+  "unbounded",
+  "unknown",
+]);
+
 export const ResultEnvelopeSchema = z.object({
-  status: z.enum(["optimal", "infeasible", "error"]),
+  // Deprecated: the truthful projection of solutionStatus (kept for backward
+  // compatibility with pre-B3 consumers). Expanded to the full truthful
+  // value set since a real gap-limited solve now emits "feasible" here (it
+  // used to be hardcoded "optimal" for every non-infeasible/non-error solve
+  // -- see B2) -- without this expansion a real gap-limited result would
+  // fail this Zod validation outright.
+  status: z.enum(["optimal", "infeasible", "error", "feasible", "no_solution", "unbounded"]),
+  // B3: additive, optional (never `.default(...)`) -- a legacy stored
+  // envelope from before B2 simply lacks this key entirely, and this schema
+  // must keep validating it (the export route's `ResultEnvelopeSchema.safeParse`
+  // on a scenario's/solve_jobs' persisted `result` must not start failing on
+  // old rows). `.nullable()` too: solve.py's `_envelope` always emits the key
+  // for a NEW envelope, but never as an explicit null -- kept defensively so
+  // a future normalization (e.g. the read-path legacy guard) can write an
+  // explicit `null` without breaking re-validation.
+  solutionStatus: SolutionStatusSchema.nullable().optional(),
+  terminationReason: TerminationReasonSchema.nullable().optional(),
+  achievedGap: z.number().nullable().optional(),
+  solverIncumbentObjective: z.number().nullable().optional(),
+  solverBestBound: z.number().nullable().optional(),
   objective: z.number(),
   runTimeSec: z.number(),
   quality: z.string(),

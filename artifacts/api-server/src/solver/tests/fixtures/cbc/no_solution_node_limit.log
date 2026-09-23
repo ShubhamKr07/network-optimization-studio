@@ -1,0 +1,54 @@
+Welcome to the CBC MILP Solver 
+Version: 2.10.3 
+Build Date: Dec 15 2019 
+
+command line - <CBC_BIN> <WORKDIR>/problem-pulp.mps -max -sec 60 -heur off -ratio 0.0 -timeMode elapsed -maxNodes 0 -solve -printingOptions all -solution <WORKDIR>/problem-pulp.sol (default strategy 1)
+At line 2 NAME          MODEL
+At line 3 ROWS
+At line 7 COLUMNS
+At line 2008 RHS
+At line 2011 BOUNDS
+At line 2412 ENDATA
+Problem MODEL has 2 rows, 400 columns and 800 elements
+Coin0008I MODEL read with 0 errors
+seconds was changed from 1e+100 to 60
+Option for heuristicsOnOff changed from on to off
+ratioGap was changed from 0 to 0
+Option for timeMode changed from cpu to elapsed
+maxNodes was changed from 2147483647 to 0
+Continuous objective value is 96481.6 - 0.00 seconds
+Cgl0004I processed model has 2 rows, 399 columns (399 integer (399 of which binary)) and 798 elements
+Cutoff increment increased from 1e-05 to 0.9999
+Cbc0031I 3 added rows had average density of 399
+Cbc0013I At root node, 3 cuts changed objective from -96481.577 to -96481 in 21 passes
+Cbc0014I Cut generator 0 (Probing) - 0 row cuts average 0.0 elements, 0 column cuts (0 active)  in 0.000 seconds - new frequency is -100
+Cbc0014I Cut generator 1 (Gomory) - 91 row cuts average 399.0 elements, 0 column cuts (0 active)  in 0.002 seconds - new frequency is -100
+Cbc0014I Cut generator 2 (Knapsack) - 0 row cuts average 0.0 elements, 0 column cuts (0 active)  in 0.000 seconds - new frequency is -100
+Cbc0014I Cut generator 3 (Clique) - 0 row cuts average 0.0 elements, 0 column cuts (0 active)  in 0.000 seconds - new frequency is -100
+Cbc0014I Cut generator 4 (MixedIntegerRounding2) - 0 row cuts average 0.0 elements, 0 column cuts (0 active)  in 0.001 seconds - new frequency is -100
+Cbc0014I Cut generator 5 (FlowCover) - 0 row cuts average 0.0 elements, 0 column cuts (0 active)  in 0.000 seconds - new frequency is -100
+Cbc0003I Exiting on maximum nodes
+Cbc0005I Partial search - best objective 1e+50 (best possible -96481), took 85 iterations and 0 nodes (0.02 seconds)
+Cbc0035I Maximum depth 0, 0 variables fixed on reduced cost
+Cuts at root node changed objective from -96481.6 to -96481
+Probing was tried 21 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Gomory was tried 21 times and created 91 cuts of which 0 were active after adding rounds of cuts (0.002 seconds)
+Knapsack was tried 21 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Clique was tried 21 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+MixedIntegerRounding2 was tried 21 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.001 seconds)
+FlowCover was tried 21 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+TwoMirCuts was tried 1 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+ZeroHalf was tried 1 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+
+Result - Stopped on node limit
+
+No feasible solution found
+Upper bound:                    96481.000
+Enumerated nodes:               0
+Total iterations:               85
+Time (CPU seconds):             0.02
+Time (Wallclock seconds):       0.02
+
+Option for printingOptions changed from normal to all
+Total time (CPU seconds):       0.02   (Wallclock seconds):       0.02
+

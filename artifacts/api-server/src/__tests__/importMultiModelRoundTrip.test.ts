@@ -42,6 +42,9 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conds: unknown[]) => ({ and: conds })),
   desc: vi.fn((_col: unknown) => ({ desc: _col })),
   inArray: vi.fn((_col: unknown, vals: unknown) => ({ inArray: _col, vals })),
+  // routes/auth.ts matches users with `lower(email) = <normalized>`; without
+  // this stand-in the real login these suites perform would call undefined.
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({

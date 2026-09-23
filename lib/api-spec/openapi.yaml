@@ -684,9 +684,18 @@ components:
         email:
           type: string
           format: email
+          description: >-
+            Normalized (trimmed + lowercased) by the server before validation,
+            lookup, and insert — `Foo@X.com` and `foo@x.com` are one account.
         password:
           type: string
           minLength: 8
+          maxLength: 128
+          description: >-
+            The upper bound is a cost guard, not a policy preference: argon2 is
+            deliberately CPU-expensive and the API runs on a 0.5-CPU instance,
+            so an unbounded password lets one request starve every other
+            student's.
     LoginRequest:
       type: object
       required: [email, password]
@@ -694,9 +703,18 @@ components:
         email:
           type: string
           format: email
+          description: >-
+            Normalized (trimmed + lowercased) by the server before lookup; the
+            lookup itself is case-insensitive so accounts created before
+            normalization still resolve.
         password:
           type: string
           minLength: 1
+          maxLength: 128
+          description: >-
+            Same cost guard as registration — an over-length password is
+            rejected before argon2 ever runs, and (per the no-enumeration rule)
+            is indistinguishable from any other bad credential.
     LogoutSuccess:
       type: object
       required: [success]
@@ -1067,13 +1085,62 @@ components:
           type: number
           description: Chapter 9 JADE — total warehouse->customer transport cost component of the objective. Optional.
 
+    # B3 — truthful status (solve.py's B2 already emits these). Mirrors
+    # cbc_termination.py's SOLUTION_STATUSES plus the pre-existing "error"
+    # sentinel solve.py uses for a load/dispatch failure that never reached a
+    # solve attempt (the plan text names only the 5 CBC-classification
+    # values; "error" is a real value solve.py emits too — hard rule #8
+    # deviation, noted in the B3 commit body).
+    SolutionStatus:
+      type: string
+      enum: [optimal, feasible, infeasible, unbounded, no_solution, error]
+    # Mirrors cbc_termination.py's TERMINATION_REASONS verbatim, including
+    # the legacy-only "unknown" sentinel.
+    TerminationReason:
+      type: string
+      enum: [optimality_proven, gap_limit, time_limit, node_limit, infeasible, unbounded, unknown]
+
     SolveResult:
       type: object
       description: Standardized result envelope (Phase 3.5, G2.1/Phase 4) — solve.py's raw stdout shape, unwrapped by no TS-side shim as of Phase 4.
       properties:
         status:
           type: string
-          enum: [optimal, infeasible, error]
+          enum: [optimal, infeasible, error, feasible, no_solution, unbounded]
+          description: >-
+            Deprecated truthful projection of solutionStatus, kept for
+            backward compatibility with pre-B3 consumers. Expanded (B3) to
+            the full truthful value set — a real gap-limited solve now
+            reports "feasible" here instead of a hardcoded "optimal" (see B2).
+            Prefer solutionStatus/terminationReason.
+        solutionStatus:
+          description: >-
+            B3: the solver's real outcome classification, from CBC's own
+            captured termination evidence (never the requested gap or
+            wall-clock — see B1/B2). Null on a legacy stored result that
+            predates this field (present as of B2 on every fresh solve) —
+            callers must treat a null/absent solutionStatus as unverified,
+            never as a proven-optimal claim.
+          oneOf:
+            - $ref: "#/components/schemas/SolutionStatus"
+            - type: "null"
+        terminationReason:
+          description: >-
+            Why the solver stopped. Null alongside a null/absent
+            solutionStatus (legacy), or when solutionStatus is "error" (a
+            load/dispatch failure before any solve was attempted).
+          oneOf:
+            - $ref: "#/components/schemas/TerminationReason"
+            - type: "null"
+        achievedGap:
+          type: ["number", "null"]
+          description: The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.
+        solverIncumbentObjective:
+          type: ["number", "null"]
+          description: CBC's best incumbent objective from captured evidence, when known.
+        solverBestBound:
+          type: ["number", "null"]
+          description: CBC's best bound from captured evidence, when known.
         objective:
           type: number
         runTimeSec:
@@ -1513,15 +1580,22 @@ components:
 
     CostSummaryExportRow:
       type: object
-      description: No band field — costSummary is not a band-bearing entity.
+      description: >-
+        No band field — costSummary is not a band-bearing entity. B6
+        whole-branch review Finding #2 — `quality` is a truthful derivation
+        (never the solver's raw PuLP-promoted lpStatus), and `solutionStatus`/
+        `terminationReason` are the evidence it's derived from; null on both
+        for a legacy (pre-B2) result, where `quality` reads "Unverified".
       properties:
         objective: { type: ["number", "null"] }
         objectiveMode: { type: ["string", "null"] }
         weightedAvgDistance: { type: ["number", "null"] }
         runTimeSec: { type: ["number", "null"] }
         quality: { type: string }
+        solutionStatus: { type: ["string", "null"] }
+        terminationReason: { type: ["string", "null"] }
         solverUsed: { type: string }
-      required: [objective, objectiveMode, weightedAvgDistance, runTimeSec, quality, solverUsed]
+      required: [objective, objectiveMode, weightedAvgDistance, runTimeSec, quality, solutionStatus, terminationReason, solverUsed]
 
     AssignmentsExportEnvelope:
       type: object

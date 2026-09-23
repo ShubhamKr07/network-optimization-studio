@@ -194,7 +194,12 @@ export const ListScenariosResponseItem = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
+  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
+  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
+  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
+  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
+  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
   "objective": zod.number(),
   "runTimeSec": zod.number(),
   "quality": zod.string(),
@@ -270,7 +275,12 @@ export const GetScenarioResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
+  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
+  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
+  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
+  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
+  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
   "objective": zod.number(),
   "runTimeSec": zod.number(),
   "quality": zod.string(),
@@ -340,7 +350,12 @@ export const UpdateScenarioResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
+  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
+  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
+  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
+  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
+  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
   "objective": zod.number(),
   "runTimeSec": zod.number(),
   "quality": zod.string(),
@@ -495,7 +510,12 @@ export const ApplyScenarioImportResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
+  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
+  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
+  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
+  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
+  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
   "objective": zod.number(),
   "runTimeSec": zod.number(),
   "quality": zod.string(),
@@ -635,8 +655,10 @@ export const ExportScenarioResponse = zod.union([zod.object({
   "weightedAvgDistance": zod.number().nullable(),
   "runTimeSec": zod.number().nullable(),
   "quality": zod.string(),
+  "solutionStatus": zod.string().nullable(),
+  "terminationReason": zod.string().nullable(),
   "solverUsed": zod.string()
-}).describe('No band field — costSummary is not a band-bearing entity.'))
+}).describe('No band field — costSummary is not a band-bearing entity. B6 whole-branch review Finding #2 — `quality` is a truthful derivation (never the solver\'s raw PuLP-promoted lpStatus), and `solutionStatus`\/ `terminationReason` are the evidence it\'s derived from; null on both for a legacy (pre-B2) result, where `quality` reads \"Unverified\".'))
 }).describe('v3 costSummary export. objective converts under `unit=` per the shared six-model objective-dimension mapping; jade monetary and Chen coverage-percent do not convert.'),zod.object({
   "templateVersion": zod.literal(3),
   "entity": zod.enum(['serviceStats']),
@@ -673,7 +695,12 @@ export const UpdateDistanceBandsResponse = zod.object({
 
 }).passthrough().describe('Opaque, model-specific input payload. Shape enforced per-model by artifacts\/api-server\/src\/validation\/inputs\/, documented in docs\/scenario-inputs-schema.md — not by this contract (Phase 3.5\'s model registry replaces this validation lookup with manifest-driven schemas without changing this field\'s shape).'),
   "result": zod.union([zod.object({
-  "status": zod.enum(['optimal', 'infeasible', 'error']),
+  "status": zod.enum(['optimal', 'infeasible', 'error', 'feasible', 'no_solution', 'unbounded']).describe('Deprecated truthful projection of solutionStatus, kept for backward compatibility with pre-B3 consumers. Expanded (B3) to the full truthful value set — a real gap-limited solve now reports \"feasible\" here instead of a hardcoded \"optimal\" (see B2). Prefer solutionStatus\/terminationReason.'),
+  "solutionStatus": zod.union([zod.enum(['optimal', 'feasible', 'infeasible', 'unbounded', 'no_solution', 'error']),zod.null()]).optional().describe('B3: the solver\'s real outcome classification, from CBC\'s own captured termination evidence (never the requested gap or wall-clock — see B1\/B2). Null on a legacy stored result that predates this field (present as of B2 on every fresh solve) — callers must treat a null\/absent solutionStatus as unverified, never as a proven-optimal claim.'),
+  "terminationReason": zod.union([zod.enum(['optimality_proven', 'gap_limit', 'time_limit', 'node_limit', 'infeasible', 'unbounded', 'unknown']),zod.null()]).optional().describe('Why the solver stopped. Null alongside a null\/absent solutionStatus (legacy), or when solutionStatus is \"error\" (a load\/dispatch failure before any solve was attempted).'),
+  "achievedGap": zod.number().nullish().describe('The gap CBC actually achieved (not the requested gapRel), from captured evidence, when known.'),
+  "solverIncumbentObjective": zod.number().nullish().describe('CBC\'s best incumbent objective from captured evidence, when known.'),
+  "solverBestBound": zod.number().nullish().describe('CBC\'s best bound from captured evidence, when known.'),
   "objective": zod.number(),
   "runTimeSec": zod.number(),
   "quality": zod.string(),
@@ -725,24 +752,26 @@ export const UpdateDistanceBandsResponse = zod.object({
  * @summary Register a new student/instructor account
  */
 export const registerUserBodyPasswordMin = 8;
+export const registerUserBodyPasswordMax = 128;
 
 
 
 export const RegisterUserBody = zod.object({
-  "email": zod.string().email(),
-  "password": zod.string().min(registerUserBodyPasswordMin)
+  "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before validation, lookup, and insert — `Foo@X.com` and `foo@x.com` are one account.'),
+  "password": zod.string().min(registerUserBodyPasswordMin).max(registerUserBodyPasswordMax).describe('The upper bound is a cost guard, not a policy preference: argon2 is deliberately CPU-expensive and the API runs on a 0.5-CPU instance, so an unbounded password lets one request starve every other student\'s.')
 })
 
 
 /**
  * @summary Log in with email and password
  */
+export const loginUserBodyPasswordMax = 128;
 
 
 
 export const LoginUserBody = zod.object({
-  "email": zod.string().email(),
-  "password": zod.string().min(1)
+  "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before lookup; the lookup itself is case-insensitive so accounts created before normalization still resolve.'),
+  "password": zod.string().min(1).max(loginUserBodyPasswordMax).describe('Same cost guard as registration — an over-length password is rejected before argon2 ever runs, and (per the no-enumeration rule) is indistinguishable from any other bad credential.')
 })
 
 export const LoginUserResponse = zod.object({
