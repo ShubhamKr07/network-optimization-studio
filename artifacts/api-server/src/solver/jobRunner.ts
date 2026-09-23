@@ -5,10 +5,11 @@ import fsp from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable, resultCacheTable } from "@workspace/db";
-import type { InsertSolveJob } from "@workspace/db";
+import type { InsertSolveJob, SolveJob } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
+import { logger } from "../lib/logger.js";
 import { ResultEnvelopeSchema } from "./resultEnvelope.js";
 import type { ResultEnvelope } from "./resultEnvelope.js";
 import { buildPayload } from "./pmedian.js";
@@ -79,6 +80,20 @@ export const RECOVERY_CONTRACT_IDENTITY = computeRecoveryContractIdentity({
   solverProcessMessageTsPath: SOLVER_PROCESS_MESSAGE_TS,
 });
 
+// A2 — the fixed, safe, retryable public message for a recovery-contract
+// version mismatch caught at claim time (A-R33/A-R40/A-R47). A5 will adopt
+// this EXACT string as the permanent errorMessage for this case — kept
+// identical here so the string never changes when A5 lands (per the plan's
+// own instruction). Internal taxonomy: failureReason='data_error',
+// failureStage='validate', public errorCode='SOLVE_FAILED'.
+export const VERSION_MISMATCH_SAFE_MESSAGE = "Solve could not run — please try again";
+
+// A2 — the same safe message reused for Phase 2's one-shot legacy-row
+// cleanup (null-lease transitional rows + historical null-snapshot rows) —
+// both are "this job can never be honestly re-run," the same public shape
+// as a version mismatch.
+const LEGACY_UNRECOVERABLE_SAFE_MESSAGE = VERSION_MISMATCH_SAFE_MESSAGE;
+
 // Small in-process worker pool (Phase 3.5, G3.1) — replaces the old
 // blocking spawnSync call. Pilot cohort is assumed <=10 concurrent users
 // (§0.5 OQ2), so a simple array-based queue + fixed concurrency is enough;
@@ -118,13 +133,55 @@ export const QUEUE_DEPTH_LIMIT = parsePositiveIntEnv(process.env.SOLVE_QUEUE_DEP
 
 let activeCount = 0;
 const queue: number[] = [];
-const pendingJobs = new Map<number, { scenarioId: number; userId: string; input: SolveInput }>();
+interface PendingJobHint {
+  scenarioId: number;
+  userId: string;
+  input: SolveInput;
+}
+const pendingJobs = new Map<number, PendingJobHint>();
+// A2 — tracked so SIGTERM drain can wait for genuinely in-flight jobs to
+// settle (or force-cancel them) without touching never-claimed `queue`
+// entries, which must stay `queued` in the DB untouched (shutdown category 1).
+const activeJobPromises = new Map<number, Promise<void>>();
+
+// A2 — drain gate for the in-process dispatch pump. Sim SIGTERM stops
+// ADMITTING new claims (this flag) while an already-executing job keeps
+// running/heartbeating to completion or forced cancellation — see
+// drainForShutdown() below.
+let draining = false;
+export function setDraining(v: boolean): void {
+  draining = v;
+}
+export function isDraining(): boolean {
+  return draining;
+}
 
 // Jobs waiting for a free worker slot — the number the route layer's
 // backpressure check cares about. Deliberately excludes `activeCount`
 // (already-running jobs aren't a queuing/capacity problem).
 export function getQueueDepth(): number {
   return queue.length;
+}
+
+export function getActiveJobIds(): number[] {
+  return [...activeJobPromises.keys()];
+}
+
+// A2 — waits up to `graceMs` for every currently in-flight job promise to
+// settle. Returns true if all settled within the grace period, false if the
+// grace period elapsed first (caller decides what to do next — e.g.
+// force-cancel). A zero-active-job case resolves immediately.
+export async function waitForActiveJobsToDrain(graceMs: number): Promise<boolean> {
+  const promises = [...activeJobPromises.values()];
+  if (promises.length === 0) return true;
+  let timer: ReturnType<typeof setTimeout>;
+  const timedOut = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), graceMs);
+  });
+  const allSettled = Promise.allSettled(promises).then(() => true);
+  const result = await Promise.race([allSettled, timedOut]);
+  clearTimeout(timer!);
+  return result;
 }
 
 // Canonical JSON: recursively sorts object keys so the same logical input
@@ -158,6 +215,23 @@ function buildValidatedInputSnapshot(input: SolveInput): Record<string, unknown>
     throw new Error(`input_snapshot rejected: ${input.modelId} inputs fail validation (${validation.error})`);
   }
   return { modelId: input.modelId, inputs: validation.data };
+}
+
+// A2 — the inverse of buildValidatedInputSnapshot: reconstructs a
+// SolveInput from a claimed row's durable input_snapshot + model_id, for a
+// job the recurring dispatcher scan discovered that was NEVER registered
+// in this process's own in-memory `pendingJobs` (e.g. enqueued by a prior
+// process generation before a restart, or by this same generation via a
+// path other than registerQueuedJob). Re-validates rather than trusting the
+// stored JSON blob shape — defense in depth, matching buildValidatedInputSnapshot's
+// own stance. Returns null (never throws) on anything invalid; the caller
+// terminal-fails the job rather than executing an unrecoverable snapshot.
+function reconstructInputFromSnapshot(row: SolveJob): SolveInput | null {
+  if (!row.modelId || !row.inputSnapshot) return null;
+  const snapshot = row.inputSnapshot as { modelId?: string; inputs?: unknown };
+  const validation = validateInputsForModel(row.modelId, snapshot.inputs);
+  if (!validation.success) return null;
+  return { modelId: row.modelId, inputs: validation.data } as SolveInput;
 }
 
 export interface BuildSolveJobValuesParams {
@@ -287,22 +361,376 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
   return outcome;
 }
 
+// A2 — pump() is the SOLE place that starts executing a job (fast-path
+// enqueue kick AND the recurring dispatcher scan both funnel new jobIds
+// through the SAME `queue` array + this same synchronous while-loop), so
+// the `activeCount < CONCURRENCY` reservation can never be over-claimed
+// jointly between the two triggers — JS's single-threaded run-to-completion
+// semantics make this loop's synchronous `activeCount++` an implicit mutex
+// (A-R37's "same counter, guarded together" requirement).
 function pump(): void {
-  while (activeCount < CONCURRENCY && queue.length > 0) {
+  while (!draining && activeCount < CONCURRENCY && queue.length > 0) {
     const jobId = queue.shift()!;
-    const job = pendingJobs.get(jobId);
+    const hint = pendingJobs.get(jobId) ?? null;
     pendingJobs.delete(jobId);
-    if (!job) continue;
     activeCount++;
-    runJob(jobId, job.scenarioId, job.userId, job.input)
+    const promise = claimAndRun(jobId, hint)
       .catch(() => {
-        /* runJob itself never throws — this is a last-resort guard so a
-           bug here can't wedge the worker pool. */
+        /* claimAndRun/runJob never throw in practice — this is a
+           last-resort guard so a bug here can't wedge the worker pool. */
       })
       .finally(() => {
         activeCount--;
+        activeJobPromises.delete(jobId);
         pump();
       });
+    activeJobPromises.set(jobId, promise);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A2 — durable dispatch: CAS claim, owner lease/heartbeat, ownership-checked
+// completion, recurring scan, boot recovery, drain. See the plan
+// (docs/superpowers/plans/2026-09-22-scnd-correctness-A-full-contract.md,
+// Task A2) for the full normative contract this section implements.
+// ---------------------------------------------------------------------------
+
+// `claim_generation`'s authority (A1/A-R17/A-R21): a Postgres sequence,
+// read ONCE at boot (initDispatcherForBoot), durable + monotonic across
+// boot/crash by construction — never per-job. Defaults to 0 for any caller
+// that never went through real boot (e.g. a unit test that calls
+// enqueueSolveJob directly without initDispatcherForBoot) — a real
+// production boot always overwrites this before accepting traffic.
+let bootClaimGeneration = 0;
+export function getBootClaimGeneration(): number {
+  return bootClaimGeneration;
+}
+
+// A2 — atomic CAS claim: queued -> running, stamping this process
+// generation's ownership + lease fields from the DATABASE's own clock
+// (never the app clock — two generations can skew against each other).
+// Returns the claimed row (RETURNING *) or null if the race was lost (the
+// row was already claimed/handled by someone else — not an error). Exported
+// for direct testing of the claim predicate without paying for a full
+// runJob/spawn cycle.
+export async function claimJobRow(jobId: number): Promise<SolveJob | null> {
+  const [row] = await db.update(solveJobsTable)
+    .set({
+      status: "running",
+      claimGeneration: bootClaimGeneration,
+      claimedAt: sql`now()`,
+      ownerHeartbeatAt: sql`now()`,
+      startedAt: sql`now()`,
+    })
+    .where(and(eq(solveJobsTable.id, jobId), eq(solveJobsTable.status, "queued")))
+    .returning();
+  return (row as SolveJob | undefined) ?? null;
+}
+
+// A2 — owner heartbeat. Interval 10s (fixed default, env-overridable for
+// test speed only — production always uses the default). Stale threshold
+// is a FIXED 60s literal in reapStaleLeases' own SQL (6x safety factor over
+// this interval), deliberately NOT overridable — it's a correctness
+// constant, not a tuning knob.
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+export const HEARTBEAT_INTERVAL_MS = parsePositiveIntEnv(process.env.SOLVE_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_INTERVAL_MS);
+
+// A2 — heartbeat refresh uses the SAME ownership predicate as terminal
+// completion (A-R37): WHERE id=? AND status='running' AND claim_generation=?.
+// A zero-row result means ownership is ALREADY LOST (reclaimed by a newer
+// generation's stale-lease takeover, or the row was otherwise terminalized
+// out from under us) — exported so callers/tests can observe this directly.
+export async function refreshOwnerHeartbeat(jobId: number, generation: number): Promise<boolean> {
+  const rows = await db.update(solveJobsTable)
+    .set({ ownerHeartbeatAt: sql`now()` })
+    .where(and(
+      eq(solveJobsTable.id, jobId),
+      eq(solveJobsTable.status, "running"),
+      eq(solveJobsTable.claimGeneration, generation),
+    ))
+    .returning({ id: solveJobsTable.id });
+  return rows.length > 0;
+}
+
+// A2 — starts a per-job heartbeat loop for the duration of its execution.
+// A zero-row refresh (ownership lost) OR a thrown error (Postgres
+// unavailable) BOTH immediately cancel the process group via A3's
+// cancelJob — never merely decline to publish, or an orphaned CBC run
+// keeps burning this generation's solve-slot budget for nothing (A-R37).
+// Returns a stop function the caller MUST call once the job is terminal.
+function startOwnerHeartbeat(jobId: number, generation: number): () => void {
+  const timer = setInterval(() => {
+    void (async () => {
+      try {
+        const ok = await refreshOwnerHeartbeat(jobId, generation);
+        if (!ok) {
+          cancelJob(jobId, "lease-lost");
+        }
+      } catch {
+        cancelJob(jobId, "heartbeat-db-error");
+      }
+    })();
+  }, HEARTBEAT_INTERVAL_MS);
+  return () => clearInterval(timer);
+}
+
+// A2 — stale-lease takeover (A-R27): a `running` row whose heartbeat has
+// gone quiet for >60s (6x the 10s heartbeat interval) is presumed to have a
+// dead owner and is TERMINALLY FAILED, never requeued (bounded attempts/
+// retry policy live in Scaling; an unbounded auto-retry is worse than an
+// honest failure the student retries by hand). The UPDATE's own WHERE
+// clause is the atomic takeover predicate — two scanners racing this same
+// query can't both "win" a row (only one UPDATE actually matches it, since
+// the first one to commit flips status away from 'running').
+export async function reapStaleLeases(): Promise<number> {
+  const rows = await db.update(solveJobsTable)
+    .set({
+      status: "failed",
+      error: "Solve was interrupted (owner lease expired)".slice(0, 500),
+      finishedAt: sql`now()`,
+    })
+    .where(and(
+      eq(solveJobsTable.status, "running"),
+      isNotNull(solveJobsTable.ownerHeartbeatAt),
+      lt(solveJobsTable.ownerHeartbeatAt, sql`now() - interval '60 seconds'`),
+    ))
+    .returning({ id: solveJobsTable.id });
+  return rows.length;
+}
+
+// A2 — recurring dispatcher scan config (A-R37): interval 5s, batch bounded
+// by free worker slots capped at 5/tick, exponential backoff w/ jitter on
+// DB error capped at 60s.
+const DEFAULT_DISPATCHER_INTERVAL_MS = 5_000;
+export const DISPATCHER_INTERVAL_MS = parsePositiveIntEnv(process.env.SOLVE_DISPATCHER_INTERVAL_MS, DEFAULT_DISPATCHER_INTERVAL_MS);
+const DEFAULT_DISPATCHER_MAX_BACKOFF_MS = 60_000;
+export const DISPATCHER_MAX_BACKOFF_MS = parsePositiveIntEnv(process.env.SOLVE_DISPATCHER_MAX_BACKOFF_MS, DEFAULT_DISPATCHER_MAX_BACKOFF_MS);
+export const DISPATCHER_BATCH_LIMIT = 5;
+
+// A2 — the recurring scan's own claim query. Filters to NON-LEGACY queued
+// rows only (input_snapshot + model_id both present) — a legacy queued row
+// predating A1 is unrecoverable by construction and is left untouched here,
+// handled once by Phase 2's gated historical cleanup instead. Strict
+// (queued_at, id) oldest-first, matching A1's partial index — no priority
+// classes. Claimed ids are pushed into the SAME `queue`/pump() machinery the
+// fast enqueue path uses, so the CAS claim (not this SELECT) is what
+// actually decides ownership — a job independently claimed by the fast path
+// in the same instant just loses the race harmlessly (claimJobRow returns
+// null, claimAndRun no-ops).
+async function scanAndClaimQueuedJobs(): Promise<void> {
+  if (draining) return; // never claim NEW work while draining (shutdown category 1)
+  const freeSlots = Math.min(DISPATCHER_BATCH_LIMIT, CONCURRENCY - activeCount - queue.length);
+  if (freeSlots <= 0) return;
+
+  const rows = await db.select({ id: solveJobsTable.id }).from(solveJobsTable)
+    .where(and(
+      eq(solveJobsTable.status, "queued"),
+      isNotNull(solveJobsTable.inputSnapshot),
+      isNotNull(solveJobsTable.modelId),
+    ))
+    .orderBy(asc(solveJobsTable.queuedAt), asc(solveJobsTable.id))
+    .limit(freeSlots);
+
+  for (const row of rows as { id: number }[]) {
+    if (!queue.includes(row.id)) queue.push(row.id);
+  }
+  pump();
+}
+
+// A2 — ONE in-process mutex guards the tick (A-R37): a tick already in
+// flight is SKIPPED, never queued up. Guards ANY caller (the recurring
+// scheduler, a direct test call, or initDispatcherForBoot's own first
+// iteration) against overlapping with another already-running tick.
+// Deliberately does NOT swallow errors — callers decide: initDispatcherForBoot
+// lets a boot-time failure propagate (fail closed), the recurring
+// scheduler's own wrapper below catches and backs off.
+let tickInFlight = false;
+export async function runDispatcherTickOnce(): Promise<void> {
+  if (tickInFlight) return;
+  tickInFlight = true;
+  try {
+    await scanAndClaimQueuedJobs();
+    await reapStaleLeases();
+  } finally {
+    tickInFlight = false;
+  }
+}
+
+let schedulerRunning = false;
+let schedulerTimer: ReturnType<typeof setTimeout> | null = null;
+let currentIntervalMs = DISPATCHER_INTERVAL_MS;
+let consecutiveTickErrors = 0;
+let wasInBackoff = false;
+
+function scheduleNextTick(delayMs: number): void {
+  if (!schedulerRunning) return;
+  schedulerTimer = setTimeout(() => {
+    void scheduledTick();
+  }, delayMs);
+}
+
+// A2 — the recurring scheduler's own tick wrapper: catches a DB error from
+// runDispatcherTickOnce(), computes exponential backoff w/ 20% jitter
+// capped at DISPATCHER_MAX_BACKOFF_MS, and ALWAYS reschedules regardless of
+// outcome — a failed tick never cancels the schedule (A-R37). Exactly ONE
+// operator log line per transition to/from backoff, not per tick.
+async function scheduledTick(): Promise<void> {
+  try {
+    await runDispatcherTickOnce();
+    if (wasInBackoff) {
+      logger.info("[A2] dispatcher scan recovered from backoff, resuming normal interval");
+      wasInBackoff = false;
+    }
+    consecutiveTickErrors = 0;
+    currentIntervalMs = DISPATCHER_INTERVAL_MS;
+  } catch (err) {
+    consecutiveTickErrors++;
+    const backoff = Math.min(DISPATCHER_MAX_BACKOFF_MS, DISPATCHER_INTERVAL_MS * 2 ** consecutiveTickErrors);
+    const jitter = backoff * 0.2 * Math.random();
+    currentIntervalMs = Math.min(DISPATCHER_MAX_BACKOFF_MS, Math.round(backoff + jitter));
+    if (!wasInBackoff) {
+      logger.error({ err }, "[A2] dispatcher scan entering backoff after a DB error");
+      wasInBackoff = true;
+    }
+  } finally {
+    scheduleNextTick(currentIntervalMs);
+  }
+}
+
+export function startDispatcherScheduler(): void {
+  if (schedulerRunning) return;
+  schedulerRunning = true;
+  currentIntervalMs = DISPATCHER_INTERVAL_MS;
+  consecutiveTickErrors = 0;
+  wasInBackoff = false;
+  scheduleNextTick(currentIntervalMs);
+}
+
+export function stopDispatcherScheduler(): void {
+  schedulerRunning = false;
+  if (schedulerTimer) {
+    clearTimeout(schedulerTimer);
+    schedulerTimer = null;
+  }
+}
+
+// A2 — Phase 1 boot recovery (pre-listen, NO gate; A-R58). Reads this
+// process generation's claim_generation ONCE from the durable Postgres
+// sequence, runs the first recurring-scan iteration over non-legacy queued
+// rows, and starts the recurring scheduler. Postgres unreachable here
+// PROPAGATES (never swallowed) — index.ts awaits this before app.listen, so
+// an unreachable DB makes boot FAIL CLOSED, never silently starts with no
+// dispatcher. Readiness depends on this phase only; Phase 2 (below) never
+// gates it.
+export async function initDispatcherForBoot(): Promise<void> {
+  const seqResult = await db.execute(sql`SELECT nextval('solve_jobs_claim_generation_seq') AS v`);
+  const rows = (seqResult as unknown as { rows: { v: string | number }[] }).rows;
+  bootClaimGeneration = Number(rows[0]!.v);
+
+  draining = false;
+  await runDispatcherTickOnce(); // Phase 1's own first iteration — errors propagate
+  startDispatcherScheduler();
+}
+
+// A2 — Phase 2 (asynchronous, one-shot, off the request path; A-R50/A-R58).
+// Moves exactly two disjoint buckets to terminal `failed`, once each:
+//   (1) a transitional pre-A2-owned `running` row with a VALID snapshot and
+//       a null lease (owner_heartbeat_at IS NULL AND claim_generation IS
+//       NULL) — the exact predicate the plan requires, so a genuinely still-
+//       solving prior-revision process (unconditional completion logic, no
+//       ownership predicate of its own) is never raced with.
+//   (2) a historical row (any pre-terminal status) with NO valid snapshot
+//       at all (input_snapshot or model_id null) — unrecoverable by
+//       construction, never spun on, never fabricated an input for.
+// Both predicates are mutually exclusive (one requires non-null snapshot,
+// the other requires null) and each is itself a terminal transition, so
+// re-running this function after it already moved a row is a safe no-op.
+export async function runPhase2LegacyCleanup(): Promise<{ nullLeaseFailed: number; historicalFailed: number }> {
+  const nullLeaseRows = await db.update(solveJobsTable)
+    .set({
+      status: "failed",
+      error: LEGACY_UNRECOVERABLE_SAFE_MESSAGE,
+      errorCode: "SOLVE_FAILED",
+      finishedAt: sql`now()`,
+    })
+    .where(and(
+      eq(solveJobsTable.status, "running"),
+      isNull(solveJobsTable.ownerHeartbeatAt),
+      isNull(solveJobsTable.claimGeneration),
+      isNotNull(solveJobsTable.inputSnapshot),
+      isNotNull(solveJobsTable.modelId),
+    ))
+    .returning({ id: solveJobsTable.id });
+
+  const historicalRows = await db.update(solveJobsTable)
+    .set({
+      status: "failed",
+      error: LEGACY_UNRECOVERABLE_SAFE_MESSAGE,
+      errorCode: "SOLVE_FAILED",
+      finishedAt: sql`now()`,
+    })
+    .where(and(
+      inArray(solveJobsTable.status, ["queued", "running"]),
+      or(isNull(solveJobsTable.inputSnapshot), isNull(solveJobsTable.modelId)),
+    ))
+    .returning({ id: solveJobsTable.id });
+
+  return { nullLeaseFailed: nullLeaseRows.length, historicalFailed: historicalRows.length };
+}
+
+// A14a's shutdown-budget default (maxShutdownDelaySeconds=120 + a 60s
+// margin = 180s) — the drain gate a new revision waits behind before
+// touching any legacy/transitional row it can't yet prove the prior
+// revision has released (A-R50). Env-overridable ONLY for test speed;
+// production always uses the 180s default.
+const DEFAULT_DRAIN_GATE_MS = 180_000;
+export const DRAIN_GATE_MS = parsePositiveIntEnv(process.env.SOLVE_DRAIN_GATE_MS, DEFAULT_DRAIN_GATE_MS);
+
+let phase2Timer: ReturnType<typeof setTimeout> | null = null;
+
+// A2 — schedules Phase 2 to run exactly once, DRAIN_GATE_MS after THIS
+// process's own boot (the only in-process proxy available for "the prior
+// revision has had the platform's shutdown budget to drain" — this process
+// starting is the earliest possible moment a rolling deploy could have told
+// the old one to drain, so waiting this long past OUR OWN start is a safe,
+// conservative lower bound). Idempotent — calling twice does not double-schedule.
+export function scheduleLegacyCleanupAfterDrainGate(): void {
+  if (phase2Timer) return;
+  phase2Timer = setTimeout(() => {
+    phase2Timer = null;
+    runPhase2LegacyCleanup().catch((err) => {
+      logger.error({ err }, "[A2] Phase 2 legacy-row cleanup failed (will not retry until next boot)");
+    });
+  }, DRAIN_GATE_MS);
+}
+
+// Test-only escape hatch — cancels a pending Phase 2 schedule so a test
+// doesn't leak a live timer (and its DB call) into a later test file.
+export function cancelScheduledLegacyCleanup(): void {
+  if (phase2Timer) {
+    clearTimeout(phase2Timer);
+    phase2Timer = null;
+  }
+}
+
+// A2 — SIGTERM/SIGINT drain (replaces the old immediate process.exit(0)).
+// Stops admitting NEW claims (stops the recurring scan + gates pump()),
+// waits up to `graceMs` for currently in-flight jobs to finish naturally
+// (their own heartbeat loops keep renewing ownership throughout — nothing
+// here touches them), and if any are still running after the grace period,
+// force-cancels via A3's cancelAllActiveJobs (whole-process-group TERM then
+// KILL) and waits up to `forceGraceMs` more for that cancellation to
+// actually resolve (runSolverProcess's own internal TERM->KILL sequence is
+// itself bounded — see terminateProcessGroup). index.ts's own SIGTERM
+// handler calls this; server.close()/posthog/Sentry flush stay in index.ts
+// since they aren't jobRunner's concern.
+export async function drainForShutdown(source: string, opts: { graceMs: number; forceGraceMs: number }): Promise<void> {
+  stopDispatcherScheduler();
+  setDraining(true);
+  const finishedInGrace = await waitForActiveJobsToDrain(opts.graceMs);
+  if (!finishedInGrace) {
+    cancelAllActiveJobs(source);
+    await waitForActiveJobsToDrain(opts.forceGraceMs);
   }
 }
 
@@ -409,10 +837,9 @@ export async function terminateProcessGroup(pid: number): Promise<void> {
 
 // Active jobs' cancellation handles, keyed by jobId — the "internal cancel"
 // source (cancelJob) and the "SIGTERM/deploy" source (cancelAllActiveJobs)
-// both abort the same AbortSignal runSolverProcess watches. Deliberately
-// NOT wired into index.ts's own SIGTERM handler by this task (index.ts is
-// outside solver/'s ownership) — exported so that wiring is a one-line
-// addition for whoever owns index.ts.
+// both abort the same AbortSignal runSolverProcess watches. A2 wires
+// cancelAllActiveJobs into index.ts's SIGTERM handler via drainForShutdown
+// above.
 const activeControllers = new Map<number, { controller: AbortController; source: string }>();
 
 export function cancelJob(jobId: number, source: string = "internal"): boolean {
@@ -599,35 +1026,35 @@ function runSolverProcess(
   });
 }
 
-async function markRunning(jobId: number): Promise<void> {
-  await db.update(solveJobsTable)
-    .set({ status: "running", startedAt: new Date() })
-    .where(eq(solveJobsTable.id, jobId));
-}
-
-async function markFailed(jobId: number, error: string): Promise<void> {
-  await db.update(solveJobsTable)
-    .set({ status: "failed", error: error.slice(0, 500), finishedAt: new Date() })
-    .where(eq(solveJobsTable.id, jobId));
-}
-
-// Startup reaper: any solve_jobs row left in "running" status from a prior
-// process is, by definition, no longer running (the in-process worker pool
-// died with that process and nothing is feeding solve.py for it). On boot
-// we sweep them all to "failed" so they don't appear forever-stuck to the
-// client. This must never block or fail startup — any error is swallowed.
-export async function reapStuckJobs(): Promise<void> {
-  try {
-    const stuck = await db.select().from(solveJobsTable)
-      .where(eq(solveJobsTable.status, "running"));
-    for (const job of stuck) {
-      await markFailed(job.id, "Interrupted by server restart");
-    }
-  } catch {
-    // The reaper is a best-effort cleanup — a transient DB error or a
-    // botched markFailed must not prevent the server from coming up.
-    return;
+// A2 — ownership-checked terminal failure. WHERE id=? AND status='running'
+// AND claim_generation=?. Returns whether the update actually affected a
+// row — a zero-row result is a DROPPED STALE COMPLETION: recorded
+// internal-only (the return value), never retried, never (re)published.
+async function markFailed(
+  jobId: number,
+  generation: number,
+  error: string,
+  taxonomy?: { failureReason: string; failureStage: string; errorCode: string },
+): Promise<boolean> {
+  const setValues: Record<string, unknown> = {
+    status: "failed",
+    error: error.slice(0, 500),
+    finishedAt: new Date(),
+  };
+  if (taxonomy) {
+    setValues.failureReason = taxonomy.failureReason;
+    setValues.failureStage = taxonomy.failureStage;
+    setValues.errorCode = taxonomy.errorCode;
   }
+  const rows = await db.update(solveJobsTable)
+    .set(setValues)
+    .where(and(
+      eq(solveJobsTable.id, jobId),
+      eq(solveJobsTable.status, "running"),
+      eq(solveJobsTable.claimGeneration, generation),
+    ))
+    .returning({ id: solveJobsTable.id });
+  return rows.length > 0;
 }
 
 // Phase 6 (P1.2) — write-through result cache, keyed on computeInputsHash().
@@ -716,7 +1143,21 @@ export function toLegacyStoredResult(envelope: SolverSuccessEnvelopeV2): ResultE
   return ResultEnvelopeSchema.parse(picked);
 }
 
-async function markSucceeded(jobId: number, scenarioId: number, modelId: string, envelope: ResultEnvelope): Promise<void> {
+// A2 — ownership-checked SUCCESS completion (A-R48's dependency, minus A7's
+// own latest_solve_job_id/revision CAS, which is explicitly out of this
+// task's scope). The job's own terminal transition is what GATES
+// publication: if the ownership-checked job update affects ZERO rows, the
+// scenario update never runs at all — "never published" on a dropped stale
+// completion, not merely "published harmlessly to a since-deleted row."
+// Returns whether it actually published (job update matched a row) so
+// callers can gate telemetry the same way.
+async function markSucceeded(
+  jobId: number,
+  generation: number,
+  scenarioId: number,
+  modelId: string,
+  envelope: ResultEnvelope,
+): Promise<boolean> {
   // D21/C4.10 — resultSummary now carries the objective mode + a unit-tagged
   // weighted-average distance so the solve-history read (and Landing) can label
   // each solve without re-deriving the model. objectiveMode is the solver's
@@ -728,15 +1169,12 @@ async function markSucceeded(jobId: number, scenarioId: number, modelId: string,
   const distanceUnit = getManifest(modelId)?.distanceUnit ?? "mi";
   const resultJson = envelope as unknown as Record<string, unknown>;
 
-  // Part F (T6) — these two writes must be ATOMIC. Split across two
-  // independent statements (the pre-T6 shape), a partial failure could leave
-  // an addressable succeeded run whose scenario still points at an older
-  // result, or a scenario result with no run pointer. Both statements are
-  // id-scoped, so a scenario (and its jobs) deleted mid-solve simply matches
-  // 0 rows on one or both sides and the transaction commits as a harmless
-  // no-op — not an error.
-  await db.transaction(async (tx) => {
-    await tx.update(solveJobsTable)
+  // Part F (T6): the job+scenario writes must be ATOMIC. Split across two
+  // independent statements, a partial failure could leave an addressable
+  // succeeded run whose scenario still points at an older result, or a
+  // scenario result with no run pointer.
+  return await db.transaction(async (tx) => {
+    const updatedJobRows = await tx.update(solveJobsTable)
       .set({
         status: "succeeded",
         result: resultJson,
@@ -750,8 +1188,23 @@ async function markSucceeded(jobId: number, scenarioId: number, modelId: string,
         },
         finishedAt: new Date(),
       })
-      .where(eq(solveJobsTable.id, jobId));
+      .where(and(
+        eq(solveJobsTable.id, jobId),
+        eq(solveJobsTable.status, "running"),
+        eq(solveJobsTable.claimGeneration, generation),
+      ))
+      .returning({ id: solveJobsTable.id });
 
+    if (updatedJobRows.length === 0) {
+      // A2 — dropped stale completion: ownership already lost (reclaimed by
+      // a newer generation's stale-lease takeover, or otherwise
+      // terminalized out from under us). Never publish, never retry.
+      return false;
+    }
+
+    // Unchanged from the existing (A3/B) publish path — A7 later layers the
+    // latest_solve_job_id/solve_input_revision CAS on top of this same
+    // statement; that is explicitly out of A2's scope.
     await tx.update(scenariosTable)
       .set({
         result: resultJson,
@@ -760,6 +1213,8 @@ async function markSucceeded(jobId: number, scenarioId: number, modelId: string,
         updatedAt: new Date(),
       })
       .where(eq(scenariosTable.id, scenarioId));
+
+    return true;
   });
 }
 
@@ -787,105 +1242,201 @@ async function removeWorkDirIdempotent(workDir: string): Promise<void> {
   }
 }
 
+// A2 — claims jobId (CAS queued->running), reconstructs a SolveInput if
+// this job wasn't registered via the fast in-process path (i.e. it was
+// discovered by the recurring dispatcher scan — enqueued by this or a
+// prior process generation), performs the version-aware claim check
+// (RECOVERY_CONTRACT_IDENTITY comparison), and hands off to runJob().
+// Losing the CAS race (claimJobRow returns null) is NOT an error — it means
+// another claimer already handled this row.
+async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<void> {
+  const claimedRow = await claimJobRow(jobId);
+  if (!claimedRow) return;
+  const generation = bootClaimGeneration;
+
+  let scenarioId: number;
+  let userId: string;
+  let input: SolveInput;
+  if (hint) {
+    scenarioId = hint.scenarioId;
+    userId = hint.userId;
+    input = hint.input;
+  } else {
+    scenarioId = claimedRow.scenarioId;
+    userId = claimedRow.userId;
+    const reconstructed = reconstructInputFromSnapshot(claimedRow);
+    if (!reconstructed) {
+      // Should never happen — scanAndClaimQueuedJobs already filters to
+      // non-null snapshot/model_id rows — but defensive: terminal-fail
+      // rather than spin on an unrecoverable claim.
+      await markFailed(jobId, generation, "Recovered row has no valid input snapshot", {
+        failureReason: "internal_error",
+        failureStage: "protocol",
+        errorCode: "SOLVE_FAILED",
+      });
+      return;
+    }
+    input = reconstructed;
+  }
+
+  // A2 — version-aware claim (A-R33/A-R40/A-R47). A null persisted identity
+  // is never itself treated as a mismatch — every real production enqueue
+  // path (buildSolveJobValues) sets it unconditionally, so a null here only
+  // occurs for a defensively/test-inserted row with no identity recorded at
+  // all, which carries no positive evidence of drift. A NON-NULL value that
+  // differs from the CURRENT runtime's RECOVERY_CONTRACT_IDENTITY is the
+  // real, decided mismatch: fail once, terminal, safe + retryable — never
+  // silently execute an accepted snapshot under changed semantics.
+  if (claimedRow.recoveryContractIdentity != null && claimedRow.recoveryContractIdentity !== RECOVERY_CONTRACT_IDENTITY) {
+    const published = await markFailed(jobId, generation, VERSION_MISMATCH_SAFE_MESSAGE, {
+      failureReason: "data_error",
+      failureStage: "validate",
+      errorCode: "SOLVE_FAILED",
+    });
+    if (published) {
+      posthog?.capture({
+        distinctId: userId,
+        event: "scenario solve failed",
+        properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "version_mismatch" },
+      });
+    }
+    return;
+  }
+
+  await runJob(jobId, scenarioId, userId, input, generation);
+}
+
 // The solver wrapper never throws — crashes, timeouts, and unparseable
 // stdout/fd3 all degrade to a "failed" job with a message (a job status,
-// not a synthesized error-shaped result).
-async function runJob(jobId: number, scenarioId: number, userId: string, input: SolveInput): Promise<void> {
-  await markRunning(jobId);
-
-  const inputsHash = computeInputsHash(input);
-  const cached = await lookupCachedResult(inputsHash);
-  if (cached) {
-    await markSucceeded(jobId, scenarioId, input.modelId, cached);
-    posthog?.capture({
-      distinctId: userId,
-      event: "scenario solve completed",
-      properties: {
-        scenario_id: scenarioId,
-        job_id: jobId,
-        model_id: input.modelId,
-        status: cached.status,
-        objective: cached.objective,
-        run_time_sec: cached.runTimeSec,
-        cache_hit: true,
-      },
-    });
-    return;
-  }
-
-  const payload = JSON.stringify(buildPayload(input));
-  const timeoutMs = input.inputs.timeLimitSec * 1000 + TIMEOUT_GRACE_MS;
-
-  const controller = new AbortController();
-  activeControllers.set(jobId, { controller, source: "internal" });
-
-  const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), "nos-solve-"));
-  let result: SupervisedRunResult;
+// not a synthesized error-shaped result). `generation` is this claim's
+// ownership token (A2) — every terminal write below is ownership-checked
+// against it, and a heartbeat loop renews the lease for as long as this
+// function is executing.
+async function runJob(jobId: number, scenarioId: number, userId: string, input: SolveInput, generation: number): Promise<void> {
+  const stopHeartbeat = startOwnerHeartbeat(jobId, generation);
   try {
-    result = await runSolverProcess(payload, timeoutMs, { workDir, signal: controller.signal });
+    const inputsHash = computeInputsHash(input);
+    const cached = await lookupCachedResult(inputsHash);
+    if (cached) {
+      const published = await markSucceeded(jobId, generation, scenarioId, input.modelId, cached);
+      if (published) {
+        posthog?.capture({
+          distinctId: userId,
+          event: "scenario solve completed",
+          properties: {
+            scenario_id: scenarioId,
+            job_id: jobId,
+            model_id: input.modelId,
+            status: cached.status,
+            objective: cached.objective,
+            run_time_sec: cached.runTimeSec,
+            cache_hit: true,
+          },
+        });
+      }
+      return;
+    }
+
+    const payload = JSON.stringify(buildPayload(input));
+    const timeoutMs = input.inputs.timeLimitSec * 1000 + TIMEOUT_GRACE_MS;
+
+    const controller = new AbortController();
+    activeControllers.set(jobId, { controller, source: "internal" });
+
+    const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), "nos-solve-"));
+    let result: SupervisedRunResult;
+    try {
+      result = await runSolverProcess(payload, timeoutMs, { workDir, signal: controller.signal });
+    } finally {
+      activeControllers.delete(jobId);
+      // Node owns this temp dir end-to-end: created here, removed here, only
+      // AFTER runSolverProcess has resolved (which — for the timeout/cancel
+      // paths — only happens once terminateProcessGroup() has already
+      // confirmed, or bounded-best-effort-waited for, whole-group death).
+      await removeWorkDirIdempotent(workDir);
+    }
+
+    const outcome = result.outcome;
+
+    if (outcome.kind === "timeout") {
+      const published = await markFailed(jobId, generation, "Solver timed out");
+      if (published) {
+        posthog?.capture({
+          distinctId: userId,
+          event: "scenario solve failed",
+          properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "timeout" },
+        });
+      }
+      return;
+    }
+
+    if (outcome.kind === "interrupted") {
+      const published = await markFailed(jobId, generation, "Solver was interrupted");
+      if (published) {
+        posthog?.capture({
+          distinctId: userId,
+          event: "scenario solve failed",
+          properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "interrupted" },
+        });
+      }
+      return;
+    }
+
+    if (outcome.kind === "failed") {
+      const published = await markFailed(jobId, generation, safeFailureMessage(outcome.failureReason, outcome.failureStage), {
+        failureReason: outcome.failureReason,
+        failureStage: outcome.failureStage,
+        errorCode: "SOLVE_FAILED",
+      });
+      if (published) {
+        posthog?.capture({
+          distinctId: userId,
+          event: "scenario solve failed",
+          properties: {
+            scenario_id: scenarioId,
+            job_id: jobId,
+            model_id: input.modelId,
+            reason: `${outcome.failureReason}:${outcome.failureStage}`,
+          },
+        });
+      }
+      return;
+    }
+
+    // outcome.kind === "success" — A3.C: down-convert to the existing legacy
+    // envelope shape and route through the EXISTING (unchanged) cache/publish
+    // path. No v2 write anywhere.
+    const legacy = toLegacyStoredResult(outcome.envelope);
+    await writeThroughCache(inputsHash, input.modelId, legacy);
+    const published = await markSucceeded(jobId, generation, scenarioId, input.modelId, legacy);
+    if (published) {
+      posthog?.capture({
+        distinctId: userId,
+        event: "scenario solve completed",
+        properties: {
+          scenario_id: scenarioId,
+          job_id: jobId,
+          model_id: input.modelId,
+          status: legacy.status,
+          objective: legacy.objective,
+          run_time_sec: legacy.runTimeSec,
+          cache_hit: false,
+        },
+      });
+    }
+  } catch {
+    // A2 — an unexpected exception ANYWHERE between claim and a defined
+    // terminal outcome (e.g. a mkdtemp failure, a bug) must not strand this
+    // job "running" forever waiting for the 60s stale-lease sweep. This is
+    // exactly the "crash immediately after claim, immediately before
+    // spawn" case: an honest, IMMEDIATE terminal failure — never a silent
+    // stall, and never a retry (A performs no automatic retry).
+    await markFailed(jobId, generation, "Unexpected error before a solver outcome was reached", {
+      failureReason: "internal_error",
+      failureStage: "spawn",
+      errorCode: "SOLVE_FAILED",
+    });
   } finally {
-    activeControllers.delete(jobId);
-    // Node owns this temp dir end-to-end: created here, removed here, only
-    // AFTER runSolverProcess has resolved (which — for the timeout/cancel
-    // paths — only happens once terminateProcessGroup() has already
-    // confirmed, or bounded-best-effort-waited for, whole-group death).
-    await removeWorkDirIdempotent(workDir);
+    stopHeartbeat();
   }
-
-  const outcome = result.outcome;
-
-  if (outcome.kind === "timeout") {
-    await markFailed(jobId, "Solver timed out");
-    posthog?.capture({
-      distinctId: userId,
-      event: "scenario solve failed",
-      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "timeout" },
-    });
-    return;
-  }
-
-  if (outcome.kind === "interrupted") {
-    await markFailed(jobId, "Solver was interrupted");
-    posthog?.capture({
-      distinctId: userId,
-      event: "scenario solve failed",
-      properties: { scenario_id: scenarioId, job_id: jobId, model_id: input.modelId, reason: "interrupted" },
-    });
-    return;
-  }
-
-  if (outcome.kind === "failed") {
-    await markFailed(jobId, safeFailureMessage(outcome.failureReason, outcome.failureStage));
-    posthog?.capture({
-      distinctId: userId,
-      event: "scenario solve failed",
-      properties: {
-        scenario_id: scenarioId,
-        job_id: jobId,
-        model_id: input.modelId,
-        reason: `${outcome.failureReason}:${outcome.failureStage}`,
-      },
-    });
-    return;
-  }
-
-  // outcome.kind === "success" — A3.C: down-convert to the existing legacy
-  // envelope shape and route through the EXISTING (unchanged) cache/publish
-  // path. No v2 write anywhere.
-  const legacy = toLegacyStoredResult(outcome.envelope);
-  await writeThroughCache(inputsHash, input.modelId, legacy);
-  await markSucceeded(jobId, scenarioId, input.modelId, legacy);
-  posthog?.capture({
-    distinctId: userId,
-    event: "scenario solve completed",
-    properties: {
-      scenario_id: scenarioId,
-      job_id: jobId,
-      model_id: input.modelId,
-      status: legacy.status,
-      objective: legacy.objective,
-      run_time_sec: legacy.runTimeSec,
-      cache_hit: false,
-    },
-  });
 }

@@ -95,7 +95,6 @@ let enqueueSolveJob: JobRunnerModule["enqueueSolveJob"];
 let getQueueDepth: JobRunnerModule["getQueueDepth"];
 let parsePositiveIntEnv: JobRunnerModule["parsePositiveIntEnv"];
 let QUEUE_DEPTH_LIMIT: JobRunnerModule["QUEUE_DEPTH_LIMIT"];
-let reapStuckJobs: JobRunnerModule["reapStuckJobs"];
 let toLegacyStoredResult: JobRunnerModule["toLegacyStoredResult"];
 let buildSolveJobValues: JobRunnerModule["buildSolveJobValues"];
 let RECOVERY_CONTRACT_IDENTITY: JobRunnerModule["RECOVERY_CONTRACT_IDENTITY"];
@@ -106,7 +105,6 @@ beforeAll(async () => {
   getQueueDepth = mod.getQueueDepth;
   parsePositiveIntEnv = mod.parsePositiveIntEnv;
   QUEUE_DEPTH_LIMIT = mod.QUEUE_DEPTH_LIMIT;
-  reapStuckJobs = mod.reapStuckJobs;
   toLegacyStoredResult = mod.toLegacyStoredResult;
   buildSolveJobValues = mod.buildSolveJobValues;
   RECOVERY_CONTRACT_IDENTITY = mod.RECOVERY_CONTRACT_IDENTITY;
@@ -747,8 +745,13 @@ describe("markSucceeded transaction (Part F / T6)", () => {
 
   it("a forced mid-transaction failure writes NEITHER side", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
-    // markRunning succeeds normally (outside markSucceeded's transaction).
-    mockDb.update.mockReturnValueOnce(makeChain([{}]));
+    // CAS claim succeeds (outside markSucceeded's transaction); the
+    // runJob-level catch-all's OWN markFailed call (below) is the second
+    // db.update call — give it a real chain too so it resolves instead of
+    // throwing on an undefined return value.
+    mockDb.update
+      .mockReturnValueOnce(makeChain([{}])) // CAS claim
+      .mockReturnValueOnce(makeChain([{}])); // A2's catch-all markFailed (published)
     // The transaction itself throws before either update's result is
     // observable to the outside world — simulates a mid-transaction DB error.
     mockDb.transaction.mockImplementationOnce(async () => {
@@ -765,16 +768,27 @@ describe("markSucceeded transaction (Part F / T6)", () => {
     await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
 
     // Neither the job row nor the scenario row's "succeeded" write ever
-    // landed — only markRunning's single call happened.
-    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    // landed via markSucceeded — the transaction itself threw before either
+    // write became observable. A2's own catch-all around runJob's body then
+    // marks the job terminally failed (its own separate db.update call, the
+    // "crash immediately after claim" no-retry contract) rather than
+    // stranding the row "running" forever.
+    await vi.waitFor(() => expect(mockDb.update).toHaveBeenCalledTimes(2));
   });
 
-  it("a solve completing after its scenario was deleted is a 0-row no-op, not an error", async () => {
+  // A2 — the CAS claim (jobRunner.ts's first db.update call) must still
+  // succeed (non-empty .returning()) for the job to ever spawn at all; the
+  // scenario+job deletion happens LATER, mid-solve, so it's markSucceeded's
+  // OWN job-row update (inside its transaction) that now matches 0 rows —
+  // the exact "dropped stale completion" case the ownership predicate
+  // exists to catch. Per A2's contract this SKIPS the scenario update
+  // entirely (never touches a since-deleted row) rather than blindly
+  // running both updates as 0-row no-ops the old code did.
+  it("a solve completing after its scenario was deleted is a 0-row no-op, not an error (ownership-gated: the scenario update never runs)", async () => {
     mockDb.insert.mockReturnValue(makeChain([{ id: 1 }]));
-    // Both updates match 0 rows (scenario + its jobs were deleted mid-solve)
-    // but resolve normally rather than throwing — this is what a real
-    // id-scoped UPDATE against a since-deleted row does.
-    mockDb.update.mockReturnValue(makeChain([]));
+    mockDb.update
+      .mockReturnValueOnce(makeChain([{}])) // CAS claim succeeds
+      .mockReturnValue(makeChain([])); // every subsequent update (markSucceeded's job-row update) matches 0 rows
 
     const child = new FakeChild();
     mockSpawn.mockReturnValue(child);
@@ -785,43 +799,26 @@ describe("markSucceeded transaction (Part F / T6)", () => {
     emitFd3(child, envelope);
     child.emit("close", 0);
 
-    // The transaction still commits (no throw) even though both updates
-    // affected 0 rows.
+    // The transaction still commits (no throw) even though the job-row
+    // update affected 0 rows — markSucceeded resolves `false` (published:
+    // no) rather than throwing, and the scenario update inside the
+    // transaction never runs at all.
     await vi.waitFor(() => expect(mockDb.transaction).toHaveBeenCalledTimes(1));
-    await expect(mockDb.transaction.mock.results[0].value).resolves.toBeUndefined();
+    await expect(mockDb.transaction.mock.results[0].value).resolves.toBe(false);
+    // Exactly 2 db.update calls total: the CAS claim + markSucceeded's
+    // (0-row) job-row update — the scenario update is gated out entirely.
+    expect((mockDb.update as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
   });
 });
 
-describe("reapStuckJobs (startup reaper)", () => {
-  it("marks a leftover running job as failed with an interruption message", async () => {
-    // Seed a single stuck "running" row.
-    const selectChain = makeChain([{ id: 7 }]);
-    mockDb.select.mockReturnValueOnce(selectChain);
-    const jobUpdateChain = makeChain([{}]);
-    mockDb.update.mockReturnValueOnce(jobUpdateChain);
-
-    await reapStuckJobs();
-
-    const calls = setValues(jobUpdateChain);
-    expect(calls.some((s) => s.status === "failed" && String(s.error).includes("Interrupted by server restart"))).toBe(true);
-  });
-
-  it("leaves queued/succeeded/failed jobs untouched and only fails running jobs", async () => {
-    // Seed rows: only the "running" one (id 3) should be transitioned.
-    const selectChain = makeChain([{ id: 3 }]);
-    mockDb.select.mockReturnValueOnce(selectChain);
-    const jobUpdateChain = makeChain([{}]);
-    mockDb.update.mockReturnValueOnce(jobUpdateChain);
-
-    await reapStuckJobs();
-
-    // Exactly one update (markFailed) was issued — for the running row only.
-    const updateCalls = setValues(jobUpdateChain);
-    expect(updateCalls.length).toBe(1);
-    expect(updateCalls[0].status).toBe("failed");
-    expect(String(updateCalls[0].error).includes("Interrupted by server restart")).toBe(true);
-  });
-});
+// A2 — reapStuckJobs (the old "mark EVERY running row failed unconditionally
+// at boot" reaper) is REMOVED — it's the live defect A2 fixes (it broke a
+// still-live prior revision's in-flight solves on every zero-downtime
+// rolling deploy). Replaced by initDispatcherForBoot's CAS-based recurring
+// dispatcher + reapStaleLeases' heartbeat-staleness takeover (60s threshold,
+// ownership-checked) + Phase 2's gated null-lease/historical cleanup — all
+// covered in jobRunnerDispatcher.test.ts and solver/__tests__/
+// dispatcherRecovery.test.ts.
 
 describe("result_cache (P1.2 write-through cache)", () => {
   // B6 whole-branch review Finding #1 — carries `solutionStatus` (a v2/post-B2
