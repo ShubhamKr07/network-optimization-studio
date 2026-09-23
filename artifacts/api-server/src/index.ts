@@ -37,7 +37,19 @@ if (Number.isNaN(port) || port <= 0) {
 // rolling deploys (no disk attached, render.yaml) the booting instance used
 // to fail the STILL-LIVE old instance's in-flight solves (plan A2; review
 // A-R17/A-R26 — a live defect in every deploy before this change).
-await initDispatcherForBoot();
+//
+// Fail-closed boots MUST say why in the captured (pino/stdout) log stream:
+// an uncaught rejection from this top-level await prints only to stderr,
+// which some platforms (Render) drop from their queryable log stream, so a
+// crashed boot shows up as a silent "exited early" with no cause. Log the
+// full error via pino first, then re-fail closed.
+try {
+  await initDispatcherForBoot();
+} catch (err) {
+  logger.error({ err }, "[boot] initDispatcherForBoot failed — boot aborting (fail-closed)");
+  await Sentry.close(2000).catch(() => {});
+  process.exit(1);
+}
 
 // A2 — Phase 2: asynchronous, one-shot, off the request path. Null-lease/
 // historical-row cleanup is scheduled to run once 180s (A14a's shutdown
