@@ -567,3 +567,24 @@ When those items close, this design can proceed to its measurement-sized impleme
 
 
 </details>
+
+---
+
+## 12. Round 4 approval review — 2026-09-23
+
+**Decision: REQUEST CHANGES / not approved.** The round-three fold corrected the admission formula, topology-specific gates and claimant schema. The remaining weakness is at the runtime boundary where a class burst meets changing fleet capacity: the design counts nominal workers rather than workers that can actually claim, and it does not serialize admission with enqueue. These are load-control defects, not refinements. The approval status also needs to distinguish an architecture decision from a measurement-sized plan and a pilot.
+
+### New blocking findings
+
+| ID | Finding | Evidence | Required correction before approval |
+|---|---|---|---|
+| **S-R17 — admission counts nominal rather than claimable capacity** | §3.2 computes `effective_slot_count = workers × slots_per_worker`, but the only live worker signal (§1.3/§2.1) is readiness/liveness. During scale-in, a worker receives `SIGTERM`, stops claiming immediately, but remains a fresh `worker_only` claimant while it drains; during scale-up, provisioned workers can be not-yet-ready. Both cases make nominal slots overstate available claim capacity and understate `Retry-After`. | §2.1 SIGTERM contract; §3.2 admission formula; claimant registry has no claim-acceptance lifecycle. | Add a claimant lifecycle or `accepting_claims` field. Set it false in the same transition that stops the scan on drain; only fresh, ready, `worker_only`, claim-accepting claimant rows contribute to `effective_slot_count`. With zero claimable slots, cold misses fail explicitly as temporarily unavailable rather than dividing by zero or promising a wait. Test partial scale-up readiness and an in-flight scale-in. |
+| **S-R18 — cache/admission/enqueue is ordered but not atomic** | The design requires cache check before admission but does not serialize the capacity snapshot, admission decision and `solve_jobs` insert. A class-wide burst can have many requests concurrently observe the same low queue depth, all pass the SLO, then all enqueue. The global queue limit therefore does not bound the wait it promises. | §3.2 ordering statement; the 50-user simultaneous-load target. | Define one short Postgres transaction that performs cache eligibility, claimable-capacity snapshot, wait calculation, admission decision and job enqueue together. Use a locked queue-admission counter/state row (recommended at this low rate), or an equivalent serializable conditional insert with bounded retry. Add a concurrent cold-miss burst test proving the queue-wait admission bound cannot overshoot through a read/insert race. |
+| **S-R19 — O1 has conflicting pilot authority** | O1 says that no pilot authority comes from this document, but G-API includes O1 under a recorded SP-1 waiver. Both cannot be the source of truth for a waived O1 pilot. | §1.1 O1 versus §5.1 G-API. | Recommended: make O1 match O2 — G-API + MP-4 + recorded SP-1 waiver. Alternatively remove O1 from G-API. State the choice consistently in the outcome matrix, gate set and final decision record. |
+| **S-R20 — architecture approval, plan authorization and pilot authorization are conflated** | The status says only SP-1 and the Postgres ceiling hold implementation planning, yet the spec also requires A completion and Phase 3/4 Measurement outputs before it can select topology, worker count, mean wall service, cache mix and pre-scale lead time. The final built-topology rerun is a separate pilot gate. | Preamble hard-dependency order, §10 missing measurements, §5 authoritative rerun. | Publish a three-stage authority ladder: (1) architecture/spec approval after S-R17–S-R19 plus the stated authority facts; (2) measurement-sized implementation-plan authorization only after A completion, Measurement results, selected topology and validated connection ledger; (3) pilot authorization only after the applicable final-built-topology gates, MP-4 and O4 coalescing condition. Do not describe stage 1 as authorization to implement the selected fleet. |
+
+### One-pass repair strategy
+
+Use the claimant registry as the sole live-capacity authority: add claim-acceptance lifecycle, then consume its count inside a single serialized admission/enqueue transaction. This closes both S-R17 and S-R18 without another service or queue. Align O1's authority and publish the three-stage approval ladder at the same time; those close the two remaining governance contradictions.
+
+**Conditional approval criterion:** I would approve the architecture/spec after S-R17–S-R20 close, SP-1 is resolved, and the live Postgres ceiling validates the completed ledger. A measurement-sized implementation plan and a real-cohort pilot remain separately gated as described above.
