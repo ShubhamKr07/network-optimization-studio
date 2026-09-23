@@ -685,3 +685,19 @@ Use the claimant registry as the sole live-capacity authority: add claim-accepta
 **Conditional approval criterion:** I would approve the architecture/spec after S-R21 and S-R22 close. A measurement-sized implementation plan and a real-cohort pilot remain separately gated by the selected outcome and its evidence.
 
 </details>
+
+---
+
+## 12. Round 6 approval review — 2026-09-23
+
+**Decision: REQUEST CHANGES / not approved.** The round-five fold closes the claimant control-plane and approval-timing defects. One decision path remains absent: the document recommends SP-1 option (a), holding the worker-isolation rule, but does not say what gets planned when Measurement selects an API-capacity outcome. This is a missing route, not a new reliability mechanism.
+
+### Blocking finding
+
+| ID | Finding | Evidence | Required correction before approval |
+|---|---|---|---|
+| **S-R23 — SP-1 option (a) has no Stage-2 implementation route** | §1.1 says O1/O2 build no worker; Stage 2 says O1/O2 require an SP-1 waiver; yet SP-1 explicitly offers and recommends option (a), holding the isolation rule and requiring a worker tier before any real cohort. The preferred decision therefore leads to no selected topology, no connection-ledger trigger and no applicable worker gate. | Preamble Stage 2 table, §1.1 O1/O2, SP-1. | Add an explicit Stage-2 branch: **O1/O2 + waiver (b)** follows the API/G-API path; **O1/O2 + hold rule (a)** enters an *isolation-required worker* path — build and validate the minimum dedicated worker topology, complete the worker connection ledger, and apply G-WORKER. If one dedicated worker cannot meet the final measured SLO, escalate to O4/G-FLEET. O3/O4 remain unchanged. |
+
+### Approval criterion
+
+After S-R23 closes, I would approve **Stage 1 — architecture/spec**. Stage 2 remains conditional on Measurement and the selected O1/O2 policy branch or O3/O4 topology; Stage 3 remains conditional on the applicable final-built-topology gate set, MP-4, and O4's coalescing condition.
