@@ -1505,6 +1505,34 @@ def solve(inp):
 # message, it doesn't pass the envelope dict through).
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # A14b -- TEST-ONLY seam, gated behind an env var never set in
+    # production. This repo's real datasets all solve sub-second (no
+    # naturally slow, deterministic model exists to drive the over-deadline
+    # SIGTERM-drain integration proof otherwise), so this deliberately makes
+    # the spawned process itself -- plus a real grandchild subprocess
+    # standing in for a still-running CBC child -- outlive any realistic
+    # drain grace period, so the test can prove Node's process-group
+    # supervisor (A3) and SIGTERM drain (A2) actually reach and kill BOTH.
+    # Writes the two PIDs to a file inside NOS_SOLVE_WORKDIR (the real,
+    # Node-owned per-solve temp dir already passed in for production use)
+    # so the test can discover and probe them, then blocks until killed.
+    # Never reads stdin, never touches solve()/solve_* math (hard rules
+    # #2/#6 untouched) -- this is a separate, inert branch.
+    _test_hang_sec = os.environ.get("NOS_SOLVE_TEST_HANG_SEC")
+    if _test_hang_sec:
+        import subprocess
+        _work_dir = os.environ.get("NOS_SOLVE_WORKDIR") or "/tmp"
+        _hang_child = subprocess.Popen(["sleep", _test_hang_sec])
+        try:
+            with open(os.path.join(_work_dir, "hang.pids"), "w") as _f:
+                _f.write("{},{}\n".format(os.getpid(), _hang_child.pid))
+                _f.flush()
+                os.fsync(_f.fileno())
+        except OSError:
+            pass
+        _hang_child.wait()
+        sys.exit(0)
+
     try:
         inp = json.loads(sys.stdin.read())
     except Exception:
