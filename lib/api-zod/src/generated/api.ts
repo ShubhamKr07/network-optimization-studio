@@ -752,24 +752,26 @@ export const UpdateDistanceBandsResponse = zod.object({
  * @summary Register a new student/instructor account
  */
 export const registerUserBodyPasswordMin = 8;
+export const registerUserBodyPasswordMax = 128;
 
 
 
 export const RegisterUserBody = zod.object({
-  "email": zod.string().email(),
-  "password": zod.string().min(registerUserBodyPasswordMin)
+  "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before validation, lookup, and insert — `Foo@X.com` and `foo@x.com` are one account.'),
+  "password": zod.string().min(registerUserBodyPasswordMin).max(registerUserBodyPasswordMax).describe('The upper bound is a cost guard, not a policy preference: argon2 is deliberately CPU-expensive and the API runs on a 0.5-CPU instance, so an unbounded password lets one request starve every other student\'s.')
 })
 
 
 /**
  * @summary Log in with email and password
  */
+export const loginUserBodyPasswordMax = 128;
 
 
 
 export const LoginUserBody = zod.object({
-  "email": zod.string().email(),
-  "password": zod.string().min(1)
+  "email": zod.string().email().describe('Normalized (trimmed + lowercased) by the server before lookup; the lookup itself is case-insensitive so accounts created before normalization still resolve.'),
+  "password": zod.string().min(1).max(loginUserBodyPasswordMax).describe('Same cost guard as registration — an over-length password is rejected before argon2 ever runs, and (per the no-enumeration rule) is indistinguishable from any other bad credential.')
 })
 
 export const LoginUserResponse = zod.object({

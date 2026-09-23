@@ -24,14 +24,24 @@ export interface AuthUserEnvelope {
 }
 
 export interface RegisterRequest {
+  /** Normalized (trimmed + lowercased) by the server before validation, lookup, and insert — `Foo@X.com` and `foo@x.com` are one account. */
   email: string;
-  /** @minLength 8 */
+  /**
+     * The upper bound is a cost guard, not a policy preference: argon2 is deliberately CPU-expensive and the API runs on a 0.5-CPU instance, so an unbounded password lets one request starve every other student's.
+     * @minLength 8
+     * @maxLength 128
+     */
   password: string;
 }
 
 export interface LoginRequest {
+  /** Normalized (trimmed + lowercased) by the server before lookup; the lookup itself is case-insensitive so accounts created before normalization still resolve. */
   email: string;
-  /** @minLength 1 */
+  /**
+     * Same cost guard as registration — an over-length password is rejected before argon2 ever runs, and (per the no-enumeration rule) is indistinguishable from any other bad credential.
+     * @minLength 1
+     * @maxLength 128
+     */
   password: string;
 }
 

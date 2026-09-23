@@ -54,7 +54,10 @@ export function Register() {
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
+          {/* maxLength mirrors RegisterRequest.password's maxLength in
+              openapi.yaml — the server rejects anything longer, so cap it here
+              rather than let the student type a password the API will refuse. */}
+          <Input id="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="input-password" />
           {passwordTooShort && (
             <p className="text-xs text-destructive" data-testid="text-password-hint">Password must be at least 8 characters.</p>
           )}

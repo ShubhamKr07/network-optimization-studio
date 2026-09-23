@@ -684,9 +684,18 @@ components:
         email:
           type: string
           format: email
+          description: >-
+            Normalized (trimmed + lowercased) by the server before validation,
+            lookup, and insert — `Foo@X.com` and `foo@x.com` are one account.
         password:
           type: string
           minLength: 8
+          maxLength: 128
+          description: >-
+            The upper bound is a cost guard, not a policy preference: argon2 is
+            deliberately CPU-expensive and the API runs on a 0.5-CPU instance,
+            so an unbounded password lets one request starve every other
+            student's.
     LoginRequest:
       type: object
       required: [email, password]
@@ -694,9 +703,18 @@ components:
         email:
           type: string
           format: email
+          description: >-
+            Normalized (trimmed + lowercased) by the server before lookup; the
+            lookup itself is case-insensitive so accounts created before
+            normalization still resolve.
         password:
           type: string
           minLength: 1
+          maxLength: 128
+          description: >-
+            Same cost guard as registration — an over-length password is
+            rejected before argon2 ever runs, and (per the no-enumeration rule)
+            is indistinguishable from any other bad credential.
     LogoutSuccess:
       type: object
       required: [success]

@@ -14,20 +14,35 @@ vi.mock("@workspace/db", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ col: _col, val })),
+  // routes/auth.ts looks users up with `lower(email) = <normalized>` so that
+  // rows written before email normalization still match their owner's login.
+  // The stand-in keeps the interpolated values inspectable, which is how the
+  // normalization tests below assert what the WHERE clause actually received.
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
 import app from "../app.js";
 import { requireAuth } from "../middlewares/auth.js";
 
-function makeChain(returnValue: unknown) {
+type Chain = Record<string, ReturnType<typeof vi.fn>>;
+
+function makeChain(returnValue: unknown): Chain {
   const chain: Record<string, unknown> = {};
   ["select", "from", "where", "insert", "values", "returning"].forEach((m) => {
     chain[m] = vi.fn(() => chain);
   });
   (chain as { then: unknown }).then = (resolve: (v: unknown) => void) =>
     Promise.resolve(returnValue).then(resolve);
-  return chain;
+  return chain as Chain;
 }
+
+/** The value interpolated into `lower(email) = ?` on the Nth select. */
+function emailInWhereClause(chain: Chain, call = 0): unknown {
+  const arg = chain.where.mock.calls[call]?.[0] as { values?: unknown[] } | undefined;
+  return arg?.values?.[1];
+}
+
+const OVER_LONG_PASSWORD = "a".repeat(129);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -63,6 +78,63 @@ describe("POST /api/auth/register", () => {
       .post("/api/auth/register")
       .send({ email: "student@example.com", password: "short" });
     expect(res.status).toBe(400);
+  });
+
+  it("returns 400 without hashing when the password exceeds 128 characters", async () => {
+    const hashSpy = vi.spyOn(argon2, "hash");
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD });
+
+    expect(res.status).toBe(400);
+    // The whole point of the cap: argon2 is the expensive part, so an
+    // over-long password must never reach it.
+    expect(hashSpy).not.toHaveBeenCalled();
+    hashSpy.mockRestore();
+  });
+
+  it("accepts a password of exactly 128 characters (the bound is inclusive)", async () => {
+    mockDb.insert.mockReturnValue(
+      makeChain([{ id: "user-128", email: "bound@example.com", role: "student" }]),
+    );
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email: "bound@example.com", password: "a".repeat(128) });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("stores the email trimmed and lowercased, and checks uniqueness the same way", async () => {
+    const selectChain = makeChain([]);
+    mockDb.select.mockReturnValue(selectChain);
+    const insertChain = makeChain([
+      { id: "user-9", email: "student@example.com", role: "student" },
+    ]);
+    mockDb.insert.mockReturnValue(insertChain);
+
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email: "  Student@Example.COM  ", password: "supersecret" });
+
+    expect(res.status).toBe(201);
+    // Uniqueness is checked against the normalized form...
+    expect(emailInWhereClause(selectChain)).toBe("student@example.com");
+    // ...and the normalized form is what lands in the row, so the next login
+    // with any casing resolves to this same account.
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "student@example.com" }),
+    );
+  });
+
+  it("returns 409 for an email that differs only in case from an existing account", async () => {
+    mockDb.select.mockReturnValue(
+      makeChain([{ id: "user-1", email: "student@example.com" }]),
+    );
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email: "STUDENT@example.com", password: "supersecret" });
+
+    expect(res.status).toBe(409);
   });
 });
 
@@ -138,6 +210,40 @@ describe("POST /api/auth/login", () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Invalid email or password");
+  });
+
+  it("logs in an account registered under a different casing", async () => {
+    // The regression this branch exists for: the student registered as
+    // `Student@Example.com` and is now typing `student@example.com`. Both
+    // spellings normalize to one lookup value, and the lookup itself is
+    // case-insensitive, so the stored row still matches.
+    const passwordHash = await argon2.hash("correct-horse");
+    const selectChain = makeChain([
+      { id: "user-1", email: "Student@Example.com", role: "student", passwordHash },
+    ]);
+    mockDb.select.mockReturnValue(selectChain);
+
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "  STUDENT@example.COM ", password: "correct-horse" });
+
+    expect(res.status).toBe(200);
+    expect(emailInWhereClause(selectChain)).toBe("student@example.com");
+  });
+
+  it("rejects an over-long password before the DB lookup or argon2 ever run", async () => {
+    const verifySpy = vi.spyOn(argon2, "verify");
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "student@example.com", password: OVER_LONG_PASSWORD });
+
+    expect(res.status).toBe(401);
+    // Indistinguishable from any other bad credential — the cap must not
+    // become an oracle.
+    expect(res.body.error).toBe("Invalid email or password");
+    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(verifySpy).not.toHaveBeenCalled();
+    verifySpy.mockRestore();
   });
 });
 

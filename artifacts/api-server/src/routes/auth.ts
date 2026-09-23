@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import argon2 from "argon2";
 import { db, usersTable } from "@workspace/db";
 import {
@@ -8,11 +8,39 @@ import {
   LoginUserResponse,
   LogoutUserResponse,
   GetCurrentAuthUserResponse,
+  registerUserBodyPasswordMin,
+  registerUserBodyPasswordMax,
 } from "@workspace/api-zod";
 import { SESSION_COOKIE, SESSION_TTL_MS } from "../middlewares/auth.js";
 import { posthog } from "../lib/posthog.js";
+import { withNormalizedEmail } from "../lib/normalizeEmail.js";
 
 const router: IRouter = Router();
+
+/**
+ * Case-insensitive lookup by email.
+ *
+ * `withNormalizedEmail` guarantees the *incoming* address is already lowercase,
+ * so `eq(usersTable.email, email)` would be enough for every row written after
+ * this change. It is NOT enough for rows written before it: an account stored
+ * as `Foo@x.com` would stop matching its own owner's login the moment we began
+ * lowercasing the input — turning the bug this fixes into a permanent lockout
+ * for exactly the users who already hit it. Comparing `lower(email)` covers
+ * both eras with one query.
+ *
+ * The cost is that the plain `unique()` index on `email` can't serve this
+ * predicate (Postgres would need a `lower(email)` expression index). At
+ * classroom scale — tens of rows — a sequential scan is irrelevant; see the
+ * changelog entry for the follow-up that makes the constraint itself
+ * case-insensitive.
+ */
+async function findUserByEmail(email: string) {
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(sql`lower(${usersTable.email}) = ${email}`);
+  return user;
+}
 
 // Simple in-memory rate limit for login: 10 attempts/min/IP. Acceptable for a
 // pilot-scale classroom deployment; revisit if this ever needs to survive
@@ -57,14 +85,16 @@ function toAuthUser(user: { id: string; email: string | null; role: string }) {
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {
-  const parsed = RegisterUserBody.safeParse(req.body);
+  const parsed = RegisterUserBody.safeParse(withNormalizedEmail(req.body));
   if (!parsed.success) {
-    res.status(400).json({ error: "email and password (min 8 chars) are required" });
+    res.status(400).json({
+      error: `email and password (${registerUserBodyPasswordMin}-${registerUserBodyPasswordMax} chars) are required`,
+    });
     return;
   }
   const { email, password } = parsed.data;
 
-  const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  const existing = await findUserByEmail(email);
   if (existing) {
     res.status(409).json({ error: "An account with this email already exists" });
     return;
@@ -92,7 +122,11 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 });
 
 router.post("/auth/login", async (req: Request, res: Response) => {
-  const parsed = LoginUserBody.safeParse(req.body);
+  // Parsing precedes both the rate-limit check and argon2 on purpose: an
+  // over-length password is refused here, before any hashing work is spent on
+  // it. The 401 is the same generic body every other failure returns, so a
+  // caller still cannot tell an over-long password from a wrong one.
+  const parsed = LoginUserBody.safeParse(withNormalizedEmail(req.body));
   if (!parsed.success) {
     res.status(401).json({ error: "Invalid email or password" });
     return;
@@ -105,7 +139,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+  const user = await findUserByEmail(email);
   // Identical failure path whether the email doesn't exist or the password is
   // wrong — never let a caller distinguish the two (no user enumeration).
   const passwordHash = user?.passwordHash ?? null;
