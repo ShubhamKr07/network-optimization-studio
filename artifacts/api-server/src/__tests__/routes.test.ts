@@ -3087,6 +3087,10 @@ describe("POST /api/scenarios/:id/solve", () => {
 
   it("returns 202 with the jobId and calls enqueueScenarioSolve(id, userId)", async () => {
     const cookie = await loginAs(OWNER);
+    // ch4-lock — the solve route does its own lightweight ownership-scoped
+    // fetch (modelId only) BEFORE calling enqueueScenarioSolve, so a locked
+    // model can be refused before the atomic enqueue transaction ever runs.
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 42, modelId: "p-median-us" });
 
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
@@ -3097,6 +3101,7 @@ describe("POST /api/scenarios/:id/solve", () => {
 
   it("captures 'scenario solve enqueued' with the outcome's modelId/jobId", async () => {
     const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([transportRow]));
     mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 7, modelId: "transport-coal" });
 
     await request(app).post("/api/scenarios/8/solve").set("Cookie", cookie);
@@ -3118,6 +3123,7 @@ describe("POST /api/scenarios/:id/solve", () => {
 
   it("returns 422 with the validation message when the outcome is invalid (locked row's stored inputs fail model validation)", async () => {
     const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockEnqueueScenarioSolve.mockResolvedValue({ kind: "invalid", error: "capacityMode must be one of ..." });
     const res = await request(app).post("/api/scenarios/1/solve").set("Cookie", cookie);
     expect(res.status).toBe(422);
@@ -3127,6 +3133,7 @@ describe("POST /api/scenarios/:id/solve", () => {
   // B2.1 — semantic precheck runs after shape validation, before enqueue.
   it("returns 422 with structured precheck errors when the outcome is precheck_failed", async () => {
     const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockEnqueueScenarioSolve.mockResolvedValue({
       kind: "precheck_failed",
       errors: [{ code: "id_collision", message: `Added warehouse id '${WAREHOUSES[0].id}' collides with an existing base-dataset warehouse id` }],
@@ -3167,6 +3174,7 @@ describe("POST /api/scenarios/:id/solve", () => {
 
   it("still enqueues normally when queue depth is just below the limit", async () => {
     const cookie = await loginAs(OWNER);
+    mockDb.select.mockReturnValue(makeChain([pmedianRow]));
     mockGetQueueDepth.mockReturnValue(29);
     mockEnqueueScenarioSolve.mockResolvedValue({ kind: "queued", jobId: 55, modelId: "p-median-us" });
 
