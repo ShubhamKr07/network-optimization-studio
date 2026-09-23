@@ -445,6 +445,36 @@ When those items close, this design can proceed to its measurement-sized impleme
 
 ---
 
+## 12. Round 3 approval review — 2026-09-23
+
+**Decision: REQUEST CHANGES / not approved.** Round 2's operational corrections are sound: the claimant registry, one-worker standby cutover, conditional lease recovery, and maximum-simultaneous connection ledger are the right fixes. They do not require a redesign. This review finds three remaining contract contradictions and one required schema normalization. Together they are a compact correction bundle; after they close, the only holds should be the existing evidence/authority gates.
+
+### New blocking findings
+
+| ID | Finding | Evidence | Required correction before approval |
+|---|---|---|---|
+| **S-R13 — admission uses incompatible units and a nonexistent Measurement output** | §3.2 defines `remaining_work_sec` as aggregate slot-seconds, then divides it by `effective_completion_throughput` in jobs/sec. That is not a duration. The named source is also wrong: `simulate.py`'s `SimResult` carries wait percentiles, queue depth, utilization, and mix, but no throughput field. A false `Retry-After` is especially harmful because it turns a protective admission limit into a retry storm. | §3.2's equations and `scnd-measurement: artifacts/api-server/src/solver/tests/benchmark/simulate.py` (`SimResult`). | Choose one dimensional model and make Measurement emit its operands. Recommended runtime estimator: `estimated_wait_sec = remaining_slot_seconds / effective_slot_count`, where queued work uses measured mean effective wall service time and each busy slot contributes one full mean service time conservatively. Alternatively use `(queued_jobs + active_job_equivalents) / measured_jobs_per_sec`, but add that throughput explicitly to the Measurement artifact. Retain CPU-seconds only for compute sizing/cost. |
+| **S-R14 — O4 and SP-2 make incompatible single-flight promises** | O4 says a horizontal-fleet pilot requires the approved single-flight successor spec, while SP-2 says the team may accept duplicate-compute cost for a pilot and defer coalescing. Both cannot govern the same pilot. | §1.1 O4, §3 SP-2, and §5. | Make the conditional rule identical in all three locations. Recommendation: permit a fleet pilot without single-flight only when the cold-identical-burst test proves duplicate compute fits the measured capacity and cost budget; otherwise require the successor spec. Add that test/threshold to the O4 pilot authority and the final reliability/capacity decision record. |
+| **S-R15 — O2's pilot authority requires a worker suite that O2 does not build** | O2 explicitly retains `api_dispatch` and builds no worker, scheduler, retry, or worker admission/fairness changes, but its pilot authority says both §5 gates pass. §5 requires worker-only behaviours such as multi-worker `SKIP LOCKED`, standby readiness, scaler failure and worker retry tests. An O2 pilot cannot satisfy its own stated prerequisite. | §1.1 O2 and §5. | Define outcome-specific versions of the two gates: O1/O2 under an explicit SP-1 waiver run API capacity evidence plus Option A's API reliability proof; O3 runs the dedicated-worker suite; O4 runs the worker/scaler suite plus the resolved S-R14 condition. Preserve the rule that both applicable gates and MP-4 are required. |
+| **S-R16 — claimant attribution is required by the proof but not yet a normative job schema field** | The new cutover proof joins a running job to `solve_claimants`, and §6 retention depends on that reference. §1.3 says to store `claimant_id` "or an equivalent durable mapping," but §3.1's actual `solve_jobs` additions list only `worker_id`; its own text still says that field serves the §1.2 reconciliation query. The proof therefore has no unambiguous relational contract. | §1.3, §3.1 schema additions, §6 retention. | Specify one concrete relationship: recommended `solve_jobs.claimant_id` nullable FK to `solve_claimants.claimant_id` (nullable for pre-registry/terminal legacy rows), populated atomically in the claim transaction and protected from deletion while referenced. Keep `worker_id` only as optional observability metadata or remove it. The cutover query and retention rule must use this same named field. |
+
+### Non-blocking consistency edits
+
+- §1.2 says `SOLVE_DISPATCH_MODE` has **three** values immediately before defining `worker_standby` as a fourth; correct the count.
+- §2.1 says a SIGKILLed job is requeued, whereas §3.1 now terminalizes it when it exhausted its final attempt. State “requeued or terminalized by the conditional retry protocol.”
+- §3.2 says `LISTEN/NOTIFY` is mandated, while §1.2 retains polling as the permitted fallback. Keep the ledger conditional on the selected wake-up mode and describe the notification session as required only when that mode is enabled.
+
+### Approval path
+
+1. Repair S-R13's units and measurement contract before using admission as a load-control mechanism.
+2. Publish one O4 single-flight rule (S-R14) and topology-specific pilot gates (S-R15).
+3. Normalize the `claimant_id` schema contract (S-R16), then make the three small wording edits above.
+4. Resolve SP-1 and validate the completed connection ledger against the live Postgres ceiling. Measurement and the final built-topology rerun remain mandatory evidence gates.
+
+**Conditional approval criterion:** I would approve the document for the measurement-sized implementation-plan pass when S-R13–S-R16 close, SP-1 is resolved, and the live connection ceiling validates the completed ledger. This does not authorize a real-cohort pilot; that still requires the selected topology's applicable gates, MP-4, and the authoritative post-build rerun.
+
+---
+
 <details>
 <summary>Round 2 review text (verbatim, as received — superseded by the fold above)</summary>
 
