@@ -1,6 +1,6 @@
 # SCND Correctness — Full Contract (Option A) Implementation Plan
 
-> **For agentic workers:** execute task-by-task; each task ends with an independently testable deliverable + a commit that passes the applicable full verification gate. Design source: `docs/superpowers/specs/2026-09-21-scnd-solver-result-contract-design.md` (§§2–3; decisions Q4–Q72) **and** `docs/superpowers/specs/2026-09-20-scnd-scaling-phase0-design.md` §34 (decisions Q73–Q84, controlling). This plan turns that contract into executable tasks. **Runs AFTER Option B ships.**
+> **For agentic workers:** execute task-by-task; each task ends with an independently testable deliverable + a commit that passes the applicable full verification gate. **Read "Approval checkpoints — STOP and ASK" before starting anything**: it lists every point where you must stop and put a question to the product owner, with the question and options written out. Proceeding past one on an assumption is a process failure, not a judgement call. Design source: `docs/superpowers/specs/2026-09-21-scnd-solver-result-contract-design.md` (§§2–3; decisions Q4–Q72) **and** `docs/superpowers/specs/2026-09-20-scnd-scaling-phase0-design.md` §34 (decisions Q73–Q84, controlling). This plan turns that contract into executable tasks. **Runs AFTER Option B ships.**
 
 **Status: BLOCKED for full execution — two tasks are authorized (A3, A14a).** Seven approval reviews (2026-09-22, rounds 1–6 plus a final pass) returned REQUEST CHANGES; all **58** findings (A-R1–A-R58) are folded below (disposition records + author responses at the end). The final review states it expects this plan to be approvable after A-R57/A-R58 **without another broad review** — but approval is explicit and has not been granted; the fold does not self-approve. *(Round 5's A-R45 caught this header carrying stale counts; counts are maintained as part of every fold.)*
 
@@ -21,12 +21,49 @@ The round-3 phrasing was circular: a single "all gates close before any non-A3 t
 | **G-Q73** — Q73–Q84 unclosed (§34 line 2281: *"Until Q73–Q84 and this checklist close, neither P0R.3 nor P0R.4 is approved"*) | Execution of any task's **code**, except the authorized preparatory slice | Writing the decisions **into** A0–A14 task bodies (a documentation act, not execution) | Every Q73–Q84 has a written decision in its owning task — design-decision closure, **not** acceptance evidence |
 | **G-baseline** — post-B inventory + canonical-source consistency pass | A4, A5, A7, A8, A9, A11 (every representation/rollout consumer) | **A0 itself** | A0 committed |
 | **G-cache** — composite identity artifact (Q35/Q41/Q75) | **A6 and A6's consumers only** — A7's v2 cache paths and R3 activation. It does **not** block A0/A1/A2/A3/A4/A5/A14a | Authoring and reviewing the artifact | Artifact separately reviewed and **approved** |
-| **G-review** — consolidated approval of this revision | All non-preparatory execution | This fold, and the next review | An explicit recorded approval decision |
-| **Cohort gate** — reliability pain not yet demonstrated | Speculative execution of the reliability layer | — | Real or synthetic-load-proven cohort evidence |
+| **G-review** — consolidated approval of this revision | All non-preparatory execution | This fold, and the next review | An explicit recorded approval decision — **ask AP-1** |
+| **Cohort gate** — reliability pain not yet demonstrated | ~~Speculative execution of the reliability layer~~ — **WAIVED for A4–A13 on 2026-09-22** (see the AP-4 waiver); still binds Scaling | — | Waived by explicit product-owner decision, not by evidence |
 
 **Cohort-gate exceptions, stated (A-R31.5):** **A3** and **A14** are exempt because §34's preparatory authorization is independent of cohort evidence — it exists precisely to *produce* evidence. **A1+A2** are exempt because they fix a defect live in production today (see A2). No other task is exempt.
 
 **G-cache rationale (unchanged):** §2.10 calls Q35 an open mandatory gate. A one-time deployed banner check is evidence about one deployment, not a per-instance identity — P0R.1 found the CBC build differs by architecture (`2.10.3` x64 vs `2.10.10` Linux arm64), so the identity must be **runtime-derived on each instance**.
+
+## Approval checkpoints — STOP and ASK (AP-1 … AP-12)
+
+**Contract for the executing agent.** Every point in this plan where a human call is required is listed here as a ready-to-ask question. When a trigger fires: **stop, ask the question verbatim with the options given, wait.** Do not infer the answer, do not proceed under an assumption, and do not treat silence or a prior unrelated approval as consent. Record each answer in `docs/CHANGELOG-implementation.md` with the date and the decider. An approval is scoped to exactly the checkpoint it answers — approval of one never extends to another.
+
+Unless stated otherwise the decider is the **product owner** (the authority that signed DEC-2026-09-21-01, GitHub issue #19).
+
+| ID | Trigger | Question to ask | Options |
+|---|---|---|---|
+| **AP-1** | Before any non-preparatory task starts (closes **G-review**) | "Seven reviews returned REQUEST CHANGES; A-R57/A-R58 are folded and the final review expects approvability. Do you approve this plan revision for execution?" | Approve as-is · Approve with named exceptions · Request another review round |
+| **AP-2** | While closing **G-Q73**, if any of Q73–Q84 turns out to be a *product* decision rather than a technical one | "Q\<n\> is a product decision, not a technical one: \<restate it\>. Which option?" | (enumerate the real options for that Q) |
+| **AP-3** | The G-cache composite-identity artifact is written and needs its own review (blocks **A6** and its consumers) | "The composite cache-identity artifact is ready: manifest, framing, runtime PuLP/CBC identities, worked hash vectors, fail-closed behaviour. Approve it for A6?" | Approve · Approve with changes · Reject with reasons |
+| **AP-4** | ~~Before executing the reliability layer beyond the cohort-exempt slice~~ — **ANSWERED 2026-09-22, see the waiver below. Do not re-ask.** | — | — |
+| **AP-5** | A2 and A3 are both complete, making **A14b** executable | "A14b (over-deadline drain integration proof) is now unblocked. Authorize it?" | Authorize · Keep gated |
+| **AP-6** | Every item in A11's R3 prerequisite list is satisfied | "R3 activation: all prerequisites are met \<list with commit SHAs\>. Authorize flipping `SOLVER_V2_WRITE_ENABLED` to true on `nos-api`?" | Authorize · Authorize after \<named condition\> · Hold |
+| **AP-7** | Immediately before the A11 activation window | "Activation needs `autoDeployTrigger: off` on `nos-api`, then restoration afterwards. Both are themselves deploys. Approve the suppression window and its restoration?" | Approve the full sequence · Approve with a different control · Hold |
+| **AP-8** | A rollback is being considered **after** any v2 row exists | "Rolling back below R1 is forbidden once v2 rows exist. Disable `SOLVER_V2_WRITE_ENABLED` and roll back to R1 only?" | Disable and roll back to R1 · Disable only, no rollback · Neither |
+| **AP-9** | Any change to `e2e_accuracy.py` becomes necessary (**hard rule #2**) | "This change requires editing the sacred test `e2e_accuracy.py`: \<exact diff and why\>. Golden objective values \<are/are not\> affected. Approve?" | Approve (records a new DEC id) · Reject — the change is wrong · Approve assertions only, zero golden changes |
+| **AP-10** | A genuinely ambiguous **product** decision surfaces mid-task (**hard rule #8**) | "\<Restate the ambiguity\>. The readings lead to materially different behaviour: \<A\> vs \<B\>. Which?" | (the real options) |
+| **AP-11** | A single task accumulates findings across **three or more** consecutive review rounds (the round-6 scope rule) | "Task \<X\> has produced findings in \<n\> consecutive rounds at a rising rate — the A10 pattern. Scope review, or another fold?" | Scope review — consider moving it out of A · Another fold · Accept as-is with reasons |
+| **AP-12** | Any branch or worktree deletion (**CLAUDE.md branch discipline**) | "\<branch/worktree\> is proposed for deletion. `git cherry main <branch>` shows \<result\>, status clean, no session owns it. Approve?" | Approve · Approve with backup first · Keep |
+
+### AP-4 cohort-gate waiver — granted 2026-09-22 (measurement review M-R7)
+
+**Decision: the full A rollout runs BEFORE Measurement. The cohort gate is waived for A4–A13.** Recorded as a deliberate waiver, not an implied closure.
+
+**Why this was forced.** AP-4 previously offered *"Wait for Measurement"* while `2026-09-22-scnd-measurement-design.md` stated *"nothing in this spec is executable until A ships"* — A waiting on Measurement, Measurement waiting on A. That is the round-1 topology circularity relocated to the programme sequence, not removed. One side had to give, and the product owner chose to keep the strict order **all of A → Measurement → Scaling** rather than start Measurement from a narrower A seam.
+
+**What the waiver costs, stated so it is not discovered later.** A4–A13 are built without load evidence. If Measurement later shows the load is trivial, some of that machinery will have been heavier than the cohort needed. Accepted deliberately: A is **correctness** work, every item of it addresses a defect reachable today, and the owner lease/heartbeat is required for rolling deploys at *any* instance count — so the waived risk is over-engineering, never incorrectness.
+
+**What the waiver does NOT cover.** It is not a general cohort-evidence waiver. Scaling remains cohort-gated and evidence-gated on Measurement. Nothing here authorises building the solver tier, the scheduler, or any capacity work without the evidence those decisions require.
+
+**Standing rule this produced (M-R7):** *every cross-document dependency edge must be checked in both directions against the depended-on document's own gates.* A textual sequence is invalid if the predecessor names the successor as its own evidence source. Apply this at every review, in both this plan and the specs it references.
+
+**Already granted — do not re-ask, and do not widen.** A3's preparatory authorization (§34) · A3's single public behaviour change, the error envelope becoming a failed job (2026-09-22) · A14a (2026-09-22) · DEC-2026-09-21-01, `e2e_accuracy.py` assertion corrections with zero golden-objective changes (issue #19) · the A10-to-Scaling scope move (2026-09-22) · the no-automatic-retry delivery contract (2026-09-22) · the recovery-identity scoping to recovery-only (2026-09-22).
+
+**Two standing triggers that are not in the table** because their owning skills already stop for approval: `/harness-retro`'s second-occurrence gate rule (a failure cause appearing twice drafts `docs/superpowers/gates/<cause>.md` and stops), and any direct-to-`main` commit, which branch discipline treats as a stop-and-report condition rather than routine hygiene.
 
 ## Global constraints
 
@@ -190,7 +227,7 @@ Dimensions: **T** outer timeout fired · **C** cancellation fired · **X** proce
 
 **Files:** `jobRunner.ts` cache path; a version-manifest module.
 
-G-cache's artifact must define, and be approved on, all of: the exhaustive sorted manifest of exact paths/artifacts; canonical path normalization, encoding, ordering, length framing, hash algorithm and output format; the exact `SOLVER_CONTRACT_VERSION` value and owner; the exact PuLP identity; a **runtime-derived** identity for the CBC executable each instance actually runs (banner/build id, binary digest, or both — stated); complete worked hash vectors with expected digests; fail-closed startup behavior and operator recovery; stability and per-component invalidation tests; and the behavior of existing unversioned cache rows, mixed instances and rollback.
+**Ask AP-3** when the artifact is ready — it carries its own approval, separate from AP-1's approval of this plan. G-cache's artifact must define, and be approved on, all of: the exhaustive sorted manifest of exact paths/artifacts; canonical path normalization, encoding, ordering, length framing, hash algorithm and output format; the exact `SOLVER_CONTRACT_VERSION` value and owner; the exact PuLP identity; a **runtime-derived** identity for the CBC executable each instance actually runs (banner/build id, binary digest, or both — stated); complete worked hash vectors with expected digests; fail-closed startup behavior and operator recovery; stability and per-component invalidation tests; and the behavior of existing unversioned cache rows, mixed instances and rollback.
 
 - [ ] Implement exactly that artifact. `SOLVER_CODE_HASH` (today: `solve.py` only) is replaced.
 - [ ] v2 cache read/write keyed on it; a parser or contract-version bump invalidates even with `solve.py` unchanged; unversioned rows are a cache miss.
@@ -266,7 +303,7 @@ A changes visible status values, nullable-objective handling, failure presentati
 - [ ] **Compatibility window — concrete (A-R38).** Minimum observation window **7 days** after R2 ships; measurable exit threshold: **zero requests from a pre-R2 client build** across that window, measured by the client version signal. The transitional alias is removed in the **first release after** the threshold is met, not automatically.
 - [ ] **Transitional `error` is a safe alias (A-R38).** During the window, public `error` is a **serializer alias of `errorMessage`** — never the raw stored diagnostic (A5). Nullable: `null` for non-failed jobs. Removed in the release named above; `errorCode`/`errorMessage` are permanent.
 - [ ] **Row behavior on writer disable and rollback (A-R38).** Disabling the writer leaves already-written v2 `scenarios.result`, `solve_jobs.result` and v2 cache rows **in place and readable** — R1's three-way reader handles them, which is exactly why the rollback floor is R1. No row is rewritten or deleted on disable; unversioned cache rows remain a cache miss.
-- [ ] **Who authorizes.** The `SOLVER_V2_WRITE_ENABLED` flip is a **product-owner decision**, not an agent's — the same authority that signed DEC-2026-09-21-01.
+- [ ] **Who authorizes.** The `SOLVER_V2_WRITE_ENABLED` flip is a **product-owner decision**, not an agent's — the same authority that signed DEC-2026-09-21-01. **Ask AP-6** (activation) and **AP-7** (the auto-deploy suppression window); a rollback afterwards is **AP-8**.
 - [ ] Rollback floor: never below R1 once any v2 row exists; disable `v2_write` **before** rollback; concrete treatment of already-written v2 `scenarios.result`, `solve_jobs.result` and cache rows.
 - [ ] Observability (Q81): the client build/contract-version signal, the named compatibility cutoff and window, and the cleanup criterion. The legacy **stored-row** reader is retained indefinitely (Q69) and is explicitly separated from the removable public-compat fields.
 - [ ] Deploy order `nos-api` → `nos-studio`. Per the CLAUDE.md gotcha, expect to trigger the `nos-studio` deploy manually.
@@ -296,7 +333,7 @@ No A task owned `render.yaml`, so the platform deadline A2/A3 must finish inside
 
 - [ ] Commit: `[A14a] render.yaml maxShutdownDelaySeconds + documented shutdown budget`.
 
-**A14b — NOT authorized; gated with A2 (A-R45).** The integration proof needs A3's supervisor and A2's drain transition, so round 4's single "A14" could never have satisfied one-task/one-commit on its own.
+**A14b — NOT authorized; gated with A2 (A-R45). Ask AP-5 once A2+A3 land.** The integration proof needs A3's supervisor and A2's drain transition, so round 4's single "A14" could never have satisfied one-task/one-commit on its own.
 
 - [ ] Test: a solve deliberately longer than the drain deadline is interrupted cleanly — no orphan process, temp reclaimed, **the row reaches the terminal interrupted/failed state** (not "released"; the round-4 correction had not reached this line), one deterministic terminal outcome.
 - [ ] Commit: `[A14b] over-deadline drain integration proof`.

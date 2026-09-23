@@ -251,3 +251,28 @@ Tracked separately in `docs/superpowers/plans/2026-07-24-render-migration.md`, r
 - **`setLockedModelsForTests` — a deliberate TEST-ONLY seam.** Locking two shipped models otherwise deletes their entire server-side coverage overnight: **73 real tests** stopped testing Chen/JADE behavior and started asserting 403. `routes.test.ts` and `importMultiModelRoundTrip.test.ts` unlock for their own duration; the lock's own describe re-arms the real set, and its manifest-truth assertions clear the override so they pin what actually ships. Deliberately NOT an env var — nothing in the running server can reach it, so it cannot become a production backdoor.
 - **Gate:** typecheck clean · api-server **1130/1132** (the 2 are the documented `cors`/`resultEnvelope` subprocess flakes — CONFIRMED environmental, 12/12 isolated on three consecutive runs) · studio **2040/2040** across 111 files · dataset-schema **38/38** · solver pytest **176/176** (run because `solvers/` was touched, though zero Python changed).
 - **KNOWN, NOT FIXED — 8 Playwright specs target the now-locked chapters** and will fail against a real server, because their entire subject matter is locked: `chens-cosmetics`, `jade-two-echelon`, `jade-ch9-workspace-bundle`, `chen-bands-units-qa`, `workspace-fixups`, `workspace-fixups-2`, `bundle4-auth-landing`, `nonjade-servicestats-live-coverage`. Gutting or skipping eight specs is a product decision, not a mechanical fix, so they were left intact and flagged. They are not in the unit gate so nothing is red today — but `pnpm e2e:gate` is now broken for those files until someone decides. **To re-run any of them, unlock the chapter first** (flip `capabilities.locked` + `Chapter.locked`); the drift test holds the two in sync.
+
+---
+
+## SCND correctness/measurement — approval and decision record (2026-09-22 → 2026-09-23)
+
+**Why this section exists.** Measurement-plan review **MP-R9** found that the A plan, the measurement spec and the measurement plan all instruct agents to "record the answer in `docs/CHANGELOG-implementation.md`", while that file did not exist on `scnd-scaling`/`scnd-docs-review` — it was added to `main` via `ch4-fixes` after `scnd-scaling` was cut. The canonical audit artifact was therefore missing on the only branch that referenced it, and a plan cannot serve as both the approval request and the independent evidence it was approved. Restored from `main` here; decisions below are recorded, not re-asked.
+
+**Decider for every row:** product owner (session decisions, 2026-09-22 unless stated).
+
+| Decision | Scope | Date | Record |
+|---|---|---|---|
+| **A3 preparatory authorization** | §34's preparatory slice only; `v2_write` disabled throughout | 2026-09-22 | A plan status header |
+| **A3's one public behaviour change** | A solver error envelope becomes a failed job — no scenario result, no cache write, failure telemetry. Fixes the cache-poisoning path at `jobRunner.ts:416-417` | 2026-09-22 | A plan status header, A3.C |
+| **A14a authorization** | `render.yaml` shutdown budget + runbook; config/docs only. A14b explicitly NOT authorized | 2026-09-22 | A plan A14a/A14b |
+| **A10 → Scaling scope move** | Single-flight removed from A after producing 12 of 56 findings at a rising rate | 2026-09-22 | A plan A10 removal record |
+| **No-automatic-retry delivery contract** | A performs no automatic retry; ambiguous crash ends in terminal failure; retry policy stays in Scaling | 2026-09-22 | A plan goal + A2 |
+| **Recovery-identity scoping** | `RECOVERY_CONTRACT_IDENTITY` governs recovery only; cache key unchanged until A6 | 2026-09-22 | A plan A1 |
+| **Permanent failed-job API (Q80)** | `errorCode` + permanent `errorMessage` | 2026-09-22 | A plan A0/A5 |
+| **AP-4 cohort-gate waiver** | Waived for **A4–A13**; full A rollout runs before Measurement. Still binds Scaling. Accepted cost: A4–A13 built without load evidence | 2026-09-22 | A plan AP-4 waiver section |
+| **Measurement sequencing (M-R1/M-R7)** | Measurement runs after the full A rollout; the AP-4 waiver is a named prerequisite of its critical path | 2026-09-22 | Measurement spec header |
+| **DEC-2026-09-21-01** | `e2e_accuracy.py` assertion corrections, zero golden-objective changes | 2026-09-21 | GitHub issue #19 |
+
+**Still pending — not granted, do not infer:** **AP-1** (approval of the A plan revision), **AP-3** (G-cache artifact), **AP-5** (A14b), **AP-6/AP-7/AP-8** (R3 activation, auto-deploy suppression, rollback), **MP-1…MP-4** (measurement checkpoints).
+
+**Standing requirement (MP-R9).** Every AP/MP checkpoint answer is written here before the answering task proceeds, carrying: the exact scoped answer, UTC timestamp, decider, and the referenced artifact or run IDs. A checkpoint answered anywhere else is not answered.
