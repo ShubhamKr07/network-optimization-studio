@@ -10,8 +10,8 @@ import { db, solveJobsTable, scenariosTable, resultCacheTable } from "@workspace
 import type { InsertSolveJob, SolveJob } from "@workspace/db";
 import { readVersion } from "@workspace/dataset-schema";
 import { logger } from "../lib/logger.js";
-import { ResultEnvelopeSchema } from "./resultEnvelope.js";
-import type { ResultEnvelope } from "./resultEnvelope.js";
+import { ResultEnvelopeSchema, ResultCacheEntryV2Schema, composePublishedResult, sanitizeCacheEntryV2Objective } from "./resultEnvelope.js";
+import type { ResultEnvelope, StoredScenarioResult, JobRequestedLimits } from "./resultEnvelope.js";
 import { buildPayload } from "./pmedian.js";
 import type { SolveInput } from "./pmedian.js";
 import { getManifest } from "../registry/modelRegistry.js";
@@ -1325,7 +1325,14 @@ export async function markSucceeded(
   scenarioId: number,
   userId: string,
   modelId: string,
-  envelope: ResultEnvelope,
+  // A-fix (F1a) — widened from ResultEnvelope to StoredScenarioResult
+  // (= PublishedSolveResultV2 | ResultEnvelope): the caller now passes a
+  // genuine v2-composed result when isV2WriteEnabled() is on, and the
+  // existing legacy shape unchanged when it's off. Every field this
+  // function reads (status/objective/runTimeSec/metrics.weightedAvgDistance/
+  // details.objective) is present on both union members with compatible
+  // types.
+  envelope: StoredScenarioResult,
   enqueuedSolveInputRevision: number | null,
 ): Promise<ScenarioPublicationOutcome> {
   // D21/C4.10 — resultSummary now carries the objective mode + a unit-tagged
@@ -1504,6 +1511,27 @@ async function removeWorkDirIdempotent(workDir: string): Promise<void> {
 // (RECOVERY_CONTRACT_IDENTITY comparison), and hands off to runJob().
 // Losing the CAS race (claimJobRow returns null) is NOT an error — it means
 // another claimer already handled this row.
+// A-fix (F1a) — the CURRENT job's own requested gap/time-limit values
+// (§2.6/§2.12), derived straight from the SolveInput that is about to run
+// (or that produced the cached compute being republished) — the same
+// `input.inputs.gap`/`input.inputs.timeLimitSec` values buildSolveJobValues
+// already persists as `requestedGap`/`requestedTimeLimitSec` with a source
+// pinned to the literal 'request' (Q79; every model's Zod schema requires
+// both as non-optional numbers, so this is never undefined/NaN). Deriving
+// from `input` directly (rather than re-reading the claimed DB row) keeps
+// this correct for BOTH a fresh solve and a cache-hit republish — a cache
+// hit still runs against THIS job's own `input`, never the cache-writing
+// job's — without depending on the claim update's `.returning()` row
+// carrying every column (tests mock that row minimally).
+function jobRequestedLimitsFromInput(input: SolveInput): JobRequestedLimits {
+  return {
+    requestedGap: input.inputs.gap,
+    requestedGapSource: "request",
+    requestedTimeLimitSec: input.inputs.timeLimitSec,
+    requestedTimeLimitSource: "request",
+  };
+}
+
 async function claimAndRun(jobId: number, hint: PendingJobHint | null): Promise<void> {
   const claimedRow = await claimJobRow(jobId);
   if (!claimedRow) return;
@@ -1602,19 +1630,38 @@ async function runJob(
   enqueuedSolveInputRevision: number | null,
 ): Promise<void> {
   const stopHeartbeat = startOwnerHeartbeat(jobId, generation);
+  const requestedLimits = jobRequestedLimitsFromInput(input);
   try {
     // A6 — flag selects the WHOLE cache path (both this read and the
     // write-through below share this single computed value). Flag off
     // (default) => byte-for-byte the pre-A6 v1 key; see the block comment
     // above lookupCachedResult for the full rationale.
-    const inputsHash = isV2WriteEnabled() ? computeInputsHashV2(input) : computeInputsHash(input);
+    // A-fix (F1a) — hoisted (was recomputed a second time below, right
+    // before the isOutcomeCacheable call) so BOTH the cache-key selection
+    // AND the publish-shape selection share this one resolved value — a
+    // single job can never read/cache under one flag state and publish
+    // under the other.
+    const v2Enabled = isV2WriteEnabled();
+    const inputsHash = v2Enabled ? computeInputsHashV2(input) : computeInputsHash(input);
     const cached = await lookupCachedResult(inputsHash);
     if (cached) {
       // A7 — a cache hit republishes whatever a PRIOR job already cached; no
       // outcome-cacheability branch needed here (that only gates NEW writes
       // below) — but the ALWAYS-ON publication CAS still applies, gated on
       // THIS job's own identity, never the cache-writing job's.
-      const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, cached, enqueuedSolveInputRevision);
+      //
+      // A-fix (F1a) — the actual gap this fix closes: composePublishedResult
+      // existed but had ZERO production callers before this. Flag ON =>
+      // publish the CURRENT job's requested gap/time-limit + envelopeVersion:2
+      // composed onto the cached compute; flag OFF (default) => publish
+      // `cached` exactly as before, byte-for-byte unchanged.
+      const toPublish: StoredScenarioResult = v2Enabled
+        ? composePublishedResult(
+            ResultCacheEntryV2Schema.parse(sanitizeCacheEntryV2Objective(cached as unknown as Record<string, unknown>)),
+            requestedLimits,
+          )
+        : cached;
+      const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, toPublish, enqueuedSolveInputRevision);
       // A12 — "scenario solve completed" fires ONLY for the "published"
       // outcome: strictly after markSucceeded's transaction has committed
       // (markSucceeded is `await`ed above, so its transaction is already
@@ -1742,11 +1789,23 @@ async function runJob(
     // result is still the truthful, published answer, it just isn't reused
     // as a cache entry.
     const legacy = toLegacyStoredResult(outcome.envelope);
-    const v2Enabled = isV2WriteEnabled();
     if (isOutcomeCacheable(legacy.status, v2Enabled)) {
       await writeThroughCache(inputsHash, input.modelId, legacy);
     }
-    const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, legacy, enqueuedSolveInputRevision);
+    // A-fix (F1a) — same publish-shape selection as the cache-hit branch
+    // above, built from the FRESH fd3 success envelope (not the down-
+    // converted `legacy`) since composePublishedResult/ResultCacheEntryV2Schema
+    // are the v2-typed shape `outcome.envelope` is already structurally
+    // equivalent to (see resultEnvelope.ts's own compile-time equivalence
+    // check). Flag OFF (default) => publish `legacy` exactly as before,
+    // byte-for-byte unchanged.
+    const toPublish: StoredScenarioResult = v2Enabled
+      ? composePublishedResult(
+          ResultCacheEntryV2Schema.parse(sanitizeCacheEntryV2Objective(outcome.envelope as unknown as Record<string, unknown>)),
+          requestedLimits,
+        )
+      : legacy;
+    const publishOutcome = await markSucceeded(jobId, generation, scenarioId, userId, input.modelId, toPublish, enqueuedSolveInputRevision);
     // A12/A7 — same "published only" gate as the cache-hit branch above:
     // "superseded" (this job's own terminal write succeeded, but the
     // scenario CAS lost to a newer job or a later input edit) and

@@ -262,6 +262,25 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     res.status(422).json({ error: "modelId is fixed at creation and cannot be changed" });
     return;
   }
+  // A-fix (F2) — `result` is solver-owned: it is ONLY ever written by
+  // jobRunner.ts's markSucceeded/markFailed, never by a client PATCH. Before
+  // this fix, `body.result` was read and written verbatim (see the removed
+  // `if (body.result !== undefined) updateObj.result = body.result;` line
+  // below) with no schema constraining it at all — OpenAPI's own
+  // ScenarioUpdate contract has never documented a `result` field — letting
+  // an owner PATCH an arbitrary `{envelopeVersion:2, legacyUnverified:false,
+  // solutionStatus:"optimal", ...}` body to self-certify a fabricated
+  // "verified" result and pass the output-export legacy-unverified gate
+  // (routes/scenarios.ts's isLegacyUnverifiedResult) with no real solve
+  // having run. Confirmed no legitimate caller in this repo ever PATCHes
+  // `result` (grepped artifacts/studio's every updateScenario.mutate call
+  // site — all send only `{name}` and/or `{inputs}`), so this is a straight
+  // rejection (422), matching the existing modelId precedent above, not a
+  // silent strip.
+  if ("result" in body) {
+    res.status(422).json({ error: "result is solver-owned and cannot be set via PATCH" });
+    return;
+  }
 
   const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
   // A1 (SCND Correctness) — solve_input_revision is a DB-SIDE increment
@@ -304,8 +323,6 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
       revisionIncrement = { solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1` };
     }
   }
-  if (body.result !== undefined) updateObj.result = body.result;
-
   const [row] = await db.update(scenariosTable)
     .set({ ...updateObj, ...revisionIncrement, updatedAt: new Date() })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))

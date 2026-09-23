@@ -362,7 +362,16 @@ export const NormalizedLegacySolveResultSchema = z.object({
   status: z.null(),
   solutionStatus: z.null(),
   terminationReason: z.literal("unknown"),
-  legacyUnverified: z.literal(true),
+  // A-fix (F1b) — widened from z.literal(true): a stored row that predates
+  // v2 (envelopeVersion:2) can STILL carry genuine truthful-status evidence
+  // (a real solutionStatus/terminationReason — Bundle B already made every
+  // CURRENT solve truthful, well before v2 publishing existed). Such a row
+  // is "legacy" only in the sense of predating the v2 shape, not in the
+  // sense of being unverified — its edges/metrics (what exports/badges
+  // actually gate on) are already trustworthy. Only a GENUINELY pre-B row
+  // (neither field ever set) is legacyUnverified:true — see
+  // normalizeLegacyResult below, the sole place this is computed.
+  legacyUnverified: z.boolean(),
   // Permissive (plain string, not re-validated against the current status
   // enum) — a historical row's raw status is preserved verbatim even if a
   // future status enum ever narrows; this field is display/history-only,
@@ -405,6 +414,16 @@ export function normalizeLegacyObjective(legacy: { status: string; objective: un
   return legacy.objective;
 }
 
+// A-fix (F1b) — the ONLY genuinely "unverified" rows left once Bundle B made
+// every solve truthful: a row with NEITHER a real solutionStatus NOR a real
+// terminationReason ever set (i.e. it predates B3 entirely). A B-truthful
+// row (real solutionStatus/terminationReason, no envelopeVersion yet) is
+// SAFE — its edges/metrics are already trustworthy — so it must NOT be
+// flagged unverified just because it isn't v2-shaped yet.
+function hasTruthfulStatusEvidence(legacy: ResultEnvelope): boolean {
+  return legacy.solutionStatus != null || legacy.terminationReason != null;
+}
+
 // Read-time-only normalization (§2.7) — never backfilled, never re-solved.
 export function normalizeLegacyResult(legacy: ResultEnvelope): NormalizedLegacySolveResult {
   return NormalizedLegacySolveResultSchema.parse({
@@ -412,7 +431,7 @@ export function normalizeLegacyResult(legacy: ResultEnvelope): NormalizedLegacyS
     status: null,
     solutionStatus: null,
     terminationReason: "unknown",
-    legacyUnverified: true,
+    legacyUnverified: !hasTruthfulStatusEvidence(legacy),
     legacyStatus: legacy.status,
     quality: LEGACY_UNVERIFIED_QUALITY,
     objective: normalizeLegacyObjective(legacy),
@@ -436,12 +455,16 @@ export function normalizeLegacyResult(legacy: ResultEnvelope): NormalizedLegacyS
 // §2.14 release-state matrix): a v2 published row (envelopeVersion===2)
 // passes through unchanged; anything else (historical-unversioned OR B's
 // truthful-but-unversioned — both share the same raw ResultEnvelopeSchema
-// shape, §2.14 representations #1/#2) goes through the legacy normalizer.
-// NOT wired into any live route in A4 — routes/scenarios.ts's toApiScenario()
-// keeps its existing presentResultForRead() output unchanged (normalizing
-// `status` to null would be a real, currently-unhandled frontend-visible
-// change; wiring this in is A8/A9's job). Exported so A8/A9 adopt this
-// exact logic rather than re-deriving it.
+// shape, §2.14 representations #1/#2) goes through the legacy normalizer,
+// which itself (as of A-fix/F1b) further splits on truthful-status evidence
+// — see hasTruthfulStatusEvidence/normalizeLegacyResult above: only a
+// GENUINELY pre-B row (neither solutionStatus nor terminationReason ever
+// set) comes back legacyUnverified:true. Wired into routes/scenarios.ts's
+// isLegacyUnverifiedResult (the output-export 409 gate) and
+// routes/solveHistory.ts's deriveLegacyUnverified (the history badge) — both
+// call sites read only `.legacyUnverified` off this function's return value,
+// so this single narrowing fixes both. Exported so A8/A9 adopt this exact
+// logic rather than re-deriving it.
 export function normalizeStoredResult(stored: StoredScenarioResult): NormalizedSolveResult {
   if (typeof stored === "object" && stored !== null && "envelopeVersion" in stored && (stored as { envelopeVersion?: unknown }).envelopeVersion === 2) {
     return stored as PublishedSolveResultV2;
@@ -464,6 +487,37 @@ export interface JobRequestedLimits {
 // values. NOT wired into jobRunner.ts's real write path in A4 (scope
 // boundary — A4 defines and directly tests this function; A6/A7 activate
 // the v2 cache/publish path that calls it in production).
+// A-fix (F1a) — a real landmine found while wiring composePublishedResult
+// into jobRunner.ts's live publish path. solve.py's infeasible/unbounded/
+// no_solution branches report a placeholder top-level `objective: 0` (never
+// null) — confirmed by reading solve.py's `_envelope(...)` call sites and
+// cbc_termination.py's `_result(...)` directly: solverIncumbentObjective/
+// solverBestBound/achievedGap are already correctly null for these three
+// statuses, only the separate `objective` argument is hardcoded 0. §2.4's
+// invariant matrix (enforced by ResultCacheEntryV2Schema/
+// PublishedSolveResultV2Schema via checkResultInvariants) requires a NULL
+// objective for exactly these three statuses — without this normalization,
+// composePublishedResult would throw a ZodError on every genuine infeasible/
+// unbounded/no_solution solve the instant SOLVER_V2_WRITE_ENABLED is turned
+// on, silently downgrading a legitimate published result into a job
+// failure. TS-side presentation fix only, at the v2 compose boundary — never
+// touches solve.py (hard rule 6 governs solve.py only); the same
+// normalization normalizeLegacyObjective already performs for the legacy
+// READ path, applied here at the v2 WRITE/compose boundary instead.
+// Exported so jobRunner.ts's two composePublishedResult call sites
+// (cache-hit and fresh-solve) share this exact transform, applied BEFORE
+// ResultCacheEntryV2Schema's own invariant-checked parse (not merely inside
+// composePublishedResult, which is too late — the raw envelope must already
+// be sanitized before it's first validated as a ResultCacheEntryV2).
+const CACHE_ENTRY_V2_NULL_OBJECTIVE_STATUSES = new Set(["infeasible", "unbounded", "no_solution"]);
+
+export function sanitizeCacheEntryV2Objective(raw: Record<string, unknown>): Record<string, unknown> {
+  const status = raw.status;
+  if (typeof status !== "string" || !CACHE_ENTRY_V2_NULL_OBJECTIVE_STATUSES.has(status)) return raw;
+  if (raw.objective === null) return raw;
+  return { ...raw, objective: null };
+}
+
 export function composePublishedResult(
   cacheableResult: ResultCacheEntryV2,
   job: JobRequestedLimits,

@@ -343,6 +343,51 @@ describe("normalizeLegacyResult / NormalizedLegacySolveResultSchema (§2.7)", ()
     expect(normalized.objective).toBeNull();
     expect(normalized.legacyStatus).toBe("infeasible");
   });
+
+  // A-fix (F1b) — legacyUnverified now depends on whether the ROW ITSELF
+  // carries genuine truthful-status evidence, not merely "failed to parse
+  // as v2." Direct unit coverage of every combination of the two evidence
+  // fields, complementing resultContractBoundary.test.ts's HTTP-boundary
+  // coverage of the same rule.
+  describe("legacyUnverified narrowing (A-fix F1b) — true ONLY for genuinely pre-B rows", () => {
+    it("neither solutionStatus nor terminationReason set → legacyUnverified:true (genuinely pre-B)", () => {
+      const normalized = normalizeLegacyResult(LEGACY_ROW);
+      expect(normalized.legacyUnverified).toBe(true);
+    });
+
+    it("a real solutionStatus set (terminationReason absent) → legacyUnverified:false", () => {
+      const normalized = normalizeLegacyResult({ ...LEGACY_ROW, solutionStatus: "optimal" });
+      expect(normalized.legacyUnverified).toBe(false);
+    });
+
+    it("a real terminationReason set (solutionStatus absent) → legacyUnverified:false", () => {
+      const normalized = normalizeLegacyResult({ ...LEGACY_ROW, terminationReason: "optimality_proven" });
+      expect(normalized.legacyUnverified).toBe(false);
+    });
+
+    it("both solutionStatus and terminationReason set (the real B-truthful shape) → legacyUnverified:false", () => {
+      const normalized = normalizeLegacyResult({
+        ...LEGACY_ROW,
+        solutionStatus: "optimal",
+        terminationReason: "optimality_proven",
+        solverIncumbentObjective: 250,
+        solverBestBound: 250,
+        achievedGap: 0,
+      });
+      expect(normalized.legacyUnverified).toBe(false);
+      // Still normalizes to the v1 discriminated shape — legacyUnverified is
+      // the only thing that changed, not envelopeVersion or the nulled
+      // status/solutionStatus fields (that's an A9-scoped concern, unchanged
+      // by this fix).
+      expect(normalized.envelopeVersion).toBe(1);
+      expect(NormalizedLegacySolveResultSchema.safeParse(normalized).success).toBe(true);
+    });
+
+    it("an explicit null on both fields (not merely absent) is still treated as pre-B (!= null check covers both)", () => {
+      const normalized = normalizeLegacyResult({ ...LEGACY_ROW, solutionStatus: null, terminationReason: null });
+      expect(normalized.legacyUnverified).toBe(true);
+    });
+  });
 });
 
 describe("normalizeStoredResult — the three-way discriminator (A0 §2.14)", () => {

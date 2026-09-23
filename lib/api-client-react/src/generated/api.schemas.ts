@@ -533,7 +533,8 @@ export interface NormalizedLegacySolveResult {
   /** @nullable */
   solutionStatus: null;
   terminationReason: NormalizedLegacySolveResultTerminationReason;
-  legacyUnverified: true;
+  /** A-fix (F1b): true ONLY for a genuinely pre-B row (neither solutionStatus nor terminationReason ever set). A row carrying real truthful-status evidence (Bundle B) but not yet v2-shaped is legacyUnverified:false — safe to export/un-badge. */
+  legacyUnverified: boolean;
   /** The raw historical status field, isolated — never re-exposed as the truthful `status`. */
   legacyStatus: NormalizedLegacySolveResultLegacyStatus;
   /** A non-proof legacy string (e.g. "Legacy result (unverified)") — never "Proven optimal"/"Optimal", which would recreate the false-proof defect B fixed. */

@@ -24,7 +24,7 @@ describe("routes/scenarios.ts's private->public boundary (A4)", () => {
     expect(presentResultForRead(null)).toBeNull();
   });
 
-  it("a post-B2 stored row (already has a solutionStatus key) is representable as StoredScenarioResult and normalizes to v1", () => {
+  it("a post-B2 stored row (already has a solutionStatus key) is representable as StoredScenarioResult and normalizes to v1 — but is NOT legacy-unverified (A-fix F1b)", () => {
     const postB2Row = ResultEnvelopeSchema.parse({
       status: "optimal",
       solutionStatus: "optimal",
@@ -49,11 +49,13 @@ describe("routes/scenarios.ts's private->public boundary (A4)", () => {
     const normalized = normalizeStoredResult(StoredScenarioResultSchema.parse(presented));
     expect(NormalizedSolveResultSchema.safeParse(normalized).success).toBe(true);
     // Today's toApiScenario() never writes envelopeVersion, so this row is
-    // NOT distinguishable from B-unversioned — normalizeStoredResult
-    // correctly treats it as legacy (never promoted to a proven v2 claim
-    // it was never actually validated as).
+    // NOT distinguishable from B-unversioned SHAPE-wise — normalizeStoredResult
+    // still normalizes it to the v1 (envelopeVersion:1) discriminated shape.
     expect(normalized.envelopeVersion).toBe(1);
-    expect((normalized as { legacyUnverified: boolean }).legacyUnverified).toBe(true);
+    // A-fix (F1b) — but it DOES carry a real solutionStatus/terminationReason
+    // (Bundle B already made this row truthful), so it is legacyUnverified:
+    // false — only a GENUINELY pre-B row (neither field ever set) is true.
+    expect((normalized as { legacyUnverified: boolean }).legacyUnverified).toBe(false);
   });
 
   it("a pre-B2 stored row (NO solutionStatus key at all) is stamped solutionStatus:null by presentResultForRead, and still normalizes cleanly", () => {
@@ -115,7 +117,7 @@ describe("routes/scenarios.ts's private->public boundary (A4)", () => {
   // normalizeStoredResult() call, for solve history). Unit-level coverage
   // here complements the HTTP-level tests in routes.test.ts.
   describe("isLegacyUnverifiedResult() (A8)", () => {
-    it("a post-B2 row with a real solutionStatus key is STILL legacy-unverified — never promoted without a genuine envelopeVersion:2", () => {
+    it("a post-B2 row with a real solutionStatus key is NOT legacy-unverified (A-fix F1b) — a truthful B row is safe to export/un-badge even without a genuine envelopeVersion:2", () => {
       const postB2Row = ResultEnvelopeSchema.parse({
         status: "optimal",
         solutionStatus: "optimal",
@@ -132,7 +134,7 @@ describe("routes/scenarios.ts's private->public boundary (A4)", () => {
         solverUsed: "CBC (PuLP)",
         infeasibilityReason: null,
       });
-      expect(isLegacyUnverifiedResult(postB2Row as unknown as Record<string, unknown>)).toBe(true);
+      expect(isLegacyUnverifiedResult(postB2Row as unknown as Record<string, unknown>)).toBe(false);
     });
 
     it("a pre-B2 row with no solutionStatus key at all is legacy-unverified", () => {

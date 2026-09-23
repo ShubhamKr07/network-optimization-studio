@@ -290,28 +290,28 @@ const chensRow = {
   updatedAt: new Date("2026-01-06T00:00:00Z"),
 };
 
-// A8 (SCND Correctness, §2.7.1) — output-entity export now 409s a
-// legacy-unverified result. Every bare `{status:"optimal", objective, ...}`
-// fixture below (the shape solve.py has always written, pre-A11 v2-write
-// activation) is legacy-unverified by construction (no envelopeVersion key
-// at all — see resultEnvelope.ts's normalizeStoredResult). A test that must
-// keep asserting a SUCCESSFUL (200) output-entity export wraps its fixture
-// in this helper, which adds exactly the fields PublishedSolveResultV2Schema
-// requires on top of the caller's own model-specific edges/metrics/details —
-// nothing about those fields' assertions changes.
+// A8 (SCND Correctness, §2.7.1), fixed under A-fix (F1b/F3) — output-entity
+// export 409s only a GENUINELY pre-B legacy-unverified result (neither
+// solutionStatus nor terminationReason ever set — see resultEnvelope.ts's
+// hasTruthfulStatusEvidence/normalizeLegacyResult). This helper used to
+// fabricate `envelopeVersion:2, legacyUnverified:false` directly onto the
+// fixture — a shape production code NEVER actually writes without going
+// through composePublishedResult (which, pre-A-fix, had zero production
+// callers — see resultEnvelope.ts's own header). That let this whole test
+// file's "verified/200" fixtures pass for the wrong reason, silently masking
+// the real F1 wiring gap. Now produces the TRUTHFUL, ACTUALLY-PRODUCED B
+// shape instead: a real `solutionStatus`/`terminationReason` (exactly what
+// jobRunner.ts's markSucceeded has written for every solve since Bundle B),
+// no `envelopeVersion`/`legacyUnverified` fields at all — B rows never carry
+// either. `isLegacyUnverifiedResult` correctly returns false for this shape
+// under the fixed rule, same test outcome, honest mechanism.
 function verifiedResult<T extends { status: string; objective: number }>(base: T): T & Record<string, unknown> {
   return {
-    envelopeVersion: 2,
     solutionStatus: base.status,
     terminationReason: base.status === "optimal" ? "optimality_proven" : "unknown",
     achievedGap: 0,
     solverIncumbentObjective: base.objective,
     solverBestBound: base.objective,
-    requestedGap: null,
-    requestedGapSource: null,
-    requestedTimeLimitSec: null,
-    requestedTimeLimitSource: null,
-    legacyUnverified: false,
     ...base,
   };
 }
@@ -630,6 +630,39 @@ describe("PATCH /api/scenarios/:id", () => {
     const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
       .send({ inputs: pmedianInputs, modelId: "transport-coal" });
     expect(res.status).toBe(422);
+  });
+
+  // A-fix (F2) — `result` is solver-owned; a client can never PATCH it.
+  // Before this fix, `body.result` was read and written verbatim with no
+  // schema constraining it — a real, confirmed vector for an owner to
+  // self-certify a fabricated `{envelopeVersion:2, legacyUnverified:false}`
+  // result and pass the output-export legacy-unverified gate with no real
+  // solve having run.
+  it("returns 422 when the body includes result (solver-owned, never client-settable) and never writes it", async () => {
+    const cookie = await loginAs(OWNER);
+    const forged = {
+      envelopeVersion: 2, status: "optimal", solutionStatus: "optimal",
+      terminationReason: "optimality_proven", achievedGap: 0,
+      solverIncumbentObjective: 1, solverBestBound: 1, objective: 1,
+      runTimeSec: 0.01, quality: "Proven optimal", edges: [], metrics: {},
+      details: {}, solverUsed: "CBC", infeasibilityReason: null,
+      requestedGap: null, requestedGapSource: null,
+      requestedTimeLimitSec: null, requestedTimeLimitSource: null,
+      legacyUnverified: false,
+    };
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
+      .send({ result: forged });
+    expect(res.status).toBe(422);
+    // The forgery attempt never reaches db.update at all.
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 for a result-forgery attempt even when combined with a legitimate inputs change (the whole request is rejected, not partially applied)", async () => {
+    const cookie = await loginAs(OWNER);
+    const res = await request(app).patch("/api/scenarios/1").set("Cookie", cookie)
+      .send({ inputs: pmedianInputs, result: { status: "optimal" } });
+    expect(res.status).toBe(422);
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("returns 422 when inputs fails model-specific validation", async () => {

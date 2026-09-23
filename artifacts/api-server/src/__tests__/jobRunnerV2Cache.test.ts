@@ -67,9 +67,18 @@ function emitFd3(child: FakeChild, obj: unknown) {
   child.fd3.emit("data", Buffer.from(JSON.stringify(obj) + "\n"));
 }
 
+// A-fix (F1a) — solverIncumbentObjective/solverBestBound/achievedGap are
+// REQUIRED non-null for an "optimal" row by §2.4's invariant matrix
+// (checkResultInvariants), enforced by ResultCacheEntryV2Schema/
+// PublishedSolveResultV2Schema the moment composePublishedResult is
+// actually wired into the live publish path (which it now is — this file
+// predates that wiring, so this fixture previously never needed to satisfy
+// it). Real solve.py output always sets these for an optimal solve
+// (cbc_termination.py's `_result(...)`); this fixture now matches that.
 const envelope = {
   status: "optimal", objective: 42, runTimeSec: 0.2, quality: "Optimal",
   solutionStatus: "optimal", terminationReason: "optimality_proven",
+  solverIncumbentObjective: 42, solverBestBound: 42, achievedGap: 0,
   edges: [], metrics: { weightedAvgDistance: 7 }, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
 };
 
@@ -215,14 +224,31 @@ describe("v2 cache path (isV2WriteEnabled()=true)", () => {
 // The flag-OFF half of this table (cache everything, pre-A7 behavior
 // unchanged) is covered in jobRunner.test.ts.
 describe("A7 — outcome-specific cache/publish lifecycle (flag ON)", () => {
-  const cacheableCases: { status: string; objective: number }[] = [
-    { status: "optimal", objective: 100 },
-    { status: "feasible", objective: 150 }, // "cache only under the complete effective-limit/version key" — satisfied here BY the v2 key itself
-    { status: "infeasible", objective: 0 },
-    { status: "unbounded", objective: -1 },
+  // A-fix (F1a) — terminationReason/solverIncumbentObjective/solverBestBound/
+  // achievedGap now vary per status to satisfy §2.4's invariant matrix
+  // (checkResultInvariants), which composePublishedResult enforces the
+  // moment it's actually wired into the live publish path (now true — this
+  // describe block predates that wiring, so these fixtures previously never
+  // needed to satisfy it; a placeholder terminationReason:"unknown" for
+  // every non-optimal status, with no incumbent/bound/gap evidence at all,
+  // would violate every one of these statuses' real invariant row). Mirrors
+  // what real solve.py/cbc_termination.py actually emit for each status.
+  const cacheableCases: {
+    status: string;
+    objective: number;
+    terminationReason: string;
+    solverIncumbentObjective: number | null;
+    solverBestBound: number | null;
+    achievedGap: number | null;
+  }[] = [
+    { status: "optimal", objective: 100, terminationReason: "optimality_proven", solverIncumbentObjective: 100, solverBestBound: 100, achievedGap: 0 },
+    // "cache only under the complete effective-limit/version key" — satisfied here BY the v2 key itself.
+    { status: "feasible", objective: 150, terminationReason: "gap_limit", solverIncumbentObjective: 150, solverBestBound: 140, achievedGap: 0.0667 },
+    { status: "infeasible", objective: 0, terminationReason: "infeasible", solverIncumbentObjective: null, solverBestBound: null, achievedGap: null },
+    { status: "unbounded", objective: -1, terminationReason: "unbounded", solverIncumbentObjective: null, solverBestBound: null, achievedGap: null },
   ];
 
-  it.each(cacheableCases)("flag ON: a fresh '$status' solve IS cached under the v2 key, and published", async ({ status, objective }) => {
+  it.each(cacheableCases)("flag ON: a fresh '$status' solve IS cached under the v2 key, and published", async ({ status, objective, terminationReason, solverIncumbentObjective, solverBestBound, achievedGap }) => {
     const enqueueChain = makeChain([{ id: 1 }]);
     const cacheInsertChain = makeChain([{}]);
     mockDb.insert.mockReturnValueOnce(enqueueChain).mockReturnValueOnce(cacheInsertChain);
@@ -239,7 +265,8 @@ describe("A7 — outcome-specific cache/publish lifecycle (flag ON)", () => {
 
     const outcomeEnvelope = {
       status, objective, runTimeSec: 0.2, quality: status,
-      solutionStatus: status, terminationReason: status === "optimal" ? "optimality_proven" : "unknown",
+      solutionStatus: status, terminationReason,
+      solverIncumbentObjective, solverBestBound, achievedGap,
       edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: status === "infeasible" ? "no feasible assignment" : null,
     };
 
@@ -295,8 +322,22 @@ describe("A7 — outcome-specific cache/publish lifecycle (flag ON)", () => {
       .mockReturnValueOnce(jobUpdateChain)
       .mockReturnValueOnce(jobUpdateChain)
       .mockReturnValueOnce(scenarioUpdateChain);
+    // A-fix (F1a) — a real (not spread-from-`envelope`) no_solution-shaped
+    // cache row: no_solution's own invariant row requires
+    // terminationReason in {time_limit,node_limit} and null incumbent/gap —
+    // spreading `envelope` (an "optimal" fixture) and overriding only
+    // status/solutionStatus would inherit optimal's terminationReason/
+    // solverIncumbentObjective/solverBestBound/achievedGap, violating
+    // no_solution's own invariant row instead.
     mockDb.select.mockReturnValueOnce(makeChain([
-      { inputsHash: computeInputsHashV2(baseInput), modelId: "p-median-us", result: { ...envelope, status: "no_solution", solutionStatus: "no_solution" } },
+      {
+        inputsHash: computeInputsHashV2(baseInput), modelId: "p-median-us",
+        result: {
+          status: "no_solution", objective: 0, runTimeSec: 0.2, quality: "No incumbent",
+          solutionStatus: "no_solution", terminationReason: "time_limit",
+          edges: [], metrics: {}, details: {}, solverUsed: "CBC (PuLP)", infeasibilityReason: null,
+        },
+      },
     ]));
 
     await enqueueSolveJob(12, "user-1", baseInput);
