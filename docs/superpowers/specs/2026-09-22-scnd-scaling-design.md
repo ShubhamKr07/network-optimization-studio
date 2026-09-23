@@ -1,17 +1,17 @@
 # SCND Scaling — Solver-Tier + Scheduled-Autoscale Spec
 
 **Date:** 2026-09-22
-**Status:** **All review findings are closed in text; Stage 1 (architecture/spec) approval is the reviewer's to give.** Five review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction; round 3: S-R13…S-R16 + three consistency edits; round 4: S-R17…S-R20; round 5: S-R21…S-R22). All five review texts are preserved verbatim in commits `02d105f`, `1e0f29a`, `eba7fb2`, `1064c46` and `1a5a24e`; the per-finding record is §11. **All twenty-six findings are accepted**; rounds 2–5 needed no divergent remedies. Round 5's stated criterion was *"I would approve the architecture/spec after S-R21 and S-R22 close"* — both close here, but **the document does not declare its own approval.**
+**Status:** **All review findings are closed in text; Stage 1 (architecture/spec) approval is the reviewer's to give.** Six review rounds are folded into the body below (round 1: S-R1…S-R8 + four important corrections; round 2: S-R9…S-R12 + SP-1 direction; round 3: S-R13…S-R16 + three consistency edits; round 4: S-R17…S-R20; round 5: S-R21…S-R22; round 6: S-R23). All six review texts are preserved verbatim in commits `02d105f`, `1e0f29a`, `eba7fb2`, `1064c46`, `1a5a24e` and `ad95d3b`; the per-finding record is §11. **All twenty-seven findings are accepted**; rounds 2–6 needed no divergent remedies. Round 6's stated criterion was *"after S-R23 closes, I would approve Stage 1 — architecture/spec"* — it closes here, but **the document does not declare its own approval.**
 
 **Three approvals were being conflated, and this status line was the worst offender** — for three rounds it said SP-1 and the connection ceiling held "implementation planning," implying those two were sufficient. Round 4 split them into stages; **round 5 found that split still wrong, because Stage 1 demanded facts only Stage 2 can produce** (S-R22). Corrected:
 
 | Stage | What it approves | Prerequisites |
 |---|---|---|
 | **1 — Architecture / spec** | That this design is the right shape and may proceed toward a plan. **Not** authorization to implement, and specifically not to build the selected fleet | **All design findings closed** — nothing else. SP-1 and connection capacity are recorded as **contingent decisions** (below), not gates |
-| **2 — Measurement-sized implementation plan** | A `writing-plans` pass against a *known* topology | Stage 1, **plus** A complete (A4–A13 in flight), Measurement Phases 3–4 results, §1.1's outcome row selected, §10's measured values in hand — including `mean_service_sec`, which **no Measurement artifact currently emits**. **Then the contingent decision for the selected row:** O1/O2 → a recorded SP-1 waiver; O3/O4 → the completed §3.2 ledger validated against the live Postgres ceiling |
+| **2 — Measurement-sized implementation plan** | A `writing-plans` pass against a *known* topology | Stage 1, **plus** A complete (A4–A13 in flight), Measurement Phases 3–4 results, §1.1's outcome row selected, §10's measured values in hand — including `mean_service_sec`, which **no Measurement artifact currently emits**. **Then the contingent decision for the selected row** (branched per S-R23, §1.1a): O1/O2 **+ waiver (b)** → the recorded waiver is the authorization, no ledger needed; O1/O2 **+ hold (a)** → the isolation-required worker path, which needs the completed §3.2 ledger and live ceiling exactly as O3 does; O3/O4 → the completed ledger validated against the live ceiling |
 | **3 — Real-cohort pilot** | Students on it | Stage 2 built, **plus** the applicable §5.1 gate set passing on the **final built topology** (not the prototype), MP-4, and — under O4 — §1.1's coalescing condition; under O1/O2 the SP-1 waiver |
 
-**The two long-standing blockers are mutually exclusive by outcome, which the old flat framing hid.** SP-1 fires only for O1/O2 — the outcomes with no worker tier. The connection ledger matters only for O3/O4 — the outcomes that build one. Neither is answerable before Measurement selects a row, and demanding both up front forced a product decision on a question that may never be asked. Each stage's evidence is independent: Stage 1 never implies Stage 2, and Stage 2 never implies Stage 3.
+**The two long-standing blockers are near-exclusive by outcome, which the old flat framing hid.** SP-1 fires only for O1/O2 — the outcomes with no worker tier. The connection ledger matters for O3/O4, **and also for O1/O2 if SP-1 is answered (a)**, since that branch builds a worker tier on policy grounds (§1.1a, S-R23). Neither is answerable before Measurement selects a row, and demanding both up front forced a product decision on a question that may never be asked. Each stage's evidence is independent: Stage 1 never implies Stage 2, and Stage 2 never implies Stage 3.
 
 **A pattern worth stating rather than burying:** the admission model has now been wrong in **four consecutive rounds** — named-but-unspecified (S-R7), wrong units (S-R12), dimensionally invalid while citing a nonexistent field (S-R13), and counting nominal instead of claimable capacity while never serializing its own decision (S-R17/S-R18). Each fix introduced the next defect. It is the one part of this document that has never survived a review, and it should be read with more suspicion than the rest.
 The Scaling successor named in `2026-09-20-scnd-scaling-phase0-design.md` §13.1 ("B2 — durable isolated solver tier + pilot gate"). Direction inherited from the original brainstorm `2026-09-19-scnd-scaling-design.md` (Option B: split solver tier + scheduled autoscale ≈ $70/mo).
@@ -61,12 +61,31 @@ The predecessor split ledger (`2026-09-20-scnd-scaling-phase0-design.md` §13.1,
 
 The test already exists in §5's reliability suite; this gives its result an authority it previously lacked. §3's SP-2 and §5 both defer to this sentence rather than restating it.
 
+### 1.1a The policy axis — what O1/O2 actually build (S-R23)
+
+**The matrix above is keyed on *capacity* alone, and that was an incomplete model.** SP-1 is a second, independent axis — *policy* — and O1/O2 crossed with SP-1's two answers gives four cells, of which the document only ever described one. The consequence was concrete: **the option the reviewer recommends, (a) hold the isolation rule, led nowhere.** O1/O2 said "build no worker," Stage 2 said "O1/O2 need a waiver," and there is no waiver under (a) — so the preferred answer produced no topology, no ledger trigger and no applicable gate set.
+
+This also made SP-1 quietly unanswerable. You cannot weigh "hold the rule" against "waive it" when only the waiver branch has a written consequence. Naming both is what makes the checkpoint legitimate:
+
+| Capacity outcome | SP-1 answer | What gets built | Ledger | Gate set |
+|---|---|---|---|---|
+| O1 / O2 | **(b) recorded waiver** | Nothing (O1) or an instance-plan change (O2). `api_dispatch` retained | Not triggered — no worker pools | **G-API** + MP-4 + the recorded waiver |
+| O1 / O2 | **(a) hold the rule** | **The isolation-required worker path:** the *minimum* dedicated worker topology — O3's build (worker service, §1.2 cutover, §1.3 registry, §3.1 retry, §3.2 admission, §6 retention), driven by **policy, not capacity** | **Required** — completed §3.2 ledger + live ceiling | **G-WORKER** + MP-4. If the built worker cannot meet the final measured SLO, escalate to **O4 / G-FLEET** |
+| O3 / O4 | Never asked — the worker tier satisfies the rule by construction | Per the matrix above | Required | G-WORKER / G-FLEET |
+
+**Under (a), capacity says a worker is unnecessary and policy says build one anyway.** That is not a contradiction to be resolved in the document — it is precisely the trade SP-1 exists to put to an accountable owner, and it is a real cost: an always-on worker tier the measured load does not require, bought to keep a reliability rule that predates A. **Stating the cost is what lets the question be answered honestly**; hiding it behind "no pilot authority from this document" made (a) look free.
+
+No new gate set and no new mechanism: (a) reuses O3's build and G-WORKER unchanged.
+
 **O1 and O2 carry identical authority** *(S-R19)*. Round 3 had O1 saying "no pilot authority comes from this document" while §5.1's G-API admitted O1 under an SP-1 waiver — two sources of truth for the same waived pilot. They are the same situation: a non-isolated API tier, differing only in whether a larger instance was purchased. The stricter-sounding O1 wording was not stricter, only contradictory; the waiver is what governs, and it governs both rows.
 
 **O2 is the row §4's "bump the instance + keep 24/7" sentence belongs to** — it is a real outcome, not a contradiction of the goal, and it is the one outcome where an autoscaled fleet would be the more expensive answer.
 
 > **SP-1 — approval checkpoint (ask at the Measurement decision point).**
-> *Measurement selected outcome O1/O2 (no worker isolation). The predecessor split ledger says worker isolation is mandatory before any real cohort pilot, regardless of topology — a rule locked before A existed, when the API had no durable queue, no lease and no drain. A has since shipped all three. Do you **(a)** hold the ledger rule and require a worker tier before any real cohort even though capacity does not demand one, or **(b)** record an explicit, owner-attributed waiver for this pilot citing A's landed reliability substrate?*
+> *Measurement selected outcome O1/O2 (no worker isolation). The predecessor split ledger says worker isolation is mandatory before any real cohort pilot, regardless of topology — a rule locked before A existed, when the API had no durable queue, no lease and no drain. A has since shipped all three. Do you **(a)** hold the ledger rule, or **(b)** record an explicit, owner-attributed waiver for this pilot citing A's landed reliability substrate?*
+> **Each option's consequence, so the question is answerable** *(added per S-R23 — round 5 wrote only (b)'s route, which made (a) look free and left the recommended answer leading nowhere)*:
+> **(a) Hold the rule** → build the minimum dedicated worker topology anyway (§1.1a): a worker service, its cutover, registry, retry, admission and retention, plus the connection ledger and live ceiling, gated by G-WORKER. **You pay for an always-on worker tier the measured load does not require**, to keep a reliability rule written before A existed. Escalates to O4/G-FLEET if one worker misses the final measured SLO.
+> **(b) Waive it** → build nothing (O1) or change the instance plan (O2), gated by G-API. **You run a real cohort on a non-isolated API tier**, relying on A's shipped durable queue, lease, boot recovery and drain — which is genuinely more than the rule's author had, and still less than isolation.
 > **Two options only.** A third — "run at a reduced cohort size" — was offered in round 1 and is **withdrawn as incoherent** (round 2): the rule prohibits *any* real cohort without isolation, so a smaller cohort is still a waiver, just an unrecorded one. Shrinking the blast radius is not a technical middle path; it is (b) without the accountability.
 > **Reviewer's recommendation is (a)** — hold the requirement. O1/O2 remain valid capacity and cost outcomes and are fine for internal demonstrations; they simply do not authorize a real pilot without the worker tier unless an accountable owner records the waiver.
 > This is a scope reversal of a locked decision; it is not mine to make.
@@ -353,8 +372,8 @@ Reuse the parent design's two independent gates. **Both remain mandatory, and ca
 
 | Set | Applies to | Reliability suite |
 |---|---|---|
-| **G-API** | O1 and O2 alike — **only under a recorded SP-1 waiver** (S-R19) | Option A's own API reliability proof: restart safety, owner-lease reclaim, no-orphan, boot recovery, SIGTERM drain, A7 publication CAS. Plus API capacity evidence at the guaranteed rate. **No worker, scaler or retry tests** — there is nothing to test |
-| **G-WORKER** | O3 | G-API, **plus** dispatcher-mode enforcement (incl. `worker_standby` never claims), the §1.3 claimant-registry cutover proof and idle-worker readiness, multi-worker claim under `SKIP LOCKED`, retry exhaustion incl. the final-attempt kill, per-user fairness/starvation, DB outage and pool exhaustion, peak connections under a rolling deployment, deletion/cancellation mid-solve |
+| **G-API** | O1 and O2 alike — **only under a recorded SP-1 waiver, answer (b)** (S-R19). Under answer (a) those outcomes take the isolation-required worker path and are gated by **G-WORKER** instead (§1.1a, S-R23) | Option A's own API reliability proof: restart safety, owner-lease reclaim, no-orphan, boot recovery, SIGTERM drain, A7 publication CAS. Plus API capacity evidence at the guaranteed rate. **No worker, scaler or retry tests** — there is nothing to test |
+| **G-WORKER** | O3, **and O1/O2 under SP-1 answer (a)** (§1.1a) | G-API, **plus** dispatcher-mode enforcement (incl. `worker_standby` never claims), the §1.3 claimant-registry cutover proof and idle-worker readiness, multi-worker claim under `SKIP LOCKED`, retry exhaustion incl. the final-attempt kill, per-user fairness/starvation, DB outage and pool exhaustion, peak connections under a rolling deployment, deletion/cancellation mid-solve |
 | **G-FLEET** | O4 | G-WORKER, **plus** missed scale-up and Render API failure, active-job scale-in (§2.1), reconciliation deadline, autoscaling-enabled detection, and the **cold-identical burst** — which under O4 is not merely informative but the input to §1.1's coalescing condition |
 
 **Single-flight is not a gate item in any set** (S-R4, unchanged): if §1.1's coalescing condition requires the successor spec and it is built, its acceptance tests join G-FLEET. Until then no gate depends on work that does not exist.
@@ -413,7 +432,7 @@ Nothing below is an oversight; each is a value this document is not entitled to 
 
 **Contingent decisions — someone other than the author must answer, but only once Measurement makes the question relevant** *(re-framed per S-R22; these were wrongly listed as Stage-1 gates for four rounds, which made Stage 1 unsatisfiable and forced a premature product call)*. **They are mutually exclusive by outcome:**
 - **SP-1 — fires only if Measurement selects O1/O2.** Does a capacity-passing API authorize a real cohort with no worker isolation? Reverses a locked ledger decision. **Two options, (a) or a recorded waiver (b); the round-2 reviewer recommends (a).** §1.1. Under O3/O4 this question never arises — the worker tier satisfies the rule by construction.
-- **Postgres `max_connections` on `basic-256mb` — needed only if Measurement selects O3/O4.** Genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. **Sequenced, per S-R12:** complete §3.2's maximum-simultaneous ledger *first*, then `SHOW max_connections` on the live instance, then observe `pg_stat_activity` **under a rolling deployment** (the only condition that exercises the deploy-overlap term). Reading the ceiling before the ledger is complete validates the wrong arithmetic confidently. If it does not fit, the pooler-or-bigger-plan cost lands in §4.
+- **Postgres `max_connections` on `basic-256mb` — needed whenever a worker tier is built: O3/O4, or O1/O2 under SP-1 answer (a)** (§1.1a). Not needed under O1/O2 + waiver (b), which builds no worker pools. Genuinely unknown in-repo. The post-migration audit (Task 5) recorded it unconfirmed and it still is. **Sequenced, per S-R12:** complete §3.2's maximum-simultaneous ledger *first*, then `SHOW max_connections` on the live instance, then observe `pg_stat_activity` **under a rolling deployment** (the only condition that exercises the deploy-overlap term). Reading the ceiling before the ledger is complete validates the wrong arithmetic confidently. If it does not fit, the pooler-or-bigger-plan cost lands in §4.
 
 **Product inputs (SP-3), not author choices:** class calendar days/windows, IANA timezone, pre-scale lead time (derives from measured boot-to-first-claim, so it is requested *after* measurement), and the §6 retention window in days.
 
@@ -426,6 +445,18 @@ Nothing below is an oversight; each is a value this document is not entitled to 
 ---
 
 ## 11. Review record
+
+### Round 6 — approval review, 2026-09-23
+
+Verbatim text in commit `ad95d3b` and collapsed below. **Accepted; no divergent remedy.** One finding, and it closes a hole the previous five rounds all walked past.
+
+| ID | Disposition | Where |
+|---|---|---|
+| S-R23 — SP-1 option (a) has no Stage-2 implementation route | **Accepted.** §1.1's matrix is keyed on **capacity**; SP-1 is an independent **policy** axis. O1/O2 × SP-1's two answers is four cells, and the document had written one. The consequence: **the reviewer's own recommended answer, (a) hold the rule, led nowhere** — no topology, no ledger trigger, no applicable gate set. New §1.1a routes it to the isolation-required worker path (O3's build, driven by policy not capacity), gated by G-WORKER, escalating to O4/G-FLEET if one worker misses the final SLO. No new mechanism | **§1.1a** (new), SP-1, preamble Stage 2, §5.1, §10 |
+
+**Why five rounds missed it.** Each earlier round asked whether a clause was *correct*; none asked whether every branch of a decision the document itself poses had somewhere to go. The matrix looked complete because its four rows were exhaustive **on the axis I had drawn** — and SP-1 was a second axis I never crossed with it. A decision offered to a product owner is part of the design's control flow, not commentary on it, and it needs the same "is every path reachable" check as code.
+
+**It also made SP-1 quietly unanswerable, which matters more than the missing route.** Only (b) had a written consequence, so (a) read as the cautious free choice. It is not free: it buys an always-on worker tier the measured load does not require. Both consequences are now attached to the question — the checkpoint was not legitimate until they were.
 
 ### Round 5 — approval review, 2026-09-23
 
@@ -688,7 +719,9 @@ Use the claimant registry as the sole live-capacity authority: add claim-accepta
 
 ---
 
-## 12. Round 6 approval review — 2026-09-23
+<details>
+<summary>Round 6 review text (verbatim, as received — superseded by the fold above)</summary>
+
 
 **Decision: REQUEST CHANGES / not approved.** The round-five fold closes the claimant control-plane and approval-timing defects. One decision path remains absent: the document recommends SP-1 option (a), holding the worker-isolation rule, but does not say what gets planned when Measurement selects an API-capacity outcome. This is a missing route, not a new reliability mechanism.
 
@@ -701,3 +734,5 @@ Use the claimant registry as the sole live-capacity authority: add claim-accepta
 ### Approval criterion
 
 After S-R23 closes, I would approve **Stage 1 — architecture/spec**. Stage 2 remains conditional on Measurement and the selected O1/O2 policy branch or O3/O4 topology; Stage 3 remains conditional on the applicable final-built-topology gate set, MP-4, and O4's coalescing condition.
+
+</details>
