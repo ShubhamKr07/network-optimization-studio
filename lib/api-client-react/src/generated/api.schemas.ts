@@ -409,6 +409,153 @@ export interface SolveResult {
   infeasibilityReason: string | null;
 }
 
+export type PublishedSolveResultV2EnvelopeVersion = typeof PublishedSolveResultV2EnvelopeVersion[keyof typeof PublishedSolveResultV2EnvelopeVersion];
+
+
+export const PublishedSolveResultV2EnvelopeVersion = {
+  NUMBER_2: 2,
+} as const;
+
+/**
+ * v2 projection of solutionStatus (§2.3) — never "error"; every execution failure travels the private failure branch to a failed job + public errorCode instead of this envelope.
+ */
+export type PublishedSolveResultV2Status = typeof PublishedSolveResultV2Status[keyof typeof PublishedSolveResultV2Status];
+
+
+export const PublishedSolveResultV2Status = {
+  optimal: 'optimal',
+  feasible: 'feasible',
+  infeasible: 'infeasible',
+  unbounded: 'unbounded',
+  no_solution: 'no_solution',
+} as const;
+
+/**
+ * Model-specific extras opaque to this contract.
+ */
+export type PublishedSolveResultV2Details = { [key: string]: unknown };
+
+/**
+ * The ONLY shape that reaches scenarios.result/public APIs once v2 writes are active (§2.6 schema #3): the versioned success envelope plus the CURRENT job's requested gap/time-limit values, attached by composePublishedResult() identically on the fresh-solve and cache-hit paths so a cache hit never returns a different request's requested values.
+ */
+export interface PublishedSolveResultV2 {
+  envelopeVersion: PublishedSolveResultV2EnvelopeVersion;
+  /** v2 projection of solutionStatus (§2.3) — never "error"; every execution failure travels the private failure branch to a failed job + public errorCode instead of this envelope. */
+  status: PublishedSolveResultV2Status;
+  solutionStatus: 'optimal' | 'feasible' | 'infeasible' | 'unbounded' | 'no_solution' | null;
+  terminationReason: TerminationReason | null;
+  /** @nullable */
+  achievedGap: number | null;
+  /** @nullable */
+  solverIncumbentObjective: number | null;
+  /** @nullable */
+  solverBestBound: number | null;
+  /**
+     * Nullable when there is no incumbent (infeasible/unbounded/ no_solution — §2.4). Deliberately more permissive than the adopted fd3 SolverSuccessEnvelopeV2 (A3), whose `objective` is still non-null: solve.py's infeasible/unbounded branches still emit a placeholder 0 today, a known gap outside this task's scope (a solve.py change, not owned by A4). This field is future-correct per §2.2/§2.4 ahead of that.
+     * @nullable
+     */
+  objective: number | null;
+  runTimeSec: number;
+  quality: string;
+  edges: Edge[];
+  metrics: SolveMetrics;
+  /** Model-specific extras opaque to this contract. */
+  details: PublishedSolveResultV2Details;
+  solverUsed: string;
+  /** @nullable */
+  infeasibilityReason: string | null;
+  /**
+     * The CURRENT job's requested gap (§2.12) — composed after cache lookup, never baked into the cached entry itself.
+     * @nullable
+     */
+  requestedGap: number | null;
+  requestedGapSource: 'request' | null;
+  /** @nullable */
+  requestedTimeLimitSec: number | null;
+  requestedTimeLimitSource: 'request' | null;
+  /** Always false on a v2 published result — true only on a normalized-legacy read (see NormalizedSolveResult). */
+  legacyUnverified: false;
+}
+
+export type NormalizedLegacySolveResultEnvelopeVersion = typeof NormalizedLegacySolveResultEnvelopeVersion[keyof typeof NormalizedLegacySolveResultEnvelopeVersion];
+
+
+export const NormalizedLegacySolveResultEnvelopeVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type NormalizedLegacySolveResultTerminationReason = typeof NormalizedLegacySolveResultTerminationReason[keyof typeof NormalizedLegacySolveResultTerminationReason];
+
+
+export const NormalizedLegacySolveResultTerminationReason = {
+  unknown: 'unknown',
+} as const;
+
+/**
+ * The raw historical status field, isolated — never re-exposed as the truthful `status`.
+ */
+export type NormalizedLegacySolveResultLegacyStatus = typeof NormalizedLegacySolveResultLegacyStatus[keyof typeof NormalizedLegacySolveResultLegacyStatus];
+
+
+export const NormalizedLegacySolveResultLegacyStatus = {
+  optimal: 'optimal',
+  infeasible: 'infeasible',
+  error: 'error',
+  feasible: 'feasible',
+  no_solution: 'no_solution',
+  unbounded: 'unbounded',
+} as const;
+
+export type NormalizedLegacySolveResultDetails = { [key: string]: unknown };
+
+/**
+ * Read-time-only normalization (§2.7) of a stored legacy/pre-v2 result — never backfilled, never re-solved. `status` is DEPRECATED and made null here specifically so a legacy read can never be confused with a truthful v2 claim; the raw historical value survives only as `legacyStatus`, isolated.
+ */
+export interface NormalizedLegacySolveResult {
+  envelopeVersion: NormalizedLegacySolveResultEnvelopeVersion;
+  /** @nullable */
+  status: null;
+  /** @nullable */
+  solutionStatus: null;
+  terminationReason: NormalizedLegacySolveResultTerminationReason;
+  legacyUnverified: true;
+  /** The raw historical status field, isolated — never re-exposed as the truthful `status`. */
+  legacyStatus: NormalizedLegacySolveResultLegacyStatus;
+  /** A non-proof legacy string (e.g. "Legacy result (unverified)") — never "Proven optimal"/"Optimal", which would recreate the false-proof defect B fixed. */
+  quality: string;
+  /**
+     * Status/evidence-aware (§2.7) — a legitimately stored 0 is preserved; a legacy infeasible/error row's objective is null. `=== 0` alone is never the emptiness test.
+     * @nullable
+     */
+  objective: number | null;
+  runTimeSec: number;
+  edges: Edge[];
+  metrics: SolveMetrics;
+  details: NormalizedLegacySolveResultDetails;
+  solverUsed: string;
+  /** @nullable */
+  infeasibilityReason: string | null;
+  /** @nullable */
+  solverIncumbentObjective: null;
+  /** @nullable */
+  solverBestBound: null;
+  /** @nullable */
+  achievedGap: null;
+  /** @nullable */
+  requestedGap: null;
+  /** @nullable */
+  requestedGapSource: null;
+  /** @nullable */
+  requestedTimeLimitSec: null;
+  /** @nullable */
+  requestedTimeLimitSource: null;
+}
+
+/**
+ * The read/API/UI union (§2.6 schema #5): published v2, or normalized-legacy v1. Not yet wired into any live response — A8/A9 activate consumers; defined now so the contract is stable and regenerable ahead of that.
+ */
+export type NormalizedSolveResult = PublishedSolveResultV2 | NormalizedLegacySolveResult;
+
 export type ScenarioModelId = typeof ScenarioModelId[keyof typeof ScenarioModelId];
 
 

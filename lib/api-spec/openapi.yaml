@@ -1153,6 +1153,212 @@ components:
         - solverUsed
         - infeasibilityReason
 
+    # A4 (SCND Correctness) — the public v2 result contract (§2.6/§2.7 of
+    # docs/superpowers/specs/2026-09-21-scnd-solver-result-contract-design.md,
+    # plan Task A4). STANDALONE and documentation-only as of A4: not
+    # referenced by any operation yet — Scenario.result above stays
+    # SolveResult, unchanged. v2 write/read activation is A6/A7/A8/A9/A11's
+    # job. Defined now, and regenerated into lib/api-zod/lib/api-client-react
+    # in this same commit (hard rule #1), so the contract is reviewable and
+    # stable ahead of activation. Server-owned Zod (resultEnvelope.ts)
+    # independently mirrors both schemas for runtime validation, per the
+    # schema-authority split (Q83) — Orval's zod client only emits a runtime
+    # schema for an operation-reachable component, and these two are
+    # deliberately unreferenced, so "server-owned Zod" is the correct
+    # authority for runtime parsing even though OpenAPI owns the shape.
+    PublishedSolveResultV2:
+      type: object
+      description: >-
+        The ONLY shape that reaches scenarios.result/public APIs once v2
+        writes are active (§2.6 schema #3): the versioned success envelope
+        plus the CURRENT job's requested gap/time-limit values, attached by
+        composePublishedResult() identically on the fresh-solve and
+        cache-hit paths so a cache hit never returns a different request's
+        requested values.
+      properties:
+        envelopeVersion:
+          type: integer
+          enum: [2]
+        status:
+          type: string
+          enum: [optimal, feasible, infeasible, unbounded, no_solution]
+          description: v2 projection of solutionStatus (§2.3) — never "error"; every execution failure travels the private failure branch to a failed job + public errorCode instead of this envelope.
+        solutionStatus:
+          oneOf:
+            - type: string
+              enum: [optimal, feasible, infeasible, unbounded, no_solution]
+            - type: "null"
+        terminationReason:
+          oneOf:
+            - $ref: "#/components/schemas/TerminationReason"
+            - type: "null"
+        achievedGap:
+          type: ["number", "null"]
+        solverIncumbentObjective:
+          type: ["number", "null"]
+        solverBestBound:
+          type: ["number", "null"]
+        objective:
+          type: ["number", "null"]
+          description: >-
+            Nullable when there is no incumbent (infeasible/unbounded/
+            no_solution — §2.4). Deliberately more permissive than the
+            adopted fd3 SolverSuccessEnvelopeV2 (A3), whose `objective` is
+            still non-null: solve.py's infeasible/unbounded branches still
+            emit a placeholder 0 today, a known gap outside this task's
+            scope (a solve.py change, not owned by A4). This field is
+            future-correct per §2.2/§2.4 ahead of that.
+        runTimeSec:
+          type: number
+        quality:
+          type: string
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Edge"
+        metrics:
+          $ref: "#/components/schemas/SolveMetrics"
+        details:
+          type: object
+          description: Model-specific extras opaque to this contract.
+        solverUsed:
+          type: string
+        infeasibilityReason:
+          type: ["string", "null"]
+        requestedGap:
+          type: ["number", "null"]
+          description: The CURRENT job's requested gap (§2.12) — composed after cache lookup, never baked into the cached entry itself.
+        requestedGapSource:
+          oneOf:
+            - type: string
+              enum: [request]
+            - type: "null"
+        requestedTimeLimitSec:
+          type: ["number", "null"]
+        requestedTimeLimitSource:
+          oneOf:
+            - type: string
+              enum: [request]
+            - type: "null"
+        legacyUnverified:
+          type: boolean
+          enum: [false]
+          description: Always false on a v2 published result — true only on a normalized-legacy read (see NormalizedSolveResult).
+      required:
+        - envelopeVersion
+        - status
+        - solutionStatus
+        - terminationReason
+        - achievedGap
+        - solverIncumbentObjective
+        - solverBestBound
+        - objective
+        - runTimeSec
+        - quality
+        - edges
+        - metrics
+        - details
+        - solverUsed
+        - infeasibilityReason
+        - requestedGap
+        - requestedGapSource
+        - requestedTimeLimitSec
+        - requestedTimeLimitSource
+        - legacyUnverified
+
+    NormalizedLegacySolveResult:
+      type: object
+      description: >-
+        Read-time-only normalization (§2.7) of a stored legacy/pre-v2
+        result — never backfilled, never re-solved. `status` is DEPRECATED
+        and made null here specifically so a legacy read can never be
+        confused with a truthful v2 claim; the raw historical value survives
+        only as `legacyStatus`, isolated.
+      properties:
+        envelopeVersion:
+          type: integer
+          enum: [1]
+        status:
+          type: "null"
+        solutionStatus:
+          type: "null"
+        terminationReason:
+          type: string
+          enum: [unknown]
+        legacyUnverified:
+          type: boolean
+          enum: [true]
+        legacyStatus:
+          type: string
+          enum: [optimal, infeasible, error, feasible, no_solution, unbounded]
+          description: The raw historical status field, isolated — never re-exposed as the truthful `status`.
+        quality:
+          type: string
+          description: A non-proof legacy string (e.g. "Legacy result (unverified)") — never "Proven optimal"/"Optimal", which would recreate the false-proof defect B fixed.
+        objective:
+          type: ["number", "null"]
+          description: Status/evidence-aware (§2.7) — a legitimately stored 0 is preserved; a legacy infeasible/error row's objective is null. `=== 0` alone is never the emptiness test.
+        runTimeSec:
+          type: number
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Edge"
+        metrics:
+          $ref: "#/components/schemas/SolveMetrics"
+        details:
+          type: object
+        solverUsed:
+          type: string
+        infeasibilityReason:
+          type: ["string", "null"]
+        solverIncumbentObjective:
+          type: "null"
+        solverBestBound:
+          type: "null"
+        achievedGap:
+          type: "null"
+        requestedGap:
+          type: "null"
+        requestedGapSource:
+          type: "null"
+        requestedTimeLimitSec:
+          type: "null"
+        requestedTimeLimitSource:
+          type: "null"
+      required:
+        - envelopeVersion
+        - status
+        - solutionStatus
+        - terminationReason
+        - legacyUnverified
+        - legacyStatus
+        - quality
+        - objective
+        - runTimeSec
+        - edges
+        - metrics
+        - details
+        - solverUsed
+        - infeasibilityReason
+        - solverIncumbentObjective
+        - solverBestBound
+        - achievedGap
+        - requestedGap
+        - requestedGapSource
+        - requestedTimeLimitSec
+        - requestedTimeLimitSource
+
+    NormalizedSolveResult:
+      description: >-
+        The read/API/UI union (§2.6 schema #5): published v2, or
+        normalized-legacy v1. Not yet wired into any live response — A8/A9
+        activate consumers; defined now so the contract is stable and
+        regenerable ahead of that.
+      oneOf:
+        - $ref: "#/components/schemas/PublishedSolveResultV2"
+        - $ref: "#/components/schemas/NormalizedLegacySolveResult"
+
     Scenario:
       type: object
       properties:
