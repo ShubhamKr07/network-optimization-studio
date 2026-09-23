@@ -280,11 +280,11 @@ describe("A1 — solve_jobs CHECK constraints (DB mirrors of the TypeScript enum
     expect(b.length).toBe(1);
   });
 
-  it("failure_reason rejects any value outside {internal_error, solver_error}", async () => {
+  it("failure_reason rejects any value outside {internal_error, solver_error, data_error}", async () => {
     await expect(insertJobRow({ failureReason: "bogus_reason" })).rejects.toThrow();
   });
 
-  it("failure_stage rejects any value outside the 9-value enum", async () => {
+  it("failure_stage rejects any value outside the 10-value enum", async () => {
     await expect(insertJobRow({ failureStage: "bogus_stage" })).rejects.toThrow();
   });
 

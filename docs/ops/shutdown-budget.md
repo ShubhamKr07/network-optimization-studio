@@ -39,8 +39,8 @@ the instance (deploy, scale-down, restart):
 |---|---|---|
 | Stop admission + stop scan | immediate | Reject new solve requests; stop the job-runner from picking up new queued jobs. No meaningful time cost — this is a flag flip, not I/O. |
 | In-flight solve grace | 60 s | Let any already-running CBC solve finish naturally. This is the dominant share of the budget on purpose — a solve that's already running is the one thing worth waiting for; everything else below is cleanup that should be fast and bounded. |
-| TERM grace | 5 s | If a solve is still running after the 60 s grace, send `SIGTERM` to the child process group and wait briefly for a clean exit. |
-| KILL + bounded group-death probe | 10 s | If TERM didn't work, `SIGKILL` the process group and poll/verify it's actually dead (CBC can fork helper processes — A3's process-group supervisor owns killing the whole group, not just the immediate child). |
+| TERM grace | ≤ 5 s | If a solve is still running after the 60 s grace, send `SIGTERM` to the child process group and wait briefly for a clean exit. Budget ceiling; the actual code constant is `TERM_GRACE_MS = 2 s` (`jobRunner.ts`). |
+| KILL + bounded group-death probe | ≤ 10 s | If TERM didn't work, `SIGKILL` the process group and poll/verify it's actually dead (CBC can fork helper processes — A3's process-group supervisor owns killing the whole group, not just the immediate child). Budget ceiling; the actual code constant is `GROUP_DEATH_TIMEOUT_MS = 3 s` (`jobRunner.ts`). |
 | Temp cleanup | 5 s | Remove any solver scratch files/temp directories left by the interrupted or completed solve. |
 | DB terminal/ownership-release update | 5 s | Move the job's `solve_jobs` row to a terminal state (see below) and release any ownership/lock markers, so nothing is left claimed by a process that's about to disappear. |
 | PostHog/Sentry flush | 5 s | Best-effort flush of any buffered telemetry before the process exits. |
