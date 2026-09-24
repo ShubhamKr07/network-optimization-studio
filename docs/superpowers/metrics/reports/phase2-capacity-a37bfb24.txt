@@ -1,0 +1,55 @@
+==============================================================================
+SCND Measurement -- Phase 2 capacity model (pure computation)
+arrival_rate_per_sec (ASSUMED, 50x50/hr programme decision) = 0.694
+==============================================================================
+
+--- EXCLUSION (explicit, product-owner-approved; sizing over usable mass) ---
+  dropped strata: ['p-median-brazil|free_choice|distance']
+  removed corpus mass (pre-renorm, summed over strata): 0.0323
+  remaining 30 strata renormalized to sum=1 for sizing.
+  Reason: defective corpus cases (distanceOverrides toId uses bare city
+  codes, not full CITY,STATE customer ids). Descriptive sections below
+  (2, 5) still use the FULL manifest and report the stratum as unusable.
+
+--- 1. Weighted mean CPU service demand (REAL, corpus-declared weights) ---
+  gap=0: E[S_cpu] = 1.5733 CPU-sec/job
+  gap=0.005: E[S_cpu] = 1.5551 CPU-sec/job
+  gap=0.01: E[S_cpu] = 1.5145 CPU-sec/job
+  gap=0.02: E[S_cpu] = 1.4860 CPU-sec/job
+
+--- 2. Descriptive weighted p95 wall (REAL; NEVER used for sizing) ---
+  gap=0: partial (missing/unusable: ['p-median-brazil|free_choice|distance|0.0']) weighted_p95_wall(over usable mass 0.968) = 2.8903s
+  gap=0.005: partial (missing/unusable: ['p-median-brazil|free_choice|distance|0.005']) weighted_p95_wall(over usable mass 0.968) = 2.8713s
+  gap=0.01: partial (missing/unusable: ['p-median-brazil|free_choice|distance|0.01']) weighted_p95_wall(over usable mass 0.968) = 2.6918s
+  gap=0.02: partial (missing/unusable: ['p-median-brazil|free_choice|distance|0.02']) weighted_p95_wall(over usable mass 0.968) = 2.6133s
+
+--- 3. Free-choice-frequency sensitivity (ASSUMED alternate weights, gap=0) ---
+  declared-weight E[S_cpu](gap=0) = 1.5733
+  alt-weight(forced=0.2/free=0.8) E[S_cpu](gap=0) = 1.5825
+  relative change = +0.58%  (sensitivity input, NOT a forecast)
+
+--- 4. Required CORES at assumed 50x50/hr rate (ASSUMED efficiency/headroom) ---
+  UNCALIBRATED: parallel_efficiency and headroom are declared assumptions,
+  not measured (M2.1b calibration needs Render infra, out of scope here).
+  efficiency  headroom      cores
+        1.00      0.20      1.365
+        1.00      0.30      1.560
+        0.85      0.20      1.606
+        0.85      0.30      1.835
+        0.70      0.20      1.950
+        0.70      0.30      2.228
+
+  Illustrative box-count divisor (NOT a calibrated instances/slots
+  mapping -- map_to_instances() needs cores_per_slot + memory from
+  M2.1b, which does not exist here):
+  (at efficiency=0.85, headroom=0.3 -> 1.835 cores)
+    1-core boxes @ 100% naive utilization -> 2 box(es)
+    2-core boxes @ 100% naive utilization -> 1 box(es)
+    4-core boxes @ 100% naive utilization -> 1 box(es)
+    8-core boxes @ 100% naive utilization -> 1 box(es)
+
+--- 5. JADE forced_open gap=0 re-measure vs. prior claims (F-R20) ---
+  two-echelon-jade-us|forced_open|-|0.0: p95_wall = 13.090s (spike claim 0.6-3.5s, parent claim ~13.0s)
+    -> supports the PARENT claim
+
+==============================================================================

@@ -122,6 +122,53 @@ only via a local apply, never CI). `permissions-managed.json` is the rule-keyed 
 loop can propose `revoke` for unused ones. Written by `pnpm harness:permissions:capture`; applied into
 the tracked project settings by `pnpm harness:permissions:apply` (deterministic, code-enforced).
 
+### `benchmark-raw.csv` — one row per solver microbenchmark observation
+
+Written by `benchmark.report.write_raw()` (`artifacts/api-server/src/solver/tests/benchmark/`),
+consumed by `python3 -m benchmark.cli run`. Rows are written in **measured order** (the randomized
+schedule `run_campaign()` produced, or — when `--determinism-cell` is used — campaign rows followed
+by that cell's appended `run_determinism()` batch under the same `run_id`), so per-run drift is
+analysable straight from row order.
+
+| column | meaning |
+|--------|---------|
+| `run_id` | one per CLI invocation (`uuid4`), joins raw ↔ aggregates. |
+| `cell_key` | `model_id\|regime\|edit_family\|gap` (edit_family `-` means none declared). |
+| `case_key` | `model_id\|regime\|edit_family\|case_id` — stable **across gaps**; the join key for paired objective deltas (never includes `gap`). |
+| `case_id` | split out of `case_key` for convenience filtering. |
+| `model_id` / `regime` / `edit_family` / `gap` | split out of `cell_key` for convenience filtering; the keys above stay the real join columns. |
+| `kind` | `campaign` (counts toward sizing/frequency/uncertainty) or `determinism` (runtime-variance-only, excluded from every aggregate). |
+| `wall_sec` | end-to-end wall clock for the observation, including fork/import/IPC overhead. |
+| `cpu_tree_sec` | **whole Python+CBC process-tree CPU**, user+sys (`RUSAGE_SELF` + `RUSAGE_CHILDREN`) — MP-R2; this is the capacity-model service-demand input, not `wall_sec`. |
+| `harness_overhead_sec` | harness/bootstrap cost outside the measured child process; never labelled "build time" (MP-R2 point 3). |
+| `python_peak_rss` / `cbc_peak_rss` | peak RSS of the Python process and its CBC child, **normalized to bytes**, kept **separate** — `max(self, child)` is not aggregate tree RSS and is never reported as such. |
+| `objective` / `solution_status` / `termination_reason` | raw solver outcome fields, `null` on failure. |
+| `ok` | did the observation complete without a harness-level error (crash, non-zero exit, corrupt output). |
+| `resource_complete` | `False` only on a harness-enforced timeout — CPU/RSS are then censored/unknown, never reported as zero demand. |
+| `error` | harness-level error string (e.g. `timeout`, `child exited 1`), or empty. |
+
+### `benchmark-aggregates.csv` — one row per usable/unusable cell
+
+Written by `benchmark.report.write_aggregates()`, one row per `cell_key` present in `aggregate()`'s
+output.
+
+| column | meaning |
+|--------|---------|
+| `run_id` / `cell_key` / `model_id` / `regime` / `edit_family` / `gap` | as in the raw CSV. |
+| `corpus_weight` | the **declared generator weight** from the manifest for this stratum — corpus composition, never student prevalence (M-R9). |
+| `observation_share` | the **realised sampling allocation** after sequential stopping (`n_obs` for this stratum / total campaign `n_obs`) — diagnostic only, never relabelled as frequency or prevalence. Kept in a separate column from `corpus_weight` on purpose; the two must never be conflated. |
+| `n_cases` / `n_obs` / `n_success` | distinct cases measured, total observations, successful observations. |
+| `usable` | `False` means the cell has no successes, fewer than the declared minimum distinct cases, or any censored-telemetry row — M2.1 fails closed on any unusable required cell rather than treating it as zero demand. |
+| `unusable_reason` | why, when `usable=False`; empty otherwise. |
+| `mean_cpu_tree_sec` (+ `mean_cpu_ci_low`/`_high`) | the capacity-model's service-demand input — a **decision metric**, carries a bootstrap CI. |
+| `p95_wall` (+ CI) | SLO-validation metric (never a sizing input) — a **decision metric**, carries a bootstrap CI. |
+| `failure_rate` (+ CI) | fraction of observations that did not complete `ok=True` — a **decision metric**, carries a bootstrap CI. |
+| `objective_delta_vs_gap0` (+ CI) | **mandatory, not optional** — mean signed `objective(gap) − objective(0)` over case-paired rows, for non-zero-gap cells only; `null` for the `gap=0` baseline row itself. Without this column the relaxed-gap alternatives carry no paired quality evidence in the artifact. |
+| `objective_pairs_excluded` | count of case pairs excluded from the delta (either side infeasible/failed/no objective) — excluded, never imputed. |
+| `p50_wall` / `mean_python_peak_rss` / `mean_cbc_peak_rss` | descriptive point estimates only (no CI) — backed by the raw rows if a CI is ever needed. |
+
+Outlier policy: **none are deleted**; raw rows are preserved in full and this is the whole policy.
+
 ## Finding states (docs pipeline)
 
 `candidate` (unverified mechanical output) → `finding` (agent-verified, one commit) → `resolved`
