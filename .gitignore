@@ -77,3 +77,6 @@ graphify-out/
 supabase/.temp/
 .claude/worktrees/
 .harness/
+
+# measurement run artifacts (sessions, cohort manifest) — never commit creds
+.measurement/
