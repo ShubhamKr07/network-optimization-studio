@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Measurement run manifest (M3.3)",
+  "description": "Every authoritative run is reproducible from this file alone. Emitted by load-driver.mjs at run start; the results CSV joins to it on run_id.",
+  "type": "object",
+  "required": [
+    "run_id", "profile_id", "schema_version", "seed", "app_sha", "base_url",
+    "arrival_rate_per_sec", "duration_sec", "warmup_window_sec", "measurement_window_sec",
+    "outstanding_job_policy", "repetition_number", "authoritative", "users", "case_assignment_rule", "cache_mix"
+  ],
+  "properties": {
+    "run_id": { "type": "string" },
+    "profile_id": { "enum": ["representative_sustained", "ui_faithful_sustained", "cold_identical_burst", "all_jade_sustained"] },
+    "schema_version": { "type": "integer", "const": 1 },
+    "seed": { "type": "integer" },
+    "app_sha": { "type": "string" },
+    "base_url": { "type": "string" },
+    "plan_ids": { "type": "object" },
+    "arrival_rate_per_sec": { "type": "number" },
+    "duration_sec": { "type": "integer" },
+    "warmup_window_sec": { "type": "integer" },
+    "measurement_window_sec": { "type": "integer" },
+    "outstanding_job_policy": {
+      "description": "open_loop: submit on schedule regardless of in-flight. ui_faithful: at most one in flight per user (closed-loop; collisions dropped as deferred_by_policy).",
+      "enum": ["open_loop", "ui_faithful"]
+    },
+    "repetition_number": { "type": "integer" },
+    "authoritative": { "type": "boolean", "description": "false = exploratory shakedown, excluded from the decision dataset (pre-MP-1)." },
+    "cache_mix": {
+      "type": "object",
+      "description": "declared 20/60/20 fractions for hit/near/cold; must sum to 1.",
+      "required": ["hit", "near", "cold"],
+      "properties": { "hit": { "type": "number" }, "near": { "type": "number" }, "cold": { "type": "number" } }
+    },
+    "case_assignment_rule": { "type": "string", "description": "how each scheduled event maps to (user, class-scenario) — e.g. round-robin users, cache_class drawn from cache_mix with the run seed." },
+    "users": {
+      "type": "array",
+      "description": "cohort users participating, with their per-class scenario IDs.",
+      "items": {
+        "type": "object",
+        "required": ["idx", "email", "scenarios"],
+        "properties": {
+          "idx": { "type": "string" },
+          "email": { "type": "string" },
+          "scenarios": { "type": "object", "description": "class -> scenarioId", "properties": { "hit": { "type": "integer" }, "near": { "type": "integer" }, "cold": { "type": "integer" } } }
+        }
+      }
+    }
+  }
+}
