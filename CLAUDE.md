@@ -78,6 +78,11 @@ Three invariants bind everyday work, so they stay here:
 8. When the plan conflicts with the repo's actual state, trust the repo, make the smallest correct fix, and note the deviation in the commit body. If a genuinely ambiguous product decision arises, stop and ask — don't guess.
 9. **Never write historical narrative into this file.** What landed — task/bundle entries, commit SHAs, gate counts, review verdicts, per-task deviations, phase completions — goes in **[`docs/CHANGELOG-implementation.md`](docs/CHANGELOG-implementation.md)** (append at the bottom, most recent last), in the **same commit** as the work it describes. `CLAUDE.md` may carry only a hyperlink to that doc, never a copy or a summary of an entry. Same rule for any other long-form record: write the content in its own doc under `docs/` and link it. The only things that belong *inline* here are durable, still-true operating knowledge — architecture, commands, hard rules, standing process, environment facts, and Gotchas. If an entry contains a durable lesson (a new bug class, a trap, a standing rule), put the **full entry in the changelog** and lift only the distilled rule into `## Gotchas` or `## Hard rules`.
 10. **Never delegate to GLM in this repo** (`.claude/glm-delegation-disabled.md`) — this overrides the user-global GLM-hybrid delegation preference. Every role executes and is reviewed on named Claude models only.
+11. **Overkill check first, then completeness.** For any technical implementation or discussion, the FIRST question to answer is: **is what I'm recommending overkill?**
+    - **If no** — confirm explicitly that the recommended approach has no alternative that is simpler, easier to execute, and carries less technical debt.
+    - **If yes** — explore, evaluate, and offer an alternative that is simpler, easier to execute, and minimizes technical debt.
+    - **In either case**, the selected approach must **completely bridge the gap** between the ask and the current state — no partial or "most of the way" solutions.
+    - **Ask the user clarifying questions** whenever the ask, the current state, or the gap is ambiguous — do not fill ambiguity with assumptions.
 
 ## Branch discipline (standing)
 
