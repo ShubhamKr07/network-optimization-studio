@@ -4,7 +4,13 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
+    # Standard (1 vCPU / 2 GB), upgraded from starter 2026-09-24: the SCND
+    # measurement soak validated 50x50/hr on standard with ~93% memory headroom,
+    # and starter's 512 MB is tight under concurrent CBC (~280 MB/running solve).
+    # NOTE: nos-api is Dashboard-managed (autoDeployTrigger off), so this
+    # Blueprint value is currently inert — kept accurate so a future Blueprint
+    # apply won't silently propose a downgrade.
+    plan: standard
     healthCheckPath: /api/healthz
     # Platform-enforced drain budget for SIGTERM shutdown (see
     # docs/ops/shutdown-budget.md). Default is 30s; raised to 120s so a
