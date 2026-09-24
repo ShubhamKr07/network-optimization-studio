@@ -10,4 +10,4 @@
 
 **How to enable:** add `scripts/harness/schema-sync-check.ts` (compares `lib/db` schema vs live `information_schema` of `$DATABASE_URL`, exit non-zero on drift); wire it into the pre-deploy step (and CI once a DB is reachable there).
 
-**Status:** proposed — **RECURRED 2026-09-24 with prod impact; the 2026-09-22 proposal was never accepted.** Awaiting human approval to enable (not enabled).
+**Status:** **HELD (product-owner decision, 2026-09-24).** Reviewed after recurring with prod impact; **not enabled** — held for now, not rejected. Revisit before the next Render schema/deploy change (this class caused a prod boot-crash loop once already; the interim mitigation is the documented manual discipline: additive explicit-SQL migration on Render + verify against the app's DB, never `drizzle-kit push` / a migration runner's self-report). RECURRED 2026-09-24; the 2026-09-22 proposal was never accepted.
