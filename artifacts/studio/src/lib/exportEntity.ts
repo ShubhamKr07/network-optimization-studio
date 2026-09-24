@@ -25,6 +25,27 @@ export interface DownloadEntityExportOptions {
   runId?: number;
 }
 
+// A9 (SCND correctness, §2.7.1/A8) — the export endpoint's 409 body, per
+// `LegacyResultExportRejection` (openapi.yaml): a stable, permanent
+// machine-readable `code` the frontend keys off of, never string-matched out
+// of the human-readable `error` message. This module doesn't import the
+// generated `ApiError` class (it isn't re-exported from the package index —
+// see custom-fetch.ts), so it duck-types the same shape every other
+// ApiError-catching call site in this codebase already relies on (e.g.
+// Register.tsx's `(err as { status?: number })?.status === 409`).
+const LEGACY_RESULT_REQUIRES_RESOLVE = "LEGACY_RESULT_REQUIRES_RESOLVE";
+
+function isLegacyResolveRejection(
+  err: unknown,
+): err is { status: number; data: { code: string; error: string } } {
+  if (typeof err !== "object" || err === null) return false;
+  const candidate = err as { status?: unknown; data?: unknown };
+  if (candidate.status !== 409) return false;
+  const data = candidate.data;
+  if (typeof data !== "object" || data === null) return false;
+  return (data as { code?: unknown }).code === LEGACY_RESULT_REQUIRES_RESOLVE;
+}
+
 export async function downloadEntityExport(
   scenarioId: number,
   entity: ExportEntity,
@@ -47,6 +68,20 @@ export async function downloadEntityExport(
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
+    // A9 — the 409 LEGACY_RESULT_REQUIRES_RESOLVE rejection is NOT a generic
+    // export failure: it's a "the result predates verified solve tracking,
+    // re-solve first" resolve prompt. Handled here regardless of WHICH
+    // output entity's export triggered it (assignments/openWarehouses/
+    // costSummary/serviceStats/flows — its exact firing scope is a pending
+    // backend design decision per the task brief, so this check is entity-
+    // agnostic and fires wherever the 409 appears, current or future).
+    if (isLegacyResolveRejection(err)) {
+      toast({
+        title: "Re-solve to export",
+        description: "This result predates verified solve tracking and can't be exported as output data. Re-solve the scenario, then export again.",
+      });
+      return;
+    }
     toast({
       title: "Export failed",
       description: err instanceof Error ? err.message : "Could not export.",

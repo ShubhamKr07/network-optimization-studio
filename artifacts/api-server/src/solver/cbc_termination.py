@@ -147,6 +147,17 @@ def _require_validated_pulp() -> None:
 
 EPS = 1e-10
 
+# A3 containment: CBC's log/.sol are always small (KB) for every dataset this
+# app ships, but a bounded read protects against a runaway/adversarial log
+# regardless -- every real fixture/golden solve stays far under this, so this
+# is a pure safety net with zero effect on any real classification result.
+MAX_CAPTURE_BYTES = 8 * 1024 * 1024  # 8 MiB
+
+
+def _bounded_read(path: str) -> str:
+    with open(path, "r", errors="replace") as f:
+        return f.read(MAX_CAPTURE_BYTES)
+
 SOLUTION_STATUSES = frozenset({"optimal", "feasible", "infeasible", "unbounded", "no_solution"})
 TERMINATION_REASONS = frozenset({
     # §34.3.4: `interrupted` is NOT a parser output — a killed process leaves
@@ -364,12 +375,10 @@ def parse_cbc_termination(log_path: str, sol_path: Optional[str]):
     own terminal records. Raises ``CBCParseError`` on malformed/ambiguous/
     contradictory evidence rather than guessing.
     """
-    with open(log_path, "r", errors="replace") as f:
-        log_text = f.read()
+    log_text = _bounded_read(log_path)
     sol_text = None
     if sol_path and os.path.exists(sol_path):
-        with open(sol_path, "r", errors="replace") as f:
-            sol_text = f.read()
+        sol_text = _bounded_read(sol_path)
     return classify_cbc_termination(log_text, sol_text)
 
 
@@ -441,8 +450,7 @@ class CapturingCBCSolver(PULP_CBC_CMD):
         for path in args:
             if path.endswith("-pulp.sol"):
                 try:
-                    with open(path, "r", errors="replace") as f:
-                        self.sol_text = f.read()
+                    self.sol_text = _bounded_read(path)
                 except OSError:
                     self.sol_text = None
         # Persist our own copy at a stable path this instance owns, so it

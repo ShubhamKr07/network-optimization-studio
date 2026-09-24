@@ -44,11 +44,17 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((_col: unknown, vals: unknown) => ({ inArray: _col, vals })),
   // routes/auth.ts matches users with `lower(email) = <normalized>`; without
   // this stand-in the real login these suites perform would call undefined.
+  // A1 (SCND Correctness) — routes/scenarios.ts's PATCH and import/apply
+  // handlers now do a DB-side `solve_input_revision = solve_input_revision
+  // + 1` increment via `sql\`...\`` at module load time; without this export
+  // present, the real `sql` tagged-template import resolves to `undefined`
+  // against this narrow mock and every write in this file 500s.
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
 }));
 
 vi.mock("../solver/jobRunner.js", () => ({
   enqueueSolveJob: mockEnqueueSolveJob,
+  enqueueScenarioSolve: vi.fn(),
   getQueueDepth: mockGetQueueDepth,
   QUEUE_DEPTH_LIMIT: 30,
 }));

@@ -3,10 +3,28 @@ import { desc, eq } from "drizzle-orm";
 import { db, solveJobsTable, scenariosTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth.js";
 import { getManifest } from "../registry/modelRegistry.js";
+import { derivePublicFailure } from "../solver/jobRunner.js";
+import { StoredScenarioResultSchema, normalizeStoredResult } from "../solver/resultEnvelope.js";
 
 const router = Router();
 
 router.use(requireAuth);
+
+// A8 (SCND Correctness, §2.7.1) — "resultSummary gains a typed
+// legacyUnverified marker; legacy summaries read as-is, tagged unverified,
+// never promoted to proven." A non-succeeded row has no result at all, so
+// there is nothing to (un)verify — false. A succeeded row is verified ONLY
+// if its full stored envelope parses as a genuine v2 published result
+// (envelopeVersion:2, per resultEnvelope.ts's normalizeStoredResult — the
+// SAME discriminator routes/scenarios.ts's export gate uses); anything else
+// — historical-unversioned, B's truthful-but-unversioned, missing, or
+// malformed — is conservatively legacyUnverified:true.
+function deriveLegacyUnverified(status: string, result: Record<string, unknown> | null | undefined): boolean {
+  if (status !== "succeeded") return false;
+  const parsed = StoredScenarioResultSchema.safeParse(result ?? null);
+  if (!parsed.success) return true;
+  return normalizeStoredResult(parsed.data).legacyUnverified;
+}
 
 // Bundle 5 — one row per scenario: the newest solve job (any status) per
 // scenario, newest-first, limited. The dedupe runs in SQL (DISTINCT ON) — the
@@ -27,10 +45,22 @@ router.get("/solve-history", async (req, res) => {
       scenarioId: solveJobsTable.scenarioId,
       status: solveJobsTable.status,
       resultSummary: solveJobsTable.resultSummary,
+      // A8 (§2.7.1) — the FULL stored result envelope, needed to derive
+      // legacyUnverified below. resultSummary (above) is a small hand-picked
+      // projection (jobRunner.ts's markSucceeded) that never carries
+      // envelopeVersion, so it alone can't answer "is this a v2 published
+      // result" — only the full envelope can.
+      result: solveJobsTable.result,
       queuedAt: solveJobsTable.queuedAt,
       finishedAt: solveJobsTable.finishedAt,
       scenarioName: scenariosTable.name,
       modelId: scenariosTable.modelId,
+      // A5 — typed-only inputs to derivePublicFailure() below. The raw
+      // `error`/`errorDetail` columns are deliberately NOT selected here —
+      // they must never reach this route at all, let alone the response.
+      errorCode: solveJobsTable.errorCode,
+      failureReason: solveJobsTable.failureReason,
+      failureStage: solveJobsTable.failureStage,
     })
     .from(solveJobsTable)
     .innerJoin(scenariosTable, eq(solveJobsTable.scenarioId, scenariosTable.id))
@@ -65,6 +95,16 @@ router.get("/solve-history", async (req, res) => {
     const distanceUnit =
       summary?.distanceUnit ??
       (summary != null && r.status === "succeeded" ? "mi" : modelUnit);
+    // A5 — same permanent public failure shape as the job-poll endpoint
+    // (routes/scenarios.ts), derived ONLY from typed columns. The raw
+    // `error`/`errorDetail` columns were never selected into `r` at all
+    // (see the inner query above), so there is nothing raw to leak here.
+    const failure = derivePublicFailure({
+      status: r.status,
+      errorCode: r.errorCode,
+      failureReason: r.failureReason,
+      failureStage: r.failureStage,
+    });
     return {
       id: r.id,
       scenarioId: r.scenarioId,
@@ -75,7 +115,10 @@ router.get("/solve-history", async (req, res) => {
       objectiveMode: summary?.objectiveMode ?? null,
       weightedAvgDistance: summary?.weightedAvgDistance ?? summary?.weightedAvgDistanceMi ?? null,
       distanceUnit,
+      errorCode: failure?.errorCode ?? null,
+      errorMessage: failure?.errorMessage ?? null,
       runTimeSec: summary?.runTimeSec ?? null,
+      legacyUnverified: deriveLegacyUnverified(r.status, r.result as Record<string, unknown> | null | undefined),
       queuedAt: r.queuedAt.toISOString(),
       finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
     };

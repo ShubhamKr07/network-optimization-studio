@@ -94,16 +94,27 @@ describe("solve.py result envelope (G2.1 DoD)", () => {
     expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
   });
 
-  it("chens-cosmetics-cn unexpected error (valid JSON missing required field) validates as an error envelope", () => {
-    // Valid JSON that omits `p` reaches solve(inp) and throws inside the
-    // __main__ try -> error envelope. (Malformed JSON would fail json.loads
-    // BEFORE the try, a process-level exit, not an envelope -- so NOT used.)
+  // A3 — an error-shaped result is no longer emitted as a status:"error"
+  // envelope at all: solve.py's __main__ now translates it into a FAILURE
+  // message (failureReason/failureStage) instead, precisely so a consumer
+  // reading solve.py's output can never mistake a dataset/dispatch failure
+  // for a real (if error-flavored) envelope — the exact live bug this task
+  // fixes. Valid JSON that omits `p` reaches solve(inp) and throws inside
+  // solve_chens; __main__ catches it and writes a FAILURE message, not an
+  // envelope. (Malformed JSON would fail json.loads BEFORE that try, an
+  // even earlier FAILURE message -- see the dedicated fd3 protocol tests in
+  // artifacts/api-server/src/solver/tests/test_fd3_protocol.py.)
+  it("chens-cosmetics-cn unexpected error (valid JSON missing required field) is a FAILURE message, not an envelope", () => {
     const raw = runSolver({
       modelType: "chens", objective: "coverage", highServiceDistKm: 600,
       maxDistKm: 5000, avgServiceDistCapKm: 1000, gap: 0, timeLimitSec: 60,
-    }) as { status: string };
-    expect(raw.status).toBe("error");
-    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(true);
+    }) as { status?: string; failureReason?: string; failureStage?: string };
+    expect(raw.status).toBeUndefined();
+    expect(raw.failureReason).toBe("internal_error");
+    expect(typeof raw.failureStage).toBe("string");
+    // A FAILURE message must never validate as a success envelope — the
+    // whole point of the fd3 split (A3).
+    expect(ResultEnvelopeSchema.safeParse(raw).success).toBe(false);
   });
 
   it("retains leg and avgDistanceByLeg through Zod parse (S1 guard)", () => {

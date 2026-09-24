@@ -1,12 +1,11 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable } from "@workspace/db";
 import { posthog } from "../lib/posthog.js";
-import { enqueueSolveJob, getQueueDepth, QUEUE_DEPTH_LIMIT } from "../solver/jobRunner.js";
-import type { SolveInput } from "../solver/pmedian.js";
+import { enqueueScenarioSolve, getQueueDepth, QUEUE_DEPTH_LIMIT, derivePublicFailure } from "../solver/jobRunner.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { isModelLocked, respondLocked } from "../middlewares/lockedModel.js";
-import { ResultEnvelopeSchema } from "../solver/resultEnvelope.js";
+import { ResultEnvelopeSchema, StoredScenarioResultSchema, normalizeStoredResult } from "../solver/resultEnvelope.js";
 import type { ResultEnvelope } from "../solver/resultEnvelope.js";
 import { validateInputsForModel } from "../validation/inputs/index.js";
 import { getManifest } from "../registry/modelRegistry.js";
@@ -77,7 +76,7 @@ import {
 import type { AssignmentTemplateRow, OpenWarehouseTemplateRow, CostSummaryTemplateRow, ServiceStatsTemplateRow, FlowTemplateRow, JadeAssignmentTemplateRow, JadeFlowTemplateRow } from "../services/templates.js";
 import { parseAndValidateImport } from "../services/import.js";
 import type { ImportEntity, ImportRowChange } from "../services/import.js";
-import { precheckPMedianInputs, precheckTransportInputs, precheckTwoEchelonInputs, precheckJadeInputs, precheckChensInputs, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
+import { runNetworkEditsPrecheckForModel, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "../services/precheck.js";
 import type { PrecheckResult } from "../services/precheck.js";
 import { fillEstimatedDistances, fillEstimatedBrazilDistances, fillEstimatedLaneCosts, fillEstimatedTwoEchelonDistances, fillEstimatedJadeDistances, fillEstimatedChensDistances } from "../services/autoDistance.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
@@ -164,6 +163,25 @@ export function presentResultForRead(result: Record<string, unknown> | null): Re
   if (result == null) return result;
   if ("solutionStatus" in result) return result;
   return { ...result, solutionStatus: null, terminationReason: result.terminationReason ?? null };
+}
+
+// A8 (SCND Correctness, §2.7.1) — output-entity export legacy/unverified
+// gate. Reuses A4's own StoredScenarioResultSchema/normalizeStoredResult
+// discriminator (resultEnvelope.ts) rather than re-deriving legacy detection
+// here: a raw stored value that parses as PublishedSolveResultV2 (real
+// envelopeVersion:2) is verified (legacyUnverified:false); anything else —
+// historical-unversioned OR B's truthful-but-unversioned rows (§2.14's
+// representations #1/#2, both share the same raw ResultEnvelopeSchema shape
+// with no envelopeVersion key) — normalizes to legacy v1
+// (legacyUnverified:true). A value that fails to parse as EITHER shape is
+// treated conservatively as legacy-unverified too — never assume proven
+// when the stored shape can't even be classified. Exported so a future A9
+// frontend test (or another export-adjacent route) can reuse this exact
+// classification rather than re-deriving it.
+export function isLegacyUnverifiedResult(raw: Record<string, unknown> | null): boolean {
+  const parsed = StoredScenarioResultSchema.safeParse(raw);
+  if (!parsed.success) return true;
+  return normalizeStoredResult(parsed.data).legacyUnverified;
 }
 
 function toApiScenario(row: typeof scenariosTable.$inferSelect) {
@@ -256,8 +274,35 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     res.status(422).json({ error: "modelId is fixed at creation and cannot be changed" });
     return;
   }
+  // A-fix (F2) — `result` is solver-owned: it is ONLY ever written by
+  // jobRunner.ts's markSucceeded/markFailed, never by a client PATCH. Before
+  // this fix, `body.result` was read and written verbatim (see the removed
+  // `if (body.result !== undefined) updateObj.result = body.result;` line
+  // below) with no schema constraining it at all — OpenAPI's own
+  // ScenarioUpdate contract has never documented a `result` field — letting
+  // an owner PATCH an arbitrary `{envelopeVersion:2, legacyUnverified:false,
+  // solutionStatus:"optimal", ...}` body to self-certify a fabricated
+  // "verified" result and pass the output-export legacy-unverified gate
+  // (routes/scenarios.ts's isLegacyUnverifiedResult) with no real solve
+  // having run. Confirmed no legitimate caller in this repo ever PATCHes
+  // `result` (grepped artifacts/studio's every updateScenario.mutate call
+  // site — all send only `{name}` and/or `{inputs}`), so this is a straight
+  // rejection (422), matching the existing modelId precedent above, not a
+  // silent strip.
+  if ("result" in body) {
+    res.status(422).json({ error: "result is solver-owned and cannot be set via PATCH" });
+    return;
+  }
 
   const updateObj: Partial<typeof scenariosTable.$inferInsert> = {};
+  // A1 (SCND Correctness) — solve_input_revision is a DB-SIDE increment
+  // (`solve_input_revision = solve_input_revision + 1`, never a
+  // read-modify-write in app code: two concurrent edits both reading n and
+  // writing n+1 would lose an increment and let a stale job pass A7's
+  // future publication CAS). Only set for a geometric (non-bands-only)
+  // inputs change, below — mirrors the exact same `isBandsOnlyChange` gate
+  // that already decides whether to bump `inputsUpdatedAt`.
+  let revisionIncrement: { solveInputRevision: SQL<unknown> } | Record<string, never> = {};
   if (body.name !== undefined) updateObj.name = body.name;
   if (body.inputs !== undefined) {
     const [existing] = await db.select().from(scenariosTable)
@@ -292,10 +337,9 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
     const isBandsOnlyChange = changedInputKeys.every((key) => key === "distanceBands");
     if (!isBandsOnlyChange) {
       updateObj.inputsUpdatedAt = new Date();
+      revisionIncrement = { solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1` };
     }
   }
-  if (body.result !== undefined) updateObj.result = body.result;
-
   // ch4-lock — a name-only PATCH never enters the inputs branch above, so it
   // would otherwise slip past unchecked. Only queries when nothing has
   // resolved the model yet, keeping the common inputs-PATCH path at one read.
@@ -306,7 +350,7 @@ router.patch("/scenarios/:scenarioId", async (req, res) => {
   }
 
   const [row] = await db.update(scenariosTable)
-    .set({ ...updateObj, updatedAt: new Date() })
+    .set({ ...updateObj, ...revisionIncrement, updatedAt: new Date() })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
@@ -440,37 +484,13 @@ function normalizeAddedEntityDistances(modelId: string, data: Record<string, unk
   return data;
 }
 
-function runNetworkEditsPrecheck(modelId: string, inputs: Record<string, unknown>): PrecheckResult {
-  if (modelId === "p-median-us") {
-    return precheckPMedianInputs(inputs as unknown as PMedianInputs);
-  }
-  if (modelId === "p-median-brazil") {
-    return precheckPMedianInputs(inputs as unknown as PMedianInputs, BRAZIL_DATASET);
-  }
-  if (modelId === "transport-coal") {
-    return precheckTransportInputs(inputs as unknown as TransportLpInputs);
-  }
-  if (modelId === "two-echelon-gold-au") {
-    return precheckTwoEchelonInputs(inputs as unknown as TwoEchelonInputs);
-  }
-  // jade-T6 — second writer of this shared file (after jade-T5's
-  // VALID_MODEL_IDS entry). Registered here covers BOTH call sites in this
-  // file: the solve-before-enqueue path (POST .../solve, above) and the
-  // standalone GET .../precheck endpoint (below) both call
-  // runNetworkEditsPrecheck, so a shape-valid JADE scenario never falls
-  // through to the default {ok:true} at the bottom of this function.
-  if (modelId === "two-echelon-jade-us") {
-    return precheckJadeInputs(inputs as unknown as JadeInputs);
-  }
-  // C4.8 — Chapter 4 (chens-cosmetics-cn) semantic precheck. Its own function
-  // (precheckChensInputs, using CHENS_DATASET as the default): p-median's
-  // structural checks PLUS Chen-specific p_range/zero_demand/no_feasible_route/
-  // coverage_floor_infeasible with circuity-adjusted (×1.17) thresholds.
-  if (modelId === "chens-cosmetics-cn") {
-    return precheckChensInputs(inputs as unknown as ChensInputs);
-  }
-  return { ok: true, errors: [] };
-}
+// A1 (SCND Correctness) — the per-model precheck dispatch logic that used to
+// live here moved verbatim to services/precheck.ts's
+// `runNetworkEditsPrecheckForModel` (byte-identical behavior), so
+// jobRunner.ts's atomic `enqueueScenarioSolve` can share it too without a
+// circular import. This is now a thin local alias so every existing call
+// site below is untouched.
+const runNetworkEditsPrecheck = runNetworkEditsPrecheckForModel;
 
 router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   // Backpressure check first (before any DB work) so an overloaded server
@@ -499,38 +519,34 @@ router.post("/scenarios/:scenarioId/solve", async (req, res) => {
   if (!scenario) { res.status(404).json({ error: "Not found" }); return; }
   if (isModelLocked(scenario.modelId)) { respondLocked(res); return; }
 
-  const validation = validateInputsForModel(scenario.modelId, scenario.inputs);
-  if (!validation.success) {
-    res.status(422).json({ error: validation.error });
+  // A1 (SCND Correctness) — the enqueue AUTHORITY transaction. Locks the
+  // scenario row, re-runs shape validation + the semantic precheck against
+  // the FRESHLY LOCKED row (never a pre-lock belief about the inputs), and
+  // atomically inserts the job — closing the race where an edit could land
+  // between an earlier read and the enqueue. See jobRunner.ts's own header
+  // comment on enqueueScenarioSolve for the full rationale. Error mapping:
+  // a revalidation failure on the locked row returns the exact same
+  // synchronous 422/no-job response the pre-lock path always gave.
+  const outcome = await enqueueScenarioSolve(id, req.userId!);
+
+  if (outcome.kind === "not_found") { res.status(404).json({ error: "Not found" }); return; }
+  if (outcome.kind === "invalid") { res.status(422).json({ error: outcome.error }); return; }
+  if (outcome.kind === "precheck_failed") {
+    res.status(422).json({ error: "Network-edit precheck failed", errors: outcome.errors });
     return;
   }
-
-  // B2.1 — semantic precheck runs after shape validation succeeds and
-  // before the job is enqueued. Returns the same `errors` shape as
-  // GET .../precheck for the same scenario state.
-  const precheck = runNetworkEditsPrecheck(scenario.modelId, validation.data);
-  if (!precheck.ok) {
-    res.status(422).json({ error: "Network-edit precheck failed", errors: precheck.errors });
-    return;
-  }
-
-  const jobId = await enqueueSolveJob(
-    id,
-    req.userId!,
-    { modelId: scenario.modelId, inputs: validation.data } as SolveInput,
-  );
 
   posthog?.capture({
     distinctId: req.userId!,
     event: "scenario solve enqueued",
     properties: {
       scenario_id: id,
-      model_id: scenario.modelId,
-      job_id: jobId,
+      model_id: outcome.modelId,
+      job_id: outcome.jobId,
     },
   });
 
-  res.status(202).json({ jobId });
+  res.status(202).json({ jobId: outcome.jobId });
 });
 
 router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
@@ -555,10 +571,22 @@ router.get("/scenarios/:scenarioId/solve-jobs/:jobId", async (req, res) => {
     if (parent && isModelLocked(parent.modelId)) { respondLocked(res); return; }
   }
 
+  // A5 — the permanent public failure shape. `failure` is derived ONLY from
+  // the typed columns (errorCode/failureReason/failureStage) via
+  // jobRunner's derivePublicFailure(); the raw stored `job.error`
+  // diagnostic (and errorDetail/failureReason/failureStage themselves) are
+  // NEVER read here and never appear in this response. The transitional
+  // `error` field is kept as a SAFE ALIAS of `errorMessage` (never
+  // `job.error`) for the current compatibility window (removed at A11
+  // cleanup, per §2.13) — `errorCode`/`errorMessage` are the permanent pair.
+  const failure = derivePublicFailure(job);
+
   res.json({
     id: job.id,
     status: job.status,
-    error: job.error ?? null,
+    error: failure?.errorMessage ?? null,
+    errorCode: failure?.errorCode ?? null,
+    errorMessage: failure?.errorMessage ?? null,
     resultSummary: job.resultSummary ?? null,
     queuedAt: job.queuedAt.toISOString(),
     startedAt: job.startedAt ? job.startedAt.toISOString() : null,
@@ -705,6 +733,17 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
         res.status(422).json({ error: "Stored result is not a valid result envelope" });
         return;
       }
+      // A8 (§2.7.1) — never export output data of unknowable proof state.
+      // Checked against the RAW stored value (job.result), not `parsedJob.data`
+      // — ResultEnvelopeSchema itself has no envelopeVersion key, so parsing
+      // through it would silently strip the one field this check needs.
+      if (isLegacyUnverifiedResult(job.result)) {
+        res.status(409).json({
+          error: "That solve's result predates verified solve tracking and cannot be exported as output data — re-solve to produce a verified result.",
+          code: "LEGACY_RESULT_REQUIRES_RESOLVE",
+        });
+        return;
+      }
       result = parsedJob.data;
     } else {
       if (scenario.result == null || isStale(scenario)) {
@@ -714,6 +753,15 @@ router.get("/scenarios/:scenarioId/export", async (req, res) => {
       const parsed = ResultEnvelopeSchema.safeParse(scenario.result);
       if (!parsed.success) {
         res.status(422).json({ error: "Stored result is not a valid result envelope" });
+        return;
+      }
+      // A8 (§2.7.1) — same legacy/unverified gate as the runId branch above,
+      // checked against the RAW scenario.result for the same reason.
+      if (isLegacyUnverifiedResult(scenario.result)) {
+        res.status(409).json({
+          error: "This scenario's result predates verified solve tracking and cannot be exported as output data — re-solve to produce a verified result.",
+          code: "LEGACY_RESULT_REQUIRES_RESOLVE",
+        });
         return;
       }
       result = parsed.data;
@@ -1833,11 +1881,16 @@ router.post("/scenarios/:scenarioId/import/apply", async (req, res) => {
   // normalizer here too so every persist path stays consistent.
   nextInputs = normalizeAddedEntityDistances(scenario.modelId, nextInputs);
 
+  // A1 (SCND Correctness) — import/apply is always a geometric input write
+  // (never a distanceBands-only change — that's routes/distanceBands.ts's
+  // own dedicated field-scoped endpoint, never this route), so it always
+  // increments solve_input_revision, DB-side, unconditionally.
   const [updated] = await db.update(scenariosTable)
     .set({
       inputs: nextInputs,
       inputsUpdatedAt: new Date(),
       updatedAt: new Date(),
+      solveInputRevision: sql`${scenariosTable.solveInputRevision} + 1`,
     })
     .where(and(eq(scenariosTable.id, id), eq(scenariosTable.userId, req.userId!)))
     .returning();

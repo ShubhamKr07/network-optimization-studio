@@ -5,6 +5,7 @@
  * Network Optimization Studio API
  * OpenAPI spec version: 0.1.0
  */
+import type { SolveJobErrorCode } from './solveJobErrorCode';
 import type { SolveJobStatus } from './solveJobStatus';
 
 export interface SolveHistoryEntry {
@@ -27,8 +28,17 @@ export interface SolveHistoryEntry {
   weightedAvgDistance: number | null;
   /** Distance unit for weightedAvgDistance ("mi"|"km"), derived from the model manifest; never null (a failed job still reports its model's unit) (D21/C4.10). */
   distanceUnit: string;
+  /** SCND correctness A5 (§2.11) — same permanent public failure code as SolveJob.errorCode; null for a non-failed row. */
+  errorCode: SolveJobErrorCode | null;
+  /**
+     * SCND correctness A5 (§2.11) — same fixed safe message as SolveJob.errorMessage; null for a non-failed row.
+     * @nullable
+     */
+  errorMessage: string | null;
   /** @nullable */
   runTimeSec: number | null;
+  /** SCND correctness A8 (§2.7.1) — always emitted. True when this row's status is "succeeded" and its stored result does NOT parse as a canonical v2 published result (§2.6) — covers both historical-unversioned rows and B's truthful-but-unversioned rows (§2.14), never promoted to a proven claim. False for a non-succeeded row (no result to (un)verify) and for a genuine v2 published result. */
+  legacyUnverified: boolean;
   queuedAt: Date;
   /** @nullable */
   finishedAt: Date | null;
