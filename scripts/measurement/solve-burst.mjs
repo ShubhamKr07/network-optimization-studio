@@ -55,9 +55,10 @@ async function main() {
   const cookie = await session();
 
   // Create N distinct p-median-us scenarios (varied p → distinct solves).
+  const IDENTICAL = process.env.BURST_IDENTICAL === "1"; // cold-identical: 50 copies of one hash
   const scen = [];
   for (let i = 0; i < N; i++) {
-    const p = 2 + (i % 20);
+    const p = IDENTICAL ? 24 : 2 + (i % 20); // p=24: not a warmed hit → cold; identical across all 50
     const r = await post("/api/scenarios", { name: `burst-ch3-${i}`, modelId: MODEL, inputs: { p, capacityMode: "none", distanceBands: BANDS, gap: 0, timeLimitSec: 60 } }, cookie);
     if (r.ok) scen.push((await r.json()).id);
     else console.error(`[burst] create ${i} failed ${r.status}`);
