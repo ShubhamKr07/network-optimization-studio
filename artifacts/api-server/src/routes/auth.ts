@@ -42,10 +42,14 @@ async function findUserByEmail(email: string) {
   return user;
 }
 
-// Simple in-memory rate limit for login: 10 attempts/min/IP. Acceptable for a
-// pilot-scale classroom deployment; revisit if this ever needs to survive
-// process restarts or run across multiple instances.
-const LOGIN_RATE_LIMIT = 10;
+// Simple in-memory rate limit for login: 20 attempts/min/IP. Raised from 10
+// (2026-09-25) for the co-located pilot cohort — ~50 students behind one campus
+// NAT IP can re-login (after the 7-day session expires / logout / new device)
+// without the limiter hard-blocking; at 20/min a 50-student re-login wave clears
+// over ~2-3 min via client retries. Still per-IP + in-memory (single-instance,
+// no restart survival) — if a co-located cohort must ALL re-login within one
+// minute, key this per-account instead of per-IP (distinct accounts, shared IP).
+const LOGIN_RATE_LIMIT = 20;
 const LOGIN_RATE_WINDOW_MS = 60 * 1000;
 const loginAttempts = new Map<string, { count: number; windowStart: number }>();
 
