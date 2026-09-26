@@ -3892,19 +3892,34 @@ describe("transport scenario — field serialization", () => {
 // holds: no client, however crafted, can reach a locked model's data.
 // ---------------------------------------------------------------------------
 describe("locked models (ch4-lock)", () => {
-  const LOCKED_MODEL = "chens-cosmetics-cn";
+  // Chapter 4 (chens-cosmetics-cn) was the original subject here and was
+  // unlocked on 2026-09-26. The stand-in deliberately moved to JADE rather
+  // than staying on Chen's via the test override: exercising the lock through
+  // a model that is NOT actually locked in the manifests would keep passing
+  // while reading as a claim about shipped behaviour that is false.
+  const LOCKED_MODEL = "two-echelon-jade-us";
   const OPEN_MODEL = "p-median-us";
+  // Every path below is built from this row's id rather than a literal, so
+  // pointing the suite at a different model is a one-line change and can't
+  // leave a stale hardcoded id behind (which is exactly what the Chapter 4
+  // unlock turned up: ten paths pinned to `/api/scenarios/13`).
+  const LOCKED_ROW = jadeRow;
 
   // Re-arm the real lock for this describe only — the file-wide beforeEach
   // unlocks everything so the pre-lock suites keep their coverage.
-  beforeEach(() => { setLockedModelsForTests([LOCKED_MODEL, "two-echelon-jade-us"]); });
+  beforeEach(() => { setLockedModelsForTests([LOCKED_MODEL]); });
 
   describe("the locked set comes from the manifests, not a hardcoded route list", () => {
     // Reads the REAL manifests (override cleared), so this genuinely pins
     // what ships — not what a test happened to set.
-    it("reports exactly the two locked chapters, from the manifests", () => {
+    it("reports exactly the one locked chapter, from the manifests", () => {
       setLockedModelsForTests(null);
-      expect(lockedModelIds().sort()).toEqual(["chens-cosmetics-cn", "two-echelon-jade-us"]);
+      expect(lockedModelIds().sort()).toEqual(["two-echelon-jade-us"]);
+    });
+
+    it("no longer locks Chapter 4 — chens-cosmetics-cn is open again", () => {
+      setLockedModelsForTests(null);
+      expect(isModelLocked("chens-cosmetics-cn")).toBe(false);
     });
 
     it("does not lock an open or unknown model", () => {
@@ -3921,7 +3936,7 @@ describe("locked models (ch4-lock)", () => {
       const res = await request(app)
         .post("/api/scenarios")
         .set("Cookie", cookie)
-        .send({ name: "sneaky", modelId: LOCKED_MODEL, inputs: chensInputs });
+        .send({ name: "sneaky", modelId: LOCKED_MODEL, inputs: jadeInputs });
       expect(res.status).toBe(403);
       expect(res.body.error).toBe("This chapter is locked.");
       expect(mockDb.insert).not.toHaveBeenCalled();
@@ -3944,15 +3959,18 @@ describe("locked models (ch4-lock)", () => {
       expect(res.status).toBe(403);
     });
 
-    // A student with both a Chapter 3 and an old Chapter 4 scenario must still
+    // A student with both a Chapter 3 and an old Chapter 9 scenario must still
     // get their Chapter 3 list — 403-ing the whole request would break the
-    // homepage for anyone who ever opened a now-locked chapter.
+    // homepage for anyone who ever opened a now-locked chapter. Chapter 4 is
+    // in the fixture deliberately: since its 2026-09-26 unlock it must now
+    // survive the filter, so this doubles as proof the drop is per-model and
+    // not a blanket "anything that was ever locked" rule.
     it("drops locked rows from an unscoped list while keeping open ones", async () => {
       const cookie = await loginAs(OWNER);
       mockDb.select.mockReturnValueOnce(makeChain([pmedianRow, chensRow, jadeRow]));
       const res = await request(app).get("/api/scenarios").set("Cookie", cookie);
       expect(res.status).toBe(200);
-      expect(res.body.map((s: { id: number }) => s.id)).toEqual([pmedianRow.id]);
+      expect(res.body.map((s: { id: number }) => s.id)).toEqual([pmedianRow.id, chensRow.id]);
     });
   });
 
@@ -3965,17 +3983,18 @@ describe("locked models (ch4-lock)", () => {
     // return 422/400 and the test would "pass" the lock check without the
     // lock having been consulted at all.
     const IMPORT_BODY = { entity: "customers", csvText: "id,demand\n" };
+    const ID = LOCKED_ROW.id;
     const cases: Array<[string, "get" | "post" | "patch" | "delete", string, object]> = [
-      ["read", "get", "/api/scenarios/13", {}],
-      ["update", "patch", "/api/scenarios/13", { name: "renamed" }],
-      ["delete", "delete", "/api/scenarios/13", {}],
-      ["solve", "post", "/api/scenarios/13/solve", {}],
-      ["precheck", "get", "/api/scenarios/13/precheck", {}],
-      ["export", "get", "/api/scenarios/13/export?entity=customers&format=csv", {}],
-      ["import", "post", "/api/scenarios/13/import", IMPORT_BODY],
-      ["import apply", "post", "/api/scenarios/13/import/apply", { ...IMPORT_BODY, mode: "all_or_nothing" }],
-      ["clone", "post", "/api/scenarios/13/clone", {}],
-      ["distance-bands", "patch", "/api/scenarios/13/distance-bands", { distanceBands: [100] }],
+      ["read", "get", `/api/scenarios/${ID}`, {}],
+      ["update", "patch", `/api/scenarios/${ID}`, { name: "renamed" }],
+      ["delete", "delete", `/api/scenarios/${ID}`, {}],
+      ["solve", "post", `/api/scenarios/${ID}/solve`, {}],
+      ["precheck", "get", `/api/scenarios/${ID}/precheck`, {}],
+      ["export", "get", `/api/scenarios/${ID}/export?entity=customers&format=csv`, {}],
+      ["import", "post", `/api/scenarios/${ID}/import`, IMPORT_BODY],
+      ["import apply", "post", `/api/scenarios/${ID}/import/apply`, { ...IMPORT_BODY, mode: "all_or_nothing" }],
+      ["clone", "post", `/api/scenarios/${ID}/clone`, {}],
+      ["distance-bands", "patch", `/api/scenarios/${ID}/distance-bands`, { distanceBands: [100] }],
     ];
 
     it.each(cases)("refuses %s with 403", async (_label, method, path, body) => {
@@ -3983,7 +4002,7 @@ describe("locked models (ch4-lock)", () => {
       // A full row, not a `{modelId}` stub: several of these handlers read
       // other columns before reaching the guard, and a stub would make them
       // fail for the wrong reason.
-      mockDb.select.mockReturnValue(makeChain([chensRow]));
+      mockDb.select.mockReturnValue(makeChain([LOCKED_ROW]));
       const res = await request(app)[method](path).set("Cookie", cookie).send(body);
       expect(res.status).toBe(403);
       expect(res.body.error).toBe("This chapter is locked.");

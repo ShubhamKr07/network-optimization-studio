@@ -10,7 +10,6 @@
     "capacityModes": ["none"],
     "demandEditable": true,
     "supportsFacilityStatus": true,
-    "locked": true,
     "supportsAddedCustomerExclusion": true,
     "supportsReferenceDistances": true,
     "outputGrids": ["openWarehouses", "assignments", "costSummary", "serviceStats"]

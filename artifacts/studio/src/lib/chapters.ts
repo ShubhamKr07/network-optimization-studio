@@ -55,7 +55,6 @@ export const CHAPTERS: Chapter[] = [
     description: "Service-level facility location across China: open warehouses to maximize the demand served within a target service distance.",
     workspace: true,
     hiddenFromLanding: false,
-    locked: true,
     labHeaderTitle: "Chen's Cosmetics · Model Lab",
     labHeaderSubtitle: "Ch 4 · service coverage · China warehouses → customers",
   },

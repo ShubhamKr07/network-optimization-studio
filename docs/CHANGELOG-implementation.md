@@ -389,3 +389,69 @@ New coverage: `normalizeEmail.test.ts` (8) and 7 new cases in `auth.test.ts` —
 - **Isolated env TORN DOWN (2026-09-24, product-owner approved).** `nos-measure-api` (`srv-daq9ml8jo6nc73dlffug`) + `nos-measure-postgres` (`dpg-daq9h6h7lnhs73c6uopg-a`) deleted via `render … delete --confirm`; verified 0 measure services / 0 measure postgres remaining → **billing stopped**. Prod untouched (nos-api `healthz` 200, nos-studio 200, nos-postgres present). Re-provisionable from `docs/ops/measurement-environment.md` for M4/M5 or a starter-plan re-run. Local `.measurement/` run artifacts (gitignored, incl. now-invalid synthetic sessions) left in place; no credentials ever committed.
 
 **Branch merges to local `main` + design-doc reconciliation (#49, 2026-09-24).** Merged `A-land-main` (Bundle A + boot-logging fix `ac10977` + deploy/preflight records) and `scnd-measurement` (all Phases 1–3 + M-scripts) into local `main` (`5e3b81e`), gate `1445/1448` (3 documented cors/resultEnvelope/drain-timing flakes, untouched files). **Found local `main` was stale** — it had docs-only commits but had never merged the deployed Bundle A (`9291eae`=`origin/main`); the merge reconciled that. **Merge conflicts were all in the SCND design docs** (`specs/**`+`plans/**`) because the A-execution line and local `main` had evolved the same 5 docs independently (add/add + content, ~337 diff lines). Resolved per-doc toward the newer/fuller side (CHANGELOG unioned). **#49 audit (post-merge):** diffed each chosen (on-main) version against its dropped side; the dropped-only lines are **superseded earlier phrasings / a 47-line stub**, and the chosen versions cover every dropped concept (AP-4 ×4, G-cache ×12, A14b ×9, three-way/SUPERSEDED ×10, errorCode ×22, P0R.3/4 ×12) → **no genuine current content lost; main's versions are canonical + meaning-complete.** Standing rule added to CLAUDE.md branch-discipline: one canonical copy of design docs (edit in place, no re-synced divergent copies); check local `main` vs `origin/main` before merging. All merges local-only (`origin/main` unchanged). Also synced `render.yaml` nos-api `plan: starter → standard` (`00ae780`) to match the prod upgrade (inert Blueprint value, kept accurate).
+
+---
+
+## ch4-unlock — Chapter 4 (Chen's Cosmetics) reopened to students (2026-09-26)
+
+Branch `unlock-ch4` off `main` (`682bbca`). Reverses the Chapter 4 half of ch4-lock (2026-09-22); **Chapter 9 (JADE) stays locked**.
+
+**The change itself is two lines** — `capabilities.locked` deleted from `solvers/chens-cosmetics-cn/manifest.json`, and `locked: true` deleted from `chapters.ts`'s Chapter 4 entry. Nothing else in the lock machinery moved: `middlewares/lockedModel.ts`, the per-handler guards, `App.tsx`'s route guard and Landing's card rendering are all data-driven off those two declarations, which is exactly what ch4-lock was built for. The manifest edit was made with `perl` on the single line rather than a JSON round-trip, so the diff is one deletion and not a whole-file reformat.
+
+**The rest of the diff is tests that had encoded "Chapter 4 is locked" as fact.** Each was rewritten to the new truth rather than deleted — a lock test that stops asserting anything is worse than no test:
+- `lockedChapterDrift.test.ts` — the manifest/chapters.ts agreement check now expects `["two-echelon-jade-us"]`. This is the tripwire that made the unlock a two-place change rather than a silent one-place one: editing only the manifest fails here immediately.
+- `Landing.test.tsx` — Chapter 4 moved out of the locked table and into the "stays a normal link" case, which now runs over both Ch3 and Ch4. The unlock is pinned **positively** (href present, no inert wrapper, no badge, no `data-locked`), so a half-applied unlock fails rather than merely shrinking a list.
+- `routes.test.ts` — the server-side lock suite used `chens-cosmetics-cn` as its subject. It was repointed at JADE rather than kept on Chen's via the `setLockedModelsForTests` override: the override would have kept all 11 assertions green while the suite read as a claim about shipped behaviour that is now false. Repointing surfaced a latent brittleness — ten of the paths were hardcoded `/api/scenarios/13` (Chen's fixture id) instead of derived from the fixture, so they 404'd against the JADE row. They now build from a single `LOCKED_ROW` constant, making the next such move a one-line change.
+- The unscoped-list test deliberately **keeps** Chen's in its fixture and now expects it to survive the filter, so it proves the drop is per-model rather than "anything ever locked".
+
+**Gate:** typecheck clean · api-server **1446/1449** · studio **2075/2075** (113 files) · solver pytest **280/280** · `e2e_accuracy.py` **99/99** (run directly — it is not pytest-discovered, and Chapter 4's accuracy checks are part of that 99). The 3 api-server failures are the usual load-induced flakes (`jobRunnerDispatcher`, `resultEnvelope`) and pass 24/24 when those two files run alone.
+
+**Playwright, unchanged and worth knowing.** The ch4-lock entry listed 8 specs broken *because* their subject was locked; unlocking Chapter 4 makes the Chen's-focused ones (`chens-cosmetics`, `chen-bands-units-qa`) meaningful again. They were not run here — no dev servers, and `pnpm e2e:gate` is not part of this gate.
+
+**Pre-existing e2e staleness found but NOT fixed (not caused by this change).** `bundle4-auth-landing.spec.ts` asserts `"2 labs · …"` in four places and an `auth-labs-strip` of `"Chapter 3Chapter 9"`; `bundle6-ui-tweaks.spec.ts` asserts `"2 labs"` and `"Chapter 3Chapter 10"`. Both counts are already wrong at `main`: `visibleLabs` counts `!hiddenFromLanding`, and a **locked** chapter is still visible (that is the whole distinction from hidden), so Ch3 + Ch4 + Ch9 = **3 labs** both before and after this branch. `Landing.test.tsx` has asserted `"3 labs"` all along. Left alone deliberately — they are outside this change's blast radius and fixing them would mix an unrelated repair into an unlock.
+
+---
+
+## attached-assets — source notebooks committed for Chapters 4 and 9 (2026-09-26)
+
+Branch `add-source-notebooks` off `main` (`4cf3bc1`). Closes a provenance gap: the Chen's Cosmetics
+notebooks existed only on one developer's machine, so `scripts/src/extract-chens-dataset.ts` — which
+takes the notebook path as a runtime argument specifically to avoid baking in a `~/Downloads` path —
+could not be run from a clean clone at all.
+
+**Chapter 4 — three notebooks, verbatim** (~145 KB each, sha256 recorded in `attached_assets/NOTEBOOKS.md`).
+
+**Chapter 9 — one notebook, deliberately NOT byte-faithful.** The original is 23.73 MB, of which
+22.79 MB (96%) is five identical copies of the plotly.js v2.35.2 bundle: one from
+`init_notebook_mode()` and one re-embedded in each of four self-contained map renders. The real
+figure payload across all four maps is 268,633 chars (0.27 MB, ~1%). Each library `<script>` body was
+replaced with a CDN reference **pinned to 2.35.2** (the version that generated the figures, not
+`plotly-latest`). Result: **0.42 MB**, every trace and coordinate retained. Product owner chose this
+over both committing 24 MB and dropping the maps entirely.
+
+The transform matched only `<script>` bodies over 1,000,000 chars that self-identify as `plotly.js v…`
+in their first 400 characters — five matched. A cell-by-cell diff of the parsed notebooks confirms
+nothing else moved: all 31 cells' `source` (including cell 13's 70,840-char `get_data()`), every
+`cell_type`/`execution_count`, every non-HTML output byte for byte, `nbformat` and kernelspec
+metadata. Cost: the saved maps now need network access to render. They are a view of data the repo
+already holds — `get_data()` carries 100 customers / 25 warehouses / 4 plants, matching
+`solvers/two-echelon-jade-us/dataset/` exactly.
+
+**Found while verifying, and worth knowing: the extractor is step 1 of 2, not the whole pipeline.**
+Running it against the newly-committed Step 3 notebook emits the right shape (25/197/4925) but
+`version: 1` with no `zip` field, where the committed dataset is `version: 3` with zips —
+`scripts/src/geocode-chens.ts` adds them afterwards (D9/D26, one-time Nominatim pass). The
+regenerated files were reverted, not committed. So extraction is reproducible; the full dataset is
+not reproducible offline, and `solvers/chens-cosmetics-cn/dataset/*.json` remains the authority.
+`attached_assets/NOTEBOOKS.md` states this so nobody commits a bare extractor run as an "update".
+
+**Chapter 5 — nothing to commit.** No notebook for `transport-coal` or `p-median-brazil` exists on
+the machine (searched `~/Downloads`, `~/Desktop`, `~/Documents`, home tree), and neither model has an
+`extract-*` script. How their datasets were produced is unrecorded.
+
+**Gate:** none run — no source, test, or config file is touched. The only executable path near this
+change is the Chen extractor, which was run once to verify reproducibility and whose output was
+reverted.
+
+**Note on hard rule 7.** `attached_assets/` is normally off-limits; this was explicitly authorized by
+the product owner. Chapter 10's notebook still sits at the **repo root**, not here — left alone.

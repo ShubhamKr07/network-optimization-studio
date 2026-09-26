@@ -63,10 +63,12 @@ describe("locked chapters — chapters.ts and the solver manifests agree", () =>
     expect(manifestLockedModelIds().size).toBeGreaterThan(0);
   });
 
-  it("locks exactly Chapter 4 and Chapter 9 today", () => {
-    expect([...manifestLockedModelIds()].sort()).toEqual(
-      ["chens-cosmetics-cn", "two-echelon-jade-us"].sort(),
-    );
+  it("locks exactly Chapter 9 today", () => {
+    // Chapter 4 (chens-cosmetics-cn) was unlocked on 2026-09-26. This
+    // assertion is the deliberate tripwire for that kind of change: it fails
+    // on ANY edit to the locked set, so unlocking a chapter cannot happen
+    // quietly in one place — the change has to be stated here too.
+    expect([...manifestLockedModelIds()].sort()).toEqual(["two-echelon-jade-us"]);
   });
 
   it("every locked chapter is still a registered route — locked is not hidden", () => {

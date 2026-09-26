@@ -1,5 +1,7 @@
 # SCND Scaling — Reviewed Design / Brainstorm
 
+> **HISTORICAL — superseded for execution.** This is the origin brainstorm (direction, cost framing, the 50×50 load contract). The live scaling spec is **[`2026-09-22-scnd-scaling-design.md`](2026-09-22-scnd-scaling-design.md)**; correctness split off into **[`2026-09-21-scnd-solver-result-contract-design.md`](2026-09-21-scnd-solver-result-contract-design.md)**. Read this only for *why*, never for *what to build*.
+
 **Date:** 2026-09-19
 **Status:** Reviewed design with second-pass findings resolved; recommended direction identified, implementation gated on production-plan benchmarks and SLO approval.
 **Goal:** Handle approximately 50 concurrent classroom users, each running about 50 optimizations/hour on the heaviest live model, for bursts of up to three hours/day, at the lowest defensible compute cost.
