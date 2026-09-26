@@ -409,3 +409,49 @@ Branch `unlock-ch4` off `main` (`682bbca`). Reverses the Chapter 4 half of ch4-l
 **Playwright, unchanged and worth knowing.** The ch4-lock entry listed 8 specs broken *because* their subject was locked; unlocking Chapter 4 makes the Chen's-focused ones (`chens-cosmetics`, `chen-bands-units-qa`) meaningful again. They were not run here — no dev servers, and `pnpm e2e:gate` is not part of this gate.
 
 **Pre-existing e2e staleness found but NOT fixed (not caused by this change).** `bundle4-auth-landing.spec.ts` asserts `"2 labs · …"` in four places and an `auth-labs-strip` of `"Chapter 3Chapter 9"`; `bundle6-ui-tweaks.spec.ts` asserts `"2 labs"` and `"Chapter 3Chapter 10"`. Both counts are already wrong at `main`: `visibleLabs` counts `!hiddenFromLanding`, and a **locked** chapter is still visible (that is the whole distinction from hidden), so Ch3 + Ch4 + Ch9 = **3 labs** both before and after this branch. `Landing.test.tsx` has asserted `"3 labs"` all along. Left alone deliberately — they are outside this change's blast radius and fixing them would mix an unrelated repair into an unlock.
+
+---
+
+## attached-assets — source notebooks committed for Chapters 4 and 9 (2026-09-26)
+
+Branch `add-source-notebooks` off `main` (`4cf3bc1`). Closes a provenance gap: the Chen's Cosmetics
+notebooks existed only on one developer's machine, so `scripts/src/extract-chens-dataset.ts` — which
+takes the notebook path as a runtime argument specifically to avoid baking in a `~/Downloads` path —
+could not be run from a clean clone at all.
+
+**Chapter 4 — three notebooks, verbatim** (~145 KB each, sha256 recorded in `attached_assets/NOTEBOOKS.md`).
+
+**Chapter 9 — one notebook, deliberately NOT byte-faithful.** The original is 23.73 MB, of which
+22.79 MB (96%) is five identical copies of the plotly.js v2.35.2 bundle: one from
+`init_notebook_mode()` and one re-embedded in each of four self-contained map renders. The real
+figure payload across all four maps is 268,633 chars (0.27 MB, ~1%). Each library `<script>` body was
+replaced with a CDN reference **pinned to 2.35.2** (the version that generated the figures, not
+`plotly-latest`). Result: **0.42 MB**, every trace and coordinate retained. Product owner chose this
+over both committing 24 MB and dropping the maps entirely.
+
+The transform matched only `<script>` bodies over 1,000,000 chars that self-identify as `plotly.js v…`
+in their first 400 characters — five matched. A cell-by-cell diff of the parsed notebooks confirms
+nothing else moved: all 31 cells' `source` (including cell 13's 70,840-char `get_data()`), every
+`cell_type`/`execution_count`, every non-HTML output byte for byte, `nbformat` and kernelspec
+metadata. Cost: the saved maps now need network access to render. They are a view of data the repo
+already holds — `get_data()` carries 100 customers / 25 warehouses / 4 plants, matching
+`solvers/two-echelon-jade-us/dataset/` exactly.
+
+**Found while verifying, and worth knowing: the extractor is step 1 of 2, not the whole pipeline.**
+Running it against the newly-committed Step 3 notebook emits the right shape (25/197/4925) but
+`version: 1` with no `zip` field, where the committed dataset is `version: 3` with zips —
+`scripts/src/geocode-chens.ts` adds them afterwards (D9/D26, one-time Nominatim pass). The
+regenerated files were reverted, not committed. So extraction is reproducible; the full dataset is
+not reproducible offline, and `solvers/chens-cosmetics-cn/dataset/*.json` remains the authority.
+`attached_assets/NOTEBOOKS.md` states this so nobody commits a bare extractor run as an "update".
+
+**Chapter 5 — nothing to commit.** No notebook for `transport-coal` or `p-median-brazil` exists on
+the machine (searched `~/Downloads`, `~/Desktop`, `~/Documents`, home tree), and neither model has an
+`extract-*` script. How their datasets were produced is unrecorded.
+
+**Gate:** none run — no source, test, or config file is touched. The only executable path near this
+change is the Chen extractor, which was run once to verify reproducibility and whose output was
+reverted.
+
+**Note on hard rule 7.** `attached_assets/` is normally off-limits; this was explicitly authorized by
+the product owner. Chapter 10's notebook still sits at the **repo root**, not here — left alone.
