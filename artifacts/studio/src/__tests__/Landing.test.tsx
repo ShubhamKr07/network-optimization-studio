@@ -49,6 +49,9 @@ describe("Landing", () => {
   it("links each visible chapter to its route", () => {
     renderLanding();
     expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
+    // Chapter 4 (Chen's) was locked between 2026-09-22 and 2026-09-26; it is
+    // a normal linked card again.
+    expect(screen.getByTestId("link-/chapter-4")).toHaveAttribute("href", "/chapter-4");
     // ch4-lock — Chapter 9 (JADE) is still UNHIDDEN (jade-T17) and still
     // renders, but it is now LOCKED: the card is no longer wrapped in a
     // <Link>, so there is no href to follow at all. Asserted as the absence
@@ -394,14 +397,17 @@ describe("Landing — live summary (T4)", () => {
   });
 });
 
-// ch4-lock — Chapters 4 and 9 are greyed out and locked on Landing. These
-// pin the three things that make the lock real rather than cosmetic: the
-// card is inert (no <Link>/href), it is visibly greyed, and it still
-// RENDERS (a lock is not the same as hiding, which `hiddenFromLanding`
-// already does for Chapters 5 and 10).
-describe("Landing — locked chapters (ch4-lock)", () => {
+// Chapter 9 is greyed out and locked on Landing. These pin the three things
+// that make the lock real rather than cosmetic: the card is inert (no
+// <Link>/href), it is visibly greyed, and it still RENDERS (a lock is not the
+// same as hiding, which `hiddenFromLanding` already does for Chapters 5 and
+// 10).
+//
+// Chapter 4 was in this table until 2026-09-26 and is now unlocked; the
+// "leaves unlocked chapters untouched" case below asserts its link is back,
+// so the unlock is pinned positively rather than only by this table shrinking.
+describe("Landing — locked chapters", () => {
   const LOCKED: Array<[string, string, RegExp]> = [
-    ["chens-cosmetics-cn", "/chapter-4", /Chen's Cosmetics/],
     ["two-echelon-jade-us", "/chapter-9/jade", /JADE Network/],
   ];
 
@@ -420,12 +426,18 @@ describe("Landing — locked chapters (ch4-lock)", () => {
     expect(screen.getByTestId(`landing-card-footer-${modelId}`)).toHaveTextContent("locked");
   });
 
-  it("leaves unlocked chapters untouched — Chapter 3 keeps its link and shows no lock badge", () => {
+  it.each([
+    ["p-median-us", "/chapter-3"],
+    // Chapter 4 — unlocked 2026-09-26. Asserted as a full link with an href,
+    // no inert wrapper, no badge and no data-locked, so a partial unlock
+    // (manifest flipped but chapters.ts missed, or vice versa) fails here.
+    ["chens-cosmetics-cn", "/chapter-4"],
+  ])("leaves %s unlocked — it keeps its link and shows no lock badge", (modelId, path) => {
     renderLanding();
-    expect(screen.getByTestId("link-/chapter-3")).toHaveAttribute("href", "/chapter-3");
-    expect(screen.queryByTestId("locked-/chapter-3")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("landing-card-locked-p-median-us")).not.toBeInTheDocument();
-    expect(screen.getByTestId("landing-card-p-median-us")).not.toHaveAttribute("data-locked");
+    expect(screen.getByTestId(`link-${path}`)).toHaveAttribute("href", path);
+    expect(screen.queryByTestId(`locked-${path}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`landing-card-locked-${modelId}`)).not.toBeInTheDocument();
+    expect(screen.getByTestId(`landing-card-${modelId}`)).not.toHaveAttribute("data-locked");
   });
 });
 
