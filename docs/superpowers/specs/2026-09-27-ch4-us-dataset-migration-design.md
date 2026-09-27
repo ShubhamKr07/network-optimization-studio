@@ -168,7 +168,15 @@ Removed in the same commit — git retains the history, so nothing is lost:
 - the solver benchmark corpus and its translator (`solver/tests/benchmark/` — `corpus.py`, `translate.py`, `corpus/manifest.json`, `real_solve_smoke.py`, `test_corpus.py`);
 - API tests for import, precheck, reference distances, contract and templates;
 - Studio unit tests across the workspace tabs, tables and `lib/` helpers;
-- `lib/dataset-schema` and `lib/units` tests.
+- `lib/dataset-schema` and `lib/units` tests;
+- **`README.md`** — see below.
+
+**MIG-19 — `README.md` needs a content rewrite, not a rename sweep.** It is the project's public showcase and, as of `main@54fee51`, documents Chapter 4 as the China case. A grep for the model id finds only part of it; the rest is prose that names no identifier:
+
+- the model table row — "Service-level siting in **China** … 25 WH · 197 customers · 4,925 distances (km)" — becomes Al's Athletics, 26 warehouses, 200 customers, 5,200 distances;
+- the cited goldens `66.0639%` and `131645389` become the regenerated Chapter 4 values (§5);
+- the units passage explaining that "Chen's model is genuinely metric, which forced distance units to become a first-class, model-derived property" needs rewriting — Chapter 4 stays km-canonical (MIG-7), but over US data, and the justification is now the shim (MIG-6), not the geography;
+- the GeoNames / CC BY 4.0 attribution for Chinese postal codes is **removed**, since §7 deletes the dataset it credits. Leaving an attribution for data the project no longer ships is a licensing-hygiene defect, not a cosmetic one.
 
 **e2e.** `chens-cosmetics.spec.ts`, `chen-bands-units-qa.spec.ts` and `nonjade-servicestats-live-coverage.spec.ts` reference the old id directly and all need rewriting. Note that all three also hard-code the old defaults (`highServiceDistKm: 600`), so MIG-9 breaks them independently of the rename. Per CLAUDE.md's recurring `spec_gap` rule this happens before merge — the unit gate does not run Playwright.
 
@@ -204,6 +212,7 @@ Defined in place; this index is a pointer, not a restatement.
 | MIG-16 | Quiesced, transactional deletion runbook | §6 |
 | MIG-17 | Explicit rename inventory — 93 files, 47 of them tests | §8 |
 | MIG-18 | Two-step spec textually amended, not reinterpreted | §9 |
+| MIG-19 | `README.md` needs a content rewrite, incl. removing the GeoNames attribution | §8 |
 
 ---
 
