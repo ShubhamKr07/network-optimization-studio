@@ -1210,8 +1210,17 @@ Expected: no output. **If anything appears, stop** — Task 2's rename was incom
 
 - [ ] **Step 2: Delete**
 
+**Note from execution:** `solvers/chens-cosmetics-cn/manifest.json` was already
+deleted in Task 4, not here. It had to be: `discoverManifests()`
+(`modelRegistry.ts:39-64`) registers any directory containing a `manifest.json`
+with no allowlist cross-check, so leaving it would have kept a 7th model listable
+and turned two gates red — `registration.test.ts:98`'s `toHaveLength(6)`, and
+`lockedChapterDrift` (the old manifest still carried Task 1's `locked: true`,
+which `chapters.ts` no longer does). Task 4's gate was unreachable with it
+present. The dataset directory and the China-only scripts remain for this task.
+
 ```bash
-git rm -r solvers/chens-cosmetics-cn
+git rm -r solvers/chens-cosmetics-cn   # dataset dir; manifest already removed in Task 4
 git rm scripts/src/extract-chens-dataset.ts scripts/src/geocode-chens.ts
 git rm docs/dataset-audit/chens-geocode-provenance.json
 ```
