@@ -936,7 +936,11 @@ def test_step2_is_always_feasible():
     same p, same maxDistKm, no average-distance cap, and a floor equal to the
     coverage Step 1 actually achieved. An infeasible Step 2 is a defect.
     """
-    step1 = run(BASE)
+    # BASE carries no "objective" key -- every test in this file spreads one in
+    # explicitly. run(BASE) bare raises KeyError inside solve_max_coverage, which
+    # the __main__ boundary degrades to a details-less failure, so step1["details"]
+    # would KeyError before any assertion ran.
+    step1 = run({**BASE, "objective": "coverage", "avgServiceDistCapKm": 1000})
     floor = step1["details"]["coveredDemand"]
     step2 = run({**BASE, "objective": "min_distance", "coverageFloorDemand": floor})
     assert step2["status"] == "optimal"
