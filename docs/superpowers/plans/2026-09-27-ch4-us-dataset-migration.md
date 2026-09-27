@@ -215,7 +215,8 @@ describe("Chapter 4 deletion scoping", () => {
     expect(scenariosAt).toBeGreaterThan(-1);
     expect(cacheAt).toBeGreaterThan(-1);
     expect(jobsAt).toBeLessThan(scenariosAt);   // FK-safe ordering
-    expect(src).toMatch(/db\.transaction|tx\s*=>/);
+    // `database.transaction(async (tx) => { ... })` -- match the real shape.
+    expect(src).toMatch(/\.transaction\s*\(\s*async\s*\(tx\)/);
   });
 
   it("never issues an ad-hoc job status update", () => {
