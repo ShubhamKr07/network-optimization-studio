@@ -881,7 +881,7 @@ function PMedianInputMap({
           <MapEventsBridge onClick={handleMapClick} onContextMenu={handleMapContextMenu} onMoveOrZoomStart={closeOverlays} />
           {armed && <GhostFollower tint={armed.kind === "move" ? "#2563eb" : "#059669"} />}
           {/* modelId fallback: this variant only ever renders the p-median FAMILY
-              (us/brazil/chens), all of which label Warehouse/Customer regardless of
+              (us/brazil/max-coverage-us), all of which label Warehouse/Customer regardless of
               which — so a definite p-median-us fallback for the optional prop is
               correct here, not the footgun Minor-5 guards against (transport/gold
               pass literals). */}

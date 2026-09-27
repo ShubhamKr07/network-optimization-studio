@@ -19,7 +19,7 @@ interface WarehouseTableProps {
   overrides: WarehouseOverride[];
   capacityMode: "none" | "uniform" | "per_wh";
   onChange: (next: WarehouseOverride[]) => void;
-  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
+  /** Chen's Cosmetics (max-coverage-us) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
   hasStateColumn?: boolean;
   /** chen-bands-units follow-up (QA defect) — see CustomerTable's identical
    * prop for the full rationale. Disables every capacity input outright and

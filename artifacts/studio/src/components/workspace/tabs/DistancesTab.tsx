@@ -70,7 +70,7 @@ interface DistancesTabProps {
   /** B3 — base-dataset customer ids currently EXCLUDED in the scenario's live
    * `localInputs` draft. Same filter semantics as `inactiveWarehouseIds`. */
   excludedCustomerIds?: string[];
-  /** ch4-tab-city-labels — Chen (chens-cosmetics-cn)-only — id -> {city,
+  /** ch4-tab-city-labels — Chen (max-coverage-us)-only — id -> {city,
    * state} (base dataset ∪ added entities), built by Workspace.tsx's
    * `chenLocationMapFromInputs` off the same `localInputs` draft this tab's
    * other props already read. Chen's dataset carries `state: ""` for every

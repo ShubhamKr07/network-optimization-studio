@@ -8,8 +8,8 @@ describe("objectiveDimension — the six-model contract", () => {
     ["transport-coal",       null,           "flow-distance",     true],
     ["two-echelon-gold-au",  null,           "truckload-distance",true],
     ["two-echelon-jade-us",  null,           "monetary",          false],
-    ["chens-cosmetics-cn",   "coverage",     "percent",           false],
-    ["chens-cosmetics-cn",   "min_distance", "demand-distance",   true],
+    ["max-coverage-us",   "coverage",     "percent",           false],
+    ["max-coverage-us",   "min_distance", "demand-distance",   true],
   ];
   it.each(cases)("%s / %s -> %s (converts: %s)", (modelId, mode, dim, converts) => {
     expect(objectiveDimension(modelId, mode)).toBe(dim);

@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-// C4.6 — Chen's Cosmetics (`chens-cosmetics-cn`, Chapter 4) scenario `inputs`
-// validator. A China single-echelon warehouse->customer service-level model
-// with TWO coupled objectives behind one `objective` mode toggle:
+// C4.6 — Al's Athletics — Max Coverage (`max-coverage-us`, Chapter 4) scenario
+// `inputs` validator. A US single-echelon warehouse->customer service-level
+// model with TWO coupled objectives behind one `objective` mode toggle:
 //   - "coverage"      maximize demand within highServiceDistKm, subject to a
 //                     weighted-average service-distance cap (avgServiceDistCapKm).
 //   - "min_distance"  minimize total demand-weighted distance, subject to a
@@ -20,8 +20,8 @@ import { z } from "zod";
 // product), so `customerOverrides[].demand`, `addedCustomers[].demand`, and
 // `coverageFloorDemand` are all `z.number().int().nonnegative()`.
 
-// Warehouse override — id + status only. NO capacity (Chen has none), the one
-// structural difference from p-median's warehouseOverrideSchema.
+// Warehouse override — id + status only. NO capacity (max-coverage-us has
+// none), the one structural difference from p-median's warehouseOverrideSchema.
 const warehouseOverrideSchema = z.object({
   id: z.string().min(1),
   status: z.enum(["active", "forced_open", "inactive"]),
@@ -44,8 +44,8 @@ const addedWarehouseSchema = z.object({
   state: z.string(),
   lat: z.number(),
   lng: z.number(),
-  // No capacity field (Chen has none) — the one difference from an added
-  // p-median warehouse.
+  // No capacity field (max-coverage-us has none) — the one difference from an
+  // added p-median warehouse.
   status: z.enum(["active", "forced_open", "inactive"]),
 });
 
@@ -57,7 +57,7 @@ const addedCustomerSchema = z.object({
   lat: z.number(),
   lng: z.number(),
   demand: z.number().int().nonnegative(),
-  // Optional-with-default "active" — Chen advertises
+  // Optional-with-default "active" — max-coverage-us advertises
   // `capabilities.supportsAddedCustomerExclusion: true`, so an added customer
   // can be Excluded; back-compat default is "active".
   status: z.enum(["active", "excluded"]).default("active"),
@@ -66,7 +66,8 @@ const addedCustomerSchema = z.object({
 const distanceOverrideSchema = z.object({
   fromId: z.string().min(1),
   toId: z.string().min(1),
-  // RAW km, strictly positive (solve_chens applies ×1.17 circuity, D8).
+  // RAW km, strictly positive. MIG-6: stored distances ARE the effective
+  // distances for max-coverage-us — no circuity factor is applied downstream.
   distance: z.number().positive(),
   // Informational: true when auto-filled by the added-entity estimator
   // (services/autoDistance.ts, C4.7) rather than entered/imported. Never read
@@ -92,10 +93,10 @@ const distanceBandsSchema = z
     message: "distanceBands must be strictly ascending and unique",
   });
 
-export const chensInputsSchema = z
+export const maxCoverageInputsSchema = z
   .object({
     objective: z.enum(["coverage", "min_distance"]),
-    p: z.number().int().min(1).max(25),
+    p: z.number().int().min(1).max(26),
     // RAW km thresholds. The cross-field `highServiceDistKm < maxDistKm`
     // invariant (a solver-parameter constraint, independent of
     // `distanceBands`) is enforced in `.superRefine` below.
@@ -108,8 +109,8 @@ export const chensInputsSchema = z
     coverageFloorDemand: z.number().int().nonnegative().optional(),
     gap: z.number().min(0),
     timeLimitSec: z.number().int().min(1),
-    // Chen has no capacity concept — persisted as "none" (defaulted so an
-    // omitting client still stores it explicitly).
+    // max-coverage-us has no capacity concept — persisted as "none"
+    // (defaulted so an omitting client still stores it explicitly).
     capacityMode: z.literal("none").default("none"),
     // Optional: a supplied valid array is preserved VERBATIM (see the
     // `.transform` below). Omitted ONLY for a legacy payload that predates
@@ -173,4 +174,4 @@ export const chensInputsSchema = z
     distanceBands: v.distanceBands ?? [v.highServiceDistKm, v.maxDistKm],
   }));
 
-export type ChensInputs = z.infer<typeof chensInputsSchema>;
+export type MaxCoverageInputs = z.infer<typeof maxCoverageInputsSchema>;

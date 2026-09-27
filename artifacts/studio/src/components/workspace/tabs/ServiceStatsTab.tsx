@@ -54,7 +54,7 @@ interface ServiceStatsTabProps {
   // exactly as before B4 — see the "Reads the solver's own
   // metrics.bandCoverage" note above. Model selection lives in the
   // CALLER (Workspace.tsx passes this for every distance-band model
-  // except `chens-cosmetics-cn`, whose "coverage" is a distinct
+  // except `max-coverage-us`, whose "coverage" is a distinct
   // min-distance concept, not a distance-band recompute) — this prop is
   // no longer gated on `supportsPlantProductCapability` internally.
   presentationBands?: number[];
@@ -179,13 +179,13 @@ const PLANT_PRODUCTION_FILTER_DESCRIPTORS: ColumnFilterDescriptor<PlantProductio
 // models), else every edge (single-echelon models, which have no `leg`
 // concept and thus no inbound leg to exclude). Never `plant_to_warehouse`
 // / `mine_to_refinery` — mixing legs would double-count throughput.
-// `chens-cosmetics-cn` (a distinct min-distance coverage concept) stays
+// `max-coverage-us` (a distinct min-distance coverage concept) stays
 // frozen: gated both by the caller (Workspace.tsx never wires
 // `presentationBands` for it) and, belt-and-suspenders, here on the
 // envelope's own `showCoverageKpis` shape (see below) — never a
 // `modelId` check.
 // Workspace.tsx wires this for every distance-band model EXCEPT
-// `chens-cosmetics-cn` (a distinct min-distance coverage concept, stays
+// `max-coverage-us` (a distinct min-distance coverage concept, stays
 // frozen) — model selection lives entirely in the caller now.
 export function ServiceStatsTab({
   result,
@@ -237,7 +237,7 @@ export function ServiceStatsTab({
 
   // SSC-T1 (spec §4a) — live coverage recompute, generalized off the
   // original JADE-only gate. Model selection lives in the caller
-  // (Workspace.tsx never passes this for chens-cosmetics-cn), so here the
+  // (Workspace.tsx never passes this for max-coverage-us), so here the
   // gate is purely "is it wired".
   const useLiveCoverage = presentationBands != null && presentationBands.length > 0;
   // Per-model service-edge selection (spec §4a): if any edge carries a

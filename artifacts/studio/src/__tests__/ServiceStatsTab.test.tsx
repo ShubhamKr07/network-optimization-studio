@@ -40,7 +40,7 @@ const mockUseListModels = vi.fn(() => ({
     { id: "two-echelon-gold-au", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: false } },
     { id: "two-echelon-jade-us", distanceUnit: "mi", capabilities: { supportsPlantProductCapability: true } },
     // C4.14 — Chen's Cosmetics reports distances in km.
-    { id: "chens-cosmetics-cn", distanceUnit: "km", capabilities: { supportsPlantProductCapability: false } },
+    { id: "max-coverage-us", distanceUnit: "km", capabilities: { supportsPlantProductCapability: false } },
   ],
 }));
 vi.mock("@workspace/api-client-react", () => ({
@@ -199,7 +199,7 @@ describe("ServiceStatsTab", () => {
     };
 
     it("renders Coverage %, Covered demand, Uncovered %, and Avg service distance (km) from details", () => {
-      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="chens-cosmetics-cn" />);
+      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="max-coverage-us" />);
       expect(screen.getByTestId("service-stats-coverage-pct")).toHaveTextContent("66.67 %");
       expect(screen.getByTestId("service-stats-covered-demand")).toHaveTextContent("131,645,389");
       expect(screen.getByTestId("service-stats-uncovered-pct")).toHaveTextContent("33.33 %");
@@ -207,7 +207,7 @@ describe("ServiceStatsTab", () => {
     });
 
     it("still renders the existing band rows below the KPI block", () => {
-      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="chens-cosmetics-cn" />);
+      render(<ServiceStatsTab result={chenResult} scenarioId={1} modelId="max-coverage-us" />);
       expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("66%");
       expect(screen.getByTestId("service-stats-band-5000")).toHaveTextContent("100%");
     });
@@ -581,7 +581,7 @@ describe("ServiceStatsTab", () => {
   // SSC-T1 (spec §4/§5) — non-JADE ServiceStats live coverage: the 4
   // distance-band models (us/brazil/transport/gold-au) now recompute live
   // from presentationBands the same way JADE already does, generalized
-  // off the JADE-only gate. chens-cosmetics-cn stays frozen.
+  // off the JADE-only gate. max-coverage-us stays frozen.
   describe("SSC-T1 — non-JADE distance-band models recompute live", () => {
     it("a single-echelon model (no leg on any edge) recomputes over ALL edges and shows the overflow row", () => {
       const singleEchelonEdges = [
@@ -665,7 +665,7 @@ describe("ServiceStatsTab", () => {
     // km-labelled). Chen's SEPARATE `details.coveragePct` KPI block above
     // is untouched — this only concerns which source the band-coverage
     // BARS below it read from.
-    it("chens-cosmetics-cn now computes bandCoverage LIVE once presentationBands is wired (Part A guard deleted)", () => {
+    it("max-coverage-us now computes bandCoverage LIVE once presentationBands is wired (Part A guard deleted)", () => {
       const chenResult = {
         status: "optimal" as const, objective: 66.6667, runTimeSec: 0.3, quality: "optimal",
         edges: [{ fromId: "w1", toId: "c1", flow: 100, distance: 50 }],
@@ -677,7 +677,7 @@ describe("ServiceStatsTab", () => {
         <ServiceStatsTab
           result={chenResult}
           scenarioId={1}
-          modelId="chens-cosmetics-cn"
+          modelId="max-coverage-us"
           presentationBands={[10, 20, 30]}
         />,
       );
@@ -734,7 +734,7 @@ describe("ServiceStatsTab — Part D display-unit contract", () => {
         ],
       },
     };
-    render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="chens-cosmetics-cn" />);
+    render(<ServiceStatsTab result={jadeResult} scenarioId={1} modelId="max-coverage-us" />);
     // 600 km displayed in mi: 600 / 1.609344 = 372.8227 (rounded to 4dp).
     expect(screen.getByTestId("service-stats-band-600")).toHaveTextContent("≤ 372.8227 mi");
     const overflowRow = screen.getByTestId("service-stats-band--1");

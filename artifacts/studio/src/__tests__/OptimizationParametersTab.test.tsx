@@ -209,7 +209,7 @@ describe("OptimizationParametersTab — pMax (Chapter 9 JADE, T11)", () => {
   });
 });
 
-// C4.12 — Chen's Cosmetics (chens-cosmetics-cn) coverage model: objective
+// C4.12 — Chen's Cosmetics (max-coverage-us) coverage model: objective
 // mode toggle, the two service-distance thresholds, the mode-specific field,
 // pMax=25 (D27), and NO band editor (D13/D19). The whole block is gated on
 // `objective != null` (present only for Chen) — a sibling model passing none

@@ -61,22 +61,22 @@ describe("two-echelon-jade-us registration (Chapter 9, jade-T2)", () => {
   });
 });
 
-describe("chens-cosmetics-cn registration (Chapter 4, C4.2)", () => {
-  it("validates the chens-cosmetics-cn package against its schema", () => {
-    const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn");
+describe("max-coverage-us registration (Chapter 4, C4.2)", () => {
+  it("validates the max-coverage-us package against its schema", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "max-coverage-us");
     expect(spec).toBeDefined();
     const result = validatePackage(spec!);
-    expect(Object.keys(result["warehouses.json"] as object)).toHaveLength(25);
-    expect(Object.keys(result["customers.json"] as object)).toHaveLength(197);
-    expect(Object.keys(result["distances.json"] as object)).toHaveLength(4925);
+    expect(Object.keys(result["warehouses.json"] as object)).toHaveLength(26);
+    expect(Object.keys(result["customers.json"] as object)).toHaveLength(200);
+    expect(Object.keys(result["distances.json"] as object)).toHaveLength(5200);
   });
 
   // The TS computeSha256() must match the sha256 stored in version.json
   // (produced by the extraction script). If these disagree, the two hashing
   // methods are not byte-compatible.
-  it("computeSha256 matches the version.json sha256 for chens-cosmetics-cn", () => {
-    const spec = PACKAGE_SPECS.find(s => s.modelId === "chens-cosmetics-cn")!;
-    expect(computeSha256(spec)).toBe(readVersion("chens-cosmetics-cn").sha256);
+  it("computeSha256 matches the version.json sha256 for max-coverage-us", () => {
+    const spec = PACKAGE_SPECS.find(s => s.modelId === "max-coverage-us")!;
+    expect(computeSha256(spec)).toBe(readVersion("max-coverage-us").sha256);
   });
 });
 

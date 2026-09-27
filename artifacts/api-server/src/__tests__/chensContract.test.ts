@@ -8,12 +8,12 @@ import {
 } from "@workspace/api-zod";
 
 // C4.5: contract-layer smoke test — the generated Zod schemas (from
-// lib/api-spec/openapi.yaml via orval codegen) reflect the Chen's Cosmetics
-// (chens-cosmetics-cn) model-add contract changes:
-//   - chens-cosmetics-cn is a valid modelId enum member everywhere it appears;
+// lib/api-spec/openapi.yaml via orval codegen) reflect the Chapter 4
+// (max-coverage-us) model-add contract changes:
+//   - max-coverage-us is a valid modelId enum member everywhere it appears;
 //   - PrecheckError.code carries the COMPLETE 8-value taxonomy (the 3 legacy
-//     codes + p_range/capacity that already existed server-side + Chen's 3 new
-//     codes) and round-trips through the generated client;
+//     codes + p_range/capacity that already existed server-side + this
+//     model's 3 new codes) and round-trips through the generated client;
 //   - the ExportEnvelope (response) entity enum is a superset of the export
 //     REQUEST-parameter entity enum — i.e. every entity you can request can be
 //     represented in the response envelope (request<->response entity parity),
@@ -21,14 +21,14 @@ import {
 //     costSummary/serviceStats that were missing from the response side.
 // This is a contract-layer test only — it exercises no route/solver code.
 
-describe("Chen's Cosmetics OpenAPI contract (C4.5)", () => {
-  it("accepts chens-cosmetics-cn in the GET /dataset modelId query enum", () => {
-    expect(GetDatasetQueryParams.safeParse({ modelId: "chens-cosmetics-cn" }).success).toBe(true);
+describe("max-coverage-us OpenAPI contract (C4.5)", () => {
+  it("accepts max-coverage-us in the GET /dataset modelId query enum", () => {
+    expect(GetDatasetQueryParams.safeParse({ modelId: "max-coverage-us" }).success).toBe(true);
   });
 
-  it("accepts CreateScenarioBody for chens-cosmetics-cn (enum growth is additive)", () => {
+  it("accepts CreateScenarioBody for max-coverage-us (enum growth is additive)", () => {
     expect(
-      CreateScenarioBody.safeParse({ name: "Chen", modelId: "chens-cosmetics-cn", inputs: {} }).success,
+      CreateScenarioBody.safeParse({ name: "Max Coverage", modelId: "max-coverage-us", inputs: {} }).success,
     ).toBe(true);
   });
 

@@ -1,10 +1,10 @@
 import Papa from "papaparse";
 import { randomUUID } from "node:crypto";
-import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides, applyChensWarehouseOverrides, applyChensCustomerOverrides } from "./templates.js";
+import { TEMPLATE_VERSION, DISTANCE_TEMPLATE_VERSION, applyWarehouseOverrides, applyCustomerOverrides, applyGoldCustomerOverrides, applyBrazilWarehouseOverrides, applyBrazilCustomerOverrides, applyMineOverrides, applyStationOverrides, applyRefineryOverrides, applyJadeWarehouseOverrides, applyJadeCustomerOverrides, applyPlantOverrides, applyMaxCoverageWarehouseOverrides, applyMaxCoverageCustomerOverrides } from "./templates.js";
 import { TOTAL_DEMAND } from "../data/dataset.js";
 import { BRAZIL_TOTAL_DEMAND } from "../data/brazilDataset.js";
 import { JADE_PRODUCTS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
-import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildJadeIdSpaces, BRAZIL_DATASET, CHENS_DATASET } from "./precheck.js";
+import { buildPMedianIdSpaces, buildTransportIdSpaces, buildTwoEchelonIdSpaces, buildJadeIdSpaces, BRAZIL_DATASET, MAX_COVERAGE_DATASET } from "./precheck.js";
 // T8 (Chen-bands-units bundle, Part E) — `fromDisplay` converts an imported
 // v2 file's value (in whatever unit the file declares) to the model's
 // canonical unit; `getManifest` (already used the same way by precheck.ts —
@@ -448,7 +448,7 @@ export function parseAndValidateImport(
   // T8 — this scenario's model's canonical distance unit (Part E: "storage
   // is always canonical"). Looked up from the model registry (the same
   // source `routes/scenarios.ts`'s export handler already reads
-  // `manifest.distanceUnit` from — precheck.ts's CHENS_DATASET already
+  // `manifest.distanceUnit` from — precheck.ts's MAX_COVERAGE_DATASET already
   // imports `getManifest` the same way) rather than a hardcoded per-model
   // table, so a future model's manifest is the single source of truth.
   // Defaults to "mi" matching every existing caller's implicit assumption
@@ -469,11 +469,11 @@ export function parseAndValidateImport(
     // T9 — p-median-brazil shares p-median-us's distances entity/shape but
     // resolves reference integrity against its own warehouse/region id
     // space, not p-median-us's (buildPMedianIdSpaces' own dataset param).
-    // C4.4 — chens-cosmetics-cn shares p-median-us's distances entity/shape
+    // C4.4 — max-coverage-us shares p-median-us's distances entity/shape
     // (a flat DistanceMap of warehouse->customer pairs) but resolves reference
-    // integrity against its OWN 25-warehouse/197-customer id space, not
+    // integrity against its OWN 26-warehouse/200-customer id space, not
     // p-median-us's, same disambiguation p-median-brazil already needs.
-    const distancesDataset = modelId === "p-median-brazil" ? BRAZIL_DATASET : modelId === "chens-cosmetics-cn" ? CHENS_DATASET : undefined;
+    const distancesDataset = modelId === "p-median-brazil" ? BRAZIL_DATASET : modelId === "max-coverage-us" ? MAX_COVERAGE_DATASET : undefined;
     const { warehouseIdSpace, customerIdSpace } = buildPMedianIdSpaces(currentOverrides, distancesDataset);
     const distanceResult = parseDistancesRows(rows.slice(1), currentOverrides.distanceOverrides ?? [], warehouseIdSpace, customerIdSpace, hasUnitColumn, canonicalUnit);
     return { errors: distanceResult.errors, changes: distanceResult.changes, warnings: [] };
@@ -554,8 +554,8 @@ export function parseAndValidateImport(
           ? applyBrazilWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
           : modelId === "two-echelon-jade-us"
           ? applyJadeWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
-          : modelId === "chens-cosmetics-cn"
-          ? applyChensWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
+          : modelId === "max-coverage-us"
+          ? applyMaxCoverageWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
           : applyWarehouseOverrides(currentOverrides.warehouseOverrides ?? [])
       )
     : entity === "customers" ? (
@@ -565,8 +565,8 @@ export function parseAndValidateImport(
           ? applyBrazilCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : modelId === "two-echelon-jade-us"
           ? applyJadeCustomerOverrides(currentOverrides.customerOverrides ?? [])
-          : modelId === "chens-cosmetics-cn"
-          ? applyChensCustomerOverrides(currentOverrides.customerOverrides ?? [])
+          : modelId === "max-coverage-us"
+          ? applyMaxCoverageCustomerOverrides(currentOverrides.customerOverrides ?? [])
           : applyCustomerOverrides(currentOverrides.customerOverrides ?? [])
       )
     : entity === "mines" ? applyMineOverrides(Object.entries(currentOverrides.mineCapacities ?? {}).map(([id, capacity]) => ({ id, capacity })))
@@ -630,7 +630,7 @@ export function parseAndValidateImport(
   // "Unknown id"), matching this model's own precheck.ts header comment on
   // why per-product demand editing isn't a CSV concern in this pass.
   const canAdd = entity === "warehouses"
-    || (entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "chens-cosmetics-cn"))
+    || (entity === "customers" && (modelId === "p-median-us" || modelId === "p-median-brazil" || modelId === "two-echelon-gold-au" || modelId === "max-coverage-us"))
     || entity === "mines" || entity === "stations" || entity === "refineries" || entity === "plants";
   // T11 — whether this row uses the uid+displayCode identity model (a blank
   // `id` cell means "add a new one", the server mints a fresh opaque uid,

@@ -1214,7 +1214,7 @@ describe("DistancesTab — pagination (single pager over the merged set)", () =>
   });
 });
 
-// ch4-tab-city-labels — Chen (chens-cosmetics-cn) city label. Chen's dataset
+// ch4-tab-city-labels — Chen (max-coverage-us) city label. Chen's dataset
 // carries `state: ""` for every row (China, no province backfill in scope) —
 // the primary label must render city-only, never a trailing ", ".
 describe("DistancesTab — Chen city-only label (locationById, state: \"\")", () => {

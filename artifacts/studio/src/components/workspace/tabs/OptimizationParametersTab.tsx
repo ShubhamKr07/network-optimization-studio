@@ -21,7 +21,7 @@ export type OptimizationParametersField =
   | "singleSource"
   | "capacityInactive"
   | "bomRatio"
-  // C4.12 — Chen's Cosmetics (chens-cosmetics-cn) mode-specific coverage
+  // C4.12 — Chen's Cosmetics (max-coverage-us) mode-specific coverage
   // params, routed through the generic `onChange` (a plain single-field draft
   // update, no cross-field coupling). `highServiceDistKm`/`maxDistKm` are
   // NOT here — they need an atomic distanceBands resync (D13/D19) and so go
@@ -69,7 +69,7 @@ interface OptimizationParametersTabProps {
   bomRatio?: number;
   /** C4.11 — active model's distance unit (manifest ModelInfo.distanceUnit),
    * used in the distance-bands label. Optional/defaults to "mi" so existing
-   * callers stay unchanged; Chen (chens-cosmetics-cn) passes "km". Ignored
+   * callers stay unchanged; Chen (max-coverage-us) passes "km". Ignored
    * once `canonicalUnit` (below) is supplied — that prop supersedes this
    * label-only string for any caller that has migrated to Part D. */
   distanceUnit?: string;
@@ -90,7 +90,7 @@ interface OptimizationParametersTabProps {
    * and are never gated or converted by this prop.
    */
   canonicalUnit?: CanonicalUnit | null;
-  // ── C4.12 — Chen's Cosmetics coverage model (chens-cosmetics-cn) ──────────
+  // ── C4.12 — Chen's Cosmetics coverage model (max-coverage-us) ──────────
   // The whole Chen block is gated on `objective != null` (present only for
   // Chen), exactly like `p`/`bomRatio`/`capacityFactor` above — a sibling
   // model passing none of these renders none of it, so this stays generic.
@@ -108,7 +108,7 @@ interface OptimizationParametersTabProps {
   coverageFloorDemand?: number;
   /** Atomic mode toggle — the caller (Workspace) seeds the newly-required
    * field and CLEARS the previous mode's field in one update, matching
-   * C4.6's discriminated chensInputsSchema. */
+   * C4.6's discriminated maxCoverageInputsSchema. */
   onObjectiveModeChange?: (mode: "coverage" | "min_distance") => void;
   /** Atomic service-distance edit — the caller re-derives `distanceBands` to
    * `[high, max]` in the SAME update (D13/D19). */

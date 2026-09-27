@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chensInputsSchema } from "../chens.js";
+import { maxCoverageInputsSchema } from "../maxCoverage.js";
 
 // A minimal valid coverage-mode base. distanceBands is intentionally omitted
 // from most tests — D19's transform derives it from the two thresholds.
@@ -23,85 +23,85 @@ const MIN_DISTANCE_BASE = {
   timeLimitSec: 60,
 };
 
-describe("chensInputsSchema — objective discrimination", () => {
+describe("maxCoverageInputsSchema — objective discrimination", () => {
   it("accepts coverage mode with avgServiceDistCapKm", () => {
-    const r = chensInputsSchema.safeParse(COVERAGE_BASE);
+    const r = maxCoverageInputsSchema.safeParse(COVERAGE_BASE);
     expect(r.success).toBe(true);
   });
 
   it("accepts min_distance mode with coverageFloorDemand", () => {
-    const r = chensInputsSchema.safeParse(MIN_DISTANCE_BASE);
+    const r = maxCoverageInputsSchema.safeParse(MIN_DISTANCE_BASE);
     expect(r.success).toBe(true);
   });
 
   it("rejects coverage mode without avgServiceDistCapKm", () => {
     const { avgServiceDistCapKm, ...rest } = COVERAGE_BASE;
     void avgServiceDistCapKm;
-    const r = chensInputsSchema.safeParse(rest);
+    const r = maxCoverageInputsSchema.safeParse(rest);
     expect(r.success).toBe(false);
   });
 
   it("rejects min_distance mode without coverageFloorDemand", () => {
     const { coverageFloorDemand, ...rest } = MIN_DISTANCE_BASE;
     void coverageFloorDemand;
-    const r = chensInputsSchema.safeParse(rest);
+    const r = maxCoverageInputsSchema.safeParse(rest);
     expect(r.success).toBe(false);
   });
 });
 
-describe("chensInputsSchema — scalar constraints", () => {
-  it("accepts p at the boundaries 1 and 25", () => {
-    expect(chensInputsSchema.safeParse({ ...COVERAGE_BASE, p: 1 }).success).toBe(true);
-    expect(chensInputsSchema.safeParse({ ...COVERAGE_BASE, p: 25 }).success).toBe(true);
+describe("maxCoverageInputsSchema — scalar constraints", () => {
+  it("accepts p at the boundaries 1 and 26", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, p: 1 }).success).toBe(true);
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, p: 26 }).success).toBe(true);
   });
 
-  it("rejects p below 1 and above 25", () => {
-    expect(chensInputsSchema.safeParse({ ...COVERAGE_BASE, p: 0 }).success).toBe(false);
-    expect(chensInputsSchema.safeParse({ ...COVERAGE_BASE, p: 26 }).success).toBe(false);
+  it("rejects p below 1 and above 26", () => {
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, p: 0 }).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, p: 27 }).success).toBe(false);
   });
 
   it("rejects a non-integer p", () => {
-    expect(chensInputsSchema.safeParse({ ...COVERAGE_BASE, p: 3.5 }).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, p: 3.5 }).success).toBe(false);
   });
 
   it("rejects highServiceDistKm >= maxDistKm", () => {
     expect(
-      chensInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 5000, maxDistKm: 5000 }).success,
+      maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 5000, maxDistKm: 5000 }).success,
     ).toBe(false);
     expect(
-      chensInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 6000, maxDistKm: 5000 }).success,
+      maxCoverageInputsSchema.safeParse({ ...COVERAGE_BASE, highServiceDistKm: 6000, maxDistKm: 5000 }).success,
     ).toBe(false);
   });
 
   it("requires gap and timeLimitSec", () => {
     const { gap, ...noGap } = COVERAGE_BASE;
     void gap;
-    expect(chensInputsSchema.safeParse(noGap).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse(noGap).success).toBe(false);
     const { timeLimitSec, ...noTime } = COVERAGE_BASE;
     void timeLimitSec;
-    expect(chensInputsSchema.safeParse(noTime).success).toBe(false);
+    expect(maxCoverageInputsSchema.safeParse(noTime).success).toBe(false);
   });
 
   it("rejects a non-integer coverageFloorDemand (D30 integer domain)", () => {
     expect(
-      chensInputsSchema.safeParse({ ...MIN_DISTANCE_BASE, coverageFloorDemand: 100.5 }).success,
+      maxCoverageInputsSchema.safeParse({ ...MIN_DISTANCE_BASE, coverageFloorDemand: 100.5 }).success,
     ).toBe(false);
   });
 });
 
-describe("chensInputsSchema — distanceBands are free, D19's overwrite is gone", () => {
+describe("maxCoverageInputsSchema — distanceBands are free, D19's overwrite is gone", () => {
   it("preserves a supplied band array verbatim (no [high,max] overwrite)", () => {
-    const r = chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600, 1200, 2400, 5000] });
+    const r = maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600, 1200, 2400, 5000] });
     expect(r.distanceBands).toEqual([600, 1200, 2400, 5000]);
   });
 
   it("derives [high,max] ONLY when distanceBands is omitted (legacy payload)", () => {
-    const r = chensInputsSchema.parse(COVERAGE_BASE);
+    const r = maxCoverageInputsSchema.parse(COVERAGE_BASE);
     expect(r.distanceBands).toEqual([COVERAGE_BASE.highServiceDistKm, COVERAGE_BASE.maxDistKm]);
   });
 
   it("accepts a single band (minItems 1)", () => {
-    expect(chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600] }).distanceBands).toEqual([600]);
+    expect(maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: [600] }).distanceBands).toEqual([600]);
   });
 
   it.each([
@@ -111,24 +111,24 @@ describe("chensInputsSchema — distanceBands are free, D19's overwrite is gone"
     ["zero", [0, 400]],
     ["negative", [-1, 400]],
   ])("rejects %s band arrays at the API boundary", (_label, bands) => {
-    expect(() => chensInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: bands })).toThrow();
+    expect(() => maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, distanceBands: bands })).toThrow();
   });
 
   it("rejects maxDistKm <= highServiceDistKm", () => {
     expect(() =>
-      chensInputsSchema.parse({ ...COVERAGE_BASE, highServiceDistKm: 600, maxDistKm: 600 }),
+      maxCoverageInputsSchema.parse({ ...COVERAGE_BASE, highServiceDistKm: 600, maxDistKm: 600 }),
     ).toThrow();
   });
 
   it("persists capacityMode 'none' by default", () => {
-    const r = chensInputsSchema.parse(COVERAGE_BASE);
+    const r = maxCoverageInputsSchema.parse(COVERAGE_BASE);
     expect(r.capacityMode).toBe("none");
   });
 });
 
-describe("chensInputsSchema — sparse network-edit arrays", () => {
+describe("maxCoverageInputsSchema — sparse network-edit arrays", () => {
   it("defaults all five sparse arrays to [] when absent", () => {
-    const r = chensInputsSchema.parse(COVERAGE_BASE);
+    const r = maxCoverageInputsSchema.parse(COVERAGE_BASE);
     expect(r.warehouseOverrides).toEqual([]);
     expect(r.customerOverrides).toEqual([]);
     expect(r.addedWarehouses).toEqual([]);
@@ -137,7 +137,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
   });
 
   it("accepts a warehouseOverride (id + status, no capacity)", () => {
-    const r = chensInputsSchema.parse({
+    const r = maxCoverageInputsSchema.parse({
       ...COVERAGE_BASE,
       warehouseOverrides: [{ id: "wh-40", status: "forced_open" }],
     });
@@ -145,7 +145,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
   });
 
   it("accepts a customerOverride with an integer demand override", () => {
-    const r = chensInputsSchema.parse({
+    const r = maxCoverageInputsSchema.parse({
       ...COVERAGE_BASE,
       customerOverrides: [{ id: "cs-1", status: "active", demand: 12345 }],
     });
@@ -154,7 +154,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
 
   it("rejects a non-integer customerOverride demand", () => {
     expect(
-      chensInputsSchema.safeParse({
+      maxCoverageInputsSchema.safeParse({
         ...COVERAGE_BASE,
         customerOverrides: [{ id: "cs-1", status: "active", demand: 1.5 }],
       }).success,
@@ -162,7 +162,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
   });
 
   it("defaults an addedCustomer's status to 'active'", () => {
-    const r = chensInputsSchema.parse({
+    const r = maxCoverageInputsSchema.parse({
       ...COVERAGE_BASE,
       addedCustomers: [{ id: "cs-new-1", city: "Xi'an", state: "", lat: 34.3, lng: 108.9, demand: 500 }],
     });
@@ -170,7 +170,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
   });
 
   it("accepts an addedWarehouse (no capacity field)", () => {
-    const r = chensInputsSchema.parse({
+    const r = maxCoverageInputsSchema.parse({
       ...COVERAGE_BASE,
       addedWarehouses: [{ id: "wh-new-1", city: "Chengdu", state: "", lat: 30.6, lng: 104.1, status: "active" }],
     });
@@ -178,7 +178,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
   });
 
   it("rejects two distanceOverrides rows for the same (fromId, toId) pair", () => {
-    const r = chensInputsSchema.safeParse({
+    const r = maxCoverageInputsSchema.safeParse({
       ...COVERAGE_BASE,
       distanceOverrides: [
         { fromId: "wh-15", toId: "cs-1", distance: 3660 },
@@ -189,7 +189,7 @@ describe("chensInputsSchema — sparse network-edit arrays", () => {
   });
 
   it("accepts distinct distanceOverrides pairs", () => {
-    const r = chensInputsSchema.parse({
+    const r = maxCoverageInputsSchema.parse({
       ...COVERAGE_BASE,
       distanceOverrides: [
         { fromId: "wh-15", toId: "cs-1", distance: 3660 },

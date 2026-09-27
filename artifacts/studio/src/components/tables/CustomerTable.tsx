@@ -18,7 +18,7 @@ interface CustomerTableProps {
    * Step 1b gate on the Input Map side — same locked decision, second
    * surface. */
   demandEditable?: boolean;
-  /** Chen's Cosmetics (chens-cosmetics-cn) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
+  /** Chen's Cosmetics (max-coverage-us) has no state data — every row's `state` is "". Gates the State column on/off; defaults true (every existing caller has real state data and is unaffected). */
   hasStateColumn?: boolean;
   /** chen-bands-units follow-up (QA defect) — decision 1h says ordinary
    * editors are disabled while browsing result history; that was only true

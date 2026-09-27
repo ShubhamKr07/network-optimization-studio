@@ -47,7 +47,7 @@ interface SolveDialogProps {
   p?: number;
   /** C4.12/D27 — the P slider's semantic maximum. Defaults to 50 (every
    * existing caller that omits it is unchanged — p-median-us/brazil's static
-   * max); Chen (chens-cosmetics-cn) passes 25 so 26 can't be authored from
+   * max); max-coverage-us passes 26 so 27 can't be authored from
    * the Solve dialog either, matching OptimizationParametersTab's own pMax. */
   pMax?: number;
   gap: number;
@@ -98,7 +98,7 @@ interface SolveDialogProps {
    * throws) — "terminal" here is a job-lifecycle concept, not an
    * optimal/infeasible one. */
   jobStatus?: ElapsedJobStatus;
-  // ── Chen's Cosmetics (chens-cosmetics-cn) objective mode toggle ──────────
+  // ── Chen's Cosmetics (max-coverage-us) objective mode toggle ──────────
   // Mirrors OptimizationParametersTab's own Chen block (same props, same
   // gate: presence of `objective`), but scoped down to just the toggle +
   // the active mode's field — the two always-visible service-distance

@@ -111,7 +111,7 @@ describe("WarehouseTable", () => {
     expect(onChange).toHaveBeenCalledWith([]);
   });
 
-  // Chen's Cosmetics (chens-cosmetics-cn) — a China dataset with no state
+  // Chen's Cosmetics (max-coverage-us) — a China dataset with no state
   // data. `hasStateColumn` defaults true (unchanged for every other caller).
   it("omitting hasStateColumn (default true) keeps the State column", () => {
     render(<WarehouseTable warehouses={warehouses} overrides={[]} capacityMode="uniform" onChange={vi.fn()} />);

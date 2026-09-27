@@ -155,17 +155,17 @@ vi.mock("@workspace/api-client-react", () => ({
           outputGrids: ["openWarehouses", "flows", "assignments", "costSummary", "serviceStats"],
         },
       },
-      // C4.12/C4.13 — Chen's Cosmetics (Chapter 4, chens-cosmetics-cn), a km
+      // C4.12/C4.13 — Chen's Cosmetics (Chapter 4, max-coverage-us), a km
       // coverage model with capacityMode "none" only. Capabilities copied
-      // verbatim from solvers/chens-cosmetics-cn/manifest.json (C4.2) —
+      // verbatim from solvers/max-coverage-us/manifest.json (C4.2) —
       // supportsFacilityStatus/supportsAddedCustomerExclusion/
       // supportsReferenceDistances added in C4.13 so the Input-Map/Distances
       // parity paths (added-customer status control, base reference column)
       // exercise their real capability gates.
       {
-        id: "chens-cosmetics-cn",
+        id: "max-coverage-us",
         distanceUnit: "km",
-        countryBounds: { sw: [18.0, 73.0], ne: [54.0, 135.0] },
+        countryBounds: { sw: [25.78, -123.11], ne: [47.67, -71.02] },
         capabilities: {
           supportsP: true,
           capacityModes: ["none"],
@@ -2258,12 +2258,12 @@ describe("Workspace — output sidebar tab order (T9, B4)", () => {
   });
 });
 
-// C4.11 — defaultInputsForModel's Chen (chens-cosmetics-cn) branch. This is
+// C4.11 — defaultInputsForModel's max-coverage-us branch. This is
 // the concrete new-scenario default POSTed by handleCreateConfirm; it must
-// match chensInputsSchema's contract (coverage mode present, min-distance
+// match maxCoverageInputsSchema's contract (coverage mode present, min-distance
 // field absent, high < max, distanceBands == [high, max], no capacity).
-describe("defaultInputsForModel — chens-cosmetics-cn", () => {
-  const d = defaultInputsForModel("chens-cosmetics-cn");
+describe("defaultInputsForModel — max-coverage-us", () => {
+  const d = defaultInputsForModel("max-coverage-us");
 
   it("uses coverage mode with avgServiceDistCapKm present and coverageFloorDemand absent", () => {
     expect(d.objective).toBe("coverage");
@@ -2281,8 +2281,8 @@ describe("defaultInputsForModel — chens-cosmetics-cn", () => {
   // highServiceDistKm). Both service-distance defaults below are asserted
   // TOGETHER and pinned to their exact values so a future "tidy-up" cannot
   // silently make them equal — doing so would tighten the default solve
-  // from the frozen golden 66.0639% / {wh-40, wh-69, wh-102} to 64.8234% /
-  // {wh-40, wh-102, wh-147} and break e2e/chens-cosmetics.spec.ts.
+  // from the frozen golden 57.4679% / {DAL, LV, PIT} to a different open
+  // set and break e2e/chens-cosmetics.spec.ts.
   it("has high < max thresholds (deliberately NOT coupled) and the locked default distanceBands array", () => {
     expect(d.highServiceDistKm).toBe(600);
     expect(d.maxDistKm).toBe(5000);
@@ -2291,11 +2291,11 @@ describe("defaultInputsForModel — chens-cosmetics-cn", () => {
     expect(d.distanceBands).toEqual([600, 1200, 2400, 5000]);
   });
 
-  it("has no capacity concept (capacityMode 'none') and p within the 1..25 Chen bound", () => {
+  it("has no capacity concept (capacityMode 'none') and p within the 1..26 max-coverage-us bound", () => {
     expect(d.capacityMode).toBe("none");
     expect(d.p).toBe(3);
     expect(d.p as number).toBeGreaterThanOrEqual(1);
-    expect(d.p as number).toBeLessThanOrEqual(25);
+    expect(d.p as number).toBeLessThanOrEqual(26);
   });
 
   it("starts every scenario-local edit array empty", () => {
@@ -2314,8 +2314,8 @@ describe("defaultInputsForModel — chens-cosmetics-cn", () => {
 // tab and the Solve dialog. Integration tests (not the component-level ones)
 // because the atomic seed/clear/resync logic lives in Workspace, and the
 // save-payload assertion is what proves "only the active field is persisted".
-describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
-  const chensCoverageInputs = {
+describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
+  const maxCoverageCoverageInputs = {
     objective: "coverage",
     p: 3,
     highServiceDistKm: 600,
@@ -2331,11 +2331,11 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
     addedCustomers: [],
     distanceOverrides: [],
   };
-  const chensScenario = {
+  const maxCoverageScenario = {
     id: 1,
     name: "Chen coverage",
-    modelId: "chens-cosmetics-cn",
-    inputs: chensCoverageInputs,
+    modelId: "max-coverage-us",
+    inputs: maxCoverageCoverageInputs,
     result: null,
     stale: false,
     createdAt: "2026-01-01T00:00:00Z",
@@ -2343,9 +2343,9 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
   };
 
   function renderChen() {
-    mockUseGetScenario.mockReturnValue({ data: chensScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [chensScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    return render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+    mockUseGetScenario.mockReturnValue({ data: maxCoverageScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [maxCoverageScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
   }
 
   function openParamsTab() {
@@ -2363,7 +2363,7 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
     // Toggle to min-distance: the visible field SWAPS.
     fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
     expect(screen.getByTestId("input-coverage-floor")).toBeInTheDocument();
-    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(131645389);
+    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(44840064);
     expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
 
     // Save — the persisted inputs carry coverageFloorDemand and NOT
@@ -2373,7 +2373,7 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
-    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 131645389 });
+    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 44840064 });
     expect(args.data.inputs).not.toHaveProperty("avgServiceDistCapKm");
   });
 
@@ -2424,18 +2424,18 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
     expect(args.data.inputs.distanceBands).toEqual([700, 5000]);
   });
 
-  it("caps P at 25 in BOTH the Optimization Parameters tab AND the Solve dialog (26 unreachable via either surface, D27)", () => {
+  it("caps P at 26 in BOTH the Optimization Parameters tab AND the Solve dialog (27 unreachable via either surface, D27)", () => {
     renderChen();
 
     // Tab slider.
     openParamsTab();
     const tabThumb = screen.getByTestId("slider-p-value").querySelector('[role="slider"]');
-    expect(tabThumb).toHaveAttribute("aria-valuemax", "25");
+    expect(tabThumb).toHaveAttribute("aria-valuemax", "26");
 
     // Solve dialog slider.
     fireEvent.click(screen.getByTestId("button-run-optimizer"));
     const dialogThumb = screen.getByTestId("solve-dialog-slider-p").querySelector('[role="slider"]');
-    expect(dialogThumb).toHaveAttribute("aria-valuemax", "25");
+    expect(dialogThumb).toHaveAttribute("aria-valuemax", "26");
   });
 
   // chen-bands-units — superseded (was "hides the distance-band editor ...
@@ -2456,7 +2456,7 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
   });
 });
 
-// C4.13 — Chen (chens-cosmetics-cn) full Input-Map parity: it's single-echelon
+// C4.13 — Chen (max-coverage-us) full Input-Map parity: it's single-echelon
 // warehouse→customer like p-median, so every Workspace GATE that lists the
 // p-median models must also list Chen, or a tab silently renders nothing / has
 // no Save. This block asserts each enumerated gate renders real content for a
@@ -2466,7 +2466,7 @@ describe("Workspace — Chen inputs UI (chens-cosmetics-cn, C4.12)", () => {
 // bug class ("shared component's per-model gate updated for one model, forgotten
 // for a sibling") the repo has hit 6+ times, so every gate gets its own assertion.
 describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
-  const chensCoverageInputs = {
+  const maxCoverageCoverageInputs = {
     objective: "coverage",
     p: 3,
     highServiceDistKm: 600,
@@ -2482,11 +2482,11 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     addedCustomers: [],
     distanceOverrides: [],
   };
-  const chensScenario = {
+  const maxCoverageScenario = {
     id: 1,
     name: "Chen coverage",
-    modelId: "chens-cosmetics-cn",
-    inputs: chensCoverageInputs,
+    modelId: "max-coverage-us",
+    inputs: maxCoverageCoverageInputs,
     result: null,
     stale: false,
     createdAt: "2026-01-01T00:00:00Z",
@@ -2494,10 +2494,10 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   };
 
   function renderChen(inputsOverride?: Record<string, unknown>) {
-    const s = inputsOverride ? { ...chensScenario, inputs: { ...chensCoverageInputs, ...inputsOverride } } : chensScenario;
+    const s = inputsOverride ? { ...maxCoverageScenario, inputs: { ...maxCoverageCoverageInputs, ...inputsOverride } } : maxCoverageScenario;
     mockUseGetScenario.mockReturnValue({ data: s } as unknown as ReturnType<typeof useGetScenario>);
     mockUseListScenarios.mockReturnValue({ data: [s] } as unknown as ReturnType<typeof useListScenarios>);
-    return render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+    return render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
   }
 
   // GATE: isEditableInputTab (input-map branch) + saveInLayersRow + the
@@ -2549,7 +2549,7 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
   // Step 1b — the move→purge→Save→server-refill loop, end-to-end through
   // Workspace's real wiring: an added warehouse's owned distanceOverrides are
   // purged client-side on move, and the Save response's freshly-estimated rows
-  // (what C4.7's fillEstimatedChensDistances refills server-side) are adopted
+  // (what C4.7's fillEstimatedMaxCoverageDistances refills server-side) are adopted
   // and shown as an Estimated chip on the Distances tab. `km` unit is implicit
   // in the row (Chen's manifest distanceUnit) — this is the input-side
   // distanceOverrides grid, not a unit-labelled output export.
@@ -2572,12 +2572,12 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
     fireEvent.click(screen.getByTestId("button-save"));
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [saveArgs, saveOpts] = mockUpdateScenario.mutate.mock.calls[0];
-    expect((saveArgs.data.inputs as typeof chensCoverageInputs).distanceOverrides).toEqual([]);
+    expect((saveArgs.data.inputs as typeof maxCoverageCoverageInputs).distanceOverrides).toEqual([]);
 
     // Server response: C4.7's estimator refilled the purged pair with a fresh
     // km estimate for the moved warehouse. onSuccess adopts the RESPONSE inputs.
     const updated = {
-      ...chensScenario,
+      ...maxCoverageScenario,
       inputs: {
         ...(saveArgs.data.inputs as Record<string, unknown>),
         distanceOverrides: [{ fromId: "aw-cn-1", toId: "C1", distance: 333.3, estimated: true }],
@@ -2595,7 +2595,7 @@ describe("Workspace — Chen Input-Map parity + all gates (C4.13)", () => {
 // SSC-T1 — non-JADE ServiceStats live coverage: Workspace now wires the live
 // `presentationBands` lens (= distanceBandsFromInputs(localInputs), the same
 // value already fed to the Output Map) into ServiceStatsTab for EVERY
-// distance-band model, not just JADE — EXCEPT chens-cosmetics-cn, whose
+// distance-band model, not just JADE — EXCEPT max-coverage-us, whose
 // "coverage" is a distinct min-distance concept that stays frozen on
 // result.metrics.bandCoverage. Verified end-to-end through the real
 // Workspace render (not just ServiceStatsTab's own component-level tests),
@@ -2643,7 +2643,7 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     expect(screen.queryByTestId("service-stats-band-50")).not.toBeInTheDocument();
   });
 
-  const chensCoverageInputsForBands = {
+  const maxCoverageCoverageInputsForBands = {
     objective: "coverage",
     p: 3,
     highServiceDistKm: 600,
@@ -2654,8 +2654,8 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     capacityMode: "none",
     // Deliberately different from the frozen result's own bandCoverage
     // boundary below — if Workspace mistakenly wired presentationBands for
-    // chens, this value would drive a live recompute and this test would
-    // catch it.
+    // max-coverage-us, this value would drive a live recompute and this test
+    // would catch it.
     distanceBands: [111],
     warehouseOverrides: [],
     customerOverrides: [],
@@ -2663,11 +2663,11 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
     addedCustomers: [],
     distanceOverrides: [],
   };
-  const solvedChensScenario = {
+  const solvedMaxCoverageScenario = {
     id: 1,
     name: "Solved Chen coverage",
-    modelId: "chens-cosmetics-cn",
-    inputs: chensCoverageInputsForBands,
+    modelId: "max-coverage-us",
+    inputs: maxCoverageCoverageInputsForBands,
     result: {
       status: "optimal" as const,
       objective: 66.6667,
@@ -2693,9 +2693,9 @@ describe("Workspace — SSC-T1 non-JADE ServiceStats live coverage wiring", () =
   // exceeds the single 111 boundary, so it falls entirely into the
   // overflow bucket.
   it("Chen computes LIVE band coverage from the dedicated lens, like its five siblings (bars no longer frozen)", () => {
-    mockUseGetScenario.mockReturnValue({ data: solvedChensScenario } as unknown as ReturnType<typeof useGetScenario>);
-    mockUseListScenarios.mockReturnValue({ data: [solvedChensScenario] } as unknown as ReturnType<typeof useListScenarios>);
-    render(<Workspace modelId="chens-cosmetics-cn" userEmail="student@example.com" />);
+    mockUseGetScenario.mockReturnValue({ data: solvedMaxCoverageScenario } as unknown as ReturnType<typeof useGetScenario>);
+    mockUseListScenarios.mockReturnValue({ data: [solvedMaxCoverageScenario] } as unknown as ReturnType<typeof useListScenarios>);
+    render(<Workspace modelId="max-coverage-us" userEmail="student@example.com" />);
 
     fireEvent.click(screen.getByTestId("sidebar-output-service-stats"));
 

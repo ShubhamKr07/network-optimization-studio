@@ -65,10 +65,12 @@ describe("locked chapters — chapters.ts and the solver manifests agree", () =>
 
   it("locks exactly Chapter 9 today", () => {
     // Chapter 4 (chens-cosmetics-cn) was locked on 2026-09-27 as Stage A of
-    // the dataset migration (MIG-16). This assertion is the deliberate tripwire
-    // for any edit to the locked set, so lock/unlock changes cannot happen
-    // quietly in one place — the change has to be stated here too.
-    expect([...manifestLockedModelIds()].sort()).toEqual(["chens-cosmetics-cn", "two-echelon-jade-us"]);
+    // the dataset migration (MIG-16), and is reopened as max-coverage-us in
+    // this cutover (ch4-mig-4, Step 8b) — its new manifest carries no
+    // `locked` key. This assertion is the deliberate tripwire for any edit
+    // to the locked set, so lock/unlock changes cannot happen quietly in one
+    // place — the change has to be stated here too.
+    expect([...manifestLockedModelIds()].sort()).toEqual(["two-echelon-jade-us"]);
   });
 
   it("every locked chapter is still a registered route — locked is not hidden", () => {

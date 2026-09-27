@@ -2,13 +2,13 @@ import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../dat
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_MINES, GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
 import { JADE_PLANTS, JADE_PRODUCTS, JADE_WAREHOUSES, JADE_CUSTOMERS, JADE_PLANT_PRODUCT_CAPABILITIES } from "../data/jadeDataset.js";
-import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
+import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 import { getReferenceDistances } from "../data/referenceDistances.js";
 import type { PMedianInputs } from "../validation/inputs/pMedian.js";
 import type { TransportLpInputs } from "../validation/inputs/transportLp.js";
 import type { TwoEchelonInputs } from "../validation/inputs/twoEchelon.js";
 import type { JadeInputs } from "../validation/inputs/jadeInputs.js";
-import type { ChensInputs } from "../validation/inputs/chens.js";
+import type { MaxCoverageInputs } from "../validation/inputs/maxCoverage.js";
 import { getManifest } from "../registry/modelRegistry.js";
 
 /**
@@ -54,19 +54,20 @@ import { getManifest } from "../registry/modelRegistry.js";
 // not a live contract break) — a follow-up should extend that enum +
 // regenerate codegen once JADE's frontend precheck-display work (T11+)
 // needs to discriminate on these codes specifically.
-// C4.8 (Chapter 4, chens-cosmetics-cn) adds three genuinely new semantic
-// failure classes no prior model's precheck has (see precheckChensInputs
-// below), all blocking (Chen has no warnings channel — the solve path 422s
-// whenever ok is false):
+// C4.8 (Chapter 4, max-coverage-us) adds three genuinely new semantic
+// failure classes no prior model's precheck has (see precheckMaxCoverageInputs
+// below), all blocking (this model has no warnings channel — the solve path
+// 422s whenever ok is false):
 //   - "zero_demand"                total effective demand across active
 //                                  customers is <= 0 (nothing to serve).
 //   - "no_feasible_route"          an active customer has NO active warehouse
-//                                  reachable within maxDistKm after circuity
-//                                  (rawKm × 1.17 ≤ maxDistKm).
+//                                  reachable within maxDistKm (MIG-6: rawKm ≤
+//                                  maxDistKm — no circuity factor, matching
+//                                  the solver).
 //   - "coverage_floor_infeasible"  min_distance mode's coverageFloorDemand
 //                                  exceeds a cheap NECESSARY upper bound on
 //                                  coverable demand (Σ demand of customers with
-//                                  ≥1 active warehouse at rawKm × 1.17 ≤
+//                                  ≥1 active warehouse at rawKm ≤
 //                                  highServiceDistKm) — the solver stays
 //                                  authoritative for the sufficient case.
 // These are already present in openapi.yaml's PrecheckError.code enum (added
@@ -154,65 +155,62 @@ export const BRAZIL_DATASET: PrecheckDataset = {
 // status arrays at all).
 export const TRANSPORT_DATASET: PrecheckDataset = { warehouses: TRANSPORT_COAL_WAREHOUSES, customers: TRANSPORT_COAL_CUSTOMERS };
 
-// Chapter 4 (chens-cosmetics-cn) — Chen's base dataset, shaped for this
-// service (25 candidate warehouses + 197 customers). Chen shares p-median's
-// warehouse/customer role structure and reuses buildPMedianIdSpaces for the
-// `distances` import entity's reference-integrity check (import.ts) AND the
-// shared structural checks (id_collision/reference_integrity/completeness)
-// precheckChensInputs delegates to precheckPMedianInputs for. On top of the
-// two-role PrecheckDataset shape, Chen's own semantic precheck (C4.8) needs
-// two extra pieces of base data no other model's precheck reads:
+// Chapter 4 (max-coverage-us) — this model's base dataset, shaped for this
+// service (26 candidate warehouses + 200 customers). This model shares
+// p-median's warehouse/customer role structure and reuses buildPMedianIdSpaces
+// for the `distances` import entity's reference-integrity check (import.ts)
+// AND the shared structural checks (id_collision/reference_integrity/
+// completeness) precheckMaxCoverageInputs delegates to precheckPMedianInputs
+// for. On top of the two-role PrecheckDataset shape, this model's own semantic
+// precheck (C4.8) needs two extra pieces of base data no other model's
+// precheck reads:
 //   - customerDemands — base integer demand by customer id (D30), for the
 //     effective-demand map (zero_demand + coverage-floor upper bound).
 //   - baseDistanceKm  — the full base RAW-km distance matrix keyed
-//     "fromId|toId" (25×197), overlaid at precheck time by this scenario's
-//     distanceOverrides, for the circuity-adjusted feasibility thresholds.
-//     Built from getReferenceDistances (the same immutable per-model matrix
-//     GET /models/:id/reference-distances serves), NOT re-loaded here.
-export interface ChensPrecheckDataset extends PrecheckDataset {
+//     "fromId|toId" (26×200), overlaid at precheck time by this scenario's
+//     distanceOverrides, for the feasibility thresholds. Built from
+//     getReferenceDistances (the same immutable per-model matrix GET
+//     /models/:id/reference-distances serves), NOT re-loaded here.
+export interface MaxCoveragePrecheckDataset extends PrecheckDataset {
   customerDemands: Record<string, number>;
   baseDistanceKm: Record<string, number>;
 }
 
-export const CHENS_DATASET: ChensPrecheckDataset = {
-  warehouses: CHENS_WAREHOUSES,
-  customers: CHENS_CUSTOMERS,
+export const MAX_COVERAGE_DATASET: MaxCoveragePrecheckDataset = {
+  warehouses: MAX_COVERAGE_WAREHOUSES,
+  customers: MAX_COVERAGE_CUSTOMERS,
   supportsAddedCustomerExclusion:
-    getManifest("chens-cosmetics-cn")?.capabilities.supportsAddedCustomerExclusion ?? false,
-  customerDemands: Object.fromEntries(CHENS_CUSTOMERS.map((c) => [c.id, c.demand])),
+    getManifest("max-coverage-us")?.capabilities.supportsAddedCustomerExclusion ?? false,
+  customerDemands: Object.fromEntries(MAX_COVERAGE_CUSTOMERS.map((c) => [c.id, c.demand])),
   baseDistanceKm: Object.fromEntries(
-    (getReferenceDistances("chens-cosmetics-cn")?.pairs ?? []).map((p) => [p.fromId + "|" + p.toId, p.distance]),
+    (getReferenceDistances("max-coverage-us")?.pairs ?? []).map((p) => [p.fromId + "|" + p.toId, p.distance]),
   ),
 };
 
-// C4.8 — the circuity factor solve_chens applies to every raw stored/estimated
-// km before comparing against the distance thresholds (D8). Precheck must
-// apply the SAME factor to both thresholds or it would approve scenarios the
-// solver then declares infeasible (raw km < threshold but raw × 1.17 > it).
-const CHENS_CIRCUITY = 1.17;
-
 /**
- * C4.8 (Chapter 4, chens-cosmetics-cn) — semantic precheck for Chen's coverage
- * / min-distance service-level model. Runs TypeScript-side in the API server
- * BEFORE solver dispatch (this is NOT the Python `build_merged_chens_dataset`
- * merge) — it builds an effective view from base data + this scenario's sparse
- * edits and rejects mathematically-doomed scenarios cheaply, so CBC isn't paid
- * to prove infeasibility the expensive way.
+ * C4.8 (Chapter 4, max-coverage-us) — semantic precheck for this model's
+ * coverage / min-distance service-level model. Runs TypeScript-side in the
+ * API server BEFORE solver dispatch (this is NOT the Python
+ * `build_merged_max_coverage_dataset` merge) — it builds an effective view
+ * from base data + this scenario's sparse edits and rejects
+ * mathematically-doomed scenarios cheaply, so CBC isn't paid to prove
+ * infeasibility the expensive way.
  *
- * Chen shares p-median's exact warehouse/customer override + added-entity +
- * distanceOverride shape, so the three STRUCTURAL checks (id_collision,
- * reference_integrity, completeness) are delegated verbatim to
+ * This model shares p-median's exact warehouse/customer override +
+ * added-entity + distanceOverride shape, so the three STRUCTURAL checks
+ * (id_collision, reference_integrity, completeness) are delegated verbatim to
  * precheckPMedianInputs rather than re-implemented. On top of those it adds
- * four Chen-specific semantic checks:
+ * four model-specific semantic checks:
  *   - p_range                    forcedOpenCount ≤ p ≤ active candidate count
  *                                (reuse `p_range`, D18 — NOT a new code).
  *   - zero_demand                total effective demand ≤ 0.
  *   - no_feasible_route          an active customer with no active warehouse at
- *                                rawKm × 1.17 ≤ maxDistKm (a hard assignment
- *                                constraint in BOTH objective modes).
+ *                                rawKm ≤ maxDistKm (MIG-6: no circuity factor —
+ *                                a hard assignment constraint in BOTH
+ *                                objective modes).
  *   - coverage_floor_infeasible  (min_distance only) coverageFloorDemand
  *                                exceeds Σ demand of customers with ≥1 active
- *                                warehouse at rawKm × 1.17 ≤ highServiceDistKm
+ *                                warehouse at rawKm ≤ highServiceDistKm
  *                                — a NECESSARY upper bound (the shared p limit
  *                                may still prevent covering them all together;
  *                                the solver stays authoritative).
@@ -235,12 +233,12 @@ const CHENS_CIRCUITY = 1.17;
  * Purely a read/validate operation — never writes to the DB, never mutates
  * `inputs`.
  */
-export function precheckChensInputs(
-  inputs: ChensInputs,
-  dataset: ChensPrecheckDataset = CHENS_DATASET,
+export function precheckMaxCoverageInputs(
+  inputs: MaxCoverageInputs,
+  dataset: MaxCoveragePrecheckDataset = MAX_COVERAGE_DATASET,
 ): PrecheckResult {
   // Structural checks (id_collision / reference_integrity / completeness) —
-  // Chen's edit shape is p-median's, so reuse rather than duplicate.
+  // this model's edit shape is p-median's, so reuse rather than duplicate.
   const errors: PrecheckError[] = [...precheckPMedianInputs(inputs as unknown as PMedianInputs, dataset).errors];
 
   const warehouseOverrides = inputs.warehouseOverrides ?? [];
@@ -294,20 +292,22 @@ export function precheckChensInputs(
   const rawKm = new Map<string, number>(Object.entries(dataset.baseDistanceKm));
   for (const o of distanceOverrides) rawKm.set(o.fromId + "|" + o.toId, o.distance);
 
+  // MIG-6: rawKm IS the effective distance — no circuity factor, matching
+  // solve_max_coverage exactly.
   const isReachable = (whId: string, custId: string, thresholdKm: number): boolean => {
     const raw = rawKm.get(whId + "|" + custId);
-    return raw !== undefined && raw * CHENS_CIRCUITY <= thresholdKm;
+    return raw !== undefined && raw <= thresholdKm;
   };
 
   // --- no_feasible_route: every active customer needs a reachable active WH
-  // within maxDistKm after circuity (a hard assignment constraint in BOTH
-  // objective modes). -------------------------------------------------------
+  // within maxDistKm (a hard assignment constraint in BOTH objective modes).
+  // -------------------------------------------------------------------------
   for (const custId of activeCustomerIds) {
     const reachable = activeWarehouseIds.some((whId) => isReachable(whId, custId, inputs.maxDistKm));
     if (!reachable) {
       errors.push({
         code: "no_feasible_route",
-        message: `Customer '${custId}' has no active warehouse within maxDistKm (${inputs.maxDistKm} km) after circuity`,
+        message: `Customer '${custId}' has no active warehouse within maxDistKm (${inputs.maxDistKm} km)`,
       });
     }
   }
@@ -324,7 +324,7 @@ export function precheckChensInputs(
     if (inputs.coverageFloorDemand > coverableDemand) {
       errors.push({
         code: "coverage_floor_infeasible",
-        message: `coverageFloorDemand (${inputs.coverageFloorDemand}) exceeds the ${coverableDemand} demand coverable within highServiceDistKm (${inputs.highServiceDistKm} km) after circuity`,
+        message: `coverageFloorDemand (${inputs.coverageFloorDemand}) exceeds the ${coverableDemand} demand coverable within highServiceDistKm (${inputs.highServiceDistKm} km)`,
       });
     }
   }
@@ -1381,8 +1381,8 @@ export function runNetworkEditsPrecheckForModel(modelId: string, inputs: Record<
   if (modelId === "two-echelon-jade-us") {
     return precheckJadeInputs(inputs as unknown as JadeInputs);
   }
-  if (modelId === "chens-cosmetics-cn") {
-    return precheckChensInputs(inputs as unknown as ChensInputs);
+  if (modelId === "max-coverage-us") {
+    return precheckMaxCoverageInputs(inputs as unknown as MaxCoverageInputs);
   }
   return { ok: true, errors: [] };
 }

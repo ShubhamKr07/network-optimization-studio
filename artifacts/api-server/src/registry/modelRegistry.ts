@@ -6,7 +6,7 @@ import { pMedianInputsSchema } from "../validation/inputs/pMedian.js";
 import { transportLpInputsSchema } from "../validation/inputs/transportLp.js";
 import { twoEchelonInputsSchema } from "../validation/inputs/twoEchelon.js";
 import { jadeInputsSchema } from "../validation/inputs/jadeInputs.js";
-import { chensInputsSchema } from "../validation/inputs/chens.js";
+import { maxCoverageInputsSchema } from "../validation/inputs/maxCoverage.js";
 
 // Discovery is manifest-driven (scans solvers/*/manifest.json at boot) so a
 // new dataset+manifest+solver directory shows up in listModels()/GET
@@ -26,9 +26,9 @@ const KNOWN_SCHEMAS: Record<string, ZodType> = {
   // "solvable" — OBS-5 needs all three simultaneously.
   "two-echelon-jade-us": jadeInputsSchema,
   // C4.6: registering here (alongside VALID_MODEL_IDS + buildPayload, same
-  // commit) is what flips chens-cosmetics-cn from "listable" (C4.2 manifest)
+  // commit) is what flips max-coverage-us from "listable" (C4.2 manifest)
   // to "solvable" — OBS-5's registration-points gate needs all three at once.
-  "chens-cosmetics-cn": chensInputsSchema,
+  "max-coverage-us": maxCoverageInputsSchema,
 };
 
 // The model ids that are fully implemented (have a Zod input validator here). This is the

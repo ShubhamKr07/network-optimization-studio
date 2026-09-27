@@ -6,7 +6,7 @@ import {
 } from "@workspace/units";
 import type { UnitApi } from "@/contexts/UnitContext";
 
-// C4.14 (D14) — Chen's Cosmetics (chens-cosmetics-cn) reports its objective in
+// C4.14 (D14) — max-coverage-us reports its objective in
 // two different UNITS depending on the solve mode, carried on the envelope's
 // `details.objective` discriminator:
 //   coverage      -> the objective IS a coverage percentage  (NN.NN %)

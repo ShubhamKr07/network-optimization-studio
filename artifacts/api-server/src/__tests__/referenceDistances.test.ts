@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import express from "express";
 import request from "supertest";
 import referenceDistancesRouter from "../routes/referenceDistances.js";
-import { buildReferenceDistancePairs, buildChensReferenceDistancePairs, getReferenceDistances } from "../data/referenceDistances.js";
+import { buildReferenceDistancePairs, buildMaxCoverageReferenceDistancePairs, getReferenceDistances } from "../data/referenceDistances.js";
 import { WAREHOUSES, CUSTOMERS } from "../data/dataset.js";
-import { CHENS_WAREHOUSES, CHENS_CUSTOMERS } from "../data/chensDataset.js";
+import { MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS } from "../data/maxCoverageDataset.js";
 
 // A minimal standalone app — mirrors registry.test.ts's pattern, avoiding
 // the full app.ts (and therefore @workspace/db / DATABASE_URL) for a route
@@ -160,31 +160,31 @@ describe("JADE (two-echelon-jade-us) reference distances", () => {
   });
 });
 
-// Chapter 4 (chens-cosmetics-cn) — Chen's distances.json is a flat DistanceMap
-// keyed DIRECTLY by entity id ("wh-15,cs-1"), like two-echelon/JADE, NOT by
-// ordinal — so its builder splits the key and validates role membership
-// (fromId a warehouse, toId a customer), throwing on any malformed/unresolved
-// key. km, not mi.
-describe("Chen (chens-cosmetics-cn) reference distances", () => {
-  it("builds all 4925 pairs (25×197) at boot", () => {
-    const data = getReferenceDistances("chens-cosmetics-cn");
+// Chapter 4 (max-coverage-us) — this model's distances.json is a flat
+// DistanceMap keyed DIRECTLY by entity id ("ALN,C1"), like two-echelon/JADE,
+// NOT by ordinal — so its builder splits the key and validates role
+// membership (fromId a warehouse, toId a customer), throwing on any
+// malformed/unresolved key. km, not mi.
+describe("max-coverage-us reference distances", () => {
+  it("builds all 5200 pairs (26×200) at boot", () => {
+    const data = getReferenceDistances("max-coverage-us");
     expect(data).toBeDefined();
-    expect(data!.pairs).toHaveLength(4925);
+    expect(data!.pairs).toHaveLength(5200);
   });
 
-  it("the loaded matrix carries the golden wh-15 -> cs-1 == 3660 raw-km pair", () => {
-    const data = getReferenceDistances("chens-cosmetics-cn")!;
-    const pair = data.pairs.find((p) => p.fromId === "wh-15" && p.toId === "cs-1");
+  it("the loaded matrix carries the golden ALN -> C1 == 601.894656 raw-km pair", () => {
+    const data = getReferenceDistances("max-coverage-us")!;
+    const pair = data.pairs.find((p) => p.fromId === "ALN" && p.toId === "C1");
     expect(pair).toBeDefined();
-    expect(pair!.distance).toBe(3660);
-    expect(pair!.fromCode).toBe("wh-15");
-    expect(pair!.toCode).toBe("cs-1");
+    expect(pair!.distance).toBe(601.894656);
+    expect(pair!.fromCode).toBe("ALN");
+    expect(pair!.toCode).toBe("C1");
   });
 
-  it("every pair resolves to a real Chen warehouse/customer id (strict role membership)", () => {
-    const data = getReferenceDistances("chens-cosmetics-cn")!;
-    const warehouseIds = new Set(CHENS_WAREHOUSES.map((w) => w.id));
-    const customerIds = new Set(CHENS_CUSTOMERS.map((c) => c.id));
+  it("every pair resolves to a real max-coverage-us warehouse/customer id (strict role membership)", () => {
+    const data = getReferenceDistances("max-coverage-us")!;
+    const warehouseIds = new Set(MAX_COVERAGE_WAREHOUSES.map((w) => w.id));
+    const customerIds = new Set(MAX_COVERAGE_CUSTOMERS.map((c) => c.id));
     for (const pair of data.pairs) {
       expect(warehouseIds.has(pair.fromId)).toBe(true);
       expect(customerIds.has(pair.toId)).toBe(true);
@@ -193,26 +193,26 @@ describe("Chen (chens-cosmetics-cn) reference distances", () => {
 
   it("throws on a malformed key (no comma)", () => {
     expect(() =>
-      buildChensReferenceDistancePairs({ "wh-15": 10 }, CHENS_WAREHOUSES, CHENS_CUSTOMERS),
-    ).toThrow(/malformed Chen distance key/);
+      buildMaxCoverageReferenceDistancePairs({ "ALN": 10 }, MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS),
+    ).toThrow(/malformed max-coverage-us distance key/);
   });
 
   it("throws on an unresolved pair (a customer id in the warehouse slot)", () => {
     expect(() =>
-      buildChensReferenceDistancePairs({ "cs-1,cs-2": 10 }, CHENS_WAREHOUSES, CHENS_CUSTOMERS),
-    ).toThrow(/unresolved Chen pair/);
+      buildMaxCoverageReferenceDistancePairs({ "C1,C2": 10 }, MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS),
+    ).toThrow(/unresolved max-coverage-us pair/);
   });
 
   it("throws when the full matrix is incomplete (count mismatch)", () => {
     expect(() =>
-      buildChensReferenceDistancePairs({ "wh-15,cs-1": 3660 }, CHENS_WAREHOUSES, CHENS_CUSTOMERS),
-    ).toThrow(/expected 4925 Chen pairs/);
+      buildMaxCoverageReferenceDistancePairs({ "ALN,C1": 601.894656 }, MAX_COVERAGE_WAREHOUSES, MAX_COVERAGE_CUSTOMERS),
+    ).toThrow(/expected 5200 max-coverage-us pairs/);
   });
 
-  it("GET /api/models/chens-cosmetics-cn/reference-distances returns 4925 pairs + distanceUnit 'km'", async () => {
-    const res = await request(testApp).get("/api/models/chens-cosmetics-cn/reference-distances");
+  it("GET /api/models/max-coverage-us/reference-distances returns 5200 pairs + distanceUnit 'km'", async () => {
+    const res = await request(testApp).get("/api/models/max-coverage-us/reference-distances");
     expect(res.status).toBe(200);
-    expect(res.body.pairs).toHaveLength(4925);
+    expect(res.body.pairs).toHaveLength(5200);
     expect(res.body.distanceUnit).toBe("km");
     expect(res.headers.etag).toBeDefined();
     expect(res.headers.etag).toMatch(/^".+"$/);

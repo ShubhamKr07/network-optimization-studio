@@ -49,13 +49,13 @@ describe("chapters — two-echelon-jade-us (Chapter 9) registration", () => {
   });
 });
 
-// C4.11 — Chen's Cosmetics (Chapter 4, chens-cosmetics-cn) registration guard.
+// C4.11 — Chen's Cosmetics (Chapter 4, max-coverage-us) registration guard.
 // Same registration-point invariant as the JADE block above: a real Chapter
 // entry (all required fields) so App.tsx's CHAPTERS.map derives /chapter-4
 // automatically — no manual route, no per-model ternary fallthrough.
-describe("chapters — chens-cosmetics-cn (Chapter 4) registration", () => {
+describe("chapters — max-coverage-us (Chapter 4) registration", () => {
   it("chapterForModelId resolves the Chen entry with the expected fields", () => {
-    const chapter = chapterForModelId("chens-cosmetics-cn");
+    const chapter = chapterForModelId("max-coverage-us");
     expect(chapter).toBeDefined();
     expect(chapter?.path).toBe("/chapter-4");
     expect(chapter?.chapter).toBe("Chapter 4");
@@ -69,12 +69,12 @@ describe("chapters — chens-cosmetics-cn (Chapter 4) registration", () => {
     expect(chapter?.labHeaderSubtitle).toMatch(/Ch 4/);
   });
 
-  it("chapterPathForModelId resolves /chapter-4 for chens-cosmetics-cn", () => {
-    expect(chapterPathForModelId("chens-cosmetics-cn")).toBe("/chapter-4");
+  it("chapterPathForModelId resolves /chapter-4 for max-coverage-us", () => {
+    expect(chapterPathForModelId("max-coverage-us")).toBe("/chapter-4");
   });
 
-  it("CHAPTERS is registered exactly once for chens-cosmetics-cn", () => {
-    const matches = CHAPTERS.filter((c) => c.modelId === "chens-cosmetics-cn");
+  it("CHAPTERS is registered exactly once for max-coverage-us", () => {
+    const matches = CHAPTERS.filter((c) => c.modelId === "max-coverage-us");
     expect(matches).toHaveLength(1);
   });
 });
