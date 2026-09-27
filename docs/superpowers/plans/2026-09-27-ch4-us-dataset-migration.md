@@ -662,6 +662,20 @@ grep -rl "chens-cosmetics-cn\|chensInputsSchema\|solve_chens\|CHENS" \
 
 Replace every hit. `artifacts/studio/src/lib/chapters.ts:1`'s `StudioModelType` union is the one that cascades — changing it is what makes `pnpm run typecheck` pass again. Chapter 4's display copy is Task 5's job; here, change only identifiers.
 
+- [ ] **Step 8b: Remove the Stage A lock from `chapters.ts`**
+
+Task 1 added `locked: true` to both the old manifest and `chapters.ts`'s Chapter 4
+entry, because `lockedChapterDrift.test.ts` asserts those two sets are identical.
+The **new** manifest carries no `locked` key — Stage D reopens the chapter — so
+`chapters.ts`'s Chapter 4 entry must drop `locked: true` **in this task**, or the
+drift test fails with the manifest set missing an entry `chapters.ts` still has.
+
+```bash
+pnpm --filter studio test -- lockedChapterDrift
+```
+
+Expected: PASS, with `two-echelon-jade-us` as the only locked model on both sides.
+
 - [ ] **Step 9: Regenerate the Python goldens**
 
 Rename the test file and regenerate its expected values from the real on-disk dataset:
