@@ -111,12 +111,16 @@ import { track } from "@/lib/analytics";
 // defaultInputsForModel's max-coverage-us case exactly. The mode toggle
 // seeds the newly-required field with these when toggling into a mode whose
 // field is currently absent (D1).
-// MIG-4: recomputed against the real on-disk dataset for the current default
-// seed params (p:3, highServiceDistKm:600, maxDistKm:5000,
+// MIG-4 Task 4 Step 8/ch4-mig-4: recomputed against the real on-disk US
+// dataset (26 warehouses, 200 customers, km) for the current default seed
+// params (p:3, highServiceDistKm:700, maxDistKm:5500,
 // avgServiceDistCapKm:1000) — the coverage-mode solve's real coveredDemand,
-// verified 2026-09-28 (was 131645389 under the old chens-cosmetics-cn data).
+// verified 2026-09-28 via a direct solve.py invocation: coveragePct
+// 68.4192%, coveredDemand 53385024, open {DAL, LA, PIT}. Total dataset
+// demand is 78,026,333, so this floor sits safely below it (a floor above
+// total demand would make the coverage→min-distance toggle infeasible).
 const MAX_COVERAGE_DEFAULT_AVG_SERVICE_CAP_KM = 1000;
-const MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND = 44840064;
+const MAX_COVERAGE_DEFAULT_COVERAGE_FLOOR_DEMAND = 53385024;
 
 export function defaultInputsForModel(modelId: StudioModelType): Record<string, unknown> {
   switch (modelId) {
@@ -129,21 +133,28 @@ export function defaultInputsForModel(modelId: StudioModelType): Record<string, 
       return {
         objective: "coverage",
         p: 3,
-        highServiceDistKm: 600,
-        maxDistKm: 5000,
+        highServiceDistKm: 700,
+        maxDistKm: 5500,
         avgServiceDistCapKm: 1000,
         gap: 0,
         timeLimitSec: 120,
         capacityMode: "none",
-        // chen-bands-units, Part A/B, Task 14 Step 2a — [600, 1200, 2400,
-        // 5000] (600 == the default highServiceDistKm). Independently, the
-        // two service-distance defaults immediately above/below
-        // (highServiceDistKm=600, avgServiceDistCapKm=1000) are NOT changed
+        // MIG-4 Task 4 Step 8/ch4-mig-4 — max-coverage-us's dataset was
+        // replaced with real US data (26 warehouses, 200 customers, km);
+        // this dataset's longest warehouse->customer pair is 5,180.5 km, so
+        // the old China-era maxDistKm of 5000 left customers unassignable
+        // from every warehouse. Defaults recomputed for the new dataset:
+        // distanceBands [700, 1400, 2800, 5500] (700 == the default
+        // highServiceDistKm; 5500 == the default maxDistKm, comfortably
+        // above the 5,180.5 km max pair). Frozen golden at these defaults:
+        // coveragePct 68.4192%, open {DAL, LA, PIT} (verified against
+        // solve.py directly, 2026-09-28). Independently, the two
+        // service-distance defaults immediately above/below
+        // (highServiceDistKm=700, avgServiceDistCapKm=1000) are NOT changed
         // and must NEVER be made equal — doing so tightens the default
-        // solve from the frozen golden 57.4679% / {DAL, LV, PIT} to a
-        // different open set and breaks e2e/chens-cosmetics.spec.ts. See the
-        // guard test in Workspace.test.tsx.
-        distanceBands: [600, 1200, 2400, 5000],
+        // solve to a different open set and breaks e2e/chens-cosmetics.spec.ts.
+        // See the guard test in Workspace.test.tsx.
+        distanceBands: [700, 1400, 2800, 5500],
         warehouseOverrides: [],
         customerOverrides: [],
         addedWarehouses: [],

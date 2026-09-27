@@ -2276,19 +2276,20 @@ describe("defaultInputsForModel — max-coverage-us", () => {
     expect(d.timeLimitSec).toBe(120);
   });
 
-  // chen-bands-units, Part A/B, Task 14 Step 2a — the exact locked default
-  // band array `[600, 1200, 2400, 5000]` (600 == the default
-  // highServiceDistKm). Both service-distance defaults below are asserted
-  // TOGETHER and pinned to their exact values so a future "tidy-up" cannot
-  // silently make them equal — doing so would tighten the default solve
-  // from the frozen golden 57.4679% / {DAL, LV, PIT} to a different open
-  // set and break e2e/chens-cosmetics.spec.ts.
+  // MIG-4 Task 4 Step 8/ch4-mig-4 — the exact locked default band array
+  // `[700, 1400, 2800, 5500]` (700 == the default highServiceDistKm; 5500 ==
+  // the default maxDistKm, above the new US dataset's longest
+  // warehouse->customer pair of 5,180.5 km). Both service-distance defaults
+  // below are asserted TOGETHER and pinned to their exact values so a future
+  // "tidy-up" cannot silently make them equal — doing so would tighten the
+  // default solve to a different open set and break
+  // e2e/chens-cosmetics.spec.ts.
   it("has high < max thresholds (deliberately NOT coupled) and the locked default distanceBands array", () => {
-    expect(d.highServiceDistKm).toBe(600);
-    expect(d.maxDistKm).toBe(5000);
+    expect(d.highServiceDistKm).toBe(700);
+    expect(d.maxDistKm).toBe(5500);
     expect(d.avgServiceDistCapKm).toBe(1000);
     expect((d.highServiceDistKm as number)).toBeLessThan(d.maxDistKm as number);
-    expect(d.distanceBands).toEqual([600, 1200, 2400, 5000]);
+    expect(d.distanceBands).toEqual([700, 1400, 2800, 5500]);
   });
 
   it("has no capacity concept (capacityMode 'none') and p within the 1..26 max-coverage-us bound", () => {
@@ -2363,7 +2364,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     // Toggle to min-distance: the visible field SWAPS.
     fireEvent.click(screen.getByTestId("chen-objective-min_distance"));
     expect(screen.getByTestId("input-coverage-floor")).toBeInTheDocument();
-    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(44840064);
+    expect(screen.getByTestId("input-coverage-floor")).toHaveValue(53385024);
     expect(screen.queryByTestId("input-avg-service-cap")).not.toBeInTheDocument();
 
     // Save — the persisted inputs carry coverageFloorDemand and NOT
@@ -2373,7 +2374,7 @@ describe("Workspace — Chen inputs UI (max-coverage-us, C4.12)", () => {
     expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
     const [args] = mockUpdateScenario.mutate.mock.calls[0];
     expect(args.scenarioId).toBe(1);
-    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 44840064 });
+    expect(args.data.inputs).toMatchObject({ objective: "min_distance", coverageFloorDemand: 53385024 });
     expect(args.data.inputs).not.toHaveProperty("avgServiceDistCapKm");
   });
 
