@@ -26,9 +26,32 @@
     && (cd artifacts/api-server/src/solver && python3 -m pytest tests/ -x)
   ```
 
+## Execution order and deployment phases
+
+The runbook's stages span **two deployments**, and the code tasks are not in one
+continuous run. Stage A must deploy a build in which the **old** model still
+exists, so the lock task lands and deploys *before* the cutover:
+
+| Phase | Tasks | Gate |
+|---|---|---|
+| **Deployment 1 — Stage A** | Task 1 (lock the old manifest) | deploy `nos-api`; prove create and scenario-scoped writes 403 |
+| **Stages B–C** | Task 2 supplies the script; an **operator** runs it | terminal-status poll, then human-confirmed deletion |
+| **Build the new model** | Tasks 3–9 | full verification gate green |
+| **Deployment 2 — Stage D** | the Tasks 3–9 build | post-deploy checks in the runbook |
+
+**Nothing in Tasks 3–9 may be deployed until Stage C has completed**, because
+Tasks 4 and 9 remove the old manifest and registry entry that Stage A's lock
+depends on. Building them locally is fine; deploying them is not.
+
 ## Deviation from the spec, recorded
 
-MIG-3 requires the rename "in one commit". Task 2 is therefore large. It is **not** split further because every intermediate split leaves the repo red — `StudioModelType` in `artifacts/studio/src/lib/chapters.ts:1` is a union of model ids consumed across ~30 frontend files, so renaming the backend without the frontend fails `pnpm run typecheck`. A reviewer cannot meaningfully approve half a rename. Per hard rule #8 this deviation (one large task rather than several) is noted here and in Task 2's commit body.
+MIG-3 requires the rename "in one commit". Task 4 is therefore large. It is
+**not** split further because every intermediate split leaves the repo red —
+`StudioModelType` in `artifacts/studio/src/lib/chapters.ts:1` is a union of
+model ids consumed across ~30 frontend files, so renaming the backend without
+the frontend fails `pnpm run typecheck`. A reviewer cannot meaningfully approve
+half a rename. Per hard rule #8 this deviation (one large task rather than
+several) is noted here and in Task 4's commit body.
 
 ## File Structure
 
@@ -37,7 +60,6 @@ MIG-3 requires the rename "in one commit". Task 2 is therefore large. It is **no
 - `solvers/max-coverage-us/dataset/{warehouses,customers,distances,version}.json` — Chapter 4's own copy.
 - `scripts/src/build-max-coverage-dataset.ts` — one-off generator, kept for provenance.
 - `artifacts/api-server/src/validation/inputs/maxCoverage.ts` — renamed from `chens.ts`.
-- `artifacts/api-server/src/__tests__/registration.test.ts` — does not exist yet; Gate 1's BLOCKER item.
 - `artifacts/api-server/src/solver/tests/test_max_coverage.py` — renamed from `test_chens.py`, goldens regenerated.
 - `docs/ops/ch4-migration-runbook.md` — the Stage A–D production runbook.
 - `scripts/src/migrate-delete-chens-scenarios.ts` — the gated deletion script.
@@ -47,11 +69,195 @@ MIG-3 requires the rename "in one commit". Task 2 is therefore large. It is **no
 - `scripts/src/extract-chens-dataset.ts`, `scripts/src/geocode-chens.ts`.
 - `docs/dataset-audit/chens-geocode-provenance.json`.
 
-**Modified** — the ten registration points plus their consumers; enumerated per task.
+**Modified** (beyond the ten registration points, which each task enumerates)
+- `artifacts/api-server/src/registry/__tests__/registration.test.ts` — Gate 1's BLOCKER suite; **already exists**, extended in Task 4.
+- `lib/dataset-schema/src/index.test.ts`, `manifest.test.ts` — carry the retired id and the 25/197/4,925 package facts.
+- `artifacts/api-server/src/solver/tests/benchmark/**` — corpus manifest (JSON) plus its Python fixtures; Task 5.
+- `README.md`, `attached_assets/NOTEBOOKS.md` — Task 9.
+
+---
+### Task 1: Lock the old model (Stage A build)
+
+**Deploys first.** Stage A needs a build in which `chens-cosmetics-cn` still
+exists, so this is its own commit and its own deployment, before any rename.
+
+**Files:**
+- Modify: `solvers/chens-cosmetics-cn/manifest.json`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `capabilities.locked: true` on the old manifest, which
+  `middlewares/lockedModel.ts` already reads to 403 every scenario-scoped route.
+
+- [ ] **Step 1: Confirm the lock machinery still holds**
+
+```bash
+pnpm --filter api-server test -- lockedModelGuards
+pnpm --filter studio test -- lockedChapterDrift
+```
+
+Expected: PASS. These already assert that every `:scenarioId` handler carries a
+lock check *before* any write, and that the manifest and `chapters.ts`
+declarations agree. Nothing new is written here — the mechanism shipped with
+`ch4-lock`.
+
+- [ ] **Step 2: Add the lock to the old manifest**
+
+In `solvers/chens-cosmetics-cn/manifest.json`, inside `capabilities`, add:
+
+```json
+    "locked": true,
+```
+
+- [ ] **Step 3: Add the matching chapters.ts declaration**
+
+`lockedChapterDrift.test.ts` asserts the manifest-derived locked set and
+`chapters.ts`'s set are identical, so `chapters.ts`'s Chapter 4 entry gains
+`locked: true` in the same commit. Omitting it fails that test.
+
+- [ ] **Step 4: Run the gate**
+
+```bash
+pnpm run typecheck && pnpm --filter api-server test && pnpm --filter studio test
+```
+
+Expected: green, including `lockedChapterDrift`.
+
+Note: locking two shipped models previously silenced 73 api-server tests that
+then asserted 403 instead of behaviour. Those suites already call
+`setLockedModelsForTests(...)` to unlock for their own duration, so they stay
+meaningful — that seam exists precisely because of this trap.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add solvers/chens-cosmetics-cn/manifest.json artifacts/studio/src/lib/chapters.ts
+git commit -m "$(cat <<'EOF'
+[ch4-mig-1] lock Chapter 4 ahead of the dataset migration
+
+MIG-16 Stage A. This is the quiesce step: capabilities.locked makes the
+api-server 403 every scenario-scoped route for the model, including create, so
+nothing new can arrive while queued jobs drain and the old rows are deleted.
+
+It is deliberately its OWN commit and its own deployment. Stage A needs a build
+in which chens-cosmetics-cn still exists, and the cutover removes it -- so the
+lock cannot ride along with the rename.
+
+Rollback: revert this commit and redeploy. Nothing is destroyed at this stage.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
 
 ---
 
-### Task 1: Build Chapter 4's dataset package
+### Task 2: The production deletion runbook and script
+
+Destructive, touches student data, and **is not executed by this plan.** Task 7 writes and tests it; running it is a separate, human-gated operation.
+
+**Files:**
+- Create: `docs/ops/ch4-migration-runbook.md`, `scripts/src/migrate-delete-chens-scenarios.ts`
+- Test: `artifacts/api-server/src/__tests__/chensDeletion.test.ts`
+
+**Interfaces:**
+- Consumes: nothing from earlier tasks.
+- Produces: an operator-run script; no runtime code depends on it.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `artifacts/api-server/src/__tests__/chensDeletion.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { countAffected, deleteChapter4Data } from "../../../../scripts/src/migrate-delete-chens-scenarios.js";
+
+describe("Chapter 4 deletion scoping", () => {
+  it("scopes jobs through the parent scenario, not solve_jobs.model_id (T2)", () => {
+    const sql = countAffected.toString();
+    expect(sql).toContain("join");
+    expect(sql).toContain("scenarios");
+    // solve_jobs.model_id is A1 Class-1 nullable -- NULL on every pre-A1 row.
+    expect(sql).not.toMatch(/solve_jobs\.model_id\s*=/);
+  });
+
+  it("deletes solve_jobs before scenarios, and result_cache, in one transaction", () => {
+    const src = deleteChapter4Data.toString();
+    const jobsAt = src.indexOf("solveJobsTable");
+    const scenariosAt = src.indexOf("scenariosTable");
+    expect(jobsAt).toBeGreaterThan(-1);
+    expect(jobsAt).toBeLessThan(scenariosAt);
+    expect(src).toContain("resultCacheTable");
+    expect(src).toContain("transaction");
+  });
+
+  it("never issues an ad-hoc job status update", () => {
+    const src = deleteChapter4Data.toString() + countAffected.toString();
+    expect(src).not.toMatch(/status:\s*["'](succeeded|failed|cancelled)["']/);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+```bash
+pnpm --filter api-server test -- chensDeletion
+```
+
+Expected: FAIL — `Cannot find module '.../migrate-delete-chens-scenarios.js'`
+
+- [ ] **Step 3: Write the script**
+
+Create `scripts/src/migrate-delete-chens-scenarios.ts` exporting `countAffected(db)` and `deleteChapter4Data(db)`. `countAffected` returns per-objective scenario and job counts using the parent-scenario join; `deleteChapter4Data` runs one `db.transaction` deleting `solve_jobs` (joined through `scenarios`), then `scenarios`, then `result_cache WHERE model_id = 'chens-cosmetics-cn'`. Neither function writes a job status. `deleteChapter4Data` refuses to run unless passed an explicit `{ confirmedCount: number }` that matches a fresh `countAffected` result.
+
+- [ ] **Step 4: Run to verify it passes**
+
+```bash
+pnpm --filter api-server test -- chensDeletion
+```
+
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Write the runbook**
+
+Create `docs/ops/ch4-migration-runbook.md` with the four stages from MIG-16, each with its rollback point:
+
+- **Stage A** — set `capabilities.locked` on the old manifest, deploy `nos-api`, prove a create and a scenario-scoped write both return 403. Rollback: revert the flag, redeploy.
+- **Stage B** — keep workers **running** so queued jobs drain through; poll until every affected job is terminal, with an explicit timeout. **SIGTERM is not a queue drain** — `drainForShutdown` stops the dispatcher and waits for *active* jobs only, leaving queued rows untouched. If the timeout expires, stop and report; no forced status write.
+- **Stage C** — run `countAffected`, obtain explicit human confirmation against that number, then `deleteChapter4Data`. Point of no return.
+- **Stage D** — deploy the rename. Post-deploy: `GET /api/models` lists `max-coverage-us` and not the old id; the Chapter 4 card renders; a fresh scenario solves to 68.4192%.
+
+Stage A (Task 1) needs the old manifest to still exist, and Task 9 removes it — so Task 9 ships in the **Stage D** deployment, never the Stage A one. See "Execution order and deployment phases".
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs/ops/ch4-migration-runbook.md scripts/src/migrate-delete-chens-scenarios.ts \
+        artifacts/api-server/src/__tests__/chensDeletion.test.ts
+git commit -m "$(cat <<'EOF'
+[ch4-mig-2] add the gated Chapter 4 deletion runbook and script
+
+MIG-16. Written and tested here; NOT executed -- running it is a separate
+human-gated operation against production student data.
+
+Two findings from review are encoded as tests rather than prose, because both
+would otherwise produce a green check over an incomplete population:
+
+- Jobs are scoped through the parent scenario, never solve_jobs.model_id,
+  which is A1 Class-1 nullable and therefore NULL on every pre-A1 row --
+  exactly the oldest jobs.
+- SIGTERM is not a queue drain. drainForShutdown stops the dispatcher and
+  waits for ACTIVE jobs, leaving queued rows for the next process, so the
+  runbook keeps workers running and polls to terminal instead.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 3: Build Chapter 4's dataset package
 
 Produces the new data. Nothing references it yet, so the repo stays green.
 
@@ -71,6 +277,7 @@ Create `lib/dataset-schema/src/maxCoverageDataset.test.ts`:
 ```ts
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
+import { createHash } from "crypto";
 import path from "path";
 import { SOLVERS_ROOT } from "../index.js";
 
@@ -107,10 +314,17 @@ describe("max-coverage-us dataset package", () => {
     expect(twos).toHaveLength(8);
   });
 
-  it("version.json carries version 1 and the computed sha256", () => {
+  it("version.json's sha256 equals computeSha256 over the package", () => {
     const v = read("version.json");
     expect(v.version).toBe(1);
-    expect(v.sha256).toMatch(/^[0-9a-f]{64}$/);
+    // A 64-hex-character check alone would let a STALE but well-formed hash
+    // pass. Recompute and compare -- this is the assertion that catches a
+    // dataset regenerated without refreshing version.json.
+    const hash = createHash("sha256");
+    for (const name of ["customers.json", "distances.json", "warehouses.json"]) {
+      hash.update(readFileSync(path.join(dir, name)));
+    }
+    expect(v.sha256).toBe(hash.digest("hex"));
   });
 });
 
@@ -220,7 +434,7 @@ Expected: PASS, 4 tests.
 git add scripts/src/build-max-coverage-dataset.ts solvers/max-coverage-us/dataset \
         lib/dataset-schema/src/maxCoverageDataset.test.ts
 git commit -m "$(cat <<'EOF'
-[ch4-mig-1] build Chapter 4's own copy of Al's Athletics data
+[ch4-mig-3] build Chapter 4's own copy of Al's Athletics data
 
 Re-keyed by entity id and converted to km. No circuity transform: Chapter 3's
 matrix is pre-baked and its values are used as-is (MIG-6). Co-located pairs --
@@ -234,12 +448,14 @@ EOF
 
 ---
 
-### Task 2: Cutover — rename the model and swap the dataset
+### Task 4: Cutover — rename the model and swap the dataset
 
 The atomic rename. Large by necessity (see "Deviation from the spec"). At the end of this task the old model does not exist and the gate is green.
 
 **Files:**
-- Create: `solvers/max-coverage-us/manifest.json`, `artifacts/api-server/src/validation/inputs/maxCoverage.ts`, `artifacts/api-server/src/__tests__/registration.test.ts`
+- Create: `solvers/max-coverage-us/manifest.json`, `artifacts/api-server/src/validation/inputs/maxCoverage.ts`
+- Modify: `artifacts/api-server/src/registry/__tests__/registration.test.ts` (**exists** — extend it, do not add a rival suite)
+- Modify: `lib/dataset-schema/src/index.test.ts`, `lib/dataset-schema/src/manifest.test.ts`
 - Modify: `artifacts/api-server/src/registry/modelRegistry.ts:9,31`, `artifacts/api-server/src/routes/scenarios.ts:92-108`, `lib/dataset-schema/src/index.ts:161,275`, `artifacts/api-server/src/solver/pmedian.ts:137-169`, `artifacts/api-server/src/solver/solve.py:169-175,1395-1490`, `artifacts/api-server/src/solver/merge_inputs.py:908`, `lib/api-spec/openapi.yaml:47,172,1427,1631`, every frontend file referencing the old id
 - Rename: `artifacts/api-server/src/solver/tests/test_chens.py` → `test_max_coverage.py`
 - Delete: `artifacts/api-server/src/validation/inputs/chens.ts`
@@ -248,9 +464,15 @@ The atomic rename. Large by necessity (see "Deviation from the spec"). At the en
 - Consumes: Task 1's dataset package at `solvers/max-coverage-us/dataset/`.
 - Produces: public model id `max-coverage-us`; wire `modelType` `"max_coverage_us"`; `maxCoverageInputsSchema` (same shape as the old `chensInputsSchema`, `p` max raised to 26); Python `solve_max_coverage(inp)` returning the standard envelope; `WAREHOUSES_MAX_COVERAGE` / `CUSTOMERS_MAX_COVERAGE` / `DISTANCE_MAX_COVERAGE` module globals; `build_merged_max_coverage_dataset(...)`.
 
-- [ ] **Step 1: Write the failing registration test**
+- [ ] **Step 1: Extend the existing registration suite**
 
-Create `artifacts/api-server/src/__tests__/registration.test.ts`. This is `model-integration-precheck.md` Gate 1's BLOCKER item and does not exist yet:
+**Correction to an earlier draft of this plan:** it claimed
+`registration.test.ts` did not exist. It does —
+`artifacts/api-server/src/registry/__tests__/registration.test.ts`. The earlier
+check looked only in `src/__tests__/` and reported a negative from too narrow a
+search. Extend that suite; a second, narrower one would drift from it.
+
+Read it first, keep its existing assertions, and add these:
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -310,7 +532,7 @@ describe("model registration consistency", () => {
 pnpm --filter api-server test -- registration
 ```
 
-Expected: FAIL — `VALID_MODEL_IDS contains no id without a Zod validator` fails on `max_coverage`, and the `buildPayload` / `solve.py` assertions fail on the old names.
+Expected: FAIL — the `VALID_MODEL_IDS` assertion fails on `max_coverage`, and the `buildPayload` / `solve.py` assertions fail on the old names.
 
 - [ ] **Step 3: Create the manifest**
 
@@ -403,6 +625,16 @@ In the dispatcher (`solve.py:1474-1490`), replace `if model_type == 'chens': ret
 
 In `artifacts/api-server/src/solver/merge_inputs.py:908`, rename `build_merged_chens_dataset` → `build_merged_max_coverage_dataset` and update its `"chens-cosmetics-cn"` references to `"max-coverage-us"`.
 
+- [ ] **Step 5b: Update the dataset-schema suites**
+
+`lib/dataset-schema/src/index.test.ts:64` has a `describe("chens-cosmetics-cn registration (Chapter 4, C4.2)")` block, and `manifest.test.ts` asserts the manifest's facts. Replacing identifiers alone leaves their **numbers** stale. Change, in that describe block and its manifest counterpart:
+
+- the describe title and model id → `max-coverage-us`;
+- warehouse count `25` → `26`, customer count `197` → `200`, distance-pair count `4925` → `5200`;
+- `p.maximum` `25` → `26`;
+- `distanceUnit` stays `"km"` (MIG-7 — unchanged, assert it explicitly so a future edit cannot flip it silently);
+- keep the `computeSha256` vs `version.json` comparison — it is the check that catches a regenerated dataset with a stale hash.
+
 - [ ] **Step 6: Swap the TypeScript registrations**
 
 - `registry/modelRegistry.ts:9` — import `maxCoverageInputsSchema` from `../validation/inputs/maxCoverage.js`; line 31 key becomes `"max-coverage-us"`.
@@ -470,7 +702,7 @@ Expected: all green, including `registration.test.ts`. `e2e_accuracy.py` must be
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
-[ch4-mig-2] rename chens-cosmetics-cn to max-coverage-us and swap the dataset
+[ch4-mig-4] rename chens-cosmetics-cn to max-coverage-us and swap the dataset
 
 All ten registration points in one commit per MIG-3: manifest, dataset
 version, Zod schema + KNOWN_SCHEMAS, VALID_MODEL_IDS, PACKAGE_SPECS,
@@ -505,7 +737,90 @@ EOF
 
 ---
 
-### Task 3: The floor-zero equivalence check
+### Task 5: Migrate the solver benchmark corpus
+
+Task 4's sweep covers `.ts`/`.tsx`/`.py`. The corpus is **JSON**, and it is in
+the pytest gate — measured 2026-09-27, `corpus/manifest.json` carries **2005**
+occurrences of the old id including `"modelType": "chens"`, so a
+`.py`-only sweep leaves the gate exercising stale data that now dispatches to
+nothing.
+
+**Files:**
+- Modify: `artifacts/api-server/src/solver/tests/benchmark/corpus/manifest.json`
+- Modify: `artifacts/api-server/src/solver/tests/benchmark/corpus.py`, `translate.py`, `test_corpus.py`, `real_solve_smoke.py`
+
+**Interfaces:**
+- Consumes: the wire value `max_coverage_us` and the new dataset entity ids
+  (`ALN`/`DAL`/… and `C1`…`C200`) from Tasks 3–4.
+- Produces: a corpus whose Chapter 4 cases dispatch and solve.
+
+- [ ] **Step 1: Prove the corpus is stale**
+
+```bash
+cd artifacts/api-server/src/solver
+grep -c "chens" tests/benchmark/corpus/manifest.json
+grep -c "chens" tests/benchmark/corpus.py tests/benchmark/translate.py tests/benchmark/test_corpus.py
+python3 -m pytest tests/benchmark/test_corpus.py -x
+```
+
+Expected: the greps report non-zero counts (2005 in the manifest), and the
+pytest run fails or validates against entity ids that no longer exist.
+
+- [ ] **Step 2: Regenerate the Chapter 4 corpus cases**
+
+The old cases reference China entity ids (`wh-40`, `cs-1`) that are gone. They
+cannot be renamed — they must be **regenerated** against the new dataset.
+Rewrite each Chapter 4 case with:
+
+- `"modelId": "max-coverage-us"` and `"modelType": "max_coverage_us"`;
+- the new defaults `highServiceDistKm: 700`, `maxDistKm: 5500`, `distanceBands: [700, 1400, 2800, 5500]`;
+- override/added-entity ids drawn from the new dataset (`ALN`, `DAL`, `LA`, `PIT`, `C1`…);
+- `p` values within the new cap of 26.
+
+- [ ] **Step 3: Update the Python fixtures**
+
+In `corpus.py`, `translate.py`, `test_corpus.py` and `real_solve_smoke.py`,
+replace the model-id mappings and any `modelType` literal. `translate.py`'s
+Chapter 4 branch must emit `max_coverage_us`.
+
+- [ ] **Step 4: Run the corpus tests**
+
+```bash
+cd artifacts/api-server/src/solver && python3 -m pytest tests/benchmark/ -x
+```
+
+Expected: PASS, with no remaining `chens` reference:
+
+```bash
+grep -rc "chens" tests/benchmark/ | grep -v ":0" || echo "clean"
+```
+
+Expected: `clean`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add artifacts/api-server/src/solver/tests/benchmark
+git commit -m "$(cat <<'EOF'
+[ch4-mig-5] regenerate the solver benchmark corpus for max-coverage-us
+
+MIG-17 named the benchmark corpus in the rename inventory; the cutover's sweep
+covered .ts/.tsx/.py and missed it, because corpus/manifest.json is JSON --
+2005 occurrences of the old id, including "modelType": "chens".
+
+The cases are REGENERATED rather than renamed: they reference China entity ids
+(wh-40, cs-1) that no longer exist, so a find-and-replace would leave payloads
+that validate and then resolve to nothing. test_corpus.py is in the pytest
+gate, so stale corpus data would have been exercised on every run.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 6: The floor-zero equivalence check
 
 The only assertion in this migration that is independent of our own solver's output (MIG-11).
 
@@ -541,8 +856,11 @@ def test_floor_zero_equals_pmedian():
 
     assert mc["status"] == "optimal"
     assert pm["status"] == "optimal"
+    # Verified 2026-09-27: solve_pmedian puts openWarehouseIds under
+    # ["details"], NOT at the top level -- an earlier draft of this plan read
+    # it top-level and would have raised KeyError before asserting anything.
     assert set(mc["details"]["openWarehouseIds"]) == {"BAL", "DAL", "LA"}
-    assert set(mc["details"]["openWarehouseIds"]) == set(pm["openWarehouseIds"])
+    assert set(mc["details"]["openWarehouseIds"]) == set(pm["details"]["openWarehouseIds"])
     assert mc["objective"] / MI2KM == pytest.approx(pm["objective"], rel=1e-9)
 
 
@@ -574,7 +892,7 @@ If the open sets differ between the two solvers, **stop** — that is the double
 ```bash
 git add artifacts/api-server/src/solver/tests/test_max_coverage.py
 git commit -m "$(cat <<'EOF'
-[ch4-mig-3] assert Ch4 min-distance at floor 0 reproduces p-median
+[ch4-mig-6] assert Ch4 min-distance at floor 0 reproduces p-median
 
 MIG-11. With the coverage constraint slack the two are the same optimization
 problem, but they reach it through different code and different dataset
@@ -593,7 +911,7 @@ EOF
 
 ---
 
-### Task 4: Move the circuity factor to the added-entity estimator
+### Task 7: Move the circuity factor to the added-entity estimator
 
 Task 2 removed `× 1.17` from the solver. The estimator was relying on it (MIG-20).
 
@@ -605,23 +923,44 @@ Task 2 removed `× 1.17` from the solver. The estimator was relying on it (MIG-2
 - Consumes: nothing from earlier tasks beyond the renamed model id.
 - Produces: added-entity distances on the same footing as the base matrix.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test against the real fill path**
+
+**Correction to an earlier draft of this plan:** it tested a helper named
+`estimateMaxCoverageKm`, which does not exist — so the test would have failed to
+compile rather than failing on the unadjusted distance, which is not a red test,
+it is a broken one. The real export is `fillEstimatedMaxCoverageDistances`
+(renamed from `fillEstimatedChensDistances`, `autoDistance.ts:491`), and
+`haversineKm` (`:99`) is already exported.
 
 Add to `artifacts/api-server/src/__tests__/autoDistance.test.ts`:
 
 ```ts
-it("estimates added-entity distances road-adjusted, matching the base matrix (MIG-20)", () => {
-  // Chicago (41.88, -87.63) to Detroit (42.33, -83.05): great-circle ~382 km.
-  // The base matrix sits at ~1.18x great-circle, so an added entity must be
-  // adjusted too or it lands ~15% closer to everything than a base pair.
-  const km = estimateMaxCoverageKm(
-    { lat: 41.88, lng: -87.63 },
-    { lat: 42.33, lng: -83.05 },
-  );
-  expect(km).toBeGreaterThan(430);
-  expect(km).toBeLessThan(460);
+it("road-adjusts added-entity distances so they match the base matrix (MIG-20)", () => {
+  // One added warehouse at Chicago; C1 is Akron, OH (41.08, -81.52) in the
+  // base dataset. Great-circle is ~430 km; the base matrix sits at ~1.18x
+  // great-circle, so an unadjusted estimate lands ~15% short and makes the
+  // added site look artificially close to everything.
+  const added = {
+    id: "ADD-1", displayCode: "ADD-1", city: "Chicago", state: "IL",
+    lat: 41.88, lng: -87.63, status: "active" as const,
+  };
+  const out = fillEstimatedMaxCoverageDistances({
+    ...baseMaxCoverageInputs(),
+    addedWarehouses: [added],
+  });
+
+  const row = out.distanceOverrides.find(o => o.fromId === "ADD-1" && o.toId === "C1");
+  expect(row).toBeDefined();
+  expect(row!.estimated).toBe(true);
+
+  const greatCircle = haversineKm({ lat: 41.88, lng: -87.63 }, { lat: 41.08, lng: -81.52 });
+  expect(row!.distance).toBeCloseTo(Number((greatCircle * 1.17).toFixed(2)), 2);
+  expect(row!.distance).toBeGreaterThan(greatCircle);
 });
 ```
+
+`baseMaxCoverageInputs()` is the fixture helper this suite already uses for the
+other models' fill tests — reuse it, renamed, rather than writing a new one.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -629,26 +968,31 @@ it("estimates added-entity distances road-adjusted, matching the base matrix (MI
 pnpm --filter api-server test -- autoDistance
 ```
 
-Expected: FAIL — returns ~382, the unadjusted great-circle value.
+Expected: FAIL — `expected 430.xx to be close to 503.xx`. The estimate is the
+unadjusted great-circle value. **If it fails to compile instead, stop** — that
+means the rename in Task 4 left the export under its old name.
 
 - [ ] **Step 3: Apply the factor in the estimator**
 
-In `autoDistance.ts`, replace the Chapter 4 estimator's comment and return:
+In `autoDistance.ts`, above `fillEstimatedMaxCoverageDistances`, replace the
+comment that explains why no circuity is applied, and add the constant:
 
 ```ts
 // MIG-20 -- road-adjustment now happens HERE, at the point distances are
-// produced, because solve_max_coverage no longer multiplies (MIG-6). The
-// base matrix sits at ~1.1788x true great-circle; 1.17 leaves added
-// distances 0.75% below that, which is the same order of inconsistency that
-// existed before and reuses the constant already in this file rather than
-// introducing 1.1788 as a second magic number.
+// produced, because solve_max_coverage no longer multiplies (MIG-6). The base
+// matrix sits at ~1.1788x true great-circle; 1.17 leaves added distances 0.75%
+// below that, which is the same order of inconsistency that existed before and
+// reuses the constant already in this file rather than introducing 1.1788 as a
+// second magic number.
 //
 // The rule: distances enter the dataset already road-adjusted. Nothing
 // downstream adjusts them again.
 const MAX_COVERAGE_CIRCUITY = 1.17;
 ```
 
-and multiply the haversine-km result by `MAX_COVERAGE_CIRCUITY` before the 2-dp round and the 0.01 floor.
+Inside the function, multiply the `haversineKm` result by `MAX_COVERAGE_CIRCUITY`
+**before** the existing 2-dp round and the 0.01 km floor, so a co-located added
+entity still floors to 0.01 rather than 0.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -664,7 +1008,7 @@ Expected: PASS — ~447 km.
 git add artifacts/api-server/src/services/autoDistance.ts \
         artifacts/api-server/src/__tests__/autoDistance.test.ts
 git commit -m "$(cat <<'EOF'
-[ch4-mig-4] road-adjust added-entity distances in the estimator
+[ch4-mig-7] road-adjust added-entity distances in the estimator
 
 MIG-20. The estimator produced raw great-circle km precisely because
 solve_chens multiplied by 1.17; with that multiplication gone (MIG-6), an
@@ -682,7 +1026,7 @@ EOF
 
 ---
 
-### Task 5: UI copy, the `p` cap, and the e2e specs
+### Task 8: UI copy, the `p` cap, and the e2e specs
 
 **Files:**
 - Modify: `artifacts/studio/src/lib/chapters.ts:50-60`, `artifacts/studio/src/pages/Workspace.tsx:3297,4014`
@@ -759,7 +1103,7 @@ Expected: green, including the new `p`-cap assertion.
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
-[ch4-mig-5] update Chapter 4 UI copy, raise p to 26, rewrite the e2e specs
+[ch4-mig-8] update Chapter 4 UI copy, raise p to 26, rewrite the e2e specs
 
 MIG-8: the p cap is declared in four places and all four now read 26 --
 manifest, Zod schema, and TWO independent pMax renders in Workspace.tsx
@@ -778,7 +1122,7 @@ EOF
 
 ---
 
-### Task 6: Retire the China assets and rewrite the README
+### Task 9: Retire the China assets and rewrite the README
 
 **Files:**
 - Delete: `solvers/chens-cosmetics-cn/`, `scripts/src/extract-chens-dataset.ts`, `scripts/src/geocode-chens.ts`, `docs/dataset-audit/chens-geocode-provenance.json`
@@ -832,7 +1176,7 @@ Expected: green.
 ```bash
 git add -A
 git commit -m "$(cat <<'EOF'
-[ch4-mig-6] remove the China dataset and tooling; rewrite the README
+[ch4-mig-9] remove the China dataset and tooling; rewrite the README
 
 Everything deleted here is unreferenced after the rename; git retains the
 history. attached_assets/ is untouched per hard rule #7 -- the notebooks stay
@@ -851,117 +1195,46 @@ EOF
 
 ---
 
-### Task 7: The production deletion runbook and script
-
-Destructive, touches student data, and **is not executed by this plan.** Task 7 writes and tests it; running it is a separate, human-gated operation.
-
-**Files:**
-- Create: `docs/ops/ch4-migration-runbook.md`, `scripts/src/migrate-delete-chens-scenarios.ts`
-- Test: `artifacts/api-server/src/__tests__/chensDeletion.test.ts`
-
-**Interfaces:**
-- Consumes: nothing from earlier tasks.
-- Produces: an operator-run script; no runtime code depends on it.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `artifacts/api-server/src/__tests__/chensDeletion.test.ts`:
-
-```ts
-import { describe, it, expect } from "vitest";
-import { countAffected, deleteChapter4Data } from "../../../../scripts/src/migrate-delete-chens-scenarios.js";
-
-describe("Chapter 4 deletion scoping", () => {
-  it("scopes jobs through the parent scenario, not solve_jobs.model_id (T2)", () => {
-    const sql = countAffected.toString();
-    expect(sql).toContain("join");
-    expect(sql).toContain("scenarios");
-    // solve_jobs.model_id is A1 Class-1 nullable -- NULL on every pre-A1 row.
-    expect(sql).not.toMatch(/solve_jobs\.model_id\s*=/);
-  });
-
-  it("deletes solve_jobs before scenarios, and result_cache, in one transaction", () => {
-    const src = deleteChapter4Data.toString();
-    const jobsAt = src.indexOf("solveJobsTable");
-    const scenariosAt = src.indexOf("scenariosTable");
-    expect(jobsAt).toBeGreaterThan(-1);
-    expect(jobsAt).toBeLessThan(scenariosAt);
-    expect(src).toContain("resultCacheTable");
-    expect(src).toContain("transaction");
-  });
-
-  it("never issues an ad-hoc job status update", () => {
-    const src = deleteChapter4Data.toString() + countAffected.toString();
-    expect(src).not.toMatch(/status:\s*["'](succeeded|failed|cancelled)["']/);
-  });
-});
-```
-
-- [ ] **Step 2: Run it to verify it fails**
-
-```bash
-pnpm --filter api-server test -- chensDeletion
-```
-
-Expected: FAIL — `Cannot find module '.../migrate-delete-chens-scenarios.js'`
-
-- [ ] **Step 3: Write the script**
-
-Create `scripts/src/migrate-delete-chens-scenarios.ts` exporting `countAffected(db)` and `deleteChapter4Data(db)`. `countAffected` returns per-objective scenario and job counts using the parent-scenario join; `deleteChapter4Data` runs one `db.transaction` deleting `solve_jobs` (joined through `scenarios`), then `scenarios`, then `result_cache WHERE model_id = 'chens-cosmetics-cn'`. Neither function writes a job status. `deleteChapter4Data` refuses to run unless passed an explicit `{ confirmedCount: number }` that matches a fresh `countAffected` result.
-
-- [ ] **Step 4: Run to verify it passes**
-
-```bash
-pnpm --filter api-server test -- chensDeletion
-```
-
-Expected: PASS, 3 tests.
-
-- [ ] **Step 5: Write the runbook**
-
-Create `docs/ops/ch4-migration-runbook.md` with the four stages from MIG-16, each with its rollback point:
-
-- **Stage A** — set `capabilities.locked` on the old manifest, deploy `nos-api`, prove a create and a scenario-scoped write both return 403. Rollback: revert the flag, redeploy.
-- **Stage B** — keep workers **running** so queued jobs drain through; poll until every affected job is terminal, with an explicit timeout. **SIGTERM is not a queue drain** — `drainForShutdown` stops the dispatcher and waits for *active* jobs only, leaving queued rows untouched. If the timeout expires, stop and report; no forced status write.
-- **Stage C** — run `countAffected`, obtain explicit human confirmation against that number, then `deleteChapter4Data`. Point of no return.
-- **Stage D** — deploy the rename. Post-deploy: `GET /api/models` lists `max-coverage-us` and not the old id; the Chapter 4 card renders; a fresh scenario solves to 68.4192%.
-
-Note that Stage A needs the old manifest to still exist, so Task 6's deletion is part of the Stage D deployment, not the Stage A one.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add docs/ops/ch4-migration-runbook.md scripts/src/migrate-delete-chens-scenarios.ts \
-        artifacts/api-server/src/__tests__/chensDeletion.test.ts
-git commit -m "$(cat <<'EOF'
-[ch4-mig-7] add the gated Chapter 4 deletion runbook and script
-
-MIG-16. Written and tested here; NOT executed -- running it is a separate
-human-gated operation against production student data.
-
-Two findings from review are encoded as tests rather than prose, because both
-would otherwise produce a green check over an incomplete population:
-
-- Jobs are scoped through the parent scenario, never solve_jobs.model_id,
-  which is A1 Class-1 nullable and therefore NULL on every pre-A1 row --
-  exactly the oldest jobs.
-- SIGTERM is not a queue drain. drainForShutdown stops the dispatcher and
-  waits for ACTIVE jobs, leaving queued rows for the next process, so the
-  runbook keeps workers running and polls to terminal instead.
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
----
-
 ## Self-review
 
-**Spec coverage.** MIG-1 → T2/T4. MIG-2, MIG-3, MIG-21, MIG-22 → T2. MIG-4 → T2 (`registration.test.ts` asserts the dispatcher). MIG-5, MIG-6 → T1/T2. MIG-7 → T2 (manifest `distanceUnit: "km"` unchanged). MIG-8 → T2 (manifest, Zod) + T5 (both UI sites). MIG-9 → T2 Step 9, T5 Step 4. MIG-10, MIG-11 → T2 Step 9, T3. MIG-12 → recorded in the spec; no code. MIG-13, MIG-16 → T7. MIG-14 → recorded in the two-step spec. MIG-15 → this plan runs first. MIG-17 → T2 Step 8's sweep + T6 Step 1's proof. MIG-18 → already applied to the two-step spec (`b981a6e`). MIG-19 → T6. MIG-20 → T4.
+**Spec coverage.** MIG-1 → T4/T7. MIG-2, MIG-3, MIG-21, MIG-22 → T4. MIG-4 → T4 (the registration suite asserts the dispatcher). MIG-5, MIG-6 → T3/T4. MIG-7 → T4 (manifest `distanceUnit: "km"` unchanged, asserted in Step 5b). MIG-8 → T4 (manifest, Zod, dataset-schema) + T8 (both UI sites). MIG-9 → T4 Step 9, T5 Step 2, T8 Step 4. MIG-10, MIG-11 → T4 Step 9, T6. MIG-12 → recorded in the spec; no code. MIG-13, MIG-16 → T1 (Stage A) + T2 (Stages B–C) + T9 (Stage D). MIG-14 → recorded in the two-step spec. MIG-15 → this plan runs first. MIG-17 → T4 Step 8's sweep + **T5** (the corpus, which that sweep misses) + T9 Step 1's proof. MIG-18 → already applied to the two-step spec (`b981a6e`). MIG-19 → T9. MIG-20 → T7.
 
 **No gaps.** Two spec statements are deliberately not tasks: MIG-12 (the trade-off is quieter on Al's data) is a recorded finding, and MIG-14 supersedes decisions in the sibling spec.
 
-**One spec correction surfaced while planning.** MIG-3 says `registration.test.ts` "must pass for the new id", which assumes it exists. It does not — Task 2 Step 1 writes it. Worth folding back into the spec at re-review.
+**One spec note.** MIG-3 says `registration.test.ts` "must pass for the new id". It exists at `artifacts/api-server/src/registry/__tests__/registration.test.ts` and Task 4 Step 1 extends it. An earlier draft of this plan claimed it did not exist; that was a too-narrow search, corrected in review round 1.
 
-**Type consistency.** `maxCoverageInputsSchema` (T2) is the name used in T2's registry import. `solve_max_coverage` (T2) is what T3's tests invoke. `build_merged_max_coverage_dataset` (T2) matches `solve.py`'s call site. `WAREHOUSES_MAX_COVERAGE` / `CUSTOMERS_MAX_COVERAGE` / `DISTANCE_MAX_COVERAGE` are defined and consumed in T2 alone. `countAffected` / `deleteChapter4Data` (T7) match the test's imports. Wire value `max_coverage_us` is identical in `pmedian.ts`, `solve.py`, `registration.test.ts` and every test payload.
+**Type consistency.** `maxCoverageInputsSchema` (T2) is the name used in T2's registry import. `solve_max_coverage` (T2) is what T3's tests invoke. `build_merged_max_coverage_dataset` (T2) matches `solve.py`'s call site. `WAREHOUSES_MAX_COVERAGE` / `CUSTOMERS_MAX_COVERAGE` / `DISTANCE_MAX_COVERAGE` are defined and consumed in T2 alone. `countAffected` / `deleteChapter4Data` (T2) match the test's imports. `fillEstimatedMaxCoverageDistances` and `haversineKm` (T7) are real exports, verified 2026-09-27. Wire value `max_coverage_us` is identical in `pmedian.ts`, `solve.py`, `registration.test.ts` and every test payload.
+
+---
+
+## Review resolution — 2026-09-27
+
+Six findings. **All six verified against source; all six held.** Three were
+factual errors in the plan, not presentation problems.
+
+| # | Finding | Verified how | Landed in |
+|---|---|---|---|
+| 1 | MIG-16 sequencing was self-contradictory — Stage A needs the old manifest that Tasks 4/9 remove | The plan's own Task 7 Step 5 already said Task 6 belonged to Stage D, while listing it earlier | Tasks reordered; new **Task 1** locks the old model as its own commit and deployment; new "Execution order and deployment phases" section makes the two deployments explicit |
+| 2 | The benchmark corpus was not migrated | `corpus/manifest.json` holds **2005** occurrences of the old id including `"modelType": "chens"`; the cutover's sweep covered only `.ts`/`.tsx`/`.py` | New **Task 5**, with regeneration rather than find-and-replace |
+| 3 | `registration.test.ts` exists; dataset-schema expectations left unspecified | It is at `registry/__tests__/registration.test.ts`; `index.test.ts:64` has a chens describe block with 25/197/4925 facts | Task 4 Step 1 extends the real suite; new Step 5b updates the numbers |
+| 4 | Task 3's test read the envelope wrongly | Ran `solve_pmedian`: `openWarehouseIds` is under `details`, not top level | Task 6 path corrected, with the reason inline |
+| 5 | Task 4's test met no interface | `estimateMaxCoverageKm` does not exist; the real export is `fillEstimatedChensDistances` (`autoDistance.ts:491`) | Task 7 rewritten against the real fill path with a controlled fixture |
+| 6 | Task 1 never compared the generated hash | The test only regex-checked 64 hex chars | Task 3 now recomputes and compares against `computeSha256`'s exact algorithm |
+
+**Findings 3 and 5 were both me asserting a negative from an incomplete look.**
+I reported `registration.test.ts` as missing after searching one directory, and
+I invented an estimator export rather than reading the file's actual exports. In
+both cases the plan would have sent an implementer to write something that
+already existed, or to call something that never did — and finding 5's test
+would have failed to *compile*, which looks like a red test but proves nothing.
+
+**Finding 1 is the one that would have hurt in production.** The plan named the
+right sequence inside Task 7's runbook and then ordered the tasks against it.
+Following the task order would have deleted the manifest whose lock Stage A
+depends on, leaving no way to quiesce the model before deleting student data.
+
+**Finding 2 is a sweep that was too narrow by file extension.** MIG-17 named the
+benchmark corpus explicitly; the plan's grep filtered to `.ts`/`.tsx`/`.py` and
+the corpus is JSON. `test_corpus.py` is in the standard pytest gate, so this
+would have surfaced as a gate failure during execution rather than silently —
+but only after the cutover had landed.
