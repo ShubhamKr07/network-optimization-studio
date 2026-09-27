@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27
 **Model:** `max-coverage-us` (Chapter 4, Al's Athletics — Max Coverage; km-canonical per MIG-7)
-**Status:** review findings folded (see §12). Rebased onto the migration's terminology; **approval is gated on the migration spec being approved first** (W1), since these names are that spec's to finalise.
+**Status:** second-review findings folded (see §13). Rebased onto the migration's terminology; **approval is gated on the migration spec being approved first**, since these names are that spec's to finalise.
 **Lands after:** [`2026-09-27-ch4-us-dataset-migration-design.md`](2026-09-27-ch4-us-dataset-migration-design.md). This document is written in that spec's **final** terminology — public id `max-coverage-us`, private wire `modelType` `max_coverage_us`, `maxCoverageInputsSchema`, `solve_max_coverage` — per its MIG-18, which forbids treating old identifiers as "read as" their replacements. §8 is superseded by its MIG-13.
 **Wireframes:** [`assets/ch4-wireframes/Ch4 Workflow Wireframes.dc.html`](assets/ch4-wireframes/Ch4%20Workflow%20Wireframes.dc.html) — frames 3a–3f, committed alongside this spec with its `support.js` renderer so it opens standalone. The deck is the normative source for workflow behaviour; §7 records where this design deliberately departs from its *layout*.
 
@@ -76,23 +76,51 @@ A **Step 1 field** is any key in `inputs` other than `step2`, `stepEpoch` and `d
 
 **CH4-23 — the epoch is server-authoritative. A client can never set it.** `stepEpoch` lives in the client-writable `inputs` blob, so if the PATCH path merely validated it, a client could submit an *old* epoch and resurrect a historical job whose `input_snapshot` carries that value — presenting a superseded result as current. That is an integrity hole, not a cosmetic one, and it was present in the first draft of this design.
 
-The rule: the PATCH handler **discards any client-supplied `stepEpoch`** and computes the stored value itself, from the persisted row, inside the same locked transaction that writes `inputs`:
+The rule: the server **discards any client-supplied `stepEpoch`** and computes the stored value itself, from the persisted row, inside the same locked transaction that writes `inputs`:
 
 - changed keys include a Step 1 field → `stepEpoch = persisted + 1`;
 - changed keys are only `step2`, only `distanceBands`, or both → `stepEpoch = persisted`, unchanged.
 
 Computed from the freshly-locked row, never from a client value and never read-modify-write in application code, so two concurrent edits cannot both derive the same next epoch. The existing per-key diff in `routes/scenarios.ts:122-141` (`diffInputKeys`) gains this one further classification.
 
+**CH4-26 — the rule binds every writer of `scenarios.inputs`, not just PATCH (W5).** An earlier draft specified PATCH alone. There are five persistence paths, each with its own `update`/`insert`, and one of them is a live hole:
+
+| Path | Today | Required |
+|---|---|---|
+| `routes/scenarios.ts:353` — PATCH | conditional `solveInputRevision` bump | epoch per the rule above |
+| `routes/scenarios.ts:1889` — **import/apply** | writes `inputs`, bumps revision *unconditionally* | **must advance the epoch** — this is the hole: a Step 1 import currently leaves the old Step 1 job looking current, and it never passes through the confirm-and-clear UI |
+| `routes/scenarios.ts:239` — create | inserts `inputs` | force `stepEpoch = 1` |
+| `routes/scenarios.ts:1921` — clone | copies `inputs` **verbatim**, source epoch included | force `stepEpoch = 1` |
+| `routes/distanceBands.ts:68` — bands only | `jsonb_set` on the `{distanceBands}` key alone | preserves the epoch *by construction*; asserted by test, not by new code |
+
+Import/apply is the one that matters. It is a Step 1 data write that bypasses the UI entirely, so without an epoch bump a student could import a new customer set and keep looking at results computed from the old one — the precise failure CH4-7 exists to prevent, arriving through the one door the freeze does not cover.
+
+**One routine, used by all of them.** A single server-side `applyMaxCoverageInputWrite(tx, scenarioId, nextInputs, changedKeys)` owns the epoch decision and the `inputs` write together, inside the caller's locked transaction. Every path above calls it rather than composing its own `.set({ inputs, … })`. That is what stops the next writer added to this file from quietly becoming a sixth exception — the same reasoning `lockedModelGuards.test.ts` applies to route guards, and the reason this design does not simply add a bump to each site by hand.
+
 **CH4-24 — two validators, one boundary.** A stored Chapter 4 payload must never be a min-distance payload. Today `maxCoverageInputsSchema` accepts `objective: z.enum(["coverage", "min_distance"])`, so a client could PATCH `objective: "min_distance"` with any `coverageFloorDemand` it liked and bypass this entire workflow — the exact defect §1 exists to close.
 
-So the one schema splits into two, with opposite rules:
+**Where each validator lives, and why it has to be this way round (W4).** The first draft said "two validators" without saying which one the model registry holds, and that is not a free choice. `validateInputsForModel(modelId, …)` is called by **both** `buildValidatedInputSnapshot` at enqueue (`jobRunner.ts:263-264`) **and** the recovery reconstructor that rebuilds a queued job after a process restart (`:281-283`). `KNOWN_SCHEMAS` exposes exactly one validator per model, so:
 
-| Validator | Used for | `objective` |
+- if the registry held the coverage-only validator, every **recovered Step 2 job would fail validation** and become permanently unrunnable;
+- if a write route used the executable validator, direct min-distance PATCH is reopened.
+
+So the registry's validator stays the **executable** one — it must accept `min_distance`, because recovery depends on it — and the narrowing happens at the write routes:
+
+| Layer | Validator | `objective` |
 |---|---|---|
-| **Persisted Step 1 validator** | every `POST`/`PATCH` of `scenarios.inputs` | `"coverage"` only; `min_distance` is **rejected**, as is any client-supplied `coverageFloorDemand` |
-| **Synthesized Step 2 snapshot validator** | the object built at enqueue (§5, CH4-10) and persisted as `input_snapshot` | `"min_distance"` required, with the server-injected floor |
+| Model registry (`KNOWN_SCHEMAS`) — used by enqueue **and** durable-job recovery | executable | both; `min_distance` required for a Step 2 snapshot |
+| Write routes — every `POST`/`PATCH`/import/clone of `scenarios.inputs` | executable **plus** the CH4-25 guard | `"coverage"` only |
 
-Only the server can produce a payload the second validator accepts. That is what makes the floor un-typeable rather than merely un-shown.
+Only the server can produce a payload that reaches the executable validator with `min_distance` set. That is what makes the floor un-typeable rather than merely un-shown.
+
+**CH4-25 — rejection must be literal, and Zod's default is not rejection.** This repo's validators are deliberately **not** `.strict()` — `pMedian.ts:18`, `jadeInputs.ts:6`, `twoEchelon.ts:30` and `transportLp.ts:6` all say so explicitly, because an old scenario missing a key must still validate. Unknown and omitted keys are therefore **stripped, not refused**. So simply leaving `coverageFloorDemand` out of a persisted schema would silently discard a client-supplied floor and report success — the opposite of what CH4-24 promises.
+
+The write-route guard therefore inspects the **raw request body**, before Zod has a chance to strip anything, and returns `422` when it carries either:
+
+- `objective` equal to `"min_distance"`, or
+- a `coverageFloorDemand` key at all — present, even if `null`.
+
+`stepEpoch` is treated differently on purpose: it is **stripped and overwritten** by CH4-23, not rejected, because a client legitimately round-trips the whole `inputs` blob and would otherwise be unable to save anything. A floor has no such excuse — there is no path by which a well-behaved client sends one.
 
 A job counts for its step when its `input_snapshot`'s `stepEpoch` equals the scenario's current `stepEpoch`. Bumping the epoch therefore drops both steps at once, with nothing deleted — that bump *is* the confirm-and-clear.
 
@@ -191,6 +219,9 @@ Existing Chapter 4 scenarios are single-objective with one result and no step st
 - **Concurrent edit** — two overlapping Step 1 PATCHes yield two distinct consecutive epochs, never the same value twice.
 - **Concurrent double-POST** — two simultaneous solve requests produce exactly one `queued`/`running` job; the loser gets `409` with the in-flight `jobId` (CH4-11).
 - **Re-solve after the guard** — a stale Step 2 at `2 of 2` still re-solves normally once no job is active, proving the guard does not wedge the ordinary path.
+- **Recovered Step 2 job** — a queued Step 2 job whose process died is reconstructed and runs, proving the registry validator accepts a `min_distance` snapshot (CH4-24/W4).
+- **Literal floor rejection** — a PATCH carrying `coverageFloorDemand` is `422`-rejected, *not* silently stripped; asserted by reading the persisted row back, since a stripping bug and a rejecting guard look identical from the response alone (CH4-25).
+- **Epoch across every writer** — import/apply advances the epoch on a Step 1 import; create and clone force `stepEpoch = 1`; a bands-only write through `routes/distanceBands.ts` leaves it untouched (CH4-26).
 
 **Validation (vitest).** `stepEpoch`/`step2` round-trip through `maxCoverageInputsSchema` without being stripped; a legacy payload lacking both parses with `stepEpoch` defaulting to 1; `step2` rejects `p`/`highServiceDistKm`/`maxDistKm`.
 
@@ -233,7 +264,9 @@ Defined in place; this index is a pointer, not a restatement.
 | CH4-21 | Step 2 cannot be infeasible | §9 |
 | CH4-22 | `max-coverage.spec.ts` rewritten in the same bundle | §10 |
 | CH4-23 | `stepEpoch` is server-authoritative; client values discarded | §4.3 |
-| CH4-24 | Two validators: persisted rejects `min_distance`, synthesized requires it | §4.3 |
+| CH4-24 | Registry holds the executable validator; write routes narrow | §4.3 |
+| CH4-25 | Floor rejected literally from the raw body, not stripped by Zod | §4.3 |
+| CH4-26 | Epoch authority binds all five `inputs` writers, via one routine | §4.3 |
 
 ---
 
@@ -252,3 +285,20 @@ Three blockers. **All three verified against source; all three held.** Two of th
 **W3 is the same class of mistake at a different layer.** CH4-11 originally disabled a button and called it a rule. It matters more here than in a single-objective model because the target step is *derived from state*: two Step 1 enqueues at `0 of 2` race, and the loser decides what `1 of 2` means.
 
 **On W1's sequencing.** The rebase is done now rather than deferred, because leaving the "read as" construct in place is exactly what MIG-18 prohibits. The names used are the ones already decided for the migration; if re-review changes any of them, both specs change together. Approval of this document still follows the migration's, as W1 requires.
+
+---
+
+## 13. Second review resolution — 2026-09-27
+
+Two blockers. **Both verified against source; both held.** Each exposed a boundary the first round's fix had asserted without tracing.
+
+| Finding | Verified how | Landed in |
+|---|---|---|
+| **W4** — the validator boundary must survive durable-job recovery, and rejection must be literal | `validateInputsForModel` is called by *both* `buildValidatedInputSnapshot` (`jobRunner.ts:263-264`) and the recovery reconstructor (`:281-283`); `KNOWN_SCHEMAS` holds one validator per model. Repo convention is explicitly non-`.strict()` (`pMedian.ts:18`, `jadeInputs.ts:6`, `twoEchelon.ts:30`, `transportLp.ts:6`) | §4.3 CH4-24 rewritten (registry = executable, write routes narrow) and CH4-25 (raw-body `422` guard) |
+| **W5** — epoch authority applies to every `inputs` writer | Five persistence paths: PATCH (`:353`), import/apply (`:1889`), create (`:239`), clone (`:1921`), bands (`distanceBands.ts:68`) | §4.3 CH4-26 — one `applyMaxCoverageInputWrite` routine used by all of them |
+
+**W4 caught a claim I made without checking which validator the registry can hold.** "Two validators" is not a free choice: recovery of a queued Step 2 job goes through the same registry lookup as enqueue, so a coverage-only registry entry would make every recovered Step 2 job permanently unrunnable. The narrowing has to sit at the write routes, with the registry holding the permissive one — the opposite arrangement to the one the phrase "persisted Step 1 validator" implied.
+
+It also caught a promise the framework cannot keep as stated. CH4-24 said a client-supplied `coverageFloorDemand` is *rejected*; with a non-`.strict()` schema, omitting the key means Zod **strips** it and reports success. A guard that reads the raw body before parsing is the only way to make the promise literal — and the test has to read the persisted row back, because stripping and rejecting are indistinguishable from the response.
+
+**W5 found a live hole, not a theoretical one.** `import/apply` writes `scenarios.inputs` and bumps `solveInputRevision` unconditionally, but has no idea about `stepEpoch` and never passes through the confirm-and-clear UI. A student importing a new customer set would keep seeing results computed from the old one. Clone compounded it by copying the source's epoch verbatim. Both are fixed by routing all five writers through one routine rather than adding a bump at each site, so the next writer added cannot quietly become a sixth exception.
