@@ -3,6 +3,7 @@
 **Date:** 2026-09-27
 **Model:** `chens-cosmetics-cn` (Chapter 4, Chen's Cosmetics — the only km-canonical model)
 **Status:** design approved section-by-section; not yet planned or implemented
+**Lands after:** [`2026-09-27-ch4-us-dataset-migration-design.md`](2026-09-27-ch4-us-dataset-migration-design.md), which replaces Chapter 4's dataset with Al's US data and renames the model to `max-coverage-us`. Every `chens-cosmetics-cn` reference below is read as `max-coverage-us` once that lands, and §8 is superseded by it.
 **Wireframes:** [`assets/ch4-wireframes/Ch4 Workflow Wireframes.dc.html`](assets/ch4-wireframes/Ch4%20Workflow%20Wireframes.dc.html) — frames 3a–3f, committed alongside this spec with its `support.js` renderer so it opens standalone. The deck is the normative source for workflow behaviour; §7 records where this design deliberately departs from its *layout*.
 
 ---
@@ -98,7 +99,7 @@ A job counts for its step when its `input_snapshot`'s `stepEpoch` equals the sce
 
 ## 6. Read path and API contract
 
-**CH4-12**: Chapter 4's UI reads neither `scenarios.result` nor `scenarios.stale`; it reads `steps` only. The server may still consult `scenarios.result` when building `steps` — **CH4-20**'s legacy fallback does exactly that — but that is a server-side derivation detail the UI never sees. Both columns continue to be written exactly as today — the publication CAS is untouched and the other five models are unaffected — but for a two-step scenario `result` holds whichever step solved last, which is a question nobody asks.
+**CH4-12**: Chapter 4's UI reads neither `scenarios.result` nor `scenarios.stale`; it reads `steps` only. With CH4-20 superseded (§8), the server has no legacy fallback to build and derives `steps` purely from `solve_jobs`. Both columns continue to be written exactly as today — the publication CAS is untouched and the other five models are unaffected — but for a two-step scenario `result` holds whichever step solved last, which is a question nobody asks.
 
 **`GET /scenarios/:id` gains a `steps` object**, present only for `chens-cosmetics-cn`. Per step: `solved`, `stale`, `jobId`, and a compact `summary`. `Workspace.tsx` already polls the scenario while a solve runs, so the step toggle, the `N of 2 solved` counter and the output gating refresh with no new polling.
 
@@ -135,6 +136,8 @@ With both summaries on the scenario, frame 3d's comparison table renders from da
 
 ## 8. Legacy and compatibility
 
+> **SUPERSEDED by the US dataset migration (MIG-13, MIG-14).** That migration deletes every existing Chapter 4 scenario row, because their inputs and results reference China entity ids absent from the US dataset. It lands first (MIG-15), so by the time this design is implemented there are no legacy Chapter 4 scenarios to adopt. **CH4-19** and **CH4-20** below no longer apply and are retained only as the record of what was decided before the dataset swap. The clone and delete paragraphs at the end of this section are unaffected and still hold.
+
 Existing Chapter 4 scenarios are single-objective with one result and no step structure. Measured 2026-09-27: the local dev database holds **0** Chapter 4 scenarios. Production has not been queried.
 
 **CH4-19**: a legacy `coverage` scenario adopts as "Step 1 solved" and can continue into Step 2. A legacy `min_distance` scenario opens read-only with a note that it predates the two-step workflow — its Step 1 never existed, so its floor was never produced by anything.
@@ -161,7 +164,9 @@ Existing Chapter 4 scenarios are single-objective with one result and no step st
 
 **Frontend (vitest/RTL).** The §3 state table's rendering, the step toggle, per-step output gating, the confirm-and-clear interception, and the comparison table appearing only at `2 of 2`.
 
-**Sacred and unchanged.** `e2e_accuracy.py` must pass unmodified and stay at 99/99 (hard rule #2). The golden Chapter 4 configuration is not modified — in particular `highServiceDistKm` 600 and `avgServiceDistCapKm` 1000 stay unequal, per the standing warning in `defaultInputsForModel` (`Workspace.tsx:134-140`).
+**Sacred and unchanged.** `e2e_accuracy.py` must pass unmodified (hard rule #2). Verified 2026-09-27: it has no Chapter 4 section — its five sections are `pmedian`, `transport`, `brazil`, `jade`, `cross`, and the model id appears nowhere in it — so neither this design nor the dataset migration touches it.
+
+**Goldens come from the migration, not from here.** The Chapter 4 defaults and goldens this design tests against are the ones the US dataset migration establishes (MIG-9, MIG-10) — `highServiceDistKm` 700, `maxDistKm` 5500, `avgServiceDistCapKm` 1000. This design changes no default and regenerates no golden; it must leave `highServiceDistKm` and `avgServiceDistCapKm` unequal, per the standing warning in `defaultInputsForModel` (`Workspace.tsx:134-140`).
 
 **CH4-22 — sibling e2e specs are rewritten in the same bundle.** `artifacts/studio/e2e/chens-cosmetics.spec.ts` step 4 switches to min-distance mode through the UI objective toggle that **CH4-17** removes, so it is a known breakage. `chen-bands-units-qa.spec.ts` and `tab-coverage.spec.ts` are audited for the same dependency, and any spec asserting on `chen-objective-toggle` or on the Outputs-disabled-until-solved behaviour is rewritten to the new UI. Per CLAUDE.md's recurring `spec_gap` rule this happens before merge, not after — the unit gate does not run Playwright and will not catch it.
 
@@ -189,7 +194,7 @@ Defined in place; this index is a pointer, not a restatement.
 | CH4-16 | Freeze enforced by intercepting the edit | §7 |
 | CH4-17 | Free objective toggle removed | §7 |
 | CH4-18 | Unsolved output tabs show an empty state | §7 |
-| CH4-19 | Legacy coverage adopts; min_distance read-only | §8 |
-| CH4-20 | Null `input_snapshot` falls back to `scenarios.result` | §8 |
+| CH4-19 | ~~Legacy coverage adopts; min_distance read-only~~ — superseded by MIG-13 | §8 |
+| CH4-20 | ~~Null `input_snapshot` falls back to `scenarios.result`~~ — superseded by MIG-13 | §8 |
 | CH4-21 | Step 2 cannot be infeasible | §9 |
 | CH4-22 | `chens-cosmetics.spec.ts` rewritten in the same bundle | §10 |
