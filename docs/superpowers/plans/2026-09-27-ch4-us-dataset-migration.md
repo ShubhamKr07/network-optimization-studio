@@ -306,7 +306,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { createHash } from "crypto";
 import path from "path";
-import { SOLVERS_ROOT } from "../index.js";
+import { SOLVERS_ROOT } from "./index.js";  // flat *.test.ts beside index.ts
 
 const dir = path.join(SOLVERS_ROOT, "max-coverage-us", "dataset");
 const read = (f: string) => JSON.parse(readFileSync(path.join(dir, f), "utf8"));
