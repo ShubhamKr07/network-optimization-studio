@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27
 **Model:** `max-coverage-us` (Chapter 4, Al's Athletics — Max Coverage; km-canonical per MIG-7)
-**Status:** conditionally approved on workflow correctness; C1/C2 folded (§14). **Final approval remains gated on the prerequisite migration being approved first** (W1).
+**Status:** **APPROVED for planning.** Workflow correctness was conditionally approved in §14; its two consistency items (C1/C2) are folded, and its one remaining gate — approval of the prerequisite migration (W1) — was satisfied when that spec was approved on 2026-09-27. Planning follows the migration's, per MIG-15.
 **Lands after:** [`2026-09-27-ch4-us-dataset-migration-design.md`](2026-09-27-ch4-us-dataset-migration-design.md). This document is written in that spec's **final** terminology — public id `max-coverage-us`, private wire `modelType` `max_coverage_us`, `maxCoverageInputsSchema`, `solve_max_coverage` — per its MIG-18, which forbids treating old identifiers as "read as" their replacements. §8 is superseded by its MIG-13.
 **Wireframes:** [`assets/ch4-wireframes/Ch4 Workflow Wireframes.dc.html`](assets/ch4-wireframes/Ch4%20Workflow%20Wireframes.dc.html) — frames 3a–3f, committed alongside this spec with its `support.js` renderer so it opens standalone. The deck is the normative source for workflow behaviour; §7 records where this design deliberately departs from its *layout*.
 

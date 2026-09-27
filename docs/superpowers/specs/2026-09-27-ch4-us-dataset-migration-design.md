@@ -1,7 +1,7 @@
 # Chapter 4 — US Dataset Migration (`chens-cosmetics-cn` → `max-coverage-us`)
 
 **Date:** 2026-09-27
-**Status:** third-review findings folded (see §13); awaiting re-review before planning
+**Status:** approved for planning (final review in §14)
 **Lands before:** [`2026-09-27-ch4-two-step-workflow-design.md`](2026-09-27-ch4-two-step-workflow-design.md) — see §9
 
 ---
@@ -323,3 +323,17 @@ One blocker and two required corrections. **All three verified against source; a
 **T2 would have silently spared the oldest rows.** Filtering on `solve_jobs.model_id` looks correct and reads naturally, but that column only exists from A1 onward. Every pre-A1 Chapter 4 job has `NULL` there, so the zero-row proof would have passed while the least-understood jobs in the table were still live.
 
 Both T1 and T2 share a shape worth noting: each would have produced a **green check on an incomplete population**, which is worse than an obviously failing one.
+
+---
+
+## 14. Final review — approved for planning — 2026-09-27
+
+**Approved.** The final review found the migration ready for planning: the public/private wire
+contract is explicit, the stored-distance representation has one meaning at solve and read
+boundaries, and the destructive runbook now quiesces the complete Chapter 4 population before its
+confirmed transactional deletion.
+
+Implementation must still execute the validation gates already specified above: regenerated
+dataset/golden and unit-equivalence tests, registration and generated-contract checks, all four
+`p`-cap assertions, the full rename inventory, and the ordered Stage A–D production runbook. The
+two-step workflow may follow this migration once its own remaining consistency notes are folded.
