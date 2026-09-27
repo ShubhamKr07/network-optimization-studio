@@ -703,6 +703,32 @@ pnpm --filter studio test -- lockedChapterDrift
 
 Expected: PASS, with `two-echelon-jade-us` as the only locked model on both sides.
 
+- [ ] **Step 8c: Apply MIG-9's defaults to `defaultInputsForModel`**
+
+`artifacts/studio/src/pages/Workspace.tsx`'s `defaultInputsForModel` seeds every
+NEW Chapter 4 scenario, and it still carries the China-era values. No other step in
+this plan changes it — a gap found while executing Task 4.
+
+It matters most for `maxDistKm`: the new dataset's longest pair is **5,180.5 km**, so
+a default of 5000 leaves customers unassignable from every warehouse. Set:
+
+| Field | From | To |
+|---|---|---|
+| `highServiceDistKm` | 600 | **700** |
+| `maxDistKm` | 5000 | **5500** |
+| `avgServiceDistCapKm` | 1000 | 1000 (unchanged) |
+| `distanceBands` | [600, 1200, 2400, 5000] | **[700, 1400, 2800, 5500]** |
+
+Also update the min-distance seed constant beside it. The floor must be the coverage
+the DEFAULT parameters actually achieve, which at `highServiceDistKm: 700` is
+**53,385,024** — the same `coveredDemand` Step 9's golden run produces. A floor above
+the dataset's total demand (78,026,333) would make the first toggle solve infeasible.
+
+Rewrite the adjacent comment block too: it cites the retired China goldens
+(66.0639%, `{wh-40, wh-69, wh-102}`). Keep its standing warning that
+`highServiceDistKm` and `avgServiceDistCapKm` must never be made equal — 700 vs 1000
+still satisfies it.
+
 - [ ] **Step 9: Regenerate the Python goldens**
 
 Rename the test file and regenerate its expected values from the real on-disk dataset:
