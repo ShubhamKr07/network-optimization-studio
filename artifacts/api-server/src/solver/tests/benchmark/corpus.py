@@ -9,7 +9,7 @@ class ManifestError(ValueError):
 MODEL_TYPES = {
     "p-median-us": "p_median", "p-median-brazil": "capacitated_pmedian",
     "transport-coal": "transport", "two-echelon-gold-au": "two_echelon",
-    "two-echelon-jade-us": "two_echelon_jade", "chens-cosmetics-cn": "chens",
+    "two-echelon-jade-us": "two_echelon_jade", "max-coverage-us": "max_coverage_us",
 }
 
 def _repo_root():
@@ -22,15 +22,16 @@ def _required_inputs(model_id):
     # gap is supplied by Cell; modelType is the solve.py dispatcher field.
     return (set(manifest["inputsSchema"]["required"]) - {"gap"}) | {"modelType"}
 
-def _chens_conditional_missing(inputs: dict) -> set:
-    """Mirrors chensInputsSchema's `.superRefine` conditional-required rule
-    (validation/inputs/chens.ts), which the model's flat JSON-schema
-    `required` list (used by `_required_inputs` above) cannot express:
-    objective="coverage" additionally requires `avgServiceDistCapKm`,
-    objective="min_distance" additionally requires `coverageFloorDemand`.
-    A corpus case missing the field for its own declared objective is a
-    real, unsolvable input -- `solve_chens` reads the field via a bare
-    `inp[...]` and KeyErrors (the exact M1.1-fix gap)."""
+def _max_coverage_conditional_missing(inputs: dict) -> set:
+    """Mirrors maxCoverageInputsSchema's `.superRefine` conditional-required
+    rule (validation/inputs/maxCoverage.ts), which the model's flat
+    JSON-schema `required` list (used by `_required_inputs` above) cannot
+    express: objective="coverage" additionally requires
+    `avgServiceDistCapKm`, objective="min_distance" additionally requires
+    `coverageFloorDemand`. A corpus case missing the field for its own
+    declared objective is a real, unsolvable input -- `solve_max_coverage`
+    reads the field via a bare `inp[...]` and KeyErrors (the exact
+    M1.1-fix gap)."""
     objective = inputs.get("objective")
     if objective == "coverage" and "avgServiceDistCapKm" not in inputs:
         return {"avgServiceDistCapKm"}
@@ -39,11 +40,11 @@ def _chens_conditional_missing(inputs: dict) -> set:
     return set()
 
 # Per-model_id conditional-required checks that a flat JSON-schema `required`
-# list cannot express (objective-discriminated fields etc). Only chens has
-# one today; new entries go here rather than as a new branch in `validate`'s
-# loop, so the loop itself stays model-agnostic.
+# list cannot express (objective-discriminated fields etc). Only
+# max-coverage-us has one today; new entries go here rather than as a new
+# branch in `validate`'s loop, so the loop itself stays model-agnostic.
 _CONDITIONAL_REQUIRED = {
-    "chens-cosmetics-cn": _chens_conditional_missing,
+    "max-coverage-us": _max_coverage_conditional_missing,
 }
 
 @dataclass(frozen=True)

@@ -53,48 +53,48 @@ def test_weights_must_sum_to_one(tmp_path):
     with pytest.raises(ManifestError, match="weights must sum to 1"):
         load_manifest(str(p))
 
-def _chens_case(case_id, extra=None):
-    base = {"modelType": "chens", "objective": "min_distance", "p": 3,
-            "highServiceDistKm": 300, "maxDistKm": 800, "capacityMode": "none",
-            "distanceBands": [200, 400, 800, 1600], "timeLimitSec": 60}
+def _max_coverage_case(case_id, extra=None):
+    base = {"modelType": "max_coverage_us", "objective": "min_distance", "p": 3,
+            "highServiceDistKm": 700, "maxDistKm": 5500, "capacityMode": "none",
+            "distanceBands": [700, 1400, 2800, 5500], "timeLimitSec": 60}
     return {"case_id": case_id, "inputs": {**base, **(extra or {})}}
 
-def test_chens_min_distance_missing_coverage_floor_is_rejected(tmp_path):
-    # M1.1-fix: chensInputsSchema's superRefine (chens.ts) requires
-    # coverageFloorDemand whenever objective="min_distance" -- a flat
-    # `required`-list check alone (the pre-fix behavior) cannot see this,
-    # and solve_chens KeyErrors on such a case. Manifest.validate must now
-    # catch it directly, without ever driving a real solve.
+def test_max_coverage_min_distance_missing_coverage_floor_is_rejected(tmp_path):
+    # M1.1-fix: maxCoverageInputsSchema's superRefine (maxCoverage.ts)
+    # requires coverageFloorDemand whenever objective="min_distance" -- a
+    # flat `required`-list check alone (the pre-fix behavior) cannot see
+    # this, and solve_max_coverage KeyErrors on such a case. Manifest.validate
+    # must now catch it directly, without ever driving a real solve.
     p = tmp_path / "m.json"
     p.write_text(json.dumps({
         "version": 1,
-        "strata": [{"model_id": "chens-cosmetics-cn", "regime": "forced_open",
+        "strata": [{"model_id": "max-coverage-us", "regime": "forced_open",
                     "edit_family": None, "weight": 1.0,
-                    "cases": [_chens_case("chens-0")]}],   # no coverageFloorDemand
+                    "cases": [_max_coverage_case("mc-0")]}],   # no coverageFloorDemand
         "gaps": [0],
     }))
     with pytest.raises(ManifestError, match="conditionally-required.*coverageFloorDemand"):
         load_manifest(str(p))
 
-def test_chens_min_distance_with_coverage_floor_is_accepted(tmp_path):
+def test_max_coverage_min_distance_with_coverage_floor_is_accepted(tmp_path):
     p = tmp_path / "m.json"
     p.write_text(json.dumps({
         "version": 1,
-        "strata": [{"model_id": "chens-cosmetics-cn", "regime": "forced_open",
+        "strata": [{"model_id": "max-coverage-us", "regime": "forced_open",
                     "edit_family": None, "weight": 1.0,
-                    "cases": [_chens_case("chens-0", {"coverageFloorDemand": 0})]}],
+                    "cases": [_max_coverage_case("mc-0", {"coverageFloorDemand": 0})]}],
         "gaps": [0],
     }))
     m = load_manifest(str(p))          # must not raise
-    assert m.cells()[0].cases[0].case_id == "chens-0"
+    assert m.cells()[0].cases[0].case_id == "mc-0"
 
-def test_chens_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
+def test_max_coverage_coverage_missing_avg_service_dist_cap_is_rejected(tmp_path):
     p = tmp_path / "m.json"
     p.write_text(json.dumps({
         "version": 1,
-        "strata": [{"model_id": "chens-cosmetics-cn", "regime": "forced_open",
+        "strata": [{"model_id": "max-coverage-us", "regime": "forced_open",
                     "edit_family": None, "weight": 1.0,
-                    "cases": [_chens_case("chens-0", {"objective": "coverage"})]}],
+                    "cases": [_max_coverage_case("mc-0", {"objective": "coverage"})]}],
         "gaps": [0],
     }))
     with pytest.raises(ManifestError, match="conditionally-required.*avgServiceDistCapKm"):

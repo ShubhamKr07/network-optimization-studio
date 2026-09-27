@@ -23,9 +23,9 @@ one branch per model exactly like `buildPayload` itself, since each model's
 reshape rules (or lack of any) are genuinely different -- verified per model
 directly against `solve.py`'s own `inp.get(...)` reads (`solve_pmedian`,
 `solve_transport`, `solve_capacitated_pmedian`, `solve_two_echelon`,
-`solve_jade`, `solve_chens`) and each model's `validation/inputs/*.ts`
+`solve_jade`, `solve_max_coverage`) and each model's `validation/inputs/*.ts`
 schema, not assumed to generalize. Two models (`transport-coal`,
-`chens-cosmetics-cn`) turn out to need no real reshaping at all -- their
+`max-coverage-us`) turn out to need no real reshaping at all -- their
 API-schema field names ARE solve.py's wire keys verbatim; those branches
 exist only to add the `modelType` dispatch key and are documented as such
 below, per M1.6's task 2 instruction not to add needless translation.
@@ -59,7 +59,7 @@ def _supports_added_customer_exclusion(model_id: str) -> bool:
     # Mirrors buildPayload's capability-gate pattern exactly (pmedian.ts,
     # read from the registry/manifest, never hardcoded per model_id) --
     # true for p-median-us / two-echelon-gold-au / two-echelon-jade-us /
-    # chens-cosmetics-cn, false for p-median-brazil, absent (falsy) for
+    # max-coverage-us, false for p-median-brazil, absent (falsy) for
     # transport-coal (no added-customer-exclusion concept there at all).
     return bool(_capabilities(model_id).get("supportsAddedCustomerExclusion", False))
 
@@ -79,8 +79,8 @@ def to_solver_input(model_id: str, api_inputs: dict[str, Any]) -> dict[str, Any]
         return _translate_two_echelon_gold(model_id, i)
     if model_id == "two-echelon-jade-us":
         return _translate_two_echelon_jade(model_id, i)
-    if model_id == "chens-cosmetics-cn":
-        return _translate_chens(i)
+    if model_id == "max-coverage-us":
+        return _translate_max_coverage(i)
     if model_id in ("p-median-us", "p-median-brazil"):
         return _translate_pmedian(model_id, i)
     raise ValueError(f"translate.to_solver_input: unknown model_id {model_id!r}")
@@ -180,21 +180,22 @@ def _translate_two_echelon_jade(model_id: str, i: dict[str, Any]) -> dict[str, A
     }
 
 
-def _translate_chens(i: dict[str, Any]) -> dict[str, Any]:
-    # chensInputsSchema (chens.ts) is a direct-id passthrough (DD-2) --
-    # solve_chens / build_merged_chens_dataset read `warehouseOverrides`,
-    # `customerOverrides`, `addedWarehouses`, `addedCustomers`,
-    # `distanceOverrides`, `objective`, `p`, `highServiceDistKm`,
-    # `maxDistKm`, `avgServiceDistCapKm`, `coverageFloorDemand` under these
-    # EXACT names (verified directly against solve.py, no `inp['pValue']`-
-    # style renaming anywhere in solve_chens). buildPayload's
-    # chens-cosmetics-cn block (pmedian.ts) does this same no-op passthrough,
-    # only adding `modelType`. avgServiceDistCapKm/coverageFloorDemand are
-    # objective-discriminated (present iff their mode) -- included only when
-    # not None, same as buildPayload's own JSON.stringify-drops-undefined
-    # behavior for those two fields.
+def _translate_max_coverage(i: dict[str, Any]) -> dict[str, Any]:
+    # maxCoverageInputsSchema (maxCoverage.ts) is a direct-id passthrough
+    # (DD-2) -- solve_max_coverage / build_merged_max_coverage_dataset read
+    # `warehouseOverrides`, `customerOverrides`, `addedWarehouses`,
+    # `addedCustomers`, `distanceOverrides`, `objective`, `p`,
+    # `highServiceDistKm`, `maxDistKm`, `avgServiceDistCapKm`,
+    # `coverageFloorDemand` under these EXACT names (verified directly
+    # against solve.py, no `inp['pValue']`-style renaming anywhere in
+    # solve_max_coverage). buildPayload's max-coverage-us block (pmedian.ts)
+    # does this same no-op passthrough, only adding `modelType`.
+    # avgServiceDistCapKm/coverageFloorDemand are objective-discriminated
+    # (present iff their mode) -- included only when not None, same as
+    # buildPayload's own JSON.stringify-drops-undefined behavior for those
+    # two fields.
     out: dict[str, Any] = {
-        "modelType": "chens",
+        "modelType": "max_coverage_us",
         "objective": i.get("objective"),
         "p": i.get("p"),
         "highServiceDistKm": i.get("highServiceDistKm"),
