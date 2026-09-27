@@ -4,10 +4,10 @@
     "incremental": true,
     "tsBuildInfoFile": ".tsbuildinfo",
     "outDir": "dist",
-    "rootDir": "../..",
+    "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src", "../../scripts/src/migrate-delete-chens-scenarios.ts"],
+  "include": ["src"],
   "references": [
     {
       "path": "../../lib/db"

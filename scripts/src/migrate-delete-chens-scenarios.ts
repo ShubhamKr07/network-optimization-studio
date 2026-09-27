@@ -36,14 +36,6 @@ export interface AffectedCounts {
 // D0.2 and is the true source of truth for "which model does this job
 // belong to."
 export async function countAffected(database: Db = db): Promise<AffectedCounts> {
-  // Runtime-visible scoping marker (a real string literal, not a comment --
-  // comments don't survive esbuild's transform under vitest, so
-  // chensDeletion.test.ts's toString()-based regression check reads this
-  // string, not a comment, to confirm jobs are scoped via a parent-scenario
-  // join rather than the nullable solve_jobs.model_id column).
-  const SCOPE_NOTE = "solve_jobs scoped via join against scenarios.model_id, never solve_jobs.model_id";
-  void SCOPE_NOTE;
-
   const scenarioRows = await database
     .select({ id: scenariosTable.id })
     .from(scenariosTable)
