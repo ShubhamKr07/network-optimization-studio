@@ -1,7 +1,7 @@
 # Chapter 4 — US Dataset Migration (`chens-cosmetics-cn` → `max-coverage-us`)
 
 **Date:** 2026-09-27
-**Status:** review findings folded (see §11); awaiting re-review before planning
+**Status:** second-review findings folded (see §12); awaiting re-review before planning
 **Lands before:** [`2026-09-27-ch4-two-step-workflow-design.md`](2026-09-27-ch4-two-step-workflow-design.md) — see §9
 
 ---
@@ -12,11 +12,26 @@ Chapter 4 currently teaches its coverage / min-distance pair over a China datase
 
 **In scope.** Building Chapter 4's own copy of the US dataset; renaming the model to `max-coverage-us`; re-deriving the chapter's default parameters; regenerating its goldens; removing the China dataset and its China-only tooling; deleting existing Chapter 4 scenario rows.
 
-**Out of scope.** Chapter 3 (`p-median-us`) is untouched. The two-step workflow is a separate spec and builds on this one. `solve.py`'s coverage and min-distance formulations are unchanged — **MIG-1**: this migration adds no solver branch and edits no model logic (CLAUDE.md hard rule #6).
+**Out of scope.** Chapter 3 (`p-median-us`) is untouched. The two-step workflow is a separate spec and builds on this one.
+
+**MIG-1**: this migration adds **no new solver branch** and changes neither objective nor any constraint (CLAUDE.md hard rule #6). It does make one subtractive solver edit: the `× 1.17` circuity multiplication is removed for this model (MIG-6). That is the deletion of a constant, not a new code path — and it moves the factor to where distances are produced rather than consumed. An earlier draft of this decision claimed "edits no model logic"; that was written before R3 established why the multiplication has to go.
 
 ## 2. Model identity
 
 **MIG-2**: the model id becomes `max-coverage-us`, the manifest `name` becomes `Al's Athletics — Max Coverage` (pairing with Chapter 3's `Al's Athletics — P-Median`), and the dataset directory becomes `solvers/max-coverage-us/dataset`.
+
+**MIG-21 — the complete wire contract, declared (R1).** The public id and the private wire value are different strings and neither may be inferred from the other:
+
+| Layer | Old | New |
+|---|---|---|
+| Public model id — manifest, `VALID_MODEL_IDS`, OpenAPI enum, `scenarios.model_id` | `chens-cosmetics-cn` | `max-coverage-us` |
+| Private wire `modelType` — emitted by `pmedian.ts`'s `buildPayload()`, consumed by `solve.py`'s dispatcher | `chens` | `max_coverage_us` |
+
+`max_coverage` is deliberately **not** used as the wire value even after MIG-22 frees it, because a reader seeing that string cannot tell whether it means the retired placeholder or the new model.
+
+Two regressions are required, not one: that a `max-coverage-us` solve emits `modelType: "max_coverage_us"` on the wire, and that the retired `"chens"` now receives the dispatcher's error envelope (`_failureStage = "dispatch"`) rather than silently resolving.
+
+**MIG-22 — the legacy placeholders are removed.** `max_coverage`, `p_center` and `set_cover` sit in `VALID_MODEL_IDS` (`routes/scenarios.ts:105-107`) and in three OpenAPI `modelId` enums (`openapi.yaml:173`, `:1428`, `:1632`), with no manifest, no Zod schema and no dispatcher branch. A scenario created with any of them passes the id check and then fails with `Unknown model_id` — a half-valid state that reports the wrong cause. All three are deleted from both places, with regenerated Orval output in the same commit (hard rules #1 and #4). This is a contract change beyond the migration's core, taken deliberately: it removes the trap and frees the name.
 
 **MIG-3**: the rename is carried through every identifier in one commit — `validation/inputs/chens.ts` → `maxCoverage.ts`, `chensInputsSchema` → `maxCoverageInputsSchema`, `solve_chens` → `solve_max_coverage`, and the data/dispatch helpers that carry the `CHENS` suffix. A half-rename is worse than either end state: CLAUDE.md's most-repeated bug class is a stale `modelId === "..."` comparison, and leaving the old name in half the code is exactly how one survives a grep.
 
@@ -47,19 +62,23 @@ Beyond Gate 1, the id also appears in `artifacts/studio/src/lib/` (`chapters.ts`
 
 **Re-keying.** The two models key their files differently: `p-median-us` keys entities by ordinal (`"1"`, `"2"`) with the real id inside the record; Chapter 4's loader keys by entity id (`"wh-15"`, `"cs-1"`). The copy is therefore re-keyed by each record's own `id` — warehouses become `"ALN"`, `"DAL"`, customers `"C1"` — and distance keys become `"<warehouseId>,<customerId>"`.
 
-**MIG-6 — the `÷ 1.17` shim.** Chapter 4's solver multiplies every base distance by 1.17 before use (`solve.py:1401`, decision D8), so a dataset written for it must store pre-multiplication values. The copy therefore divides on import:
+**MIG-6 — store Chapter 3's distances as-is; remove the solver's `× 1.17`.** The dataset stores `stored_mi × 1.609344` — Chapter 3's own matrix, converted to km, nothing else — and `solve_max_coverage` drops the `× 1.17` that `solve_chens` applied at `solve.py:1401`.
 
-```
-raw_km = stored_mi × 1.609344 ÷ 1.17
-```
+**One meaning everywhere.** Stored = solved = displayed = exported = Chapter 3's distances. There is no value in the system that means one thing to the solver and another at a read boundary.
 
-The solver's own `× 1.17` restores `stored_mi × 1.609344` exactly — a pure round-trip through one constant, lossless to float precision, and `0 ÷ 1.17 × 1.17 = 0` preserves the co-located pairs stored at or near zero.
+**Why the alternative was rejected (R3).** An earlier draft divided by 1.17 on import so the solver's multiplication would cancel it. That solves *identically* — same effective distances, same open warehouses, same objective, same approved defaults — but leaves the stored number 14.5% below what it is solved against. `routes/referenceDistances.ts` serves the stored matrix directly, and export reads the same base matrix, so a student comparing the Distances tab across Chapter 3 and Chapter 4 would see different figures for the identical city pair while both chapters solved the same problem. The division was never load-bearing: it existed only to cancel a multiplication this dataset does not need.
 
-**This is a representation shim, not provenance.** Chapter 3's matrix is **pre-baked**, not derived: `scripts/extract-datasets.py`'s own docstring states that "only p-median-us's distance matrix was pre-baked JSON in solve.py; the other two are computed at import time from lat/lng + a circuity factor" — the `haversine * 1.17` in that file refers to the transport and Brazil matrices. Chapter 3's numbers have no circuity factor to divide out. The 1.17 here exists solely to cancel the multiplication Chapter 4's solver performs, and the spec must not claim otherwise.
+**Why applying `× 1.17` to Chapter 3's numbers would be wrong.** Chapter 3's matrix already behaves as circuity-adjusted. Measured over the 5,129 pairs beyond 50 km, `stored_km ÷ true_great_circle_km` has median **1.1788**. Multiplying again would put effective distances ~1.38× great-circle — double-counted — and would silently move the goldens, since MIG-9's approved defaults (700 km → 68.4192%) were computed against un-multiplied Chapter 3 distances.
 
-**Resulting semantics, measured.** Chapter 4 treats stored distances as raw great-circle km — `services/autoDistance.ts:90-94` estimates added-entity distances that way explicitly (`R = 6371 km`, no circuity, "solve_chens applies the ×1.17 factor itself"). The shim's output is consistent with that convention: across the 5,129 pairs over 50 km, `shim ÷ true_great_circle_km` has median **1.0075**, 5th–95th percentile 1.0057–1.0078, full range 0.9896–1.0078. Base distances therefore sit within ~0.8% of raw great-circle km, the same footing as the added-entity estimator, so base and added distances are directly comparable. The same value is what reference-distance display, import/export and precheck read, since all of them consume the stored base matrix.
+**Provenance, stated correctly.** Chapter 3's matrix is **pre-baked**, not derived: `scripts/extract-datasets.py`'s docstring says "only p-median-us's distance matrix was pre-baked JSON in solve.py; the other two are computed at import time from lat/lng + a circuity factor" — its `haversine * 1.17` refers to the transport and Brazil matrices. Chapter 3's numbers carry no documented factor. The 1.1788 ratio above is an empirical observation, not a provenance claim.
 
-**Rejected alternative, with the measurement.** Recomputing distances from the stored coordinates was considered and rejected: it discards information the pre-baked matrix carries. Counted 2026-09-27, the matrix holds **4 pairs stored at 0 miles and 8 at 2 miles**, and **23 warehouse/customer pairs are co-located by city *and* state**, with stored values spanning 0–15 miles. Recomputing would replace the near-zero entries with computed distances and shift which warehouses open.
+**MIG-20 — the factor moves to the producer.** `services/autoDistance.ts:90-94` currently estimates Chapter 4 added-entity distances as raw great-circle km (`R = 6371`, no circuity) precisely *because* the solver multiplied. With the multiplication gone, that estimator must apply the factor itself, or an added entity's distances land ~15% shorter than comparable base pairs and adding a warehouse would make it look artificially close to everything.
+
+The estimator therefore multiplies its own haversine result by 1.17. That leaves added distances 0.75% below the base matrix's own 1.1788 ratio — the same order of inconsistency that exists today, and it reuses the constant already in the file rather than introducing 1.1788 as a second magic number. The rule to state in code: **distances enter the dataset already road-adjusted; nothing downstream adjusts them again.**
+
+D8 is thereby reversed for this model, deliberately and in one place. Any future dataset delivered as raw great-circle km must be adjusted at import, not by reinstating a solver multiplication.
+
+**Also rejected: recomputing from coordinates.** It discards information the pre-baked matrix carries. Counted 2026-09-27, the matrix holds **4 pairs stored at 0 miles and 8 at 2 miles**, and **23 warehouse/customer pairs are co-located by city *and* state**, with stored values spanning 0–15 miles. Recomputing would replace the near-zero entries with computed distances and shift which warehouses open.
 
 > An earlier draft of this section reported "26 same-city pairs stored as 0 or 2". That figure was wrong twice over: 26 was a deviation count against a haversine model, not a pair count; and the matching used city name alone, which CLAUDE.md warns against — city names are not unique. Matching on name alone produced a spurious 621-mile "same-city" pair that is really Columbus **OH** against Columbus **GA**. The corrected figures are the ones above.
 
@@ -101,7 +120,7 @@ Verified 2026-09-27 with both solvers at `p=3`: open ids `{BAL, DAL, LA}` on bot
 
 This validates the data pipeline; it does **not** validate the coverage constraint or the average-distance cap, which are Chapter 4's own and which nothing in Chapter 3 exercises.
 
-**Verification already performed** (2026-09-27, real CBC via `solve_chens` with the converted US data injected in memory; no repo files modified):
+**Verification already performed** (2026-09-27, real CBC via `solve_chens` with the US data injected in memory; no repo files modified). That run stored `stored_mi × 1.609344 ÷ 1.17` and let the solver multiply; MIG-6 now stores `stored_mi × 1.609344` with no multiplication. **The effective distances are identical either way**, so these figures carry over unchanged — the R3 decision moved where the number is written, not what is solved:
 
 | | Step 1 — coverage | Step 2 — min distance |
 |---|---|---|
@@ -127,15 +146,22 @@ Nothing about them survives the swap: their `inputs` reference China entity ids 
 
 **This is destructive, touches production student data, and races the running system.** Counting, confirming and deleting is not sufficient on its own: between the count and the delete, the still-deployed old build can create a new Chapter 4 scenario, and a worker can publish a completed job onto a row being removed. The deletion must therefore run against a quiesced model.
 
-**MIG-16 — the runbook, in order. No step may be skipped or reordered:**
+**MIG-16 — four stages across two deployments, each with its own rollback point (R2).** The lock deployment and the rename deployment **cannot be the same commit**: stage A needs the old manifest to still exist, and stage D removes it.
 
-1. **Block the model.** Set `capabilities.locked` on the old manifest and deploy it. This is not new machinery — `middlewares/lockedModel.ts` already 403s every scenario-scoped route for a locked model, including create, and `lockedModelGuards.test.ts` already asserts every `:scenarioId` handler carries the check *before* any write. It is the quiesce mechanism the repo already owns, and `ch4-lock` proved it in production.
-2. **Drain the queue.** Let queued and running Chapter 4 jobs finish or cancel them; confirm none remain in `queued` or `running`. A job that completes after step 3 would otherwise publish onto a deleted row.
-3. **Count, then confirm.** Report affected `scenarios` and `solve_jobs` rows, broken down by `inputs->>'objective'`. Obtain explicit human confirmation against that count. Nothing below runs without it.
-4. **Delete in one transaction** — `solve_jobs` first, then `scenarios`, matching the existing FK-safe ordering in `routes/scenarios.ts`. One transaction so a partial failure leaves no orphans.
-5. **Purge `result_cache`.** Rows there are **not** FK children of `scenarios` (`lib/db/src/schema/result_cache.ts` — primary key `inputs_hash`, with a plain `model_id` column), so deleting scenarios leaves them behind holding China result payloads. Their `inputs_hash` is computed over `modelId + datasetVersion + SOLVER_CODE_HASH + inputs`, so once the old model id is deregistered they are permanently unreachable — dead rows that can never be hit again. Delete `WHERE model_id = 'chens-cosmetics-cn'` in the same transaction.
+**Stage A — lock and deploy (deployment 1).** Set `capabilities.locked` on the old manifest; deploy `nos-api`. This is not new machinery: `middlewares/lockedModel.ts` already 403s every scenario-scoped route for a locked model, including create, and `lockedModelGuards.test.ts` asserts every `:scenarioId` handler carries the check *before* any write. `ch4-lock` proved it in production. **Proof required before proceeding:** a create attempt and a scenario-scoped write against the old model both return 403. **Rollback:** revert the manifest flag and redeploy; nothing has been destroyed.
 
-The old manifest is removed (§7) only after this runbook completes; step 1 needs it to still exist.
+**Stage B — drain, with a bounded wait.** "Cancel them" is not executable and has been removed from this spec: `cancelJob()` (`jobRunner.ts:918`) has **no route caller** — it is process-local, and there is no scenario cancellation endpoint. The runbook therefore does one of two things, never an ad-hoc `UPDATE` of job status:
+
+- **wait** until every Chapter 4 `solve_jobs` row reaches a terminal status (`succeeded` or `failed`), polling with an explicit timeout; or
+- **use the existing drain** — SIGTERM each worker and let `drainForShutdown` run (`index.ts:83-104`, bounded by `DRAIN_GRACE_MS` then `FORCE_DRAIN_GRACE_MS`), which is the only supported way to stop in-flight work.
+
+**Verification:** zero rows in `queued` or `running` for the model. **Failure path:** if the timeout expires with rows still non-terminal, stop and report — do not proceed to stage C, and do not force a status write. Stage A's lock means nothing new can arrive while this is resolved.
+
+**Stage C — count, confirm, delete (one transaction).** Report affected `scenarios` and `solve_jobs` counts, broken down by `inputs->>'objective'`. Obtain explicit human confirmation **against that count**. Then, in a single transaction: delete `solve_jobs` first, then `scenarios` (the FK-safe ordering `routes/scenarios.ts` already uses), then purge `result_cache WHERE model_id = 'chens-cosmetics-cn'`.
+
+`result_cache` rows are **not** FK children of `scenarios` (`lib/db/src/schema/result_cache.ts` — primary key `inputs_hash`, plus a plain `model_id` column), so deleting scenarios strands them holding China result payloads. Their `inputs_hash` covers `modelId + datasetVersion + SOLVER_CODE_HASH + inputs`, so once the id is deregistered they are permanently unreachable. One transaction, so a partial failure leaves no orphans. **Rollback:** this is the point of no return; the transaction either commits whole or aborts whole, and there is no undo after commit.
+
+**Stage D — rename and deploy (deployment 2).** Only now does the rename land and the old manifest get removed (§7). Post-deploy checks: `GET /api/models` lists `max-coverage-us` and not the old id; the Chapter 4 card renders; a fresh scenario solves and returns the MIG-10 goldens. **Rollback:** revert the deployment; the data deleted in stage C does not come back, which is why C requires confirmation.
 
 Measured 2026-09-27: the local dev database holds **0** Chapter 4 scenarios. Production has not been queried.
 
@@ -194,12 +220,12 @@ Defined in place; this index is a pointer, not a restatement.
 
 | Id | Subject | Section |
 |---|---|---|
-| MIG-1 | No solver logic or branch changes | §1 |
+| MIG-1 | No new solver branch; one subtractive edit (the `× 1.17`) | §1 |
 | MIG-2 | Model becomes `max-coverage-us` | §2 |
 | MIG-3 | Rename carried through every identifier in one commit | §2 |
 | MIG-4 | Dispatcher already rejects unknown ids; the real hazard is a half-rename | §2 |
 | MIG-5 | Chapter 4 owns its own copy of the data | §3 |
-| MIG-6 | `÷ 1.17` is a representation shim, not provenance; D8 preserved | §3 |
+| MIG-6 | Store Chapter 3 distances as-is; remove the solver `× 1.17` | §3 |
 | MIG-7 | Chapter 4 stays km-canonical | §3 |
 | MIG-8 | `p` cap 25 → 26 in all **four** declarations | §3 |
 | MIG-9 | Derived US defaults | §4 |
@@ -209,10 +235,13 @@ Defined in place; this index is a pointer, not a restatement.
 | MIG-13 | Existing Chapter 4 rows deleted, behind an explicit gate | §6 |
 | MIG-14 | Supersedes the two-step spec's CH4-19 and CH4-20 | §6 |
 | MIG-15 | Lands before the two-step workflow | §9 |
-| MIG-16 | Quiesced, transactional deletion runbook | §6 |
+| MIG-16 | Four-stage runbook, two deployments, bounded drain | §6 |
 | MIG-17 | Explicit rename inventory — 93 files, 47 of them tests | §8 |
 | MIG-18 | Two-step spec textually amended, not reinterpreted | §9 |
 | MIG-19 | `README.md` needs a content rewrite, incl. removing the GeoNames attribution | §8 |
+| MIG-20 | Circuity factor moves to the added-entity estimator; D8 reversed here | §3 |
+| MIG-21 | Complete wire contract: public `max-coverage-us`, private `max_coverage_us` | §2 |
+| MIG-22 | Legacy `max_coverage`/`p_center`/`set_cover` placeholders removed | §2 |
 
 ---
 
@@ -243,3 +272,19 @@ precheck and added-entity estimates, without saying what they should be. Measuri
 after the shim, base distances sit within ~0.8% of raw great-circle km (median ratio 1.0075 over
 5,129 pairs), which is the convention `autoDistance.ts:90-94` already uses for added entities. The
 two are on the same footing, so one rule covers all five consumers. Recorded in §3.
+
+---
+
+## 12. Second review resolution — 2026-09-27
+
+Two blockers and one approval condition. **All three verified against source; all three held.**
+
+| Finding | Verified how | Landed in |
+|---|---|---|
+| **R1** — the replacement wire contract was unspecified, and `max_coverage` is a real collision | `max_coverage` is in `VALID_MODEL_IDS` (`scenarios.ts:105`) and three OpenAPI `modelId` enums (`:173`, `:1428`, `:1632`) — a model id, not just a problem type | §2 MIG-21 (public `max-coverage-us` / wire `max_coverage_us`, two regressions) and MIG-22 (all three placeholders removed) |
+| **R2** — deletion needed staging, and "cancel them" was not executable | `cancelJob()` (`jobRunner.ts:918`) has no route caller anywhere; the only supported stop is `drainForShutdown` on SIGTERM (`index.ts:83-104`) | §6 MIG-16 rewritten as four stages over two deployments, with a bounded drain, a stated failure path, and no ad-hoc status write |
+| **R3** — display/export vs solved distances | `routes/referenceDistances.ts` serves the stored matrix directly, so the shim would show the same city pair 14.5% shorter in Chapter 4 than in Chapter 3 | §3 MIG-6 rewritten — store Chapter 3's distances as-is, remove the solver `× 1.17`; §3 MIG-20 moves the factor to the added-entity estimator |
+
+**R3 reversed an earlier recommendation of mine, and the reason is worth keeping.** The first draft chose `÷ 1.17` over removing the multiplication on the grounds that both produce byte-identical distances and differ only in whether decision D8 survives. That was true of the *solver* and false of the *system*: `referenceDistances.ts` and export read the stored value, so the shim created a number meaning one thing to the solver and another at every read boundary — across two chapters sharing one dataset. Both options still solve identically; only one keeps a single meaning. Preserving a convention was the wrong thing to optimise for.
+
+A third option — store Chapter 3's numbers and keep the multiplication — was rejected on measurement: Chapter 3's matrix already sits at median **1.1788×** true great-circle, so multiplying again reaches ~1.38× and would silently move MIG-9's approved goldens.
